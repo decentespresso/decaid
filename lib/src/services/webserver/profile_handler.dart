@@ -8,38 +8,29 @@ class ProfileHandler {
     : _controller = controller;
 
   void addRoutes(RouterPlus app) {
-    // Get all profiles
     app.get('/api/v1/profiles', _handleGetAll);
 
     // Literal one-segment GET routes must be registered before the /<id> route.
     app.get('/api/v1/profiles/defaults', _handleListDefaults);
     app.get('/api/v1/profiles/export', _handleExport);
 
-    // Get single profile by ID
     app.get('/api/v1/profiles/<id>', _handleGetById);
 
-    // Create new profile
     app.post('/api/v1/profiles', _handleCreate);
 
-    // Update existing profile
     app.put('/api/v1/profiles/<id>', _handleUpdate);
 
-    // Delete profile
     app.delete('/api/v1/profiles/<id>', _handleDelete);
 
-    // Change profile visibility
     app.put('/api/v1/profiles/<id>/visibility', _handleSetVisibility);
 
-    // Get profile lineage (version history)
     app.get('/api/v1/profiles/<id>/lineage', _handleGetLineage);
 
     // Import profiles
     app.post('/api/v1/profiles/import', _handleImport);
 
-    // Restore default profile
     app.post('/api/v1/profiles/restore/<filename>', _handleRestoreDefault);
 
-    // Permanently purge a deleted profile
     app.delete('/api/v1/profiles/<id>/purge', _handlePurge);
   }
 
@@ -67,11 +58,9 @@ class ProfileHandler {
       List<ProfileRecord> profiles;
 
       if (parentId != null) {
-        // Get profiles by parent ID
         final allProfiles = await _controller.getAll(includeHidden: true);
         profiles = allProfiles.where((p) => p.parentId == parentId).toList();
       } else {
-        // Get all profiles with optional filtering
         profiles = await _controller.getAll(
           visibility: visibility,
           includeHidden: includeHidden,

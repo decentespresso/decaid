@@ -94,7 +94,6 @@ void main() {
 
     final response = await sendDelete('/api/v1/account/decent');
     expect(response.statusCode, 404);
-    // Account remains linked — unlinking is native-only.
     expect(await store.read(key: 'email'), 'user@example.com');
   });
 }

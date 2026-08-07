@@ -137,10 +137,7 @@ void main() {
         // Simulate a client sending numeric grinderSetting; the
         // handler's deepMerge produces a mixed-type map, which then
         // needs to round-trip through fromJson on the next PUT.
-        final merged = {
-          ...ctx.toJson(),
-          'grinderSetting': 7, // int, not string
-        };
+        final merged = {...ctx.toJson(), 'grinderSetting': 7};
         final reparsed = WorkflowContext.fromJson(merged);
         expect(reparsed.grinderSetting, '7');
 
@@ -276,14 +273,8 @@ void main() {
 
       final workflow = Workflow.fromJson(json);
 
-      expect(
-        workflow.context!.targetYield,
-        38.0,
-      ); // context wins, not legacy doseOut (99.0)
-      expect(
-        workflow.context!.targetDoseWeight,
-        19.0,
-      ); // legacy backfills null slot
+      expect(workflow.context!.targetYield, 38.0);
+      expect(workflow.context!.targetDoseWeight, 19.0);
     });
 
     test(
@@ -363,7 +354,6 @@ void main() {
         _workflowJson(machine: {'flowCalibration': 0.92}),
       );
       expect(wf.machine?.flowCalibration, 0.92);
-      // Survives a serialize → parse cycle.
       final reparsed = Workflow.fromJson(wf.toJson());
       expect(reparsed.machine?.flowCalibration, 0.92);
     });

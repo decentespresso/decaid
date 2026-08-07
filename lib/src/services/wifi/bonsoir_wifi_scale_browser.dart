@@ -82,7 +82,6 @@ class BonsoirWifiScaleBrowser implements WifiScaleBrowser {
         );
         _resolved[svc.name] = WifiScaleEndpoint(host: hostNow, ip: ipNow);
         _emit();
-        // Still resolve, to refine the host/IP when it succeeds.
         svc.resolve(_discovery!.serviceResolver);
       case BonsoirDiscoveryServiceResolvedEvent():
         final svc = event.service;

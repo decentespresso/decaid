@@ -354,7 +354,6 @@ class UniversalBleTransport extends BLETransport {
       _clearQueue(UniversalBleErrorCode.deviceDisconnected);
       throw const DeviceNotConnectedException.unknown();
     }
-    // All other codes: throw as-is (caller's problem).
     throw e;
   }
 
@@ -825,7 +824,6 @@ class UniversalBleTransport extends BLETransport {
 
   @override
   Future<void> setTransportPriority(bool prioritized) async {
-    // Android-only in universal_ble 2.x; throws `notSupported` elsewhere.
     if (!BleCapabilities.supportsConnectionPriorityApi) return;
     try {
       await UniversalBle.requestConnectionPriority(

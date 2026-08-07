@@ -20,7 +20,6 @@ class FakeCredentialStore implements CredentialStore {
     _store.remove(key);
   }
 
-  // Exposed for test assertions.
   bool get hasCredentials =>
       _store.containsKey('email') && _store.containsKey('password');
 }
@@ -201,10 +200,8 @@ void main() {
 
       test('returns true when credentials are already stored from a '
           'previous session', () async {
-        // Simulate credentials from a previous session.
         await store.write(key: 'email', value: 'returning@example.com');
         await store.write(key: 'password', value: 'oldpassword');
-        // Recreate service — it should pick up stored creds.
         service = DecentAccountService(
           httpClient: httpClient,
           credentialStore: store,

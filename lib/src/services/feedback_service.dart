@@ -43,13 +43,11 @@ class FeedbackService {
     try {
       _log.info('Submitting ${request.type.name} feedback');
 
-      // Collect system info if requested
       String systemInfo = '';
       if (request.includeSystemInfo) {
         systemInfo = _collectSystemInfo();
       }
 
-      // Upload logs and screenshots as Gist
       String? gistUrl;
       if (request.includeLogs || request.screenshots.isNotEmpty) {
         gistUrl = await _uploadGist(
@@ -58,14 +56,12 @@ class FeedbackService {
         );
       }
 
-      // Build issue body
       final body = _buildIssueBody(
         request: request,
         systemInfo: systemInfo,
         gistUrl: gistUrl,
       );
 
-      // Create GitHub issue
       final issueResult = await _createGitHubIssue(
         title: _buildIssueTitle(request),
         body: body,
@@ -116,12 +112,10 @@ class FeedbackService {
     try {
       final Map<String, Map<String, String>> gistFiles = {};
 
-      // Add logs if requested
       if (includeLogs) {
         String? logContent = await _readLogFile();
         if (logContent != null && logContent.isNotEmpty) {
-          // Truncate if too large
-          const maxLogSize = 500000; // ~500KB
+          const maxLogSize = 500000;
           if (logContent.length > maxLogSize) {
             logContent =
                 '... (truncated, showing last ${maxLogSize ~/ 1024}KB) ...\n${logContent.substring(logContent.length - maxLogSize)}';
@@ -129,10 +123,9 @@ class FeedbackService {
           gistFiles['decent_logs.txt'] = {'content': logContent};
         }
 
-        // Add webview console logs if available
         String? webViewLogContent = await _readWebViewLogFile();
         if (webViewLogContent != null && webViewLogContent.isNotEmpty) {
-          const maxWebViewLogSize = 500000; // ~500KB
+          const maxWebViewLogSize = 500000;
           if (webViewLogContent.length > maxWebViewLogSize) {
             webViewLogContent =
                 '... (truncated, showing last ${maxWebViewLogSize ~/ 1024}KB) ...\n${webViewLogContent.substring(webViewLogContent.length - maxWebViewLogSize)}';
@@ -141,7 +134,6 @@ class FeedbackService {
         }
       }
 
-      // Add screenshots scaled to <64KB base64 (~48KB raw)
       for (int i = 0; i < screenshots.length; i++) {
         final scaled = await _scaleImageToMaxSize(screenshots[i], 48000);
         final base64 = base64Encode(scaled);
@@ -224,7 +216,6 @@ class FeedbackService {
     final frame = await codec.getNextFrame();
     final original = frame.image;
 
-    // Try progressively smaller scales until we fit
     for (double scale = 0.5; scale >= 0.1; scale -= 0.1) {
       final targetWidth = (original.width * scale).round();
       final targetHeight = (original.height * scale).round();
@@ -392,7 +383,6 @@ class FeedbackService {
 
     if (systemInfo.isNotEmpty) {
       html.writeln('<h2>System Information</h2><ul>');
-      // Parse the markdown-style list into HTML
       for (final line in systemInfo.split('\n')) {
         final trimmed = line.trim();
         if (trimmed.startsWith('- ')) {
@@ -414,7 +404,6 @@ class FeedbackService {
     }
 
     if (logContent != null && logContent.isNotEmpty) {
-      // Truncate for HTML report to keep file size reasonable
       const maxLogSize = 100000;
       if (logContent.length > maxLogSize) {
         logContent =

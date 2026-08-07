@@ -91,7 +91,6 @@ class HDSWifi implements Scale, TransportHandoffScale {
   @override
   Stream<ScaleSnapshot> get currentSnapshot => _snapshot.stream;
 
-  // --- state ---
   WebSocketTransport? _transport;
   StreamSubscription<String>? _msgSub;
   StreamSubscription<ConnectionState>? _transportStateSub;

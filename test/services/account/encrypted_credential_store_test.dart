@@ -21,7 +21,6 @@ class InMemoryBlobStore implements SecretBlobStore {
   Future<void> delete() async => bytes = null;
 }
 
-// Two distinct 32-byte keys.
 final _keyA = List<int>.generate(32, (i) => i);
 final _keyB = List<int>.generate(32, (i) => 255 - i);
 
@@ -98,7 +97,7 @@ void main() {
       () async {
         await store.write(key: 'email', value: 'a@b.com');
         final tampered = Uint8List.fromList(blob.bytes!);
-        tampered[tampered.length - 1] ^= 0xFF; // flip a bit in the MAC
+        tampered[tampered.length - 1] ^= 0xFF;
         blob.bytes = tampered;
         expect(await store.read(key: 'email'), isNull);
       },

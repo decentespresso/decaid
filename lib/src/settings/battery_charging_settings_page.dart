@@ -43,8 +43,6 @@ class _BatteryChargingSettingsPageState
     );
   }
 
-  // MARK: - Section Builders
-
   Widget _buildChargingModeSection() {
     return ShadCard(
       padding: const EdgeInsets.all(16),
@@ -184,8 +182,6 @@ class _BatteryChargingSettingsPageState
       ),
     );
   }
-
-  // MARK: - Helpers
 
   Widget _buildTimePicker({
     required String label,

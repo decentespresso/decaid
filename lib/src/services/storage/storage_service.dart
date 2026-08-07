@@ -47,7 +47,6 @@ abstract class StorageService {
   /// Get the most recent shot metadata (excludes measurements).
   Future<ShotRecord?> getLatestShotMeta();
 
-  // Steam records ------------------------------------------------------------
   Future<void> storeSteam(SteamRecord record);
   Future<void> updateSteam(SteamRecord record);
   Future<void> deleteSteam(String id);

@@ -43,7 +43,6 @@ void main() {
       Object? uncaught;
       await runZonedGuarded(
         () async {
-          // Debug-only disconnect simulation on MockDe1.
           mockDe1.simulateDisconnect();
           await Future<void>.delayed(const Duration(milliseconds: 50));
         },

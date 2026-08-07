@@ -39,7 +39,6 @@ final class RunnerTests: XCTestCase {
       forKey: MacOSUpdater.automaticChecksMigrationKey)
   }
 
-  // MARK: - Channel mapping
 
   func testStableChannelMapsToEmptyAllowedChannels() {
     XCTAssertEqual(MacOSUpdater.allowedChannels(for: "stable"), [])
@@ -53,7 +52,6 @@ final class RunnerTests: XCTestCase {
     XCTAssertEqual(MacOSUpdater.allowedChannels(for: "whatever"), [])
   }
 
-  // MARK: - Configuration
 
   @MainActor
   func testConfigureStartsUpdaterExactlyOnce() throws {

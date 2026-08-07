@@ -146,7 +146,6 @@ class AtomheartScale implements Scale {
 
   @override
   Future<void> resetTimer() async {
-    // Atomheart resets timer via tare command
     await tare();
   }
 
@@ -164,14 +163,12 @@ class AtomheartScale implements Scale {
     if (data.length < 9) return null;
     if (data[0] != 0x57) return null;
 
-    // Validate XOR checksum
     var xorResult = 0;
     for (var i = 1; i < data.length - 1; i++) {
       xorResult ^= data[i];
     }
     if ((xorResult & 0xFF) != (data.last & 0xFF)) return null;
 
-    // Extract weight as signed int32 little-endian from bytes 1-4
     final byteData = ByteData(4);
     byteData.setUint8(0, data[1]);
     byteData.setUint8(1, data[2]);
@@ -179,7 +176,6 @@ class AtomheartScale implements Scale {
     byteData.setUint8(3, data[4]);
     final weightMg = byteData.getInt32(0, Endian.little);
 
-    // Extract timer as uint32 little-endian from bytes 5-8
     final timerData = ByteData(4);
     timerData.setUint8(0, data[5]);
     timerData.setUint8(1, data[6]);

@@ -1,13 +1,10 @@
 #!/bin/bash
-#
 # Locate the firebase-ios-sdk Crashlytics `run` script across CocoaPods and
 # Swift Package Manager integrations, then invoke `flutterfire upload-crashlytics-symbols`.
-#
 # The flutterfire_cli-generated default uses a BUILD_ROOT/sed scheme that
 # breaks under Flutter + SPM in modern Xcode (BUILD_DIR is remapped to the
 # Flutter build dir, BUILD_ROOT can land outside the DerivedData app folder).
 # This wrapper probes multiple likely locations and fails loud if none hit.
-#
 # Tracking: firebase/firebase-ios-sdk#12788, firebase/flutterfire#17081.
 set -e
 
@@ -15,12 +12,10 @@ PATH="${PATH}:$FLUTTER_ROOT/bin:${PUB_CACHE}/bin:$HOME/.pub-cache/bin"
 
 PATH_TO_CRASHLYTICS_UPLOAD_SCRIPT=""
 
-# 1) CocoaPods integration
 if [ -n "$PODS_ROOT" ] && [ -f "$PODS_ROOT/FirebaseCrashlytics/run" ]; then
   PATH_TO_CRASHLYTICS_UPLOAD_SCRIPT="$PODS_ROOT/FirebaseCrashlytics/run"
 fi
 
-# 2) SPM: probe known SourcePackages layouts
 if [ -z "$PATH_TO_CRASHLYTICS_UPLOAD_SCRIPT" ]; then
   DERIVED_FROM_BUILD_ROOT="$(echo "$BUILD_ROOT" | sed -E 's|(.*DerivedData/[^/]+).*|\1|')"
   for candidate in \

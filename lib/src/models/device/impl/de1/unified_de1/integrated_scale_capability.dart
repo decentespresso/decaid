@@ -15,10 +15,10 @@ enum BengleScaleEndpoint implements LogicalEndpoint {
   control;
 
   @override
-  String? get uuid => null; // TBD with FW
+  String? get uuid => null;
 
   @override
-  String? get representation => null; // TBD with FW
+  String? get representation => null;
 
   @override
   String get name => (this as Enum).name;
@@ -36,12 +36,12 @@ enum BengleScaleMmr implements MmrAddress {
   /// (mirrors cup-warmer `0.0 = off`). Encoded as `scaledFloat` with
   /// scale factor 10 — decigrams on the wire.
   stopAtWeightTarget(
-    0x00000000, // TBD with FW
+    0x00000000,
     4,
     MmrValueKind.scaledFloat,
     'StopAtWeightTarget',
     min: 0,
-    max: 5000, // 500.0 g
+    max: 5000,
     readScale: 0.1,
     writeScale: 10.0,
   );

@@ -27,7 +27,6 @@ class UpdateInfo {
     final tagName = json['tag_name'] as String;
     final version = tagName.startsWith('v') ? tagName.substring(1) : tagName;
 
-    // Find the APK asset
     final assets = json['assets'] as List<dynamic>;
     final apkAsset = assets.firstWhere(
       (asset) => (asset['name'] as String).endsWith('.apk'),
@@ -115,7 +114,6 @@ class AndroidUpdater {
 
       final updateInfo = matchingReleases.first;
 
-      // Compare versions
       if (_isNewerVersion(updateInfo.version, currentVersion)) {
         _log.info('Update available: ${updateInfo.version}');
         return updateInfo;
@@ -193,18 +191,15 @@ class AndroidUpdater {
     try {
       _log.info('Installing update from $apkPath');
 
-      // Check if we have permission to install packages
       final canInstall = await _apkInstaller.canInstallPackages();
       if (!canInstall) {
         _log.warning(
           'No permission to install packages, requesting permission',
         );
         await _apkInstaller.requestInstallPermission();
-        // User needs to grant permission and try again
         return false;
       }
 
-      // Trigger the installation
       return await _apkInstaller.installApk(apkPath);
     } catch (e, stackTrace) {
       _log.severe('Error installing update', e, stackTrace);

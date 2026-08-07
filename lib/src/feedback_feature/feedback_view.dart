@@ -175,7 +175,6 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SizedBox(height: 8),
-        // Validation / info message
         if (_validationMessage != null) ...[
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -196,7 +195,6 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
           ),
           const SizedBox(height: 8),
         ],
-        // Feedback type selector
         Text(
           'Type',
           style: Theme.of(
@@ -222,7 +220,6 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
           placeholder: const Text('Select type...'),
         ),
         const SizedBox(height: 12),
-        // Description
         Text(
           'Description',
           style: Theme.of(
@@ -238,7 +235,6 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
           enabled: !_controller.isSubmitting,
         ),
         const SizedBox(height: 12),
-        // Options
         ShadSwitch(
           value: _includeLogs,
           onChanged: _controller.isSubmitting
@@ -257,7 +253,6 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
           sublabel: const Text('App version, platform, and OS version'),
         ),
         const SizedBox(height: 12),
-        // Screenshots section
         Row(
           children: [
             Expanded(
@@ -320,7 +315,6 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
             ],
           ),
         ],
-        // Error message with export option
         if (_controller.state == FeedbackState.error &&
             _controller.lastResult?.errorMessage != null) ...[
           const SizedBox(height: 12),

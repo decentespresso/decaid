@@ -61,7 +61,6 @@ void main() {
           .distinct()
           .listen(stateChanges.add);
       await bengle.requestState(MachineState.steam);
-      // ~5 °C/s rise → target 20°C reached well within 6s.
       await Future<void>.delayed(const Duration(seconds: 6));
       await sub.cancel();
       expect(stateChanges, contains(MachineState.steam));

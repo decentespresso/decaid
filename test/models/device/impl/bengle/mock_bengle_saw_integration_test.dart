@@ -13,7 +13,7 @@ Profile _sawProfile() {
     notes: '',
     author: 'test',
     beverageType: BeverageType.espresso,
-    targetVolumeCountStart: 1, // only step0 is preinfusion
+    targetVolumeCountStart: 1,
     tankTemperature: 94.0,
     steps: [
       ProfileStepPressure(
@@ -33,7 +33,7 @@ Profile _sawProfile() {
         sensor: TemperatureSensor.coffee,
         transition: TransitionType.fast,
         volume: 0,
-        weight: 4.0, // exit when weight >= 4g
+        weight: 4.0,
       ),
     ],
   );
@@ -56,7 +56,6 @@ void main() {
       await bengle.setProfile(_sawProfile());
       await bengle.requestState(MachineState.espresso);
 
-      // Wait past preinfusion (500ms prep + 1s step0)
       await Future.delayed(const Duration(milliseconds: 1700));
 
       // Collect snapshots. When weight passes 4g, call skipStep (simulating
@@ -164,10 +163,8 @@ void main() {
 
         await Future.delayed(const Duration(milliseconds: 700));
 
-        // Skip to step1
         await bengle.requestState(MachineState.skipStep);
 
-        // Collect states until idle
         final states = await bengle.currentSnapshot
             .takeWhile((s) => s.state.state != MachineState.idle)
             .map((s) => '${s.state.state}/${s.state.substate}')

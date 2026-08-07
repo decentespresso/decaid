@@ -79,7 +79,7 @@ void main() {
 
         final sink = CapturingJsonSink();
         await section.exportJson(sink);
-        expect(pageSizes, [100, 100]); // requested limits stay bounded
+        expect(pageSizes, [100, 100]);
         final decoded = jsonDecode(sink.json) as List;
         expect(decoded, hasLength(120));
         expect(decoded.last['id'], 'grinder-119');

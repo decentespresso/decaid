@@ -43,12 +43,10 @@ class TelemetryReportQueue {
   /// If the queue is full, the oldest report is evicted (FIFO).
   /// If a drain loop is not already running, one is started.
   void enqueue(Object error, StackTrace? stackTrace, {bool fatal = false}) {
-    // FIFO eviction: if at capacity, remove oldest
     if (_queue.length >= maxCapacity) {
       _queue.removeAt(0);
     }
 
-    // Add new report to the end
     _queue.add(_ReportEntry(error, stackTrace, fatal: fatal));
 
     // Start drain loop if not already running
@@ -67,7 +65,6 @@ class TelemetryReportQueue {
 
     scheduleMicrotask(() async {
       while (_queue.isNotEmpty) {
-        // Remove and process the oldest report
         final report = _queue.removeAt(0);
 
         try {

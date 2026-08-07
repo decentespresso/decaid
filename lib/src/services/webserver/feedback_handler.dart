@@ -15,7 +15,6 @@ class FeedbackHandler {
   FeedbackHandler({required FeedbackService service}) : _service = service;
 
   void addRoutes(RouterPlus app) {
-    // Submit feedback
     app.post('/api/v1/feedback', _handleSubmitFeedback);
   }
 

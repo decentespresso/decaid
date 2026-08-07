@@ -156,8 +156,6 @@ class SpyDe1 implements De1Interface {
     _connectionState.add(state);
   }
 
-  // ---- Uninteresting plumbing ----
-
   final BehaviorSubject<ConnectionState> _connectionState =
       BehaviorSubject.seeded(ConnectionState.connected);
   final BehaviorSubject<MachineSnapshot> _snapshot = BehaviorSubject.seeded(
@@ -411,7 +409,6 @@ void main() {
 
   group('PUT /api/v1/workflow — redundant writes', () {
     test('steam-only PUT does not trigger hot-water or flush writes', () async {
-      // Clear any emits from initial seed + DE1 controller init.
       await _settleHandler(spy);
       spy.updateShotSettingsCalls.clear();
       spy.setSteamFlowCalls.clear();
@@ -1429,13 +1426,11 @@ void main() {
         spy.steamFlowRelease = release;
         spy.writeOrder.clear();
 
-        // Workflow PUT A blocks the queue.
         final firstFuture = put({
           'steamSettings': {'flow': blockedFlow},
         });
         await entered.future.timeout(const Duration(seconds: 2));
 
-        // Settings POST B arrives while A is blocked, then workflow PUT C.
         final settingsFuture = postSettings({
           'steamFlow': settingsSteamFlow,
           'hotWaterFlow': settingsHotWaterFlow,
@@ -1722,13 +1717,11 @@ void main() {
         spy.steamFlowRelease = release;
         spy.writeOrder.clear();
 
-        // Workflow PUT A blocks the queue.
         final firstFuture = put({
           'steamSettings': {'flow': blockedFlow},
         });
         await entered.future.timeout(const Duration(seconds: 2));
 
-        // Reset DELETE B and workflow PUT C queue behind it.
         final resetFuture = deleteReset();
         final laterFuture = put({
           'steamSettings': {'flow': laterSteamFlow},
@@ -1776,7 +1769,7 @@ void main() {
 
         final resetFuture = deleteReset();
         await entered.future.timeout(const Duration(seconds: 2));
-        expect(spy.setFanThreshholdCalls, [55, 55]); // startup + reset
+        expect(spy.setFanThreshholdCalls, [55, 55]);
         expect(spy.setHeaterIdleTempCalls, [95]);
         expect(spy.setHeaterPhase1FlowCalls, [2.0]);
 

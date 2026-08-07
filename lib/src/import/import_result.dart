@@ -19,7 +19,7 @@ class ScanResult {
   final bool hasDyeGrinders;
   final bool hasSettings;
   final String sourcePath;
-  final String? shotSource; // 'history_v2', 'history', or null
+  final String? shotSource;
   const ScanResult({
     required this.shotCount,
     required this.profileCount,
@@ -107,7 +107,7 @@ class ImportResult {
 class ImportProgress {
   final int current;
   final int total;
-  final String phase; // 'shots', 'entities', 'storing shots', 'profiles'
+  final String phase;
   final int beansCreated;
   final int grindersCreated;
   const ImportProgress({

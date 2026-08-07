@@ -175,7 +175,6 @@ void main() {
 
         expect(progress, isNotEmpty);
         expect(progress.last, closeTo(1.0, 1e-9));
-        // monotonic non-decreasing
         for (var i = 1; i < progress.length; i++) {
           expect(progress[i], greaterThanOrEqualTo(progress[i - 1]));
         }
@@ -206,7 +205,7 @@ void main() {
       final client = MockClient.streaming((request, body) async {
         return http.StreamedResponse(
           Stream.fromIterable([List.filled(10, 0)]),
-          200, // no contentLength
+          200,
         );
       });
       final updater = AndroidUpdater(

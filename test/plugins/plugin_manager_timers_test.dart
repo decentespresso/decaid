@@ -125,7 +125,6 @@ void main() {
         throwsA(isA<Exception>()),
       );
 
-      // Let any in-flight timerSet messages process against the removed plugin.
       await Future<void>.delayed(const Duration(milliseconds: 100));
       expect(manager.activeTimerCount, 0);
       expect(manager.activePendingOpCount, 0);

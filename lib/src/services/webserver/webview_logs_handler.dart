@@ -12,7 +12,6 @@ class WebViewLogsHandler {
     : _webViewLogService = webViewLogService;
 
   void addRoutes(RouterPlus app) {
-    // REST: raw log file contents
     app.get('/api/v1/webview/logs', _handleGetLogs);
     // WebSocket: live stream
     app.get('/ws/v1/webview/logs', _handleWebSocketLogs);
@@ -46,9 +45,7 @@ class WebViewLogsHandler {
         socket.sink.add(entry);
       });
       socket.stream.listen(
-        (msg) {
-          // handle incoming messages if needed
-        },
+        (msg) {},
         onDone: () {
           sub?.cancel();
         },

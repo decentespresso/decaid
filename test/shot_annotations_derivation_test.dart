@@ -81,7 +81,6 @@ void main() {
       expect(ann, isNotNull);
       expect(ann!.actualYield, 40.1);
       expect(ann.actualDoseWeight, 18.0);
-      // Everything else stays manual.
       expect(ann.drinkTds, isNull);
       expect(ann.drinkEy, isNull);
       expect(ann.enjoyment, isNull);

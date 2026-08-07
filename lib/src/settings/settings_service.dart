@@ -87,7 +87,6 @@ abstract class SettingsService {
   Future<bool> enableSimulatedWebViews();
   Future<void> setEnableSimulatedWebViews(bool value);
 
-  // Feature flags
   Future<bool?> featureFlag(FeatureFlag flag);
   Future<void> setFeatureFlag(FeatureFlag flag, bool value);
 }
@@ -520,7 +519,6 @@ class SharedPreferencesSettingsService extends SettingsService {
     await prefs.setBool(SettingsKeys.enableSimulatedWebViews.name, value);
   }
 
-  // Feature flags
   static const _featureFlagPrefix = 'featureFlag';
 
   @override

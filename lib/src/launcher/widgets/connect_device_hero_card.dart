@@ -47,8 +47,6 @@ class ConnectDeviceHeroCard extends StatelessWidget {
   }
 }
 
-// -- Widget Previews --
-
 @Preview(name: 'Connect Device Hero Card', group: 'Launcher')
 Widget connectDeviceHeroCardPreview() {
   return ShadApp(

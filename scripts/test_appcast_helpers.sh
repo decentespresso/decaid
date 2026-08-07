@@ -11,7 +11,6 @@ fail() { echo "FAIL: $1"; FAILURES=$((FAILURES + 1)); }
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-# --- Fixture appcast: stable build 100, beta build 101 ---
 cat > "$TMP/fixture.xml" <<'XML'
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
@@ -46,7 +45,6 @@ if assert_build_increasing 100 101 >/dev/null 2>&1; then
   fail "assert_build_increasing accepted lower build 100"
 fi
 
-# --- Fake release ZIP ---
 mkdir -p "$TMP/zip/Decaid.app/Contents"
 cat > "$TMP/zip/Decaid.app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -62,7 +60,6 @@ BUILD="$(zip_read_build "$TMP/decaid-macos-2.1.0.zip")"
 [ "$BUILD" = "102" ] || fail "zip_read_build expected 102, got '$BUILD'"
 echo "ok: zip_read_build = $BUILD"
 
-# --- Item assertions ---
 appcast_assert_item "$TMP/fixture.xml" 101 \
   "https://github.com/decentespresso/decaid/releases/download/v2.0.0/decaid-macos-2.0.0.zip" \
   "beta" && echo "ok: beta item assertions pass"

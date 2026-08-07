@@ -78,7 +78,7 @@ void main() {
       const RememberedDevice(id: 's', name: 'S', type: DeviceType.scale),
     );
     await Future.delayed(Duration.zero);
-    scale.add(null); // disconnect
+    scale.add(null);
     await Future.delayed(Duration.zero);
 
     expect(
@@ -248,23 +248,25 @@ void main() {
     );
   });
 
-  test('initialize is idempotent (no double-subscribe / double-load)', () async {
-    controller = build();
-    await controller.initialize();
-    await controller.initialize(); // second call must be a no-op
+  test(
+    'initialize is idempotent (no double-subscribe / double-load)',
+    () async {
+      controller = build();
+      await controller.initialize();
+      await controller.initialize(); // second call must be a no-op
 
-    final emissions = <int>[];
-    final sub = controller.changes.listen((l) => emissions.add(l.length));
-    scale.add(
-      const RememberedDevice(id: 's', name: 'S', type: DeviceType.scale),
-    );
-    await Future.delayed(Duration.zero);
+      final emissions = <int>[];
+      final sub = controller.changes.listen((l) => emissions.add(l.length));
+      scale.add(
+        const RememberedDevice(id: 's', name: 'S', type: DeviceType.scale),
+      );
+      await Future.delayed(Duration.zero);
 
-    expect(controller.remembered.map((d) => d.id), ['s']);
-    // seeded(0) + exactly ONE remember(1) — a double-subscribe would emit twice.
-    expect(emissions, [0, 1]);
-    await sub.cancel();
-  });
+      expect(controller.remembered.map((d) => d.id), ['s']);
+      expect(emissions, [0, 1]);
+      await sub.cancel();
+    },
+  );
 
   test(
     'a partially-malformed stored list loads only the valid records',

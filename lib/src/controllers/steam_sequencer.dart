@@ -58,7 +58,6 @@ class SteamSequencer {
   Sensor? _trackedSensor;
   double? _latestSensorTemperature;
 
-  // Open record state.
   String? _openId;
   DateTime? _openTimestamp;
   Workflow? _openWorkflow;
@@ -89,7 +88,6 @@ class SteamSequencer {
   Future<void> _onMachineChange(De1Interface? machine) async {
     if (identical(_machine, machine)) return;
     if (_machine != null && isRecording) {
-      // Mid-steam disconnect → discard the in-flight record.
       _log.warning('Machine changed mid-steam; discarding incomplete record');
       _discard();
     }

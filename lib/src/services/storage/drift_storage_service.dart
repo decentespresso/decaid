@@ -123,8 +123,6 @@ class DriftStorageService implements StorageService {
     return row == null ? null : ShotMapper.fromRow(row);
   }
 
-  // Steam records ------------------------------------------------------------
-
   @override
   Future<void> storeSteam(domain_steam.SteamRecord record) {
     return _db.steamDao.insertSteam(SteamMapper.toCompanion(record));

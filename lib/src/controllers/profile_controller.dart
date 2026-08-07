@@ -34,7 +34,6 @@ class ProfileController {
   /// it won't be loaded again. This automatically handles deduplication.
   Future<void> _loadDefaultProfilesIfNeeded() async {
     try {
-      // Load the manifest to get list of profile files
       final manifestData = await rootBundle.loadString(
         'assets/defaultProfiles/manifest.json',
       );
@@ -58,7 +57,6 @@ class ProfileController {
           final profileJson = jsonDecode(profileData) as Map<String, dynamic>;
           final profile = Profile.fromJson(profileJson);
 
-          // Create a ProfileRecord - ID will be calculated from content
           final record = ProfileRecord.create(
             profile: profile,
             isDefault: true,
@@ -66,7 +64,6 @@ class ProfileController {
           );
           currentIdByFilename[filename] = record.id;
 
-          // Check if this profile already exists (by hash)
           final existing = await _storage.get(record.id);
           if (existing != null) {
             // Same execution content. Re-assert `isDefault` (a user may have
@@ -75,7 +72,6 @@ class ProfileController {
             // metadata changed — that's what lets curation edits (issue #242)
             // reach existing installs, since metadata-only changes leave the
             // content hash (id) unchanged.
-            //
             // Visibility is deliberately PRESERVED (omitted from copyWith): a
             // default the user hid must stay hidden across restarts. Previously
             // this forced Visibility.visible, silently un-hiding it on every
@@ -141,7 +137,7 @@ class ProfileController {
         continue;
       }
       final filename = record.metadata?['filename'];
-      if (filename is! String) continue; // unclassifiable — leave untouched
+      if (filename is! String) continue;
       final removed = !currentFilenames.contains(filename);
       final staleVersion =
           !removed && currentIdByFilename[filename] != record.id;
@@ -231,7 +227,6 @@ class ProfileController {
     String? parentId,
     Map<String, dynamic>? metadata,
   }) async {
-    // Validate that parent exists if parentId is provided
     if (parentId != null) {
       final parent = await _storage.get(parentId);
       if (parent == null) {
@@ -245,7 +240,6 @@ class ProfileController {
       metadata: metadata,
     );
 
-    // Check if this exact profile already exists
     final existing = await _storage.get(record.id);
     if (existing != null) {
       _log.info(
@@ -275,21 +269,18 @@ class ProfileController {
       throw ArgumentError('Profile not found: $id');
     }
 
-    // Can't modify default profiles' execution fields
     if (existing.isDefault && profile != null) {
       throw ArgumentError('Cannot modify default profile content');
     }
 
     final updated = existing.copyWith(profile: profile, metadata: metadata);
 
-    // If the profile content changed, the hash will be different
     if (updated.id != existing.id) {
       _log.warning(
         'Profile hash changed from ${existing.id} to ${updated.id}. '
         'This creates a new profile. Consider using parentId for versioning.',
       );
 
-      // Delete old, store new
       await _storage.delete(existing.id);
       await _storage.store(updated);
     } else {
@@ -310,12 +301,10 @@ class ProfileController {
     }
 
     if (existing.isDefault) {
-      // Default profiles can't be deleted, only hidden
       final hidden = existing.copyWith(visibility: Visibility.hidden);
       await _storage.update(hidden);
       _log.info('Hid default profile: $id');
     } else {
-      // User profiles are soft-deleted
       final deleted = existing.copyWith(visibility: Visibility.deleted);
       await _storage.update(deleted);
       _log.info('Soft-deleted user profile: $id');
@@ -349,7 +338,6 @@ class ProfileController {
       throw ArgumentError('Profile not found: $id');
     }
 
-    // Can't set default profiles to deleted
     if (existing.isDefault && visibility == Visibility.deleted) {
       throw ArgumentError('Cannot delete default profiles, only hide them');
     }
@@ -371,7 +359,6 @@ class ProfileController {
 
     final lineage = <ProfileRecord>[];
 
-    // Get all parents
     var current = profile;
     lineage.add(current);
     while (current.parentId != null) {
@@ -381,7 +368,6 @@ class ProfileController {
       current = parent;
     }
 
-    // Get all children recursively
     Future<void> addChildren(String parentId) async {
       final children = await _storage.getByParentId(parentId);
       for (final child in children) {
@@ -411,7 +397,6 @@ class ProfileController {
       try {
         final record = ProfileRecord.fromJson(json);
 
-        // Check if profile already exists (by hash)
         final existing = await _storage.get(record.id);
         if (existing != null) {
           skipped++;
@@ -471,24 +456,20 @@ class ProfileController {
       final profileJson = jsonDecode(profileData) as Map<String, dynamic>;
       final profile = Profile.fromJson(profileJson);
 
-      // Create record with hash-based ID
       final record = ProfileRecord.create(
         profile: profile,
         isDefault: true,
         metadata: {'source': 'bundled', 'filename': filename},
       );
 
-      // Check if it exists
       final existing = await _storage.get(record.id);
       if (existing != null) {
-        // Just restore visibility
         final restored = existing.copyWith(visibility: Visibility.visible);
         await _storage.update(restored);
         _log.info('Restored visibility of default profile: ${record.id}');
         return restored;
       }
 
-      // Doesn't exist, store it
       await _storage.store(record);
       await _updateProfileCount();
       _log.info('Restored default profile from assets: ${record.id}');

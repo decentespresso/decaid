@@ -121,7 +121,6 @@ void main() {
         'shotSettings event but does broadcast steamData', () async {
       final steamDataEmits = <SteamSettings>[];
       final steamSub = de1Controller.steamData.listen(steamDataEmits.add);
-      // Let the seed value replay.
       await Future<void>.delayed(const Duration(milliseconds: 20));
       steamDataEmits.clear();
 

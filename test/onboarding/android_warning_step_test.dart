@@ -76,7 +76,6 @@ void main() {
 
     expect(settings.androidWarningDismissed, isTrue);
 
-    // Re-render the now-current step to confirm advance().
     await tester.pumpWidget(
       ShadApp(
         home: Builder(

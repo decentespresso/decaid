@@ -8,8 +8,6 @@ part 'bean_dao.g.dart';
 class BeanDao extends DatabaseAccessor<AppDatabase> with _$BeanDaoMixin {
   BeanDao(super.db);
 
-  // --- Beans ---
-
   Future<List<Bean>> getAllBeans({bool includeArchived = false}) {
     final query = select(beans);
     if (!includeArchived) {
@@ -69,8 +67,6 @@ class BeanDao extends DatabaseAccessor<AppDatabase> with _$BeanDaoMixin {
   Future<void> deleteBean(String id) {
     return (delete(beans)..where((b) => b.id.equals(id))).go();
   }
-
-  // --- BeanBatches ---
 
   Future<List<BeanBatche>> getBatchesForBean(
     String beanId, {

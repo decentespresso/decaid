@@ -298,7 +298,6 @@ void main() {
 
       final burst = service.scanForDevices();
       await pump();
-      // Watch paused (one stopScan), burst started with lowLatency.
       expect(
         platform.stopScanCalls,
         1,
@@ -311,7 +310,7 @@ void main() {
         reason: 'bursts stay unfiltered (name-match happens in Dart)',
       );
 
-      service.stopScan(); // end the burst early
+      service.stopScan();
       await burst;
       await pump();
 
@@ -329,7 +328,7 @@ void main() {
       () async {
         final burst = service.scanForDevices();
         await pump();
-        expect(platform.startScanCalls, hasLength(1)); // the burst itself
+        expect(platform.startScanCalls, hasLength(1));
 
         await service.startDeviceWatch(_watchFilter);
         expect(
@@ -440,7 +439,7 @@ void main() {
           reason: 'the burst scan follows and owns the session',
         );
 
-        service.stopScan(); // end the burst
+        service.stopScan();
         await burst;
         await pump();
 
@@ -607,7 +606,7 @@ void main() {
         async.flushMicrotasks();
         expect(platform.startScanCalls, hasLength(1));
 
-        platform.nativeScanning = false; // silent death
+        platform.nativeScanning = false;
         async.elapse(const Duration(minutes: 2));
         async.flushMicrotasks();
 
@@ -671,7 +670,6 @@ void main() {
     test('the periodic refresh restarts the scan before the Android '
         '30-minute opportunistic downgrade', () {
       fakeAsync((async) {
-        // Fresh service inside the fake zone so its Timer is controllable.
         final zoned = UniversalBleDiscoveryService(
           watchSupportGate: () => true,
         );

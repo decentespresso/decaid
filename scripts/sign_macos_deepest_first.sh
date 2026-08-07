@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 # Sign Decaid.app with Developer ID for distribution WITHOUT `codesign --deep`.
-#
 # Sparkle's nested helpers (Installer.xpc, Downloader.xpc, Updater.app,
 # Autoupdate) must be signed deepest-first, each keeping its own embedded
 # entitlements. `codesign --deep` (especially with --entitlements) rewrites
 # nested code with the host's entitlements, which strips the sandboxed
 # Installer XPC service of what it needs. See
 # doc/plans/archive/521-macos-auto-update-sparkle/521-macos-auto-update-sparkle.md.
-#
 # Usage: sign_macos_deepest_first.sh <Decaid.app> [identity] [entitlements]
 set -euo pipefail
 

@@ -41,7 +41,6 @@ class _ShotChartState extends State<ShotChart> {
     _LineInfo('Target group temp', '°C', isTemp: true),
     _LineInfo('Target mix temp', '°C', isTemp: true),
     _LineInfo('Steam temp', '°C', isTemp: true),
-    // Scale lines (weight, weight flow) are appended dynamically
   ];
 
   @override
@@ -213,14 +212,12 @@ class _ShotChartState extends State<ShotChart> {
 
   List<LineChartBarData> _shotChartData() {
     return [
-      // Flow (actual)
       LineChartBarData(
         dotData: FlDotData(show: false),
         spots: widget.shotSnapshots
             .map((e) => FlSpot(_timestamp(e.machine.timestamp), e.machine.flow))
             .toList(),
       ),
-      // Pressure (actual)
       LineChartBarData(
         color: Colors.green,
         dotData: FlDotData(show: false),
@@ -231,7 +228,6 @@ class _ShotChartState extends State<ShotChart> {
             )
             .toList(),
       ),
-      // Flow (target)
       LineChartBarData(
         dotData: FlDotData(show: false),
         dashArray: [5, 5],
@@ -242,7 +238,6 @@ class _ShotChartState extends State<ShotChart> {
             )
             .toList(),
       ),
-      // Pressure (target)
       LineChartBarData(
         color: Colors.green,
         dashArray: [5, 5],
@@ -256,7 +251,6 @@ class _ShotChartState extends State<ShotChart> {
             )
             .toList(),
       ),
-      // Group temperature (actual) — right axis scale
       LineChartBarData(
         color: Colors.red,
         dotData: FlDotData(show: false),
@@ -269,7 +263,6 @@ class _ShotChartState extends State<ShotChart> {
             )
             .toList(),
       ),
-      // Mix temperature (actual) — right axis scale
       LineChartBarData(
         color: Colors.orange,
         dotData: FlDotData(show: false),
@@ -282,7 +275,6 @@ class _ShotChartState extends State<ShotChart> {
             )
             .toList(),
       ),
-      // Group temperature (target) — right axis scale
       LineChartBarData(
         color: Colors.red,
         dashArray: [5, 5],
@@ -296,7 +288,6 @@ class _ShotChartState extends State<ShotChart> {
             )
             .toList(),
       ),
-      // Mix temperature (target) — right axis scale
       LineChartBarData(
         color: Colors.orange,
         dashArray: [5, 5],
@@ -310,7 +301,6 @@ class _ShotChartState extends State<ShotChart> {
             )
             .toList(),
       ),
-      // Steam temperature — right axis scale
       LineChartBarData(
         color: Colors.deepOrange,
         dotData: FlDotData(show: false),

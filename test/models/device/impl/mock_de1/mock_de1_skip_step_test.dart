@@ -61,20 +61,16 @@ void main() {
       await machine.setProfile(_testProfile());
       await machine.requestState(MachineState.espresso);
 
-      // Wait for pouring (past preparingForShot)
       await machine.currentSnapshot
           .firstWhere((s) => s.state.substate == MachineSubstate.pouring)
           .timeout(const Duration(seconds: 2));
 
-      // Record current frame
       final before = await machine.currentSnapshot.first.timeout(
         const Duration(seconds: 1),
       );
 
-      // Request skipStep
       await machine.requestState(MachineState.skipStep);
 
-      // Wait a tick for next snapshot
       await Future.delayed(const Duration(milliseconds: 200));
 
       final after = await machine.currentSnapshot.first.timeout(
@@ -92,15 +88,12 @@ void main() {
       await machine.setProfile(_testProfile());
       await machine.requestState(MachineState.espresso);
 
-      // Wait for pouring
       await machine.currentSnapshot
           .firstWhere((s) => s.state.substate == MachineSubstate.pouring)
           .timeout(const Duration(seconds: 2));
 
-      // Skip a step
       await machine.requestState(MachineState.skipStep);
 
-      // Wait and verify we're still in espresso
       await Future.delayed(const Duration(milliseconds: 300));
       final snapshot = await machine.currentSnapshot.first.timeout(
         const Duration(seconds: 1),
@@ -117,12 +110,10 @@ void main() {
       await machine.setProfile(_testProfile());
       await machine.requestState(MachineState.espresso);
 
-      // Wait for pouring
       await machine.currentSnapshot
           .firstWhere((s) => s.state.substate == MachineSubstate.pouring)
           .timeout(const Duration(seconds: 2));
 
-      // Skip a step
       await machine.requestState(MachineState.skipStep);
 
       // Collect snapshots after skip — profileFrame shouldn't change
@@ -184,7 +175,6 @@ void main() {
       // Skip to last step (step1, 1 second)
       await machine.requestState(MachineState.skipStep);
 
-      // Wait long enough for step1 to complete (1s) + pouringDone (300ms)
       final snapshots = await machine.currentSnapshot
           .takeWhile((s) => s.state.state != MachineState.idle)
           .toList()

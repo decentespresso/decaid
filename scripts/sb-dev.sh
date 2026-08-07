@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 # sb-dev.sh — Decent dev-session manager
-#
 # Manages a `flutter run` process for simulate-mode development by default,
 # with opt-in flags for running against real hardware (including Android
 # devices via adb port forwarding). See
 # .agents/skills/decent-app/lifecycle.md for the full reference.
-#
 # Runtime state lives under $SB_RUNTIME_DIR (default /tmp/decent-$USER).
 
 set -euo pipefail
@@ -172,7 +170,6 @@ start_cmd() {
     esac
   done
 
-  # Persist flags for `sb-dev restart`
   {
     [[ -n "$platform" ]] && printf '%s\n' "--platform $platform"
     [[ -n "$machine" ]] && printf '%s\n' "--connect-machine $machine"
@@ -224,7 +221,6 @@ start_cmd() {
   local -a platform_flag=()
   [[ -n "$platform" ]] && platform_flag=(-d "$platform")
 
-  # Fresh fifo each run
   rm -f "$STDIN_FIFO"
   mkfifo "$STDIN_FIFO"
 
@@ -232,7 +228,6 @@ start_cmd() {
   tail -f /dev/null > "$STDIN_FIFO" &
   echo $! > "$HOLDER_PIDFILE"
 
-  # Spawn flutter with stdin from the fifo, logs redirected
   nohup ./flutter_with_commit.sh run \
     ${platform_flag[@]+"${platform_flag[@]}"} ${defines[@]+"${defines[@]}"} \
     < "$STDIN_FIFO" > "$LOGFILE" 2>&1 &
@@ -278,7 +273,6 @@ stop_cmd() {
   local pid
   pid=$(cat "$PIDFILE")
 
-  # Graceful quit via fifo — flutter run honors 'q'
   echo q > "$STDIN_FIFO" || true
 
   local start
@@ -341,7 +335,6 @@ wait_for_pattern_after() {
   local start
   start=$(date +%s)
   while (( $(date +%s) - start < timeout )); do
-    # Only scan new lines since start_line
     if tail -n +"$((start_line + 1))" "$LOGFILE" 2>/dev/null \
          | awk -v pat="$pattern" '$0 ~ pat {found=1; exit} END {exit !found}'; then
       return 0

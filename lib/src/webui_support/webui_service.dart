@@ -147,8 +147,6 @@ class WebUIService {
   /// Injected into served HTML so skins can call the proxy. Null = no injection.
   String? skinProxyToken;
 
-  // WebUI server methods
-
   /// Accepts loopback or an address currently assigned to this device.
   Future<bool> _isLocalHost(String host) async {
     if (host == 'localhost' || host == '127.0.0.1' || host == '::1') {
@@ -202,7 +200,6 @@ class WebUIService {
     // _log.fine("copied data:");
     // final list = tempDir.listSync(recursive: true);
     // _log.fine("${list}");
-    //
     // _log.fine("loading from $tempPath");
 
     final webUI = createStaticHandler(
@@ -234,7 +231,6 @@ class WebUIService {
         _log.fine("handling request: ${request.requestedUri.path}");
         final response = await innerHandler(request);
 
-        // Option 1: Check by path if it starts with "/ws" (or any other condition)
         if (request.requestedUri.path.startsWith('/ws')) {
           return response;
         }
@@ -244,7 +240,6 @@ class WebUIService {
         //   return response;
         // }
 
-        // Add the header to responses that aren’t websocket-related.
         return response.change(
           headers: {
             ...response.headersAll,

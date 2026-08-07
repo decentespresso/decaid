@@ -242,7 +242,6 @@ void main() {
     await driveShot();
     final firstShotId = events.singleWhere((e) => e.event == 'decision').shotId;
 
-    // Machine returns to idle between shots.
     testDe1.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
     await pump();
 

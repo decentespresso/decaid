@@ -99,7 +99,6 @@ class LauncherView extends StatelessWidget {
     return Scaffold(
       body: Column(
         children: [
-          // Status bar
           StatusBar(
             de1Controller: de1Controller,
             scaleController: scaleController,
@@ -107,7 +106,6 @@ class LauncherView extends StatelessWidget {
             webUIService: webUIService,
           ),
 
-          // Scrollable content
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(24),
@@ -139,7 +137,6 @@ class LauncherView extends StatelessWidget {
                         },
                       ),
 
-                      // Destination grid
                       _buildGrid(context),
                     ],
                   ),

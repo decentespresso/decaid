@@ -124,7 +124,6 @@ void main() {
       reason: 'should reach the pour within 9s via the exit condition',
     );
 
-    // Under the held pressure, flow falls out (puck packs) below the fill flow.
     final maxPreinfFlow = preinf
         .map((s) => s.flow)
         .reduce((a, b) => a > b ? a : b);

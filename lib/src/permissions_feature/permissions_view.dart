@@ -105,11 +105,9 @@ class _PermissionsViewState extends State<PermissionsView> {
       if (Platform.isAndroid) {
         final sdkVersion = await _getAndroidSdkVersion();
         if (sdkVersion >= 31) {
-          // Android 12+: use new BLUETOOTH_SCAN/CONNECT permissions
           await Permission.bluetoothScan.request();
           await Permission.bluetoothConnect.request();
         } else {
-          // Android 9-11: use legacy BLUETOOTH + location
           await Permission.bluetooth.request();
           await Permission.locationWhenInUse.request();
         }
@@ -121,7 +119,6 @@ class _PermissionsViewState extends State<PermissionsView> {
         // Start foreground service now that BLE + notification permissions are granted
         await ForegroundTaskService.start();
 
-        // Wire foreground service auto-stop to machine connection state
         ForegroundTaskService.watchMachineConnection(widget.de1controller.de1);
 
         // CRITICAL: Request battery optimization exemption
@@ -157,10 +154,8 @@ class _PermissionsViewState extends State<PermissionsView> {
       _log.info('WebUI storage initialized successfully');
     } catch (e) {
       _log.severe('Failed to initialize WebUI storage', e);
-      // Continue anyway - we can still use the app without WebUI
     }
 
-    // Start WebUI service if we have a default skin
     final defaultSkin = widget.webUIStorage.defaultSkin;
     if (defaultSkin != null) {
       _log.info('Starting WebUI service with skin: ${defaultSkin.name}');
@@ -169,7 +164,6 @@ class _PermissionsViewState extends State<PermissionsView> {
         _log.info('WebUI service started successfully');
       } catch (e) {
         _log.severe('Failed to start WebUI service', e);
-        // Continue anyway - we can still use the app without WebUI
       }
     } else {
       _log.warning('No default skin available, WebUI service not started');
@@ -180,7 +174,6 @@ class _PermissionsViewState extends State<PermissionsView> {
       try {
         await widget.pluginLoaderService!.initialize();
       } catch (e) {
-        // Log error but don't fail the permissions check
         _log.warning('Failed to initialize plugins: $e');
       }
     }

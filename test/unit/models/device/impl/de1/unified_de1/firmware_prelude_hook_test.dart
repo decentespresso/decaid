@@ -39,7 +39,6 @@ void main() {
       // Tests live in the same package; @protected lint is irrelevant here.
       // ignore: invalid_use_of_protected_member
       await de1.beforeFirmwareUpload();
-      // No writes should have happened from the no-op default.
       expect(transport.writes, isEmpty);
     });
 

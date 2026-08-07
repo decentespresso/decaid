@@ -21,7 +21,6 @@ void main() {
     });
 
     test('parseFrame returns null timerValue when timer is 0', () {
-      // Weight: 2000 mg, Timer: 0 ms
       final payload = [0xD0, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
       var xor = 0;
       for (var b in payload) {
@@ -44,23 +43,12 @@ void main() {
       for (var b in payload) {
         xor ^= b;
       }
-      final data = [0x42, ...payload, xor & 0xFF]; // Wrong header
+      final data = [0x42, ...payload, xor & 0xFF];
       expect(AtomheartScale.parseFrame(data), isNull);
     });
 
     test('parseFrame returns null for invalid XOR checksum', () {
-      final data = [
-        0x57,
-        0xDC,
-        0x05,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0x00,
-        0xFF,
-      ]; // Bad XOR
+      final data = [0x57, 0xDC, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF];
       expect(AtomheartScale.parseFrame(data), isNull);
     });
   });

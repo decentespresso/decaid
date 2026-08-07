@@ -9,7 +9,6 @@ import 'package:reaprime/src/models/data/workflow_context.dart';
 // whether to re-apply steam/hot-water/flush settings to the DE1; without
 // value equality, every PUT re-applies everything, producing the
 // redundant shot-settings writes reported on mock and real hardware.
-//
 // See also the race / redundant-emit tests in
 // `test/webserver/workflow_handler_test.dart` — they depend on this
 // contract holding.

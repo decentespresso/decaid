@@ -82,16 +82,16 @@ class StreamingZipWriter {
     final date = _dosDate(now);
     final buf = BytesBuilder(copy: false);
     _writeUint32(buf, 0x04034b50);
-    _writeUint16(buf, 20); // version needed
-    _writeUint16(buf, 0x0808); // data descriptor + UTF-8 name
-    _writeUint16(buf, 8); // deflate
+    _writeUint16(buf, 20);
+    _writeUint16(buf, 0x0808);
+    _writeUint16(buf, 8);
     _writeUint16(buf, time);
     _writeUint16(buf, date);
-    _writeUint32(buf, 0); // crc (in descriptor)
-    _writeUint32(buf, 0); // compressed size (in descriptor)
-    _writeUint32(buf, 0); // uncompressed size (in descriptor)
+    _writeUint32(buf, 0);
+    _writeUint32(buf, 0);
+    _writeUint32(buf, 0);
     _writeUint16(buf, nameBytes.length);
-    _writeUint16(buf, 0); // extra length
+    _writeUint16(buf, 0);
     buf.add(nameBytes);
     _raf.writeFromSync(buf.takeBytes());
     _offset += headerLen;
@@ -134,13 +134,13 @@ class StreamingZipWriter {
 
     final eocd = BytesBuilder(copy: false);
     _writeUint32(eocd, 0x06054b50);
-    _writeUint16(eocd, 0); // disk number
-    _writeUint16(eocd, 0); // disk with CD start
+    _writeUint16(eocd, 0);
+    _writeUint16(eocd, 0);
     _writeUint16(eocd, _entryCount);
     _writeUint16(eocd, _entryCount);
     _writeUint32(eocd, cdBytes.length);
     _writeUint32(eocd, cdOffset);
-    _writeUint16(eocd, 0); // comment length
+    _writeUint16(eocd, 0);
     _raf.writeFromSync(eocd.takeBytes());
 
     await _raf.close();
@@ -164,8 +164,6 @@ class StreamingZipWriter {
     }
   }
 
-  // ---- internal entry state helpers ----
-
   void _registerEntry(_EntryState entry, {required int compressedSize}) {
     entry.compressedSize = compressedSize;
     _centralDirectory.add(
@@ -183,21 +181,21 @@ class StreamingZipWriter {
 
   void _writeCdEntry(BytesBuilder out, _CdEntry e) {
     _writeUint32(out, 0x02014b50);
-    _writeUint16(out, 0x031E); // version made by: unix << 8 | 30
-    _writeUint16(out, 20); // version needed
-    _writeUint16(out, 0x0808); // flags
-    _writeUint16(out, 8); // method
+    _writeUint16(out, 0x031E);
+    _writeUint16(out, 20);
+    _writeUint16(out, 0x0808);
+    _writeUint16(out, 8);
     _writeUint16(out, e.time);
     _writeUint16(out, e.date);
     _writeUint32(out, e.crc32);
     _writeUint32(out, e.compressedSize);
     _writeUint32(out, e.uncompressedSize);
     _writeUint16(out, e.name.length);
-    _writeUint16(out, 0); // extra length
-    _writeUint16(out, 0); // comment length
-    _writeUint16(out, 0); // disk number start
-    _writeUint16(out, 0); // internal attrs
-    _writeUint32(out, 0); // external attrs
+    _writeUint16(out, 0);
+    _writeUint16(out, 0);
+    _writeUint16(out, 0);
+    _writeUint16(out, 0);
+    _writeUint32(out, 0);
     _writeUint32(out, e.localHeaderOffset);
     out.add(e.name);
   }

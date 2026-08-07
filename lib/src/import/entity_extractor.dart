@@ -29,11 +29,8 @@ class ExtractionResult {
 class EntityExtractor {
   /// Extract deduplicated entities from parsed shots.
   ExtractionResult extract(List<ParsedShot> shots) {
-    // bean key → Bean
     final beansByKey = <String, Bean>{};
-    // (beanKey, roastDate) → BeanBatch
     final batchesByKey = <String, BeanBatch>{};
-    // grinderModel.toLowerCase() → Grinder
     final grindersByModel = <String, Grinder>{};
 
     final shotBeanBatchIds = <int, String?>{};
@@ -42,14 +39,12 @@ class EntityExtractor {
     for (var i = 0; i < shots.length; i++) {
       final parsed = shots[i];
 
-      // --- Bean + BeanBatch ---
       final brand = _normalize(parsed.beanBrand);
       final type = _normalize(parsed.beanType);
 
       if (brand != null && type != null) {
         final beanKey = '$brand\x00$type';
 
-        // Find or create Bean.
         final bean = beansByKey.putIfAbsent(
           beanKey,
           () => Bean.create(
@@ -59,7 +54,6 @@ class EntityExtractor {
           ),
         );
 
-        // Find or create BeanBatch keyed by (beanKey, roastDate).
         final roastDate = _normalize(parsed.roastDate) ?? '';
         final batchKey = '$beanKey\x00$roastDate';
 
@@ -77,7 +71,6 @@ class EntityExtractor {
         shotBeanBatchIds[i] = null;
       }
 
-      // --- Grinder ---
       final model = _normalize(parsed.grinderModel);
 
       if (model != null) {
@@ -111,7 +104,6 @@ class EntityExtractor {
     List<Grinder> fromShots,
     List<Grinder> fromDye,
   ) {
-    // Work with a mutable copy keyed by normalised model name.
     final byModel = <String, Grinder>{
       for (final g in fromShots) g.model.toLowerCase(): g,
     };
@@ -120,7 +112,6 @@ class EntityExtractor {
       final key = dye.model.toLowerCase();
 
       if (byModel.containsKey(key)) {
-        // Enrich the existing grinder with DYE specs, preserving its ID.
         byModel[key] = byModel[key]!.copyWith(
           burrs: dye.burrs,
           settingType: dye.settingType,
@@ -128,7 +119,6 @@ class EntityExtractor {
           settingBigStep: dye.settingBigStep,
         );
       } else {
-        // DYE-only grinder — add it as a new entry.
         byModel[key] = dye;
       }
     }

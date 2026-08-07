@@ -26,12 +26,7 @@ enum BengleMmr implements MmrAddress {
   /// Capability.tareIntegratedScale`) currently routes through the
   /// control endpoint, not MMR — this entry exists so the FW slot has
   /// a home when the wire spec arrives.
-  scaleTare(
-    0x00000000, // TBD with FW
-    4,
-    MmrValueKind.int32, // TBD with FW
-    'ScaleTare',
-  );
+  scaleTare(0x00000000, 4, MmrValueKind.int32, 'ScaleTare');
 
   const BengleMmr(
     this.address,
@@ -83,12 +78,12 @@ enum BengleSteamMmr implements MmrAddress {
   /// Encoded as `scaledFloat` with scale factor 10 — decicelsius on
   /// the wire, unsigned. Range `0..80 °C`.
   stopAtTemperatureTarget(
-    0x00000000, // TBD with FW
+    0x00000000,
     4,
     MmrValueKind.scaledFloat,
     'StopAtTemperatureTarget',
     min: 0,
-    max: 800, // 80.0 °C
+    max: 800,
     readScale: 0.1,
     writeScale: 10.0,
   );

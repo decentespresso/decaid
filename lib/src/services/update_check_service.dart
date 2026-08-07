@@ -109,11 +109,9 @@ class UpdateCheckService {
     if (_inProgress) return;
     if (!_isAndroid) return;
 
-    // Auto-check if we have no known update yet.
     if (_availableUpdate == null) {
       await checkForUpdate();
       if (_availableUpdate == null) {
-        // Already on the latest (checkForUpdate settled to idle).
         return;
       }
     }
@@ -142,7 +140,6 @@ class UpdateCheckService {
           error: 'Installation permission required. Grant it and retry.',
         );
       }
-      // On success the OS installer takes over; the process is replaced.
     } catch (e, st) {
       _log.severe('Update download/install failed', e, st);
       _emit(AppUpdatePhase.error, error: 'Update failed: $e');
@@ -168,7 +165,6 @@ class UpdateCheckService {
     if (_isMacOS) {
       await _updateSkins();
     } else {
-      // Check immediately if we haven't checked recently
       final lastCheck = await _settingsService.lastUpdateCheckTime();
       if (lastCheck == null ||
           DateTime.now().difference(lastCheck) > _checkInterval) {
@@ -177,7 +173,6 @@ class UpdateCheckService {
       }
     }
 
-    // Schedule periodic checks
     _periodicTimer?.cancel();
     _periodicTimer = Timer.periodic(_checkInterval, (_) async {
       if (!_isMacOS) {
@@ -225,7 +220,6 @@ class UpdateCheckService {
       await _settingsService.setLastUpdateCheckTime(DateTime.now());
 
       if (updateInfo != null) {
-        // Check if user has skipped this version
         final skipped = await _settingsService.skippedVersion();
         if (skipped != null && skipped == updateInfo.version) {
           _log.info('Update ${updateInfo.version} skipped by user');

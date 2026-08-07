@@ -99,8 +99,8 @@ class WifiScaleDiscoveryService implements DeviceDiscoveryService {
   // hidden from the device list after [_failureThreshold] consecutive failed
   // probes, and re-surfaced the moment its IP answers again (or mDNS re-resolves
   // it). This keeps using the cached IP for as long as it works.
-  final Set<String> _unreachable = {}; // deviceIds currently hidden (IP down)
-  final Map<String, int> _failures = {}; // consecutive failed probes per id
+  final Set<String> _unreachable = {};
+  final Map<String, int> _failures = {};
   Timer? _livenessTimer;
   // Guards against overlapping liveness passes: the periodic timer fires
   // un-awaited while `scanForDevices()` also awaits a pass, and each probe can
@@ -287,7 +287,6 @@ class WifiScaleDiscoveryService implements DeviceDiscoveryService {
 
   HDSWifi _buildScale(String host) => HDSWifi(
     host: host,
-    // Connect to the cached IP when known (resolve-once), else the host.
     transportFactory: () => WsTransport(host: _cache.connectHostFor(host)),
   );
 

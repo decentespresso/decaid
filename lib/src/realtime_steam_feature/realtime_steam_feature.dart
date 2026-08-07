@@ -36,8 +36,8 @@ class _RealtimeSteamFeatureState extends State<RealtimeSteamFeature> {
   final List<ShotSnapshot> _steamSnapshots = [];
   late StreamSubscription<ShotSnapshot> _steamSubscription;
   bool _steamActive = false;
-  double _steamFlow = 1.0; // Default steam flow in ml/s
-  int _steamDuration = 30; // Default steam duration in seconds
+  double _steamFlow = 1.0;
+  int _steamDuration = 30;
   int _remainingTime = 0;
   Timer? _steamTimer;
   DateTime? _steamStartTime;
@@ -51,7 +51,6 @@ class _RealtimeSteamFeatureState extends State<RealtimeSteamFeature> {
     _remainingTime = _steamDuration;
     _steamStartTime = DateTime.now();
 
-    // Subscribe to DE1 data
     _steamSubscription = _de1Controller
         .connectedDe1()
         .currentSnapshot
@@ -62,9 +61,7 @@ class _RealtimeSteamFeatureState extends State<RealtimeSteamFeature> {
 
           if (mounted) {
             setState(() {
-              // Update active state only when it changes
               if (_steamActive != isMachineSteaming) {
-                // Clear snapshots when transitioning from idle to steam
                 if (!_steamActive && isMachineSteaming) {
                   _steamSnapshots.clear();
                 }
@@ -72,7 +69,6 @@ class _RealtimeSteamFeatureState extends State<RealtimeSteamFeature> {
                 _steamActive = isMachineSteaming;
               }
 
-              // Add snapshot only when actively steaming
               if (_steamActive) {
                 _log.finest("adding snap");
                 _steamSnapshots.add(snapshot);
@@ -87,7 +83,6 @@ class _RealtimeSteamFeatureState extends State<RealtimeSteamFeature> {
           if (_remainingTime > 0) {
             _remainingTime--;
           } else {
-            // _stopSteam();
             timer.cancel();
           }
         });
@@ -110,7 +105,6 @@ class _RealtimeSteamFeatureState extends State<RealtimeSteamFeature> {
         _remainingTime = 0;
       });
 
-      // Stop steam by going to idle state
       _de1Controller.connectedDe1().requestState(MachineState.idle);
 
       _stopSteamTimer();
@@ -123,7 +117,6 @@ class _RealtimeSteamFeatureState extends State<RealtimeSteamFeature> {
         _steamDuration += 10;
       });
 
-      // Update steam duration
       final currentSettings = await _de1Controller
           .connectedDe1()
           .shotSettings
@@ -141,7 +134,6 @@ class _RealtimeSteamFeatureState extends State<RealtimeSteamFeature> {
 
   @override
   Widget build(BuildContext context) {
-    // Navigation guard - only allow if gateway mode is 'tracking' or 'disabled'
     return Scaffold(
       body: SafeArea(
         child: Center(

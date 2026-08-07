@@ -125,7 +125,6 @@ void main() {
       await settle();
       expect(received, isNotEmpty, reason: 'the old machine streams');
 
-      // The machine is power-cycled: same device id, brand-new De1 object.
       final second = await powerCycle(first);
       expect(identical(first, second), isFalse);
 
@@ -188,7 +187,7 @@ void main() {
       await powerCycle(first);
 
       received.clear();
-      first.emitSnapshot(snapshotAt(11.1)); // zombie instance still alive
+      first.emitSnapshot(snapshotAt(11.1));
       await settle();
 
       expect(received, isEmpty);
@@ -501,7 +500,6 @@ void main() {
       final (channel, _) = connectWs('/ws/v1/machine/raw');
       await settle();
 
-      // Verify there is at least one listener on the raw subject.
       expect(machine.rawOutSubject.hasListener, isTrue);
 
       await channel.sink.close();
@@ -589,11 +587,9 @@ void main() {
         messages.listen(received.add);
         await settle();
 
-        // Disconnect the machine without a replacement.
         first.setConnectionState(ConnectionState.disconnected);
         await settle();
 
-        // The socket is still open (no machine = hold the socket).
         final command = rawCommand(
           type: De1RawMessageType.request,
           operation: De1RawOperationType.read,
@@ -612,7 +608,6 @@ void main() {
         );
         expect(errors.last['error'], 'No machine connected');
 
-        // Reconnect and verify the socket is still functional.
         final second = TestDe1(deviceId: first.deviceId, name: first.name);
         await de1Controller.connectToDe1(second);
         await settle();

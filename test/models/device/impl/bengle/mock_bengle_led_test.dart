@@ -42,7 +42,7 @@ void main() {
       addTearDown(sub.cancel);
 
       // Seeded initial value delivered on first microtask.
-      await Future(() {}); // let seed propagate
+      await Future(() {});
       expect(emitted, hasLength(1));
       expect(emitted[0].frontStrip.sleeping, Color16.off);
 
@@ -65,9 +65,8 @@ void main() {
 
     test('commitLedStrip snapshots cache, resetLedStrip restores it', () async {
       final bengle = MockBengle();
-      expect(await bengle.getLedStripState(), const LedStripState()); // all-off
+      expect(await bengle.getLedStripState(), const LedStripState());
 
-      // Write something and commit.
       final state1 = LedStripState(
         frontStrip: ZoneLedState(
           sleeping: const Color16(65535, 0, 0),
@@ -77,10 +76,8 @@ void main() {
       await bengle.setLedStrip(state1);
       await bengle.commitLedStrip();
 
-      // Overwrite with something else.
       await bengle.setLedStrip(const LedStripState());
 
-      // Reset — should be back to state1.
       await bengle.resetLedStrip();
       final after = await bengle.getLedStripState();
       expect(after, state1);
@@ -90,7 +87,6 @@ void main() {
       'resetLedStrip without commit is a no-op (restores all-off)',
       () async {
         final bengle = MockBengle();
-        // Write without commit.
         await bengle.setLedStrip(
           LedStripState(
             frontStrip: ZoneLedState(
@@ -99,7 +95,6 @@ void main() {
             ),
           ),
         );
-        // Reset restores the empty committed state.
         await bengle.resetLedStrip();
         final after = await bengle.getLedStripState();
         expect(after, const LedStripState());

@@ -31,7 +31,6 @@ Middleware proxyAuthMiddleware(
       if (!request.requestedUri.path.startsWith(pathPrefix)) {
         return inner(request);
       }
-      // Let CORS preflight through — it carries no Authorization by design.
       if (request.method == 'OPTIONS') {
         return inner(request);
       }

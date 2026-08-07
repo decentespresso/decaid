@@ -172,9 +172,9 @@ void main() {
         expect((await _latest(svc)).single.deviceId, 'wifi:hds.local');
 
         reachable = false;
-        await svc.scanForDevices(); // failure 1 of 2 — still shown
+        await svc.scanForDevices();
         expect(await _latest(svc), hasLength(1));
-        await svc.scanForDevices(); // failure 2 of 2 — hidden
+        await svc.scanForDevices();
         expect(await _latest(svc), isEmpty);
       });
 
@@ -190,11 +190,11 @@ void main() {
         browser.emit([
           const WifiScaleEndpoint(host: 'hds.local', ip: '10.0.0.5'),
         ]);
-        await svc.scanForDevices(); // unreachable → hidden
+        await svc.scanForDevices();
         expect(await _latest(svc), isEmpty);
 
         reachable = true;
-        await svc.scanForDevices(); // reachable again → reappears
+        await svc.scanForDevices();
         expect((await _latest(svc)).single.deviceId, 'wifi:hds.local');
       });
 
@@ -211,7 +211,7 @@ void main() {
           browser.emit([
             const WifiScaleEndpoint(host: 'hds.local', ip: '10.0.0.5'),
           ]);
-          await svc.scanForDevices(); // unreachable → hidden
+          await svc.scanForDevices();
           expect(await _latest(svc), isEmpty);
 
           // mDNS re-announces the same host → it's back, clear the hidden mark.
@@ -237,7 +237,7 @@ void main() {
         ]);
 
         reachable = false;
-        await svc.scanForDevices(); // failure 1 of 2 — still shown
+        await svc.scanForDevices();
         expect(await _latest(svc), hasLength(1));
 
         // mDNS re-announces the same host mid-way through accumulating
@@ -247,7 +247,7 @@ void main() {
           const WifiScaleEndpoint(host: 'hds.local', ip: '10.0.0.5'),
         ]);
 
-        await svc.scanForDevices(); // counter was reset → failure 1 of 2 again
+        await svc.scanForDevices();
         expect(
           await _latest(svc),
           hasLength(1),
@@ -256,7 +256,7 @@ void main() {
               'failure is not enough to hide the scale',
         );
 
-        await svc.scanForDevices(); // now failure 2 of 2 — hidden
+        await svc.scanForDevices();
         expect(await _latest(svc), isEmpty);
       });
 

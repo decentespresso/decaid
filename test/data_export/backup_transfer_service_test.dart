@@ -76,7 +76,7 @@ void main() {
           ),
         ),
       );
-      expect(tempDir.listSync(), isEmpty); // no partial file left behind
+      expect(tempDir.listSync(), isEmpty);
     } finally {
       service.close();
     }

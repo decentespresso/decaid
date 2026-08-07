@@ -21,7 +21,6 @@ void main() {
     await sub.cancel();
 
     expect(devices, isNotEmpty);
-    // machine + bengle + scale + sensor-basket + debug-port.
     expect(
       devices.length,
       greaterThanOrEqualTo(5),

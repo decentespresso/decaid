@@ -19,8 +19,8 @@ class HDSSerial implements Scale, TransportHandoffScale {
 
   static const _enableCommand = [0x03, 0x20, 0x01];
   static const _watchdogInterval = Duration(seconds: 2);
-  static const _warningTicks = 3; // 6s with 2s interval
-  static const _disconnectTicks = 6; // 12s with 2s interval
+  static const _warningTicks = 3;
+  static const _disconnectTicks = 6;
 
   HDSSerial({required SerialTransport transport}) : _transport = transport {
     _log = Logger("Serial HDS#${_transport.name}");
@@ -115,7 +115,6 @@ class HDSSerial implements Scale, TransportHandoffScale {
       _ticksSinceLastData++;
       _watchdogTotalTicks++;
 
-      // Periodic heartbeat: log every 5 min (150 ticks at 2s) at FINE level
       if (_watchdogTotalTicks % 150 == 0) {
         final uptimeMin =
             (_watchdogTotalTicks * _watchdogInterval.inSeconds) ~/ 60;

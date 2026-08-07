@@ -277,7 +277,7 @@ class UnifiedDe1 implements De1Interface {
   /// Invoked from [disconnect] before the transport is torn down, so
   /// overrides may still issue BLE writes if final cleanup needs them.
   /// Mirrors [onConnect] as an extension point.
-  Future<void> onDisconnect() async {} // default no-op
+  Future<void> onDisconnect() async {}
 
   final StreamController<De1RawMessage> _rawMessageController =
       StreamController.broadcast();
@@ -639,7 +639,6 @@ class UnifiedDe1 implements De1Interface {
       .map(_parseWaterLevels);
 
   // ---- Protected surface for capability mixins (`on UnifiedDe1`) ----
-  //
   // Mixins reach the transport and MMR plumbing through these methods
   // instead of touching `_transport` / `_log` directly. New capabilities
   // (Bengle cup warmer, integrated scale, etc.) declare `on UnifiedDe1`
@@ -659,7 +658,7 @@ class UnifiedDe1 implements De1Interface {
   /// `requestState(MachineState.fwUpgrade)` originally lived in the shared
   /// upload routine).
   @protected
-  Future<void> beforeFirmwareUpload() async {} // default no-op
+  Future<void> beforeFirmwareUpload() async {}
 
   /// Number of 16-byte chunks written per batch during a firmware
   /// upload before pausing for [firmwareUploadBatchPause].
@@ -734,7 +733,6 @@ class UnifiedDe1 implements De1Interface {
   ///    endpoints lands with the first capability that needs it.
   @protected
   Stream<ByteData> notificationsFor(LogicalEndpoint endpoint) {
-    // Known DE1 endpoints route to their existing typed Subjects.
     if (endpoint is Endpoint) {
       switch (endpoint) {
         case Endpoint.shotSample:

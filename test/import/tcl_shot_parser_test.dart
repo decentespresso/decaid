@@ -17,7 +17,6 @@ void main() {
 
     group('timestamp', () {
       test('parses correct timestamp from clock field', () {
-        // clock = 1699432544
         final expected = DateTime.fromMillisecondsSinceEpoch(
           1699432544 * 1000,
           isUtc: true,
@@ -34,7 +33,6 @@ void main() {
 
     group('time-series measurements', () {
       test('produces one snapshot per elapsed entry', () {
-        // fixture has 9 elapsed values
         expect(result.shot.measurements.length, equals(9));
       });
 
@@ -177,7 +175,6 @@ void main() {
 
     group('mismatched array lengths', () {
       test('does not throw when weight array is shorter than elapsed', () {
-        // Inject a truncated weight list into the fixture content
         final truncated = fixtureContent.replaceFirst(
           'espresso_weight {0.0 0.1 0.3 0.9 1.8 3.2 4.8 6.6 8.5}',
           'espresso_weight {0.0 0.1 0.3 0.9 1.8}',

@@ -258,7 +258,7 @@ void main() {
 
       final first = svc.downloadAndInstall();
       await Future.delayed(Duration.zero); // let first reach the gated download
-      await svc.downloadAndInstall(); // should be a no-op
+      await svc.downloadAndInstall();
       updater.downloadGate!.complete();
       await first;
 
@@ -284,15 +284,13 @@ void main() {
       updater.nextCheck = _update();
       updater.downloadGate = Completer<void>();
 
-      // Start a download to occupy the state machine.
       final op = svc.downloadAndInstall();
       await Future.delayed(Duration.zero);
-      await svc.requestCheck(); // in-progress -> no-op
+      await svc.requestCheck();
       final checksDuring = updater.checkCalls;
       updater.downloadGate!.complete();
       await op;
 
-      // Only the auto-check from downloadAndInstall ran.
       expect(checksDuring, 1);
       svc.dispose();
     });

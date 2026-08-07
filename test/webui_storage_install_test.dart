@@ -149,11 +149,9 @@ void main() {
           expect(storage.getSkin('passione-dist')!.isBundled, isFalse);
           expect(urlGetRequests, 1);
 
-          // Unchanged ETag: updateAllSkins skips the re-download.
           await storage.updateAllSkins();
           expect(urlGetRequests, 1);
 
-          // Changed ETag: updateAllSkins re-downloads and refreshes metadata.
           etag = 'url-etag-v2';
           await storage.updateAllSkins();
           expect(urlGetRequests, 2);
@@ -218,11 +216,9 @@ void main() {
           expect(storage.getSkin('passione-dist')!.isBundled, isFalse);
           expect(assetGets, 1);
 
-          // Same tag: updateAllSkins skips the asset download.
           await storage.updateAllSkins();
           expect(assetGets, 1);
 
-          // New release: updateAllSkins re-downloads and retargets metadata.
           releaseTag = 'v1.1.0';
           await storage.updateAllSkins();
           expect(assetGets, 2);
@@ -381,7 +377,6 @@ void main() {
               url ==
                   'https://api.github.com/repos/acme/custom-skin/releases/latest') {
             latestApiGets.add(url);
-            // The /releases list endpoint returns an array.
             return http.Response(
               url.endsWith('/releases')
                   ? jsonEncode([releaseBody()])

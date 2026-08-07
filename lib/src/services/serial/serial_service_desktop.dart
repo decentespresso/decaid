@@ -30,7 +30,6 @@ import 'package:libserialport/libserialport.dart';
 class SerialServiceDesktop implements DeviceDiscoveryService {
   final _log = Logger("Serial service");
 
-  // StreamSubscription<UsbEvent>? _usbSerialSubscription;
   List<Device> _devices = [];
 
   // Maps port path (e.g. /dev/cu.usbmodem123) to device ID (e.g. 5B1F0919231)
@@ -91,7 +90,7 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
   // on the same path, e.g. Linux /dev/ttyUSB0) gets re-probed.
   final Set<String> _nonDecentPorts = {};
   int _livenessTick = 0;
-  static const int _livenessEveryNReconciles = 3; // ~24s at the 8s interval
+  static const int _livenessEveryNReconciles = 3;
 
   // Force the next reconcile to emit even if the device set is unchanged.
   // Set by an explicit `scanForDevices()`: DeviceController clears `discovered`
@@ -325,7 +324,6 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
         .map((d) => d.deviceId)
         .toSet();
 
-    // Filter to candidate ports worth probing.
     final scanPorts = ports.where((p) {
       // Already tracked → never re-probe. THIS is what stops the contention:
       // an identified device (e.g. the HDS, which releases its port after
@@ -338,7 +336,6 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
       // the timer reconcile (it would loop). `explicitScan` cleared this set
       // above, so a user scan still retries.
       if (_selfDisconnectedPaths.contains(p)) return false;
-      // Known non-Decent (already probed and rejected) — skip.
       if (_nonDecentPorts.contains(p)) return false;
       final port = SerialPort(p);
       final meta = _readPortMetadata(p, port);
@@ -357,7 +354,6 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
       _log.info("Probing ${scanPorts.length} USB serial ports: $scanPorts");
     }
 
-    // Probe candidate ports in parallel; register each detected device by path.
     await Future.wait(
       scanPorts.map((portId) async {
         try {
@@ -487,7 +483,6 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
     // Track the transport up-front so any cleanup path (including an
     // exception partway through detection) can find + dispose it.
     _portPathToTransport[id] = transport;
-    // De1 shortcut
     if (port.productName == "DE1") {
       final device = UnifiedDe1(transport: transport);
       _portPathToDeviceId[id] = device.deviceId;
@@ -502,7 +497,6 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
       return device;
     }
 
-    // Half Decent Scale shortcut
     if (port.productName == "Half Decent Scale") {
       final device = HDSSerial(transport: transport);
       _portPathToDeviceId[id] = device.deviceId;
@@ -510,7 +504,6 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
       return device;
     }
 
-    // VID:PID shortcut.
     int? vid;
     int? pid;
     try {
@@ -594,8 +587,8 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
         final messages = <String>[];
         final stateSubscription = transport.readStream.listen(messages.add);
 
-        await transport.writeCommand('<+M>'); // shotSample (DE1 baseline)
-        await transport.writeCommand('<+E>'); // readFromMMR
+        await transport.writeCommand('<+M>');
+        await transport.writeCommand('<+E>');
 
         // Fire the v13Model MMR-read request. The MMR protocol writes
         // the addr buffer to the readFromMMR endpoint (`<E>`), and the
@@ -693,7 +686,6 @@ class _DesktopSerialPort implements SerialTransport {
 
   _DesktopSerialPort({required SerialPort port}) : _port = port {
     _log = Logger("SerialPort:${port.name}");
-    // Force both caches now, while the native port is guaranteed alive.
     _cachedId;
     _cachedName;
   }
@@ -858,7 +850,6 @@ class _DesktopSerialPort implements SerialTransport {
       cfg.xonXoff = 0;
       cfg.setFlowControl(0);
       await _port.setConfig(cfg);
-      // _port.config = cfg;
       _log.finest("current config: ${_port.config.bits}");
       _log.finest("current config: ${_port.config.parity}");
       _log.finest("current config: ${_port.config.stopBits}");

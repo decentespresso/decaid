@@ -10,7 +10,6 @@ class MainFlutterWindow: NSWindow {
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 
-    // Own the Sparkle coordinator on the AppDelegate so it outlives the window.
     if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
       appDelegate.macosUpdater = MacOSUpdater.register(with: flutterViewController)
     }

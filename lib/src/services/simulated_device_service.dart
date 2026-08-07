@@ -33,7 +33,7 @@ class SimulatedDeviceService
   void stopScan() {}
 
   @override
-  Future<Device?> tryQuickConnect(RememberedDevice remembered) async => null; // Simulated scan completes instantly.
+  Future<Device?> tryQuickConnect(RememberedDevice remembered) async => null;
 
   @override
   Future<void> scanForDevices({ScanFilter? filter}) async {

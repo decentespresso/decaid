@@ -44,7 +44,6 @@ class BatteryController {
        _deviceController = deviceController,
        _settingsController = settingsController {
     _checkTimer = Timer.periodic(const Duration(seconds: 60), (_) => _tick());
-    // Run immediately on construction
     _tick();
   }
 
@@ -115,7 +114,6 @@ class BatteryController {
         }
       }
 
-      // Emit state
       _stateSubject.add(
         ChargingState(
           mode: chargingMode,

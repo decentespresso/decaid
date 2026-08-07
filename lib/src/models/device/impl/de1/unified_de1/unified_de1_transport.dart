@@ -57,7 +57,6 @@ class UnifiedDe1Transport {
   Stream<ByteData> get mmr => _mmrSubject.asBroadcastStream();
   Stream<ByteData> get fwMapRequest => _fwMapRequestSubject.asBroadcastStream();
 
-  // Serial only
   String _currentBuffer = "";
 
   UnifiedDe1Transport({required DataTransport transport})
@@ -76,7 +75,6 @@ class UnifiedDe1Transport {
     // (stateInfo/A00E) silently stopped delivering while solicited
     // reads/writes kept succeeding — invisible to the zombie watchdog,
     // which only counts GATT op timeouts and own-advert probes.
-    //
     // The load-bearing fix is to tear down the stale native link BEFORE
     // re-connecting, so `_bleConnect()` runs against a freshly-established
     // GATT and every CCCD is written cleanly. The transient `disconnected`
@@ -84,7 +82,6 @@ class UnifiedDe1Transport {
     // to upstream: De1Controller.connectToDe1 has already cancelled its
     // `connectionState` listener (via _onDisconnect) before `onConnect()`
     // runs this method, and only re-subscribes after `onConnect()` returns.
-    //
     // BUT: the teardown must not fire on a live link (#431). Before
     // disconnecting, probe the OS-level connection state. Only tear down
     // if the OS confirms the link is dead. If the OS says `connected`,
@@ -211,7 +208,6 @@ class UnifiedDe1Transport {
     await _transport.writeCommand("<+${Endpoint.readFromMMR.representation}>");
     await _transport.writeCommand("<+${Endpoint.fwMapRequest.representation}>");
 
-    // needed to know which state we're at - request idle state
     await _transport.writeCommand("<B>02");
   }
 
@@ -226,7 +222,6 @@ class UnifiedDe1Transport {
     await _connectionStateSubscription?.cancel();
     _connectionStateSubscription = null;
 
-    // Close all BehaviorSubjects so downstream listeners see onDone
     if (!_stateSubject.isClosed) _stateSubject.close();
     if (!_shotSampleSubject.isClosed) _shotSampleSubject.close();
     if (!_shotSettingsSubject.isClosed) _shotSettingsSubject.close();
@@ -328,7 +323,6 @@ class UnifiedDe1Transport {
     // Discard any leading junk before the first '['
     final firstBracket = _currentBuffer.indexOf('[');
     if (firstBracket < 0) {
-      // No message start in buffer at all
       _currentBuffer = '';
       return;
     }
@@ -345,7 +339,6 @@ class UnifiedDe1Transport {
     final matches = _messagePattern.allMatches(_currentBuffer).toList();
 
     if (matches.isEmpty) {
-      // Guard against unbounded buffer growth from corrupted serial streams
       if (_currentBuffer.length > 4096) {
         _log.warning(
           'Serial buffer overflow (${_currentBuffer.length} bytes), discarding. '
@@ -366,10 +359,8 @@ class UnifiedDe1Transport {
       }
     }
 
-    // Keep unprocessed portion in the buffer
     if (completeCount > 0) {
       _currentBuffer = _currentBuffer.substring(matches[completeCount - 1].end);
-      // Strip consumed newlines
       _currentBuffer = _currentBuffer.replaceAll(RegExp(r'^\n+'), '');
     }
   }
@@ -405,7 +396,7 @@ class UnifiedDe1Transport {
   }
 
   Uint8List hexToBytes(String hex) {
-    hex = hex.replaceAll(RegExp(r'\s+'), ''); // strip whitespace
+    hex = hex.replaceAll(RegExp(r'\s+'), '');
     if (hex.length.isOdd) {
       throw FormatException('Invalid input length, must be even', hex);
     }

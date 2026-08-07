@@ -127,7 +127,6 @@ class ScanFlowViewState extends State<ScanFlowView> {
     _statusSubscription = widget.connectionManager.status.listen((status) {
       if (!mounted) return;
 
-      // Boot-timing: record each phase transition once.
       if (status.phase != _status.phase) {
         BootTiming.mark('connect_${status.phase.name}');
       }
@@ -168,7 +167,6 @@ class ScanFlowViewState extends State<ScanFlowView> {
         }
       }
 
-      // Reset the "taking too long" timer when phase changes away from scanning
       if (status.phase != ConnectionPhase.scanning) {
         _cancelTooLongTimer();
       } else {
@@ -176,7 +174,6 @@ class ScanFlowViewState extends State<ScanFlowView> {
         _selectedScaleId = null;
       }
 
-      // Start the timer when entering scanning phase
       if (status.phase == ConnectionPhase.scanning &&
           _status.phase != ConnectionPhase.scanning) {
         _discoveredMachines = [];
@@ -204,7 +201,6 @@ class ScanFlowViewState extends State<ScanFlowView> {
       _onGuardianEvent,
     );
 
-    // Kick off the connection flow
     final intent = widget.initialConnectionIntent;
     if (intent != null) {
       intent();
@@ -270,33 +266,23 @@ class ScanFlowViewState extends State<ScanFlowView> {
     else if (_status.pendingAmbiguity == AmbiguityReason.machinePicker ||
         _status.pendingAmbiguity == AmbiguityReason.scalePicker) {
       content = _devicePickerView(context);
-    }
-    // Standalone error (idle with no pending ambiguity).
-    else if (_status.error != null && _status.phase == ConnectionPhase.idle) {
+    } else if (_status.error != null && _status.phase == ConnectionPhase.idle) {
       content = _errorView(context);
     }
     // Scanning
     else if (_status.phase == ConnectionPhase.scanning) {
       content = _scanningView(context);
-    }
-    // Connecting to machine or scale
-    else if (_status.phase == ConnectionPhase.connectingMachine ||
+    } else if (_status.phase == ConnectionPhase.connectingMachine ||
         _status.phase == ConnectionPhase.connectingScale) {
       content = _connectingView(context);
-    }
-    // Idle with no machines found
-    else if (_status.phase == ConnectionPhase.idle &&
+    } else if (_status.phase == ConnectionPhase.idle &&
         _status.foundMachines.isEmpty &&
         _status.foundScales.isEmpty) {
       content = _noDevicesFoundView(context);
-    }
-    // Idle with machines but no ambiguity (fallback)
-    else if (_status.phase == ConnectionPhase.idle &&
+    } else if (_status.phase == ConnectionPhase.idle &&
         (_status.foundMachines.isNotEmpty || _status.foundScales.isNotEmpty)) {
       content = _devicePickerView(context);
-    }
-    // Default: scanning view
-    else {
+    } else {
       content = _scanningView(context);
     }
 
@@ -345,7 +331,6 @@ class ScanFlowViewState extends State<ScanFlowView> {
 
     return Column(
       children: [
-        // Progress bar + text centered in available space
         Expanded(
           child: Center(
             child: Column(
@@ -385,7 +370,6 @@ class ScanFlowViewState extends State<ScanFlowView> {
             ),
           ),
         ),
-        // "Taking too long" button pinned to bottom, doesn't affect center position
         ExcludeSemantics(
           excluding: !_showTakingTooLong,
           child: AnimatedOpacity(
@@ -500,7 +484,6 @@ class ScanFlowViewState extends State<ScanFlowView> {
       );
     }
 
-    // Fallback: idle with devices but no ambiguity — show combined view.
     final preferredMachineNotFound =
         preferredMachineId != null &&
         _status.foundMachines.isNotEmpty &&
@@ -871,7 +854,6 @@ class ScanFlowViewState extends State<ScanFlowView> {
   Widget _noDevicesFoundView(BuildContext context) {
     final report = widget.connectionManager.lastScanReport;
     if (report == null) {
-      // Fallback if no report is available yet
       return Center(
         child: AccessibleButton(
           label: 'Scan Again',

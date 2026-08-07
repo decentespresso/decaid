@@ -78,7 +78,6 @@ class KvStoreExportSection implements DataExportSection {
     int skipped = 0;
     final errors = SectionImportErrors();
 
-    // Depth-3 events: keys = [namespaces, <ns>, <key>], value = the KV value.
     await for (final event in input.valuesAtDepth(3)) {
       if (event.keys.length != 3 || event.keys[0] != 'namespaces') {
         errors.add('Unexpected store entry structure in store.json');

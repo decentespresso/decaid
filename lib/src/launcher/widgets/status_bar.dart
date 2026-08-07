@@ -335,11 +335,8 @@ class _QrButton extends StatelessWidget {
   }
 }
 
-// -- Widget Previews --
-
 @Preview(name: 'Status Bar', group: 'Launcher')
 Widget statusBarPreview() {
-  // Preview uses placeholder widgets since controllers need dart:io
   return MaterialApp(home: Scaffold(body: _StatusBarPreviewStatic()));
 }
 

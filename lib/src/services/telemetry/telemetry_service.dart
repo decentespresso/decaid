@@ -64,7 +64,6 @@ abstract class TelemetryService {
   /// Returns [FirebaseCrashlyticsTelemetryService] on Android, iOS, and macOS.
   /// Returns [NoOpTelemetryService] on Linux/Windows, or when in debug mode or simulation mode.
   static TelemetryService create({required LogBuffer logBuffer}) {
-    // Check if telemetry should be disabled
     final isDebugMode = kDebugMode;
     final isSimulateMode = const bool.hasEnvironment('simulate');
     final isLinuxOrWindows = Platform.isLinux || Platform.isWindows;

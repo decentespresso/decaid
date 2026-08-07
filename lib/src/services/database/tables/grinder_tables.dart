@@ -11,7 +11,6 @@ class Grinders extends Table {
   TextColumn get notes => text().nullable()();
   BoolColumn get archived => boolean().withDefault(const Constant(false))();
 
-  // UI configuration for grinder setting input
   TextColumn get settingType => text().withDefault(const Constant('numeric'))();
   TextColumn get settingValues =>
       text().map(const NullableStringListConverter()).nullable()();

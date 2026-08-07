@@ -20,7 +20,6 @@ class ErrorReportThrottle {
   bool shouldReport(String message) {
     final now = DateTime.now();
 
-    // Trigger cleanup if map is growing too large
     if (_lastReported.length > _cleanupThreshold) {
       cleanup();
     }
@@ -33,14 +32,12 @@ class ErrorReportThrottle {
       return true;
     }
 
-    // Check if enough time has elapsed
     final elapsed = now.difference(lastReport).inSeconds;
     if (elapsed >= _reportIntervalSeconds) {
       _lastReported[message] = now;
       return true;
     }
 
-    // Too recent, throttle this report
     return false;
   }
 

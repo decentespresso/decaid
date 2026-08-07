@@ -27,8 +27,8 @@ class MockSettingsService extends SettingsService {
   UpdateChannel _updateChannel = UpdateChannel.stable;
   DateTime? _lastUpdateCheckTime;
   bool _telemetryConsent = false;
-  bool _telemetryPromptShown = true; // skip prompt in tests
-  bool _telemetryConsentDialogShown = true; // skip dialog in tests
+  bool _telemetryPromptShown = true;
+  bool _telemetryConsentDialogShown = true;
   String? _skippedVersion;
   ChargingMode _chargingMode = ChargingMode.disabled;
   bool _nightModeEnabled = false;
@@ -40,8 +40,8 @@ class MockSettingsService extends SettingsService {
   String _rememberedDevices = '[]';
   bool _lowBatteryBrightnessLimit = false;
   bool _keepAwake = true;
-  bool _onboardingCompleted = true; // skip onboarding in tests
-  bool _accountStepSeen = true; // skip account step in tests
+  bool _onboardingCompleted = true;
+  bool _accountStepSeen = true;
   bool _androidWarningDismissed = true; // skip android warning in tests
   bool _showSkinExitInstructions = false;
   bool _enableSimulatedWebViews = false;
@@ -244,7 +244,6 @@ class MockSettingsService extends SettingsService {
   Future<void> setEnableSimulatedWebViews(bool value) async =>
       _enableSimulatedWebViews = value;
 
-  // Feature flags
   @override
   Future<bool?> featureFlag(FeatureFlag flag) async => _featureFlags[flag.name];
   @override

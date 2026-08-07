@@ -56,18 +56,15 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));
 
-        // Tap "Yes, it's on" to advance
         await tester.tap(find.text("Yes, it's on"));
         await tester.pump();
 
-        // On non-iOS, Bluetooth step is skipped, goes to "other apps"
         expect(find.text('Is another app connected?'), findsOneWidget);
         expect(find.text("I've closed other apps"), findsOneWidget);
       },
     );
 
     testWidgets('skips Bluetooth step on non-iOS', (tester) async {
-      // Even when adapter is off, non-iOS platforms skip the BT step
       await tester.pumpWidget(
         buildApp(
           child: Builder(
@@ -87,13 +84,11 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
-      // Step 1: machine powered on
       expect(find.text('Is your machine powered on?'), findsOneWidget);
 
       await tester.tap(find.text("Yes, it's on"));
       await tester.pump();
 
-      // Bluetooth step should be skipped, goes directly to other apps
       expect(find.text('Is Bluetooth enabled?'), findsNothing);
       expect(find.text('Is another app connected?'), findsOneWidget);
     });
@@ -118,16 +113,13 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
-      // Step 1: machine powered on
       await tester.tap(find.text("Yes, it's on"));
       await tester.pump();
 
-      // Step 2: other apps
       expect(find.text('Is another app connected?'), findsOneWidget);
       await tester.tap(find.text("I've closed other apps"));
       await tester.pump();
 
-      // Step 3 (macOS only): system BT. Tap to dismiss.
       if (find.text("I've checked").evaluate().isNotEmpty) {
         await tester.tap(find.text("I've checked"));
         await tester.pump();
@@ -135,7 +127,6 @@ void main() {
 
       await tester.pump(const Duration(milliseconds: 300));
 
-      // Dialog should be fully dismissed — no step content visible
       expect(find.text('Is your machine powered on?'), findsNothing);
       expect(find.text('Is another app connected?'), findsNothing);
       expect(find.text('Check System Bluetooth Settings'), findsNothing);
@@ -307,7 +298,6 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
-      // Advance past machine step
       await tester.tap(find.text("Yes, it's on"));
       await tester.pump();
 

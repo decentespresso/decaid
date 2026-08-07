@@ -49,7 +49,6 @@ class BrowserHeroCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             spacing: 16,
             children: [
-              // QR code
               Semantics(
                 label: 'QR code to open WebUI at $_displayUrl',
                 excludeSemantics: true,
@@ -68,7 +67,6 @@ class BrowserHeroCard extends StatelessWidget {
                   ),
                 ),
               ),
-              // URL + actions
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -121,8 +119,6 @@ class BrowserHeroCard extends StatelessWidget {
     );
   }
 }
-
-// -- Widget Previews --
 
 @Preview(name: 'Browser Hero Card', group: 'Launcher')
 Widget browserHeroCardPreview() {

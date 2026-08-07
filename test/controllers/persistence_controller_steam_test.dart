@@ -37,7 +37,6 @@ class _FakeStorage implements StorageService {
   @override
   Future<SteamRecord?> getLatestSteamMeta() async => null;
 
-  // Unused shot/workflow surface (defaults).
   @override
   Future<void> storeShot(ShotRecord record) async {}
   @override

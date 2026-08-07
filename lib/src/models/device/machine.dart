@@ -63,7 +63,6 @@ class MachineSnapshot {
     required this.steamTemperature,
   });
 
-  // CopyWith Method
   MachineSnapshot copyWith({
     DateTime? timestamp,
     MachineStateSnapshot? state,
@@ -163,12 +162,12 @@ enum MachineState {
 
 enum MachineSubstate {
   idle,
-  preparingForShot, // water heating, stabilizing water temp, ...
+  preparingForShot,
   preinfusion,
   pouring,
   pouringDone,
-  cleaningStart, // same for descale
-  cleaningGroup, // same for descale
+  cleaningStart,
+  cleaningGroup,
   cleanSoaking,
   cleaningSteam,
 

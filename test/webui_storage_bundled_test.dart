@@ -8,14 +8,12 @@ void main() {
 
   group('skin_sources.json asset', () {
     test('can be loaded and parsed as a list of source configs', () async {
-      // Load the real asset bundled in the project
       final configString = await rootBundle.loadString('skin_sources.json');
       final sources = (jsonDecode(configString) as List)
           .cast<Map<String, dynamic>>();
 
       expect(sources, isNotEmpty);
 
-      // Each source should have a 'type' field
       for (final source in sources) {
         expect(source, contains('type'));
         expect(source['type'], anyOf('github_release', 'github_branch', 'url'));

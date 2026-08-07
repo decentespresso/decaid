@@ -85,8 +85,6 @@ class DestinationCard extends StatelessWidget {
   }
 }
 
-// -- Widget Previews --
-
 @Preview(name: 'Destination Card', group: 'Launcher')
 Widget destinationCardPreview() {
   return ShadApp(

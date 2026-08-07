@@ -151,7 +151,6 @@ ChargingDecision decide({
   required NightModeConfig? nightModeConfig,
   required bool wasCharging,
 }) {
-  // 1. Emergency override
   if (batteryPercent <= 15) {
     return ChargingDecision(
       shouldCharge: true,
@@ -165,7 +164,6 @@ ChargingDecision decide({
     );
   }
 
-  // 2. Disabled mode
   if (chargingMode == ChargingMode.disabled) {
     return ChargingDecision(
       shouldCharge: true,
@@ -174,7 +172,6 @@ ChargingDecision decide({
     );
   }
 
-  // 3. Night mode
   if (nightModeConfig != null) {
     final nowMinutes = _minutesSinceMidnight(currentTime);
     final phase = _determineNightPhase(nowMinutes, nightModeConfig);
@@ -205,7 +202,6 @@ ChargingDecision decide({
           reason: 'night hovering',
         );
       case NightPhase.normal:
-        // Fall through to mode-based logic below
         break;
       case NightPhase.inactive:
         // Should not happen when nightModeConfig is non-null
@@ -213,7 +209,6 @@ ChargingDecision decide({
     }
   }
 
-  // 4. Charging mode ranges with hysteresis
   final nightPhase = nightModeConfig != null
       ? _determineNightPhase(
           _minutesSinceMidnight(currentTime),
@@ -225,7 +220,7 @@ ChargingDecision decide({
     ChargingMode.longevity => (45, 55),
     ChargingMode.balanced => (40, 80),
     ChargingMode.highAvailability => (80, 95),
-    ChargingMode.disabled => (0, 100), // unreachable, handled above
+    ChargingMode.disabled => (0, 100),
   };
 
   final shouldCharge = _hysteresis(

@@ -64,17 +64,15 @@ class MockDe1 implements De1Interface, SimulatedDevice {
   MachineState _currentState = MachineState.booting;
   _SimulationType _simulationType = _SimulationType.idle;
 
-  // Add profile tracking fields
   Profile? _currentProfile;
   int _currentProfileStepIndex = 0;
-  double _profileStepElapsedTime = 0.0; // in milliseconds
-  double _profileTargetTemperature = 94.0; // Default if no profile
+  double _profileStepElapsedTime = 0.0;
+  double _profileTargetTemperature = 94.0;
   int _targetVolumeCountStart = 0;
 
   /// First profile frame that counts toward the shot volume/weight — earlier
   /// frames are preinfusion. Simulated scales gate weight accumulation on it.
   int get targetVolumeCountStart => _targetVolumeCountStart;
-  // Smooth transition interpolation: targets at step entry.
   double _fromFlowTarget = 0;
   double _fromPressureTarget = 0;
 
@@ -113,7 +111,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
     if (_currentState == MachineState.espresso) {
       shotTime = 0.0;
       _simulationType = _SimulationType.espresso;
-      // Reset profile tracking when starting espresso
       _currentProfileStepIndex = 0;
       _profileStepElapsedTime = 0.0;
       _espressoTickCount = 0;
@@ -132,16 +129,15 @@ class MockDe1 implements De1Interface, SimulatedDevice {
       // ShotSequencer owns the skip decision (weight-based); the mock
       // just advances the step index and continues simulating.
       if (_currentProfileStepIndex < _currentProfile!.steps.length - 1) {
-        // Capture current step targets for smooth transition.
         _captureFromTargets(_currentProfile!.steps[_currentProfileStepIndex]);
         _currentProfileStepIndex++;
         _profileStepElapsedTime = 0.0;
-        _espressoTickCount = 0; // reset preparingForShot for new step
+        _espressoTickCount = 0;
         _log.fine("skipStep: advanced to step $_currentProfileStepIndex");
       }
       // If already on the last step, skipStep is a no-op — the step
       // will complete naturally via its duration.
-      _currentState = MachineState.espresso; // stay in espresso
+      _currentState = MachineState.espresso;
     } else {
       _simulationType = _SimulationType.idle;
     }
@@ -161,9 +157,7 @@ class MockDe1 implements De1Interface, SimulatedDevice {
   }
 
   @override
-  Future<void> dispose() async {
-    // No-op: MockDe1 holds no native resources.
-  }
+  Future<void> dispose() async {}
 
   @override
   DeviceType get type => DeviceType.machine;
@@ -197,11 +191,9 @@ class MockDe1 implements De1Interface, SimulatedDevice {
   }
 
   MachineSnapshot _simulateIdle() {
-    // Use profile target temperature or default
     final targetTemp = _profileTargetTemperature;
 
-    // Faster heating when far from target, slower when close
-    double tempChangeRate = 0.5; // degrees per 500ms
+    double tempChangeRate = 0.5;
     if ((_lastSnapshot.mixTemperature - targetTemp).abs() < 5) {
       tempChangeRate = 0.2;
     }
@@ -247,7 +239,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
   MachineSnapshot _simulateEspresso() {
     MachineSubstate substate = _lastSnapshot.state.substate;
 
-    // Determine substate based on pressure
     switch (_lastSnapshot.pressure) {
       case < 0.5:
         substate = MachineSubstate.preparingForShot;
@@ -262,12 +253,10 @@ class MockDe1 implements De1Interface, SimulatedDevice {
         DateTime.now().millisecondsSinceEpoch -
         _lastSnapshot.timestamp.millisecondsSinceEpoch;
 
-    // If we have a profile, use it for simulation
     if (_currentProfile != null && _currentProfile!.steps.isNotEmpty) {
       return _simulateWithProfile();
     }
 
-    // Fallback to original simulation if no profile
     if (shotTime > 30000) {
       _simulationType = _SimulationType.idle;
       _currentState = MachineState.idle;
@@ -280,10 +269,8 @@ class MockDe1 implements De1Interface, SimulatedDevice {
       return _fallbackEspressoSimulation(_lastSnapshot.state.substate);
     }
 
-    // Update elapsed time for current step
-    _profileStepElapsedTime += 100; // Timer runs every 100ms
+    _profileStepElapsedTime += 100;
 
-    // Get current step
     final currentStep = _currentProfile!.steps[_currentProfileStepIndex];
 
     // Check if we should move to next step. Real firmware exits a step when its
@@ -296,9 +283,7 @@ class MockDe1 implements De1Interface, SimulatedDevice {
     if ((_profileStepElapsedTime >= stepDurationMs || exitMet) &&
         _pouringDoneTicks == 0) {
       if (_currentProfileStepIndex < _currentProfile!.steps.length - 1) {
-        // Capture current step targets as "from" for smooth transition interpolation.
         _captureFromTargets(currentStep);
-        // Move to next step
         _currentProfileStepIndex++;
         _profileStepElapsedTime = 0.0;
         _log.fine("Moving to profile step: $_currentProfileStepIndex");
@@ -309,7 +294,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
       }
     }
 
-    // Calculate progress through current step (0.0 to 1.0)
     final stepProgress = stepDurationMs > 0
         ? min(_profileStepElapsedTime / stepDurationMs, 1.0)
         : 0.0;
@@ -324,14 +308,13 @@ class MockDe1 implements De1Interface, SimulatedDevice {
     // falls out under a held pressure), then slowly erodes/channels so flow
     // creeps back up. This single curve is what makes the coupling below read
     // like a real shot instead of a pressure spike pinned at the ceiling.
-    const rDry = 0.10; // bar/(mL/s) — fresh, porous puck
-    const rPeak = 4.2; // fully packed
+    const rDry = 0.10;
+    const rPeak = 4.2;
     const rErode = 2.5; // after channeling
-    const peakSecs = 12.0; // time from shot start to peak resistance
-    const erodeSecs = 16.0; // erosion timescale past the peak
+    const peakSecs = 12.0;
+    const erodeSecs = 16.0;
     double resistance;
     if (shotSecs <= peakSecs) {
-      // Slow early rise, steepening near breakthrough (cubic).
       final s = shotSecs / peakSecs;
       resistance = rDry + (rPeak - rDry) * s * s * s;
     } else {
@@ -357,25 +340,23 @@ class MockDe1 implements De1Interface, SimulatedDevice {
     // --- Flow <-> pressure coupling ---
     // Slower than before so flow/pressure ramp over ~1-2s like a real pump/puck
     // rather than snapping to target in one tick.
-    const flowResponseRate = 0.35; // per-tick convergence toward flow target
-    const pressureDamping = 0.35; // per-tick convergence toward pressure eq
+    const flowResponseRate = 0.35;
+    const pressureDamping = 0.35;
 
-    // Determine flow/pressure targets from step type.
     double targetFlow;
     double targetPressure;
-    double stepTargetFlow; // what the profile step prescribes (for snapshot)
-    double
-    stepTargetPressure; // what the profile step prescribes (for snapshot)
+    double stepTargetFlow;
+    double stepTargetPressure;
     if (currentStep is ProfileStepPressure) {
       stepTargetPressure = currentStep.pressure;
-      stepTargetFlow = 0; // unconstrained in this step
+      stepTargetFlow = 0;
       targetPressure = currentStep.pressure;
-      targetFlow = 8.0; // internal: pump max ~8 mL/s
+      targetFlow = 8.0;
     } else if (currentStep is ProfileStepFlow) {
       stepTargetFlow = currentStep.flow;
-      stepTargetPressure = 0; // unconstrained in this step
+      stepTargetPressure = 0;
       targetFlow = currentStep.flow;
-      targetPressure = 0; // internal: unconstrained, coupling sets pressure
+      targetPressure = 0;
     } else {
       stepTargetFlow = 4.0;
       stepTargetPressure = 0.0;
@@ -400,7 +381,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
       }
     }
 
-    // Flow responds quickly (pump-driven).
     double newFlow =
         _lastSnapshot.flow +
         (targetFlow - _lastSnapshot.flow) * flowResponseRate;
@@ -409,13 +389,11 @@ class MockDe1 implements De1Interface, SimulatedDevice {
       newFlow = _applyLimiter(newFlow, currentStep.limiter);
     }
 
-    // Pressure lags behind flow (puck-mediated).
     final unboundedPressure = newFlow * resistance;
     double newPressure =
         _lastSnapshot.pressure +
         (unboundedPressure - _lastSnapshot.pressure) * pressureDamping;
 
-    // The pump can only move so much water — real DE1 flow tops out ~8 mL/s.
     const pumpMaxFlow = 8.0;
 
     // Pressure-step: hold the ceiling, letting flow fall out as the puck packs.
@@ -430,7 +408,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
       }
     }
 
-    // Clamp flow-step: don't exceed target (pump can't deliver more).
     if (currentStep is ProfileStepFlow && newFlow > targetFlow) {
       newFlow = targetFlow;
     }
@@ -518,7 +495,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
         substate: done ? MachineSubstate.idle : MachineSubstate.pouring,
       ),
       flow: newFlow,
-      // Open path to the spout: only a little back-pressure, scaling with flow.
       pressure: newFlow * 0.25,
       targetFlow: targetFlow,
       targetPressure: 0,
@@ -618,7 +594,7 @@ class MockDe1 implements De1Interface, SimulatedDevice {
   }
 
   bool _chargerOn = false;
-  int _steamPurgeMode = 0; // 0 = normal, 1 = two tap stop
+  int _steamPurgeMode = 0;
   double _flowEstimation = 1.0;
 
   @override
@@ -658,7 +634,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
   Future<void> setProfile(Profile profile) async {
     _log.info("set profile: ${profile.title}");
 
-    // Store the profile and extract target temperature
     _currentProfile = profile;
     _targetVolumeCountStart = profile.targetVolumeCountStart;
 
@@ -667,7 +642,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
       _profileTargetTemperature = profile.steps.first.temperature;
       _log.fine("Target temperature set to: $_profileTargetTemperature");
 
-      // Log step durations for debugging
       for (var i = 0; i < profile.steps.length; i++) {
         final step = profile.steps[i];
         _log.fine(
@@ -681,7 +655,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
       }
     }
 
-    // Reset profile tracking
     _currentProfileStepIndex = 0;
     _profileStepElapsedTime = 0.0;
   }

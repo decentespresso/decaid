@@ -59,7 +59,6 @@ class De1appImporter {
     var grindersSkipped = 0;
     var settingsApplied = false;
 
-    // --- Phase 1: Parse shot files ---
     final parsedShots = <ParsedShot>[];
     if (scanResult.shotSource != null) {
       final shotDir = Directory(
@@ -110,7 +109,6 @@ class De1appImporter {
       }
     }
 
-    // --- Phase 2: Extract and store entities ---
     final extractor = EntityExtractor();
     final extraction = extractor.extract(parsedShots);
 
@@ -122,7 +120,7 @@ class De1appImporter {
     // Load existing beans and grinders to avoid duplicates on re-import.
     // Build lookup maps keyed the same way EntityExtractor deduplicates.
     final existingBeans = await beanStorageService.getAllBeans();
-    final existingBeanMap = <String, String>{}; // normalized key → bean ID
+    final existingBeanMap = <String, String>{};
     for (final bean in existingBeans) {
       final key = '${bean.roaster.toLowerCase()}\x00${bean.name.toLowerCase()}';
       existingBeanMap[key] = bean.id;
@@ -135,19 +133,17 @@ class De1appImporter {
     }
 
     final existingGrinders = await grinderStorageService.getAllGrinders();
-    final existingGrinderMap =
-        <String, String>{}; // normalized model → grinder ID
+    final existingGrinderMap = <String, String>{};
     for (final grinder in existingGrinders) {
       existingGrinderMap[grinder.model.toLowerCase()] = grinder.id;
     }
 
     // Remap extracted entity IDs → existing IDs where matches are found.
     // This ensures shots link to existing entities rather than new duplicates.
-    final beanIdRemap = <String, String>{}; // extracted ID → actual ID
+    final beanIdRemap = <String, String>{};
     final batchIdRemap = <String, String>{};
     final grinderIdRemap = <String, String>{};
 
-    // Store or remap beans
     for (final bean in extraction.beans) {
       final key = '${bean.roaster.toLowerCase()}\x00${bean.name.toLowerCase()}';
       final existingId = existingBeanMap[key];
@@ -174,12 +170,10 @@ class De1appImporter {
       );
     }
 
-    // Store or remap batches
     for (final batch in extraction.batches) {
       final actualBeanId = beanIdRemap[batch.beanId] ?? batch.beanId;
       final existingBeanBatches = existingBatches[actualBeanId] ?? [];
 
-      // Match by roast date (or both null)
       final existingBatch = existingBeanBatches.firstWhereOrNull(
         (b) =>
             b.roastDate == batch.roastDate ||
@@ -209,7 +203,6 @@ class De1appImporter {
       }
     }
 
-    // Merge DYE grinder specs if available
     var grinders = extraction.grinders;
     if (scanResult.hasDyeGrinders) {
       final tdbFile = File('${scanResult.sourcePath}/plugins/DYE/grinders.tdb');
@@ -222,7 +215,6 @@ class De1appImporter {
       }
     }
 
-    // Store or remap grinders
     for (final grinder in grinders) {
       final existingId = existingGrinderMap[grinder.model.toLowerCase()];
       if (existingId != null) {
@@ -248,7 +240,6 @@ class De1appImporter {
       );
     }
 
-    // --- Phase 3: Store shots with entity linkage ---
     final existingIds = (await storageService.getShotIds()).toSet();
 
     for (var i = 0; i < parsedShots.length; i++) {
@@ -278,7 +269,6 @@ class De1appImporter {
           ? (grinderIdRemap[rawGrinderId] ?? rawGrinderId)
           : null;
 
-      // Update WorkflowContext with resolved entity IDs
       final updatedShot = (batchId != null || grinderId != null)
           ? _linkShotToEntities(shot, batchId: batchId, grinderId: grinderId)
           : shot;
@@ -308,7 +298,6 @@ class De1appImporter {
       );
     }
 
-    // --- Phase 4: Import standalone profiles ---
     final profilesDir = Directory('${scanResult.sourcePath}/profiles_v2');
     if (await profilesDir.exists()) {
       final profileFiles = <File>[];
@@ -354,7 +343,6 @@ class De1appImporter {
       }
     }
 
-    // --- Phase 5: Import settings ---
     if (scanResult.hasSettings && settingsController != null) {
       try {
         final settingsFile = File('${scanResult.sourcePath}/settings.tdb');
@@ -362,7 +350,6 @@ class De1appImporter {
         final settings = SettingsTdbParser.parse(content);
 
         if (!settings.isEmpty) {
-          // Wake schedule
           if (settings.wakeHour != null && settings.wakeMinute != null) {
             final schedule = WakeSchedule.create(
               hour: settings.wakeHour!,
@@ -493,7 +480,6 @@ class De1appImporter {
 
     if (updatedContext == null) return shot;
 
-    // Workflow.copyWith generates a new UUID — that's intentional for imported shots
     final updatedWorkflow = shot.workflow.copyWith(context: updatedContext);
     return shot.copyWith(workflow: updatedWorkflow);
   }

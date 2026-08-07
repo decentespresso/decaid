@@ -46,7 +46,7 @@ void main() {
       'releases a discovered (not-connected) HDS, keeps a connected one',
       () {
         final p = planSerialReconcile(
-          explicitScan: true, // liveness pass
+          explicitScan: true,
           livenessTick: 1,
           livenessEveryN: 3,
           tracked: [
@@ -62,7 +62,7 @@ void main() {
 
     test('does NOT release a CONNECTING HDS (would dispose mid-connect)', () {
       final p = planSerialReconcile(
-        explicitScan: true, // liveness pass
+        explicitScan: true,
         livenessTick: 1,
         livenessEveryN: 3,
         tracked: [
@@ -77,7 +77,7 @@ void main() {
     test('a non-liveness pass releases nothing', () {
       final p = planSerialReconcile(
         explicitScan: false,
-        livenessTick: 1, // not a liveness tick
+        livenessTick: 1,
         livenessEveryN: 3,
         tracked: [_port('/off', hds: true, state: ConnectionState.discovered)],
         hdsPaths: {'/off'},
@@ -157,7 +157,7 @@ void main() {
     test('a liveness pass lifts HDS suppression, but a same-pass present '
         'self-disconnected HDS nets to suppressed (add wins)', () {
       final p = planSerialReconcile(
-        explicitScan: true, // liveness pass
+        explicitScan: true,
         livenessTick: 1,
         livenessEveryN: 3,
         tracked: [
@@ -173,9 +173,7 @@ void main() {
         ],
         hdsPaths: {'/x', '/other'},
       );
-      // hdsPaths are lifted from suppression...
       expect(p.suppressRemove, contains('/other'));
-      // ...but '/x' was reaped as present-self-disconnected, so add wins.
       expect(p.suppressAdd, contains('/x'));
       expect(p.suppressRemove, isNot(contains('/x')));
     });
@@ -187,7 +185,7 @@ void main() {
         hdsResuppressionPaths(
           hdsPaths: {'/a', '/b'},
           presentPorts: {'/a', '/b'},
-          trackedPaths: {'/a'}, // /a re-detected, /b silent
+          trackedPaths: {'/a'},
         ),
         {'/b'},
       );
@@ -197,7 +195,7 @@ void main() {
       expect(
         hdsResuppressionPaths(
           hdsPaths: {'/a'},
-          presentPorts: const {}, // unplugged
+          presentPorts: const {},
           trackedPaths: const {},
         ),
         isEmpty,

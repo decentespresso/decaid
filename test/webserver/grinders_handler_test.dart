@@ -209,15 +209,12 @@ void main() {
       final created = jsonDecode(await createRes.readAsString());
       final id = created['id'];
 
-      // Archive the grinder
       await sendPut('/api/v1/grinders/$id', {'archived': true});
 
-      // Default: excludes archived
       final response = await sendGet('/api/v1/grinders');
       final body = jsonDecode(await response.readAsString()) as List;
       expect(body, isEmpty);
 
-      // With includeArchived=true
       final archivedRes = await sendGet(
         '/api/v1/grinders?includeArchived=true',
       );

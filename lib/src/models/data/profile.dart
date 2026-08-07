@@ -193,7 +193,7 @@ abstract class ProfileStep extends Equatable {
     this.limiter,
   });
 
-  double getTarget(); // Abstract method for subclasses to implement
+  double getTarget();
 
   factory ProfileStep.fromJson(Map<String, dynamic> json) {
     if (json.containsKey('pump') && json['pump'] == 'pressure') {

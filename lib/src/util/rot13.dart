@@ -13,11 +13,9 @@ String rot13(String input) {
 
 int _rotate(int c) {
   if (c >= 65 && c <= 90) {
-    // A-Z: 65-90
     return ((c - 65 + 13) % 26) + 65;
   }
   if (c >= 97 && c <= 122) {
-    // a-z: 97-122
     return ((c - 97 + 13) % 26) + 97;
   }
   return c;

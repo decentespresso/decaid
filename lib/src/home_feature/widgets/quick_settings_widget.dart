@@ -50,7 +50,6 @@ class QuickSettingsWidget extends StatefulWidget {
         child: Center(
           child: SizedBox(
             height: 220,
-            // width: 220,
             child: PrettyQrView.data(
               data:
                   'http://$deviceIp:3000/?_=${DateTime.now().millisecondsSinceEpoch}',
@@ -118,12 +117,10 @@ class _QuickSettingsState extends State<QuickSettingsWidget> {
     return StreamBuilder<De1Interface?>(
       stream: widget.de1controller.de1,
       builder: (context, de1State) {
-        // Hide control if no DE1 is connected
         if (!de1State.hasData || de1State.data == null) {
           return SizedBox.shrink();
         }
 
-        // Show error message if there was an error
         if (_errorMessage != null) {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -149,7 +146,6 @@ class _QuickSettingsState extends State<QuickSettingsWidget> {
           );
         }
 
-        // Show loading state while serving
         if (_isServingUI) {
           return MergeSemantics(
             child: Row(
@@ -199,9 +195,7 @@ class _QuickSettingsState extends State<QuickSettingsWidget> {
                     child: ShadButton(
                       child: Text("Open", overflow: TextOverflow.ellipsis),
                       onPressed: () async {
-                        // On supported platforms (iOS, Android, macOS), use in-app WebView
                         if (Platform.isLinux) {
-                          // On other platforms, open in external browser
                           final url = Uri.parse(
                             'http://localhost:3000?_=${DateTime.now().millisecondsSinceEpoch}',
                           );
@@ -258,11 +252,9 @@ class _QuickSettingsState extends State<QuickSettingsWidget> {
     });
 
     try {
-      // Load previously selected skin preference
       final prefs = await SharedPreferences.getInstance();
       final savedSkinId = prefs.getString(_selectedSkinPrefKey);
 
-      // Get available skins
       final skins = widget.webUIStorage.installedSkins;
 
       if (skins.isEmpty) {
@@ -280,10 +272,8 @@ class _QuickSettingsState extends State<QuickSettingsWidget> {
         throw Exception('No default WebUI skin found.');
       }
 
-      // Serve the selected skin
       await widget.webUIService.serveFolderAtPath(skinToUse.path, port: 3000);
 
-      // Save preference
       await prefs.setString(_selectedSkinPrefKey, skinToUse.id);
 
       if (mounted) {

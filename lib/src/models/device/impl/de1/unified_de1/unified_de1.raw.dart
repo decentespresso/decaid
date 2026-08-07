@@ -29,11 +29,7 @@ extension UnifiedDe1Raw on UnifiedDe1 {
             var payload = _hexToBytes(data.payload);
             await _transport.writeWithResponse(endpoint, payload);
             _rawMessageController.add(
-              packToRaw(
-                data.operation,
-                data.characteristicUUID,
-                Uint8List(0), // Empty response payload for write confirmation
-              ),
+              packToRaw(data.operation, data.characteristicUUID, Uint8List(0)),
             );
           case De1RawOperationType.notify:
         }

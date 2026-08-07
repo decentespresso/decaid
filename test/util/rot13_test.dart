@@ -33,9 +33,7 @@ void main() {
       const token =
           'github_pat_11ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
       final encoded = rot13(token);
-      // Should be different from original
       expect(encoded, isNot(token));
-      // Should decode back
       expect(rot13(encoded), token);
     });
 

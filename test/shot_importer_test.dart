@@ -46,7 +46,6 @@ class MockStorageService implements StorageService {
     return null;
   }
 
-  // Test helper
   void reset() {
     storedShots.clear();
   }
@@ -226,12 +225,7 @@ void main() {
       }
       ''';
 
-      expect(
-        () => importer.importShotJson(invalidJson),
-        throwsA(
-          anything,
-        ), // Will throw TypeError or other error for missing fields
-      );
+      expect(() => importer.importShotJson(invalidJson), throwsA(anything));
     });
   });
 

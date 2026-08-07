@@ -126,14 +126,12 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
             ],
           ),
           const SizedBox(height: 12),
-          // "None" option
           _buildDeviceRadio(
             name: 'None',
             subtitle: 'No auto-connect',
             isSelected: selectedId == null,
             onTap: () => onSelected(null),
           ),
-          // Device list
           if (devices.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),

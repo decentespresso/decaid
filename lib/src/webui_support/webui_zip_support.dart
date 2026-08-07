@@ -74,7 +74,6 @@ bool isSafeZipEntryPath(String entryName) {
   if (entryName.startsWith('/') || entryName.startsWith('\\')) return false;
   if (entryName.startsWith('\\\\') || entryName.startsWith('//')) return false;
 
-  // Windows drive prefix (`C:...`): rooted on Windows.
   if (entryName.length >= 2 && entryName.codeUnitAt(1) == 0x3A /* : */ ) {
     final first = entryName.codeUnitAt(0);
     final isLetter =
@@ -82,7 +81,6 @@ bool isSafeZipEntryPath(String entryName) {
     if (isLetter) return false;
   }
 
-  // Normalise Windows separators so `..\escape` is caught on every host.
   final normalized = entryName.replaceAll('\\', '/');
   for (final segment in normalized.split('/')) {
     if (segment == '..') return false;

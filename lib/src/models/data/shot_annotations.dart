@@ -4,11 +4,9 @@ import 'package:reaprime/src/models/data/utils.dart';
 /// Post-shot annotations replacing ShotRecord.shotNotes and ShotRecord.metadata.
 /// All fields nullable — populated progressively after a shot.
 class ShotAnnotations {
-  // Actuals (post-shot measurements)
   final double? actualDoseWeight;
   final double? actualYield;
 
-  // Extraction science
   final double? drinkTds;
   final double? drinkEy;
 
@@ -16,7 +14,6 @@ class ShotAnnotations {
   final double? enjoyment;
   final String? espressoNotes;
 
-  // Plugin data channel
   final Map<String, dynamic>? extras;
 
   const ShotAnnotations({

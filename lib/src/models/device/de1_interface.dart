@@ -31,14 +31,12 @@ abstract class De1Interface extends Machine {
   Future<int> getFanThreshhold();
   Future<int> getTankTempThreshold();
   Future<void> setTankTempThreshold(int temp);
-  //
   //// Flow Control
   Future<void> setSteamFlow(double newFlow);
   Future<double> getSteamFlow();
   Future<void> setHotWaterFlow(double newFlow);
   Future<double> getHotWaterFlow();
 
-  // Flush/Rinse control
   Future<void> setFlushFlow(double newFlow);
   Future<double> getFlushFlow();
   Future<void> setFlushTimeout(double newTimeout);
@@ -46,7 +44,6 @@ abstract class De1Interface extends Machine {
   Future<double> getFlushTemperature();
   Future<void> setFlushTemperature(double newTemp);
 
-  // Calibration
   Future<double> getFlowEstimation();
   Future<void> setFlowEstimation(double multiplier);
 
@@ -57,7 +54,6 @@ abstract class De1Interface extends Machine {
   double? get cachedFlowEstimation;
 
   Future<De1HeaterVoltage> getHeaterVoltage();
-  // auto clamped to valid values
   Future<void> setHeaterVoltage(De1HeaterVoltage voltage);
 
   //// USB and Charger Settings
@@ -72,7 +68,6 @@ abstract class De1Interface extends Machine {
   Future<void> enableUserPresenceFeature();
   Future<void> sendUserPresent();
 
-  // Heater prefs
   Future<double> getHeaterPhase1Flow();
   Future<void> setHeaterPhase1Flow(double val);
   Future<double> getHeaterPhase2Flow();
@@ -97,7 +92,6 @@ abstract class De1Interface extends Machine {
   Future<void> cancelFirmwareUpload() async {}
 }
 
-// This doesn't change anything
 enum De1SteamSettingsValues {
   none(0),
   fastStart(0x80),
@@ -129,7 +123,6 @@ enum De1HeaterVoltage {
   final int voltage;
   const De1HeaterVoltage(this.voltage);
   factory De1HeaterVoltage.fromInt(int voltage) {
-    // account for v + 1000 when voltage has been already set
     voltage = voltage > 1000 ? voltage - 1000 : voltage;
     if (voltage >= 90 && voltage <= 150) return .v110;
     if (voltage >= 180 && voltage <= 260) return .v220;

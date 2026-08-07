@@ -43,7 +43,6 @@ class _ImportResultViewState extends State<ImportResultView> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             spacing: 16,
             children: [
-              // Icon + title
               Column(
                 spacing: 8,
                 children: [
@@ -68,7 +67,6 @@ class _ImportResultViewState extends State<ImportResultView> {
                 ],
               ),
 
-              // Result rows
               ShadCard(
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -142,7 +140,6 @@ class _ImportResultViewState extends State<ImportResultView> {
                 ),
               ),
 
-              // Error details toggle + list
               if (hasErrors) ...[
                 AccessibleButton(
                   label: _errorsExpanded ? 'Hide details' : 'Show details',
@@ -213,7 +210,6 @@ class _ImportResultViewState extends State<ImportResultView> {
                   ),
               ],
 
-              // Continue button
               AccessibleButton(
                 label: 'Continue',
                 onTap: widget.onContinue,
@@ -236,7 +232,6 @@ class _ImportResultViewState extends State<ImportResultView> {
       final reportFile = File('${tempDir.path}/import_report.txt');
       await reportFile.writeAsString(report);
 
-      // Append log file if available
       try {
         final docs = await getApplicationDocumentsDirectory();
         final logFile = File('${docs.path}/log.txt');

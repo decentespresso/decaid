@@ -26,7 +26,6 @@ void main() {
     });
 
     test('connectionState reflects probeAttached', () async {
-      // MockBengle defaults to attached=true.
       final initial = await probe.connectionState.first;
       expect(initial, ConnectionState.connected);
 

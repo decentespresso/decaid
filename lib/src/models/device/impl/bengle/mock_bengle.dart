@@ -29,7 +29,6 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
   @override
   DeviceImplementation get implementation => DeviceImplementation.bengle;
 
-  // --- cup warmer ---
   double _cupWarmerTemp = 0.0;
 
   @override
@@ -62,7 +61,6 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
   @override
   Future<void> commitLedStrip() async {
     _committedLedState = _ledState.value;
-    // In mock: no actual FW NVM write.
   }
 
   @override
@@ -119,8 +117,6 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
 
   @override
   Future<double> getStopAtWeightTarget() async => _sawTarget;
-
-  // --- milk probe surface ---
 
   @override
   Stream<double> get stopAtTemperatureTarget => _stopAtTempTargetSubject.stream;

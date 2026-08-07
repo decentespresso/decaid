@@ -104,7 +104,6 @@ class _FakeStorage implements StorageService {
   @override
   Future<ShotRecord?> getLatestShotMeta() async => null;
 
-  // Steam stubs
   @override
   Future<void> storeSteam(SteamRecord record) async {}
   @override
@@ -191,9 +190,8 @@ void main() {
       final sink = CapturingJsonSink();
       await section.exportJson(sink);
 
-      // Instrumented seam proves bounded processing.
       expect(storage.pageSizes, everyElement(100));
-      expect(storage.pageSizes.length, 3); // 100 + 100 + 50
+      expect(storage.pageSizes.length, 3);
 
       final decoded = jsonDecode(sink.json) as List;
       expect(decoded, hasLength(250));
@@ -210,7 +208,6 @@ void main() {
         pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) async {
           calls++;
           if (afterTimestamp == null) {
-            // A full page: forces another pull.
             return List.generate(limit, (i) => makeShot(i));
           }
           return [];

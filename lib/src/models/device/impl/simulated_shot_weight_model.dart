@@ -31,9 +31,9 @@ class SimulatedShotWeightModel {
   /// `targetVolumeCountStart`.
   int targetVolumeCountStart = 0;
 
-  double _settledWeight = 0.0; // in the cup from previous shots
-  double _shotVolume = 0.0; // extracted this shot, incl. held-back drops
-  double _pourElapsed = 0.0; // seconds spent pouring this shot
+  double _settledWeight = 0.0;
+  double _shotVolume = 0.0;
+  double _pourElapsed = 0.0;
   double _tareOffset = 0.0;
   bool _inShot = false;
   DateTime? _lastSampleTime;

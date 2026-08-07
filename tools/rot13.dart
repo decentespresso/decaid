@@ -13,7 +13,6 @@ void main(List<String> args) {
   if (args.isNotEmpty) {
     input = args.join(' ');
   } else {
-    // Pipe mode
     input = stdin.readLineSync() ?? '';
   }
 

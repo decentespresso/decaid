@@ -100,7 +100,6 @@ const bodyExample = "</body>";
 
     setUp(() async {
       tempDir = await Directory.systemTemp.createTemp('webui_offline_test');
-      // Minimal content — shelf_io.serve needs something to serve.
       await File(
         '${tempDir.path}/index.html',
       ).writeAsString('<html><body>test</body></html>');
@@ -112,7 +111,6 @@ const bodyExample = "</body>";
       if (tempDir.existsSync()) {
         await tempDir.delete(recursive: true);
       }
-      // Restore default behaviour so subsequent tests get real WiFi IP.
       WebUIService.resolveWifiIP = NetworkInfo().getWifiIP;
     });
 

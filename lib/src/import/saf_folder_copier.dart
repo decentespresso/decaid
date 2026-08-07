@@ -55,14 +55,12 @@ class SafFolderCopier {
     void Function(int copied, int total)? onProgress,
   }) async {
     final stagingPath = await _stagingPath();
-    // Clean any previous staging data
     final stagingDir = Directory(stagingPath);
     if (await stagingDir.exists()) {
       await stagingDir.delete(recursive: true);
     }
     await stagingDir.create(recursive: true);
 
-    // List top-level contents to find relevant subdirectories
     final topLevel = await SafUtil().list(treeUri);
 
     // Collect all files to copy first so we can report total count
@@ -84,10 +82,8 @@ class SafFolderCopier {
       }
     }
 
-    // Handle plugins/DYE/grinders.tdb — need to traverse two levels
     await _collectGrinderFile(topLevel, stagingPath, filesToCopy);
 
-    // Handle settings.tdb — root-level file
     final settingsFile = topLevel
         .where((e) => !e.isDir && e.name == 'settings.tdb')
         .firstOrNull;
@@ -107,7 +103,6 @@ class SafFolderCopier {
       return null;
     }
 
-    // Copy all files
     final safStream = SafStream();
     var copied = 0;
     for (final task in filesToCopy) {

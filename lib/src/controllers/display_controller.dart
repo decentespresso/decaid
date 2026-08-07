@@ -89,32 +89,26 @@ class DisplayController {
   static const int _lowBatteryBrightnessCap = 20;
   static final ScreenBrightness _defaultScreenBrightness = ScreenBrightness();
 
-  // --- Injectable platform operations (for testability) ---
   final Future<void> Function(double) _setBrightness;
   final Future<void> Function() _resetBrightness;
   final Future<void> Function() _enableWakeLock;
   final Future<void> Function() _disableWakeLock;
 
-  // --- Platform support detection ---
   late final DisplayPlatformSupport _platformSupport;
 
-  // --- State broadcasting ---
   late final BehaviorSubject<DisplayState> _stateSubject;
   Stream<DisplayState> get state => _stateSubject.stream;
   DisplayState get currentState => _stateSubject.value;
 
-  // --- Internal state ---
   De1Interface? _de1;
   MachineState? _currentMachineState;
   StreamSubscription<De1Interface?>? _de1Subscription;
   StreamSubscription<MachineSnapshot>? _snapshotSubscription;
   bool _wakeLockOverride = false;
 
-  // --- Brightness state ---
   int _requestedBrightness = 100;
   int _preSleepBrightness = 100;
 
-  // --- Battery brightness cap state ---
   final Stream<ChargingState>? _batteryStateStream;
   StreamSubscription<ChargingState>? _batterySubscription;
   int? _lastBatteryPercent;
@@ -147,7 +141,7 @@ class DisplayController {
               Platform.isIOS ||
               Platform.isMacOS ||
               Platform.isWindows,
-          wakeLock: true, // wakelock_plus supports all platforms
+          wakeLock: true,
         );
 
     _stateSubject = BehaviorSubject.seeded(
@@ -372,7 +366,6 @@ class DisplayController {
       return;
     }
 
-    // Override always wins
     if (_wakeLockOverride) {
       await _applyWakeLock(true);
       return;

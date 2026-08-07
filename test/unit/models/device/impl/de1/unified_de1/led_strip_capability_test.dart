@@ -65,7 +65,6 @@ void main() {
           ),
         ),
       );
-      // Cache was updated regardless of stub.
       final state = await bengle.getLedStripState();
       expect(state.frontStrip.sleeping, const Color16(65535, 32768, 0));
     });

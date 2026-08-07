@@ -152,13 +152,11 @@ class VariaAkuScale implements Scale {
     int command = data[1];
     int length = data[2];
 
-    // Weight notification: command=0x01, length=0x03
     if (command == 0x01 && length == 0x03 && data.length >= 7) {
       int w1 = data[3];
       int w2 = data[4];
       int w3 = data[5];
 
-      // Sign is in highest nibble of w1 (0x10 means negative)
       bool isNegative = (w1 & 0x10) != 0;
 
       // Weight is 3 bytes big-endian in hundredths of gram
@@ -177,9 +175,7 @@ class VariaAkuScale implements Scale {
           batteryLevel: _batteryLevel,
         ),
       );
-    }
-    // Battery notification: command=0x85, length=0x01
-    else if (command == 0x85 && length == 0x01 && data.length >= 5) {
+    } else if (command == 0x85 && length == 0x01 && data.length >= 5) {
       _batteryLevel = data[3];
     }
   }

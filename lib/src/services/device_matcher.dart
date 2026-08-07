@@ -41,10 +41,7 @@ class DeviceMatcher {
       WeighMasterScale.serviceIdentifier.long,
       ...AcaiaScale.advertisedServiceUuids,
     ],
-    DeviceType.machine => [
-      UnifiedDe1.advertisingIdentifier.long,
-      // Bengle extends UnifiedDe1, inherits advertisingIdentifier.
-    ],
+    DeviceType.machine => [UnifiedDe1.advertisingIdentifier.long],
     DeviceType.sensor => [
       DecentTemp.serviceIdentifier.long,
       DifluidR2Sensor.serviceIdentifier.long,
@@ -127,7 +124,6 @@ class DeviceMatcher {
     final name = advertisedName;
     final nameLower = name.toLowerCase();
 
-    // Exact matches
     if (name == 'Decent Scale') return DecentScale(transport: transport);
     if (name == 'Skale2' || nameLower.startsWith("skale")) {
       return Skale2Scale(transport: transport);
@@ -141,7 +137,6 @@ class DeviceMatcher {
       return Bengle(transport: transport);
     }
 
-    // Prefix matches
     if (nameLower.startsWith('felicita')) {
       return FelicitaArc(transport: transport);
     }

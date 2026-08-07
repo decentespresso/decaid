@@ -60,7 +60,6 @@ class DeviceController
 
   final List<StreamSubscription> _serviceSubscriptions = [];
 
-  // Telemetry service for reporting device state changes
   TelemetryService? _telemetryService;
 
   // Track when devices were last seen disconnecting, keyed by deviceId.
@@ -69,7 +68,6 @@ class DeviceController
   // (comms-harden #20).
   final Map<String, DateTime> _disconnectedAt = {};
 
-  // Track previously seen device ids for disconnection detection.
   final Set<String> _previousDeviceIds = {};
 
   // Map of deviceId → display name for the most recent observation.
@@ -360,7 +358,6 @@ class DeviceController
         _log.info("Device $name ($deviceId) disconnected");
       }
 
-      // Detect reconnections: devices in current update that have disconnection timestamps
       for (var deviceId in currentDeviceIds) {
         if (_disconnectedAt.containsKey(deviceId)) {
           final disconnectedTime = _disconnectedAt[deviceId]!;
@@ -370,25 +367,21 @@ class DeviceController
             "Device $name ($deviceId) reconnected after ${duration.inSeconds}s",
           );
 
-          // Set telemetry custom key with reconnection duration
           _telemetryService?.setCustomKey(
             'reconnection_duration_$deviceId',
             duration.inSeconds,
           );
 
-          // Remove from disconnected tracking
           _disconnectedAt.remove(deviceId);
         }
       }
 
-      // Clean up stale disconnection entries (older than 24 hours)
       final now = DateTime.now();
       _disconnectedAt.removeWhere((_, timestamp) {
         return now.difference(timestamp).inHours > 24;
       });
     }
 
-    // Update previous device ids for next comparison
     _previousDeviceIds.clear();
     _previousDeviceIds.addAll(currentDeviceIds);
 
@@ -415,7 +408,6 @@ class DeviceController
         device.type.name,
       );
 
-      // Count by type (devices in the map are considered connected)
       switch (device.type) {
         case DeviceType.machine:
           machineCount++;
@@ -429,7 +421,6 @@ class DeviceController
       }
     }
 
-    // Set summary counts
     _telemetryService!.setCustomKey('connected_machines', machineCount);
     _telemetryService!.setCustomKey('connected_scales', scaleCount);
     _telemetryService!.setCustomKey('connected_sensors', sensorCount);

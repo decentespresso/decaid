@@ -101,7 +101,6 @@ void main() {
     });
 
     testWidgets('filters: machine widget only shows machines', (tester) async {
-      // Add both a machine and a scale
       mockService.addDevice(MockDe1());
       mockService.addDevice(TestScale());
       await tester.pump();
@@ -161,7 +160,6 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Tap the device tile (tap on the name text)
       await tester.tap(find.text('MockDe1'));
       await tester.pumpAndSettle();
 
@@ -190,7 +188,6 @@ void main() {
       // has an ongoing animation that prevents settling
       await tester.pump();
 
-      // Should show CircularProgressIndicator for the connecting device
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
     });
 

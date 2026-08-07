@@ -63,8 +63,6 @@ class DecentScale implements Scale, TransportHandoffScale {
     : _deviceId = transport.id,
       _device = transport;
 
-  // --- Protocol: 7-byte frame helper -----------------------------------
-
   /// Build a 7-byte Decent Scale BLE command frame.
   /// Prepends [0x03] header and appends XOR checksum over bytes 0-5.
   /// Matches canonical `calculateChecksum` in openscale: XOR all bytes
@@ -110,8 +108,6 @@ class DecentScale implements Scale, TransportHandoffScale {
       throw const DeviceNotConnectedException.scale();
     }
   }
-
-  // --- Scale interface -------------------------------------------------
 
   @override
   Stream<ScaleSnapshot> get currentSnapshot => _streamController.stream;
@@ -384,8 +380,6 @@ class DecentScale implements Scale, TransportHandoffScale {
       _isDisconnecting = false;
     }
   }
-
-  // --- Commands --------------------------------------------------------
 
   @override
   Future<void> tare() async {

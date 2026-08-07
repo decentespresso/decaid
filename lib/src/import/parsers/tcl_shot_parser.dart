@@ -28,18 +28,15 @@ class TclShotParser {
 
     final settings = map['settings'] as Map<String, dynamic>? ?? {};
 
-    // --- Bean metadata ---
     final beanBrand = _str(settings['bean_brand']);
     final beanType = _str(settings['bean_type']);
     final beanNotes = _str(settings['bean_notes']);
     final roastLevel = _str(settings['roast_level']);
     final roastDate = _str(settings['roast_date']);
 
-    // --- Grinder metadata ---
     final grinderModel = _str(settings['grinder_model']);
     final grinderSetting = _str(settings['grinder_setting']);
 
-    // --- Minimal profile ---
     final profileTitle = _str(settings['profile_title']) ?? '';
     final profileTargetWeight = _parseOptDouble(
       settings['final_desired_shot_weight'],
@@ -56,10 +53,8 @@ class TclShotParser {
       tankTemperature: 0,
     );
 
-    // --- Shot annotations ---
     final doseWeight = _parseOptDouble(settings['grinder_dose_weight']);
     final actualYield = _parseOptDouble(settings['drink_weight']);
-    // Target yield: DYE's target_drink_weight → profile's target_weight → actual
     final targetYield =
         _parseOptDouble(settings['target_drink_weight']) ??
         profileTargetWeight ??
@@ -78,7 +73,6 @@ class TclShotParser {
       espressoNotes: espressoNotes,
     );
 
-    // --- Workflow context ---
     final context = WorkflowContext(
       targetDoseWeight: doseWeight,
       targetYield: targetYield,
@@ -90,7 +84,6 @@ class TclShotParser {
       drinkerName: _str(settings['drinker_name']),
     );
 
-    // --- Workflow ---
     final workflow = Workflow(
       id: const Uuid().v4(),
       name: profileTitle,
@@ -101,10 +94,8 @@ class TclShotParser {
       rinseData: RinseData.defaults(),
     );
 
-    // --- Time-series snapshots ---
     final measurements = _parseSnapshots(map, baseTimestamp, profile);
 
-    // --- ShotRecord ---
     final shot = ShotRecord(
       id: 'de1app-$clock',
       timestamp: baseTimestamp,
@@ -223,7 +214,6 @@ class TclShotParser {
     if (value is List) {
       return value.map((e) => double.parse(e.toString())).toList();
     }
-    // Single string value (shouldn't happen for time-series but handle gracefully)
     final d = double.tryParse(value.toString());
     return d != null ? [d] : [];
   }

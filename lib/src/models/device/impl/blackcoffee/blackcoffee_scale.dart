@@ -132,11 +132,9 @@ class BlackCoffeeScale implements Scale {
       return;
     }
 
-    // Extract bytes 3-6 as big-endian signed int32
     final weightRaw = _getInt32(data.sublist(3, 7));
     var weight = weightRaw / 1000.0;
 
-    // If data[2] >= 128, negate the weight
     if (data[2] >= 128) {
       weight = -weight;
     }

@@ -21,17 +21,14 @@ class LogBuffer {
   /// If adding this message would exceed [maxSizeBytes], the oldest
   /// messages are evicted until the buffer is under the limit.
   void append(String message) {
-    // Create timestamped entry
     final timestamped = '[${DateTime.now().toIso8601String()}] $message';
     final entrySize = timestamped.length;
 
-    // If buffer is at capacity, subtract the size of the entry that will be evicted
     if (_buffer.isFilled && _buffer.isNotEmpty) {
       final oldestEntry = _buffer.first;
       _currentSizeBytes -= oldestEntry.length;
     }
 
-    // Add new entry (CircularBuffer automatically evicts oldest if at capacity)
     _buffer.add(timestamped);
     _currentSizeBytes += entrySize;
 
@@ -44,13 +41,11 @@ class LogBuffer {
       var trimmedSize = _currentSizeBytes;
       var removeCount = 0;
 
-      // Remove oldest entries until we're under the limit
       while (trimmedSize > maxSizeBytes && removeCount < entries.length) {
         trimmedSize -= entries[removeCount].length;
         removeCount++;
       }
 
-      // Rebuild buffer with remaining entries
       if (removeCount > 0) {
         _buffer.clear();
         for (var i = removeCount; i < entries.length; i++) {

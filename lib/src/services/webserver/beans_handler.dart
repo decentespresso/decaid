@@ -12,22 +12,18 @@ class BeansHandler {
   BeansHandler({required BeanStorageService storage}) : _storage = storage;
 
   void addRoutes(RouterPlus app) {
-    // Beans
     app.get('/api/v1/beans', _getBeans);
     app.get('/api/v1/beans/<id>', _getBean);
     app.post('/api/v1/beans', _createBean);
     app.put('/api/v1/beans/<id>', _updateBean);
     app.delete('/api/v1/beans/<id>', _deleteBean);
 
-    // Bean batches
     app.get('/api/v1/beans/<beanId>/batches', _getBatches);
     app.post('/api/v1/beans/<beanId>/batches', _createBatch);
     app.get('/api/v1/bean-batches/<id>', _getBatch);
     app.put('/api/v1/bean-batches/<id>', _updateBatch);
     app.delete('/api/v1/bean-batches/<id>', _deleteBatch);
   }
-
-  // --- Beans ---
 
   Future<Response> _getBeans(Request req) async {
     try {
@@ -130,8 +126,6 @@ class BeansHandler {
       return jsonError({'error': e.toString()});
     }
   }
-
-  // --- BeanBatches ---
 
   Future<Response> _getBatches(Request req, String beanId) async {
     beanId = Uri.decodeComponent(beanId);

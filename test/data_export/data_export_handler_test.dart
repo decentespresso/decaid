@@ -69,7 +69,6 @@ class MockExportSection implements DataExportSection {
     importCalls++;
     lastStrategy = strategy;
     if (importPayload != null) {
-      // Capture what the section would see (mirrors handler two-pass).
       final validator = StringJsonInput(importPayload!);
       await for (final _ in validator.valuesAtDepth(1)) {}
       return importResult;
@@ -87,7 +86,7 @@ class OversizeExportSection implements DataExportSection {
   @override
   Future<void> exportJson(JsonSink output) async {
     output.writeRaw('[');
-    output.writeRaw('"${'x' * 1024 * 1024}"'); // 1 MiB fragment
+    output.writeRaw('"${'x' * 1024 * 1024}"');
     output.writeRaw(']');
   }
 
@@ -107,7 +106,7 @@ class UnicodeExportSection implements DataExportSection {
 
   @override
   Future<void> exportJson(JsonSink output) async {
-    output.writeRaw('["${'\u00E9' * 40}"]'); // 42 UTF-16, 82 bytes
+    output.writeRaw('["${'\u00E9' * 40}"]');
   }
 
   @override
@@ -228,9 +227,8 @@ void main() {
         final response = await sendGet('/api/v1/data/export');
         final bytes = await responseBytes(response);
 
-        // The previous decoder path decodes the whole archive with ZipDecoder.
         final archive = ZipDecoder().decodeBytes(bytes);
-        expect(archive.length, 3); // metadata + 2 sections
+        expect(archive.length, 3);
 
         final profilesFile = archive.findFile('profiles.json');
         expect(profilesFile, isNotNull);
@@ -252,7 +250,6 @@ void main() {
           final bytes = await file.readAsBytes();
           final archive = ZipDecoder().decodeBytes(bytes);
           expect(archive.findFile('profiles.json'), isNotNull);
-          // Sections wrote one fragment each (whole-value fragments here).
           expect(profileSection.maxFragmentLength, greaterThan(0));
         } finally {
           await tempDir.delete(recursive: true);
@@ -301,7 +298,7 @@ void main() {
               throwsA(isA<DataExportException>()),
             );
             final leftovers = tempDir.listSync();
-            expect(leftovers, isEmpty); // no partial ZIP left behind
+            expect(leftovers, isEmpty);
           } finally {
             await tempDir.delete(recursive: true);
           }
@@ -568,7 +565,6 @@ void main() {
       });
 
       test('rejects an archive exceeding the entry count limit', () async {
-        // Build a zip with many entries; even unknown ones count.
         final files = <String, String>{'metadata.json': '{"formatVersion":1}'};
         for (var i = 0; i < 10; i++) {
           files['file$i.json'] = '{}';
@@ -796,7 +792,6 @@ void main() {
         for (final response in responses) {
           expect(response.statusCode, 200);
         }
-        // No leftover temp dirs.
         final leftovers = Directory.systemTemp
             .listSync()
             .whereType<Directory>()

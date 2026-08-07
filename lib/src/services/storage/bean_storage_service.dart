@@ -10,7 +10,6 @@ abstract class BeanStorageService {
   Future<void> updateBean(Bean bean);
   Future<void> deleteBean(String id);
 
-  // --- BeanBatches ---
   Future<List<BeanBatch>> getBatchesForBean(
     String beanId, {
     bool includeArchived = false,

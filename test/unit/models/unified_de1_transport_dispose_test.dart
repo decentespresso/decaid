@@ -66,7 +66,6 @@ void main() {
       final fake = _Fake();
       final transport = UnifiedDe1Transport(transport: fake);
 
-      // Access subjects via public getters to confirm they're open
       expect(transport.state, isA<Stream>());
       expect(transport.shotSample, isA<Stream>());
       expect(transport.waterLevels, isA<Stream>());
@@ -76,7 +75,6 @@ void main() {
 
       await transport.dispose();
 
-      // Underlying transport should have been disposed
       expect(fake.disposeCalled, isTrue);
 
       // After dispose, subjects are closed and complete without emitting

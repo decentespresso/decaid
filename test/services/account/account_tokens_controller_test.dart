@@ -83,7 +83,6 @@ void main() {
       ),
     ]);
 
-    // Fresh service + controller, simulating a restart.
     final freshService = ProxyTokenService();
     final freshController = AccountTokensController(
       tokenService: freshService,

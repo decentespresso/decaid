@@ -875,7 +875,6 @@ class PluginManager {
     _pluginIdsByBridgeToken[pluginBridgeToken] = id;
 
     try {
-      // Direct injection approach with standard factory name
       final wrapperCode =
           '''
       (function () {
@@ -1509,7 +1508,6 @@ class PluginManager {
     int generation,
     PluginStorageCommand cmd,
   ) async {
-    // Use pluginId as namespace for storage isolation
     final namespace = pluginId;
 
     switch (cmd.type) {

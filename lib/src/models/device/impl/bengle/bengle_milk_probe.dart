@@ -72,7 +72,6 @@ class BengleMilkProbe implements Sensor {
     String commandId,
     Map<String, dynamic>? parameters,
   ) async {
-    // No commands exposed today.
     return const {};
   }
 

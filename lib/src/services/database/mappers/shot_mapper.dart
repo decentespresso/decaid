@@ -39,7 +39,6 @@ class ShotMapper {
       id: Value(record.id),
       timestamp: Value(record.timestamp),
 
-      // Denormalized columns for filtering
       profileTitle: Value(record.workflow.profile.title),
       grinderId: Value(ctx?.grinderId),
       grinderModel: Value(ctx?.grinderModel),
@@ -53,7 +52,6 @@ class ShotMapper {
       espressoNotes: Value(record.annotations?.espressoNotes),
       stopReason: Value(record.stopReason),
 
-      // Full JSON blobs
       workflowJson: Value(record.workflow.toJson()),
       annotationsJson: Value(record.annotations?.toJson()),
       measurementsJson: Value(

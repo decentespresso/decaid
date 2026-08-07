@@ -47,7 +47,6 @@ Future<bool> _checkPermissionsNeeded() async {
     final bt = await Permission.bluetooth.status;
     return !bt.isGranted;
   }
-  // Desktop: no runtime permissions needed
   return false;
 }
 

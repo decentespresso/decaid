@@ -279,7 +279,7 @@ void main() {
       await settle();
       m.emit(_snap(MachineState.hotWater));
       await settle();
-      scale.emitWeight(0, flow: 0, at: clock); // post-tare zero observed
+      scale.emitWeight(0, flow: 0, at: clock);
       await settle();
       return m;
     }
@@ -288,7 +288,6 @@ void main() {
       await build();
       final m = await armAndConfirmTare();
 
-      // Past the tare-settle window.
       clock = clock.add(const Duration(seconds: 1));
       scale.emitWeight(30, flow: 0, at: clock);
       await settle();
@@ -313,7 +312,6 @@ void main() {
       await build();
       final m = await armAndConfirmTare();
 
-      // Still inside the settle window.
       clock = clock.add(const Duration(milliseconds: 100));
       scale.emitWeight(50, flow: 0, at: clock);
       await settle();
@@ -335,8 +333,8 @@ void main() {
         m.emit(_snap(MachineState.hotWater));
         await settle();
 
-        clock = clock.add(const Duration(seconds: 1)); // window elapsed
-        scale.emitWeight(50, flow: 0, at: clock); // stale pre-tare cup weight
+        clock = clock.add(const Duration(seconds: 1));
+        scale.emitWeight(50, flow: 0, at: clock);
         await settle();
         expect(
           m.requested,
@@ -344,7 +342,6 @@ void main() {
           reason: 'must not stop on an unconfirmed (pre-tare) reading',
         );
 
-        // Tare finally lands — scale drops to zero, then water climbs to target.
         scale.emitWeight(0, flow: 0, at: clock);
         await settle();
         clock = clock.add(const Duration(milliseconds: 200));
@@ -379,7 +376,6 @@ void main() {
       await settle();
       expect(m.requested.where((s) => s == MachineState.idle).length, 1);
 
-      // Machine returns to idle → disarm.
       m.emit(_snap(MachineState.idle, substate: MachineSubstate.idle));
       await settle();
       expect(sequencer.isArmed, isFalse);

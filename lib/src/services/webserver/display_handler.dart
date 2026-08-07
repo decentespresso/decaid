@@ -94,7 +94,6 @@ class DisplayHandler {
 
       socket.stream.listen(
         (msg) {
-          // Handle incoming commands over WebSocket
           try {
             final data = jsonDecode(msg as String) as Map<String, dynamic>;
             final command = data['command'] as String?;

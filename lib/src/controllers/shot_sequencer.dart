@@ -50,7 +50,6 @@ class ShotSequencer {
   /// out of scope until that exists.
   final bool _machineHasAutonomousSAW;
 
-  // Skip step on weight specific
   List<int> skippedSteps = [];
   final StepExitArbiter _stepExitArbiter = StepExitArbiter();
   int _lastProfileFrame = -1;
@@ -60,7 +59,6 @@ class ShotSequencer {
   /// [_trackFrameAdvance].
   int _maxFrameSeen = -1;
 
-  // Volume counting state
   double _accumulatedVolume = 0.0;
   DateTime? _lastVolumeUpdateTime;
   bool _volumeCountingActive = false;
@@ -73,12 +71,10 @@ class ShotSequencer {
   // up against the decay. The saved trace stops at the stop boundary, so only
   // this value follows the tail, not the graph. Null when no scale weighs the
   // shot.
-  static const double _settleFlowThreshold = 0.4; // g/s; |flow| below = still
-  static const int _settleSampleCount =
-      10; // consecutive still samples = settled (was 3; raised for Kalman smoothness — 3 samples at ~10 Hz ≈ 0.3s misses trailing drips)
-  static const double _removalFlowThreshold =
-      3.0; // g/s; flow < -this = removal
-  static const double _spikeFlowJump = 3.0; // g/s; flow rising vs prev = spike
+  static const double _settleFlowThreshold = 0.4;
+  static const int _settleSampleCount = 10;
+  static const double _removalFlowThreshold = 3.0;
+  static const double _spikeFlowJump = 3.0;
   static const Duration _stoppingBackstop = Duration(seconds: 4);
   double? _trustedFinalYield;
   bool _stoppingYieldLocked = false;
@@ -351,7 +347,6 @@ class ShotSequencer {
       );
     }
 
-    // Update volume calculation
     final snapshotWithVolume = _updateVolume(snapshot);
 
     _rawShotDataStream.add(snapshotWithVolume);
@@ -365,13 +360,11 @@ class ShotSequencer {
     final MachineSnapshot machine = snapshot.machine;
     final int currentFrame = machine.profileFrame;
 
-    // Check if we should be counting volume
     if (_volumeCountingActive &&
         currentFrame >= targetProfile.targetVolumeCountStart) {
       final now = snapshot.machine.timestamp;
 
       if (_lastVolumeUpdateTime != null) {
-        // Calculate time delta in seconds
         final timeDelta =
             now.difference(_lastVolumeUpdateTime!).inMilliseconds / 1000.0;
 
@@ -389,7 +382,6 @@ class ShotSequencer {
       _lastVolumeUpdateTime = now;
     }
 
-    // Return snapshot with volume data
     return snapshot.copyWith(volume: _accumulatedVolume);
   }
 
@@ -434,7 +426,6 @@ class ShotSequencer {
           _resetCommand.add(true);
           _shotStartTime = DateTime.now();
 
-          // Reset volume counting for new shot
           _accumulatedVolume = 0.0;
           _lastVolumeUpdateTime = null;
           _volumeCountingActive = false;
@@ -504,7 +495,6 @@ class ShotSequencer {
             _scaleTared = true;
           }
 
-          // Start volume counting when shot begins
           _volumeCountingActive = true;
           _log.info(
             "Volume counting activated. Will start from frame ${targetProfile.targetVolumeCountStart}",
@@ -541,9 +531,7 @@ class ShotSequencer {
                 'projectedWeight': projectedWeight,
               },
             );
-            de1controller.connectedDe1().requestState(
-              MachineState.idle,
-            ); // Send stop command to machine
+            de1controller.connectedDe1().requestState(MachineState.idle);
             _enterStopping(scale);
             break;
           }
@@ -552,7 +540,6 @@ class ShotSequencer {
             !_machineHasAutonomousSAW &&
             (scale == null || _scaleLost) &&
             (targetProfile.targetVolume ?? 0) > 0) {
-          // Use volumeFlowMultiplier to project future volume and stop at the right time
           final projectedVolume =
               _accumulatedVolume + (machine.flow * _volumeFlowMultiplier);
           if (projectedVolume > targetProfile.targetVolume!) {
@@ -568,9 +555,7 @@ class ShotSequencer {
                 'projectedVolume': projectedVolume,
               },
             );
-            de1controller.connectedDe1().requestState(
-              MachineState.idle,
-            ); // Send stop command to machine
+            de1controller.connectedDe1().requestState(MachineState.idle);
             _enterStopping(scale);
             break;
           }
@@ -601,7 +586,6 @@ class ShotSequencer {
         break;
 
       case ShotState.stopping:
-        // Stop volume counting and scale timer
         _volumeCountingActive = false;
         if (_bypassSAW == false && scale != null && !_scaleLost) {
           scaleController.connectedScale().stopTimer();
@@ -635,7 +619,6 @@ class ShotSequencer {
         break;
 
       case ShotState.finished:
-        // Reset or prepare for next shot
         dataCollectionEnabled = false;
         _stoppingStateFuture = null;
         _state = ShotState.idle;
@@ -736,7 +719,6 @@ class ShotSequencer {
 
   void _enterStopping(WeightSnapshot? scale) {
     _latchTrustedFinalYield(scale);
-    // Recording stops at the machine-reported shot end.
     dataCollectionEnabled = false;
     // The post-stop window exists solely to catch the final drips on the scale
     // and fold them into the yield (see _refineStoppingYield). With a scale,
@@ -790,7 +772,6 @@ class ShotSequencer {
       return;
     }
 
-    // Still filling — take the rising weight.
     if (_trustedFinalYield == null || weight > _trustedFinalYield!) {
       _trustedFinalYield = weight;
     }

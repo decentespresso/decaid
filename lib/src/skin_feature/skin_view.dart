@@ -219,7 +219,6 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
     // Clear HTTP cache. Note: this does NOT clear service worker
     // CacheStorage on Android — the SW is bypassed via a cache-
     // busting query param on the initial URL instead.
-    //
     // Skipped on Windows: flutter_inappwebview_windows has no native
     // handler for clearAllCache, and awaiting it hangs SkinView on
     // "Checking compatibility...".
@@ -248,33 +247,26 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
 
   InAppWebViewSettings _createSettings() {
     return InAppWebViewSettings(
-      // JavaScript
       javaScriptEnabled: true,
       javaScriptCanOpenWindowsAutomatically: false,
 
-      // Media
       mediaPlaybackRequiresUserGesture: false,
 
       // Security - restrict file access for localhost-only content
       allowFileAccessFromFileURLs: false,
       allowUniversalAccessFromFileURLs: false,
 
-      // Navigation
       useShouldOverrideUrlLoading: true,
 
-      // Caching
       cacheEnabled: false,
 
-      // Zoom - disable for consistent UI
       supportZoom: false,
       builtInZoomControls: false,
       enableViewportScale: true,
 
-      // Scrollbars - hide on all platforms
       verticalScrollBarEnabled: false,
       horizontalScrollBarEnabled: false,
 
-      // displayZoomControls: false,
       userAgent: "Decent",
 
       // Memory management: let Android kill the renderer process (not the app)
@@ -300,7 +292,6 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
     } else if (Platform.isWindows) {
       instructions = 'Press Alt+Backspace to return to Dashboard';
     } else {
-      // Fallback for other platforms
       instructions = 'Use back navigation to return to Dashboard';
     }
 
@@ -327,7 +318,6 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // No AppBar for fullscreen appearance
       body: SafeArea(
         // Edge-to-edge: the skin webview owns the entire screen on every side.
         // left/right default to true, which insets the webview and lets the
@@ -553,7 +543,6 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   }
 
   Widget _buildBody() {
-    // Show compatibility check in progress
     if (_isCheckingCompatibility) {
       return Center(
         child: Column(
@@ -570,12 +559,10 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
       );
     }
 
-    // Show incompatibility message if check failed
     if (_compatibilityResult != null && !_compatibilityResult!.isCompatible) {
       return _buildIncompatibilityMessage();
     }
 
-    // Show error message if WebView failed to load
     if (_errorMessage != null) {
       return Center(
         child: Padding(
@@ -679,7 +666,6 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
       onLoadStart: (controller, url) {
         _log.info('Page started loading: $url');
         _mainFrameUri = url;
-        // Webview is up — final cold-boot milestone (idempotent).
         BootTiming.mark('webview');
         BootTiming.complete();
         setState(() {
@@ -714,7 +700,6 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
         //   })();
         // ''');
 
-        // Show exit instructions snackbar
         if (mounted &&
             !_didShowExit &&
             widget.settingsController.showSkinExitInstructions) {
@@ -758,7 +743,6 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
             _log.fine('Allowing navigation to: $uri');
             return NavigationActionPolicy.ALLOW;
           case SkinNavDecision.openExternal:
-            // Open in the system browser and stay on the skin.
             _log.info('Opening external link in system browser: $uri');
             unawaited(_launchExternal(uri!));
             return NavigationActionPolicy.CANCEL;
@@ -775,7 +759,6 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
           consoleMessage.messageLevel.toString(),
           consoleMessage.message,
         );
-        // Also log at FINEST for app-level debug visibility
         _log.finest(
           'WebView Console [$skinId] [${consoleMessage.messageLevel}]: ${consoleMessage.message}',
         );

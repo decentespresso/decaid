@@ -18,7 +18,6 @@ class ProfileHash {
   /// - type
   /// - version
   static String calculateProfileHash(Profile profile) {
-    // Create a stable JSON representation of execution-relevant fields
     final data = {
       'version': profile.version,
       'beverage_type': profile.beverageType.name,
@@ -31,10 +30,8 @@ class ProfileHash {
       // If they're added later, include them here
     };
 
-    // Convert to stable JSON string (keys sorted)
     final jsonStr = _encodeJsonStable(data);
 
-    // Calculate SHA-256 hash
     final bytes = utf8.encode(jsonStr);
     final hash = sha256.convert(bytes);
 

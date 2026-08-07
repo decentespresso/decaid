@@ -27,7 +27,6 @@ void main() {
           async.elapse(Duration(seconds: 1));
         }
 
-        // Should still be connected
         expect(transport.disconnectCalled, isFalse);
       });
     });
@@ -39,11 +38,9 @@ void main() {
         hds.onConnect();
         async.elapse(Duration(milliseconds: 100));
 
-        // Feed one weight frame, then stop
         transport.emitRawData(weightFrame(42.0));
         async.elapse(Duration(milliseconds: 100));
 
-        // Clear the initial enable command from onConnect
         final initialCommands = transport.writtenHexCommands.length;
 
         // Advance past warning threshold (6s = 3 watchdog ticks at 2s each)
@@ -65,11 +62,9 @@ void main() {
         hds.onConnect();
         async.elapse(Duration(milliseconds: 100));
 
-        // Feed one weight frame, then stop
         transport.emitRawData(weightFrame(42.0));
         async.elapse(Duration(milliseconds: 100));
 
-        // Advance past disconnect threshold (12s = 6 watchdog ticks at 2s each)
         async.elapse(Duration(seconds: 13));
 
         expect(transport.disconnectCalled, isTrue);
@@ -83,14 +78,12 @@ void main() {
         hds.onConnect();
         async.elapse(Duration(milliseconds: 100));
 
-        // Feed one frame
         transport.emitRawData(weightFrame(10.0));
         async.elapse(Duration(milliseconds: 100));
 
         // Gap of 5 seconds (past warning but before disconnect)
         async.elapse(Duration(seconds: 5));
 
-        // Data resumes
         transport.emitRawData(weightFrame(20.0));
 
         // Another 10 seconds — should NOT disconnect because timer reset

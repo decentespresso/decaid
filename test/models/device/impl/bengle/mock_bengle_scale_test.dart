@@ -122,7 +122,6 @@ void main() {
           );
         }
 
-        // By the end the scale reads a real dose, reached without ever decreasing.
         expect(
           samples.last,
           greaterThan(5.0),

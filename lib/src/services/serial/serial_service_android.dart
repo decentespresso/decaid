@@ -129,7 +129,6 @@ class SerialServiceAndroid
             _log.warning("USB_DETACHED: no matching device in $_devices");
           }
         } else {
-          // No device info — disconnect all serial devices as a fallback
           _log.warning(
             "USB_DETACHED: device is null, disconnecting "
             "${_devices.length} serial device(s)",
@@ -360,7 +359,6 @@ class SerialServiceAndroid
 
   @override
   Future<void> scanForDevices({ScanFilter? filter}) async {
-    // If already scanning, wait for that scan to complete
     if (_isScanning) {
       _log.info("Scan already in progress, waiting for completion");
       await _currentScan;
@@ -477,7 +475,6 @@ class SerialServiceAndroid
     } catch (e) {
       port = await device.create(UsbSerial.CH34x);
     }
-    // final port = await device.create(UsbSerial.CDC);
     if (port == null) {
       _log.warning("failed to add $device, port is null");
       return null;
@@ -485,7 +482,6 @@ class SerialServiceAndroid
     final transport = AndroidSerialPort(device: device, port: port);
     _transportForDeviceId[transport.id] = transport;
 
-    // yay, shortcuts
     if (device.productName == "DE1") {
       _log.info("short circuit to de1");
       return UnifiedDe1(transport: transport);
@@ -498,13 +494,11 @@ class SerialServiceAndroid
       return Bengle(transport: transport);
     }
 
-    // Half Decent Scale shortcut
     if (device.productName == "Half Decent Scale") {
       _log.info("short circuit to Half Decent Scale");
       return HDSSerial(transport: transport);
     }
 
-    // VID:PID shortcut.
     final usbModel = matchUsbDevice(
       usbDeviceTable,
       vid: device.vid,
@@ -530,11 +524,9 @@ class SerialServiceAndroid
         cancelOnError: false,
       );
 
-      // Collect for the desired duration
       await Future.delayed(duration);
       await subscription.cancel();
 
-      // Combine all chunks into one buffer
       final combined = rawData.expand((e) => e).toList();
       List<String> strings = [];
       try {
@@ -545,7 +537,6 @@ class SerialServiceAndroid
       );
       _log.info("parsed into strings: $strings");
 
-      // Heuristic checks for device type
       if (strings.any((s) => s.startsWith('R '))) {
         return DebugPort(transport: transport);
       } else if (isDecentScale(strings, rawData)) {

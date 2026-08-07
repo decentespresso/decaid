@@ -119,7 +119,7 @@ class MainActivity: FlutterFragmentActivity() {
                     val canInstall = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         packageManager.canRequestPackageInstalls()
                     } else {
-                        true // Pre-Oreo doesn't need special permission
+                        true
                     }
                     result.success(canInstall)
                 }
@@ -228,7 +228,6 @@ class MainActivity: FlutterFragmentActivity() {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
             
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                // Use FileProvider for Android 7.0+
                 val apkUri = FileProvider.getUriForFile(
                     this@MainActivity,
                     "$packageName.fileprovider",
@@ -236,7 +235,6 @@ class MainActivity: FlutterFragmentActivity() {
                 )
                 setDataAndType(apkUri, "application/vnd.android.package-archive")
             } else {
-                // Direct file URI for older versions
                 setDataAndType(Uri.fromFile(apkFile), "application/vnd.android.package-archive")
             }
         }

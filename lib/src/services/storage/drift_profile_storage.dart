@@ -10,9 +10,7 @@ class DriftProfileStorageService implements ProfileStorageService {
   DriftProfileStorageService(this._db);
 
   @override
-  Future<void> initialize() async {
-    // No initialization needed — database is already open.
-  }
+  Future<void> initialize() async {}
 
   @override
   Future<void> store(domain.ProfileRecord record) {

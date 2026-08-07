@@ -48,7 +48,6 @@ class SettingsView extends StatelessWidget {
           final isMobile = Platform.isAndroid || Platform.isIOS;
           return ListView(
             children: [
-              // MARK: General
               const SettingsSectionHeader('General'),
               SettingsTile(
                 icon: Icons.palette_outlined,
@@ -74,7 +73,6 @@ class SettingsView extends StatelessWidget {
                 ),
               ),
 
-              // MARK: Updates
               const SettingsSectionHeader('Updates'),
               if (!Platform.isIOS) ...[
                 SettingsTile(
@@ -131,7 +129,6 @@ class SettingsView extends StatelessWidget {
                 onTap: () => _checkForUpdates(context),
               ),
 
-              // MARK: Power
               const SettingsSectionHeader('Power'),
               if (isMobile) ...[
                 SettingsTile(
@@ -182,7 +179,6 @@ class SettingsView extends StatelessWidget {
                 ),
               ),
 
-              // MARK: About
               const SettingsSectionHeader('About'),
               SettingsTile(
                 icon: Icons.info_outline,
@@ -196,8 +192,6 @@ class SettingsView extends StatelessWidget {
       ),
     );
   }
-
-  // MARK: - Label Helpers
 
   static String _themeModeLabel(ThemeMode mode) {
     switch (mode) {
@@ -239,8 +233,6 @@ class SettingsView extends StatelessWidget {
     if (timeout > 0) return 'Sleep after $timeout min';
     return 'Enabled, no sleep timeout';
   }
-
-  // MARK: - Dialogs
 
   void _showThemePicker(BuildContext context) {
     showShadDialog(
@@ -518,7 +510,6 @@ class SettingsView extends StatelessWidget {
         );
       }
 
-      // Also update WebUI skins
       await webUIStorage?.downloadRemoteSkins();
     } catch (e, stackTrace) {
       log.severe('Error checking for updates', e, stackTrace);

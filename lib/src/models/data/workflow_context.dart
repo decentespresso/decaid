@@ -4,28 +4,22 @@ import 'package:reaprime/src/models/data/utils.dart';
 /// All fields nullable — supports minimal (dose only), standard (display strings),
 /// and full (entity IDs) usage tiers.
 class WorkflowContext {
-  // Dose & Yield
   final double? targetDoseWeight;
   final double? targetYield;
 
-  // Grinder (ID + display string pattern)
   final String? grinderId;
   final String? grinderModel;
   final String? grinderSetting;
 
-  // Coffee (ID + display strings pattern)
   final String? beanBatchId;
   final String? coffeeName;
   final String? coffeeRoaster;
 
-  // Beverage
   final String? finalBeverageType;
 
-  // People
   final String? baristaName;
   final String? drinkerName;
 
-  // Plugin data channel
   final Map<String, dynamic>? extras;
 
   const WorkflowContext({

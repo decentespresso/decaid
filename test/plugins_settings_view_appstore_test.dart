@@ -81,7 +81,6 @@ void main() {
       await tester.pump();
 
       expect(find.byTooltip('Install Plugin'), findsNothing);
-      // Refresh button should still be present
       expect(find.byTooltip('Refresh Plugins'), findsOneWidget);
     });
   });

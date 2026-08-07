@@ -228,7 +228,6 @@ class ConnectionManager {
   Duration get _scaleReconnectBackoff {
     final base = 5;
     final seconds = base * (1 << _scaleReconnectFailures).clamp(1, 12);
-    // 5*1=5, 5*2=10, 5*4=20, 5*8=40, 5*12=60
     return Duration(seconds: seconds.clamp(5, 60));
   }
 
@@ -954,7 +953,6 @@ class ConnectionManager {
       return;
     }
     if (!scaleOnly) {
-      // A fresh full connect supersedes any pending deferred rescan.
       _deferredScaleScan?.cancel();
       _deferredScaleScan = null;
       _earlyStopFired = false;
@@ -1179,14 +1177,12 @@ class ConnectionManager {
     final preferredMachineId = settingsController.preferredMachineId;
     final preferredScaleId = settingsController.preferredScaleId;
     if (preferredMachineId != null && preferredScaleId != null) {
-      // Both preferred — wait for both.
       if (_machineConnected && _scaleConnected) {
         _log.fine('Both preferred devices connected, stopping scan early');
         _earlyStopFired = true;
         deviceScanner.stopScan();
       }
     } else if (preferredMachineId != null) {
-      // Machine only — stop on machine connect.
       if (_machineConnected) {
         _log.fine(
           'Preferred machine connected (no preferred scale), '
@@ -1196,7 +1192,6 @@ class ConnectionManager {
         deviceScanner.stopScan();
       }
     } else if (preferredScaleId != null) {
-      // Scale only (auto-discovered machine) — stop when both connect.
       if (_machineConnected && _scaleConnected) {
         _log.fine(
           'Preferred scale connected (auto machine), stopping scan early',
@@ -1205,7 +1200,6 @@ class ConnectionManager {
         deviceScanner.stopScan();
       }
     } else {
-      // No preferences — stop when at least one of each type connects.
       if (_machineConnected && _scaleConnected) {
         _log.fine(
           'Machine and scale connected (no preferences), stopping scan early',
@@ -1261,9 +1255,9 @@ class ConnectionManager {
     _deferredScaleScan?.cancel();
     _deferredScaleScan = Timer(deferredScaleScanDelay, () {
       _deferredScaleScan = null;
-      if (_scaleConnected) return; // a scale arrived in the meantime
+      if (_scaleConnected) return;
       if (!_machineConnected || _scaleReconnectBlockedByPowerMode) return;
-      connect(scaleOnly: true); // fire-and-forget
+      connect(scaleOnly: true);
     });
   }
 
@@ -1313,7 +1307,7 @@ class ConnectionManager {
     _preferredScaleReconnect = Timer(delay, () {
       _preferredScaleReconnect = null;
       if (!_shouldRetryPreferredScale()) return;
-      connect(scaleOnly: true); // fire-and-forget
+      connect(scaleOnly: true);
     });
   }
 
@@ -1797,7 +1791,6 @@ class ConnectionManager {
       );
       return const ConnectionResult.succeeded();
     } catch (e) {
-      // Scale failure is non-blocking — stay at ready if machine connected, else idle.
       _publishStatus(
         currentStatus.copyWith(
           phase: _machineConnected

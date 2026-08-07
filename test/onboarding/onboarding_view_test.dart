@@ -46,7 +46,6 @@ void main() {
     );
     await tester.pump();
 
-    // Verify PopScope is in the tree with canPop: false
     final popScope = tester.widget<PopScope>(find.byType(PopScope));
     expect(popScope.canPop, isFalse);
   });

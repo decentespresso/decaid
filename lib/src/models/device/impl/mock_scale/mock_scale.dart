@@ -74,7 +74,6 @@ class MockScale implements Scale, SimulatedDevice {
   // [attachMachine]) through the shared shot-weight model, so a simulated
   // shot produces a believable curve: nothing at idle, first-drops lag,
   // then weight tracking flow. Without a machine the scale reads a flat ~0.
-  //
   // Like real scale firmware, the emitted stream is stability-filtered:
   // while the underlying weight is at rest the reported value holds
   // perfectly still (no raw load-cell noise broadcast to clients); only a

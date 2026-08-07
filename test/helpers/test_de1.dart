@@ -116,8 +116,6 @@ class TestDe1 implements De1Interface {
     sentRawMessages.clear();
   }
 
-  // ---- Machine / Device ----
-
   @override
   Stream<MachineSnapshot> get currentSnapshot => snapshotSubject.stream;
 
@@ -153,8 +151,6 @@ class TestDe1 implements De1Interface {
   Future<void> disconnect() async {}
   @override
   Stream<ConnectionState> get connectionState => _connectionState.stream;
-
-  // ---- De1Interface ----
 
   @override
   Stream<bool> get ready => Stream.value(true);

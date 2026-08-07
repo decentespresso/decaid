@@ -316,7 +316,7 @@ void main() {
         ),
       );
 
-      expect(response.statusCode, 500); // jsonError
+      expect(response.statusCode, 500);
       expect(
         await response.readAsString(),
         contains('did not respond in time'),
@@ -363,7 +363,6 @@ void main() {
     );
     expect(await response.readAsString(), contains('did not respond in time'));
 
-    // Let the late response arrive and verify it is dropped.
     await Future<void>.delayed(const Duration(milliseconds: 500));
     expect(manager.activePendingOpCount, 0);
   });

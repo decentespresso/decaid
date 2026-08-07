@@ -361,7 +361,6 @@ void main() {
       late ImportResult result;
 
       setUpAll(() async {
-        // The fixture shot has id 'de1app-1710510622'
         storage = FakeStorageService(existingIds: ['de1app-1710510622']);
         final scanResult = ScanResult(
           shotCount: 1,
@@ -394,7 +393,6 @@ void main() {
       setUpAll(() async {
         tempDir = await Directory.systemTemp.createTemp('de1app_importer_err_');
 
-        // Copy the valid fixture shot
         final validFile = File(
           '$_fixturesPath/history_v2/20240315T143022.json',
         );
@@ -402,7 +400,6 @@ void main() {
         await historyV2.create();
         await validFile.copy('${tempDir.path}/history_v2/valid.json');
 
-        // Create a malformed file
         await File(
           '${tempDir.path}/history_v2/bad.json',
         ).writeAsString('THIS IS NOT JSON {{{');
@@ -512,13 +509,12 @@ void main() {
           'de1app_importer_settings_',
         );
 
-        // Write a settings.tdb with known values
         await File('${tempDir.path}/settings.tdb').writeAsString(
           'scheduler_enable 1\n'
-          'scheduler_wake 25200\n' // 7:00 AM (7*3600)
-          'scheduler_sleep 28800\n' // 8:00 AM (8*3600) -> keepAwake = 60 min
+          'scheduler_wake 25200\n'
+          'scheduler_sleep 28800\n'
           'keep_scale_on 1\n'
-          'screen_saver_delay 30\n' // 30 minutes (snaps to 30)
+          'screen_saver_delay 30\n'
           'grinder_dose_weight 18.5\n'
           'final_desired_shot_weight_advanced 36.0\n'
           'grinder_model {Niche Zero}\n'
@@ -532,7 +528,6 @@ void main() {
           'smart_battery_charging 2\n',
         );
 
-        // Create a workflow with defaults so it can be updated
         final initialWorkflow = Workflow(
           id: 'test-workflow',
           name: 'Default',

@@ -24,7 +24,6 @@ Map<String, dynamic> deepMergeJson(
     final key = entry.key;
     final updateValue = entry.value;
 
-    // If the key doesn't exist in base, just add it
     if (!result.containsKey(key)) {
       result[key] = updateValue;
       continue;
@@ -32,7 +31,6 @@ Map<String, dynamic> deepMergeJson(
 
     final baseValue = result[key];
 
-    // If both values are maps, merge recursively
     if (baseValue is Map<String, dynamic> &&
         updateValue is Map<String, dynamic>) {
       result[key] = deepMergeJson(baseValue, updateValue);

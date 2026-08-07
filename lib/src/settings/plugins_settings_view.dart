@@ -8,8 +8,6 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
 
-// LucideIcons is exported by shadcn_ui
-
 const _maxPluginSafDepth = 32;
 const _maxPluginSafEntries = 10000;
 
@@ -135,7 +133,6 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
       _isLoading = true;
     });
 
-    // Get the list of available plugins
     final plugins = widget.pluginLoaderService.availablePlugins;
 
     setState(() {
@@ -429,22 +426,18 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
     Directory source,
     Directory destination,
   ) async {
-    // Create destination directory if it doesn't exist
     if (!destination.existsSync()) {
       destination.createSync(recursive: true);
     }
 
-    // List all entries in the source directory
     final entries = source.listSync(recursive: false);
 
     for (final entry in entries) {
       final newPath = '${destination.path}/${entry.path.split('/').last}';
 
       if (entry is File) {
-        // Copy file
         await entry.copy(newPath);
       } else if (entry is Directory) {
-        // Recursively copy directory
         final newDir = Directory(newPath);
         await _copyDirectoryRecursively(entry, newDir);
       }
@@ -590,7 +583,6 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                       secureDraft.text.isEmpty &&
                       !secureDraft.clearRequested;
 
-                  // Helper function to get display value
                   String getDisplayValue(dynamic value) {
                     if (value == null) return '';
                     return value.toString();

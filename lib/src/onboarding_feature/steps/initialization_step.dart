@@ -109,7 +109,6 @@ class _InitializationStepViewState extends State<_InitializationStepView> {
       }
     }
     if (!served) {
-      // Registry default (or fallback from failed --skin-path).
       if (override.source == SkinSource.path) {
         _log.info('Falling back to registry default skin');
       }

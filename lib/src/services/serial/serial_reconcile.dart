@@ -116,7 +116,7 @@ SerialReconcilePlan planSerialReconcile({
   final suppressRemove = <String>{};
   final hdsForget = <String>{};
   for (final t in tracked) {
-    if (release.contains(t.path)) continue; // already released this pass
+    if (release.contains(t.path)) continue;
     final portGone = !t.present;
     final selfDisconnected = t.state == ConnectionState.disconnected;
     if (!portGone && !selfDisconnected) continue;
@@ -172,7 +172,6 @@ bool serialPortMatchesCandidate({
   String? productName,
 }) {
   if (transport == 'Bluetooth') return false;
-  // Known device productNames — always probe regardless of port name.
   if (productName == 'DE1' ||
       productName == 'Bengle' ||
       productName == 'Half Decent Scale') {

@@ -62,7 +62,7 @@ class ScaleWatch {
     if (_armed) return;
     if (!_shouldWatch()) return;
     final id = _preferredScaleId();
-    if (id == null) return; // shouldWatch covers this; belt-and-braces
+    if (id == null) return;
     _armed = true;
     final gen = _generation;
 
@@ -177,7 +177,7 @@ class ScaleWatch {
       // surfacing here is unexpected but must not kill the watch cycle.
       _log.warning('Watch-driven scale connect threw', e, st);
     }
-    if (gen != _generation) return; // disarmed while connecting
+    if (gen != _generation) return;
     if (_shouldWatch()) {
       _log.fine('Scale still missing after connect attempt; watch continues');
       if (!await _startWatchScan()) return;

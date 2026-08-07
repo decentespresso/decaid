@@ -68,7 +68,6 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
 
   @override
   Widget build(BuildContext context) {
-    // The storage-permission affordance only exists for Android sideload builds.
     final showStorageRow = Platform.isAndroid;
 
     return Scaffold(
@@ -228,7 +227,6 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
       );
     }
 
-    // Status fills the left and pushes the niche controls flush to the right.
     return Row(
       children: [
         Expanded(child: status),
@@ -432,8 +430,6 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
       ],
     );
   }
-
-  // MARK: - WebUI Actions
 
   Future<void> _restartServerWithSkin(String skinId) async {
     try {

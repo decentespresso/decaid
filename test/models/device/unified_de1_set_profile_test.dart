@@ -188,7 +188,6 @@ void main() {
     // writes interleave on the transport queue wedge the firmware's
     // profile-receive state machine — so UnifiedDe1 must serialize uploads
     // across ALL callers (workflow sync, REST handler, reconnect defaults).
-    //
     // The two profiles differ in step count so their write sequences differ
     // in length and content; expectations compare against each profile's
     // solo-run write sequence, captured once below.
@@ -297,7 +296,6 @@ void main() {
     });
 
     test('a failed upload releases the queue for the next one', () async {
-      // Fail A's header write; B is already queued behind it.
       transport.failIndexOnce = 0;
       final first = de1.setProfile(profileA);
       final second = de1.setProfile(profileB);

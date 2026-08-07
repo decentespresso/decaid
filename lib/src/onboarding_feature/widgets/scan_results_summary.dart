@@ -167,7 +167,6 @@ class ScanResultsSummary extends StatelessWidget {
       );
     }
 
-    // Check for matched device with failed connection
     final failedDevice = report.matchedDevices
         .where(
           (d) =>
@@ -198,7 +197,6 @@ class ScanResultsSummary extends StatelessWidget {
       );
     }
 
-    // Devices seen but none matched
     return (
       LucideIcons.searchX,
       'No Decent Machines Found',

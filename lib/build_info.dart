@@ -1,4 +1,3 @@
-// lib/build_info.dart
 class BuildInfo {
   static const String commit = String.fromEnvironment(
     'COMMIT',
@@ -15,7 +14,7 @@ class BuildInfo {
   static const String buildTime = String.fromEnvironment(
     'BUILD_TIME',
     defaultValue: 'unknown',
-  ); // ISO8601
+  );
   static const String version = String.fromEnvironment(
     'VERSION',
     defaultValue: '0.0.0-dev',

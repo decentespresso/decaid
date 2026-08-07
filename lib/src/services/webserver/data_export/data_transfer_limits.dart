@@ -60,12 +60,12 @@ class DataTransferLimits {
   final Duration syncOverallTimeout;
 
   const DataTransferLimits({
-    this.maxImportRequestBytes = 0x7FFFFFFF, // ~2 GiB, signed-32 safe
-    this.maxTotalUncompressedBytes = 2 * 1024 * 1024 * 1024, // 2 GiB
-    this.maxEntryUncompressedBytes = 1024 * 1024 * 1024, // 1 GiB
+    this.maxImportRequestBytes = 0x7FFFFFFF,
+    this.maxTotalUncompressedBytes = 2 * 1024 * 1024 * 1024,
+    this.maxEntryUncompressedBytes = 1024 * 1024 * 1024,
     this.maxEntryCount = 4096,
     this.maxMetadataBytes = 64 * 1024,
-    this.maxRecordBytes = 64 * 1024 * 1024, // 64 MiB
+    this.maxRecordBytes = 64 * 1024 * 1024,
     this.maxKeyBytes = 64 * 1024,
     this.maxFilenameBytes = 256,
     this.maxExtraFieldBytes = 64 * 1024,

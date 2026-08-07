@@ -91,7 +91,6 @@ class ScaleController {
       _connectionController.add(ConnectionState.disconnected);
       rethrow;
     }
-    // `onConnect()` may also return without error but in a non-connected state.
     final state = await scale.connectionState.first;
     if (state != ConnectionState.connected) {
       log.warning('Scale failed to connect (state: ${state.name})');

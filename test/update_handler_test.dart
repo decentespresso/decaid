@@ -60,7 +60,7 @@ void main() {
       expect(body['phase'], 'idle');
       expect(body['currentVersion'], isA<String>());
       expect(body['releaseUrl'], contains('releases'));
-      expect(body['installable'], false); // no update known yet
+      expect(body['installable'], false);
     });
   });
 

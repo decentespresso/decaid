@@ -76,7 +76,7 @@ class _RecordableBleTransport extends BLETransport {
     final shortUuid = characteristicUUID.substring(4, 8).toLowerCase();
     operations.add('read:$shortUuid');
     if (shortUuid == '2a19') {
-      return Uint8List.fromList([80]); // 80% battery
+      return Uint8List.fromList([80]);
     }
     return Uint8List(0);
   }
@@ -221,7 +221,6 @@ void main() {
       () async {
         await scale.onConnect();
 
-        // Count occurrences of 0xED writes
         final lcdOnCount = transport.operations
             .where((op) => op.contains('write:ef80:[0xED]'))
             .length;
@@ -290,7 +289,6 @@ void main() {
       scale = Skale2Scale(transport: transport);
       await transport.emitConnectionState(ConnectionState.discovered);
       await scale.onConnect();
-      // Clear operations log so we only see wake-time ops
       transport.operations.clear();
     });
 
@@ -344,7 +342,6 @@ void main() {
     test(
       'wakeDisplay does NOT re-subscribe if subscriptions are still active',
       () async {
-        // Subscriptions are still active from onConnect
         await scale.wakeDisplay();
 
         expect(

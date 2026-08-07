@@ -61,7 +61,6 @@ void main() {
       await bengle.setProfile(_profileWithPreinfusion());
       await bengle.requestState(MachineState.espresso);
 
-      // Wait through preparingForShot (500ms) + collect during preinfusion
       await Future.delayed(const Duration(milliseconds: 600));
       final snapshots = await bengle.weightSnapshot
           .take(15)
@@ -113,10 +112,8 @@ void main() {
       await bengle.setProfile(profile);
       await bengle.requestState(MachineState.espresso);
 
-      // Wait past preinfusion (500ms prep + 1s step0 = 1.5s)
       await Future.delayed(const Duration(milliseconds: 1700));
 
-      // Collect weight snapshots during pouring
       final snapshots = await bengle.weightSnapshot
           .take(20)
           .toList()

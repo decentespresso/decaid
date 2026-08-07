@@ -235,7 +235,6 @@ void main() {
     });
 
     test('GET /api/v1/beans sets ETag and honours If-None-Match', () async {
-      // Empty list: still has ETag
       final empty = await sendGet('/api/v1/beans');
       expect(empty.statusCode, 200);
       expect(empty.headers['etag'], isNotNull);
@@ -247,7 +246,6 @@ void main() {
       expect(etag, isNotNull);
       expect(etag, isNot(empty.headers['etag']));
 
-      // Re-request with the same ETag → 304, no body
       final cached = await handler(
         Request(
           'GET',
@@ -268,15 +266,12 @@ void main() {
       final created = jsonDecode(await createRes.readAsString());
       final id = created['id'];
 
-      // Archive the bean
       await sendPut('/api/v1/beans/$id', {'archived': true});
 
-      // Default: excludes archived
       final response = await sendGet('/api/v1/beans');
       final body = jsonDecode(await response.readAsString()) as List;
       expect(body, isEmpty);
 
-      // With includeArchived=true
       final archivedRes = await sendGet('/api/v1/beans?includeArchived=true');
       final archivedBody = jsonDecode(await archivedRes.readAsString()) as List;
       expect(archivedBody, hasLength(1));

@@ -103,7 +103,6 @@ void main() {
       var prev = model.weight;
       for (var i = 0; i < 100; i++) {
         clock = clock.add(const Duration(milliseconds: 100));
-        // Frame advances mid-run, flow varies like a real pull.
         final frame = i < 30 ? 0 : 1;
         final flow = i < 30 ? 6.0 : (i < 60 ? 2.0 : 3.5);
         model.ingest(_snap(clock, flow: flow, frame: frame));
@@ -126,9 +125,7 @@ void main() {
     });
 
     test('a new shot re-applies the first-drops lag', () {
-      // Shot 1 saturates the model.
       run(6.0, flow: 2.0);
-      // Shot ends; scale is tared for the next cup.
       run(1.0, flow: 0.0, state: MachineState.idle);
       model.tare();
       // Shot 2 must lag again instead of tracking flow instantly.
@@ -146,7 +143,6 @@ void main() {
       run(6.0, flow: 2.0);
       final endOfShot1 = model.weight;
       run(1.0, flow: 0.0, state: MachineState.idle);
-      // New shot with no tare (cup left on the scale).
       run(0.2, flow: 1.0);
       expect(
         model.weight,

@@ -84,7 +84,6 @@ void main() {
     );
 
     test('a non-remembered absent device does not appear', () async {
-      // Only the live present device shows; nothing is synthesized.
       final list = await buildAvailabilityDeviceList([
         _FakeDevice('present', 'P', DeviceType.machine),
       ], const []);

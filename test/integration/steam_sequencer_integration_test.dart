@@ -86,7 +86,6 @@ void main() {
         final bengle = MockBengle();
         await bengle.onConnect();
         de1.emit(bengle);
-        // Let probe bridge register the milk probe.
         await Future<void>.delayed(const Duration(milliseconds: 50));
         expect(
           sensors.sensors,
@@ -94,12 +93,10 @@ void main() {
           reason: 'probe bridge should have registered BengleMilkProbe',
         );
 
-        // Drive: idle → steam → idle (autonomous stop wraps it up).
         await bengle.setStopAtTemperatureTarget(15.0);
         await bengle.requestState(MachineState.steam);
         await Future<void>.delayed(const Duration(seconds: 4));
 
-        // Wait for state to return to idle (mock autonomous stop).
         await bengle.currentSnapshot
             .firstWhere((s) => s.state.state == MachineState.idle)
             .timeout(const Duration(seconds: 5));

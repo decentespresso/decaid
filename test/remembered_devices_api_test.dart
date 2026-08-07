@@ -118,7 +118,6 @@ void main() {
       (await getDevices()).any((d) => d['id'] == 'wifi:hds.local'),
       isFalse,
     );
-    // And it's gone from persistence.
     expect(
       RememberedDevice.decodeList(await settings.rememberedDevices()),
       isEmpty,

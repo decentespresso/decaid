@@ -13,15 +13,12 @@ scheduler_sleep 28800
 ''';
         final result = SettingsTdbParser.parse(content);
         expect(result.wakeScheduleEnabled, true);
-        // 25200 seconds = 7 hours = 07:00
         expect(result.wakeHour, 7);
         expect(result.wakeMinute, 0);
-        // (28800 - 25200) / 60 = 60 minutes
         expect(result.keepAwakeForMinutes, 60);
       });
 
       test('midnight wraparound for keepAwakeForMinutes', () {
-        // wake at 23:00 (82800s), sleep at 01:00 (3600s)
         final content = '''
 scheduler_enable 1
 scheduler_wake 82800
@@ -30,7 +27,6 @@ scheduler_sleep 3600
         final result = SettingsTdbParser.parse(content);
         expect(result.wakeHour, 23);
         expect(result.wakeMinute, 0);
-        // sleep < wake: (3600 + 86400 - 82800) / 60 = 7200 / 60 = 120
         expect(result.keepAwakeForMinutes, 120);
       });
 
@@ -45,7 +41,6 @@ scheduler_sleep 28800
       });
 
       test('wake minute is extracted correctly', () {
-        // 25500 = 7*3600 + 5*60 = 07:05
         final content = '''
 scheduler_wake 25500
 ''';
@@ -63,7 +58,6 @@ screen_saver_delay 30
 ''';
         final result = SettingsTdbParser.parse(content);
         expect(result.keepScaleOn, true);
-        // 30 minutes → snaps to 30
         expect(result.sleepTimeoutMinutes, 30);
       });
 
@@ -74,40 +68,34 @@ screen_saver_delay 30
       });
 
       test('screen_saver_delay snaps to nearest valid option (minutes)', () {
-        // 2 min → snaps to 0
         expect(
           SettingsTdbParser.parse('screen_saver_delay 2\n').sleepTimeoutMinutes,
           0,
         );
-        // 10 min → snaps to 15
         expect(
           SettingsTdbParser.parse(
             'screen_saver_delay 10\n',
           ).sleepTimeoutMinutes,
           15,
         );
-        // 50 min → snaps to 45
         expect(
           SettingsTdbParser.parse(
             'screen_saver_delay 50\n',
           ).sleepTimeoutMinutes,
           45,
         );
-        // 118 min → snaps to 120
         expect(
           SettingsTdbParser.parse(
             'screen_saver_delay 118\n',
           ).sleepTimeoutMinutes,
           120,
         );
-        // 180 min → snaps to 180
         expect(
           SettingsTdbParser.parse(
             'screen_saver_delay 180\n',
           ).sleepTimeoutMinutes,
           180,
         );
-        // 250 min → snaps to 180 (max)
         expect(
           SettingsTdbParser.parse(
             'screen_saver_delay 250\n',
@@ -274,7 +262,6 @@ flush_seconds 10
           'but wake hour/minute are null', () {
         final content = 'scheduler_enable 1\n';
         final result = SettingsTdbParser.parse(content);
-        // wakeScheduleEnabled alone doesn't count
         expect(result.isEmpty, true);
       });
 

@@ -136,8 +136,6 @@ class _PresenceSettingsPageState extends State<PresenceSettingsPage> {
     );
   }
 
-  // MARK: - Section Builders
-
   Widget _buildUserPresenceSection() {
     return ShadCard(
       padding: const EdgeInsets.all(16),
@@ -290,8 +288,6 @@ class _PresenceSettingsPageState extends State<PresenceSettingsPage> {
       ),
     );
   }
-
-  // MARK: - Schedule Row
 
   Widget _buildScheduleRow(
     WakeSchedule schedule,
@@ -450,8 +446,6 @@ class _PresenceSettingsPageState extends State<PresenceSettingsPage> {
       ),
     );
   }
-
-  // MARK: - Actions
 
   Future<void> _addSchedule(List<WakeSchedule> schedules) async {
     final picked = await showTimePicker(

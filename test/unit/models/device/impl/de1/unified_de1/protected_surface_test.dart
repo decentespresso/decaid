@@ -17,7 +17,6 @@ import '../../../../../../helpers/fake_ble_transport.dart';
 // subclassing and stop proving what we actually need to prove (mixins
 // can call them).
 
-// Capability-style mixin that exercises the protected surface.
 mixin _TestCapability on UnifiedDe1 {
   Future<int> readFan() => readMmrInt(MMRItem.fanThreshold);
   Future<int> readFanViaWrongHelper() => readMmrInt(MMRItem.targetSteamFlow);
@@ -116,7 +115,6 @@ void main() {
     });
 
     test('readMmrInt throws on scaledFloat address', () async {
-      // targetSteamFlow.kind == scaledFloat — wrong helper.
       await expectLater(
         de1.readFanViaWrongHelper(),
         throwsA(
@@ -130,7 +128,6 @@ void main() {
     });
 
     test('readMmrScaled throws on int32 address', () async {
-      // fanThreshold.kind == int32 — wrong helper.
       await expectLater(
         de1.readFanAsScaledFloat(),
         throwsA(
@@ -187,12 +184,10 @@ void main() {
       );
       transport.writes.clear();
       await de1.capWrite(addr, [0x01, 0x02, 0x03, 0x04]);
-      // Find the writeToMMR frame.
       final frame = transport.writes.firstWhere(
         (w) => w.characteristicUUID == Endpoint.writeToMMR.uuid,
       );
-      // Frame: [length, addrMid1, addrMid2, addrLow, payload..., 0...]
-      expect(frame.data[0], 4); // length byte
+      expect(frame.data[0], 4);
       final addrBytes = ByteData(4)..setInt32(0, addr.address, Endian.big);
       expect(frame.data[1], addrBytes.getUint8(1));
       expect(frame.data[2], addrBytes.getUint8(2));
@@ -208,7 +203,6 @@ void main() {
         kind: MmrValueKind.scaledFloat,
         readScale: 0.1,
       );
-      // raw int32 = 250, little-endian -> [0xFA, 0x00, 0x00, 0x00]
       transport.queueMmrResponseRaw(addr, [0xFA, 0x00, 0x00, 0x00]);
       final result = await de1.capReadScaled(addr);
       expect(result, closeTo(25.0, 1e-9));
@@ -241,12 +235,10 @@ void main() {
         max: 500,
       );
       transport.writes.clear();
-      // value 99.9 * writeScale 10.0 = 999, clamped to 500.
       await de1.capWriteScaled(addr, 99.9);
       final frame = transport.writes.firstWhere(
         (w) => w.characteristicUUID == Endpoint.writeToMMR.uuid,
       );
-      // bytes 4..7 are the little-endian int payload.
       final payload = ByteData.sublistView(frame.data, 4, 8);
       expect(payload.getInt32(0, Endian.little), 500);
     });
@@ -261,7 +253,6 @@ void main() {
         // Endpoint.shotSample to the right subject.
         final stream = de1.capNotifications(Endpoint.shotSample);
         final marker = Uint8List(19);
-        // Sentinel byte the seeded value won't have.
         marker[0] = 0x7F;
         final received = expectLater(
           stream

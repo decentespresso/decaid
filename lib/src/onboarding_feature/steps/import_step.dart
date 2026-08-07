@@ -21,14 +21,7 @@ import 'package:reaprime/src/settings/backup_import_response.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
 
-enum _ImportPhase {
-  pickSource,
-  copying, // Android SAF: copying files from external storage to app cache
-  scanning,
-  summary,
-  importing,
-  result,
-}
+enum _ImportPhase { pickSource, copying, scanning, summary, importing, result }
 
 /// Creates an [OnboardingStep] that manages the import flow:
 /// source picker → scanning → summary → importing → result.

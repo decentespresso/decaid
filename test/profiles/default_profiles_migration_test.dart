@@ -110,7 +110,6 @@ void main() {
     'M1: an existing default with stale metadata gets its title refreshed',
     () async {
       final storage = InMemoryProfileStorage();
-      // Same content as current milky (same id) but a stale title.
       final json = await _bundledJson(_milkyFile);
       json['title'] = 'OLD STALE TITLE';
       final staleMeta = ProfileRecord.create(
@@ -168,7 +167,6 @@ void main() {
     'M3: a hidden default still gets curated metadata refreshed but stays hidden',
     () async {
       final storage = InMemoryProfileStorage();
-      // Same content as current milky (same id) but a stale title, and hidden.
       final json = await _bundledJson(_milkyFile);
       json['title'] = 'OLD STALE TITLE';
       final hiddenStale = ProfileRecord.create(

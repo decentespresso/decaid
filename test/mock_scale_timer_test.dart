@@ -16,7 +16,6 @@ void main() {
 
     test('startTimer begins tracking elapsed time', () async {
       await scale.startTimer();
-      // Wait for at least one snapshot cycle (200ms) plus some buffer
       await Future.delayed(Duration(milliseconds: 350));
       final snapshot = await scale.currentSnapshot.first;
       expect(snapshot.timerValue, isNotNull);

@@ -120,7 +120,7 @@ void main() {
       await tester.pump();
 
       expect(sleepTimeoutFieldText(tester), '37');
-      expect(controller.sleepTimeoutMinutes, 30); // still the default
+      expect(controller.sleepTimeoutMinutes, 30);
     });
 
     testWidgets('external change syncs field when unfocused', (tester) async {
@@ -142,7 +142,6 @@ void main() {
       final field = find.byType(TextFormField).first;
       await tester.enterText(field, '42');
 
-      // external change while field has focus
       await controller.setSleepTimeoutMinutes(90);
       await tester.pump();
 

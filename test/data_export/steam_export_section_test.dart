@@ -55,7 +55,6 @@ class _RecordingSteamStorage implements StorageService {
   @override
   Future<SteamRecord?> getLatestSteamMeta() async => null;
 
-  // Shot + workflow stubs.
   @override
   Future<void> storeShot(ShotRecord record) async {}
   @override

@@ -249,7 +249,6 @@ class _HistoryFeatureState extends State<HistoryFeature> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                // Header row with time and duration
                                 Row(
                                   mainAxisAlignment:
                                       MainAxisAlignment.spaceBetween,
@@ -288,7 +287,6 @@ class _HistoryFeatureState extends State<HistoryFeature> {
                                 ),
                                 const SizedBox(height: 8),
 
-                                // Coffee and roaster
                                 if (record.workflow.context?.coffeeName !=
                                     null) ...[
                                   Row(
@@ -342,7 +340,6 @@ class _HistoryFeatureState extends State<HistoryFeature> {
                                   const SizedBox(height: 6),
                                 ],
 
-                                // Profile name
                                 Row(
                                   children: [
                                     Icon(
@@ -368,7 +365,6 @@ class _HistoryFeatureState extends State<HistoryFeature> {
                                 ),
                                 const SizedBox(height: 6),
 
-                                // Dose ratio
                                 if (record.workflow.context?.targetDoseWeight !=
                                     null) ...[
                                   Row(
@@ -411,7 +407,6 @@ class _HistoryFeatureState extends State<HistoryFeature> {
                                   ),
                                 ],
 
-                                // Grinder info
                                 if (record.workflow.context?.grinderModel !=
                                         null ||
                                     record.workflow.context?.grinderSetting !=
@@ -488,7 +483,6 @@ class _HistoryFeatureState extends State<HistoryFeature> {
                                   ),
                                 ],
 
-                                // Metadata tags
                                 if (record.annotations?.extras != null &&
                                     record.annotations!.extras!['tags'] !=
                                         null) ...[
@@ -571,7 +565,6 @@ class _HistoryFeatureState extends State<HistoryFeature> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header with title and actions
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -662,7 +655,6 @@ class _HistoryFeatureState extends State<HistoryFeature> {
             ),
             SizedBox(height: 24),
 
-            // Quick stats cards
             Row(
               children: [
                 Expanded(
@@ -699,7 +691,6 @@ class _HistoryFeatureState extends State<HistoryFeature> {
             ),
             SizedBox(height: 20),
 
-            // Coffee details section
             Semantics(
               explicitChildNodes: true,
               child: ShadCard(
@@ -753,7 +744,6 @@ class _HistoryFeatureState extends State<HistoryFeature> {
             ),
             SizedBox(height: 16),
 
-            // Equipment section
             Semantics(
               explicitChildNodes: true,
               child: ShadCard(
@@ -837,7 +827,6 @@ class _HistoryFeatureState extends State<HistoryFeature> {
               ),
             ],
 
-            // Extras section
             if (record.annotations?.extras != null &&
                 record.annotations!.extras!.isNotEmpty) ...[
               SizedBox(height: 16),
@@ -933,7 +922,6 @@ class _HistoryFeatureState extends State<HistoryFeature> {
 
             SizedBox(height: 20),
 
-            // Chart section
             Semantics(
               header: true,
               child: Text(
@@ -959,7 +947,6 @@ class _HistoryFeatureState extends State<HistoryFeature> {
             ),
 
             SizedBox(height: 16),
-            // Shot ID footer
             Center(
               child: Text(
                 "Shot ID: ${record.id}",
@@ -1079,7 +1066,6 @@ class _HistoryFeatureState extends State<HistoryFeature> {
   }
 }
 
-// Helper widgets
 class _StatCard extends StatelessWidget {
   final IconData icon;
   final String label;

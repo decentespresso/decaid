@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-// MARK: - Settings Tile Widgets
-
 class SettingsTile extends StatelessWidget {
   final IconData icon;
   final String label;

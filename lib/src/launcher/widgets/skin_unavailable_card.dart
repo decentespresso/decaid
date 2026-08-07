@@ -86,8 +86,6 @@ class SkinUnavailableCard extends StatelessWidget {
 
 enum SkinUnavailableReason { notServing, noWebView, skinError }
 
-// -- Widget Previews --
-
 @Preview(name: 'Skin Unavailable - Not Serving', group: 'Launcher')
 Widget skinUnavailableNotServingPreview() {
   return ShadApp(

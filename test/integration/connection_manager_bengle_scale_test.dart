@@ -279,7 +279,6 @@ void main() {
       final bengle = _FakeBengle(deviceId: 'bengle-1');
       final externalScale = TestScale(deviceId: 'external-scale');
 
-      // Only the external scale is visible at scan-start.
       mockScanner.addDevice(externalScale);
 
       // Hold the scan open so we can add the Bengle mid-scan. Without
@@ -306,11 +305,9 @@ void main() {
       await connectionManager.connect();
       await Future.delayed(Duration.zero);
 
-      // The Bengle is the connected machine.
       expect(mockDe1Controller.connectCalls, hasLength(1));
       expect(mockDe1Controller.connectCalls.first, same(bengle));
 
-      // Exactly one scale was attached, and it's the virtual one.
       expect(mockScaleController.connectCalls, hasLength(1));
       expect(
         mockScaleController.connectCalls.first.deviceId,

@@ -153,7 +153,7 @@ class De1Controller {
       _log.fine("trying to connect to existing de1, exit early");
       return;
     }
-    _onDisconnect(); // just in case
+    _onDisconnect();
     _log.fine("found de1, connecting");
     try {
       await de1Interface.onConnect();

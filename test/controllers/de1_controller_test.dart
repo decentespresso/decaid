@@ -126,7 +126,6 @@ void main() {
             // trigger the first _shotSettingsUpdate, which schedules the
             // 100ms debounce timer.
             testDe1.emitShotSettings(_emptyShotSettings());
-            // Let the microtask chain reach the scheduled Timer.
             await Future<void>.delayed(Duration.zero);
 
             // Force a disconnect while the debounce timer is still

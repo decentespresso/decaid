@@ -70,19 +70,16 @@ void main() {
       );
       await tester.pump();
 
-      // The dropdown shows the currently-installed version up front.
       expect(find.textContaining('0.2.2'), findsOneWidget);
       expect(find.textContaining('0.2.3'), findsNothing);
 
       final updateButton = find.text('Check for updates');
       await tester.ensureVisible(updateButton);
       await tester.tap(updateButton);
-      await tester.pump(); // run the async handler + its setState
-      await tester.pump(const Duration(milliseconds: 300)); // settle snackbar
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
 
-      // Storage actually ran the update...
       expect(storage.updateCount, 1);
-      // ...and the list now reflects the new version without leaving the page.
       expect(find.textContaining('0.2.3'), findsOneWidget);
       expect(find.textContaining('0.2.2'), findsNothing);
     },

@@ -83,7 +83,6 @@ void main() {
           throwsFormatException,
         );
 
-        // Nothing may be created or deleted under web-ui for an unsafe id.
         expect(
           webUIDir.listSync().whereType<Directory>(),
           isEmpty,

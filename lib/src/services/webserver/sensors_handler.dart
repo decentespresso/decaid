@@ -47,7 +47,7 @@ final class SensorsHandler {
 
   FutureOr<Response> _handleSensorSnapshot(Request req) {
     _log.info("Handling: $req");
-    final id = req.params['id']; // works for normal handlers
+    final id = req.params['id'];
     _log.info("got id: $id");
     return sws.webSocketHandler((socket, protocol) {
       _log.info("upgraded to socket");
@@ -64,12 +64,10 @@ final class SensorsHandler {
       }, onError: (e, st) => log.severe('send error', e, st));
 
       socket.stream.listen(
-        (msg) {
-          // handle incoming messages if needed
-        },
+        (msg) {},
         onDone: sub.cancel,
         onError: (_, _) => sub.cancel(),
       );
-    })(req); // <-- don't forget to call the returned handler
+    })(req);
   }
 }

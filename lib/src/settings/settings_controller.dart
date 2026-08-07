@@ -78,12 +78,10 @@ class SettingsController with ChangeNotifier {
   bool _showSkinExitInstructions = true;
   bool _enableSimulatedWebViews = false;
 
-  // Feature flags — loaded once at startup, hot-swappable at runtime.
   final Map<FeatureFlag, bool> _featureFlags = {};
 
   TelemetryService? _telemetryService;
 
-  // Allow Widgets to read the user's preferred ThemeMode.
   ThemeMode get themeMode => _themeMode;
   GatewayMode get gatewayMode => _gatewayMode;
   String get logLevel => _logLevel;
@@ -118,7 +116,6 @@ class SettingsController with ChangeNotifier {
   bool get showSkinExitInstructions => _showSkinExitInstructions;
   bool get enableSimulatedWebViews => _enableSimulatedWebViews;
 
-  // Feature flags
   bool isFeatureFlagEnabled(FeatureFlag flag) =>
       _featureFlags[flag] ?? defaultFeatureFlagValues[flag]!;
 
@@ -170,13 +167,11 @@ class SettingsController with ChangeNotifier {
         .showSkinExitInstructions();
     _enableSimulatedWebViews = await _settingsService.enableSimulatedWebViews();
 
-    // Load feature flags
     for (final flag in FeatureFlag.values) {
       final stored = await _settingsService.featureFlag(flag);
       _featureFlags[flag] = stored ?? defaultFeatureFlagValues[flag]!;
     }
 
-    // Sync telemetry consent to TelemetryService if it exists
     if (_telemetryService != null) {
       await _telemetryService!.setConsentEnabled(_telemetryConsent);
     }

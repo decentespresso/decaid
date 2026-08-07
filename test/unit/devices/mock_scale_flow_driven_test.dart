@@ -98,7 +98,6 @@ void main() {
           reason: 'simulated flow must land in the cup',
         );
 
-        // Tare zeroes the reading again.
         await scale.tare();
         final tared = await scale.currentSnapshot.first.timeout(
           const Duration(seconds: 2),

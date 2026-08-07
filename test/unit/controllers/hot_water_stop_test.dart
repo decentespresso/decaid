@@ -109,7 +109,6 @@ void main() {
     test(
       'stops early via flow lookahead before actual weight reaches target',
       () {
-        // 29 + 4 g/s * 0.3 s = 30.2 >= 30
         final d = nextHotWaterStop(
           armed(activeSeen: true, target: 30, lookahead: 0.3),
           input(weight: 29, weightFlow: 4),
@@ -120,7 +119,6 @@ void main() {
     );
 
     test('falls back to configured flow when scale flow is not positive', () {
-      // 29.9 + 2.0 (configured) * 0.3 = 30.5 >= 30
       final d = nextHotWaterStop(
         armed(
           activeSeen: true,

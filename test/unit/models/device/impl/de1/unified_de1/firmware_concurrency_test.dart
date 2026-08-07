@@ -54,7 +54,6 @@ void main() {
       final future = de1.updateFirmware(Uint8List(0), onProgress: (_) {})
         ..catchError((_) {}); // suppress unhandled; explicitly awaited below
 
-      // State moved away from idle synchronously.
       expect(de1.firmwareUpdateState, isNot(FirmwareUpdateState.idle));
 
       await de1.cancelFirmwareUpload();
@@ -99,7 +98,6 @@ void main() {
           ..catchError((_) {}); // suppress unhandled; explicitly awaited below
 
         await de1.cancelFirmwareUpload();
-        // WhenComplete may have already fired, so state could be idle.
 
         await de1.cancelFirmwareUpload();
         // Second cancel is safe regardless of state.

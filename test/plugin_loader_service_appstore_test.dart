@@ -500,7 +500,6 @@ function createPlugin() {
       () async {
         final pluginsDir = Directory('${tempDir.path}/plugins');
 
-        // ../escape resolves outside the plugins root.
         final escapeDir = Directory('${tempDir.path}/escape');
         if (escapeDir.existsSync()) escapeDir.deleteSync(recursive: true);
         await expectLater(

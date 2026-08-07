@@ -89,7 +89,7 @@ void main() {
       expect(f!.type, isNull);
       expect(f.charging, isNull);
       expect(f.timerRunning, isNull);
-      expect(f.grams, 12.0); // valid fields still parse
+      expect(f.grams, 12.0);
     });
   });
 }

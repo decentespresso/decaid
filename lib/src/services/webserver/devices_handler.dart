@@ -54,19 +54,16 @@ class DevicesStateAggregator {
       }),
     );
 
-    // Subscribe to scanning state changes (skip initial replay)
     _subscriptions.add(
       _controller.scanningStream.skip(1).listen((_) => _emitState()),
     );
 
-    // Subscribe to charging state changes (skip initial replay)
     if (_batteryController != null) {
       _subscriptions.add(
         _batteryController.chargingState.skip(1).listen((_) => _emitState()),
       );
     }
 
-    // Subscribe to connection status changes (skip initial replay)
     _subscriptions.add(
       _connectionManager.status.skip(1).listen((_) => _emitState()),
     );
@@ -80,17 +77,14 @@ class DevicesStateAggregator {
       );
     }
 
-    // Set up initial per-device subscriptions
     _updateDeviceSubscriptions(_controller.devices);
 
-    // Emit initial state immediately (no debounce)
     _emitState(immediate: true);
   }
 
   void _updateDeviceSubscriptions(List<Device> devices) {
     final currentIds = devices.map((d) => d.deviceId).toSet();
 
-    // Remove subscriptions for devices no longer in the list
     final staleIds = _deviceStateSubs.keys
         .where((id) => !currentIds.contains(id))
         .toList();
@@ -98,11 +92,9 @@ class DevicesStateAggregator {
       _deviceStateSubs.remove(id)?.$2.cancel();
     }
 
-    // Add or replace subscriptions for devices in the list
     for (final device in devices) {
       final existing = _deviceStateSubs[device.deviceId];
       if (existing != null) {
-        // Same ID exists — check if it's the same object instance
         if (identical(existing.$1, device)) {
           continue; // Same object, subscription is still valid
         }
@@ -361,8 +353,6 @@ class DevicesHandler {
     return jsonOk(null);
   }
 
-  // -- WebSocket handler --
-
   void _handleDevicesSocket(WebSocketChannel socket, String? protocol) {
     _log.fine("devices websocket connected");
 
@@ -378,7 +368,6 @@ class DevicesHandler {
     });
     var commandQueue = Future<void>.value();
 
-    // Listen for incoming commands
     socket.stream.listen(
       (message) {
         commandQueue = commandQueue

@@ -85,8 +85,6 @@ class OnboardingScaffold extends StatelessWidget {
   }
 }
 
-// -- Widget Previews --
-
 @Preview(name: 'Onboarding Scaffold', group: 'Onboarding')
 Widget onboardingScaffoldPreview() {
   return ShadApp(

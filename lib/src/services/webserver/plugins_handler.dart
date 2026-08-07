@@ -133,9 +133,7 @@ final class PluginsHandler {
             },
           );
       socket.stream.listen(
-        (msg) {
-          // handle incoming messages if needed
-        },
+        (msg) {},
         onDone: () {
           sub?.cancel();
         },
@@ -184,7 +182,6 @@ final class PluginsHandler {
       return jsonBadRequest({'error': 'endpoint $endpoint is not a http type'});
     }
 
-    // Read request details
     final method = req.method;
     final headers = <String, String>{};
     req.headers.forEach((name, values) {
@@ -193,12 +190,10 @@ final class PluginsHandler {
 
     final body = await req.readAsString();
 
-    // Generate a unique request ID
     final requestId =
         '${id}_${endpoint}_${DateTime.now().millisecondsSinceEpoch}_${_random.nextInt(100000)}';
 
     try {
-      // Prepare the request data to send to the plugin
       final requestData = {
         'requestId': requestId,
         'endpoint': endpoint,
@@ -211,13 +206,11 @@ final class PluginsHandler {
       // Register the pending request before dispatching to the plugin.
       final responseFuture = pluginManager.registerPendingHttp(id, requestId);
 
-      // Dispatch the event to the plugin
       pluginManager.dispatchEvent(id, 'httpRequest', requestData);
 
       // Wait for the plugin's response (with timeout)
       final response = await responseFuture;
 
-      // Parse the plugin's response
       final status = response['status'] as int? ?? 200;
       final responseHeaders =
           (response['headers'] as Map<String, dynamic>? ?? {}).map(
@@ -225,7 +218,6 @@ final class PluginsHandler {
           );
       final responseBody = response['body'];
 
-      // Send the response back to the client
       return Response(status, body: responseBody, headers: responseHeaders);
     } on PluginHttpError catch (e) {
       _log.warning("Plugin $id HTTP request failed", e);

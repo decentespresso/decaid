@@ -75,7 +75,6 @@ void main() {
     scale.attachMachine(machine);
     await scaleController.connectToScale(scale);
 
-    // Small target (5 g at 2 mL/s) so the dispense reaches it quickly.
     await de1Controller.updateHotWaterSettings(
       HotWaterFormSettings(
         targetTemperature: 85,
@@ -84,10 +83,8 @@ void main() {
         duration: 30,
       ),
     );
-    // Let the hot-water target propagate to the sequencer.
     await Future<void>.delayed(const Duration(milliseconds: 300));
 
-    // Externally-started hot water (as a GHC / REST / skin would).
     await machine.requestState(MachineState.hotWater);
     await waitForState(machine, MachineState.hotWater);
     expect(

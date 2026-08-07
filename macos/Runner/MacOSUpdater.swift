@@ -139,7 +139,6 @@ final class MacOSUpdater: NSObject, SPUUpdaterDelegate {
     controller.checkForUpdates()
   }
 
-  // MARK: - Method channel
 
   private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
@@ -183,7 +182,6 @@ final class MacOSUpdater: NSObject, SPUUpdaterDelegate {
     }
   }
 
-  // MARK: - SPUUpdaterDelegate
 
   func allowedChannels(for updater: SPUUpdater) -> Set<String> {
     allowedChannels

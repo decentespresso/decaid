@@ -124,7 +124,7 @@ void main() {
       final sink = CapturingJsonSink();
       await section.exportJson(sink);
 
-      expect(pageSizes, [100, 100]); // requested limits stay bounded
+      expect(pageSizes, [100, 100]);
       final decoded = jsonDecode(sink.json) as List;
       expect(decoded, hasLength(150));
       final first = decoded.first as Map<String, dynamic>;
@@ -157,8 +157,8 @@ void main() {
         json,
         ConflictStrategy.skip,
       );
-      expect(skip.imported, 2); // bean-1 + its new batch b2
-      expect(skip.skipped, 1); // bean-0
+      expect(skip.imported, 2);
+      expect(skip.skipped, 1);
       expect(storage.beans, hasLength(2));
       expect(storage.batches, hasLength(2));
 

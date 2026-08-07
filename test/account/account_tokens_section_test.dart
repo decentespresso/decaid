@@ -38,7 +38,6 @@ void main() {
     await tester.pumpWidget(harness());
     expect(find.text('No tokens yet.'), findsOneWidget);
 
-    // Create
     await tester.tap(find.byKey(const Key('create-token')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'laptop');
@@ -60,11 +59,9 @@ void main() {
     await tester.tap(find.text('Done'));
     await tester.pumpAndSettle();
 
-    // Listed
     expect(find.text('laptop'), findsOneWidget);
     expect(find.text('read'), findsOneWidget);
 
-    // Revoke
     await tester.tap(find.byKey(const Key('revoke-laptop')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Revoke'));

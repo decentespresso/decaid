@@ -41,7 +41,7 @@ void main() {
       final estimator = KalmanFlowEstimator(initialWeight: 0.0);
       final t0 = DateTime(2026, 1, 1, 12, 0, 0);
       const dt = Duration(milliseconds: 100);
-      const rate = 5.0; // g/s
+      const rate = 5.0;
 
       estimator.addSample(t0, 0.0);
 
@@ -57,7 +57,7 @@ void main() {
       final estimator = KalmanFlowEstimator(initialWeight: 50.0);
       final t0 = DateTime(2026, 1, 1, 12, 0, 0);
       const dt = Duration(milliseconds: 100);
-      const rate = -3.0; // g/s (removing cup)
+      const rate = -3.0;
 
       estimator.addSample(t0, 50.0);
 
@@ -66,7 +66,6 @@ void main() {
         estimator.addSample(t0.add(dt * i), 50.0 + rate * elapsed);
       }
 
-      // Flow should be unambiguously negative
       expect(estimator.flow, lessThan(-1.0));
     });
 
@@ -108,7 +107,6 @@ void main() {
       final t0 = DateTime(2026, 1, 1, 12, 0, 0);
       const dt = Duration(milliseconds: 100);
 
-      // Establish steady 5 g/s ramp
       for (int i = 0; i <= 30; i++) {
         final elapsed = dt.inMilliseconds * i / 1000.0;
         estimator.addSample(t0.add(dt * i), 100.0 + 5.0 * elapsed);
@@ -116,7 +114,6 @@ void main() {
 
       final beforeFlow = estimator.flow;
 
-      // Inject a 10g spike (tap on scale)
       estimator.addSample(t0.add(dt * 31), 100.0 + 5.0 * 31 * 0.1 + 10.0);
 
       // Next sample is back on the ramp — flow should not jump dramatically
@@ -142,7 +139,6 @@ void main() {
       final t0 = DateTime(2026, 1, 1, 12, 0, 0);
       const dt = Duration(milliseconds: 100);
 
-      // Feed zero weight for a while to let P converge.
       estimator.addSample(t0, 0.0);
       for (int i = 1; i <= 20; i++) {
         estimator.addSample(t0.add(dt * i), 0.0);
@@ -169,11 +165,10 @@ void main() {
     test('variable dt: handles irregular sample intervals', () {
       final estimator = KalmanFlowEstimator(initialWeight: 0.0);
       final t0 = DateTime(2026, 1, 1, 12, 0, 0);
-      const rate = 5.0; // g/s
+      const rate = 5.0;
 
       estimator.addSample(t0, 0.0);
 
-      // Irregular intervals (in ms): 50, 200, 80, 150, 100, 300, 70
       final intervals = [50, 200, 80, 150, 100, 300, 70];
       double elapsedMs = 0;
       for (final ms in intervals) {
@@ -196,11 +191,10 @@ void main() {
       final estimator = KalmanFlowEstimator(initialWeight: 0.0);
       final t0 = DateTime(2026, 1, 1, 12, 0, 0);
       const dt = Duration(milliseconds: 100);
-      const rate = 6.0; // g/s — typical espresso
+      const rate = 6.0;
 
       estimator.addSample(t0, 0.0);
 
-      // Feed 5 samples of a steady ramp (500ms of data).
       for (int i = 1; i <= 5; i++) {
         final elapsed = dt.inMilliseconds * i / 1000.0;
         estimator.addSample(t0.add(dt * i), rate * elapsed);
@@ -337,21 +331,18 @@ void main() {
       });
 
       test('Kalman flow is natively signed (no abs())', () {
-        // Synthetic data: pour then cup removal (negative slope).
         final estimator = KalmanFlowEstimator(initialWeight: 50.0);
         final t0 = DateTime.fromMillisecondsSinceEpoch(
           1783576240000,
           isUtc: true,
         );
 
-        // Pour: 50→55g at 7 g/s for 10 samples.
         for (int i = 0; i <= 10; i++) {
           estimator.addSample(
             t0.add(Duration(milliseconds: 100 * i)),
             50.0 + 7.0 * i * 0.1,
           );
         }
-        // Cup removal: 57→50g at -7 g/s.
         for (int i = 11; i <= 30; i++) {
           estimator.addSample(
             t0.add(Duration(milliseconds: 100 * i)),

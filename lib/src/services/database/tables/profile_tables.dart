@@ -12,7 +12,6 @@ class ProfileRecords extends Table {
   DateTimeColumn get createdAt => dateTime()();
   DateTimeColumn get updatedAt => dateTime()();
 
-  // Full profile stored as JSON
   TextColumn get profileJson => text().map(const JsonMapConverter())();
   TextColumn get metadata =>
       text().map(const NullableJsonMapConverter()).nullable()();

@@ -70,7 +70,6 @@ class _RecordingBengle implements BengleInterface {
   @override
   Stream<double> get probeTemperature => const Stream.empty();
 
-  // Minimal Device + DE1 surface.
   @override
   Stream<ConnectionState> get connectionState =>
       Stream.value(ConnectionState.connected);

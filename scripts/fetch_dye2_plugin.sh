@@ -1,20 +1,16 @@
 #!/usr/bin/env bash
 # Install the DYE2 plugin from its release repo into assets/plugins/dye2.reaplugin/.
-#
 # Usage:
 #   fetch_dye2_plugin.sh
-#
 # Environment:
 #   DYE2_REPO        Release repo (default allofmeng/dye2).
 #   DYE2_VERSION     Release tag to install (default: pinned version below).
 #   DYE2_SHA256      Expected sha256 of the release zip (default: pinned checksum below).
 #   DYE2_API_VERSION Expected manifest.json apiVersion (default: pinned value below).
 #   GH_TOKEN         GitHub token for `gh` (set to secrets.GITHUB_TOKEN in CI).
-#
 # The plugin used to be built from packages/dye2-plugin; it now ships as a
 # release asset (dye2.reaplugin-<tag>.zip) containing the dye2.reaplugin/
 # folder that pubspec.yaml declares as an asset directory.
-#
 # The version/checksum are pinned rather than defaulting to "latest" so a
 # given Decaid commit always bundles the same, reviewed DYE2 build. Bump
 # them together in a normal PR when DYE2 ships a new release.

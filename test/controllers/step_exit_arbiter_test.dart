@@ -21,7 +21,6 @@ void main() {
     );
 
     test('far from threshold fires immediately', () {
-      // Current pressure 2.0, exit at 6.0 → distance 4.0 > 1.2 (20% of 6.0)
       final verdict = arbiter.evaluate(
         profileFrame: 0,
         exit: exit,
@@ -32,7 +31,6 @@ void main() {
     });
 
     test('near threshold and trending defers', () {
-      // Current pressure 5.0, exit at 6.0 → distance 1.0 < 1.2 (20% of 6.0)
       final v1 = arbiter.evaluate(
         profileFrame: 0,
         exit: exit,
@@ -63,7 +61,6 @@ void main() {
         expect(v, StepExitVerdict.defer, reason: 'frame $i should defer');
       }
 
-      // Max deferral reached
       final vFinal = arbiter.evaluate(
         profileFrame: 0,
         exit: exit,
@@ -94,7 +91,6 @@ void main() {
     });
 
     test('sensor past threshold defers then fires at max', () {
-      // Pressure 7.0 > exit 6.0 → distance -1.0 ≤ 0
       final v1 = arbiter.evaluate(
         profileFrame: 0,
         exit: exit,
@@ -134,7 +130,6 @@ void main() {
     );
 
     test('far from threshold fires immediately', () {
-      // Current flow 3.5, exit under 2.0 → distance 1.5 > 0.5 (25% of 2.0)
       final verdict = arbiter.evaluate(
         profileFrame: 0,
         exit: exit,
@@ -145,7 +140,6 @@ void main() {
     });
 
     test('near threshold defers', () {
-      // Current flow 2.5, exit under 2.0 → distance 0.5 ≦ 0.5 (25% of 2.0)
       final verdict = arbiter.evaluate(
         profileFrame: 0,
         exit: exit,
@@ -247,7 +241,6 @@ void main() {
         value: 6.0,
       );
 
-      // Start deferring on frame 0
       arbiter.evaluate(
         profileFrame: 0,
         exit: exit,
@@ -275,7 +268,6 @@ void main() {
         value: 6.0,
       );
 
-      // Accumulate 2 deferrals
       arbiter.evaluate(
         profileFrame: 0,
         exit: exit,
@@ -313,7 +305,6 @@ void main() {
         value: 8.0,
       );
 
-      // Defer on frame 0
       final v0 = arbiter.evaluate(
         profileFrame: 0,
         exit: exit0,
@@ -322,7 +313,6 @@ void main() {
       );
       expect(v0, StepExitVerdict.defer);
 
-      // Frame 1 is far from its threshold → fire
       final v1 = arbiter.evaluate(
         profileFrame: 1,
         exit: exit1,
@@ -353,7 +343,6 @@ void main() {
         reason: 'distance == proximity is "near", not "far"',
       );
 
-      // distance = 6.0 - 4.7 = 1.3 > 1.2 → far
       arbiter.reset();
       final vBeyond = arbiter.evaluate(
         profileFrame: 0,
@@ -382,7 +371,6 @@ void main() {
       );
       expect(v1, StepExitVerdict.defer);
 
-      // Frame 0: pressure 7.8 (up from 7.5) → trending → defer
       final v2 = arbiter.evaluate(
         profileFrame: 0,
         exit: exit,
@@ -412,7 +400,6 @@ void main() {
 
   // ---------------------------------------------------------------
   // Tight-margin — realistic DE1 firing behavior
-  //
   // DE1 firmware is precise: when exit is {pressure over 5 bar},
   // the machine crosses ~5.02 bar and advances the frame within
   // milliseconds. The tablet snapshot sees pressure barely past or
@@ -422,8 +409,6 @@ void main() {
   // ---------------------------------------------------------------
 
   group('tight-margin (real DE1 firing)', () {
-    // -- pressure over, barely past ---------------------------------
-
     test('barely past pressure threshold defers', () {
       // Exit over 5.0 bar. Snapshot shows pressure 5.02 →
       // firmware very likely already advanced. Defer.
@@ -459,7 +444,6 @@ void main() {
         value: 5.0,
       );
 
-      // Frame 0: pressure 5.02 → barely past → defer
       final v0 = arbiter.evaluate(
         profileFrame: 0,
         exit: exit,
@@ -590,8 +574,6 @@ void main() {
         reason: '4.96→4.93 away from exit 5.0 → fire',
       );
     });
-
-    // -- flow under, tight margins ----------------------------------
 
     test('barely past flow threshold defers', () {
       // Exit under 2.0 ml/s. Snapshot shows flow 1.98 →

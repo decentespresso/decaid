@@ -129,13 +129,11 @@ class Skale2Scale implements Scale {
   DeviceType get type => DeviceType.scale;
 
   // --- Initialization ---
-  //
   // Follows the de1app / Decenza staggered sequence:
   //   1. LCD ON immediately  (0xED + 0xEC)
   //   2. After 1s: subscribe weight notifications (EF81)
   //   3. After 2s: subscribe button notifications (EF82)
   //   4. After 3s: LCD ON again + set grams (0x03)
-  //
   // The Skale2's command buffer is fragile — back-to-back operations
   // without spacing can cause silent drops (de1app double-sends LCD ON
   // for exactly this reason).  See GH #53 / #421.
@@ -199,8 +197,6 @@ class Skale2Scale implements Scale {
     }
   }
 
-  // --- Commands ---
-
   /// Safe write — catches [DeviceNotConnectedException] so a write to a
   /// disconnected scale doesn't escape as a FATAL (Crashlytics fa51312d).
   Future<void> _safeWrite(Uint8List data) async {
@@ -228,14 +224,10 @@ class Skale2Scale implements Scale {
     await _safeWrite(Uint8List.fromList([0xEE]));
   }
 
-  // --- Tare ---
-
   @override
   Future<void> tare() async {
     await _safeWrite(Uint8List.fromList([0x10]));
   }
-
-  // --- Display control ---
 
   @override
   Future<void> sleepDisplay() async {
@@ -262,12 +254,9 @@ class Skale2Scale implements Scale {
     }
   }
 
-  // --- Notification parsing ---
-
   void _parseWeightNotification(List<int> data) {
     if (data.length < 4) return;
 
-    // Read 4 bytes as little-endian signed int32
     final byteData = ByteData(4);
     byteData.setUint8(0, data[0] & 0xFF);
     byteData.setUint8(1, data[1] & 0xFF);
@@ -275,7 +264,6 @@ class Skale2Scale implements Scale {
     byteData.setUint8(3, data[3] & 0xFF);
     final rawValue = byteData.getInt32(0, Endian.little);
 
-    // Divide by 10*256 = 2560 to get weight in grams
     final weight = rawValue / 2560.0;
 
     _streamController.add(

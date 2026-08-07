@@ -47,7 +47,6 @@ class Bengle extends UnifiedDe1
   Duration get firmwareUploadBatchPause => Duration.zero;
 
   // --- Milk-probe steam stop (FW-stubbed scaffolding) -----------------------
-  //
   // Mirrors `IntegratedScaleCapability`'s SAW stub: cache locally,
   // log-once, no MMR write until FW publishes the slot. `probeAttached`
   // stays `false` and `probeTemperature` never emits — probe discovery

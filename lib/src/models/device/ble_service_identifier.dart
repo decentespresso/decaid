@@ -52,7 +52,6 @@ class BleServiceIdentifier {
 
   String get short {
     if (_short != null) return _short;
-    // Extract short from long if it matches base UUID pattern
     if (_long != null &&
         _long.startsWith('0000') &&
         _long.endsWith('-0000-1000-8000-00805f9b34fb')) {
@@ -64,7 +63,6 @@ class BleServiceIdentifier {
   String get long {
     if (_long != null) return _long;
     if (_short != null) {
-      // Bluetooth SIG base UUID expansion
       return '0000$_short-0000-1000-8000-00805f9b34fb';
     }
     throw StateError('No UUID available');

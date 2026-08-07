@@ -117,7 +117,6 @@ class FileBlobStore implements SecretBlobStore {
     final tmp = File('$path.tmp');
     await tmp.writeAsBytes(bytes, flush: true);
     await tmp.rename(path);
-    // Restrict to owner-only so other users on the machine can't read the file.
     try {
       await Process.run('chmod', ['600', path]);
     } catch (_) {

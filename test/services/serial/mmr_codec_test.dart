@@ -13,7 +13,6 @@ void main() {
       expect(req[1], equals(0x80));
       expect(req[2], equals(0x00));
       expect(req[3], equals(0x0C));
-      // Remaining bytes are zero.
       expect(req.sublist(4), everyElement(equals(0)));
     });
   });
@@ -25,7 +24,14 @@ void main() {
       // value = 0x00000005 (DE1Cafe per MMRItem.v13Model description)
       // Encoded little-endian at bytes [4..7].
       final payload = [
-        0x04, 0x80, 0x00, 0x0C, 0x05, 0x00, 0x00, 0x00, // value LE = 5
+        0x04,
+        0x80,
+        0x00,
+        0x0C,
+        0x05,
+        0x00,
+        0x00,
+        0x00,
         ...List.filled(12, 0),
       ];
       final hex = payload
@@ -66,7 +72,6 @@ void main() {
     });
 
     test('returns null when the address triplet does not match', () {
-      // Different address in the payload.
       final payload = [
         0x04,
         0x99,
@@ -103,7 +108,6 @@ void main() {
     });
 
     test('returns null for too-short payload', () {
-      // Need at least 8 bytes (4 header + 4 value); supply 6.
       final hex = '040000000000';
       expect(
         decodeMmrInt32Response('[E]$hex', expectedAddr: (0x00, 0x00, 0x00)),

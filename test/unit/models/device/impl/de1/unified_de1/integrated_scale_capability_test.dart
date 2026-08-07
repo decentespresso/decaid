@@ -50,7 +50,6 @@ void main() {
 
     test('disposeIntegratedScale closes the subject', () async {
       await bengle.onDisconnect();
-      // Listening to a closed BehaviorSubject completes without emitting.
       await expectLater(bengle.weightSnapshot, emitsDone);
     });
 

@@ -32,7 +32,6 @@ class AdvancedPage extends StatelessWidget {
         builder: (context, _) {
           return ListView(
             children: [
-              // Log Level
               Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
@@ -70,7 +69,6 @@ class AdvancedPage extends StatelessWidget {
               ),
               const SettingsDivider(),
 
-              // Experimental Features
               Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
@@ -139,7 +137,6 @@ class AdvancedPage extends StatelessWidget {
                 const SettingsDivider(),
               },
 
-              // Simulated devices
               Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
@@ -212,7 +209,6 @@ class AdvancedPage extends StatelessWidget {
               ],
               const SettingsDivider(),
 
-              // Debug view
               ListTile(
                 leading: const Icon(LucideIcons.bug),
                 title: const Text('Debug view'),
@@ -222,7 +218,6 @@ class AdvancedPage extends StatelessWidget {
               ),
               const SettingsDivider(),
 
-              // Exit
               if (!BuildInfo.appStore)
                 ListTile(
                   leading: Icon(

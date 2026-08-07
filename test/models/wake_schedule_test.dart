@@ -236,12 +236,11 @@ void main() {
           id: 'test-id',
           hour: 6,
           minute: 30,
-          daysOfWeek: {1}, // Monday
+          daysOfWeek: {1},
           enabled: true,
         );
 
-        // Monday, 6:30
-        final dateTime = DateTime(2026, 2, 23, 6, 30); // Monday
+        final dateTime = DateTime(2026, 2, 23, 6, 30);
         expect(schedule.matchesTime(dateTime), isTrue);
       });
 
@@ -250,12 +249,11 @@ void main() {
           id: 'test-id',
           hour: 6,
           minute: 30,
-          daysOfWeek: {1}, // Monday only
+          daysOfWeek: {1},
           enabled: true,
         );
 
-        // Tuesday, 6:30
-        final dateTime = DateTime(2026, 2, 24, 6, 30); // Tuesday
+        final dateTime = DateTime(2026, 2, 24, 6, 30);
         expect(schedule.matchesTime(dateTime), isFalse);
       });
 
@@ -264,12 +262,11 @@ void main() {
           id: 'test-id',
           hour: 6,
           minute: 30,
-          daysOfWeek: {1}, // Monday
+          daysOfWeek: {1},
           enabled: true,
         );
 
-        // Monday, 6:31
-        final dateTime = DateTime(2026, 2, 23, 6, 31); // Monday
+        final dateTime = DateTime(2026, 2, 23, 6, 31);
         expect(schedule.matchesTime(dateTime), isFalse);
       });
 
@@ -278,12 +275,11 @@ void main() {
           id: 'test-id',
           hour: 6,
           minute: 30,
-          daysOfWeek: {1}, // Monday
+          daysOfWeek: {1},
           enabled: true,
         );
 
-        // Monday, 7:30
-        final dateTime = DateTime(2026, 2, 23, 7, 30); // Monday
+        final dateTime = DateTime(2026, 2, 23, 7, 30);
         expect(schedule.matchesTime(dateTime), isFalse);
       });
 
@@ -296,9 +292,7 @@ void main() {
           enabled: true,
         );
 
-        // Test multiple days of the week
         for (int day = 23; day <= 29; day++) {
-          // Feb 23 (Mon) to Mar 1 (Sun)
           final dateTime = DateTime(2026, 2, day, 8, 0);
           expect(
             schedule.matchesTime(dateTime),
@@ -317,7 +311,6 @@ void main() {
           enabled: false,
         );
 
-        // Exact time match, every day, but disabled
         final dateTime = DateTime(2026, 2, 23, 6, 30);
         expect(schedule.matchesTime(dateTime), isFalse);
       });
@@ -472,7 +465,6 @@ void main() {
 
         final jsonString = WakeSchedule.serializeList(schedules);
 
-        // Should be valid JSON
         final decoded = jsonDecode(jsonString);
         expect(decoded, isList);
         expect((decoded as List).length, 1);

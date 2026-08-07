@@ -54,7 +54,6 @@ class _SpySettingsService implements SettingsService {
     _updateChannel = channel;
   }
 
-  // Feature flags
   @override
   Future<bool?> featureFlag(FeatureFlag flag) async => _featureFlags[flag.name];
   @override
@@ -247,7 +246,6 @@ void main() {
       var notified = false;
       controller.addListener(() => notified = true);
 
-      // Default is false; setting false again should neither persist nor notify.
       await controller.setEnableSimulatedWebViews(false);
 
       expect(spy.setEnableSimulatedWebViewsCallCount, 0);
@@ -336,7 +334,7 @@ void main() {
       // isFeatureFlagEnabled falls back to defaultFeatureFlagValues.
       expect(
         controller.isFeatureFlagEnabled(FeatureFlag.stepExitArbiter),
-        isTrue, // default is true
+        isTrue,
       );
     });
 
@@ -370,11 +368,10 @@ void main() {
 
       // Set to false first so the in-memory map has a value.
       await controller.setFeatureFlag(FeatureFlag.stepExitArbiter, false);
-      spy.setFeatureFlagCallCount = 0; // reset counter
+      spy.setFeatureFlagCallCount = 0;
       var notified = false;
       controller.addListener(() => notified = true);
 
-      // Setting false again should be a no-op.
       await controller.setFeatureFlag(FeatureFlag.stepExitArbiter, false);
 
       expect(spy.setFeatureFlagCallCount, 0);

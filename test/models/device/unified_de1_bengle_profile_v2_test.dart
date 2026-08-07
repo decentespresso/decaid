@@ -78,7 +78,6 @@ void main() {
         reason: 'header + 2 frames + 1 extension + tail',
       );
 
-      // Header: [version, stepCount, countStart, minPressure, maxFlow]
       final header = payloads[0];
       expect(header, hasLength(5));
       expect(header[0], 1, reason: 'header version');
@@ -87,7 +86,6 @@ void main() {
       expect(header[3], 0, reason: 'minimum pressure');
       expect(header[4], 192, reason: 'max flow 12 × 16 = 0xC0');
 
-      // Frame 0 (flow step): [idx, flags, target, temp, seconds, trigger, volHi, volLo]
       final frame0 = payloads[1];
       expect(frame0, hasLength(8));
       expect(frame0[0], 0, reason: 'frame index');
@@ -102,14 +100,12 @@ void main() {
       expect(frame1[2], 144, reason: 'pressure target 9 × 16 = 0x90');
       expect(frame1[5], 0, reason: 'no exit trigger');
 
-      // Extension frame 0: [32+idx, limiter, range, zeros...]
       final ext0 = payloads[3];
       expect(ext0, hasLength(8));
       expect(ext0[0], 32, reason: 'extension index');
       expect(ext0[1], 128, reason: 'limiter 8 × 16 = 0x80');
       expect(ext0[2], 32, reason: 'limiter range 2 × 16 = 0x20');
 
-      // Tail: [stepCount, zeros...]
       final tail = payloads[4];
       expect(tail, hasLength(8));
       expect(tail[0], 2, reason: 'step count in tail');
@@ -139,7 +135,6 @@ void main() {
       );
       await de1.setProfile(profile);
       final payloads = profilePayloads(transport.writes);
-      // frame target byte = (0.5 + 9.25 * 16).toInt() = (0.5 + 148.0).toInt() = 148
       expect(payloads[1][2], 148, reason: '(0.5 + 9.25 * 16).toInt() = 148');
     });
   });
@@ -163,28 +158,23 @@ void main() {
       final payloads = profilePayloads(transport.writes);
       expect(payloads.length, greaterThanOrEqualTo(5));
 
-      // Header
       final header = payloads[0];
       expect(header[0], 2, reason: 'header version v2 for Bengle');
       expect(header[1], 2, reason: 'step count');
       expect(header[3], 0, reason: 'minimum pressure 0 × 10 = 0x00');
       expect(header[4], 120, reason: 'max flow 12 × 10 = 0x78');
 
-      // Frame 0 (flow step)
       final frame0 = payloads[1];
       expect(frame0[2], 60, reason: 'flow target 6 × 10 = 0x3C');
       expect(frame0[5], 40, reason: 'trigger 4 × 10 = 0x28');
 
-      // Frame 1 (pressure step)
       final frame1 = payloads[2];
       expect(frame1[2], 90, reason: 'pressure target 9 × 10 = 0x5A');
 
-      // Extension frame 0
       final ext0 = payloads[3];
       expect(ext0[1], 80, reason: 'limiter 8 × 10 = 0x50');
       expect(ext0[2], 20, reason: 'limiter range 2 × 10 = 0x14');
 
-      // Non-flow/pressure bytes match DE1
       expect(frame0[3], 184, reason: 'temperature unchanged');
       expect(frame1[3], 184, reason: 'temperature unchanged');
       expect(payloads[4][0], 2, reason: 'tail unchanged');

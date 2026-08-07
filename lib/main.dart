@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse, AppExitType;
 import 'package:collection/collection.dart';
-// import 'package:flutter/scheduler.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -102,7 +101,6 @@ Future<void> _setSystemInfoKeys(TelemetryService telemetryService) async {
     final deviceInfo = await deviceInfoPlugin.deviceInfo;
     final deviceData = deviceInfo.data;
 
-    // Set platform info
     await telemetryService.setCustomKey('os_name', Platform.operatingSystem);
     await telemetryService.setCustomKey(
       'os_version',
@@ -110,19 +108,16 @@ Future<void> _setSystemInfoKeys(TelemetryService telemetryService) async {
     );
     await telemetryService.setCustomKey('app_version', BuildInfo.commitShort);
 
-    // Set device model (platform-adaptive field names)
     final deviceModel =
         deviceData['model'] ?? deviceData['computerName'] ?? 'unknown';
     await telemetryService.setCustomKey('device_model', deviceModel);
 
-    // Set device brand (platform-adaptive field names)
     final deviceBrand =
         deviceData['brand'] ?? deviceData['hostName'] ?? 'unknown';
     await telemetryService.setCustomKey('device_brand', deviceBrand);
   } catch (e, st) {
     final log = Logger('Main');
     log.warning('Failed to set system info custom keys', e, st);
-    // Non-blocking - continue app startup even if this fails
   }
 }
 
@@ -150,7 +145,7 @@ void main(List<String> args) async {
   SemanticsBinding.instance.ensureSemantics();
   SystemChrome.setEnabledSystemUIMode(
     SystemUiMode.manual,
-    overlays: [SystemUiOverlay.top], // Only keep the top bar
+    overlays: [SystemUiOverlay.top],
   );
   Logger.root.level = Level.FINE;
   Logger.root.clearListeners();
@@ -186,7 +181,6 @@ void main(List<String> args) async {
     baseFilePath: '$appDocsPath/log.txt',
   ).attachToLogger(Logger.root);
 
-  // Initialize WebView console log service (separate from app logs)
   final webViewLogDir = appDocsPath;
   final webViewLogService = WebViewLogService(logDirectoryPath: webViewLogDir);
   await webViewLogService.initialize();
@@ -221,20 +215,17 @@ void main(List<String> args) async {
   }
   BootTiming.mark('firebase_done');
 
-  // Create log buffer, error report throttle, and telemetry service
   final logBuffer = LogBuffer();
   final errorReportThrottle = ErrorReportThrottle();
   final telemetryService = TelemetryService.create(logBuffer: logBuffer);
   BootTiming.telemetry = telemetryService;
 
-  // Initialize telemetry (disables collection by default, sets up error handlers)
   try {
     await telemetryService.initialize();
   } catch (e, st) {
     log.warning('Telemetry initialization failed', e, st);
   }
 
-  // Set system information custom keys for error reports
   await _setSystemInfoKeys(telemetryService);
 
   // Hook Logger.root to capture WARNING+ in log buffer with PII scrubbing
@@ -248,7 +239,6 @@ void main(List<String> args) async {
 
       if (!shouldForwardToTelemetry(record)) return;
 
-      // Trigger telemetry error report if rate limit allows
       if (errorReportThrottle.shouldReport(scrubbed)) {
         final error = record.error ?? scrubbed;
         telemetryService.recordError(error, record.stackTrace);
@@ -284,14 +274,12 @@ void main(List<String> args) async {
     simulatedDevicesService.enabledDevices = dartDefineDevices;
     log.info("enabling simulated devices from dart-define: $dartDefineDevices");
   }
-  // Initialize Drift database
   final appDatabase = AppDatabase.defaults();
 
   final persistenceController = PersistenceController(
     storageService: DriftStorageService(appDatabase),
   );
 
-  // Entity storage services
   final beanStorage = DriftBeanStorageService(appDatabase);
   final grinderStorage = DriftGrinderStorageService(appDatabase);
   final profileStorage = DriftProfileStorageService(appDatabase);
@@ -311,7 +299,6 @@ void main(List<String> args) async {
   );
   settingsController.telemetryService = telemetryService;
 
-  // Initialize profile storage and controller
   final profileController = ProfileController(storage: profileStorage);
   await profileController.initialize();
 
@@ -577,7 +564,6 @@ void main(List<String> args) async {
   // Load the user's preferred theme while the splash screen is displayed.
   // This prevents a sudden theme change when the app is first displayed.
   settingsController.addListener(() {
-    // Merge dart-define devices with user-selected devices from settings
     const simEnv = String.fromEnvironment("simulate");
     final dartDefineDevices = simEnv.isNotEmpty
         ? _parseSimulateFlag(simEnv)
@@ -646,7 +632,6 @@ void main(List<String> args) async {
     await updateCheckService.initialize();
   });
 
-  // Add lifecycle observer for all platforms (for update notifications)
   WidgetsBinding.instance.addObserver(
     AppLifecycleObserver(
       updateCheckService: updateCheckService,
@@ -716,26 +701,22 @@ class AppLifecycleObserver with WidgetsBindingObserver {
       _log.info("[MEM] RSS=${rss.toStringAsFixed(1)}MB");
     });
 
-    // Show initial update notification once the widget tree is fully built
     if (updateCheckService?.hasAvailableUpdate == true) {
       Future.delayed(const Duration(seconds: 3), () {
         _showUpdateNotification();
       });
     }
 
-    // Monitor machine state changes for sleep-to-idle transitions
     _machineStateSubscription = de1Controller?.de1.listen((machine) {
       if (_detachFuture != null) return;
       _stateStreamSubscription?.cancel();
 
       if (machine == null) return;
 
-      // Check if machine transitioned from sleep to idle
       _stateStreamSubscription = machine.currentSnapshot.listen((snapshot) {
         if (_detachFuture != null) return;
         final currentState = snapshot.state.state.index;
 
-        // Detect transition from sleep (0) to idle (2)
         if (_lastMachineState == 0 &&
             currentState == 2 &&
             updateCheckService?.hasAvailableUpdate == true) {
@@ -757,12 +738,10 @@ class AppLifecycleObserver with WidgetsBindingObserver {
     }
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
-      // STOP charts, timers, streams
       _log.info("state: $state");
       _wasBackgrounded = true;
     }
     if (state == AppLifecycleState.resumed) {
-      // Resume if needed
       _log.info("state: resumed");
 
       // Re-assert screen brightness: a write issued while the window was paused
@@ -770,7 +749,6 @@ class AppLifecycleObserver with WidgetsBindingObserver {
       // stuck, leaving the screen dark with no other trigger to recover.
       unawaited(displayController?.onAppResumed() ?? Future<void>.value());
 
-      // Check for updates when app comes to foreground
       if (_wasBackgrounded && updateCheckService?.hasAvailableUpdate == true) {
         _showUpdateNotification();
       }
@@ -861,7 +839,6 @@ class AppLifecycleObserver with WidgetsBindingObserver {
       ),
     );
 
-    // When user taps the close icon, skip this version permanently
     controller.closed.then((reason) {
       if (reason == SnackBarClosedReason.dismiss) {
         updateCheckService?.skipCurrentUpdate();

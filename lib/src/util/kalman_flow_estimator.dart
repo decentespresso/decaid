@@ -40,12 +40,8 @@
 /// is connected (no per-scale `R` table). Variable-`dt` handles a slower
 /// scale's larger intervals. Two mechanisms, two axes (noise vs rate).
 class KalmanFlowEstimator {
-  // -- State vector: [weight, flow] --
-
   double _weight;
   double _flow;
-
-  // -- Covariance matrix P (2×2, symmetric) --
 
   double _p11, _p12, _p21, _p22;
 
@@ -53,15 +49,9 @@ class KalmanFlowEstimator {
 
   DateTime? _lastTimestamp;
 
-  // -- Adaptive measurement noise --
-
   double _r;
 
-  // -- Fixed process noise intensity (continuous-time acceleration variance) --
-
   final double _q;
-
-  // -- R adaptation constants --
 
   /// EMA smoothing factor when innovation² > current R (noise rising).
   /// Slow rise → don't over-react to a single spike.
@@ -146,10 +136,9 @@ class KalmanFlowEstimator {
       return (_weight, _flow);
     }
 
-    final dt = dtMs / 1000.0; // seconds
+    final dt = dtMs / 1000.0;
 
     // ── Predict ──────────────────────────────────────────────────────
-    //
     // State transition (constant velocity):
     //   x_pred = F @ x
     //   where F = [[1, dt],
@@ -159,7 +148,6 @@ class KalmanFlowEstimator {
     final predFlow = _flow;
 
     // P_pred = F @ P @ F^T + Q
-    //
     // F @ P = [[p11 + dt·p21,  p12 + dt·p22],
     //          [p21,           p22]]
     final fp11 = _p11 + dt * _p21;
@@ -188,7 +176,6 @@ class KalmanFlowEstimator {
     final predP22 = pp22 + q22;
 
     // ── Update ───────────────────────────────────────────────────────
-    //
     // Measurement model:
     //   z = rawWeight  (we only observe weight)
     //   H = [1, 0]
@@ -205,14 +192,11 @@ class KalmanFlowEstimator {
     _r = alpha * innovSq + (1.0 - alpha) * _r;
     _r = _r.clamp(_rMin, _rMax);
 
-    // Innovation covariance: S = H @ P_pred @ H^T + R = predP11 + R
     final s = predP11 + _r;
 
-    // Kalman gain: K = P_pred @ H^T / S = [predP11, predP21]^T / S
     final k1 = predP11 / s;
     final k2 = predP21 / s;
 
-    // State update: x = x_pred + K · innovation
     _weight = predWeight + k1 * innovation;
     _flow = predFlow + k2 * innovation;
 

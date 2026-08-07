@@ -18,10 +18,8 @@ abstract class Device {
   /// underlying transport.
   TransportType get transportType;
 
-  // discover and subscribe to services/characteristics
   Future<void> onConnect();
 
-  // tear down any connections
   Future<void> disconnect();
 
   Stream<ConnectionState> get connectionState;
@@ -50,9 +48,7 @@ abstract class DeviceDiscoveryService {
   ///
   /// Default is a no-op. Implementations should cancel any pending scan
   /// timers and stop the underlying scan (e.g., BLE stopScan).
-  void stopScan() {
-    // Default: no-op.
-  }
+  void stopScan() {}
 
   /// Attempt a direct connection to a remembered device without scanning.
   /// Returns a connected-and-ready [Device] on success, or null to signal

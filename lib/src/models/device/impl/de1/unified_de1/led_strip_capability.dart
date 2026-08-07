@@ -21,10 +21,10 @@ enum BengleLedEndpoint implements LogicalEndpoint {
   resetConfig;
 
   @override
-  String? get uuid => null; // TBD with FW
+  String? get uuid => null;
 
   @override
-  String? get representation => null; // TBD with FW
+  String? get representation => null;
 
   @override
   String get name => (this as Enum).name;

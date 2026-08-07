@@ -65,7 +65,6 @@ class De1StateManager with WidgetsBindingObserver {
   bool _isRealtimeFeatureActive = false;
   final List<ShotSnapshot> _currentShotSnapshots = [];
 
-  // Track previous machine state for scale power management
   MachineState? _previousMachineState;
 
   /// Cancellable timer for deferred scale reconnect after machine wake.
@@ -78,13 +77,10 @@ class De1StateManager with WidgetsBindingObserver {
   @visibleForTesting
   Duration deferredScaleScanDelay = const Duration(seconds: 3);
 
-  // Platform-specific background states
   final Set<AppLifecycleState> _backgroundStates;
 
-  // Track current app lifecycle state
   AppLifecycleState _currentAppState = AppLifecycleState.resumed;
 
-  // App foreground/background tracking
   bool _appIsInForeground = true;
   bool _navigationContextReady = false;
 
@@ -113,7 +109,6 @@ class De1StateManager with WidgetsBindingObserver {
   /// "background" states for the current platform.
   static Set<AppLifecycleState> _getPlatformBackgroundStates() {
     if (Platform.isAndroid || Platform.isIOS) {
-      // Mobile platforms: treat paused, inactive, hidden, and detached as background
       return {
         AppLifecycleState.paused,
         AppLifecycleState.inactive,
@@ -125,17 +120,14 @@ class De1StateManager with WidgetsBindingObserver {
       // Some desktop platforms may not have all lifecycle states
       return {AppLifecycleState.detached};
     } else {
-      // Web or other platforms: use conservative defaults
       return {AppLifecycleState.paused, AppLifecycleState.detached};
     }
   }
 
   /// Initializes the state manager and starts listening to DE1 state changes.
   void _initialize() {
-    // Start observing app lifecycle
     WidgetsBinding.instance.addObserver(this);
 
-    // Check if navigation context is available
     _checkNavigationContext();
 
     _de1Subscription = _de1Controller.de1.listen(_handleDe1Change);
@@ -164,7 +156,7 @@ class De1StateManager with WidgetsBindingObserver {
       result = route;
       return true;
     });
-    final route = result; //ModalRoute.of(context);
+    final route = result;
 
     return route?.settings.name == LauncherView.routeName && route!.isCurrent;
   }
@@ -183,7 +175,6 @@ class De1StateManager with WidgetsBindingObserver {
 
     _currentAppState = state;
 
-    // Update foreground tracking based on platform-specific background states
     final bool wasInForeground = _appIsInForeground;
     _appIsInForeground = _isAppInForeground;
 
@@ -191,11 +182,9 @@ class De1StateManager with WidgetsBindingObserver {
       _logger.info('App foreground state changed: $_appIsInForeground');
     }
 
-    // When app comes to foreground, check navigation context
     if (state == AppLifecycleState.resumed) {
       _checkNavigationContext();
     }
-    // For desktop platforms, also check on other foreground transitions if needed
     if (!Platform.isAndroid && !Platform.isIOS) {
       _logger.fine(
         'Desktop platform state change: ${state.name}, ensuring navigation context',
@@ -225,7 +214,6 @@ class De1StateManager with WidgetsBindingObserver {
       }
     } else {
       _logger.info('DE1 disconnected');
-      // Clean up any active shot controller
       _cleanupShotSequencer();
     }
   }
@@ -257,7 +245,6 @@ class De1StateManager with WidgetsBindingObserver {
       } catch (e) {
         _emailedSerials.remove(serial);
         _logger.warning('Failed to email serial mismatch: $e');
-        // Don't block the dialog — user should still see the message.
       }
     } catch (e) {
       _logger.warning('Serial ownership check failed: $e');
@@ -272,7 +259,6 @@ class De1StateManager with WidgetsBindingObserver {
     final currentState = snapshot.state.state;
     final currentSubstate = snapshot.state.substate;
 
-    // Skip if state hasn't changed
     if (_previousMachineState == currentState) {
       return;
     }
@@ -301,7 +287,6 @@ class De1StateManager with WidgetsBindingObserver {
         break;
     }
 
-    // Update previous state for next transition
     _previousMachineState = currentState;
   }
 
@@ -313,14 +298,12 @@ class De1StateManager with WidgetsBindingObserver {
       return;
     }
 
-    // Skip if state hasn't changed
     if (_previousMachineState == currentState) {
       return;
     }
 
     final scalePowerMode = _settingsController.scalePowerMode;
 
-    // Transition from idle to sleeping -> put scale to sleep (power mgmt only)
     if (scalePowerMode != ScalePowerMode.disabled &&
         _previousMachineState == MachineState.idle &&
         currentState == MachineState.sleeping) {
@@ -354,7 +337,6 @@ class De1StateManager with WidgetsBindingObserver {
         currentState != MachineState.sleeping) {
       _logger.info('Machine waking up from sleep');
 
-      // Check if scale is connected
       bool scaleConnected = false;
       try {
         _scaleController.connectedScale();
@@ -363,7 +345,6 @@ class De1StateManager with WidgetsBindingObserver {
         scaleConnected = false;
       }
 
-      // If scale is connected and mode is displayOff, wake the display
       if (scaleConnected && scalePowerMode == ScalePowerMode.displayOff) {
         try {
           final scale = _scaleController.connectedScale();
@@ -412,7 +393,7 @@ class De1StateManager with WidgetsBindingObserver {
   /// Triggers a scale-only scan via ConnectionManager.
   void _triggerScaleScan() {
     _logger.info('Delegating scale reconnect to ConnectionManager');
-    _connectionManager.connect(scaleOnly: true); // fire-and-forget
+    _connectionManager.connect(scaleOnly: true);
   }
 
   /// Handles espresso state based on the current gateway mode.
@@ -421,7 +402,6 @@ class De1StateManager with WidgetsBindingObserver {
   /// to the realtime shot feature regardless of gateway mode. Otherwise, falls
   /// back to gateway-mode-specific behavior.
   void _handleEspressoState(MachineSnapshot snapshot, GatewayMode gatewayMode) {
-    // Navigate to realtime feature if launcher is showing, regardless of mode
     if (_appIsInForeground && _isLauncherActive) {
       _handleDisabledModeForEspresso();
       return;
@@ -446,7 +426,6 @@ class De1StateManager with WidgetsBindingObserver {
   /// to the realtime steam feature regardless of gateway mode. Otherwise, falls
   /// back to gateway-mode-specific behavior.
   void _handleSteamState(MachineSnapshot snapshot, GatewayMode gatewayMode) {
-    // Navigate to realtime feature if launcher is showing, regardless of mode
     if (_appIsInForeground && _isLauncherActive) {
       _handleDisabledModeForSteam();
       return;
@@ -466,7 +445,6 @@ class De1StateManager with WidgetsBindingObserver {
   /// Handles espresso state when in tracking mode.
   void _handleTrackingModeForEspresso() {
     if (_currentShotSequencer != null) {
-      // Already tracking a shot
       return;
     }
 
@@ -479,11 +457,9 @@ class De1StateManager with WidgetsBindingObserver {
   /// Handles espresso state when in disabled mode.
   void _handleDisabledModeForEspresso() {
     if (_isRealtimeFeatureActive) {
-      // Already showing realtime feature
       return;
     }
 
-    // If we're already tracking a shot (maybe from a previous fallback)
     if (_currentShotSequencer != null) {
       return;
     }
@@ -497,7 +473,6 @@ class De1StateManager with WidgetsBindingObserver {
     bool canNavigate = _navigationContextReady;
 
     if (Platform.isAndroid || Platform.isIOS) {
-      // Mobile: require app to be in foreground
       canNavigate = canNavigate && _appIsInForeground;
     }
     // Desktop platforms can attempt navigation even if app is "inactive"
@@ -539,15 +514,12 @@ class De1StateManager with WidgetsBindingObserver {
   /// Handles steam state when in disabled mode.
   void _handleDisabledModeForSteam() {
     if (_isRealtimeFeatureActive) {
-      // Already showing realtime feature
       return;
     }
 
-    // Platform-specific navigation logic
     bool canNavigate = _navigationContextReady;
 
     if (Platform.isAndroid || Platform.isIOS) {
-      // Mobile: require app to be in foreground
       canNavigate = canNavigate && _appIsInForeground;
     }
 
@@ -563,7 +535,6 @@ class De1StateManager with WidgetsBindingObserver {
       _logger.info('Navigating to RealtimeSteamFeature in disabled mode');
       _isRealtimeFeatureActive = true;
 
-      // Use a try-catch to handle any async issues
       try {
         _de1Controller.steamData.first
             .then((steamData) {
@@ -625,7 +596,6 @@ class De1StateManager with WidgetsBindingObserver {
     _currentShotSnapshots.clear();
     _currentShotId = Uuid().v4();
 
-    // Listen to shot snapshots
     _shotSnapshotsSubscription = _currentShotSequencer!.shotData.listen((
       snapshot,
     ) {
@@ -858,7 +828,6 @@ class De1StateManager with WidgetsBindingObserver {
   void dispose() {
     _logger.fine('Disposing De1StateManager');
 
-    // Remove app lifecycle observer
     WidgetsBinding.instance.removeObserver(this);
 
     _cleanupShotSequencer();

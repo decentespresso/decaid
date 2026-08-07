@@ -34,7 +34,6 @@ class SimulatedWebViewDevice {
 
   double get aspectRatio => physicalSize.width / physicalSize.height;
 
-  // Matches the measured Android WebView quirk for this tablet profile.
   double get outerWidth => screenSize.width + 1;
 
   static const teclastT50Mini = SimulatedWebViewDevice(

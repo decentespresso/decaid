@@ -83,7 +83,6 @@ class WebViewCompatibilityChecker {
 
     _log.info('Starting WebView compatibility check...');
 
-    // Step 1: Static device detection
     final deviceCheckResult = await _checkDeviceInfo();
     if (!deviceCheckResult.isCompatible) {
       _cachedResult = deviceCheckResult;
@@ -113,7 +112,6 @@ class WebViewCompatibilityChecker {
       _log.warning('Pre-WebView-test delay probe failed, continuing', e, st);
     }
 
-    // Step 2: Runtime WebView test
     final runtimeCheckResult = await _testWebViewRendering();
     _cachedResult = runtimeCheckResult;
     return _cachedResult!;
@@ -186,7 +184,6 @@ class WebViewCompatibilityChecker {
         );
       }
 
-      // Check Android version (require Android 10 / API 29+)
       if (sdkInt < 29) {
         final reason =
             'Android version too old for stable WebView: $androidVersion (SDK $sdkInt)';
@@ -217,7 +214,6 @@ class WebViewCompatibilityChecker {
       final completer = Completer<CompatibilityResult>();
       HeadlessInAppWebView? headlessWebView;
 
-      // Create a simple HTML page to test rendering
       final testHtml = '''
         <!DOCTYPE html>
         <html>
@@ -248,7 +244,6 @@ class WebViewCompatibilityChecker {
         onLoadStop: (controller, url) async {
           _log.fine('Headless WebView loaded, testing JavaScript...');
           try {
-            // Test 1: Can we execute JavaScript?
             final jsResult = await controller.evaluateJavascript(
               source: 'window.testResult',
             );
@@ -265,7 +260,6 @@ class WebViewCompatibilityChecker {
               return;
             }
 
-            // Test 2: Can we access DOM elements?
             final domTest = await controller.evaluateJavascript(
               source: '''
                 (function() {
@@ -291,7 +285,6 @@ class WebViewCompatibilityChecker {
               return;
             }
 
-            // Test 3: Check if CSS is applied (gradient background)
             final cssTest = await controller.evaluateJavascript(
               source: '''
                 (function() {
@@ -380,11 +373,7 @@ class WebViewCompatibilityChecker {
 
   /// Checks if manufacturer is known to have WebView issues
   static bool _isProblematicManufacturer(String manufacturer) {
-    final problematic = [
-      'teclast', // Known GPU driver issues
-      'allwinner', // Budget SoCs with rendering problems
-      'rockchip', // Budget ARM SoCs with GPU issues
-    ];
+    final problematic = ['teclast', 'allwinner', 'rockchip'];
 
     for (final brand in problematic) {
       if (manufacturer.contains(brand)) {
@@ -397,13 +386,7 @@ class WebViewCompatibilityChecker {
 
   /// Checks if device model is known to have WebView issues
   static bool _isProblematicModel(String model) {
-    final problematic = [
-      'p80', // Teclast P80 series
-      'p20', // Teclast P20 series
-      'p10', // Teclast P10 series
-      'm40', // Teclast M40 series
-      // Add more problematic models as discovered
-    ];
+    final problematic = ['p80', 'p20', 'p10', 'm40'];
 
     for (final modelPattern in problematic) {
       if (model.contains(modelPattern)) {
@@ -411,13 +394,10 @@ class WebViewCompatibilityChecker {
       }
     }
 
-    // Check for MediaTek chipset indicators in model name
     if (model.contains('mt') && model.length > 3) {
-      // Pattern like "mt8183" or "tablet_mt6797"
       final mtIndex = model.indexOf('mt');
       if (mtIndex >= 0 && mtIndex + 2 < model.length) {
         final afterMt = model.substring(mtIndex + 2);
-        // Check if followed by digits (indicates chipset model)
         if (afterMt.isNotEmpty &&
             afterMt[0].codeUnitAt(0) >= '0'.codeUnitAt(0) &&
             afterMt[0].codeUnitAt(0) <= '9'.codeUnitAt(0)) {

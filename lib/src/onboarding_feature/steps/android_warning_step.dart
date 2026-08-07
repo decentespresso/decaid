@@ -93,8 +93,6 @@ class _AndroidWarningStepView extends StatelessWidget {
   }
 }
 
-// -- Widget Previews --
-
 @Preview(name: 'Android Warning Step', group: 'Onboarding')
 Widget androidWarningStepPreview() {
   return ShadApp(

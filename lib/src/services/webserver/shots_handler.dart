@@ -36,11 +36,9 @@ class ShotsHandler {
 
     final params = req.url.queryParameters;
 
-    // Pagination params
     final limit = int.tryParse(params['limit'] ?? '') ?? 20;
     final offset = int.tryParse(params['offset'] ?? '') ?? 0;
 
-    // Filter params
     final grinderId = params['grinderId'];
     final grinderModel = params['grinderModel'];
     final beanId = params['beanId'];
@@ -50,7 +48,6 @@ class ShotsHandler {
     final profileTitle = params['profileTitle'];
     final search = params['search'];
 
-    // Legacy: support filtering by ids (handles both ?ids=a&ids=b and ?ids=a,b,c)
     final rawIds = req.url.queryParametersAll['ids'];
     final ids = rawIds
         ?.expand((id) => id.split(','))
@@ -66,7 +63,6 @@ class ShotsHandler {
         profileTitle != null ||
         search != null;
 
-    // If filtering by IDs (legacy), use direct DB lookups
     if (ids != null && ids.isNotEmpty && !hasFilters) {
       final shots = <ShotRecord>[];
       for (final id in ids) {
@@ -89,7 +85,6 @@ class ShotsHandler {
       return jsonOk(shots.map((e) => e.toJson()).toList());
     }
 
-    // Paginated + filtered path
     try {
       final order = params['order'];
       final ascending = order == 'asc';
@@ -133,7 +128,6 @@ class ShotsHandler {
         search: search,
       );
 
-      // Strip measurements from list response for performance
       final items = shots.map((s) => s.toJsonWithoutMeasurements()).toList();
 
       return jsonOkConditional(req, {
@@ -202,20 +196,17 @@ class ShotsHandler {
       final body = await req.body.asString;
       final json = jsonDecode(body) as Map<String, dynamic>;
 
-      // Validate that the ID in the path matches the ID in the body (if provided)
       if (json['id'] != null && json['id'] != id) {
         return jsonBadRequest({
           "error": "ID in path does not match ID in body",
         });
       }
 
-      // Fetch existing shot for partial update support
       final existingShot = await _controller.storageService.getShot(id);
       if (existingShot == null) {
         return jsonNotFound({"error": "Shot not found"});
       }
 
-      // Deep merge partial payload onto existing shot data
       final merged = _deepMerge(
         existingShot.toJson(),
         _normalizeLegacyAnnotationPatch(json),

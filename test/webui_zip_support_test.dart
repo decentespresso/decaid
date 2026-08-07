@@ -27,7 +27,6 @@ void main() {
     });
 
     test('replaces a colon in a filename with underscore', () {
-      // The exact shape that crashed Nils B on Windows (#147).
       expect(
         sanitizeZipEntryPath('shots/2025-09-12T16:04:38.049213.json'),
         'shots/2025-09-12T16_04_38.049213.json',
@@ -121,7 +120,6 @@ void main() {
     });
 
     test('sanitises a filename containing Win32-reserved chars', () {
-      // Regression for #147: ISO-timestamp filename crashed extraction.
       final archive = Archive()
         ..addFile(
           ArchiveFile.string(

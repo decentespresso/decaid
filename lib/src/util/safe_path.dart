@@ -31,7 +31,6 @@ bool isSafePathComponent(String component) {
   if (component.contains('/') || component.contains('\\')) return false;
   if (component.contains('\x00')) return false;
 
-  // Drive-letter prefix (`C:...`): rooted on Windows.
   if (component.length >= 2 && component.codeUnitAt(1) == 0x3A /* : */ ) {
     final first = component.codeUnitAt(0);
     final isLetter =

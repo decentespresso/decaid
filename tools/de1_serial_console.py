@@ -48,7 +48,6 @@ ENDPOINTS = {
     "B": "requestedState",
 }
 
-# Aliases accepted at the prompt.
 SUB_ALIASES = {
     "state": "N",
     "shot": "M",
@@ -62,7 +61,6 @@ SUB_ALIASES = {
 }
 SUB_ALL = ["N", "Q", "M", "K"]
 
-# State byte values from `De1StateEnum` in de1.models.dart.
 STATE_BY_NAME = {
     "sleep": 0x00,
     "goingtosleep": 0x01,
@@ -158,7 +156,6 @@ def _u16(p: bytes, off: int) -> int:
 
 
 def parse_shot_sample(payload: bytes) -> str:
-    # Layout from `_parseStateAndShotSample` in unified_de1.parsing.dart.
     if len(payload) < 19:
         return f"short shot frame ({len(payload)} bytes)"
     group_pressure = _u16(payload, 2) / (1 << 12)
@@ -208,7 +205,7 @@ class Reader(threading.Thread):
         self._port = port
         self._buf = b""
         self._stop = threading.Event()
-        self._raw = False  # also print raw frames when True
+        self._raw = False
         self._lock = threading.Lock()
 
     def stop(self):

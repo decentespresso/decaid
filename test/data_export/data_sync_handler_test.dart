@@ -47,7 +47,6 @@ class MockExportSection implements DataExportSection {
   ) async {
     _calls++;
     lastStrategy = strategy;
-    // Fully consume the input (mirrors handler two-pass consumption).
     await for (final _ in input.valuesAtDepth(1)) {}
     return importResult;
   }
@@ -89,7 +88,6 @@ class ZipEncoderLegacy {
 }
 
 List<int> buildRawZip(Map<String, String> files) {
-  // Hand-rolled ZIP (stored entries) so we control the bytes exactly.
   final entries = <Map<String, Object>>[];
   final body = BytesBuilder();
   for (final entry in files.entries) {
@@ -179,7 +177,6 @@ void _u32(BytesBuilder b, int value) {
 }
 
 int _crc32(List<int> bytes) {
-  // Standard CRC-32.
   var crc = 0xFFFFFFFF;
   for (final byte in bytes) {
     crc ^= byte;
@@ -606,7 +603,6 @@ void main() {
           'mode': 'pull',
           'padding': 'x' * 2048,
         });
-        // Wrap the shared handler in a small-limits export handler.
         final smallExport = DataExportHandler(
           sections: sections,
           limits: const DataTransferLimits(maxSyncRequestBytes: 256),
@@ -870,7 +866,7 @@ void main() {
           requestBody(mode: 'two_way', continueOnPullFailure: true),
         );
         expect(pushCalled, isTrue);
-        expect(response.statusCode, 207); // pull failed, push complete
+        expect(response.statusCode, 207);
         final body = jsonDecode(await response.readAsString());
         expect(body['phases']['pull']['status'], 'failed');
         expect(body['phases']['push']['status'], 'complete');

@@ -27,7 +27,6 @@ class FirebaseCrashlyticsTelemetryService implements TelemetryService {
 
   @override
   Future<void> initialize() async {
-    // PRIV-04: Disable all Firebase collection by default until user consents
     await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(false);
     await FirebaseAnalytics.instance.setAnalyticsCollectionEnabled(false);
     // Firebase Performance has no macOS/Linux implementation — skip to avoid
@@ -67,13 +66,11 @@ class FirebaseCrashlyticsTelemetryService implements TelemetryService {
     StackTrace? stackTrace, {
     bool fatal = false,
   }) async {
-    // Attach current log buffer contents for context
     await FirebaseCrashlytics.instance.setCustomKey(
       'log_buffer',
       _logBuffer.getContents(),
     );
 
-    // Record the error
     await FirebaseCrashlytics.instance.recordError(
       error,
       stackTrace,
@@ -94,7 +91,6 @@ class FirebaseCrashlyticsTelemetryService implements TelemetryService {
 
   @override
   Future<void> log(String message) async {
-    // Log to both Firebase and local buffer
     await FirebaseCrashlytics.instance.log(message);
     _logBuffer.append(message);
   }

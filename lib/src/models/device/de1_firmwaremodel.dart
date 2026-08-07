@@ -48,8 +48,8 @@ Uint8List encodeU24P0(int value) {
     );
   }
   return Uint8List.fromList([
-    (value >> 16) & 0xFF, // high byte
-    (value >> 8) & 0xFF, // mid byte
-    value & 0xFF, // low byte
+    (value >> 16) & 0xFF,
+    (value >> 8) & 0xFF,
+    value & 0xFF,
   ]);
 }

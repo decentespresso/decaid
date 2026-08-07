@@ -60,7 +60,6 @@ let reloadTimer = null;
 function watchPlugin() {
   try {
     watch(PLUGIN_PATH, () => {
-      // Debounce: Vite may write the file in multiple passes
       clearTimeout(reloadTimer);
       reloadTimer = setTimeout(() => {
         console.log("\nPlugin file changed — reloading...");
@@ -126,7 +125,6 @@ function handlePluginPage(endpoint, req, res) {
 
   try {
     const response = plugin.__httpRequestHandler(request);
-    // Handle both sync and async responses
     Promise.resolve(response).then((resp) => {
       res.writeHead(resp.status, resp.headers);
       res.end(resp.body);
@@ -146,7 +144,6 @@ const server = createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const pathname = url.pathname.replace(/\/+$/, "") || "/";
 
-  // Plugin page routes
   for (const route of PLUGIN_ROUTES) {
     if (pathname === `/${route}`) {
       handlePluginPage(route, req, res);
@@ -154,13 +151,11 @@ const server = createServer((req, res) => {
     }
   }
 
-  // Proxy API calls to Decent
   if (pathname.startsWith("/api/")) {
     proxyRequest(req, res);
     return;
   }
 
-  // Index page — list available routes
   if (pathname === "/") {
     res.writeHead(200, { "Content-Type": "text/html" });
     res.end(`<!DOCTYPE html>

@@ -36,8 +36,8 @@ class StepExitArbiter {
   static const double flowProximityFraction = 0.25;
 
   /// Absolute floor so low-threshold exits still have meaningful windows.
-  static const double pressureProximityMinimum = 0.3; // bar
-  static const double flowProximityMinimum = 0.2; // ml/s
+  static const double pressureProximityMinimum = 0.3;
+  static const double flowProximityMinimum = 0.2;
 
   final Map<int, _DeferralState> _deferrals = {};
 
@@ -121,7 +121,6 @@ class StepExitArbiter {
       return StepExitVerdict.fire;
     }
 
-    // Near threshold — enter deferral tracking.
     final deferral = _deferrals.putIfAbsent(
       profileFrame,
       () => _DeferralState(),

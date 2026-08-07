@@ -147,13 +147,11 @@ void main() {
   ) async {
     await _pumpPage(tester, _FakeWebUIService(serving: true));
 
-    // Niche controls live in the footer when serving.
     expect(find.text('Stop server'), findsOneWidget);
     if (!Platform.isLinux) {
       expect(find.text('Open in browser'), findsOneWidget);
     }
     expect(find.text('Start server'), findsNothing);
-    // Library-wide refresh sits in the header.
     expect(find.text('Check for updates'), findsOneWidget);
   });
 
@@ -195,7 +193,7 @@ void main() {
       final button = find.text(_primaryActionLabel);
       await tester.ensureVisible(button);
       await tester.tap(button);
-      await tester.pump(); // run async handler + setState
+      await tester.pump();
       await tester.pumpAndSettle();
 
       // Server was started with the selected skin before opening it.

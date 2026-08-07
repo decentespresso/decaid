@@ -17,16 +17,13 @@ class Anonymization {
   ///
   /// Example: "AA:BB:CC:DD:EE:FF" -> "mac_1a2b3c4d5e6f7a8b"
   static String anonymizeMac(String macAddress) {
-    // Normalize: uppercase, remove colons and dashes
     final normalized = macAddress
         .toUpperCase()
         .replaceAll(':', '')
         .replaceAll('-', '');
 
-    // Concatenate salt, type, and value
     final input = '$_salt:mac:$normalized';
 
-    // SHA-256 hash
     final bytes = utf8.encode(input);
     final hash = sha256.convert(bytes);
 
@@ -41,10 +38,8 @@ class Anonymization {
   ///
   /// Example: "192.168.1.1" -> "ip_9f8e7d6c5b4a3b2c"
   static String anonymizeIp(String ipAddress) {
-    // Concatenate salt, type, and value
     final input = '$_salt:ip:$ipAddress';
 
-    // SHA-256 hash
     final bytes = utf8.encode(input);
     final hash = sha256.convert(bytes);
 
@@ -58,19 +53,16 @@ class Anonymization {
   /// the appropriate anonymization method. Returns input unchanged
   /// if no PII pattern is detected.
   static String anonymize(String input) {
-    // MAC address pattern: XX:XX:XX:XX:XX:XX or XX-XX-XX-XX-XX-XX
     final macPattern = RegExp(r'^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$');
     if (macPattern.hasMatch(input)) {
       return anonymizeMac(input);
     }
 
-    // IPv4 pattern: N.N.N.N
     final ipv4Pattern = RegExp(r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$');
     if (ipv4Pattern.hasMatch(input)) {
       return anonymizeIp(input);
     }
 
-    // IPv6 pattern: contains multiple colons and hex chars
     final ipv6Pattern = RegExp(r'^[0-9A-Fa-f:]+$');
     if (input.contains(':') && ipv6Pattern.hasMatch(input)) {
       return anonymizeIp(input);
@@ -88,13 +80,11 @@ class Anonymization {
   static String scrubString(String text) {
     var scrubbed = text;
 
-    // Find and replace all MAC addresses
     final macPattern = RegExp(r'([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}');
     scrubbed = scrubbed.replaceAllMapped(macPattern, (match) {
       return anonymizeMac(match.group(0)!);
     });
 
-    // Find and replace all IPv4 addresses
     final ipv4Pattern = RegExp(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b');
     scrubbed = scrubbed.replaceAllMapped(ipv4Pattern, (match) {
       return anonymizeIp(match.group(0)!);

@@ -22,7 +22,7 @@ void main() {
     setUp(() async {
       transport = FakeBleTransport();
       bengle = Bengle(transport: transport);
-      transport.queueOnConnectResponses(v13Model: 128); // Bengle marker
+      transport.queueOnConnectResponses(v13Model: 128);
       await bengle.onConnect();
     });
 

@@ -6,7 +6,6 @@ import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
 
-// Helper to build a minimal ParsedShot for testing.
 ParsedShot makeShot({
   String? beanBrand,
   String? beanType,
@@ -242,9 +241,7 @@ void main() {
         expect(result.shotBeanBatchIds[0], isNotNull);
         expect(result.shotBeanBatchIds[1], isNotNull);
         expect(result.shotBeanBatchIds[2], isNotNull);
-        // Shots 0 and 2 share the same bean batch (same brand+type, no roastDate)
         expect(result.shotBeanBatchIds[0], result.shotBeanBatchIds[2]);
-        // Shot 1 has a different batch
         expect(result.shotBeanBatchIds[1], isNot(result.shotBeanBatchIds[0]));
       });
 
@@ -272,9 +269,7 @@ void main() {
         expect(result.shotGrinderIds[0], isNotNull);
         expect(result.shotGrinderIds[1], isNotNull);
         expect(result.shotGrinderIds[2], isNotNull);
-        // Shots 0 and 2 share the same grinder
         expect(result.shotGrinderIds[0], result.shotGrinderIds[2]);
-        // Shot 1 has a different grinder
         expect(result.shotGrinderIds[1], isNot(result.shotGrinderIds[0]));
       });
 
@@ -338,7 +333,7 @@ void main() {
 
       expect(merged.length, 1);
       final grinder = merged.first;
-      expect(grinder.id, fromShots.first.id); // keeps existing ID
+      expect(grinder.id, fromShots.first.id);
       expect(grinder.model, 'Niche Zero');
       expect(grinder.burrs, '63mm conical');
       expect(grinder.settingSmallStep, 1.0);

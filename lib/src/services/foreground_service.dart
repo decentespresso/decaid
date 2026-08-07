@@ -24,8 +24,7 @@ class ForegroundTaskService {
         playSound: false,
       ),
       foregroundTaskOptions: ForegroundTaskOptions(
-        // Set up recurring event to keep service alive (interval in milliseconds)
-        eventAction: ForegroundTaskEventAction.repeat(60000), // 1 minute
+        eventAction: ForegroundTaskEventAction.repeat(60000),
         autoRunOnBoot: false,
         autoRunOnMyPackageReplaced: false,
         allowWakeLock: true,
@@ -120,9 +119,7 @@ class ForegroundTaskService {
   }
 }
 
-@pragma(
-  'vm:entry-point',
-) // This decorator means that this function calls native code
+@pragma('vm:entry-point')
 void startCallback() {
   FlutterForegroundTask.setTaskHandler(FirstTaskHandler());
 }
@@ -131,7 +128,6 @@ class FirstTaskHandler extends TaskHandler {
   final _log = Logger("ForegroundTaskHandler");
   int _eventCount = 0;
 
-  // Called when the task is started.
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter sendPort) async {
     _log.info("Foreground service started at $timestamp");
@@ -148,7 +144,6 @@ class FirstTaskHandler extends TaskHandler {
   void onRepeatEvent(DateTime timestamp) {
     _eventCount++;
 
-    // Log periodically to confirm service is running
     if (_eventCount % 5 == 0) {
       _log.fine(
         'Foreground service heartbeat: $_eventCount events, uptime: ${_formatUptime()}',

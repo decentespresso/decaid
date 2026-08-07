@@ -81,7 +81,6 @@ class SettingsHandler {
       }
       if (json.containsKey('webUiPath')) {
         final webUiPath = json['webUiPath'].toString();
-        // Check path is valid
         final _ = File.fromUri(Uri.file(webUiPath));
         await _webUIService.serveFolderAtPath(webUiPath);
       }
@@ -300,7 +299,6 @@ class SettingsHandler {
       return jsonOk(null);
     });
 
-    // Adding logs here, even though they aren't part of Settings
     app.get('/ws/v1/logs', _handleLogsRequest);
   }
 
@@ -318,9 +316,7 @@ class SettingsHandler {
         );
       });
       socket.stream.listen(
-        (msg) {
-          // handle incoming messages if needed
-        },
+        (msg) {},
         onDone: () {
           sub?.cancel();
         },

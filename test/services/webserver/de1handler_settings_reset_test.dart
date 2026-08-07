@@ -213,7 +213,6 @@ void main() {
       'allows espresso when blockOnNoScale=false and scale disconnected',
       () async {
         await wireWith(MockDe1());
-        // default: blockOnNoScale is false
         scaleController.simulateDisconnect();
 
         final res = await putNoBody('/api/v1/machine/state/espresso');

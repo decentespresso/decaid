@@ -28,10 +28,8 @@ import os
 import re
 import sys
 
-# Valid beverage types in Decent
 VALID_BEVERAGE_TYPES = {"espresso", "calibrate", "cleaning", "manual", "pourover"}
 
-# Mapping from source beverage types to ours
 BEVERAGE_TYPE_MAP = {
     "filter": "pourover",
     "tea": "pourover",
@@ -68,22 +66,18 @@ def parse_tcl_profile(content):
     if advanced_match:
         raw_steps_str = advanced_match.group(1).strip()
 
-    # Parse flat key-value pairs (everything except advanced_shot)
     for line in content.splitlines():
         line = line.strip()
         if not line or line.startswith("advanced_shot"):
             continue
-        # TCL format: key value (value may be in {braces} for multi-word)
         match = re.match(r'^(\S+)\s+(.*)', line)
         if match:
             key = match.group(1)
             val = match.group(2).strip()
-            # Remove TCL braces from values
             if val.startswith("{") and val.endswith("}"):
                 val = val[1:-1]
             result[key] = val
 
-    # Map TCL field names to our expected names
     profile = {
         "title": result.get("profile_title", ""),
         "author": result.get("author", ""),
@@ -113,7 +107,6 @@ def parse_tcl_profile(content):
             "ingestion."
         )
 
-    # Parse advanced_shot steps
     steps = _parse_tcl_steps(raw_steps_str)
     if not steps and raw_steps_str not in ("", "{}"):
         raise ValueError("Failed to parse advanced_shot steps")
@@ -132,7 +125,6 @@ def _parse_tcl_steps(raw):
     if not raw or raw == "{}":
         return []
 
-    # Remove outer braces
     if raw.startswith("{") and raw.endswith("}"):
         raw = raw[1:-1].strip()
 
@@ -199,7 +191,6 @@ def _parse_tcl_step(step_str):
         raw[key] = val
         i += 2
 
-    # Map TCL step fields to our JSON step format
     step = {
         "name": raw.get("name", ""),
         "pump": raw.get("pump", "pressure"),
@@ -213,7 +204,6 @@ def _parse_tcl_step(step_str):
         "pressure": float(raw.get("pressure", 0)),
     }
 
-    # Build exit condition from TCL's split fields
     exit_if = int(raw.get("exit_if", 0))
     if exit_if:
         exit_type = raw.get("exit_type", "")
@@ -242,7 +232,6 @@ def _parse_tcl_step(step_str):
                 "value": float(raw.get("exit_flow_under", 0)),
             }
 
-    # Limiter (max_flow_or_pressure)
     max_val = float(raw.get("max_flow_or_pressure", 0))
     max_range = float(raw.get("max_flow_or_pressure_range", 0))
     if max_val > 0 or max_range > 0:
@@ -259,14 +248,12 @@ def _tokenize_tcl(s):
     tokens = []
     i = 0
     while i < len(s):
-        # Skip whitespace
         while i < len(s) and s[i] in " \t":
             i += 1
         if i >= len(s):
             break
 
         if s[i] == "{":
-            # Braced value — find matching close brace
             depth = 1
             i += 1
             start = i
@@ -278,7 +265,6 @@ def _tokenize_tcl(s):
                 i += 1
             tokens.append(s[start : i - 1])
         elif s[i] == '"':
-            # Quoted value
             i += 1
             start = i
             while i < len(s) and s[i] != '"':
@@ -286,7 +272,6 @@ def _tokenize_tcl(s):
             tokens.append(s[start:i])
             i += 1
         else:
-            # Bare word
             start = i
             while i < len(s) and s[i] not in " \t":
                 i += 1
@@ -312,19 +297,16 @@ def convert_step(step):
         "weight": str(float(step.get("weight", 0))),
     }
 
-    # Add flow or pressure based on pump type
     if step["pump"] == "flow":
         converted["flow"] = str(float(step.get("flow", 0)))
     else:
         converted["pressure"] = str(float(step.get("pressure", 0)))
 
-    # Preserve the other target value too (our format includes both)
     if step["pump"] == "flow":
         converted["pressure"] = str(float(step.get("pressure", 0)))
     else:
         converted["flow"] = str(float(step.get("flow", 0)))
 
-    # Exit condition
     if "exit" in step and step["exit"]:
         exit_cond = step["exit"]
         converted["exit"] = {
@@ -333,7 +315,6 @@ def convert_step(step):
             "value": str(float(exit_cond["value"])),
         }
 
-    # Limiter
     if "limiter" in step and step["limiter"]:
         limiter = step["limiter"]
         lim_value = float(limiter.get("value", 0))
@@ -348,7 +329,6 @@ def convert_step(step):
 
 def convert_profile(source):
     """Convert a parsed profile dict to Decent format."""
-    # Resolve beverage type
     beverage_type = strip_tcl_braces(source.get("beverage_type", "espresso"))
     beverage_type = BEVERAGE_TYPE_MAP.get(beverage_type, beverage_type)
     if beverage_type not in VALID_BEVERAGE_TYPES:
@@ -357,19 +337,16 @@ def convert_profile(source):
             f"(original: '{source.get('beverage_type')}')"
         )
 
-    # Resolve tank temperature (de1app uses 'tank_desired_water_temperature')
     tank_temp = source.get(
         "tank_temperature",
         source.get("tank_desired_water_temperature", 0),
     )
 
-    # Resolve target_volume_count_start (de1app uses 'number_of_preinfuse_frames')
     vol_count_start = source.get(
         "target_volume_count_start",
         source.get("number_of_preinfuse_frames", 0),
     )
 
-    # Convert steps
     steps = [convert_step(s) for s in source.get("steps", [])]
 
     converted = {
@@ -446,7 +423,6 @@ def main():
 
     for input_path in args.profiles:
         filename = os.path.basename(input_path)
-        # Output is always .json
         out_filename = (
             filename.rsplit(".", 1)[0] + ".json" if filename.endswith(".tcl") else filename
         )

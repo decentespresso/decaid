@@ -8,7 +8,6 @@ if [ -f .env.dev ]; then
   set +a
 fi
 
-# --- Collect git info safely ---
 COMMIT=$(git rev-parse HEAD 2>/dev/null || echo unknown)
 COMMIT_SHORT=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
@@ -28,7 +27,6 @@ TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
 if [ -z "$TAG" ]; then
   VERSION="0.0.0-dev"
 else
-  # Strip leading 'v' if present (v1.2.3 -> 1.2.3)
   VERSION="${TAG#v}"
 fi
 
@@ -40,7 +38,6 @@ BUILD_NUMBER=$(git rev-list --count origin/main 2>/dev/null || echo "1")
 # e.g. "1.2.3-beta.1" -> build-name "1.2.3", but VERSION dart-define keeps the full string
 BUILD_NAME="${VERSION%%-*}"
 
-# --- Parse --skip-skins flag (from anywhere in args) ---
 SKIP_SKINS=false
 FILTERED_ARGS=()
 for arg in "$@"; do
@@ -63,7 +60,6 @@ shift
 
 EXTRA_ARGS=("$@")
 
-# --- Bundle skins (downloads to assets/bundled_skins/) ---
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ "$SKIP_SKINS" = true ]; then
   echo "Skipping skin bundling (--skip-skins)"
@@ -72,7 +68,6 @@ elif [ -f "$SCRIPT_DIR/bundle_skins.sh" ]; then
   bash "$SCRIPT_DIR/bundle_skins.sh"
 fi
 
-# --- Handle 'flutter build <target> ...' correctly ---
 if [ "$COMMAND" = "build" ]; then
     if [ ${#EXTRA_ARGS[@]} -lt 1 ]; then
       echo "Error: flutter build requires a target (e.g., macos)"
@@ -97,7 +92,6 @@ if [ "$COMMAND" = "build" ]; then
     exit $?
 fi
 
-# --- All other commands (flutter run, test, analyze, etc.) ---
 exec flutter "$COMMAND" \
   --dart-define=COMMIT="$COMMIT" \
   --dart-define=COMMIT_SHORT="$COMMIT_SHORT" \

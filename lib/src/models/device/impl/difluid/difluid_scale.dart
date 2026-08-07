@@ -144,7 +144,6 @@ class DifluidScale implements Scale {
       _parseNotification,
     );
 
-    // Send start weight notifications command
     await _transport.write(
       serviceIdentifier.long,
       dataCharacteristic.long,
@@ -152,7 +151,6 @@ class DifluidScale implements Scale {
       withResponse: true,
     );
 
-    // Set unit to grams
     await _transport.write(
       serviceIdentifier.long,
       dataCharacteristic.long,
@@ -176,7 +174,6 @@ class DifluidScale implements Scale {
       );
     }
 
-    // Extract bytes 5-8 as big-endian signed int32
     final weightRaw = _getInt32(data.sublist(5, 9));
     final weight = weightRaw / 10.0;
 
@@ -230,7 +227,6 @@ class DifluidScale implements Scale {
       Uint8List.fromList(_cmdTimerStop),
       withResponse: true,
     );
-    // DiFluid stop also resets; start command doubles as reset
     await _transport.write(
       serviceIdentifier.long,
       dataCharacteristic.long,
@@ -240,7 +236,5 @@ class DifluidScale implements Scale {
   }
 
   @override
-  Future<void> resetTimer() async {
-    // DiFluid has no standalone reset; reset is handled as part of stopTimer
-  }
+  Future<void> resetTimer() async {}
 }

@@ -83,7 +83,6 @@ class _ScaleDebugViewState extends State<ScaleDebugView> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        // Weight hero
         Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -98,7 +97,6 @@ class _ScaleDebugViewState extends State<ScaleDebugView> {
         ),
         const SizedBox(height: 12),
 
-        // Battery + latency
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -112,7 +110,6 @@ class _ScaleDebugViewState extends State<ScaleDebugView> {
         ),
         const SizedBox(height: 20),
 
-        // Tare button
         ShadButton(
           child: const Text('Tare'),
           onPressed: () async {
@@ -121,7 +118,6 @@ class _ScaleDebugViewState extends State<ScaleDebugView> {
         ),
         const SizedBox(height: 16),
 
-        // Display controls row
         Row(
           children: [
             Expanded(
@@ -145,7 +141,6 @@ class _ScaleDebugViewState extends State<ScaleDebugView> {
         ),
         const SizedBox(height: 16),
 
-        // Timer controls row
         Text('Timer', style: theme.textTheme.small),
         const SizedBox(height: 8),
         Row(

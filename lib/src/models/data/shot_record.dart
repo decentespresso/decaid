@@ -50,7 +50,6 @@ class ShotRecord {
       "workflow": workflow.toJson(),
       if (annotations != null) "annotations": annotations!.toJson(),
       if (stopReason != null) "stopReason": stopReason,
-      // Write legacy fields too for backward compat with older app versions
       if (_shotNotes != null) "shotNotes": _shotNotes,
       if (_metadata != null) "metadata": _metadata,
     };
@@ -89,7 +88,6 @@ class ShotRecord {
       workflow: Workflow.fromJson(json["workflow"]),
       annotations: ann,
       stopReason: json["stopReason"] as String?,
-      // Still parse legacy fields for backward compat with old callers
       shotNotes: json.containsKey('annotations')
           ? null
           : json["shotNotes"] as String?,

@@ -62,7 +62,7 @@ class ValidationTest(unittest.TestCase):
     def test_accepts_valid_shot_ids(self):
         valid = ["abc123", "shot-001", "2026-07-22_esp", "test.v1"]
         for sid in valid:
-            analyze_weight_flow.validate_shot_id(sid)  # no raise
+            analyze_weight_flow.validate_shot_id(sid)
 
     def test_rejects_dot_and_dotdot(self):
         with self.assertRaises(ValueError):

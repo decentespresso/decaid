@@ -51,7 +51,6 @@ void main() {
 
       setUpAll(() async {
         tempDir = await Directory.systemTemp.createTemp('de1app_scanner_test_');
-        // Create history/ with a .shot file, but no history_v2/
         final historyDir = Directory('${tempDir.path}/history');
         await historyDir.create();
         await File('${tempDir.path}/history/shot1.shot').writeAsString('');
@@ -77,7 +76,6 @@ void main() {
         tempDir = await Directory.systemTemp.createTemp(
           'de1app_scanner_empty_v2_',
         );
-        // Create empty history_v2/ and history/ with a .shot file
         await Directory('${tempDir.path}/history_v2').create();
         final historyDir = Directory('${tempDir.path}/history');
         await historyDir.create();

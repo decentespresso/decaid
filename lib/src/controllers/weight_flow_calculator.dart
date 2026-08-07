@@ -20,10 +20,8 @@ class FlowCalculator {
   });
 
   double addSample(DateTime timestamp, double weight) {
-    // Add new sample
     _samples.addLast(WeightedSample(timestamp, weight));
 
-    // Remove old samples
     while (_samples.isNotEmpty &&
         timestamp.difference(_samples.first.timestamp) > windowDuration) {
       _samples.removeFirst();

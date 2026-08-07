@@ -192,7 +192,6 @@ void main() {
       reason: 'first listener should receive the pushed state frame',
     );
 
-    // Reconnect (no-op reconnect path): _bleConnect re-subscribes stateInfo.
     await transport.connect();
     final secondCb = fake.subscribers[stateInfoUuid];
     expect(
@@ -241,7 +240,6 @@ void main() {
           contains('connect'),
           reason: 'connect must still run to re-establish GATT',
         );
-        // Verify it logged the skip message
         expect(
           records.any(
             (r) => r.message.contains('skipping stale-link teardown'),

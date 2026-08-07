@@ -12,10 +12,10 @@ enum Endpoint implements LogicalEndpoint {
   setTime('A003', 'C'),
   shotDirectory('A004', 'D'),
   readFromMMR('A005', 'E'),
-  writeToMMR('A006', 'F'), // F
+  writeToMMR('A006', 'F'),
   shotMapRequest('A007', 'G'),
   deleteShotRange('A008', 'H'),
-  fwMapRequest('A009', 'I'), // I
+  fwMapRequest('A009', 'I'),
   temperatures('A00A', 'J'),
   shotSettings('A00B', 'K'),
   deprecatedShotDesc('A00C', 'L'),
@@ -40,49 +40,45 @@ enum Endpoint implements LogicalEndpoint {
   @override
   String get name => (this as Enum).name;
 
-  // Helper method to find an Endpoint by its UUID
   static Endpoint? fromUuid(String uuid) {
     return Endpoint.values.where((e) => e.uuid == uuid).firstOrNull;
   }
 }
 
 enum De1StateEnum {
-  sleep(0x0), // Everything is off
+  sleep(0x0),
   goingToSleep(0x1),
   idle(0x2), // Heaters are controlled, tank water will be heated if required.
   busy(0x3), // Firmware is doing something you can't interrupt.
-  espresso(0x4), // Making espresso
-  steam(0x5), // Making steam
-  hotWater(0x6), // Making hot water
-  shortCal(0x7), // Running a short calibration
+  espresso(0x4),
+  steam(0x5),
+  hotWater(0x6),
+  shortCal(0x7),
   selfTest(0x8), // Checking as much as possible within the firmware.
   longCal(
     0x9,
   ), // Long and involved calibration, possibly with user interaction.
-  descale(0xA), // Descale the whole machine
-  fatalError(0xB), // Something has gone horribly wrong
-  init(0xC), // Machine has not been run yet
-  noRequest(
-    0xD,
-  ), // State for T_RequestedState, means nothing is specifically requested
-  skipToNext(0xE), // Skip to next frame or go to Idle if possible
-  hotWaterRinse(0xF), // Produce hot water at available temperature
-  steamRinse(0x10), // Produce a blast of steam
-  refill(0x11), // Attempting or needs a refill
-  clean(0x12), // Clean group head
+  descale(0xA),
+  fatalError(0xB),
+  init(0xC),
+  noRequest(0xD),
+  skipToNext(0xE),
+  hotWaterRinse(0xF),
+  steamRinse(0x10),
+  refill(0x11),
+  clean(0x12),
   inBootLoader(0x13), // Bootloader is active, firmware has not run
-  airPurge(0x14), // Air purge
+  airPurge(0x14),
   schedIdle(0x15), // Scheduled wake-up idle state
   fwUpgrade(
     0x16,
   ), // FirmwareUp (corrected from 0x22, which was never a wire value)
-  unknown(-1); // Default or unknown state
+  unknown(-1);
 
   final int hexValue;
 
   const De1StateEnum(this.hexValue);
 
-  // Helper method to find a state by its hex value
   static De1StateEnum fromHexValue(int hex) {
     return De1StateEnum.values.firstWhere(
       (e) => e.hexValue == hex,
@@ -197,7 +193,6 @@ enum De1SubState {
 
   const De1SubState(this.hexValue, this.description);
 
-  // Helper method to find a substate by its hex value
   static De1SubState? fromHexValue(int hex) {
     return De1SubState.values.firstWhere(
       (e) => e.hexValue == hex,

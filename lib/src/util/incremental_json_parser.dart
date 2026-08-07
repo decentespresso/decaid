@@ -111,12 +111,29 @@ class IncrementalJsonParser {
 
   static const _ws = {0x20, 0x09, 0x0A, 0x0D};
   static const _scalarChars = {
-    0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, // digits
-    0x2D, 0x2B, 0x2E, // - + .
-    0x65, 0x45, // e E
-    0x74, 0x72, 0x75, // t r u (true)
-    0x66, 0x61, 0x6C, 0x73, // f a l s (false)
-    0x6E, // n (null)
+    0x30,
+    0x31,
+    0x32,
+    0x33,
+    0x34,
+    0x35,
+    0x36,
+    0x37,
+    0x38,
+    0x39,
+    0x2D,
+    0x2B,
+    0x2E,
+    0x65,
+    0x45,
+    0x74,
+    0x72,
+    0x75,
+    0x66,
+    0x61,
+    0x6C,
+    0x73,
+    0x6E,
   };
 
   /// Feeds a decoded text chunk. Emitted events are collected and returned by
@@ -286,17 +303,17 @@ class IncrementalJsonParser {
     );
 
     switch (c) {
-      case 0x7B: // {
+      case 0x7B:
         final depth = _stack.length;
         _pushFrame(isObject: true);
         _openSpanIfEvent(c, depth);
         return;
-      case 0x5B: // [
+      case 0x5B:
         final depth = _stack.length;
         _pushFrame(isObject: false);
         _openSpanIfEvent(c, depth);
         return;
-      case 0x22: // "
+      case 0x22:
         _startString(isKey: false);
         return;
       default:
@@ -364,7 +381,7 @@ class IncrementalJsonParser {
     }
     if (_ws.contains(c) || c == 0x2C || c == 0x7D || c == 0x5D) {
       _completeScalar();
-      _feedChar(c); // re-dispatch the delimiter through the state machine
+      _feedChar(c);
       return;
     }
     throw _unexpected(c);
@@ -397,7 +414,6 @@ class IncrementalJsonParser {
       _appendToken(c);
       if (_spanOpen) _spanWriteCharCode(c);
       if (c == 0x75) {
-        // \u
         _inUnicode = true;
         _unicodeRemaining = 4;
       } else if (!const {
@@ -509,7 +525,6 @@ class IncrementalJsonParser {
     // The closing char was already written into the span (if open) by
     // `_feedChar` before this container closed.
     if (closedDepth == _eventDepth) {
-      // The container itself is the event value.
       if (!_spanOpen) {
         throw const JsonStreamFormatException('Internal parser error.');
       }

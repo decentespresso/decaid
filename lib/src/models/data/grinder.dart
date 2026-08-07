@@ -6,7 +6,6 @@ enum GrinderSettingType {
   preset;
 
   static GrinderSettingType fromString(String s) {
-    // Accept both 'preset' and legacy 'values' from JSON
     if (s == 'values' || s == 'preset') return GrinderSettingType.preset;
     return GrinderSettingType.values.firstWhere(
       (e) => e.name == s,
@@ -25,7 +24,6 @@ class Grinder {
   final String? notes;
   final bool archived;
 
-  // UI configuration for grinder setting input
   final GrinderSettingType settingType;
   final List<String>? settingValues;
   final double? settingSmallStep;

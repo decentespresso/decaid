@@ -105,8 +105,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
     );
   }
 
-  // MARK: - Section Builders
-
   Widget _buildExportBackupSection() {
     return ShadCard(
       padding: const EdgeInsets.all(16),
@@ -280,8 +278,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
       widget.beanStorageService != null &&
       widget.grinderStorageService != null;
 
-  // MARK: - Export Actions
-
   Future<void> _exportFullBackup() async {
     if (!mounted) return;
     _showProgressDialog(context, 'Preparing full backup...');
@@ -444,7 +440,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
         bytes: zipBytes,
       );
       if (outputFile != null) {
-        // file_picker writes bytes on all platforms — no manual write needed.
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -497,7 +492,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
         bytes: zipBytes,
       );
       if (outputFile != null) {
-        // file_picker writes bytes on all platforms — no manual write needed.
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -517,10 +511,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
     }
   }
 
-  // MARK: - Import Actions
-
   Future<void> _importFullBackup() async {
-    // Ask for conflict strategy
     final strategy = await showShadDialog<String>(
       context: context,
       builder: (context) => ShadDialog(
@@ -553,7 +544,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
 
     if (strategy == null) return;
 
-    // Pick file
     final result = await FilePicker.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['zip'],
@@ -563,7 +553,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
 
     if (!mounted) return;
 
-    // Show progress dialog
     _showProgressDialog(context, 'Importing backup...');
 
     final transfer = BackupTransferService();
@@ -598,12 +587,10 @@ class _DataManagementPageState extends State<DataManagementPage> {
 
       if (!mounted) return;
 
-      // Pop progress dialog
       Navigator.of(context).pop();
 
       if (!mounted) return;
 
-      // Show result summary
       await _showImportResultDialog(importResponse);
 
       if (importResponse.shouldNotifyShotsChanged) {
@@ -620,7 +607,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
     } catch (e) {
       _log.severe("Failed to import backup", e);
       if (mounted) {
-        Navigator.of(context).pop(); // Pop progress dialog
+        Navigator.of(context).pop();
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Failed to import backup: $e')));
@@ -705,7 +692,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
       if (picked == null) return;
       if (!mounted) return;
 
-      // Show copying progress dialog
       int filesCopied = 0;
       int filesToCopy = 0;
       StateSetter? setCopyState;
@@ -767,7 +753,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       );
 
       if (!mounted) return;
-      Navigator.of(context).pop(); // dismiss copy dialog
+      Navigator.of(context).pop();
 
       if (folderPath == null) {
         if (mounted) {
@@ -803,7 +789,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       }
 
       if (!mounted) return;
-      Navigator.of(context).pop(); // dismiss progress dialog
+      Navigator.of(context).pop();
 
       if (scanResult.isEmpty) {
         if (mounted) {
@@ -816,7 +802,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
         return;
       }
 
-      // Show summary dialog
       if (!mounted) return;
       final confirmed = await showShadDialog<bool>(
         context: context,
@@ -833,7 +818,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
       if (confirmed != true) return;
       if (!mounted) return;
 
-      // Run import with progress dialog
       ImportResult? importResult;
       ImportProgress progress = const ImportProgress(
         current: 0,
@@ -843,10 +827,8 @@ class _DataManagementPageState extends State<DataManagementPage> {
       int shotsImported = 0;
       int profilesImported = 0;
 
-      // Captured setter so onProgress can trigger dialog rebuilds.
       StateSetter? setDialogState;
 
-      // Show a non-dismissible progress indicator
       showShadDialog(
         context: context,
         barrierDismissible: false,
@@ -889,7 +871,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       } catch (e) {
         _log.severe('De1app import failed', e);
         if (mounted) {
-          Navigator.of(context).pop(); // dismiss progress dialog
+          Navigator.of(context).pop();
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(SnackBar(content: Text('Import failed: $e')));
@@ -898,9 +880,8 @@ class _DataManagementPageState extends State<DataManagementPage> {
       }
 
       if (!mounted) return;
-      Navigator.of(context).pop(); // dismiss progress dialog
+      Navigator.of(context).pop();
 
-      // Show result
       await showShadDialog(
         context: context,
         builder: (ctx) => ShadDialog(
@@ -912,10 +893,8 @@ class _DataManagementPageState extends State<DataManagementPage> {
         ),
       );
 
-      // Notify listeners that shots have changed
       widget.persistenceController.notifyShotsChanged();
     } finally {
-      // Clean up SAF staging directory on Android
       if (Platform.isAndroid) {
         await SafFolderCopier().cleanup();
       }

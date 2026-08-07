@@ -197,7 +197,7 @@ void main() {
       'power-off (uses disconnectForHandoff)', () async {
     final controller = ScaleController();
     final a = _HandoffTrackingScale('A'); // e.g. BLE Decent Scale
-    final b = _TrackingScale('B'); // e.g. WiFi HDS
+    final b = _TrackingScale('B');
 
     await controller.connectToScale(a);
     await controller.connectToScale(b);
@@ -247,7 +247,7 @@ void main() {
     final a = _TrackingScale('A');
 
     await controller.connectToScale(a);
-    await controller.connectToScale(a); // same device id
+    await controller.connectToScale(a);
     expect(
       a.disconnected,
       isFalse,
@@ -394,7 +394,6 @@ void main() {
       reason: 'weight itself is never suppressed by tare',
     );
 
-    // Past the smoothing window, real flow resumes from a clean baseline.
     scale.emitAt(t0.add(const Duration(milliseconds: 800)), 4.0);
     scale.emitAt(t0.add(const Duration(milliseconds: 900)), 8.0);
     await Future.delayed(Duration.zero);

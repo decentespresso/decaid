@@ -95,7 +95,6 @@ class _TestDe1 implements De1Interface {
     emitState(newState);
   }
 
-  // --- Below: stubs for the rest of De1Interface ---
   @override
   String get deviceId => 'test-de1';
   @override
@@ -331,7 +330,6 @@ void main() {
           async.elapse(const Duration(minutes: 4, seconds: 50));
           expect(testDe1.requestedStates, isEmpty);
 
-          // Heartbeat resets the timer
           controller.heartbeat();
           async.flushMicrotasks();
 
@@ -432,7 +430,6 @@ void main() {
           reason: 'Machine in espresso should not be put to sleep',
         );
 
-        // Return to idle
         testDe1.emitState(MachineState.idle);
         async.flushMicrotasks();
 
@@ -509,7 +506,6 @@ void main() {
         controller.heartbeat();
         async.flushMicrotasks();
 
-        // Machine runs dry while idle.
         testDe1.emitState(MachineState.needsWater);
         async.flushMicrotasks();
 
@@ -531,7 +527,6 @@ void main() {
         settingsController.setSleepTimeoutMinutes(5);
         async.flushMicrotasks();
 
-        // Default fwBuild is '1' (< 1357).
         final controller = PresenceController(
           de1Controller: de1Controller,
           settingsController: settingsController,
@@ -609,7 +604,6 @@ void main() {
   group('scheduled wake', () {
     test('wakes sleeping machine at matching schedule time', () {
       fakeAsync((async) {
-        // Create a schedule for 07:00 every day
         final schedule = WakeSchedule(
           id: 'test-1',
           hour: 7,
@@ -631,11 +625,9 @@ void main() {
         de1Controller.setDe1(testDe1);
         async.flushMicrotasks();
 
-        // Set machine to sleeping
         testDe1.emitState(MachineState.sleeping);
         async.flushMicrotasks();
 
-        // Move clock to 07:00, advance time for schedule checker to fire
         controller.clockOverride = () => DateTime(2026, 1, 15, 7, 0);
         async.elapse(const Duration(seconds: 31));
 
@@ -697,7 +689,6 @@ void main() {
         controller.initialize();
         async.flushMicrotasks();
 
-        // No DE1 connected
         final result = controller.heartbeat();
         expect(result, -1);
 
@@ -745,7 +736,6 @@ void main() {
         controller.heartbeat();
         async.flushMicrotasks();
 
-        // Advance 4 minutes
         async.elapse(const Duration(minutes: 4));
         expect(testDe1.requestedStates, isEmpty);
 
@@ -753,7 +743,6 @@ void main() {
         settingsController.setSleepTimeoutMinutes(10);
         async.flushMicrotasks();
 
-        // Advance 6 more minutes (total 10 from start, but only 6 since reset)
         async.elapse(const Duration(minutes: 6));
         expect(
           testDe1.requestedStates.contains(MachineState.sleeping),
@@ -762,7 +751,6 @@ void main() {
               'Timer should have been reset to 10 min when settings changed',
         );
 
-        // Advance to full 10 minutes from the settings change
         async.elapse(const Duration(minutes: 4, seconds: 1));
         expect(testDe1.requestedStates, contains(MachineState.sleeping));
 
@@ -904,7 +892,6 @@ void main() {
 
         expect(controller.keepAwakeUntil, isNotNull);
 
-        // User manually puts machine to sleep
         testDe1.emitState(MachineState.sleeping);
         async.flushMicrotasks();
 

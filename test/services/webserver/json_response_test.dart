@@ -21,7 +21,6 @@ void main() {
         expect(etag, isNotNull);
         expect(etag, startsWith('"'));
         expect(etag, endsWith('"'));
-        // 16 hex chars + 2 quote chars
         expect(etag!.length, 18);
         expect(jsonDecode(await response.readAsString()), {'a': 1, 'b': 'x'});
       },
@@ -65,7 +64,6 @@ void main() {
     });
 
     test('treats If-None-Match: * as a wildcard match → 304', () async {
-      // Per RFC 7232 §3.2: "*" matches any current representation.
       final r = jsonOkConditional(_get(headers: {'If-None-Match': '*'}), {
         'whatever': true,
       });

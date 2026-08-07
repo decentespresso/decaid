@@ -179,7 +179,6 @@ void main() {
         initializeService: true,
       );
 
-      // initialize() with automatic checks on ran one immediate check.
       expect(updater.checkCalls, 1);
 
       // Toggle OFF: Sparkle scheduling stops AND the Dart timer must stop.
@@ -209,9 +208,8 @@ void main() {
       );
       expect(updater.checkCalls, 1);
       await tester.pump(const Duration(hours: 13));
-      expect(updater.checkCalls, 2); // periodic timer ran
+      expect(updater.checkCalls, 2);
 
-      // Toggle OFF again so no timer is left pending.
       await tester.tap(
         find.widgetWithText(ShadSwitch, 'Automatic update checks'),
       );
@@ -238,7 +236,6 @@ void main() {
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 300));
 
-        // No Sparkle delegation and no APK/GitHub application check.
         expect(calls.where((c) => c.method == 'checkForUpdates'), isEmpty);
         expect(updater.checkCalls, 0);
 
@@ -268,7 +265,6 @@ void main() {
         expect(calls.where((c) => c.method == 'checkForUpdates'), hasLength(1));
         expect(find.textContaining('Update check failed'), findsOneWidget);
 
-        // Let the Snackbar expire so no timer is left pending.
         await tester.pump(const Duration(seconds: 4));
         await tester.pump(const Duration(milliseconds: 300));
       },
@@ -290,20 +286,19 @@ void main() {
         find.widgetWithText(ShadSwitch, 'Automatic update checks'),
       );
       await tester.pump();
-      expect(updater.checkCalls, 0); // disable does not check
+      expect(updater.checkCalls, 0);
 
       await tester.tap(
         find.widgetWithText(ShadSwitch, 'Automatic update checks'),
       );
       await tester.pump();
-      expect(updater.checkCalls, 1); // enable ran the Dart service
+      expect(updater.checkCalls, 1);
 
       await tester.tap(
         find.widgetWithText(ShadSwitch, 'Automatic update checks'),
       );
       await tester.pump();
 
-      // No Sparkle calls at all in the degraded state.
       expect(calls.where((c) => c.method == 'setAutomaticChecks'), isEmpty);
     });
 
@@ -318,7 +313,6 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.text('Checking for updates...'), findsOneWidget);
 
-      // No Sparkle delegation without the capability.
       expect(calls.where((c) => c.method == 'checkForUpdates'), isEmpty);
 
       // The fake updater reports no update; the "latest version" Snackbar is

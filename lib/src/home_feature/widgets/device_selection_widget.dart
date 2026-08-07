@@ -49,12 +49,10 @@ class _DeviceSelectionWidgetState extends State<DeviceSelectionWidget> {
   void initState() {
     super.initState();
 
-    // Get initial devices
     _discoveredDevices = widget.deviceController.devices
         .where((device) => device.type == widget.deviceType)
         .toList();
 
-    // Listen for additional devices discovered
     _discoverySubscription = widget.deviceController.deviceStream.listen((
       data,
     ) {

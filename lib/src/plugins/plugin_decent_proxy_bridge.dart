@@ -42,7 +42,6 @@ class PluginDecentProxyBridge {
     final DecentProxyResponse response;
     switch (normalizedMethod) {
       case 'GET':
-        // Reads: `proxy.decent_api` (unchanged, read-only).
         if (!manifest.permissions.contains(PluginPermissions.proxyDecentApi)) {
           _log.warning('Plugin $pluginId GET without proxy.decent_api');
           throw StateError('Plugin permission required: proxy.decent_api');

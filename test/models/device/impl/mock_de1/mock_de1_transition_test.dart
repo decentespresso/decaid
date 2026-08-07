@@ -50,10 +50,8 @@ void main() {
       await machine.setProfile(profile);
       await machine.requestState(MachineState.espresso);
 
-      // Wait past step0
       await Future.delayed(const Duration(milliseconds: 1800));
 
-      // Collect a few snapshots — targetFlow should be 4.0 immediately
       final snapshots = await machine.currentSnapshot
           .take(3)
           .toList()
@@ -107,10 +105,8 @@ void main() {
       await machine.setProfile(profile);
       await machine.requestState(MachineState.espresso);
 
-      // Wait past step0 + a bit (600ms+2s+1s=3.6s)
       await Future.delayed(const Duration(milliseconds: 3700));
 
-      // Collect snapshots over 2s — targetPressure should be rising
       final snapshots = await machine.currentSnapshot
           .take(20)
           .toList()
@@ -137,6 +133,5 @@ void main() {
     });
   });
 
-  // Cleanup debug test artifact
   tearDownAll(() {});
 }

@@ -151,7 +151,6 @@ void main() {
     platform = _MtuRecordingBlePlatform();
     UniversalBle.setInstance(platform);
     UniversalBle.clearQueue();
-    // Unique id per test so per-device queue state can't bleed over.
     deviceId = 'AA:BB:CC:DD:FF:${(deviceCounter++).toString().padLeft(2, '0')}';
   });
 

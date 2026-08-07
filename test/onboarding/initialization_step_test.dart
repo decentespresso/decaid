@@ -103,7 +103,6 @@ void main() {
     await tester.pumpWidget(
       ShadApp(home: Scaffold(body: step.builder(onboarding))),
     );
-    // Flush the init future's microtasks.
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
@@ -112,9 +111,7 @@ void main() {
     expect(onboarding.advanceCallCount, 1);
     // Remote download was NOT awaited on the critical path...
     expect(storage.initDownloadRemote, isFalse);
-    // ...but was kicked off in the background.
     expect(storage.downloadRescanCalled, isTrue);
-    // Plugin init kicked off in the background.
     expect(plugins.initCalled, isTrue);
   });
 }

@@ -113,7 +113,6 @@ void main() {
       await tester.pumpWidget(buildSubject());
       await tester.pump();
 
-      // The text exists in the tree but is invisible (opacity 0)
       expect(find.text('This is taking a while...'), findsOneWidget);
       final animatedOpacity = tester.widget<AnimatedOpacity>(
         find.byType(AnimatedOpacity),
@@ -127,9 +126,7 @@ void main() {
       await tester.pumpWidget(buildSubject());
       await tester.pump();
 
-      // Advance past the threshold
       await tester.pump(ScanStepView.scanTooLongThreshold);
-      // Let the animation complete
       await tester.pump(const Duration(milliseconds: 500));
 
       final animatedOpacity = tester.widget<AnimatedOpacity>(
@@ -144,7 +141,6 @@ void main() {
       await tester.pumpWidget(buildSubject());
       await tester.pump();
 
-      // Advance past threshold so button is visible
       await tester.pump(ScanStepView.scanTooLongThreshold);
       await tester.pump(const Duration(milliseconds: 500));
 
@@ -463,12 +459,10 @@ void main() {
     testWidgets(
       'shows preferred machine not found message when preferred is set but not among found machines',
       (tester) async {
-        // Configure a preferred machine ID that won't match found devices
         await settingsController.setPreferredMachineId('preferred-123');
 
         final differentMachine = FakeDe1(deviceId: 'other-456');
 
-        // Add the device to the discovery service so DeviceSelectionWidget sees it
         deviceDiscoveryService.addDevice(differentMachine);
         await deviceControllerWithDevices.initialize();
         await tester.pump();
@@ -476,7 +470,6 @@ void main() {
         await tester.pumpWidget(buildSubjectWithDevices());
         await tester.pump();
 
-        // Emit status with machine picker ambiguity and a different machine
         mockConnectionManager.emitStatus(
           ConnectionStatus(
             phase: ConnectionPhase.idle,
@@ -530,7 +523,6 @@ void main() {
     testWidgets('shows normal header when no preferred machine is configured', (
       tester,
     ) async {
-      // No preferred machine set (default)
       final machine = FakeDe1(deviceId: 'some-machine');
 
       deviceDiscoveryService.addDevice(machine);
@@ -628,7 +620,6 @@ void main() {
               deviceController: DeviceController([]),
               settingsController: settingsController,
               scanStateGuardian: scanStateGuardian,
-              // directConnect defaults to false
             ),
           ),
         ),

@@ -23,7 +23,6 @@ export default function createPlugin(host: PluginHost): PluginInstance {
     },
 
     onEvent(_event: PluginEvent) {
-      // MVP: no event processing
     },
 
     __httpRequestHandler(request: HttpRequest): HttpResponse {

@@ -309,7 +309,6 @@ void main() {
 
     test('getShotsForExport pages with a stable keyset cursor', () async {
       final base = DateTime.parse('2024-01-15T10:00:00Z');
-      // Same timestamp for several shots so the id tiebreak is exercised.
       for (var i = 0; i < 25; i++) {
         await db.shotDao.insertShot(
           makeShot(
@@ -338,7 +337,6 @@ void main() {
       }
 
       expect(collected, hasLength(25));
-      // No duplicates, no omissions.
       expect(collected.toSet(), hasLength(25));
       expect(collected.take(5), [
         'shot-24',

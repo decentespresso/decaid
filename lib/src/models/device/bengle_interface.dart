@@ -66,7 +66,6 @@ abstract class BengleInterface extends De1Interface {
   Future<void> resetLedStrip();
 
   // --- Milk-probe steam stop (scaffolding) -----------------------------------
-  //
   // FW is not yet ready. The methods + streams below are the API surface
   // skin developers can target now. On real `Bengle` the streams are inert
   // (target replays cached value, probeAttached stays `false`,

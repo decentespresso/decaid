@@ -58,7 +58,6 @@ class _QuietDiscoveryService implements DeviceDiscoveryService {
 
   @override
   Future<void> scanForDevices({ScanFilter? filter}) async {
-    // Re-emit on scan so the DeviceController populates its aggregated view.
     _controller.add([device]);
   }
 
@@ -406,11 +405,9 @@ void main() {
           type: DeviceType.machine,
         );
 
-        // Baseline: both present.
         service.emit([a, b]);
         await Future<void>.delayed(Duration.zero);
 
-        // Drop b only.
         service.emit([a]);
         await Future<void>.delayed(Duration.zero);
 

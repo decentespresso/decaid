@@ -51,16 +51,13 @@ class ShotV2JsonParser {
       isUtc: true,
     );
 
-    // Flat settings from app.data.settings (fallback source)
     final settings = _extractSettings(json);
 
-    // Structured meta block (primary source)
     final meta = json['meta'] as Map<String, dynamic>?;
     final metaBean = meta?['bean'] as Map<String, dynamic>?;
     final metaShot = meta?['shot'] as Map<String, dynamic>?;
     final metaGrinder = meta?['grinder'] as Map<String, dynamic>?;
 
-    // --- Bean metadata ---
     final beanBrand = _str(metaBean?['brand']) ?? _str(settings['bean_brand']);
     final beanType = _str(metaBean?['type']) ?? _str(settings['bean_type']);
     final beanNotes = _str(metaBean?['notes']) ?? _str(settings['bean_notes']);
@@ -69,7 +66,6 @@ class ShotV2JsonParser {
     final roastDate =
         _str(metaBean?['roast_date']) ?? _str(settings['roast_date']);
 
-    // --- Grinder metadata ---
     final grinderModel =
         _str(metaGrinder?['model']) ?? _str(settings['grinder_model']);
     final grinderSetting =
@@ -95,14 +91,12 @@ class ShotV2JsonParser {
       );
     }
 
-    // --- Shot annotations ---
     final doseWeight =
         parse_utils.parseOptionalDouble(meta?['in']) ??
         parse_utils.parseOptionalDouble(settings['grinder_dose_weight']);
     final actualYield =
         parse_utils.parseOptionalDouble(meta?['out']) ??
         parse_utils.parseOptionalDouble(settings['drink_weight']);
-    // Target yield: DYE's target_drink_weight → profile's target_weight → actual
     final targetYield =
         parse_utils.parseOptionalDouble(settings['target_drink_weight']) ??
         profile.targetWeight ??
@@ -128,7 +122,6 @@ class ShotV2JsonParser {
       espressoNotes: espressoNotes,
     );
 
-    // --- Workflow context ---
     final context = WorkflowContext(
       targetDoseWeight: doseWeight,
       targetYield: targetYield,
@@ -140,7 +133,6 @@ class ShotV2JsonParser {
       drinkerName: _str(settings['drinker_name']),
     );
 
-    // --- Workflow ---
     final workflow = Workflow(
       id: const Uuid().v4(),
       name: profile.title,
@@ -151,10 +143,8 @@ class ShotV2JsonParser {
       rinseData: RinseData.defaults(),
     );
 
-    // --- Time-series snapshots ---
     final measurements = _parseSnapshots(json, baseTimestamp, profile);
 
-    // --- ShotRecord ---
     final shot = ShotRecord(
       id: 'de1app-$clock',
       timestamp: baseTimestamp,

@@ -55,10 +55,8 @@ class WebViewLogService {
         await dir.create(recursive: true);
       }
 
-      // Create or truncate the file (clear on app restart)
       await _logFile.writeAsString('');
 
-      // Open IOSink for efficient appending
       _sink = _logFile.openWrite(mode: FileMode.append);
 
       _log.info('WebViewLogService initialized: ${_logFile.path}');
@@ -80,15 +78,12 @@ class WebViewLogService {
     final timestamp = DateTime.now().toIso8601String();
     final formatted = '[$timestamp] [$skinId] [$level] $message';
 
-    // Write to file
     _sink!.writeln(formatted);
 
-    // Broadcast to WebSocket consumers
     if (!_streamController.isClosed) {
       _streamController.add(formatted);
     }
 
-    // Check file size and truncate if needed
     _checkAndTruncate();
   }
 
@@ -133,7 +128,6 @@ class WebViewLogService {
 
         _logFile.writeAsStringSync(contents.substring(keepFrom));
 
-        // Reopen sink for appending
         _sink = _logFile.openWrite(mode: FileMode.append);
 
         _log.info(

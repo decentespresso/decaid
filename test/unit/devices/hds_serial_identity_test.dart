@@ -7,14 +7,12 @@ void main() {
   group('HDSSerial identity', () {
     test('deviceId comes from transport.id', () {
       final transport = MockSerialTransport();
-      // MockSerialTransport.id returns 'mock-serial'
       final hds = HDSSerial(transport: transport);
       expect(hds.deviceId, equals('mock-serial'));
     });
 
     test('deviceId is transport.id not transport.name', () {
       final transport = MockSerialTransport();
-      // id = 'mock-serial', name = 'MockSerial'
       final hds = HDSSerial(transport: transport);
       expect(hds.deviceId, isNot(equals('MockSerial')));
       expect(hds.deviceId, equals('mock-serial'));

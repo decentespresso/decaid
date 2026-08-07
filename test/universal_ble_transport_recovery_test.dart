@@ -214,7 +214,6 @@ void main() {
     // its per-device queue slot busy forever otherwise).
     UniversalBle.clearQueue();
     UniversalBle.queueType = QueueType.perDevice;
-    // Unique id per test so per-device queue state can't bleed over.
     deviceId = 'AA:BB:CC:DD:EE:${(deviceCounter++).toString().padLeft(2, '0')}';
     transport = UniversalBleTransport(
       device: bleDevice(deviceId),
@@ -582,14 +581,13 @@ void main() {
   // a future regression in the Dart layer is caught.
   group('re-subscribe push channel (universal_ble broadcast controller)', () {
     const service = '0000a000-0000-1000-8000-00805f9b34fb';
-    // The six DE1 characteristics _bleConnect re-subscribes on reconnect.
     const chars = [
-      '0000a00e-0000-1000-8000-00805f9b34fb', // stateInfo (A00E)
-      '0000a005-0000-1000-8000-00805f9b34fb', // readFromMMR (A005)
-      '0000a00b-0000-1000-8000-00805f9b34fb', // shotSettings (A00B)
-      '0000a00d-0000-1000-8000-00805f9b34fb', // shotSample (A00D)
-      '0000a011-0000-1000-8000-00805f9b34fb', // waterLevels (A011)
-      '0000a009-0000-1000-8000-00805f9b34fb', // fwMapRequest (A009)
+      '0000a00e-0000-1000-8000-00805f9b34fb',
+      '0000a005-0000-1000-8000-00805f9b34fb',
+      '0000a00b-0000-1000-8000-00805f9b34fb',
+      '0000a00d-0000-1000-8000-00805f9b34fb',
+      '0000a011-0000-1000-8000-00805f9b34fb',
+      '0000a009-0000-1000-8000-00805f9b34fb',
     ];
 
     void push(String char, int byte) => platform.updateCharacteristicValue(
@@ -644,7 +642,6 @@ void main() {
           (d) => oldReceived[i]!.add(d[0]),
         );
       }
-      // Initial pushes land on the old callbacks.
       for (var i = 0; i < chars.length; i++) {
         push(chars[i], i + 1);
       }

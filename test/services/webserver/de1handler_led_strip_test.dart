@@ -177,7 +177,6 @@ void main() {
       final bengle = MockBengle();
       await wireWith(bengle);
 
-      // Write a config, commit it, overwrite cache, then reset.
       final written = LedStripState(
         frontStrip: ZoneLedState(
           sleeping: const Color16(65535, 0, 0),
@@ -186,7 +185,6 @@ void main() {
       );
       await bengle.setLedStrip(written);
       await bengle.commitLedStrip();
-      // Overwrite with something else.
       await bengle.setLedStrip(const LedStripState());
 
       final res = await post('/api/v1/machine/ledStrip/reset');

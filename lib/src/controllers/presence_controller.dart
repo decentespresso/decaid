@@ -31,7 +31,6 @@ class PresenceController {
   /// Allows tests to change the clock after construction.
   set clockOverride(DateTime Function() clock) => _clock = clock;
 
-  // --- Internal state ---
   De1Interface? _de1;
   MachineState? _currentMachineState;
   StreamSubscription<De1Interface?>? _de1Subscription;
@@ -131,7 +130,6 @@ class PresenceController {
       return -1;
     }
 
-    // Forward sendUserPresent to DE1 with throttling
     _sendPresenceThrottled();
 
     // Reset the sleep timeout timer
@@ -147,7 +145,6 @@ class PresenceController {
   void _onDe1Changed(De1Interface? de1) {
     if (de1 == _de1) return;
 
-    // Clean up previous connection
     _snapshotSubscription?.cancel();
     _snapshotSubscription = null;
     _sleepTimer?.cancel();
@@ -171,14 +168,13 @@ class PresenceController {
   void _onSnapshot(MachineSnapshot snapshot) {
     final newState = snapshot.state.state;
 
-    // Detect wake-from-sleep: send deferred userPresent immediately.
     if (_currentMachineState == MachineState.sleeping &&
         (newState == MachineState.idle || newState == MachineState.schedIdle)) {
       if (_pendingUserPresent) {
         _pendingUserPresent = false;
         _pendingUserPresentTimer?.cancel();
         _pendingUserPresentTimer = null;
-        _lastPresenceSent = null; // clear throttle so the flush fires
+        _lastPresenceSent = null;
         _de1?.sendUserPresent().catchError((Object e) {
           _log.warning('Failed to send deferred user present on wake', e);
         });
@@ -310,7 +306,6 @@ class PresenceController {
       return;
     }
 
-    // If machine is in an active state, restart the timer instead of sleeping
     if (_isActiveState(_currentMachineState)) {
       _log.info(
         'Sleep timeout fired but machine is in active state ($_currentMachineState), restarting timer',
@@ -394,7 +389,6 @@ class PresenceController {
     final now = _clock();
     final currentMinute = now.hour * 60 + now.minute;
 
-    // Reset fired IDs when the minute changes
     if (_lastCheckedMinute != null && _lastCheckedMinute != currentMinute) {
       _firedScheduleIds.clear();
     }
@@ -417,7 +411,7 @@ class PresenceController {
           _de1!.requestState(MachineState.schedIdle).catchError((Object e) {
             _log.warning('Failed to request schedIdle', e);
           });
-          break; // One wake per check cycle
+          break;
         }
       }
     } catch (e) {

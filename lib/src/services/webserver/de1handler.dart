@@ -27,7 +27,7 @@ class De1Handler {
       return Response.ok(
         '',
         headers: {
-          'Access-Control-Allow-Origin': '*', // or specify a particular origin
+          'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
           'Access-Control-Allow-Headers':
               'Origin, Content-Type, Accept, Authorization',
@@ -88,7 +88,6 @@ class De1Handler {
       }, retryOnReplacement: true);
     });
 
-    // Sockets
     app.get('/ws/v1/machine/snapshot', sws.webSocketHandler(_handleSnapshot));
     app.get(
       '/ws/v1/machine/shotSettings',
@@ -172,8 +171,6 @@ class De1Handler {
         return jsonAccepted();
       }, retryOnReplacement: true);
     });
-
-    // MMR?
 
     app.post('/api/v1/machine/settings', (Request r) async {
       // Parse the complete payload before reserving a queue entry so a

@@ -30,7 +30,6 @@ void main() {
         final scale = HDSWifi(host: 'hds.local', transportFactory: () => fake);
 
         final connectFuture = scale.onConnect();
-        // Let connect() + handshake run, then prove recognition.
         await Future.delayed(const Duration(milliseconds: 10));
         fake.emit('{"grams":0.0,"ms":1}');
         await connectFuture;
@@ -131,7 +130,6 @@ void main() {
         expect(states.last, ConnectionState.connected);
         expect(built, 1);
 
-        // Stop feeding frames → watchdog stalls (2 * 30ms) → reports disconnected.
         await Future.delayed(const Duration(milliseconds: 120));
         expect(states.last, ConnectionState.disconnected);
         expect(fake.disconnectCalled, isTrue);
@@ -169,7 +167,6 @@ void main() {
       await f;
       expect(states.last, ConnectionState.connected);
 
-      // The scale's power button → a `power` frame → disconnect.
       fake.emit('{"type":"power","event":"power_off"}');
       await Future.delayed(const Duration(milliseconds: 10));
       expect(states.last, ConnectionState.disconnected);
@@ -220,7 +217,6 @@ void main() {
         // The superseded attempt must complete with an error, not hang forever.
         await expectLater(f1, throwsA(isA<StateError>()));
 
-        // The new attempt still connects normally.
         await Future.delayed(const Duration(milliseconds: 10));
         second.emit('{"grams":1.0}');
         await f2;
@@ -244,7 +240,6 @@ void main() {
       await Future.delayed(const Duration(milliseconds: 10));
       expect(await scale.connectionState.first, ConnectionState.disconnected);
 
-      // Simulate ConnectionManager re-connecting the preferred scale.
       final f2 = scale.onConnect();
       await Future.delayed(const Duration(milliseconds: 10));
       second.emit('{"grams":2.0}');

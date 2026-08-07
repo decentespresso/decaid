@@ -102,7 +102,6 @@ void main() {
       expect(res.statusCode, 200);
       // Newest line first.
       expect(body.startsWith('line0199'), isTrue);
-      // Oldest line dropped by the 1KB window.
       expect(body.contains('line0000'), isFalse);
       // A recent line is present, and ordering is descending.
       expect(body.contains('line0150'), isTrue);
@@ -244,9 +243,7 @@ void main() {
         expect(res.statusCode, 200);
         // The newest line survives and sits last (chronological).
         expect(body.endsWith('new0110\n'), isTrue);
-        // The oldest rotated lines fall outside the 1KB window.
         expect(body.contains('old0000'), isFalse);
-        // The window reaches back into the rotated file.
         expect(body.contains('old0110'), isTrue);
         expect(body.indexOf('old0110'), lessThan(body.indexOf('new0000')));
       });
@@ -258,7 +255,6 @@ void main() {
           '/api/v1/logs?rotated=0&order=asc',
         );
         expect(res.statusCode, 200);
-        // Rotations included regardless of the (removed) param's value.
         expect(
           await res.readAsString(),
           'r2a\nr2b\nr1a\nr1b\nbase_a\nbase_b\n',
@@ -268,7 +264,6 @@ void main() {
 
     group('tail window caps', () {
       test('without ?kb the default cap bounds the response', () async {
-        // 2KB of content against an injected 1KB default cap.
         final lines = [
           for (var i = 0; i < 228; i++) 'line${i.toString().padLeft(4, '0')}',
         ];
@@ -282,7 +277,6 @@ void main() {
 
         expect(res.statusCode, 200);
         expect(body.endsWith('line0227\n'), isTrue);
-        // Content beyond the 1KB default cap is dropped.
         expect(body.contains('line0000'), isFalse);
         expect(body.length, lessThanOrEqualTo(1024));
       });

@@ -37,7 +37,6 @@ void main() {
       expect(body['fullVersion'], BuildInfo.fullVersion);
       expect(body['localIp'], isA<String>());
 
-      // Verify no unexpected keys
       final expectedKeys = {
         'commit',
         'commitShort',

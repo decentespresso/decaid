@@ -34,21 +34,16 @@ class WebUIHandler {
       _handleInstallFromGitHubBranch,
     );
 
-    // Install skin from URL
     app.post('/api/v1/webui/skins/install/url', _handleInstallFromUrl);
 
-    // Remove/uninstall skin
     app.delete('/api/v1/webui/skins/<id>', _handleRemoveSkin);
 
-    // Skin updates
     app.post('/api/v1/webui/skins/update', _handleUpdateSkins);
 
-    // WebUI server lifecycle
     app.get('/api/v1/webui/server/status', _handleServerStatus);
     app.post('/api/v1/webui/server/start', _handleServerStart);
     app.post('/api/v1/webui/server/stop', _handleServerStop);
 
-    // Skin assets - support loading individual skin assets from other skins
     app.get('/api/v1/webui/skin-assets/<id>/<path|.*>', _handleGetSkinAssets);
   }
 

@@ -306,13 +306,11 @@ class _MyAppState extends State<MyApp> {
   Widget build(BuildContext context) {
     _restartTimer?.cancel();
     _restartTimer = Timer.periodic(Duration(hours: 1), (_) {
-      // _restartTimer = Timer.periodic(Duration(seconds: 40), (_) {
       final now = DateTime.now();
       if (now.hour == 1) {
         AppRoot.restart(context);
       }
     });
-    // Foreground service is now started in main.dart for Android
 
     final body = ScaffoldMessenger(
       child: ListenableBuilder(
@@ -333,13 +331,10 @@ class _MyAppState extends State<MyApp> {
             //   GlobalWidgetsLocalizations.delegate,
             //   GlobalCupertinoLocalizations.delegate,
             // ],
-            supportedLocales: const [
-              Locale('en', ''), // English, no country code
-            ],
+            supportedLocales: const [Locale('en', '')],
 
             // Use AppLocalizations to configure the correct application title
             // depending on the user's locale.
-            //
             // The appTitle is defined in .arb files found in the localization
             // directory.
             onGenerateTitle: (BuildContext context) => "Decaid",
@@ -383,7 +378,6 @@ class _MyAppState extends State<MyApp> {
                       if (args is Map<String, dynamic>) {
                         deviceId = args['deviceId'] as String;
                       } else {
-                        // Legacy: plain string deviceId
                         deviceId = args as String;
                       }
                       var device = widget.deviceController.devices.firstWhere(

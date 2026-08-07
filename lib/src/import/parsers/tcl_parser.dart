@@ -32,7 +32,7 @@ class _Parser {
       final trimmed = raw.trim();
 
       if (endMarker != null && trimmed == endMarker) {
-        _pos++; // consume the closing brace line
+        _pos++;
         break;
       }
 
@@ -40,20 +40,17 @@ class _Parser {
 
       if (trimmed.isEmpty) continue;
 
-      // Split into key and rest. Keys may have backslash-escaped spaces.
       final keyEnd = _findKeyEnd(trimmed);
-      if (keyEnd < 0) continue; // no space → skip malformed lines
+      if (keyEnd < 0) continue;
 
       final rawKey = trimmed.substring(0, keyEnd);
       final key = _unescapeKey(rawKey);
       final rest = trimmed.substring(keyEnd + 1).trim();
 
       if (rest == '{') {
-        // Multi-line block: consume lines until matching '}'
         final nested = parseBlock(endMarker: '}');
         result[key] = nested;
       } else if (rest.startsWith('{') && rest.endsWith('}')) {
-        // Single-line braced value
         final inner = rest.substring(1, rest.length - 1);
         result[key] = _parseBracedValue(inner);
       } else {
@@ -88,7 +85,6 @@ class _Parser {
   dynamic _parseBracedValue(String inner) {
     if (inner.isEmpty) return '';
 
-    // Tokenise the inner content, respecting nested braces.
     final tokens = _tokenise(inner);
 
     if (tokens.isEmpty) return '';
@@ -98,7 +94,6 @@ class _Parser {
       return tokens[0].value;
     }
 
-    // Check if all tokens are plain (no sub-braces) and all parse as doubles.
     final allPlain = tokens.every((t) => !t.isBraced);
     if (allPlain) {
       final allNumeric = tokens.every((t) => double.tryParse(t.value) != null);
@@ -125,7 +120,6 @@ class _Parser {
       return _buildMapFromTokens(tokens);
     }
 
-    // Fall back to returning the inner content as a plain string.
     return inner;
   }
 
@@ -174,17 +168,14 @@ class _Parser {
         }
         i++;
       } else if (c == '{') {
-        // Find matching closing brace (handles one level of nesting for .tdb)
         final end = _findClosingBrace(s, i);
         if (end < 0) {
-          // Malformed — treat rest as plain text
           buf.write(s.substring(i));
           i = s.length;
         } else {
           final inner = s.substring(i + 1, end);
           tokens.add(_Token(inner, isBraced: true));
           i = end + 1;
-          // Skip a trailing space if present
           if (i < s.length && s[i] == ' ') i++;
         }
       } else {

@@ -149,7 +149,6 @@ extension UnifiedDe1MMR on UnifiedDe1 {
     return bytes.buffer.asUint8List();
   }
 
-  // MMR helper methods
   Future<int> _readMMRInt(MMRItem item) async {
     final result = await _mmrRead(item);
     return _unpackMMRInt(result);

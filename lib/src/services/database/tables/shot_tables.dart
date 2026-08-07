@@ -6,7 +6,6 @@ class ShotRecords extends Table {
   TextColumn get id => text()();
   DateTimeColumn get timestamp => dateTime()();
 
-  // Denormalized columns for fast filtering/sorting
   TextColumn get profileTitle => text().nullable()();
   TextColumn get grinderId => text().nullable()();
   TextColumn get grinderModel => text().nullable()();
@@ -23,12 +22,10 @@ class ShotRecords extends Table {
   /// v4; null for shots recorded before then or not sequenced by the app.
   TextColumn get stopReason => text().nullable()();
 
-  // Full JSON blobs for complex nested data
   TextColumn get workflowJson => text().map(const JsonMapConverter())();
   TextColumn get annotationsJson =>
       text().map(const NullableJsonMapConverter()).nullable()();
 
-  // Measurements stored separately — can be large, loaded lazily
   TextColumn get measurementsJson => text()();
 
   @override

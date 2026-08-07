@@ -81,7 +81,6 @@ def upload_firmware(port: serial.Serial, fw_data: bytes, batch_size: int, pause_
         chunk_len = len(chunk)
         address = encode_u24(i)
 
-        # Header: 1 byte length + 3 bytes address + payload
         packet = bytes([chunk_len]) + address + chunk
         send_command(port, f"<F>{to_hex(packet)}")
         chunk_num += 1
@@ -90,7 +89,6 @@ def upload_firmware(port: serial.Serial, fw_data: bytes, batch_size: int, pause_
         if chunk_num % batch_size == 0:
             time.sleep(pause_s)
 
-        # Progress
         pct = min(i / total * 100, 100)
         print(f"\r  {pct:5.1f}% ({i}/{total} bytes)", end="", flush=True)
 
@@ -116,7 +114,6 @@ def main():
     batch_size = 8
     pause_ms = 100
 
-    # Parse optional flags
     if "--batch" in args:
         idx = args.index("--batch")
         batch_size = int(args[idx + 1])
@@ -141,7 +138,7 @@ def main():
 
     total_chunks = (len(fw_data) + 15) // 16
     total_batches = (total_chunks + batch_size - 1) // batch_size
-    est_time = total_batches * pause_s + total_chunks * 0.004  # ~4ms wire time per chunk
+    est_time = total_batches * pause_s + total_chunks * 0.004
     print(f"Firmware: {fw_path} ({len(fw_data)} bytes, {total_chunks} chunks)")
     print(f"Port: {port_name}")
     print(f"Mode: {batch_size} chunks per batch, {pause_ms}ms pause between batches")
@@ -159,12 +156,10 @@ def main():
 
     print()
 
-    # Step 1: Request sleep state (sleep = 0x00)
     print("1. Requesting sleep state...")
     send_command(port, "<B>00")
     time.sleep(2)
 
-    # Drain any buffered responses
     if port.in_waiting:
         port.read(port.in_waiting)
 
@@ -177,7 +172,6 @@ def main():
         time.sleep(1)
     print()
 
-    # Drain any erase responses
     if port.in_waiting:
         resp = port.read(port.in_waiting)
         print(f"   Erase response: {resp}")
@@ -189,11 +183,9 @@ def main():
     elapsed = time.time() - t0
     print(f"   Upload completed in {elapsed:.1f}s")
 
-    # Step 4: Verify
     print("4. Sending verify request...")
     send_fw_verify(port)
 
-    # Read verify response
     resp = read_until_prompt(port, timeout=3.0)
     if resp:
         print(f"   Response: {resp.strip()}")

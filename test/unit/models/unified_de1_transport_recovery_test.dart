@@ -137,7 +137,6 @@ void main() {
         );
         await Future<void>.delayed(Duration.zero);
 
-        // The genuine disconnect (recovery gave up) reaches upstream.
         expect(seen, contains(ConnectionState.disconnected));
       },
     );

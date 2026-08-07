@@ -62,7 +62,7 @@ void main() {
       await store.set(namespace: 'default', key: 'b', value: {'nested': true});
       await store.set(namespace: 'plugins', key: 'p', value: 'x');
       await store.set(namespace: 'empty', key: 'k', value: 'v');
-      await store.delete(namespace: 'empty', key: 'k'); // leave namespace empty
+      await store.delete(namespace: 'empty', key: 'k');
 
       final section = KvStoreExportSection(store: store);
 
@@ -161,8 +161,8 @@ void main() {
         }),
         ConflictStrategy.skip,
       );
-      expect(result.imported, 2); // new + plugins/setting
-      expect(result.skipped, 1); // existing
+      expect(result.imported, 2);
+      expect(result.skipped, 1);
       expect(store.boxes['default']!['new'], 2);
       expect(store.boxes['plugins']!['setting'], 'on');
     });

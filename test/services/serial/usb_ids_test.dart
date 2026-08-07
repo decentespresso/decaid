@@ -44,7 +44,6 @@ void main() {
 
   group('default usbDeviceTable', () {
     test('returns null for a clearly unrelated pair', () {
-      // Sanity check: real table doesn't false-match on something random.
       expect(matchUsbDevice(usbDeviceTable, vid: 0xFFFF, pid: 0xFFFF), isNull);
     });
   });

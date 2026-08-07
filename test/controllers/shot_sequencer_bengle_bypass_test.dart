@@ -273,19 +273,16 @@ void main() {
 
             async.elapse(const Duration(milliseconds: 10));
 
-            // idle → preheating
             bengle.emitStateAndSubstate(
               MachineState.espresso,
               MachineSubstate.preparingForShot,
             );
-            // preheating → pouring
             bengle.emitStateAndSubstate(
               MachineState.espresso,
               MachineSubstate.pouring,
             );
             async.elapse(const Duration(milliseconds: 10));
 
-            // Weight blows past the target. App SAW would normally fire.
             scaleController.emitWeight(40.0);
             bengle.emitStateAndSubstate(
               MachineState.espresso,

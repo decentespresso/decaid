@@ -323,7 +323,6 @@ void main() {
       de1Controller: controller,
       retryDelays: const [Duration(milliseconds: 20)],
     );
-    // Let the on-connect push land, then arm the failure for the test.
     await Future<void>.delayed(const Duration(milliseconds: 10));
     flaky.setProfileCalls.clear();
     flaky.failures = 1;
@@ -435,7 +434,6 @@ void main() {
           reason: 'first change starts an upload immediately',
         );
 
-        // Two more changes while upload A is still in flight.
         applyProfile('B');
         applyProfile('C');
         await Future<void>.delayed(const Duration(milliseconds: 10));
@@ -445,7 +443,7 @@ void main() {
           reason: 'no second upload may start while A is in flight',
         );
 
-        gated.completeNext(); // A lands
+        gated.completeNext();
         await Future<void>.delayed(const Duration(milliseconds: 10));
         expect(
           gated.setProfileCalls.map((p) => p.title),
@@ -453,7 +451,7 @@ void main() {
           reason: 'B was superseded by C before its upload started',
         );
 
-        gated.completeNext(); // C lands
+        gated.completeNext();
         await Future<void>.delayed(const Duration(milliseconds: 10));
 
         expect(
@@ -561,7 +559,6 @@ void main() {
       final gone = _NotConnectedDe1();
       final controller = await connect(gone);
       buildSync(controller);
-      // The on-connect push hits the same exception and is skipped.
       await settleConnectPush();
       gone.totalCalls = 0;
 
@@ -601,7 +598,7 @@ void main() {
 
       applyProfile('P1');
       await Future<void>.delayed(const Duration(milliseconds: 10));
-      gated.completeNext(); // P1 lands
+      gated.completeNext();
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
       applyProfile('P2');
@@ -609,7 +606,7 @@ void main() {
       // Revert to P1 while P2 is still uploading. Once P2 lands the device
       // holds P2, so the loop must push P1 again to match the workflow.
       applyProfile('P1');
-      gated.completeNext(); // P2 lands
+      gated.completeNext();
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
       expect(
@@ -618,7 +615,7 @@ void main() {
         reason: 'device must converge to the workflow profile, not P2',
       );
 
-      gated.completeNext(); // trailing P1 lands
+      gated.completeNext();
       await Future<void>.delayed(const Duration(milliseconds: 10));
       expect(gated.maxInFlight, 1);
     });
@@ -669,7 +666,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 10));
       expect(de1.setProfileCalls.map((p) => p.title), ['P1']);
 
-      applyProfile('P2'); // fails — device state now unknown (possibly wedged)
+      applyProfile('P2');
       await Future<void>.delayed(const Duration(milliseconds: 5));
 
       // User reverts to P1 before the retry fires. The device may be stuck

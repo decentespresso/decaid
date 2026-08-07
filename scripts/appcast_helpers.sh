@@ -21,14 +21,12 @@ assert_build_increasing() {
   fi
 }
 
-# Read CFBundleVersion out of a Decaid macOS release ZIP.
 zip_read_build() {
   local zip="$1"
   unzip -p "$zip" "Decaid.app/Contents/Info.plist" \
     | plutil -extract CFBundleVersion raw -
 }
 
-# "total default-channel-count" pair for the feed.
 appcast_item_counts() {
   local appcast="$1"
   local total default_count

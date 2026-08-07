@@ -109,7 +109,6 @@ void main() {
     () async {
       var watchActiveDuringConnect = true;
       watch = build();
-      // Re-wire connectScale via a fresh instance capturing watch state.
       final probe = ScaleWatch(
         scanner: scanner,
         shouldWatch: () => gate,
