@@ -71,7 +71,16 @@ class PluginLoaderService {
       _log.fine('PluginLoaderService already initialized');
       return Future.value();
     }
-    return _initialization ??= _initialize();
+    return _initialization ??= _initializeWithRetry();
+  }
+
+  Future<void> _initializeWithRetry() async {
+    try {
+      await _initialize();
+    } catch (_) {
+      _initialization = null;
+      rethrow;
+    }
   }
 
   Future<void> _initialize() async {

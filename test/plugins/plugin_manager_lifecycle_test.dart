@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
+import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/plugins/plugin_manager.dart';
 
 import '../helpers/test_de1.dart';
@@ -68,6 +69,22 @@ class _StreamDe1Controller extends De1Controller {
 
   @override
   Stream<De1Interface?> get de1 => machineStream;
+}
+
+class _SyncSnapshotDe1 extends TestDe1 {
+  _SyncSnapshotDe1({required super.deviceId});
+
+  final StreamController<MachineSnapshot> snapshots =
+      StreamController<MachineSnapshot>.broadcast(sync: true);
+
+  @override
+  Stream<MachineSnapshot> get currentSnapshot => snapshots.stream;
+
+  @override
+  Future<void> dispose() async {
+    await snapshots.close();
+    await super.dispose();
+  }
 }
 
 Future<void> _loadPlugin(
@@ -273,6 +290,55 @@ void main() {
     await firstMachine.dispose();
     await secondMachine.dispose();
   });
+
+  test(
+    'machine replacement invalidates snapshots before queue cleanup',
+    () async {
+      final manager = PluginManager(kvStore: FakeKeyValueStoreService());
+      final machines = StreamController<De1Interface?>.broadcast(sync: true);
+      final controller = _StreamDe1Controller(machines.stream);
+      final firstMachine = _SyncSnapshotDe1(deviceId: 'first');
+      final secondMachine = TestDe1(deviceId: 'second');
+      final values = <double>[];
+
+      await _loadPlugin(
+        manager,
+        'events.plugin',
+        onEvent:
+            'if (event.name === "stateUpdate") host.emit("state", event.payload.groupTemperature);',
+      );
+      final eventSubscription = manager.emitStream.listen((event) {
+        if (event['event'] == 'state') {
+          values.add((event['payload'] as num).toDouble());
+        }
+      });
+
+      await manager.attachDe1Controller(controller);
+      machines.add(firstMachine);
+      await Future<void>.delayed(Duration.zero);
+      values.clear();
+
+      machines.add(secondMachine);
+      firstMachine.snapshots.add(
+        firstMachine.snapshotSubject.value.copyWith(groupTemperature: 11),
+      );
+      await Future<void>.delayed(Duration.zero);
+      secondMachine.emitSnapshot(
+        secondMachine.snapshotSubject.value.copyWith(groupTemperature: 22),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(values, isNot(contains(11)));
+      expect(values, contains(22));
+
+      await manager.dispose();
+      await eventSubscription.cancel();
+      await machines.close();
+      await controller.dispose();
+      await firstMachine.dispose();
+      await secondMachine.dispose();
+    },
+  );
 
   test('rapid controller replacements serialize', () async {
     final firstMachines = StreamController<De1Interface?>.broadcast();

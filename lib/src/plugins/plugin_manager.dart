@@ -75,6 +75,7 @@ class PluginManager {
   Future<void> _attachmentQueue = Future.value();
   Future<void> _snapshotQueue = Future.value();
   int _attachmentGeneration = 0;
+  int _snapshotGeneration = 0;
   PluginManagerLifecycle _lifecycle = PluginManagerLifecycle.active;
   Future<void>? _disposeFuture;
 
@@ -1363,12 +1364,14 @@ class PluginManager {
     if (controller == null) return;
 
     _de1Subscription = controller.de1.listen((de1) {
+      final snapshotGeneration = ++_snapshotGeneration;
       if (_lifecycle != PluginManagerLifecycle.active ||
           generation != _attachmentGeneration) {
         return;
       }
       final replacement = _snapshotQueue.then(
-        (_) => _replaceSnapshotSubscription(de1, generation),
+        (_) =>
+            _replaceSnapshotSubscription(de1, generation, snapshotGeneration),
       );
       _snapshotQueue = replacement.then<void>(
         (_) {},
@@ -1385,20 +1388,23 @@ class PluginManager {
 
   Future<void> _replaceSnapshotSubscription(
     De1Interface? de1,
-    int generation,
+    int attachmentGeneration,
+    int snapshotGeneration,
   ) async {
     final previous = _snapshotSubscription;
     _snapshotSubscription = null;
     await previous?.cancel();
     if (_lifecycle != PluginManagerLifecycle.active ||
-        generation != _attachmentGeneration ||
+        attachmentGeneration != _attachmentGeneration ||
+        snapshotGeneration != _snapshotGeneration ||
         de1 == null) {
       return;
     }
 
     _snapshotSubscription = de1.currentSnapshot.listen((snapshot) {
       if (_lifecycle != PluginManagerLifecycle.active ||
-          generation != _attachmentGeneration) {
+          attachmentGeneration != _attachmentGeneration ||
+          snapshotGeneration != _snapshotGeneration) {
         return;
       }
       broadcastEvent('stateUpdate', snapshot.toJson());

@@ -702,6 +702,7 @@ class AppLifecycleObserver with WidgetsBindingObserver {
   StreamSubscription? _machineStateSubscription;
   StreamSubscription? _stateStreamSubscription;
   int? _lastMachineState;
+  bool _detaching = false;
 
   AppLifecycleObserver({
     this.updateCheckService,
@@ -723,12 +724,14 @@ class AppLifecycleObserver with WidgetsBindingObserver {
 
     // Monitor machine state changes for sleep-to-idle transitions
     _machineStateSubscription = de1Controller?.de1.listen((machine) {
+      if (_detaching) return;
       _stateStreamSubscription?.cancel();
 
       if (machine == null) return;
 
       // Check if machine transitioned from sleep to idle
       _stateStreamSubscription = machine.currentSnapshot.listen((snapshot) {
+        if (_detaching) return;
         final currentState = snapshot.state.state.index;
 
         // Detect transition from sleep (0) to idle (2)
@@ -748,7 +751,8 @@ class AppLifecycleObserver with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.detached) {
+    if (state == AppLifecycleState.detached && !_detaching) {
+      _detaching = true;
       _memTimer.cancel();
       unawaited(_handleDetached());
     }
@@ -776,19 +780,19 @@ class AppLifecycleObserver with WidgetsBindingObserver {
   }
 
   Future<void> _handleDetached() async {
-    final stateSubscription = _stateStreamSubscription;
-    _stateStreamSubscription = null;
     final machineSubscription = _machineStateSubscription;
     _machineStateSubscription = null;
-    try {
-      await stateSubscription?.cancel();
-    } catch (error, stackTrace) {
-      _log.warning('State subscription detach failed', error, stackTrace);
-    }
     try {
       await machineSubscription?.cancel();
     } catch (error, stackTrace) {
       _log.warning('Machine subscription detach failed', error, stackTrace);
+    }
+    final stateSubscription = _stateStreamSubscription;
+    _stateStreamSubscription = null;
+    try {
+      await stateSubscription?.cancel();
+    } catch (error, stackTrace) {
+      _log.warning('State subscription detach failed', error, stackTrace);
     }
     try {
       await pluginLoaderService?.dispose();
