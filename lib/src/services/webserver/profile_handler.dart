@@ -26,7 +26,6 @@ class ProfileHandler {
 
     app.get('/api/v1/profiles/<id>/lineage', _handleGetLineage);
 
-    // Import profiles
     app.post('/api/v1/profiles/import', _handleImport);
 
     app.post('/api/v1/profiles/restore/<filename>', _handleRestoreDefault);

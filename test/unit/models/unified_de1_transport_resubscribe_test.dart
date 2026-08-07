@@ -181,7 +181,6 @@ void main() {
       reason: '_bleConnect should subscribe stateInfo on connect',
     );
 
-    // Drive a push through the first listener and observe it on `state`.
     final firstSeen = <ByteData>[];
     final sub = transport.state.listen(firstSeen.add);
     firstCb!(Uint8List.fromList([0x05, 0x00, 0x00, 0x00]));

@@ -501,8 +501,6 @@ void main() {
     test('invalid ExitType returns 400 instead of hanging forever', () async {
       await _settleHandler(spy);
 
-      // Send a profile step with an invalid ExitType ('weight'
-      // is not a valid member of ExitType {pressure, flow}).
       final future = put({
         'profile': {
           'steps': [
@@ -538,7 +536,6 @@ void main() {
       () async {
         await _settleHandler(spy);
 
-        // First: an invalid PUT that will fail to parse.
         final badFuture = put({
           'profile': {
             'steps': [
@@ -576,11 +573,6 @@ void main() {
     test(
       'empty profile title (Profile.fromJson ArgumentError) returns 400',
       () async {
-        // Tests the interaction between the new Profile.fromJson
-        // validation (throws ArgumentError on empty title) and our
-        // catch block in _applyPendingUpdate. Without the catch,
-        // this ArgumentError would escape the fire-and-forget Timer
-        // callback and hang the request.
         await _settleHandler(spy);
 
         final future = put({
@@ -812,7 +804,6 @@ void main() {
         unawaited(future.then((_) => completed = true));
         expect(completed, isFalse);
 
-        // Attach the replacement only after the old write finished.
         final replacement = SpyDe1(readyState: false);
         await de1Controller.connectToDe1(replacement);
         expect(completed, isFalse);
@@ -1218,7 +1209,6 @@ void main() {
           );
         }
 
-        // Block the queue with the first mutation.
         final firstFuture = expPut({
           'steamSettings': {'flow': blockedFlow},
         });
@@ -1232,9 +1222,6 @@ void main() {
         });
         expect(expiredResponse.statusCode, 503);
 
-        // maxPendingRequests is 8. With the expired slot released, seven
-        // further requests are admitted (each 503 after its own wait); if
-        // the expired slot had leaked, the seventh would be rejected 429.
         for (var i = 0; i < 7; i++) {
           final response = await expPut({
             'steamSettings': {'flow': blockedFlow + 2 + i},
@@ -1488,7 +1475,6 @@ void main() {
         unawaited(settingsFuture.then((_) => completed = true));
         expect(completed, isFalse);
 
-        // Attach the replacement only after the old write finished.
         final replacement = SpyDe1(readyState: false);
         await de1Controller.connectToDe1(replacement);
         expect(completed, isFalse);
@@ -1499,10 +1485,6 @@ void main() {
           const Duration(seconds: 3),
         );
         expect(response.statusCode, 202);
-        // The replacement receives the complete grouped write (its own
-        // startup fan write precedes it); the old machine's writes stop
-        // at the failed steam write (nothing after the disconnect
-        // reached it).
         expect(replacement.writeOrder.sublist(1), [
           'flushTemp:${flushTemp.toDouble()}',
           'hotWater:$hotWaterFlow',
@@ -1576,8 +1558,6 @@ void main() {
         final settingsFuture = postSettings({'steamFlow': steamFlow});
         await entered.future.timeout(const Duration(seconds: 2));
 
-        // The machine disconnects mid-write; the request now waits for a
-        // replacement. No stream may publish the requested value yet.
         spy.setConnectionState(ConnectionState.disconnected);
         release.complete();
         await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -1770,7 +1750,6 @@ void main() {
         unawaited(resetFuture.then((_) => completed = true));
         expect(completed, isFalse);
 
-        // Attach the replacement only after the old write finished.
         final replacement = SpyDe1(readyState: false);
         await de1Controller.connectToDe1(replacement);
         replacement.setReady(true);

@@ -46,10 +46,6 @@ class WorkflowContext {
   /// Legacy field migration (doseData/grinderData/coffeeData) is handled
   /// upstream in Workflow.fromJson, not here.
   factory WorkflowContext.fromJson(Map<String, dynamic> json) {
-    // String-typed fields are coerced via parseOptionalString so a
-    // client sending a numeric id (valid JSON) doesn't crash the
-    // handler. See issue #106 for the deepMerge re-parse flow that
-    // previously required a server restart to recover.
     return WorkflowContext(
       targetDoseWeight: parseOptionalDouble(json['targetDoseWeight']),
       targetYield: parseOptionalDouble(json['targetYield']),

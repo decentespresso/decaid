@@ -188,8 +188,6 @@ void main() {
     testWidgets(
       'preferred machine message takes priority over generic no-match',
       (tester) async {
-        // preferredMachineId set, totalBleDevicesSeen > 0, no matches
-        // Should show preferred message, not the generic "X BLE devices found"
         final report = _makeReport(
           totalBleDevicesSeen: 3,
           preferredMachineId: 'abc',

@@ -24,9 +24,6 @@ import 'package:rxdart/subjects.dart';
 
 import '../helpers/mock_settings_service.dart';
 
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-
 /// Minimal DeviceDiscoveryService for constructing DeviceController.
 class _FakeDiscoveryService implements DeviceDiscoveryService {
   @override
@@ -729,7 +726,6 @@ void main() {
         controller.initialize();
         async.flushMicrotasks();
 
-        // First set to something else
         controller.setBrightness(50);
         async.flushMicrotasks();
         resetCalled = false;

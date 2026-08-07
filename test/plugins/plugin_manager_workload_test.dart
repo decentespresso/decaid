@@ -95,7 +95,6 @@ void main() {
         );
         await done.future.timeout(const Duration(seconds: 10));
         if (!done.isCompleted) done.complete();
-        // Let trailing timerClear messages reach Dart before asserting.
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
         expect(manager.activeTimerCount, 0, reason: 'timers in round $round');

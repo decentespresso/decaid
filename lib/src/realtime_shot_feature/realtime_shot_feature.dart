@@ -212,8 +212,6 @@ class _RealtimeShotFeatureState extends State<RealtimeShotFeature> {
         ShadButton.destructive(
           enabled: !backEnabled,
           onPressed: () {
-            // Pre-declare intent so the stop is attributed to the app UI
-            // (stopReason: appStop) rather than the ambiguous machineEnded.
             widget.shotSequencer.de1controller.recordStopIntent(
               ShotDecisionReason.appStop,
             );

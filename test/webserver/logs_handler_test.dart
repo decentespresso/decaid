@@ -44,7 +44,6 @@ void main() {
     }
 
     test('returns the file with lines newest-first', () async {
-      // Written oldest-first, as the app writes them.
       const lines = ['oldest', 'middle', 'newest'];
       logFile.writeAsStringSync('${lines.join('\n')}\n');
 
@@ -98,10 +97,8 @@ void main() {
       final body = await res.readAsString();
 
       expect(res.statusCode, 200);
-      // Newest line first.
       expect(body.startsWith('line0199'), isTrue);
       expect(body.contains('line0000'), isFalse);
-      // A recent line is present, and ordering is descending.
       expect(body.contains('line0150'), isTrue);
       expect(body.indexOf('line0199'), lessThan(body.indexOf('line0150')));
     });
@@ -158,7 +155,6 @@ void main() {
       final body = await res.readAsString();
 
       expect(res.statusCode, 200);
-      // Newest line last (chronological), oldest dropped by the 1KB window.
       expect(body.endsWith('line0199\n'), isTrue);
       expect(body.contains('line0000'), isFalse);
       expect(body.contains('line0150'), isTrue);
@@ -166,9 +162,6 @@ void main() {
     });
 
     group('rotation stitching', () {
-      // Rotation naming (RotatingFileAppender): log.txt is newest, log.txt.1
-      // is older, log.txt.2 older still. Within each file, lines are
-      // oldest-first.
       void writeRotationSet() {
         File('${logFile.path}.2').writeAsStringSync('r2a\nr2b\n');
         File('${logFile.path}.1').writeAsStringSync('r1a\nr1b\n');
@@ -237,7 +230,6 @@ void main() {
         final body = await res.readAsString();
 
         expect(res.statusCode, 200);
-        // The newest line survives and sits last (chronological).
         expect(body.endsWith('new0110\n'), isTrue);
         expect(body.contains('old0000'), isFalse);
         expect(body.contains('old0110'), isTrue);

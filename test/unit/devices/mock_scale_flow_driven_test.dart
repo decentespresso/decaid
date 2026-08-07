@@ -46,10 +46,6 @@ void main() {
     });
 
     test('idle reading is rock steady, not flickering', () async {
-      // Real scale firmware stability-filters its output: at rest the
-      // reported weight locks to one value instead of broadcasting raw
-      // load-cell noise. Skins render the stream verbatim, so a flickering
-      // idle reading (0.0 / -0.0) is a simulator bug, not a skin bug.
       final scale = MockScale();
       final samples = await scale.currentSnapshot
           .take(8)
@@ -77,7 +73,6 @@ void main() {
         await de1.onConnect();
         await de1.setProfile(_pourProfile());
 
-        // Before the shot: flat zero.
         final idle = await scale.currentSnapshot.first.timeout(
           const Duration(seconds: 2),
         );

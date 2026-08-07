@@ -125,9 +125,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
     } else if (_currentState == MachineState.skipStep &&
         _simulationType == _SimulationType.espresso &&
         _currentProfile != null) {
-      // skipStep: advance to next profile step immediately.
-      // ShotSequencer owns the skip decision (weight-based); the mock
-      // just advances the step index and continues simulating.
       if (_currentProfileStepIndex < _currentProfile!.steps.length - 1) {
         _captureFromTargets(_currentProfile!.steps[_currentProfileStepIndex]);
         _currentProfileStepIndex++;
@@ -135,8 +132,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
         _espressoTickCount = 0;
         _log.fine("skipStep: advanced to step $_currentProfileStepIndex");
       }
-      // If already on the last step, skipStep is a no-op — the step
-      // will complete naturally via its duration.
       _currentState = MachineState.espresso;
     } else {
       _simulationType = _SimulationType.idle;
@@ -232,8 +227,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
   double shotTime = 0.0;
   int _espressoTickCount = 0;
   int _pouringDoneTicks = 0;
-  // Total elapsed since the shot started (across steps), driving the puck
-  // saturation/erosion model and the cold-puck temperature dip.
   double _shotElapsedMs = 0.0;
 
   MachineSnapshot _simulateEspresso() {
@@ -273,11 +266,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
 
     final currentStep = _currentProfile!.steps[_currentProfileStepIndex];
 
-    // Check if we should move to next step. Real firmware exits a step when its
-    // pressure/flow move-on condition is met, falling back to the step duration;
-    // without honouring the exit, a "move on at 4 bar" preinfusion would run its
-    // full fallback seconds and the shot would look nothing like a real pull.
-    // (Weight/volume exits are driven app-side via requestState(skipStep).)
     final stepDurationMs = currentStep.seconds * 1000;
     final exitMet = _stepExitConditionMet(currentStep);
     if ((_profileStepElapsedTime >= stepDurationMs || exitMet) &&
@@ -288,7 +276,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
         _profileStepElapsedTime = 0.0;
         _log.fine("Moving to profile step: $_currentProfileStepIndex");
       } else {
-        // Last step is done — trigger pouringDone transition (don't go to idle yet).
         _pouringDoneTicks = 3;
         _log.fine("Profile completed, pouringDone transition");
       }
@@ -301,16 +288,9 @@ class MockDe1 implements De1Interface, SimulatedDevice {
     _shotElapsedMs += 100;
     final shotSecs = _shotElapsedMs / 1000.0;
 
-    // --- Puck resistance model ---------------------------------------------
-    // A fresh puck is porous: during preinfusion water passes with little
-    // resistance, so pressure stays low even at high fill flow. As it saturates
-    // and packs, resistance climbs to a peak a few seconds into the pour (flow
-    // falls out under a held pressure), then slowly erodes/channels so flow
-    // creeps back up. This single curve is what makes the coupling below read
-    // like a real shot instead of a pressure spike pinned at the ceiling.
     const rDry = 0.10;
     const rPeak = 4.2;
-    const rErode = 2.5; // after channeling
+    const rErode = 2.5;
     const peakSecs = 12.0;
     const erodeSecs = 16.0;
     double resistance;
@@ -323,23 +303,15 @@ class MockDe1 implements De1Interface, SimulatedDevice {
     }
     resistance *= _puckResistanceMultiplier;
 
-    // --- Temperature: cold-puck dip, then recovery ---
-    // Group temp plunges ~16C when water first hits the cold puck (start of
-    // preinfusion) and recovers toward the step's target over a few seconds.
     final targetTemp = currentStep.temperature;
     const dipMax = 16.0;
     const dipTauSecs = 3.0;
-    // No dip during the ~0.5s prep phase (no water on the puck yet); once water
-    // contacts, the group plunges then recovers toward the setpoint.
     final inPrep = _espressoTickCount < 5;
     final contactSecs = max(0.0, shotSecs - 0.5);
     final dip = inPrep ? 0.0 : dipMax * exp(-contactSecs / dipTauSecs);
     final newGroupTemp = targetTemp - dip;
     final newMixTemp = newGroupTemp - 1.0;
 
-    // --- Flow <-> pressure coupling ---
-    // Slower than before so flow/pressure ramp over ~1-2s like a real pump/puck
-    // rather than snapping to target in one tick.
     const flowResponseRate = 0.35;
     const pressureDamping = 0.35;
 
@@ -364,10 +336,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
       targetPressure = 0.0;
     }
 
-    // Smooth transition ramps the step's CONTROLLED quantity from its value at
-    // step entry to the new target over the step. Only the controlled variable
-    // is ramped — ramping a pressure step's internal pump-max flow from 0 would
-    // collapse flow (and pressure) at every step boundary.
     if (currentStep.transition == TransitionType.smooth) {
       if (currentStep is ProfileStepPressure) {
         targetPressure =
@@ -396,10 +364,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
 
     const pumpMaxFlow = 8.0;
 
-    // Pressure-step: hold the ceiling, letting flow fall out as the puck packs.
-    // On a fresh (low-resistance) puck the flow needed to reach a low target
-    // pressure would exceed the pump, so cap it — otherwise a 2 bar preinfusion
-    // reads an impossible ~20 mL/s.
     if (currentStep is ProfileStepPressure) {
       if (newPressure >= targetPressure) {
         newPressure = targetPressure;
@@ -419,8 +383,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
       }
     }
 
-    // Physical pressure ceiling (real DE1 tops out ~11 bar; the puck model
-    // keeps a well-formed shot far below this).
     const physicalMaxPressure = 11.0;
     if (newPressure > physicalMaxPressure) {
       newPressure = physicalMaxPressure;
@@ -429,9 +391,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
 
     _espressoTickCount++;
 
-    // Derive substate from profile position, not pressure thresholds.
-    // First 500ms (5 ticks): preparingForShot.
-    // Then: preinfusion (frame < targetVolumeCountStart) or pouring (frame >=).
     MachineSubstate substate;
     if (_pouringDoneTicks > 0) {
       substate = MachineSubstate.pouringDone;
@@ -441,7 +400,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
         _currentState = MachineState.idle;
       }
     } else if (_espressoTickCount <= 5) {
-      // First ~500ms (5 ticks @ 100ms)
       substate = MachineSubstate.preparingForShot;
     } else if (_currentProfileStepIndex < _targetVolumeCountStart) {
       substate = MachineSubstate.preinfusion;
@@ -638,7 +596,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
     _targetVolumeCountStart = profile.targetVolumeCountStart;
 
     if (profile.steps.isNotEmpty) {
-      // Use first step's temperature as target
       _profileTargetTemperature = profile.steps.first.temperature;
       _log.fine("Target temperature set to: $_profileTargetTemperature");
 
@@ -691,11 +648,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
         return De1WaterLevels(currentLevel: 50.0, refillLevel: 5.0);
       });
 
-  // Seed `discovered`, not `connected`: a simulated machine is only "connected"
-  // once it is actually connected through the controller (onConnect), exactly
-  // like a real device. Seeding `connected` made every enabled mock machine
-  // (MockDe1 AND MockBengle) self-report connected, so the device list showed
-  // two machines connected at once — impossible for real devices.
   final BehaviorSubject<ConnectionState> _connectionState =
       BehaviorSubject.seeded(ConnectionState.discovered);
 

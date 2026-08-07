@@ -9,9 +9,6 @@ void main() {
     arbiter = StepExitArbiter();
   });
 
-  // ---------------------------------------------------------------
-  // ---------------------------------------------------------------
-
   group('pressure over exit', () {
     const exit = StepExitCondition(
       type: ExitType.pressure,
@@ -36,10 +33,8 @@ void main() {
         currentPressure: 5.0,
         currentFlow: 3.0,
       );
-      // First sample assumes trending → defer
       expect(v1, StepExitVerdict.defer);
 
-      // Second sample still trending up
       final v2 = arbiter.evaluate(
         profileFrame: 0,
         exit: exit,
@@ -70,7 +65,6 @@ void main() {
     });
 
     test('near threshold not trending fires on second frame', () {
-      // First sample: assumes trending → defer
       final v1 = arbiter.evaluate(
         profileFrame: 0,
         exit: exit,
@@ -79,7 +73,6 @@ void main() {
       );
       expect(v1, StepExitVerdict.defer);
 
-      // Second sample: pressure dropped → not trending toward "over"
       final v2 = arbiter.evaluate(
         profileFrame: 0,
         exit: exit,
@@ -106,7 +99,6 @@ void main() {
       );
       expect(v2, StepExitVerdict.defer);
 
-      // Third frame hits maxDeferralFrames
       final v3 = arbiter.evaluate(
         profileFrame: 0,
         exit: exit,
@@ -116,9 +108,6 @@ void main() {
       expect(v3, StepExitVerdict.fire);
     });
   });
-
-  // ---------------------------------------------------------------
-  // ---------------------------------------------------------------
 
   group('flow under exit', () {
     const exit = StepExitCondition(
@@ -148,7 +137,6 @@ void main() {
     });
 
     test('near threshold trending down defers, not trending fires', () {
-      // First: flow 2.5 → defer (assumes trending)
       arbiter.evaluate(
         profileFrame: 0,
         exit: exit,
@@ -156,7 +144,6 @@ void main() {
         currentFlow: 2.5,
       );
 
-      // Second: flow 2.3 (dropping toward "under 2.0") → trending → defer
       final v2 = arbiter.evaluate(
         profileFrame: 0,
         exit: exit,
@@ -165,7 +152,6 @@ void main() {
       );
       expect(v2, StepExitVerdict.defer);
 
-      // Third: max deferral → fire
       final v3 = arbiter.evaluate(
         profileFrame: 0,
         exit: exit,
@@ -176,7 +162,6 @@ void main() {
     });
 
     test('near threshold flow rising fires on second frame', () {
-      // First: defer (assumes trending)
       arbiter.evaluate(
         profileFrame: 0,
         exit: exit,
@@ -184,7 +169,6 @@ void main() {
         currentFlow: 2.5,
       );
 
-      // Second: flow 2.8 — rising, not trending toward "under"
       final v2 = arbiter.evaluate(
         profileFrame: 0,
         exit: exit,
@@ -194,9 +178,6 @@ void main() {
       expect(v2, StepExitVerdict.fire);
     });
   });
-
-  // ---------------------------------------------------------------
-  // ---------------------------------------------------------------
 
   group('edge cases', () {
     test('exit value <= 0 fires immediately', () {
@@ -245,10 +226,8 @@ void main() {
         currentFlow: 3.0,
       );
 
-      // Firmware advances to frame 1
       arbiter.onFrameAdvanced(1);
 
-      // Evaluate frame 0 again — fresh state, first sample assumes trending
       final v = arbiter.evaluate(
         profileFrame: 0,
         exit: exit,
@@ -280,7 +259,6 @@ void main() {
 
       arbiter.reset();
 
-      // Same frame, same readings — should start fresh (first sample)
       final v = arbiter.evaluate(
         profileFrame: 0,
         exit: exit,
@@ -357,9 +335,6 @@ void main() {
         value: 9.0,
       );
 
-      // proximity = 9.0 * 0.20 = 1.8 bar.
-      // Feed a zigzag near threshold: up, then down.
-      // Frame 0: pressure 7.5 → distance 1.5 < 1.8, near, first → defer
       final v1 = arbiter.evaluate(
         profileFrame: 0,
         exit: exit,
@@ -395,20 +370,8 @@ void main() {
     });
   });
 
-  // ---------------------------------------------------------------
-  // Tight-margin — realistic DE1 firing behavior
-  // DE1 firmware is precise: when exit is {pressure over 5 bar},
-  // the machine crosses ~5.02 bar and advances the frame within
-  // milliseconds. The tablet snapshot sees pressure barely past or
-  // barely below the threshold. The arbiter's primary job is handling
-  // these sub-0.1 bar / sub-0.2 ml/s margins, not the wide gaps the
-  // logic-coverage tests above use.
-  // ---------------------------------------------------------------
-
   group('tight-margin (real DE1 firing)', () {
     test('barely past pressure threshold defers', () {
-      // Exit over 5.0 bar. Snapshot shows pressure 5.02 →
-      // firmware very likely already advanced. Defer.
       const exit = StepExitCondition(
         type: ExitType.pressure,
         condition: ExitCondition.over,
@@ -431,10 +394,6 @@ void main() {
     });
 
     test('barely past pressure, firmware advances, race avoided', () {
-      // The primary race scenario: pressure crosses 5.0, firmware
-      // advances frame 0→1. Tablet snapshot still shows frame 0
-      // with pressure 5.02 and weight exit met. Arbiter defers.
-      // Next snapshot: firmware already on frame 1.
       const exit = StepExitCondition(
         type: ExitType.pressure,
         condition: ExitCondition.over,
@@ -449,7 +408,6 @@ void main() {
       );
       expect(v0, StepExitVerdict.defer);
 
-      // Firmware advances to frame 1 (it handled the exit).
       arbiter.onFrameAdvanced(1);
 
       final v1 = arbiter.evaluate(
@@ -470,9 +428,6 @@ void main() {
     });
 
     test('barely past pressure, no firmware advance, max deferral fires', () {
-      // Firmware DIDN'T fire its exit (unlikely but possible if
-      // communication glitch). After 3 frames of being past threshold,
-      // tablet fires skipStep so the shot doesn't stall.
       const exit = StepExitCondition(
         type: ExitType.pressure,
         condition: ExitCondition.over,
@@ -502,11 +457,7 @@ void main() {
       );
     });
 
-    // -- pressure over, near but not yet past -----------------------
-
     test('near pressure threshold, tiny margin, trending defers', () {
-      // Exit over 5.0 bar. Pressure at 4.96, inching toward 5.0.
-      // Firmware will fire within ~100ms. Defer.
       const exit = StepExitCondition(
         type: ExitType.pressure,
         condition: ExitCondition.over,
@@ -539,8 +490,6 @@ void main() {
     });
 
     test('near pressure threshold, tiny margin, not trending fires', () {
-      // Pressure was near threshold then drifted away.
-      // Firmware unlikely to fire. Fire skipStep.
       const exit = StepExitCondition(
         type: ExitType.pressure,
         condition: ExitCondition.over,
@@ -568,8 +517,6 @@ void main() {
     });
 
     test('barely past flow threshold defers', () {
-      // Exit under 2.0 ml/s. Snapshot shows flow 1.98 →
-      // barely below threshold. Firmware likely already advanced.
       const exit = StepExitCondition(
         type: ExitType.flow,
         condition: ExitCondition.under,

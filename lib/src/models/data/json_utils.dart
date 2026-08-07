@@ -35,7 +35,6 @@ Map<String, dynamic> deepMergeJson(
         updateValue is Map<String, dynamic>) {
       result[key] = deepMergeJson(baseValue, updateValue);
     } else {
-      // Otherwise, update value replaces base value
       result[key] = updateValue;
     }
   }

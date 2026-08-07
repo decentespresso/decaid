@@ -48,8 +48,6 @@ abstract class TextSocket {
 typedef TextSocketConnector = Future<TextSocket> Function(Uri uri);
 
 Future<TextSocket> _defaultConnector(Uri uri) async {
-  // WebSocketChannel.connect is lazy; `ready` (awaited in [WsTransport.connect])
-  // surfaces connection failures.
   return _ChannelSocket(WebSocketChannel.connect(uri));
 }
 

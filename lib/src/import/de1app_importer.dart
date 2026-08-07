@@ -112,13 +112,9 @@ class De1appImporter {
     final extractor = EntityExtractor();
     final extraction = extractor.extract(parsedShots);
 
-    // Total entity count for progress reporting (beans + grinders; batches
-    // are sub-items of beans so we don't count them separately).
     final entityTotal = extraction.beans.length + extraction.grinders.length;
     var entityIndex = 0;
 
-    // Load existing beans and grinders to avoid duplicates on re-import.
-    // Build lookup maps keyed the same way EntityExtractor deduplicates.
     final existingBeans = await beanStorageService.getAllBeans();
     final existingBeanMap = <String, String>{};
     for (final bean in existingBeans) {
@@ -138,8 +134,6 @@ class De1appImporter {
       existingGrinderMap[grinder.model.toLowerCase()] = grinder.id;
     }
 
-    // Remap extracted entity IDs → existing IDs where matches are found.
-    // This ensures shots link to existing entities rather than new duplicates.
     final beanIdRemap = <String, String>{};
     final batchIdRemap = <String, String>{};
     final grinderIdRemap = <String, String>{};
@@ -362,10 +356,6 @@ class De1appImporter {
             );
           }
 
-          // Scale power mode: de1app's keep_scale_on=1 means "don't auto-manage
-          // scale power" which maps to Bridge's ScalePowerMode.disabled (no
-          // automatic power management). keep_scale_on=0 means the scale should
-          // disconnect when the machine sleeps.
           if (settings.keepScaleOn != null) {
             await settingsController!.setScalePowerMode(
               settings.keepScaleOn!
@@ -374,21 +364,16 @@ class De1appImporter {
             );
           }
 
-          // Sleep timeout
           if (settings.sleepTimeoutMinutes != null) {
             await settingsController!.setSleepTimeoutMinutes(
               settings.sleepTimeoutMinutes!,
             );
           }
 
-          // Charging mode — map from de1app's smart_battery_charging enum.
-          // Unknown values leave the current Bridge setting untouched (see
-          // SettingsTdbParser._parseChargingMode).
           if (settings.chargingMode != null) {
             await settingsController!.setChargingMode(settings.chargingMode!);
           }
 
-          // Preferred device IDs (Android only — BLE IDs are MAC addresses)
           if (Platform.isAndroid) {
             if (settings.machineBluetoothAddress != null) {
               await settingsController!.setPreferredMachineId(
@@ -402,9 +387,6 @@ class De1appImporter {
             }
           }
 
-          // Workflow context + steam/water/rinse
-          // Use existing workflow or create a default one (common during
-          // onboarding when no workflow has been persisted yet).
           final baseWorkflow =
               await storageService.loadCurrentWorkflow() ??
               WorkflowController().newWorkflow();

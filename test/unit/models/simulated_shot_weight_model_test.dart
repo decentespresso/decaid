@@ -82,9 +82,6 @@ void main() {
     });
 
     test('late-shot weight gain tracks flow 1:1', () {
-      // Real DE1 shots show dW/dt of 0.85-1.1x reported flow once the puck is
-      // saturated (visualizer.coffee sample set) — the absorbed volume is a
-      // fixed early cost, not a permanent 20% tax.
       run(10.0, flow: 2.0);
       final at10 = model.weight;
       run(5.0, flow: 2.0);
@@ -149,8 +146,6 @@ void main() {
     });
 
     test('hot water dispenses straight into the cup', () {
-      // No puck in the path: no first-drops holdback, no saturation ramp —
-      // weight tracks the dispense flow 1:1 from the start.
       run(3.0, flow: 2.0, state: MachineState.hotWater);
       expect(
         model.weight,

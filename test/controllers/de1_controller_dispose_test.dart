@@ -27,8 +27,6 @@ void main() {
     de1Controller = De1Controller(controller: deviceController);
     await de1Controller.connectToDe1(mockDe1);
 
-    // Let init + the 100 ms shot-settings debounce settle so the
-    // listeners are live before we dispose.
     await Future<void>.delayed(const Duration(milliseconds: 200));
   });
 

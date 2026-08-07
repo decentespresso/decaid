@@ -134,9 +134,7 @@ class VariaAkuScale implements Scale {
   }
 
   @override
-  Future<void> wakeDisplay() async {
-    // Varia AKU doesn't support display wake via BLE
-  }
+  Future<void> wakeDisplay() async {}
 
   Future<void> _registerNotifications() async {
     await _transport.subscribe(
@@ -159,8 +157,6 @@ class VariaAkuScale implements Scale {
 
       bool isNegative = (w1 & 0x10) != 0;
 
-      // Weight is 3 bytes big-endian in hundredths of gram
-      // Strip sign nibble from w1
       int weightRaw = ((w1 & 0x0F) << 16) | (w2 << 8) | w3;
       double weight = weightRaw / 100.0;
 

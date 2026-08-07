@@ -44,8 +44,6 @@ void main() {
       final samples = <double>[];
       final sub = bengle.probeTemperature.listen(samples.add);
       await bengle.requestState(MachineState.steam);
-      // Stop-at-temp set higher than rise window so steam doesn't
-      // auto-exit before samples accumulate.
       await bengle.setStopAtTemperatureTarget(0.0);
       await Future<void>.delayed(const Duration(seconds: 3));
       await sub.cancel();

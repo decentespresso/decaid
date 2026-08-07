@@ -27,7 +27,6 @@ class FlowCalculator {
       _samples.removeFirst();
     }
 
-    // Not enough data
     if (_samples.length < 2) return 0.0;
 
     final first = _samples.first;
@@ -37,7 +36,6 @@ class FlowCalculator {
         .inMilliseconds;
     final deltaWeight = last.weight - first.weight;
 
-    // Avoid division by zero
     if (deltaTimeMs <= 0 || deltaWeight.abs() < deadband) return 0.0;
 
     var flow = (deltaWeight * 1000) / deltaTimeMs;

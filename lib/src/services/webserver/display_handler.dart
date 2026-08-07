@@ -121,7 +121,6 @@ class DisplayHandler {
         },
         onDone: () {
           sub?.cancel();
-          // Auto-release wake-lock override when client disconnects
           if (overrideRequested) {
             log.info(
               'WebSocket client disconnected, releasing wake-lock override',

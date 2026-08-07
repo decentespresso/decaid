@@ -74,7 +74,6 @@ void main() {
           .toList()
           .timeout(const Duration(seconds: 3));
 
-      // First few should be below target, last few closer to 3.0
       final firstFlow = snapshots.first.flow;
       final lastFlow = snapshots.last.flow;
 

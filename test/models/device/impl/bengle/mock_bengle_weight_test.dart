@@ -10,7 +10,7 @@ Profile _profileWithPreinfusion() {
     notes: '',
     author: 'test',
     beverageType: BeverageType.espresso,
-    targetVolumeCountStart: 2, // first 2 steps are preinfusion
+    targetVolumeCountStart: 2,
     tankTemperature: 94.0,
     steps: [
       ProfileStepPressure(

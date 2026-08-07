@@ -128,8 +128,6 @@ class ScaleWatch {
 
   void _listen(int gen) {
     _cancelSubs();
-    // skip(1) drops the BehaviorSubject replay — the arm-time check
-    // already handled devices that are currently visible.
     _sub = _scanner.deviceStream.skip(1).listen((devices) {
       if (gen != _generation || _connecting) return;
       final id = _preferredScaleId();
@@ -138,9 +136,6 @@ class ScaleWatch {
       if (match == null) return;
       unawaited(_onSighting(match, gen));
     });
-    // The scanner reports a watch it could not restart (failed refresh,
-    // post-burst resume, adapter recovery). The watch is gone — hand
-    // reacquisition to the legacy backoff loop.
     _failureSub = _scanner.scaleWatchFailures.listen((_) {
       if (gen != _generation) return;
       _log.warning(

@@ -76,7 +76,6 @@ void main() {
       });
 
       test('snapshot timestamps are offset from base by elapsed time', () {
-        // elapsed[4] = 1.0 second
         final base = result.shot.timestamp;
         final snap4 = result.shot.measurements[4];
         final expectedOffset = Duration(milliseconds: (1.0 * 1000).round());

@@ -13,7 +13,6 @@ class WebViewLogsHandler {
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/webview/logs', _handleGetLogs);
-    // WebSocket: live stream
     app.get('/ws/v1/webview/logs', _handleWebSocketLogs);
   }
 

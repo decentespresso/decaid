@@ -45,8 +45,6 @@ class KalmanFlowEstimator {
 
   double _p11, _p12, _p21, _p22;
 
-  // -- Timestamp of the last sample --
-
   DateTime? _lastTimestamp;
 
   double _r;
@@ -131,40 +129,25 @@ class KalmanFlowEstimator {
     final dtMs = timestamp.difference(_lastTimestamp!).inMilliseconds;
     _lastTimestamp = timestamp;
 
-    // Guard against zero or negative dt (e.g. BLE re-transmits).
     if (dtMs <= 0) {
       return (_weight, _flow);
     }
 
     final dt = dtMs / 1000.0;
 
-    // ── Predict ──────────────────────────────────────────────────────
-    // State transition (constant velocity):
-    //   x_pred = F @ x
-    //   where F = [[1, dt],
-    //              [0, 1]]
-
     final predWeight = _weight + _flow * dt;
     final predFlow = _flow;
 
-    // P_pred = F @ P @ F^T + Q
-    // F @ P = [[p11 + dt·p21,  p12 + dt·p22],
-    //          [p21,           p22]]
     final fp11 = _p11 + dt * _p21;
     final fp12 = _p12 + dt * _p22;
     final fp21 = _p21;
     final fp22 = _p22;
 
-    // (F@P) @ F^T = [[fp11 + fp12·dt,  fp12],
-    //                [fp21 + fp22·dt,  fp22]]
     final pp11 = fp11 + fp12 * dt;
     final pp12 = fp12;
     final pp21 = fp21 + fp22 * dt;
     final pp22 = fp22;
 
-    // Q = q · [[dt³/3,  dt²/2],
-    //          [dt²/2,  dt   ]]
-    // (discrete white-noise acceleration model)
     final dt2 = dt * dt;
     final q11 = _q * dt2 * dt / 3.0;
     final q12 = _q * dt2 / 2.0;
@@ -175,17 +158,8 @@ class KalmanFlowEstimator {
     final predP21 = pp21 + q12;
     final predP22 = pp22 + q22;
 
-    // ── Update ───────────────────────────────────────────────────────
-    // Measurement model:
-    //   z = rawWeight  (we only observe weight)
-    //   H = [1, 0]
-
     final innovation = rawWeight - predWeight;
 
-    // Adaptive R — asymmetric EMA of squared innovation.
-    // Clip innovation before squaring so a single large step (cup placement)
-    // doesn't dominate the R tracker. ±3g covers the range of per-sample
-    // weight changes during espresso (up to ~1g/sample at 10 Hz, 8 g/s).
     final clipped = innovation.clamp(-3.0, 3.0);
     final innovSq = clipped * clipped;
     final alpha = innovSq > _r ? _alphaUp : _alphaDown;
@@ -200,15 +174,11 @@ class KalmanFlowEstimator {
     _weight = predWeight + k1 * innovation;
     _flow = predFlow + k2 * innovation;
 
-    // Covariance update: P = (I - K@H) @ P_pred
-    //   I - K@H = [[1-k1, 0],
-    //              [-k2,  1]]
     _p11 = (1.0 - k1) * predP11;
     _p12 = (1.0 - k1) * predP12;
     _p21 = predP21 - k2 * predP11;
     _p22 = predP22 - k2 * predP12;
 
-    // Floor P to prevent overconfidence.
     if (_p11 < _pMin) _p11 = _pMin;
     if (_p22 < _pMin) _p22 = _pMin;
 

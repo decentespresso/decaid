@@ -66,8 +66,6 @@ class WorkflowHandler {
     );
     var expired = false;
     var slotReleased = false;
-    // Release the admission slot exactly once, no matter which path
-    // (timer expiry, normal completion, or skipped queue entry) wins.
     void releaseSlot() {
       if (slotReleased) return;
       slotReleased = true;
@@ -95,8 +93,6 @@ class WorkflowHandler {
     );
     waitTimer = Timer(queueWaitTimeout, () {
       expired = true;
-      // Release the slot immediately even though the skipped queue
-      // entry may not have reached the front yet.
       releaseSlot();
       if (!response.isCompleted) {
         response.complete(

@@ -11,9 +11,6 @@ class SecureCredentialStore implements CredentialStore {
     : _storage =
           storage ??
           const FlutterSecureStorage(
-            // v10 changed the default Android ciphers (encryptedSharedPreferences
-            // deprecated). Auto-migrate any creds written by v9 so existing
-            // logins survive the upgrade instead of silently failing to read.
             aOptions: AndroidOptions(migrateOnAlgorithmChange: true),
           );
 

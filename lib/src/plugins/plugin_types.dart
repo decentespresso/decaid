@@ -1,5 +1,3 @@
-// House strong types for dart/js operations
-
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
 
 enum PluginStorageCommandType { read, write }

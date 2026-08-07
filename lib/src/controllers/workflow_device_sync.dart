@@ -200,8 +200,6 @@ class WorkflowDeviceSync {
       }
       return;
     }
-    // Sync generation to the controller so the upcoming init-settled
-    // event (which may have already fired) matches.
     _generation = _de1.connectionGeneration;
   }
 

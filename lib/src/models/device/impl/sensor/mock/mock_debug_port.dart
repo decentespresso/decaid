@@ -89,7 +89,6 @@ class MockDebugPort implements Sensor, SimulatedDevice {
 
   @override
   Future<void> onConnect() async {
-    // start mock stream
     _timer = Timer.periodic(Duration(milliseconds: 500), (t) {
       if (_ignoreTimer) {
         return;

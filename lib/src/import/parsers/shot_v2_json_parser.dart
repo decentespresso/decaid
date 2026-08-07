@@ -71,7 +71,6 @@ class ShotV2JsonParser {
     final grinderSetting =
         _str(metaGrinder?['setting']) ?? _str(settings['grinder_setting']);
 
-    // --- Profile (parse before annotations so we can read target_weight) ---
     final Profile profile;
     if (json['profile'] != null) {
       profile = Profile.fromJson(json['profile'] as Map<String, dynamic>);
@@ -165,10 +164,6 @@ class ShotV2JsonParser {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Internal helpers
-  // ---------------------------------------------------------------------------
-
   static Map<String, dynamic> _extractSettings(Map<String, dynamic> json) {
     final app = json['app'] as Map<String, dynamic>?;
     final data = app?['data'] as Map<String, dynamic>?;
@@ -192,7 +187,6 @@ class ShotV2JsonParser {
     for (var i = 0; i < boundaries.length; i++) {
       if (elapsedSeconds < boundaries[i]) return i;
     }
-    // Past all boundaries — last step.
     return boundaries.isEmpty ? 0 : boundaries.length - 1;
   }
 

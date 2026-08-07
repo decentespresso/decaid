@@ -36,8 +36,6 @@ class Workflow {
       ctx = WorkflowContext.fromJson(json['context'] as Map<String, dynamic>);
     }
 
-    // Migration-on-read: synthesize WorkflowContext from legacy fields present
-    // in workflow JSON serialized before v0.5.2. These fields are no longer written by toJson.
     final dose = json['doseData'] as Map<String, dynamic>?;
     final grinder = json['grinderData'] as Map<String, dynamic>?;
     final coffee = json['coffeeData'] as Map<String, dynamic>?;
@@ -113,8 +111,6 @@ class Workflow {
     WorkflowMachine? machine,
   }) {
     return Workflow(
-      // copyWith mints a fresh id by default (applying a workflow makes a new
-      // one); pass `id` to preserve it, e.g. when snapshotting onto a shot.
       id: id ?? Uuid().v4(),
       name: name ?? this.name,
       description: description ?? this.description,
@@ -164,8 +160,6 @@ class SteamSettings {
   int targetTemperature;
   int duration;
   double flow;
-  // 0.0 = off. Set/get target only; FW autonomous stop gated on a
-  // future MMR address (see [[bengle_steam_mmr]]).
   double stopAtTemperature;
 
   SteamSettings({

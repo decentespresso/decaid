@@ -239,7 +239,6 @@ void main() {
       expect(empty.statusCode, 200);
       expect(empty.headers['etag'], isNotNull);
 
-      // After a mutation, ETag changes
       await sendPost('/api/v1/beans', {'roaster': 'Sey', 'name': 'X'});
       final populated = await sendGet('/api/v1/beans');
       final etag = populated.headers['etag'];

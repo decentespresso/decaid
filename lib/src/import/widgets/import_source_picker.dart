@@ -21,8 +21,6 @@ class ImportSourcePicker extends StatelessWidget {
 
   Future<void> _pickFolder(BuildContext context) async {
     if (Platform.isAndroid) {
-      // On Android, just open the SAF picker and return the tree URI.
-      // The import step handles copying with progress.
       final picked = await SafUtil().pickDirectory(
         writePermission: false,
         persistablePermission: false,

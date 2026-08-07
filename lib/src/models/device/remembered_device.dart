@@ -58,9 +58,6 @@ class RememberedDevice {
   /// out of the remembered registry.
   static RememberedDevice? fromDevice(Device device) {
     if (device is SimulatedDevice) return null;
-    // Guard the non-empty-id invariant at this boundary too — the constructor
-    // `assert` is stripped in release builds, and an empty id would collide
-    // with any other empty-id entry under id-only equality.
     if (device.deviceId.isEmpty) return null;
     return RememberedDevice(
       id: device.deviceId,
@@ -136,17 +133,14 @@ class RememberedDevice {
       return TransportType.serial;
     }
     if (deviceId.contains('/dev/')) return TransportType.serial;
-    // MAC address: XX:XX:XX:XX:XX:XX (Android BLE)
     if (RegExp(r'^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$').hasMatch(deviceId)) {
       return TransportType.ble;
     }
-    // UUID: 8-4-4-4-12 hex (iOS/macOS BLE)
     if (RegExp(
       r'^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$',
     ).hasMatch(deviceId)) {
       return TransportType.ble;
     }
-    // Default to BLE — most devices are BLE.
     return TransportType.ble;
   }
 

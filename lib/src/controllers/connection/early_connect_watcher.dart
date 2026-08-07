@@ -78,9 +78,6 @@ class EarlyConnectWatcher {
       if (match != null) {
         _log.fine('Preferred machine found during scan, connecting early');
         _machineStarted = true;
-        // Seed the tracker now so the connection attempt + result
-        // land on the right entry; the post-scan seed path is
-        // idempotent and leaves this entry intact.
         _scanReport.seed(match);
         _machinePending = _connectMachineTracked(
           match,

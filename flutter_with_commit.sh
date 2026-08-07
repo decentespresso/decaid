@@ -21,8 +21,6 @@ if [ -n "$FEEDBACK_TOKEN" ]; then
   FEEDBACK_TOKEN_DEFINE=(--dart-define=GITHUB_FEEDBACK_TOKEN="$FEEDBACK_TOKEN")
 fi
 
-# --- Extract version from git tag ---
-# Get the most recent tag (if any), strip 'v' prefix if present
 TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
 if [ -z "$TAG" ]; then
   VERSION="0.0.0-dev"
@@ -30,12 +28,8 @@ else
   VERSION="${TAG#v}"
 fi
 
-# --- Build number from commit count on main (monotonically increasing) ---
-# Use origin/main so feature branches don't inflate the version code
 BUILD_NUMBER=$(git rev-list --count origin/main 2>/dev/null || echo "1")
 
-# --- Build name: semver part only (strip pre-release suffix for native platforms) ---
-# e.g. "1.2.3-beta.1" -> build-name "1.2.3", but VERSION dart-define keeps the full string
 BUILD_NAME="${VERSION%%-*}"
 
 SKIP_SKINS=false
@@ -49,7 +43,6 @@ for arg in "$@"; do
 done
 set -- "${FILTERED_ARGS[@]}"
 
-# --- Command required ---
 if [ $# -lt 1 ]; then
   echo "Usage: $0 [--skip-skins] <flutter command> [arguments...]"
   exit 1

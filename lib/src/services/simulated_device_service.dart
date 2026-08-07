@@ -40,12 +40,6 @@ class SimulatedDeviceService
     if (enabledDevices.isEmpty) {
       return;
     }
-    // Reuse existing instances across scans. Creating a fresh Mock* on
-    // every scan would discard a device that is already `connected`,
-    // replacing it with a new `discovered` one — orphaning the
-    // controller-held connection and leaving /devices stuck on
-    // `discovered`. `putIfAbsent` preserves the live instance; a
-    // disabled device is removed and re-created fresh on re-enable.
     if (enabledDevices.contains(SimulatedDevicesTypes.machine)) {
       _devices.putIfAbsent("MockDe1", () => MockDe1());
     } else {
@@ -68,10 +62,6 @@ class SimulatedDeviceService
       _devices.remove("MockSensorBasket");
       _devices.remove("MockDebugPort");
     }
-    // Wire the standalone scale to the simulated machine so its weight
-    // follows the simulated shot (flow integration) instead of drifting on
-    // its own. Runs every scan: attachMachine is idempotent, and this picks
-    // up a machine that gets enabled after the scale.
     final scale = _devices["MockScale"];
     if (scale is MockScale) {
       final machine = _devices["MockDe1"] ?? _devices["MockBengle"];

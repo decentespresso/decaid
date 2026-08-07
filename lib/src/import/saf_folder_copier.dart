@@ -63,7 +63,6 @@ class SafFolderCopier {
 
     final topLevel = await SafUtil().list(treeUri);
 
-    // Collect all files to copy first so we can report total count
     final filesToCopy = <_CopyTask>[];
 
     for (final entry in topLevel) {

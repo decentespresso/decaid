@@ -269,8 +269,6 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
 
       userAgent: "Decent",
 
-      // Memory management: let Android kill the renderer process (not the app)
-      // when the WebView is not visible and memory is tight.
       rendererPriorityPolicy: RendererPriorityPolicy(
         rendererRequestedPriority: RendererPriority.RENDERER_PRIORITY_BOUND,
         waivedWhenNotVisible: false,
@@ -319,10 +317,6 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
-        // Edge-to-edge: the skin webview owns the entire screen on every side.
-        // left/right default to true, which insets the webview and lets the
-        // scaffold background bleed through as a 1px line on the right (most
-        // visible on dark skins). Disable all four for true fullscreen.
         top: false,
         bottom: false,
         left: false,
@@ -512,7 +506,6 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
       if (canLaunch) {
         await launchUrl(url, mode: LaunchMode.externalApplication);
 
-        // Return to dashboard after opening browser
         if (mounted) {
           Navigator.of(context).pop();
         }
@@ -629,12 +622,6 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
       valueListenable: simulatedWebViewDevice,
       builder: (context, simulatedDevice, _) {
         return Stack(
-          // Android-only: device-pixel-ratio rounding lays the Android WebView out
-          // ~1px short on the right/bottom on some devices, revealing the background
-          // as a hairline (flutter_webview_plugin#356/#654, flutter_inappwebview#1542).
-          // On Android, size the webview 1px past those edges inside a Clip.none
-          // Stack so it covers every pixel; the OS clips the off-screen bleed.
-          // Other platforms don't have this compositing quirk.
           clipBehavior: Platform.isAndroid ? Clip.none : Clip.hardEdge,
           children: [
             Positioned.fill(
@@ -652,9 +639,6 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   Widget _buildWebView(SimulatedWebViewDevice? simulatedDevice) {
     return InAppWebView(
       key: ValueKey(simulatedDevice?.id ?? 'native-webview'),
-      // Cache-busting param bypasses stale service workers: a SW
-      // caches responses by exact URL, so /?_=<ts> won't match
-      // its cached '/' and falls through to the network.
       initialUrlRequest: URLRequest(url: WebUri(_skinUrl)),
       initialSettings: _createSettings(),
       initialUserScripts: _initialUserScripts(simulatedDevice),
@@ -752,7 +736,6 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
         }
       },
       onConsoleMessage: (controller, consoleMessage) {
-        // Route to dedicated webview log service (file + stream)
         final skinId = widget.settingsController.defaultSkinId;
         widget.webViewLogService.log(
           skinId,
@@ -770,7 +753,6 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
           'rendererPriorityAtExit: ${detail.rendererPriorityAtExit}',
         );
         _webViewController = null;
-        // Show reload UI, then rebuild the WebView after a brief delay
         setState(() {
           _rendererCrashed = true;
         });
@@ -831,9 +813,6 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   /// it's visible to skin JS regardless of UA or bridge state, and it never exists
   /// in a plain browser because it isn't part of the served HTML.
   UserScript _hostIdentityScript() {
-    // jsonEncode the whole payload so quotes/newlines in any value can't break
-    // out of the injected source. Platform.operatingSystem already yields
-    // 'android'/'ios'/'macos'/'windows'/'linux'.
     final payload = jsonEncode({
       'app': 'decent.app',
       'platform': Platform.operatingSystem,

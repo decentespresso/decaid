@@ -222,7 +222,6 @@ void main() {
           expect(assetGets, 2);
           metadata = storage.getSkin('passione-dist')!.reaMetadata!;
           expect(metadata.sourceUrl, 'github_release:acme/custom-skin@v1.1.0');
-          // User-installed skin stays removable after an update.
           expect(storage.getSkin('passione-dist')!.isBundled, isFalse);
         },
         () => MockClient((request) async {
@@ -288,7 +287,6 @@ void main() {
               'second.zip',
             );
 
-            // New release: the update re-selects second.zip, not first.zip.
             releaseTag = 'v1.1.0';
             await storage.updateAllSkins();
             expect(requestedAssets, [
@@ -351,8 +349,6 @@ void main() {
             isTrue,
           );
 
-          // New prerelease: the update hits the /releases list endpoint
-          // (not /releases/latest) and re-selects a prerelease.
           releaseTag = 'v1.1.0-rc.1';
           await storage.updateAllSkins();
           expect(
@@ -393,7 +389,6 @@ void main() {
     });
 
     test('overwriteIfExists:false leaves an existing skin untouched', () async {
-      // Newer copy installed first (e.g. from a GitHub release).
       await storage.installFromPath(makeSkinSource('0.1.33').path);
       expect(installedVersion(), '0.1.33');
 

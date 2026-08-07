@@ -100,9 +100,6 @@ class ScanOrchestrator {
       ),
     );
 
-    // EarlyConnectWatcher owns the deviceStream subscription + the
-    // `(started, pending)` pair per device type + error handling on
-    // the pending futures.
     final earlyConnect = EarlyConnectWatcher(
       deviceStream: _scanner.deviceStream,
       preferredMachineId: preferredMachineId,
@@ -116,9 +113,6 @@ class ScanOrchestrator {
     );
     earlyConnect.start();
 
-    // Run scan. If a scaleFilter is provided (Android scaleOnly path),
-    // discovery services that support filtering will use it to bypass
-    // background throttling; others ignore it.
     final ScanResult scanResult;
     try {
       scanResult = await _scanner.scanForDevices(filter: scaleFilter);
@@ -130,19 +124,10 @@ class ScanOrchestrator {
     earlyConnect.stop();
     reportBuilder.recordScanDuration(scanResult.duration);
 
-    // Sticky-error environmental recovery: reaching a completed scan
-    // means permission and scan subsystems are working again. Clear
-    // any sticky scan-related error that was hanging on — the
-    // StatusPublisher gatekeeper would preserve it otherwise.
     _clearStickyScanError();
 
-    // Wait for any in-flight early connects to finish before the
-    // coordinator runs its policy stage.
     await earlyConnect.awaitPending();
 
-    // Seed tracker entries for every device in the final snapshot.
-    // Early-connect paths pre-seeded their targets; seed is
-    // idempotent so those entries stay intact.
     final allDevices = scanResult.matchedDevices;
     for (final d in allDevices) {
       reportBuilder.seed(d);

@@ -673,8 +673,6 @@ void main() {
         ),
         isFalse,
       );
-      // Interval elapsed: re-assert OFF because the firmware re-enables the
-      // charger on its own.
       expect(
         shouldWriteChargerMode(
           shouldCharge: false,

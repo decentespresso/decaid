@@ -43,7 +43,6 @@ class BonsoirWifiScaleBrowser implements WifiScaleBrowser {
     final discovery = BonsoirDiscovery(type: serviceType);
     try {
       await discovery.initialize();
-      // Listen before starting so no early events are missed.
       _sub = discovery.eventStream!.listen(_onEvent);
       await discovery.start();
     } catch (_) {
@@ -71,8 +70,6 @@ class BonsoirWifiScaleBrowser implements WifiScaleBrowser {
           'service found: ${svc.name} hostname=${svc.hostname} '
           'port=${svc.port} addresses=${svc.hostAddresses}',
         );
-        // Surface the scale immediately with the best host we have, so it
-        // appears even if bonsoir's resolve step fails (flaky on macOS).
         final ipNow = _firstIpv4(svc.hostAddresses);
         final hostname = svc.hostname;
         final hostNow = _normalizeHost(

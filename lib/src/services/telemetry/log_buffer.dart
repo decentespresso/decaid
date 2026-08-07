@@ -32,11 +32,7 @@ class LogBuffer {
     _buffer.add(timestamped);
     _currentSizeBytes += entrySize;
 
-    // Manual trimming: if we're over the size limit, we need to rebuild
-    // the buffer without the oldest entries
     if (_currentSizeBytes > maxSizeBytes && _buffer.isNotEmpty) {
-      // CircularBuffer doesn't have removeFirst, so we convert to list,
-      // remove entries from front until under size limit, then rebuild
       final entries = _buffer.toList();
       var trimmedSize = _currentSizeBytes;
       var removeCount = 0;

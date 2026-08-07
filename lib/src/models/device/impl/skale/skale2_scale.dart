@@ -96,7 +96,6 @@ class Skale2Scale implements Scale {
           .where((state) => state == ConnectionState.disconnected)
           .listen((_) {
             _connectionStateController.add(ConnectionState.disconnected);
-            // Subscriptions are lost when the BLE link drops.
             _weightSubscribed = false;
             _buttonSubscribed = false;
             disconnectSub?.cancel();
@@ -128,29 +127,17 @@ class Skale2Scale implements Scale {
   @override
   DeviceType get type => DeviceType.scale;
 
-  // --- Initialization ---
-  // Follows the de1app / Decenza staggered sequence:
-  //   1. LCD ON immediately  (0xED + 0xEC)
-  //   2. After 1s: subscribe weight notifications (EF81)
-  //   3. After 2s: subscribe button notifications (EF82)
-  //   4. After 3s: LCD ON again + set grams (0x03)
-  // The Skale2's command buffer is fragile — back-to-back operations
-  // without spacing can cause silent drops (de1app double-sends LCD ON
-  // for exactly this reason).  See GH #53 / #421.
   Future<void> _initScale() async {
     // 1. Turn display on and set to weight mode — BEFORE subscribing.
     await _sendDisplayOn();
     await _sendDisplayWeight();
 
-    // 2. Subscribe to weight notifications after a settle delay.
     await Future.delayed(_initStepDelay);
     await _subscribeWeight();
 
-    // 3. Subscribe to button notifications after another delay.
     await Future.delayed(_initStepDelay);
     await _subscribeButton();
 
-    // Read battery level (best-effort, does not affect scale operation).
     try {
       final batteryData = await _transport.read(
         batteryService.long,
@@ -159,11 +146,8 @@ class Skale2Scale implements Scale {
       if (batteryData.isNotEmpty) {
         _batteryLevel = batteryData[0];
       }
-    } catch (_) {
-      // Battery service may not be available.
-    }
+    } catch (_) {}
 
-    // 4. Re-send LCD ON + set grams after final delay (double-send pattern).
     await Future.delayed(_initStepDelay);
     await _sendDisplayOn();
     await _sendDisplayWeight();
@@ -239,11 +223,6 @@ class Skale2Scale implements Scale {
     await _sendDisplayOn();
     await _sendDisplayWeight();
 
-    // Re-subscribe to notifications if they were lost (e.g. BLE link
-    // dropped during sleep).  The Skale2 may silently lose CCCD
-    // subscriptions when its display is off — de1app handles this by
-    // re-running the full connect sequence, but we take the lighter
-    // approach of only re-subscribing what's missing.
     if (!_weightSubscribed) {
       _log.info('Re-subscribing to weight notifications during wake');
       await _subscribeWeight();
@@ -275,10 +254,7 @@ class Skale2Scale implements Scale {
     );
   }
 
-  void _parseButtonNotification(List<int> data) {
-    // Button press notifications - currently informational only.
-    // Could be used to trigger tare or other actions in the future.
-  }
+  void _parseButtonNotification(List<int> data) {}
 
   @override
   Future<void> startTimer() async {

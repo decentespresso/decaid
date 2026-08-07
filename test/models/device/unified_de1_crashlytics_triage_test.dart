@@ -85,12 +85,6 @@ void main() {
       final errors = <Object>[];
       final sub = de1.currentSnapshot.listen((_) {}, onError: errors.add);
 
-      // Kick off onConnect in the background. The stub transport
-      // doesn't answer MMR reads, so this will eventually throw
-      // `MmrTimeoutException` — we catch it below. What matters
-      // here is that `_serialConnect()` wires the readStream
-      // listener early (before the MMR reads), so our injected
-      // frame reaches `_shotSampleNotification`.
       final onConnectFuture = de1.onConnect().catchError((e) {
         if (e is MmrTimeoutException) return;
         throw e;
@@ -98,9 +92,6 @@ void main() {
 
       await Future<void>.delayed(const Duration(milliseconds: 100));
 
-      // 9 bytes = 18 hex chars under `[M]` (shotSample endpoint).
-      // Before the fix, this crashed deep in rxdart with
-      // `RangeError (length): Not in inclusive range 0..8: 9`.
       transport.injectSerial('[M]000102030405060708\n');
 
       await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -114,8 +105,6 @@ void main() {
       );
 
       await sub.cancel();
-      // onConnect's first MMR read now retries (3 * 4s + settle) against
-      // the silent stub before throwing MmrTimeoutException; allow headroom.
       await onConnectFuture;
     }, timeout: const Timeout(Duration(seconds: 20)));
   });
@@ -134,9 +123,6 @@ void main() {
     test('disconnect() without a prior connect() does not throw '
         'LateInitializationError', () async {
       final de1 = UnifiedDe1(transport: transport);
-      // Before the fix, the serial branch of `disconnect()` called
-      // `_transportSubscription.cancel()` on an uninitialized late
-      // field, throwing LateInit.
       await expectLater(de1.disconnect(), completes);
     });
   });

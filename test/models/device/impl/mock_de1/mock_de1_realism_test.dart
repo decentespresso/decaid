@@ -108,7 +108,6 @@ void main() {
       reason: 'pressure should hold at the ceiling, not spike',
     );
 
-    // The group plunges on first water contact, then recovers toward the setpoint.
     expect(minGroupTemp, lessThan(80), reason: 'cold-puck dip');
     expect(
       samples.last.groupTemperature,
@@ -116,8 +115,6 @@ void main() {
       reason: 'temperature should recover after the dip',
     );
 
-    // Preinfusion advances via the 4-bar pressure exit, so the pour is reached
-    // well before step 1's 18s fallback duration.
     expect(
       pour,
       isNotEmpty,

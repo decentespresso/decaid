@@ -15,8 +15,6 @@ export default defineConfig({
     minify: false,
     rollupOptions: {
       output: {
-        // Wrap in a function that flutter_js can call
-        // The IIFE should expose createPlugin on globalThis
         footer: "",
       },
     },

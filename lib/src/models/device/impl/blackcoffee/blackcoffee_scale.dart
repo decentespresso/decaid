@@ -99,23 +99,16 @@ class BlackCoffeeScale implements Scale {
 
   @override
   Future<void> tare() async {
-    // BlackCoffee scale doesn't support BLE tare commands
-    // Implement software tare by recording the current weight offset
     _weightAtTare = _lastRawWeight;
   }
 
   @override
   Future<void> sleepDisplay() async {
-    // BlackCoffee scale doesn't have documented display sleep commands
-    // Fallback to disconnect as per scale interface contract
     await disconnect();
   }
 
   @override
-  Future<void> wakeDisplay() async {
-    // BlackCoffee scale doesn't have documented wake display commands
-    // This is a no-op
-  }
+  Future<void> wakeDisplay() async {}
 
   double _lastRawWeight = 0.0;
 

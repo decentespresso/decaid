@@ -41,7 +41,6 @@ void main() {
       final sub = bengle.ledStripState.listen(emitted.add);
       addTearDown(sub.cancel);
 
-      // Seeded initial value delivered on first microtask.
       await Future(() {});
       expect(emitted, hasLength(1));
       expect(emitted[0].frontStrip.sleeping, Color16.off);

@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Fixture test for scripts/appcast_helpers.sh. Run from the repo root:
-#   scripts/test_appcast_helpers.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/appcast_helpers.sh

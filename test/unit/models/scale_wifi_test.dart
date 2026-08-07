@@ -211,7 +211,6 @@ void main() {
 
         // Start a connect but never recognize it → its future stays pending.
         final f1 = scale.onConnect();
-        // Re-enter before f1 resolves (e.g. a racing reconnect).
         final f2 = scale.onConnect();
 
         // The superseded attempt must complete with an error, not hang forever.

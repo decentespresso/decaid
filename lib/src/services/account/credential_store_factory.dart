@@ -27,16 +27,11 @@ Future<CredentialStore> createCredentialStore() async {
   return SecureCredentialStore();
 }
 
-// Authoritative bundle ID (see CLAUDE.md). Used as a fixed namespace in the
-// key derivation; not a secret.
 const _bundleId = 'net.tadel.reaprime';
 
 Future<EncryptedCredentialStore> _createMacOSStore() async {
   final macInfo = await DeviceInfoPlugin().macOsInfo;
 
-  // Machine-bound key: SHA-256(IOPlatformUUID || bundleID). Bound to the host
-  // (a copied file won't decrypt elsewhere) but not to the binary signature
-  // (survives auto-updates). systemGUID is the IOPlatformUUID.
   final guid = macInfo.systemGUID ?? 'unknown-machine';
   final keyBytes = sha256.convert(utf8.encode('$guid$_bundleId')).bytes;
 

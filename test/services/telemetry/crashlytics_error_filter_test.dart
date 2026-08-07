@@ -37,12 +37,6 @@ void main() {
     });
 
     group('UniversalBleException with expected BLE codes', () {
-      // We match by toString() prefix + error code string because we can't
-      // import universal_ble in the telemetry layer (would create a layer
-      // dependency). The crash events use both formats:
-      //   "UniversalBleException: Code: UniversalBleErrorCode.deviceNotFound"
-      //   "UniversalBleException: Code: deviceNotFound"
-
       test('deviceNotFound (Code: format) is benign', () {
         final e = _FakeUniversalBleException(
           'Code: UniversalBleErrorCode.deviceNotFound, Message: Unknown deviceId',

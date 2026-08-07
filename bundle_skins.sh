@@ -20,18 +20,10 @@ CACHE_TTL=3600
 
 mkdir -p "$CACHE_DIR" "$OUTPUT_DIR"
 
-# Clear stale bundled zips so removed/renamed skin_sources entries don't linger.
-# Cache dir is preserved to avoid re-downloading unchanged sources.
 rm -f "$OUTPUT_DIR"/*.zip "$OUTPUT_DIR"/manifest.json
 
-# Authenticate GitHub API requests when a token is available. Unauthenticated
-# api.github.com is rate-limited to 60 req/hr per IP, which is shared across
-# GitHub-hosted runners and routinely exhausted — leading to silent fetch
-# failures and empty manifests. GITHUB_TOKEN is auto-injected in Actions; locally
-# set GITHUB_TOKEN or GH_TOKEN if you hit rate limits.
 GH_AUTH_HEADER=()
 GH_TOKEN_VALUE="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
-# Fall back to gh CLI auth token if no env var set
 if [ -z "$GH_TOKEN_VALUE" ] && command -v gh &>/dev/null; then
   GH_TOKEN_VALUE=$(gh auth token 2>/dev/null || true)
 fi
@@ -39,10 +31,6 @@ if [ -n "$GH_TOKEN_VALUE" ]; then
   GH_AUTH_HEADER=(-H "Authorization: Bearer $GH_TOKEN_VALUE")
 fi
 
-# Track failures so we can exit non-zero if anything went wrong. Prior behavior
-# was to `continue` past every failure and emit an empty manifest, which
-# surfaced as a confusing test failure in `webui_storage_bundled_test.dart`
-# rather than a clear bundle-step failure.
 FAILED_SOURCES=()
 
 COUNT=$(jq length "$CONFIG")

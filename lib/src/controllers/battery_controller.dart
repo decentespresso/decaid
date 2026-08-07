@@ -49,8 +49,6 @@ class BatteryController {
 
   Future<void> _tick() async {
     try {
-      // Bail early if no machine connected — skip settings reads and
-      // charging decision computation.
       if (_deviceController.isScanning) {
         _log.fine('Skipping USB charger mode update during BLE scan');
         return;
@@ -58,8 +56,6 @@ class BatteryController {
       final de1 = _de1Controller.connectedDe1OrNull;
       if (de1 == null) {
         _log.fine('No machine connected, skipping USB charger mode update');
-        // Force a re-assert on the next connected tick: a reconnected
-        // machine resets to its charging-on default.
         _lastAppliedCharge = null;
         return;
       }
@@ -95,9 +91,6 @@ class BatteryController {
         'reason: ${decision.reason}',
       );
 
-      // Apply to DE1 — but skip redundant writes. The firmware re-enables
-      // the charger on its own, so we re-assert "off" periodically while
-      // discharging but avoid spamming an unchanged "on" every tick.
       if (shouldWriteChargerMode(
         shouldCharge: decision.shouldCharge,
         lastApplied: _lastAppliedCharge,

@@ -80,7 +80,6 @@ final class RunnerTests: XCTestCase {
     let fake = FakeUpdaterController()
     let updater = MacOSUpdater(controller: fake)
 
-    // Before configure() migrates, the setter is a no-op.
     updater.setAutomaticChecks(false)
     XCTAssertFalse(fake.automaticallyChecksForUpdates)
 

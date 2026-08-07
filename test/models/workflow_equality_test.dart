@@ -4,15 +4,6 @@ import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
 import 'package:reaprime/src/models/data/workflow_context.dart';
 
-// These tests pin down the value-equality contract for the workflow
-// settings classes. The workflow HTTP handler uses `!=` to decide
-// whether to re-apply steam/hot-water/flush settings to the DE1; without
-// value equality, every PUT re-applies everything, producing the
-// redundant shot-settings writes reported on mock and real hardware.
-// See also the race / redundant-emit tests in
-// `test/webserver/workflow_handler_test.dart` — they depend on this
-// contract holding.
-
 void main() {
   group('SteamSettings equality', () {
     test('equal by value', () {
@@ -186,14 +177,7 @@ void main() {
   });
 
   group('Profile equality + JSON round-trip', () {
-    // WorkflowHandler gates `setProfile` with
-    // `oldWorkflow.profile != updatedWorkflow.profile`. Every PUT
-    // rebuilds Profile via fromJson, so round-trip equality is what
     // determines whether the guard short-circuits. If notes contain
-    // newlines and toJson escapes them without a matching unescape in
-    // fromJson, the guard always misses and setProfile fires every
-    // PUT — on real DE1 that means a full BLE profile re-send plus
-    // the 1 s profileDownloadGuard delay.
 
     test('default profile (no newlines) round-trips equal', () {
       final p = Defaults.createDefaultProfile();

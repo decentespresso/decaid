@@ -45,8 +45,6 @@ class MockDe1Controller extends De1Controller {
     if (shouldFailConnect) {
       throw Exception('MockDe1Controller: simulated connection failure');
     }
-    // Don't call super — we don't want real connection logic in tests.
-    // Instead, surface the device on the stream so listeners see it.
     de1Subject.add(de1Interface);
   }
 }

@@ -107,9 +107,6 @@ class PluginManager {
       decentProxyService: decentProxyService,
       log: _log,
     );
-    // js.enableHandlePromises();
-    // js.enableXhr();
-    // js.enableFetch();
     _bootstrapJs();
   }
 
@@ -234,10 +231,6 @@ class PluginManager {
     final token = _pluginBridgeTokens.remove(pluginId);
     if (token != null) _pluginIdsByBridgeToken.remove(token);
   }
-
-  // ─────────────────────────────────────────────
-  // JS bootstrap (ONCE)
-  // ─────────────────────────────────────────────
 
   void _bootstrapJs() {
     js.evaluate(r'''
@@ -750,9 +743,6 @@ class PluginManager {
         }
         return;
       }
-      // Yield before processing: channel callbacks run inside the JS evaluate
-      // that sent the message, and a nested evaluate + job drain does not
-      // settle promises on QuickJS (unhandled-rejection hang).
       await Future<void>.delayed(Duration.zero);
       if (type == 'decentProxy') {
         await _handleDecentProxyMessage(pluginId, msg);
@@ -849,10 +839,6 @@ class PluginManager {
       await Future.wait(operations);
     }
   }
-
-  // ─────────────────────────────────────────────
-  // Plugin lifecycle
-  // ─────────────────────────────────────────────
 
   Future<void> loadPlugin({
     required String id,
@@ -979,8 +965,6 @@ class PluginManager {
       if (result.isError) {
         throw Exception("JS evaluation error: ${result.stringResult}");
       }
-      // Settle promise chains created synchronously during onLoad (e.g. a
-      // rejected fetch or an already-resolved promise) regardless of engine.
       while (js.executePendingJob() > 0) {}
 
       runtime.markRunning();
@@ -1097,10 +1081,6 @@ class PluginManager {
     }
   }
 
-  // ─────────────────────────────────────────────
-  // Dart → JS events
-  // ─────────────────────────────────────────────
-
   void broadcastEvent(String name, dynamic payload) {
     _ensureActive();
     for (final plugin in _plugins.values) {
@@ -1147,10 +1127,6 @@ class PluginManager {
   ''');
     while (js.executePendingJob() > 0) {}
   }
-
-  // ─────────────────────────────────────────────
-  // JS → Dart messages
-  // ─────────────────────────────────────────────
 
   Future<void> _handleMessage(String pluginId, Map<String, dynamic> msg) async {
     _log.finest("handle message: $msg");
@@ -1200,10 +1176,6 @@ class PluginManager {
         break;
     }
   }
-
-  // ─────────────────────────────────────────────
-  // Timers (JS callbacks, Dart-owned Timers)
-  // ─────────────────────────────────────────────
 
   final Map<int, ({String pluginId, Timer timer})> _timers = {};
 
@@ -1311,10 +1283,6 @@ class PluginManager {
       Error.throwWithStackTrace(firstError!, firstStackTrace!);
     }
   }
-
-  // ─────────────────────────────────────────────
-  // Pending operations (fetch, plugin HTTP, Decent proxy)
-  // ─────────────────────────────────────────────
 
   final Map<String, _PendingOp> _pendingOps = {};
   final Map<String, int> _pluginGenerations = {};
@@ -1587,10 +1555,6 @@ class PluginManager {
     _pendingOps[op.key] = op;
     return completer.future;
   }
-
-  // ─────────────────────────────────────────────
-  // External API (UNCHANGED)
-  // ─────────────────────────────────────────────
 
   List<PluginRuntime> get loadedPlugins => _plugins.values.toList();
 

@@ -102,7 +102,6 @@ ProfileStep _sampleStep() => ProfileStepPressure(
 );
 
 void main() {
-  // Ensure Hive is initialized for tests
   setUpAll(() async {
     Hive.init(null);
   });

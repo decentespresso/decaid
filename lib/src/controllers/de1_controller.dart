@@ -302,11 +302,6 @@ class De1Controller {
   }
 
   Future<void> _shotSettingsUpdate(De1ShotSettings data) async {
-    // Debounce rapid successive calls (e.g., from setSteamFlow +
-    // setHotWaterFlow + updateShotSettings). Capture the current
-    // generation so a disconnect + cancel race where the timer has
-    // already fired but the closure hasn't started awaiting yet still
-    // bails out cleanly (comms-harden #5).
     _shotSettingsDebounce?.cancel();
     final generation = _connectionGeneration;
     _shotSettingsDebounce = Timer(
@@ -323,13 +318,8 @@ class De1Controller {
         try {
           await _processShotSettingsUpdate(data);
         } on DeviceNotConnectedException catch (e) {
-          // Defence in depth: device may have disconnected between the
-          // generation check above and any of the awaits in the body.
           _log.fine('Shot settings update aborted by disconnect: $e');
         } on MmrTimeoutException catch (e) {
-          // An MMR read inside the readback can time out if the BLE
-          // adapter drops mid-sequence. That's functionally the same as
-          // a disconnect — don't escalate to a fatal crash.
           _log.warning(
             'Shot settings update MMR read timed out '
             '(treating as disconnect): $e',
@@ -737,10 +727,6 @@ class De1Controller {
   }
 
   Future<void> dispose() async {
-    // Cancel listeners + pending debounce before tearing down the
-    // machine. _onDisconnect() (which normally does this) is not
-    // guaranteed to fire: _de1.dispose() closes the transport subjects,
-    // which delivers onDone rather than a `disconnected` event.
     _shotSettingsDebounce?.cancel();
     _shotSettingsDebounce = null;
     for (final sub in _subscriptions) {

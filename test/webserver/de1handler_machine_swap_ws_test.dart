@@ -70,8 +70,6 @@ void main() {
     final messages = channel.stream
         .map((msg) => jsonDecode(msg.toString()) as Map<String, dynamic>)
         .asBroadcastStream();
-    // Drain into a broadcast stream eagerly so frames sent before a
-    // `.first`/`.take()` is awaited are not dropped.
     messages.listen((_) {});
     return (channel, messages);
   }
@@ -153,7 +151,6 @@ void main() {
         await settle();
 
         final second = await powerCycle(first);
-        // A second power-cycle: three instances have now passed under one socket.
         final third = await powerCycle(second);
 
         received.clear();
@@ -452,7 +449,6 @@ void main() {
       messages.listen((_) {});
       await settle();
 
-      // Send a command to the first machine before the swap.
       final cmd1 = rawCommand(
         type: De1RawMessageType.request,
         operation: De1RawOperationType.read,
@@ -471,7 +467,6 @@ void main() {
 
       await powerCycle(first);
 
-      // Send a second command after the swap.
       final cmd2 = rawCommand(
         type: De1RawMessageType.request,
         operation: De1RawOperationType.read,
@@ -503,7 +498,6 @@ void main() {
       await channel.sink.close();
       await settle();
 
-      // After close, no listener should remain.
       expect(machine.rawOutSubject.hasListener, isFalse);
     });
 
@@ -515,7 +509,6 @@ void main() {
       final (channel, messages) = connectWs('/ws/v1/machine/raw');
       messages.listen((_) {});
 
-      // Send a command immediately — no settle() before it.
       final command = rawCommand(
         type: De1RawMessageType.request,
         operation: De1RawOperationType.read,

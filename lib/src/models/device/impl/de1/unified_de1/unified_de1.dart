@@ -121,8 +121,6 @@ class UnifiedDe1 implements De1Interface {
   /// once.
   @override
   Future<void> dispose() async {
-    // Guard: disconnect first so capability mixin onDisconnect() fires
-    // before subjects close.
     try {
       await disconnect();
     } catch (_) {
@@ -247,8 +245,6 @@ class UnifiedDe1 implements De1Interface {
     final firmware = _unpackMMRInt(await _mmrRead(MMRItem.cpuFirmwareBuild));
     _voltage = _unpackMMRInt(await _mmrRead(MMRItem.heaterV));
     _refillKit = _unpackMMRInt(await _mmrRead(MMRItem.refillKitPresent));
-    // Warm the flow-calibration cache so shot persistence can read it without a
-    // BLE round-trip. Non-fatal: a dropped read just leaves it null.
     try {
       _cachedFlowEstimation = await getFlowEstimation();
     } catch (e) {
@@ -380,10 +376,6 @@ class UnifiedDe1 implements De1Interface {
       'profile.tankTemperature)',
     );
     await setProfile(_onestepColdProfile);
-    // Give the firmware time to apply the profile — drop the group target to
-    // 1°C and the tank target to 0 — leave preheat, and reach the state where
-    // it honors the maintenance request. Mirrors de1app's `after 1000`
-    // (machine.tcl).
     await Future.delayed(const Duration(seconds: 1));
   }
 
@@ -460,14 +452,9 @@ class UnifiedDe1 implements De1Interface {
 
   @override
   Future<void> setProfile(Profile profile) {
-    // Queue unconditionally — the equality guard runs inside the locked
-    // section so it sees the cache as of upload start (after any queued
-    // uploads finished), not as of call time.
     final upload = _profileUploadQueue.then(
       (_) => _uploadProfileLocked(profile),
     );
-    // Keep the queue alive past a failed upload: the chain swallows the
-    // error, the caller's future still surfaces it.
     _profileUploadQueue = upload.catchError((_) {});
     return upload;
   }
@@ -476,12 +463,6 @@ class UnifiedDe1 implements De1Interface {
     if (_currentProfile == profile) {
       return;
     }
-    // Invalidate the cache for the duration of the upload and assign only
-    // after a successful send. A mid-upload throw can leave the firmware
-    // wedged mid-receive, so no profile — including the previously
-    // successful one — can be assumed present on the device afterwards; a
-    // stale cache would silently no-op the recovery upload on the equality
-    // guard. See comms-harden #1.
     _currentProfile = null;
     await _sendProfile(profile);
     _currentProfile = profile;
@@ -638,10 +619,6 @@ class UnifiedDe1 implements De1Interface {
       })
       .map(_parseWaterLevels);
 
-  // ---- Protected surface for capability mixins (`on UnifiedDe1`) ----
-  // Mixins reach the transport and MMR plumbing through these methods
-  // instead of touching `_transport` / `_log` directly. New capabilities
-  // (Bengle cup warmer, integrated scale, etc.) declare `on UnifiedDe1`
   // and call only the @protected API below.
 
   @protected
@@ -833,8 +810,6 @@ class UnifiedDe1 implements De1Interface {
     }
   }
 
-  // Private getter for MMR stream with notifyFrom called once per event
-  // Cached to ensure only one stream chain is created
   Stream<ByteData> get _mmr {
     _cachedMmrStream ??= _transport.mmr.map((d) {
       notifyFrom(Endpoint.readFromMMR, d.buffer.asUint8List());

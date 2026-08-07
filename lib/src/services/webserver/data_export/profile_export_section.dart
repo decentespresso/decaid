@@ -55,8 +55,6 @@ class ProfileExportSection implements DataExportSection {
             skipped++;
           }
         } else {
-          // Single-record import; importProfiles skips duplicates by hash
-          // and updates the profile count.
           final result = await _controller.importProfiles([json]);
           imported += result['imported'] as int;
           skipped += result['skipped'] as int;

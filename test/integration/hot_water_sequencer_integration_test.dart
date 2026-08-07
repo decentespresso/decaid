@@ -120,7 +120,6 @@ void main() {
 
     await machine.requestState(MachineState.hotWater);
     await waitForState(machine, MachineState.hotWater);
-    // Give the sequencer a few snapshots' worth of time to (not) arm.
     await Future<void>.delayed(const Duration(seconds: 2));
 
     expect(sequencer.isArmed, isFalse);

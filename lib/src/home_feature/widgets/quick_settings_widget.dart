@@ -59,11 +59,6 @@ class QuickSettingsWidget extends StatefulWidget {
                   unifiedFinderPattern: true,
                   color: Theme.of(context).colorScheme.primary,
                 ),
-                // shape: PrettyQrShape.custom(
-                //   PrettyQrSquaresSymbol(),
-                //   finderPattern: PrettyQrSmoothSymbol(),
-                //   alignmentPatterns: PrettyQrDotsSymbol(),
-                // ),
               ),
             ),
           ),
@@ -173,7 +168,6 @@ class _QuickSettingsState extends State<QuickSettingsWidget> {
           );
         }
 
-        // Show status when serving, or start button when not serving
         if (widget.webUIService.isServing) {
           final skinName = widget.webUIService.serverPath().split('/').last;
           return Column(
@@ -261,7 +255,6 @@ class _QuickSettingsState extends State<QuickSettingsWidget> {
         throw Exception('No WebUI skins available. Please install a skin.');
       }
 
-      // Try to use saved preference, otherwise use default skin
       WebUISkin? skinToUse;
       if (savedSkinId != null) {
         skinToUse = widget.webUIStorage.getSkin(savedSkinId);

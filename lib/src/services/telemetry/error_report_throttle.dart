@@ -26,7 +26,6 @@ class ErrorReportThrottle {
 
     final lastReport = _lastReported[message];
 
-    // First report for this message
     if (lastReport == null) {
       _lastReported[message] = now;
       return true;

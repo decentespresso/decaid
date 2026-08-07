@@ -112,17 +112,12 @@ class _PermissionsViewState extends State<PermissionsView> {
           await Permission.locationWhenInUse.request();
         }
 
-        // Request notification permission for Android 13+ (API 33+)
-        // This allows foreground service notification to appear in notification drawer
         await Permission.notification.request();
 
-        // Start foreground service now that BLE + notification permissions are granted
         await ForegroundTaskService.start();
 
         ForegroundTaskService.watchMachineConnection(widget.de1controller.de1);
 
-        // CRITICAL: Request battery optimization exemption
-        // This prevents Android from killing the app in the background
         final batteryOptStatus =
             await Permission.ignoreBatteryOptimizations.status;
         if (!batteryOptStatus.isGranted) {
@@ -142,10 +137,6 @@ class _PermissionsViewState extends State<PermissionsView> {
         );
       }
     }
-
-    // Telemetry consent prompt is shown as a dialog after device picker loads
-    // (see DeviceDiscoveryView.initState). This keeps startup non-blocking
-    // while still prompting the user (PRIV-03, PRIV-04).
 
     // Initialize WebUI storage and service BEFORE device controller
     _log.info('Initializing WebUI storage...');
@@ -169,7 +160,6 @@ class _PermissionsViewState extends State<PermissionsView> {
       _log.warning('No default skin available, WebUI service not started');
     }
 
-    // Initialize plugins after WebUI is ready
     if (widget.pluginLoaderService != null) {
       try {
         await widget.pluginLoaderService!.initialize();
@@ -178,7 +168,6 @@ class _PermissionsViewState extends State<PermissionsView> {
       }
     }
 
-    // Initialize device controller last
     await widget.deviceController.initialize();
 
     return true;

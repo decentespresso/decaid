@@ -39,8 +39,6 @@ void main() {
     observedEmits = [];
     sub = mockDe1.shotSettings.listen(observedEmits.add);
 
-    // Let the De1Controller initialization + its internal 100 ms
-    // shot-settings debounce settle before the test body runs.
     await Future<void>.delayed(const Duration(milliseconds: 200));
     observedEmits.clear();
   });

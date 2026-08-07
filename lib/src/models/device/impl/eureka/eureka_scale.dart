@@ -147,16 +147,11 @@ class EurekaScale implements Scale {
 
   @override
   Future<void> sleepDisplay() async {
-    // Eureka Precisa doesn't have documented display sleep commands
-    // Fallback to disconnect as per scale interface contract
     await disconnect();
   }
 
   @override
-  Future<void> wakeDisplay() async {
-    // Eureka Precisa doesn't have documented wake display commands
-    // This is a no-op
-  }
+  Future<void> wakeDisplay() async {}
 
   Future<void> _registerNotifications() async {
     await _transport.subscribe(

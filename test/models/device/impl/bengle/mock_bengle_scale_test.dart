@@ -4,7 +4,6 @@ import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/impl/bengle/mock_bengle.dart';
 
-// A single pouring step, counting weight from the first frame.
 Profile _pourProfile() => Profile(
   version: '1.0',
   title: 'pour',
@@ -80,8 +79,6 @@ void main() {
     });
 
     test('weight rises during simulated espresso shot', () async {
-      // A real pouring profile (counting from frame 0). The run is long enough
-      // to extract past the first-drops volume so the scale reads a real weight.
       await bengle.setProfile(_pourProfile());
       final pre = await bengle.weightSnapshot.first.timeout(
         const Duration(seconds: 2),
@@ -110,9 +107,6 @@ void main() {
         await bengle.requestState(MachineState.idle);
         await sub.cancel();
 
-        // Preinfusion (~first 2s + prep) and the first-drops window: weight ~0.
-        // Sampling ~100ms, so the first ~25 samples (2.5s) cover preinfusion plus
-        // roughly the first second of the pour.
         final early = samples.take(25);
         for (final w in early) {
           expect(
@@ -154,10 +148,6 @@ void main() {
 
     test('disconnect closes the snapshot stream', () async {
       await bengle.onDisconnect();
-      // Subscribing post-close: BehaviorSubject replays its last buffered
-      // value (if any) then immediately delivers `done`. Either way the
-      // stream completes — `toList()` returns within the timeout. If the
-      // close didn't propagate, this would hang and time out.
       final all = await bengle.weightSnapshot.toList().timeout(
         const Duration(seconds: 1),
       );

@@ -260,7 +260,6 @@ void main() {
 
   test('aborting during preheat tears the sequencer down without persisting, '
       'and the next shot gets a fresh id', () async {
-    // Stop the shot before first drops: machine leaves espresso for idle.
     testDe1.emitStateAndSubstate(
       MachineState.espresso,
       MachineSubstate.preparingForShot,

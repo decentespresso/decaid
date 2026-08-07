@@ -29,7 +29,6 @@ class SettingsTdbResult {
   final double? rinseFlow;
   final int? rinseDuration;
 
-  // Device BLE addresses (Android only — MAC format)
   final String? machineBluetoothAddress;
   final String? scaleBluetoothAddress;
 
@@ -104,8 +103,6 @@ class SettingsTdbParser {
       keepAwakeFor = diff ~/ 60;
     }
 
-    // Screen saver delay: value is already in minutes in de1app,
-    // snapped to the nearest valid Bridge option (0=disabled, 15, 30, 45, 60, 90, 120, 180).
     int? sleepTimeoutMinutes;
     final screenSaverMinutes = _parseInt(data['screen_saver_delay']);
     if (screenSaverMinutes != null) {

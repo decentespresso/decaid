@@ -164,7 +164,6 @@ void main() {
     await watch.arm();
     scanner.addDevice(TestScale(deviceId: scaleId));
     await pump();
-    // Second emission while the first connect is still in flight.
     scanner.removeDevice(scaleId);
     scanner.addDevice(TestScale(deviceId: scaleId));
     await pump();
@@ -209,7 +208,7 @@ void main() {
   test(
     'disarm during an in-flight connect does not resurrect the watch',
     () async {
-      connectSucceeds = false; // would normally re-arm after the attempt
+      connectSucceeds = false;
       connectGate = Completer<void>();
       await watch.arm();
       scanner.addDevice(TestScale(deviceId: scaleId));

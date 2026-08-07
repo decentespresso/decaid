@@ -58,7 +58,6 @@ void main() {
   });
 
   Widget buildDiscoveryView() {
-    // Use a large surface to avoid overflow issues with the card-based views
     return MediaQuery(
       data: MediaQueryData(size: Size(1024, 768)),
       child: ShadApp(
@@ -78,9 +77,6 @@ void main() {
     );
   }
 
-  // All DeviceDiscoveryView tests use tester.runAsync because the
-  // ConnectionManager.connect() runs real async operations and relies on
-  // stream propagation through microtasks.
   group('DeviceDiscoveryView', () {
     testWidgets('shows no devices found when scan finds nothing', (
       tester,
@@ -128,7 +124,6 @@ void main() {
         await Future.delayed(Duration(milliseconds: 500));
         await tester.pump();
 
-        // Verify no simulated devices before tap
         expect(settingsController.simulatedDevices, isEmpty);
 
         final demoButton = find.text('Try Demo Mode');

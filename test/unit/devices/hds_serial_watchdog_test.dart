@@ -21,7 +21,6 @@ void main() {
         hds.onConnect();
         async.elapse(Duration(milliseconds: 100));
 
-        // Feed weight data every second for 20 seconds
         for (var i = 0; i < 20; i++) {
           transport.emitRawData(weightFrame(10.0 + i));
           async.elapse(Duration(seconds: 1));
@@ -46,7 +45,6 @@ void main() {
         // Advance past warning threshold (6s = 3 watchdog ticks at 2s each)
         async.elapse(Duration(seconds: 7));
 
-        // Should have sent a retry enable command
         expect(
           transport.writtenHexCommands.length,
           greaterThan(initialCommands),
@@ -103,11 +101,9 @@ void main() {
         hds.disconnect();
         async.elapse(Duration(milliseconds: 100));
 
-        // Advance well past disconnect threshold — should not throw or re-disconnect
         transport.disconnectCalled = false;
         async.elapse(Duration(seconds: 30));
 
-        // disconnect() should not be called again by the watchdog
         expect(transport.disconnectCalled, isFalse);
       });
     });

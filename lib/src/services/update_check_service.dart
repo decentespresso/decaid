@@ -119,8 +119,6 @@ class UpdateCheckService {
     final update = _availableUpdate!;
     try {
       _emit(AppUpdatePhase.downloading, progress: 0);
-      // Throttle to ~1% steps — the raw callback fires per network chunk
-      // (thousands of times for a multi-MB APK), which would flood the WS.
       var lastEmitted = 0.0;
       final path = await _updater.downloadUpdate(
         update,
@@ -224,8 +222,6 @@ class UpdateCheckService {
         if (skipped != null && skipped == updateInfo.version) {
           _log.info('Update ${updateInfo.version} skipped by user');
           _availableUpdate = null;
-          // Still return updateInfo — manual "Check for updates" button
-          // should show the dialog even if auto-banner is suppressed.
         } else {
           _log.info('Update available: ${updateInfo.version}');
           _availableUpdate = updateInfo;

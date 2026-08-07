@@ -12,11 +12,6 @@ import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:rxdart/subjects.dart';
 
 class MockScale implements Scale, SimulatedDevice {
-  // Seed `discovered`, not `connected`: a simulated scale is only "connected"
-  // once it is actually connected through the controller (onConnect), like a
-  // real scale. Seeding `connected` made Mock Scale self-report connected even
-  // when it wasn't the active scale, so the device list could show two scales
-  // connected at once.
   final BehaviorSubject<ConnectionState> _connectionSubject =
       BehaviorSubject.seeded(ConnectionState.discovered);
 
@@ -26,9 +21,6 @@ class MockScale implements Scale, SimulatedDevice {
   @override
   Stream<ScaleSnapshot> get currentSnapshot => _snapshotStream.stream;
 
-  // Space-free id so it matches the `MockScale` token used by
-  // preferredScaleId dart-defines, sb-dev's `--connect-scale` flag, and
-  // remembered-device records. The human-facing `name` keeps the space.
   @override
   String get deviceId => "MockScale";
 
@@ -54,7 +46,6 @@ class MockScale implements Scale, SimulatedDevice {
   @override
   Future<void> tare() async {
     _model.tare();
-    // Real scales report an exact 0.0 right after tare.
     _emittedWeight = 0.0;
   }
 
@@ -70,15 +61,6 @@ class MockScale implements Scale, SimulatedDevice {
   final StreamController<ScaleSnapshot> _snapshotStream =
       StreamController.broadcast();
 
-  // Weight follows the simulated machine's flow (when one is attached via
-  // [attachMachine]) through the shared shot-weight model, so a simulated
-  // shot produces a believable curve: nothing at idle, first-drops lag,
-  // then weight tracking flow. Without a machine the scale reads a flat ~0.
-  // Like real scale firmware, the emitted stream is stability-filtered:
-  // while the underlying weight is at rest the reported value holds
-  // perfectly still (no raw load-cell noise broadcast to clients); only a
-  // change past the deadband — water landing in the cup, a tare — moves
-  // the reading, and each movement carries a hair of load-cell jitter.
   static const double _jitterGrams = 0.03;
   static const double _stabilityDeadband = 0.05;
   double _emittedWeight = 0.0;

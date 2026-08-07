@@ -113,13 +113,6 @@ class _DeviceSelectionWidgetState extends State<DeviceSelectionWidget> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // ShadCard wraps its children in a DecoratedBox with a
-                // background colour. Flutter's `ListTile` paints onto
-                // the nearest `Material` ancestor and asserts when a
-                // bg-coloured DecoratedBox sits between them. Wrap the
-                // ListTile in a transparent Material so the tile has
-                // its own paint surface; ShadCard's visuals are
-                // unaffected.
                 Material(
                   type: MaterialType.transparency,
                   child: ListTile(

@@ -117,8 +117,6 @@ class PluginLoaderService {
     File manifestFile;
 
     if (source.existsSync()) {
-      // It's a file - could be a zip or single plugin file
-      // For now, we only support directory-based installation
       throw Exception(
         'File-based plugin installation not yet implemented. Please provide a directory path.',
       );
@@ -135,8 +133,6 @@ class PluginLoaderService {
     final manifestJson = jsonDecode(await manifestFile.readAsString());
     final manifest = PluginManifest.fromJson(manifestJson);
 
-    // The id becomes a directory name under the plugins root; reject anything
-    // that is not exactly one safe path component before creating it.
     if (!isSafePathComponent(manifest.id)) {
       throw FormatException(
         'Unsafe plugin id "${manifest.id}": must be a single safe path component',
@@ -161,8 +157,6 @@ class PluginLoaderService {
   /// This will unload the plugin if it's loaded and delete its files
   Future<void> removePlugin(String pluginId) async {
     _ensureActive();
-    // The id would be joined into a filesystem path; reject unsafe ids
-    // before any unload, cache, or directory operation.
     if (!isSafePathComponent(pluginId)) {
       throw FormatException(
         'Unsafe plugin id "$pluginId": must be a single safe path component',
@@ -585,8 +579,6 @@ class PluginLoaderService {
           continue;
         }
 
-        // Read version from manifest, overwrite if our version is newer
-        // In non-release builds, always overwrite to pick up development changes
         final manifestAsset = await rootBundle.loadString(
           '$pluginPath/manifest.json',
         );
@@ -635,14 +627,6 @@ class PluginLoaderService {
   }
 
   Future<List<String>> _getBundledPluginPaths() async {
-    // This is a simplified implementation
-    // In a real app, you might want to:
-    // 1. Read from a registry file in assets
-    // 2. Scan the assets/plugins directory
-    // 3. Read from pubspec.yaml
-
-    // For now, return hardcoded list
-    // You can extend this by adding more plugins as needed
     return [
       'assets/plugins/time-to-ready.reaplugin',
       'assets/plugins/visualizer.reaplugin',
@@ -690,7 +674,6 @@ class PluginLoaderService {
   }
 
   Future<void> _loadAutoLoadPlugins() async {
-    // First, ensure bundled plugins have auto-load enabled by default
     await _ensureBundledPluginsAutoLoadEnabled();
 
     for (final pluginId in _availablePluginsCache.keys) {
@@ -725,10 +708,8 @@ class PluginLoaderService {
         final manifestJson = jsonDecode(await manifestFile.readAsString());
         final manifest = PluginManifest.fromJson(manifestJson);
 
-        // For bundled plugins, set auto-load to true by default if not already set
         final autoLoadKey = 'plugin.autoload.${manifest.id}';
         if (!_prefs.containsKey(autoLoadKey)) {
-          // First time seeing this bundled plugin, enable auto-load by default
           await _prefs.setBool(autoLoadKey, true);
           _log.info(
             'Set auto-load enabled by default for bundled plugin: ${manifest.id}',
@@ -759,15 +740,12 @@ class PluginLoaderService {
     PluginManifest manifest,
     Map<String, dynamic> settings,
   ) {
-    // Get settings schema from manifest
     final manifestSettings = manifest.settings;
 
-    // If manifest has no settings schema, accept any settings
     if (manifestSettings.isEmpty) {
       return;
     }
 
-    // Validate each setting against schema
     for (final key in settings.keys) {
       if (!manifestSettings.containsKey(key)) {
         throw PluginSettingsValidationException(

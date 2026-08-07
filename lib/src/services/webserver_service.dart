@@ -379,8 +379,6 @@ Future<void> startWebServer(
   );
   log.info('API Web server running on ${server.address.host}:${server.port}');
 
-  // API Docs server
-  // unpack api folder from assets to temp dir and serve
   await startApiDocsServer();
 }
 
@@ -476,9 +474,6 @@ Handler _init(
       .addMiddleware(
         corsHeaders(
           headers: {
-            // Browsers gate cross-origin reads of non-safelisted response
-            // headers behind Access-Control-Expose-Headers. Keep this aligned
-            // with safe headers the account proxy can relay.
             'Access-Control-Expose-Headers': _corsExposedResponseHeaders.join(
               ', ',
             ),
@@ -488,9 +483,6 @@ Handler _init(
         ),
       )
       .addMiddleware(
-        // Scoped bearer auth — enforced only under /api/v1/account/proxy/*,
-        // the rest of the API keeps its LAN-trust model. No-op when the proxy
-        // is not configured.
         proxyTokenService == null
             ? (Handler h) => h
             : proxyAuthMiddleware(proxyTokenService),

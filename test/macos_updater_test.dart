@@ -48,7 +48,6 @@ void main() {
     await updater.setChannel(UpdateChannel.beta);
     await updater.checkForUpdates();
 
-    // All commands no-op before the native side is configured.
     expect(calls, isEmpty);
   });
 
@@ -89,7 +88,6 @@ void main() {
     );
     expect(updater.isAvailable, isFalse);
 
-    // Commands stay no-ops after the failure.
     await updater.setAutomaticChecks(false);
     await updater.checkForUpdates();
     expect(calls, isEmpty);

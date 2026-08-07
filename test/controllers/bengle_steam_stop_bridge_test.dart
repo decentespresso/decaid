@@ -277,8 +277,6 @@ void main() {
     setStopAtTemp(60.0);
     await pumpDebounce();
 
-    // TestDe1 has no stop-at-temperature surface; bridge should
-    // short-circuit and not throw.
     expect(de1.requestedStates, isEmpty);
     de1.dispose();
     await bridge.dispose();

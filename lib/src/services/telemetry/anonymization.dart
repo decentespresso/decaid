@@ -27,7 +27,6 @@ class Anonymization {
     final bytes = utf8.encode(input);
     final hash = sha256.convert(bytes);
 
-    // Return first 16 hex chars (64 bits)
     return 'mac_${hash.toString().substring(0, 16)}';
   }
 
@@ -43,7 +42,6 @@ class Anonymization {
     final bytes = utf8.encode(input);
     final hash = sha256.convert(bytes);
 
-    // Return first 16 hex chars (64 bits)
     return 'ip_${hash.toString().substring(0, 16)}';
   }
 
@@ -68,7 +66,6 @@ class Anonymization {
       return anonymizeIp(input);
     }
 
-    // No PII detected, return unchanged
     return input;
   }
 

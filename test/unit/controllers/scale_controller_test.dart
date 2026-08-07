@@ -168,7 +168,6 @@ void main() {
       throwsA(isA<StateError>()),
     );
 
-    // The controller did not retain the scale and reports disconnected.
     expect(
       () => controller.connectedScale(),
       throwsA(isA<DeviceNotConnectedException>()),
@@ -196,7 +195,7 @@ void main() {
   test('switching away from a handoff-capable scale releases it WITHOUT '
       'power-off (uses disconnectForHandoff)', () async {
     final controller = ScaleController();
-    final a = _HandoffTrackingScale('A'); // e.g. BLE Decent Scale
+    final a = _HandoffTrackingScale('A');
     final b = _TrackingScale('B');
 
     await controller.connectToScale(a);

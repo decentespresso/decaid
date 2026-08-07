@@ -162,7 +162,6 @@ void main() {
         }
       ''',
     );
-    // Let the fetch op register before unloading.
     await Future<void>.delayed(const Duration(milliseconds: 100));
     await manager.unloadPlugin('timer.plugin');
 
@@ -180,7 +179,6 @@ void main() {
     await loadTimerPlugin(
       'setTimeout(() => host.emit("ghost", "fired"), 1000);',
     );
-    // Reload the same id before the deferred timerSet message is processed.
     await manager.unloadPlugin('timer.plugin');
     await manager.loadPlugin(
       id: 'timer.plugin',
@@ -203,7 +201,6 @@ void main() {
       setTimeout(() => host.emit("b", "fired"), 1000);
     ''');
 
-    // Let the deferred timerSet messages register before asserting.
     await Future<void>.delayed(const Duration(milliseconds: 20));
     expect(manager.activeTimerCount, 2);
     manager.cancelAllOperations();

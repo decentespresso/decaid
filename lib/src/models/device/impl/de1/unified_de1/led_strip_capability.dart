@@ -64,13 +64,6 @@ mixin LedStripCapability on UnifiedDe1 {
   /// persist to NVM — call [commitLedStrip] separately.
   Future<void> setLedStrip(LedStripState state) async {
     _logStubOnce('setLedStrip($state) ignored. Awaiting FW.');
-    // When wires are real, iterate zone-mode endpoints:
-    // await _writeColor(BengleLedEndpoint.frontStripSleeping, state.frontStrip.sleeping);
-    // await _writeColor(BengleLedEndpoint.frontStripAwake, state.frontStrip.awake);
-    // await _writeColor(BengleLedEndpoint.backStripSleeping, state.backStrip.sleeping);
-    // await _writeColor(BengleLedEndpoint.backStripAwake, state.backStrip.awake);
-    // await _writeColor(BengleLedEndpoint.frontSwitchSleeping, state.frontSwitch.sleeping);
-    // await _writeColor(BengleLedEndpoint.frontSwitchAwake, state.frontSwitch.awake);
     _ledStripState.add(state);
   }
 
@@ -78,16 +71,11 @@ mixin LedStripCapability on UnifiedDe1 {
   /// committed state across power cycles.
   Future<void> commitLedStrip() async {
     _logStubOnce('commitLedStrip() ignored. Awaiting FW.');
-    // When wires are real:
-    // await writeEndpoint(BengleLedEndpoint.commitConfig, Uint8List(0));
   }
 
   /// Reload cache from FW NVM. Drops any uncommitted changes.
   Future<void> resetLedStrip() async {
     _logStubOnce('resetLedStrip() ignored. Awaiting FW.');
-    // When wires are real:
-    // await writeEndpoint(BengleLedEndpoint.resetConfig, Uint8List(0));
-    // Then re-read from endpoints to hydrate cache.
   }
 
   /// Emit an info-level log once per session for stub-related messages.

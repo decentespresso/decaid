@@ -32,7 +32,6 @@ void main() {
         estimator.addSample(t0.add(dt * i), 100.0);
       }
 
-      // After 3s of constant weight, flow should be near zero
       expect(estimator.flow.abs(), lessThan(0.1));
       expect(estimator.weight, closeTo(100.0, 0.1));
     });
@@ -73,7 +72,6 @@ void main() {
       final estimator = KalmanFlowEstimator(initialWeight: 0.0);
       final t0 = DateTime(2026, 1, 1, 12, 0, 0);
 
-      // Build up some flow first
       for (int i = 1; i <= 20; i++) {
         final elapsed = 0.1 * i;
         estimator.addSample(
@@ -89,7 +87,6 @@ void main() {
 
       estimator.reset(0.0);
 
-      // After reset, weight near reset value, flow near 0
       final (w, f) = estimator.addSample(
         t0.add(const Duration(milliseconds: 2100)),
         0.0,
@@ -116,7 +113,6 @@ void main() {
 
       estimator.addSample(t0.add(dt * 31), 100.0 + 5.0 * 31 * 0.1 + 10.0);
 
-      // Next sample is back on the ramp — flow should not jump dramatically
       final (_, afterFlow) = estimator.addSample(
         t0.add(dt * 32),
         100.0 + 5.0 * 32 * 0.1,
@@ -149,7 +145,6 @@ void main() {
         estimator.addSample(t0.add(dt * i), 40.0);
       }
 
-      // After 50 samples (5 s) at the new weight, estimate is near target.
       expect(estimator.weight, closeTo(40.0, 5.0));
       expect(
         estimator.flow.abs(),
@@ -213,8 +208,6 @@ void main() {
       /// Loads the P0 raw trace fixture.
       // ignore: no_leading_underscores_for_local_identifiers
       List<({DateTime timestamp, double weight})> _loadFixture() {
-        // Inline the fixture data to avoid filesystem deps in unit tests.
-        // Each entry is (epoch_ms, weight_g) from the raw P0 capture.
         const raw = [
           (1783576236714, 0.0),
           (1783576236819, 0.3),
@@ -375,7 +368,6 @@ void main() {
           initialWeight: trace.first.weight,
         );
 
-        // Skip first 5 samples (convergence), check the rest.
         for (int i = 0; i < trace.length; i++) {
           final (w, _) = estimator.addSample(
             trace[i].timestamp,

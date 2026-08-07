@@ -101,8 +101,6 @@ class UnifiedDe1Transport {
         );
         linkIsLive = osState == device.ConnectionState.connected;
       } catch (e) {
-        // Probe failed (timeout, platform error) — inconclusive.
-        // Safe default: proceed with teardown.
         _log.fine('Stale-link probe inconclusive: $e');
       }
 
@@ -186,12 +184,6 @@ class UnifiedDe1Transport {
     }
     await _transportSubscription?.cancel();
     await _connectionStateSubscription?.cancel();
-    // Start notifications - regular setup
-    // await _transport.writeCommand("<-N>");
-    // await _transport.writeCommand("<-M>");
-    // await _transport.writeCommand("<-Q>");
-    // await _transport.writeCommand("<-K>");
-    // await _transport.writeCommand("<-E>");
 
     _transportSubscription = _transport.readStream.listen(_processSerialInput);
     _connectionStateSubscription = _transport.connectionState.listen((state) {
@@ -216,7 +208,6 @@ class UnifiedDe1Transport {
   /// more than once. Re-use after dispose is not supported.
   Future<void> dispose() async {
     _serialResponses.failAll(StateError('Serial transport disposed'));
-    // Cancel serial subscription if active
     await _transportSubscription?.cancel();
     _transportSubscription = null;
     await _connectionStateSubscription?.cancel();
@@ -244,7 +235,6 @@ class UnifiedDe1Transport {
         _transportSubscription = null;
         await _connectionStateSubscription?.cancel();
         _connectionStateSubscription = null;
-        // Start notifications - regular setup
         await _transport.writeCommand(
           "<-${Endpoint.stateInfo.representation}>",
         );
@@ -265,7 +255,6 @@ class UnifiedDe1Transport {
         );
         break;
       case TransportType.ble:
-        // BLE doesn't need special disconnect handling
         break;
       case TransportType.unknown:
         throw StateError('Unknown transport type: $transportType');
@@ -294,15 +283,8 @@ class UnifiedDe1Transport {
     _fwMapRequestSubject = BehaviorSubject();
   }
 
-  // Matches a complete message: [X] prefix + hex payload, terminated by
-  // another '[' (next message) or newline.
-  // Group 1 = the message content (e.g., "[M]0A0B0C").
   static final _messagePattern = RegExp(r'(\[[A-Z]\][0-9A-Fa-f\s]*?)(?=\[|\n)');
 
-  // Render the first `max` characters of a buffer for a log line. Replaces
-  // non-printable and whitespace chars with their escape form so the sample
-  // stays on a single line and reveals whether the content is e.g. sensor
-  // basket text, binary noise, or something else.
   static String _sampleForLog(String s, int max) {
     final head = s.length <= max ? s : '${s.substring(0, max)}…';
     final escaped = head
@@ -320,7 +302,6 @@ class UnifiedDe1Transport {
   void _processSerialInput(String input) {
     _currentBuffer += input;
 
-    // Discard any leading junk before the first '['
     final firstBracket = _currentBuffer.indexOf('[');
     if (firstBracket < 0) {
       _currentBuffer = '';
@@ -333,9 +314,6 @@ class UnifiedDe1Transport {
       _currentBuffer = _currentBuffer.substring(firstBracket);
     }
 
-    // Extract all complete messages. A message is "complete" when followed by
-    // another '[' (next message start) or a newline. Incomplete messages at
-    // the end of the buffer won't match the lookahead and stay buffered.
     final matches = _messagePattern.allMatches(_currentBuffer).toList();
 
     if (matches.isEmpty) {
@@ -469,8 +447,6 @@ class UnifiedDe1Transport {
           }
           return await _bleRead(endpoint, timeout: timeout);
         case TransportType.serial:
-          // _serialRead has a closed switch on Endpoint values to map to RX subjects;
-          // non-Endpoint LogicalEndpoints can't be dispatched here.
           if (endpoint is! Endpoint) {
             throw StateError(
               'UnifiedDe1Transport.read: endpoint ${endpoint.name} is not a DE1 Endpoint, serial read not supported',
@@ -762,11 +738,8 @@ class UnifiedDe1Transport {
       return true;
     } catch (reconnectError) {
       _log.severe('BLE reconnect failed, disconnecting', reconnectError);
-      // Recovery failed — this is a genuine disconnect. Clear the guard
-      // before tearing down so the `disconnected` reaches upstream.
       _recovering = false;
       try {
-        // Don't await — BLE stack may be unresponsive
         _transport.disconnect();
       } catch (e, st) {
         _log.fine('transport.disconnect() during BLE recovery failed', e, st);

@@ -4,7 +4,5 @@
 /// so the real Linux plugin cannot be built. This stub satisfies the dependency
 /// without any native code or WPE WebKit requirement.
 class LinuxInAppWebViewPlatform {
-  static void registerWith() {
-    // No-op: InAppWebView is not available on Linux.
-  }
+  static void registerWith() {}
 }

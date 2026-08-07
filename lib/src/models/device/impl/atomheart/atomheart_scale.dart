@@ -130,9 +130,7 @@ class AtomheartScale implements Scale {
   }
 
   @override
-  Future<void> wakeDisplay() async {
-    // Atomheart Eclair doesn't support display wake via BLE
-  }
+  Future<void> wakeDisplay() async {}
 
   @override
   Future<void> startTimer() async {

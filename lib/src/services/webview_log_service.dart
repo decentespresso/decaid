@@ -49,7 +49,6 @@ class WebViewLogService {
     _logFile = File('$_logDirectoryPath/webview_console.log');
 
     try {
-      // Ensure directory exists
       final dir = Directory(_logDirectoryPath);
       if (!await dir.exists()) {
         await dir.create(recursive: true);
@@ -115,14 +114,11 @@ class WebViewLogService {
           '($fileSize bytes), truncating...',
         );
 
-        // Close current sink before reading/rewriting
         _sink?.close();
 
-        // Read file, keep second half
         final contents = _logFile.readAsStringSync();
         final halfPoint = contents.length ~/ 2;
 
-        // Find the next newline after the half point for clean truncation
         final newlineIndex = contents.indexOf('\n', halfPoint);
         final keepFrom = newlineIndex != -1 ? newlineIndex + 1 : halfPoint;
 

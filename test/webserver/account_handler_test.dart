@@ -30,8 +30,6 @@ void main() {
   setUp(() {
     store = FakeCredentialStore();
     final service = DecentAccountService(
-      // No request should ever reach the network: status is store-only and
-      // credential ops are not exposed over HTTP.
       httpClient: http_testing.MockClient((request) async {
         fail('AccountHandler must not make network requests: ${request.url}');
       }),

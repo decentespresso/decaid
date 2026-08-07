@@ -60,9 +60,6 @@ class RememberedDevicesController {
     final raw = await _settings.rememberedDevices();
     final loaded = RememberedDevice.decodeList(raw);
 
-    // Detect opaque records (unknown types, unrecognized enum values) that
-    // would be destroyed by a full-registry rewrite. If ANY such record
-    // exists, the entire list stays on disk as-is — we rewrite nothing.
     final stored = RememberedDevice.storedCount(raw);
     final recordsDropped = stored > loaded.length;
     final hasOpaqueRecords = recordsDropped || _scanForOpaqueRecords(raw);
@@ -133,15 +130,11 @@ class RememberedDevicesController {
   Future<void> _remember(RememberedDevice device) async {
     final existing = _registry[device.id];
     if (existing != null && existing.sameMetadata(device)) {
-      // Metadata unchanged — but a previous migration persist may have
-      // failed, leaving the disk with thin records. Retry now.
       if (_migrationPersistPending) {
         try {
           await _persist();
           _migrationPersistPending = false;
-        } catch (_) {
-          // Already logged at SEVERE in _persist; keep pending for next retry.
-        }
+        } catch (_) {}
       }
       return;
     }
@@ -149,8 +142,6 @@ class RememberedDevicesController {
     try {
       await _persist();
     } catch (_) {
-      // Roll back so the in-memory registry stays consistent with disk on a
-      // persist failure (which _persist has already logged at SEVERE).
       if (existing != null) {
         _registry[device.id] = existing;
       } else {
@@ -182,10 +173,6 @@ class RememberedDevicesController {
         RememberedDevice.encodeList(_registry.values),
       );
     } catch (e, st) {
-      // A persist failure means the in-memory registry changed but the change
-      // won't survive a restart. Surface it loudly rather than dropping it
-      // silently: the caller that can react (the forget handler) rethrows to a
-      // 5xx; the connect-driven path logs and continues.
       _log.severe('failed to persist remembered devices', e, st);
       rethrow;
     }

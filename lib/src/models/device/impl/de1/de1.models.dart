@@ -48,16 +48,14 @@ enum Endpoint implements LogicalEndpoint {
 enum De1StateEnum {
   sleep(0x0),
   goingToSleep(0x1),
-  idle(0x2), // Heaters are controlled, tank water will be heated if required.
-  busy(0x3), // Firmware is doing something you can't interrupt.
+  idle(0x2),
+  busy(0x3),
   espresso(0x4),
   steam(0x5),
   hotWater(0x6),
   shortCal(0x7),
-  selfTest(0x8), // Checking as much as possible within the firmware.
-  longCal(
-    0x9,
-  ), // Long and involved calibration, possibly with user interaction.
+  selfTest(0x8),
+  longCal(0x9),
   descale(0xA),
   fatalError(0xB),
   init(0xC),
@@ -67,9 +65,9 @@ enum De1StateEnum {
   steamRinse(0x10),
   refill(0x11),
   clean(0x12),
-  inBootLoader(0x13), // Bootloader is active, firmware has not run
+  inBootLoader(0x13),
   airPurge(0x14),
-  schedIdle(0x15), // Scheduled wake-up idle state
+  schedIdle(0x15),
   fwUpgrade(
     0x16,
   ), // FirmwareUp (corrected from 0x22, which was never a wire value)
@@ -356,7 +354,6 @@ enum MMRItem implements MmrAddress {
   steamPurgeMode(0x00803850, 4, MmrValueKind.int32, "Steam Purge Mode"),
   allowUSBCharging(0x00803854, 4, MmrValueKind.boolean, "Allow USB charging"),
   appFeatureFlags(0x00803858, 4, MmrValueKind.int32, "App Feature Flags"),
-  // Tri-state (0=absent, 1=present, 2=auto-detect). int32, not boolean.
   refillKitPresent(0x0080385C, 4, MmrValueKind.int32, "Refill Kit Present"),
   userPresent(0x00803860, 4, MmrValueKind.boolean, "Is User Present");
 

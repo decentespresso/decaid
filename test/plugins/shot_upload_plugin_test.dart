@@ -192,10 +192,8 @@ void main() {
       final body = jsonDecode(req.body) as Map<String, dynamic>;
       expect(body['id'], 'shot-1');
       expect(body['machine']['serialNumber'], '6262');
-      // firmware from /machine/info `version` (not a bogus firmwareVersion field)
       expect(body['machine']['firmwareVersion'], '1293');
       expect(body['machine'].containsKey('bleId'), isFalse);
-      // app version from /api/v1/info, not the hard-coded plugin version
       expect(body['app']['version'], '9.9.9');
 
       final puts =

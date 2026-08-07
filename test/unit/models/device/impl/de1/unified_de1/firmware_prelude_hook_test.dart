@@ -51,13 +51,8 @@ void main() {
       de1.probeTransport = transport;
       await de1.onConnect();
 
-      // Snapshot the write count after onConnect so we can isolate the
-      // FW prelude writes.
       final preFwWrites = transport.writes.length;
 
-      // _updateFirmware waits for response-driven erase completion before
-      // the upload loop. We only need the hook, which fires immediately
-      // after requestState(sleeping).
       try {
         await de1
             .updateFirmware(Uint8List(0), onProgress: (_) {})

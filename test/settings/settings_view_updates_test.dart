@@ -189,11 +189,8 @@ void main() {
         isFalse,
       );
       await tester.pump(const Duration(hours: 13));
-      expect(updater.checkCalls, 1); // no periodic check after disable
+      expect(updater.checkCalls, 1);
 
-      // Toggle ON: both surfaces update and the Dart timer restarts. No
-      // immediate check (the last one is fresh); the timer firing at +13h is
-      // the proof the periodic scheduler is back.
       await tester.tap(
         find.widgetWithText(ShadSwitch, 'Automatic update checks'),
       );
@@ -236,7 +233,6 @@ void main() {
         expect(calls.where((c) => c.method == 'checkForUpdates'), isEmpty);
         expect(updater.checkCalls, 0);
 
-        // Explicit manual-download prompt, not a false "latest version".
         expect(find.text('Checking for updates...'), findsNothing);
         expect(find.text('You are on the latest version'), findsNothing);
         expect(find.text('Auto-update unavailable'), findsOneWidget);
@@ -310,14 +306,10 @@ void main() {
 
       expect(calls.where((c) => c.method == 'checkForUpdates'), isEmpty);
 
-      // The fake updater reports no update; the "latest version" Snackbar is
-      // queued behind the "checking" one. Let the first expire, then the
-      // second becomes visible.
       await tester.pump(const Duration(seconds: 4));
       await tester.pump(const Duration(milliseconds: 300));
       expect(find.text('You are on the latest version'), findsOneWidget);
 
-      // Let the second Snackbar expire so no timer is left pending.
       await tester.pump(const Duration(seconds: 4));
       await tester.pump(const Duration(milliseconds: 300));
     });

@@ -12,9 +12,6 @@ OnboardingStep createLoginStep({
 }) {
   return OnboardingStep(
     id: 'login',
-    // Only show while the user hasn't seen the step and isn't already linked.
-    // Skipping marks the step seen so it doesn't reappear on every launch —
-    // the account can always be linked later from Settings.
     shouldShow: () async =>
         !settingsController.accountStepSeen &&
         !(await accountService.isLoggedIn()),

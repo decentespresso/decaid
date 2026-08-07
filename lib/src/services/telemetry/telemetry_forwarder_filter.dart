@@ -37,9 +37,6 @@ bool shouldForwardToTelemetry(LogRecord record) {
   // noise and is dropped from forwarding regardless of source or content.
   if (record.level < Level.SEVERE) return false;
 
-  // Drop typed transient exceptions regardless of source logger. These
-  // are part of the codebase's normal error model — connection drops,
-  // bounded MMR-read timeouts — not crash signals.
   if (record.error is DeviceNotConnectedException) return false;
   if (record.error is MmrTimeoutException) return false;
   if (record.error case final error? when isBenignFrameworkError(error)) {
@@ -64,8 +61,6 @@ bool _isTransientNetworkError(Object? error) {
   if (error is SocketException) return true;
   if (error is TimeoutException) return true;
   if (error is HttpException) return true;
-  // package:http throws ClientException; matched by name to avoid an import
-  // dependency from the telemetry layer.
   if (error.runtimeType.toString() == 'ClientException') return true;
   final asString = error.toString();
   for (final prefix in _benignNetworkErrorPrefixes) {

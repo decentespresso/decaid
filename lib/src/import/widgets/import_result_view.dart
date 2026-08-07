@@ -242,9 +242,7 @@ class _ImportResultViewState extends State<ImportResultView> {
             mode: FileMode.append,
           );
         }
-      } catch (_) {
-        // Log file may not exist; continue without it
-      }
+      } catch (_) {}
 
       if (Platform.isAndroid || Platform.isIOS) {
         await SharePlus.instance.share(

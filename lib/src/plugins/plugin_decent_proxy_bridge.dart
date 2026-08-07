@@ -52,8 +52,6 @@ class PluginDecentProxyBridge {
           query: query,
         );
       case 'POST':
-        // Writes: a distinct `proxy.decent_api.write` capability, restricted to
-        // an explicit path allowlist (not the whole support/api/ namespace).
         if (!manifest.permissions.contains(
           PluginPermissions.proxyDecentApiWrite,
         )) {

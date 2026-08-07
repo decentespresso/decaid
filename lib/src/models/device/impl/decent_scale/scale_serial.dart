@@ -163,16 +163,12 @@ class HDSSerial implements Scale, TransportHandoffScale {
 
   Future<void> _sendOledOn() async {
     List<int> payload = [];
-    // payload = [0x03, 0x0A, 0x01, 0x00, 0x00, 0x01, 0x08];
-    // await _transport.writeHexCommand(Uint8List.fromList(payload));
     payload = [0x03, 0x0A, 0x04, 0x00, 0x00, 0x01, 0x08];
     await _transport.writeHexCommand(Uint8List.fromList(payload));
   }
 
   Future<void> _sendOledOff() async {
     List<int> payload = [];
-    // payload = [0x03, 0x0A, 0x04, 0x01, 0x00, 0x01, 0x09];
-    // await _transport.writeHexCommand(Uint8List.fromList(payload));
     payload = [0x03, 0x0A, 0x00, 0x01, 0x00, 0x01, 0x09];
     await _transport.writeHexCommand(Uint8List.fromList(payload));
   }

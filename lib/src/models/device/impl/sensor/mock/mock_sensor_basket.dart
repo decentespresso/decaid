@@ -69,7 +69,6 @@ class MockSensorBasket implements Sensor, SimulatedDevice {
 
   @override
   Future<void> onConnect() async {
-    // start mock stream
     _timer = Timer.periodic(Duration(milliseconds: 300), (t) {
       final rand = Random.secure();
       _streamSubject.add({

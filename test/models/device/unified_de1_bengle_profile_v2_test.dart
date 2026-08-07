@@ -93,7 +93,6 @@ void main() {
       expect(frame0[3], 184, reason: 'temp 92 × 2 = 184');
       expect(frame0[5], 64, reason: 'trigger 4 × 16 = 0x40');
 
-      // Frame 1 (pressure step) — written before extension frames
       final frame1 = payloads[2];
       expect(frame1, hasLength(8));
       expect(frame1[0], 1, reason: 'frame index');

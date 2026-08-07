@@ -25,9 +25,6 @@ class MainActivity: FlutterFragmentActivity() {
     companion object {
         private const val MULTICAST_LOCK_TAG = "reaprime-multicast"
 
-        // Process-level lock held in a static field so it survives Activity
-        // recreation (WebView crash reinit, config changes). The OS releases it
-        // automatically when the process dies.
         private var multicastLock: WifiManager.MulticastLock? = null
     }
 
@@ -75,8 +72,6 @@ class MainActivity: FlutterFragmentActivity() {
         
         Log.d(TAG, "onNewIntent - action: ${intent.action}, categories: ${intent.categories}")
         
-        // App was relaunched - already handled by bringing existing instance to front
-        // Could notify Flutter layer here if needed via MethodChannel
     }
 
     /**
@@ -198,8 +193,6 @@ class MainActivity: FlutterFragmentActivity() {
         }
 
         val lock = multicastLock ?: wifi.createMulticastLock(MULTICAST_LOCK_TAG).apply {
-            // Not reference-counted: a single release() always frees it, no
-            // matter how many acquire() calls happened.
             setReferenceCounted(false)
         }
         lock.acquire()
@@ -245,7 +238,6 @@ class MainActivity: FlutterFragmentActivity() {
     private fun recreateSafely() {
         val activity: Activity = this
 
-        // Ensure this runs on UI thread
         activity.runOnUiThread {
             try {
                 activity.recreate()

@@ -92,20 +92,9 @@ class WifiScaleDiscoveryService implements DeviceDiscoveryService {
   StreamSubscription<List<WifiScaleEndpoint>>? _browserSub;
   bool _started = false;
 
-  // Presence is reachability-driven, not mDNS-membership-driven: mDNS is flaky
-  // (the same scale flaps `service lost`/`found` while it's on), and a
-  // powered-off scale's record lingers on its TTL. So once discovered we KEEP a
-  // scale and decide whether to surface it by probing its cached IP. A scale is
-  // hidden from the device list after [_failureThreshold] consecutive failed
-  // probes, and re-surfaced the moment its IP answers again (or mDNS re-resolves
-  // it). This keeps using the cached IP for as long as it works.
   final Set<String> _unreachable = {};
   final Map<String, int> _failures = {};
   Timer? _livenessTimer;
-  // Guards against overlapping liveness passes: the periodic timer fires
-  // un-awaited while `scanForDevices()` also awaits a pass, and each probe can
-  // take up to the socket timeout — so a slow pass can outlast the interval.
-  // Two concurrent passes would race on `_failures`/`_unreachable`.
   bool _probing = false;
 
   final WifiReachabilityProbe _probe;
@@ -148,19 +137,13 @@ class WifiScaleDiscoveryService implements DeviceDiscoveryService {
 
   @override
   Future<void> scanForDevices({ScanFilter? filter}) async {
-    // mDNS browsing is passive and continuous — a "scan" just ensures it is
-    // running, re-publishes the current set, and kicks an immediate reachability
-    // pass so a just-returned scale surfaces without waiting for the next tick.
     await _ensureStarted();
     _emit();
     await _checkLiveness();
   }
 
   @override
-  void stopScan() {
-    // Leave the browser running; mDNS is passive and cheap, and stopping it
-    // would drop endpoints needed for the next preferred-device match.
-  }
+  void stopScan() {}
 
   @override
   Future<Device?> tryQuickConnect(RememberedDevice remembered) async => null;
@@ -262,8 +245,6 @@ class WifiScaleDiscoveryService implements DeviceDiscoveryService {
           final n = (_failures[id] ?? 0) + 1;
           _failures[id] = n;
           if (n >= _failureThreshold && _unreachable.add(id)) {
-            // Cached IP stopped answering — hide it and drop the cache so the
-            // next mDNS resolve can pick up a possibly-new IP.
             _cache.invalidate(host);
             _log.info('WiFi scale $host unreachable (${n}x) — hiding');
             changed = true;

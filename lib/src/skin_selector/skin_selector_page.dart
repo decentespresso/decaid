@@ -85,8 +85,6 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
                 const SizedBox(height: 16),
                 _buildSkinSelector(),
                 const SizedBox(height: 12),
-                // Primary, per-skin action: open the selected skin. Linux has no
-                // in-app WebView, so there it opens the external browser instead.
                 Align(
                   alignment: Alignment.centerLeft,
                   child: _ActionButton(
@@ -188,8 +186,6 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
 
     final actions = <Widget>[];
     if (serving) {
-      // On Linux the external browser is already the primary action above, so
-      // don't duplicate it here.
       if (!Platform.isLinux) {
         actions.add(
           _ActionButton.ghost(
@@ -239,8 +235,6 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
   Widget _buildSkinSelector() {
     final installedSkins = widget.webUIStorage.installedSkins;
 
-    // Left-aligned and sized to its content (the widest item) rather than
-    // stretching across the card.
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
@@ -282,8 +276,6 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
                       if (skin.version != null) ...[
                         const SizedBox(width: 6),
                         Padding(
-                          // The smaller version text centres ~2px high next to the
-                          // name; nudge it down onto the name's baseline.
                           padding: const EdgeInsets.only(top: 2),
                           child: Text(
                             'v${skin.version}',
@@ -302,7 +294,6 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
                             tooltip: 'Remove ${skin.name}',
                             icon: const Icon(Icons.delete_outline),
                             onPressed: () async {
-                              // Close the dropdown first
                               Navigator.of(context).pop();
 
                               final confirmed = await showDialog<bool>(
@@ -650,8 +641,6 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
 
       await widget.webUIStorage.updateAllSkins();
 
-      // Rebuild so the dropdown shows newly downloaded versions without the
-      // user having to leave and re-enter the page (#370).
       if (mounted) setState(() {});
 
       if (!context.mounted) return;

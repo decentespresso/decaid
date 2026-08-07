@@ -85,7 +85,6 @@ class HotWaterSequencer {
   /// Whether the post-tare zero has actually been observed for the armed pour.
   bool _tareConfirmed = false;
 
-  // Active stop monitor (null when not armed).
   HotWaterStopState? _state;
   DateTime? _armedAt;
   DateTime? _tareRequestedAt;
@@ -129,8 +128,6 @@ class HotWaterSequencer {
 
   void _maybeArm() {
     if (_machine == null) return;
-    // In full gateway mode a skin owns the machine — stay inert to avoid a
-    // double-stop (mirrors ShotSequencer's bypassSAW).
     if (_settings.gatewayMode == GatewayMode.full) return;
     if (!_settings.stopHotWaterAtWeight) return;
     if (!_scaleConnected) return;
@@ -143,10 +140,6 @@ class HotWaterSequencer {
     _state = HotWaterStopState(
       targetWeight: target,
       configuredFlow: hotWater.flow,
-      // Projects `weight + weightFlow * hotWaterFlowMultiplier` to compensate
-      // for the stop-command → flow-off latency, exactly like the espresso
-      // stop-at-weight in ShotSequencer — but with its own multiplier, because
-      // hot water dispenses with a different pump/flow profile than espresso.
       lookaheadSeconds: _settings.hotWaterFlowMultiplier > 0
           ? _settings.hotWaterFlowMultiplier
           : _defaultLookaheadSeconds,

@@ -201,7 +201,7 @@ void main() {
     test('never yields a valid prefix of malformed JSON', () {
       final parser = IncrementalJsonParser(eventDepth: 1);
       final events = <JsonValueEvent>[];
-      parser.feed('[1, {"a": '); // first element valid, second truncated
+      parser.feed('[1, {"a": ');
       events.addAll(parser.drain());
       expect(events, hasLength(1));
       expect(() => parser.finish(), throwsA(isA<JsonStreamFormatException>()));

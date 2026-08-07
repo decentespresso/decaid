@@ -97,8 +97,6 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    // Drive to the device-picker state, which exposes the exit ('Cancel')
-    // affordance, then tap it.
     connectionManager.emitStatus(
       const ConnectionStatus(
         phase: ConnectionPhase.idle,

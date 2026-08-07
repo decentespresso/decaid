@@ -349,8 +349,6 @@ class _DeflateFileSink implements Sink<List<int>> {
 
   @override
   void close() {
-    // The encoder calls close() on its output sink after the final chunk.
-    // Entry finalization (descriptor + CD record) is handled here.
     onFinish();
   }
 }

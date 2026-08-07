@@ -85,10 +85,8 @@ void main() {
       await machineSub.cancel();
       await scaleSub.cancel();
 
-      // Verify weight reached 4g before skip
       expect(skipped, isTrue, reason: 'Weight should reach 4g exit condition');
 
-      // Verify we didn't crash — the shot ended cleanly.
       final finalSnapshot = await bengle.currentSnapshot.first.timeout(
         const Duration(seconds: 2),
       );

@@ -82,7 +82,6 @@ class _RecoveryFakeTransport extends BLETransport {
     Duration? timeout,
   }) async {
     writeCount++;
-    // First write times out -> triggers recovery. The retry succeeds.
     if (writeCount == 1) {
       throw BleTimeoutException('write');
     }
@@ -128,7 +127,6 @@ void main() {
         final sub = unified.connectionState.listen(seen.add);
         addTearDown(sub.cancel);
 
-        // Recovery fails -> the original timeout propagates.
         await expectLater(
           unified.write(Endpoint.requestedState, Uint8List.fromList([0x02])),
           throwsA(isA<BleTimeoutException>()),

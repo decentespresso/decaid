@@ -225,8 +225,6 @@ void main() {
 
       expect(platform.startScanCalls, hasLength(1));
       expect(lastStart().filter?.withNamePrefix, isEmpty);
-      // The duty cycle protects the DE1 link; the fork's name filter is
-      // plugin-side anyway, so mode does not depend on filtering.
       expect(lastStart().config?.android?.scanMode, AndroidScanMode.balanced);
     });
 
@@ -422,9 +420,6 @@ void main() {
         await start;
         await pump();
 
-        // Ownership order: the watch start settles first, then the burst's
-        // startScan runs — the burst's unfiltered scan is the live native
-        // session for the whole burst.
         final prefixes = platform.startScanCalls
             .map((c) => c.filter?.withNamePrefix ?? const <String>[])
             .toList();

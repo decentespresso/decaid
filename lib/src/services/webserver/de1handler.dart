@@ -31,10 +31,6 @@ class De1Handler {
           'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
           'Access-Control-Allow-Headers':
               'Origin, Content-Type, Accept, Authorization',
-          // Optionally, add the following if you need to allow credentials:
-          // 'Access-Control-Allow-Credentials': 'true',
-          // And you may also include a max age:
-          // 'Access-Control-Max-Age': '3600'
         },
       );
     });
@@ -173,8 +169,6 @@ class De1Handler {
     });
 
     app.post('/api/v1/machine/settings', (Request r) async {
-      // Parse the complete payload before reserving a queue entry so a
-      // single request is exactly one grouped device write.
       final dynamic json;
       try {
         json = jsonDecode(await r.readAsString());
@@ -338,9 +332,6 @@ class De1Handler {
     });
 
     app.delete('/api/v1/machine/settings/reset', (Request r) async {
-      // One shared queue entry: the whole reset retries on a replacement
-      // like other grouped settings writes, and every write uses the
-      // device passed into the queue callback.
       return _mapDe1WriteErrors(() async {
         await _controller.runDeviceWrite(
           (device) => _controller.applySettingsDefaults(device),
@@ -424,10 +415,6 @@ class De1Handler {
       sub?.cancel();
     }
 
-    // Attach to the initial machine immediately, before subscribing to the
-    // controller stream. This eliminates the window where a command could
-    // arrive while attached is still null, waiting for the BehaviorSubject
-    // replay.
     if (initial != null) {
       attached = initial;
       payloadSub = attach(initial);
@@ -680,9 +667,6 @@ class De1Handler {
           }
         });
       },
-      // Writes go to the machine the socket is CURRENTLY bound to, so a raw
-      // command sent after a swap reaches the live machine instead of the
-      // dead one.
       onMessage: (de1, event) {
         var json = jsonDecode(event.toString());
         final message = De1RawMessage.fromJson(json);

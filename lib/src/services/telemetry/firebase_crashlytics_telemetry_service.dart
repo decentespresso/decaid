@@ -29,8 +29,6 @@ class FirebaseCrashlyticsTelemetryService implements TelemetryService {
   Future<void> initialize() async {
     await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(false);
     await FirebaseAnalytics.instance.setAnalyticsCollectionEnabled(false);
-    // Firebase Performance has no macOS/Linux implementation — skip to avoid
-    // broken platform channel state that causes black screen in release mode
     if (!kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.android ||
             defaultTargetPlatform == TargetPlatform.iOS)) {
@@ -84,8 +82,6 @@ class FirebaseCrashlyticsTelemetryService implements TelemetryService {
     StackTrace? stackTrace, {
     bool fatal = false,
   }) async {
-    // Enqueue the report for async processing
-    // This returns quickly without blocking on platform channel calls
     _queue.enqueue(error, stackTrace, fatal: fatal);
   }
 
@@ -102,9 +98,6 @@ class FirebaseCrashlyticsTelemetryService implements TelemetryService {
 
   @override
   Future<void> recordTrace(String name, Map<String, int> metrics) async {
-    // Firebase Performance has no macOS/Linux implementation — same guard as
-    // initialize(). Collection is consent-gated, so traces are dropped client
-    // side until the user consents.
     if (kIsWeb ||
         !(defaultTargetPlatform == TargetPlatform.android ||
             defaultTargetPlatform == TargetPlatform.iOS)) {

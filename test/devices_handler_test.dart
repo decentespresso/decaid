@@ -82,7 +82,6 @@ void main() {
           '/api/v1/devices/connect',
           body: jsonEncode({'deviceId': 'AA:BB:CC:DD:EE:FF'}),
         );
-        // Device not found (not in controller), but proves body was parsed
         expect(response.statusCode, 404);
       });
 
@@ -113,7 +112,6 @@ void main() {
           '/api/v1/devices/connect?deviceId=fallback-id',
           body: jsonEncode({'other': 'field'}),
         );
-        // 404 = deviceId was extracted (fallback-id) but device not found
         expect(response.statusCode, 404);
       });
 
@@ -121,7 +119,6 @@ void main() {
         mockDiscovery.addDevice(
           TestScale(deviceId: 'body-id', name: 'Body Scale'),
         );
-        // Wait for stream to propagate
         await Future.delayed(Duration.zero);
 
         final response = await sendPut(
@@ -141,7 +138,6 @@ void main() {
             body: 'not json at all',
           ),
         );
-        // 404 = deviceId was extracted from query but device not found
         expect(response.statusCode, 404);
       });
     });
@@ -381,7 +377,6 @@ void main() {
           final sub = deviceController.scanningStream.listen(states.add);
 
           await deviceController.scanForDevices();
-          // Wait for the delayed callback to fire
           await Future.delayed(Duration(milliseconds: 300));
 
           sub.cancel();
@@ -626,9 +621,6 @@ void main() {
     test(
       'replaces subscription when same-ID different-object appears in-place',
       () async {
-        // This tests the case where a device is replaced without being removed
-        // first (e.g., discovery service emits a new list with a new object
-        // for the same deviceId)
         final scale1 = TestScale(deviceId: 'scale-1', name: 'Scale v1');
         mockDiscovery.addDevice(scale1);
 
@@ -700,9 +692,6 @@ void main() {
 
       aggregator.dispose();
 
-      // Subscribe after dispose — BehaviorSubject replays its last value
-      // then closes, so we collect everything and check that no NEW emissions
-      // arrive from upstream changes.
       final emissions = <Map<String, dynamic>>[];
       final completer = Completer<void>();
       aggregator.stateStream.listen(
@@ -711,7 +700,6 @@ void main() {
         onDone: () => completer.complete(),
       );
 
-      // Wait for the stream to close (BehaviorSubject emits done on close)
       await completer.future.timeout(Duration(seconds: 1));
 
       final countAfterClose = emissions.length;

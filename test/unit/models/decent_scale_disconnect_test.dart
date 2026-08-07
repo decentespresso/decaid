@@ -717,14 +717,8 @@ void main() {
           final transport = _DisconnectedBleTransport();
           final scale = DecentScale(transport: transport);
 
-          // Directly call disconnect — mirrors the production path where
-          // an `onConnect` subscription fires on a `disconnected`
-          // transport-state event and invokes `disconnect()` while the
-          // BLE link is already down.
           await scale.disconnect();
 
-          // Let any queued microtasks run so an unawaited Future that
-          // threw would have a chance to escape before we assert.
           await Future<void>.delayed(const Duration(milliseconds: 50));
 
           transport.dispose();
@@ -755,8 +749,6 @@ void main() {
     await scale.disconnect();
     stopwatch.stop();
 
-    // Power-off cap is 2s — give a generous ceiling to avoid flake
-    // on CI but still catch a regression that drops the timeout.
     expect(
       stopwatch.elapsed,
       lessThan(const Duration(seconds: 4)),

@@ -75,16 +75,12 @@ class WifiScaleHandler {
     try {
       body = await req.readAsString();
     } catch (e, st) {
-      // An I/O failure reading the body is unexpected and worth surfacing —
-      // don't let it masquerade as "no JSON". Still try the query param.
       _log.warning('failed to read request body', e, st);
       return req.requestedUri.queryParameters['host']?.trim();
     }
     if (body.isNotEmpty) {
       try {
         final decoded = jsonDecode(body);
-        // Tolerate a well-formed-but-wrong-shape body (e.g. an array): fall
-        // through to the query param rather than throwing.
         if (decoded is Map<String, dynamic> && decoded['host'] is String) {
           return (decoded['host'] as String).trim();
         }

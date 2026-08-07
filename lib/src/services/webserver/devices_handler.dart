@@ -45,8 +45,6 @@ class DevicesStateAggregator {
   }
 
   void _start() {
-    // Subscribe to device list changes (skip initial BehaviorSubject replay;
-    // initial state is sent via the seeded emitState below)
     _subscriptions.add(
       _controller.deviceStream.skip(1).listen((devices) {
         _updateDeviceSubscriptions(devices);
@@ -68,8 +66,6 @@ class DevicesStateAggregator {
       _connectionManager.status.skip(1).listen((_) => _emitState()),
     );
 
-    // Re-emit when the remembered set changes (a device remembered/forgotten),
-    // so available/unavailable entries appear/disappear promptly (skip replay).
     final remembered = _rememberedController;
     if (remembered != null) {
       _subscriptions.add(
@@ -96,13 +92,10 @@ class DevicesStateAggregator {
       final existing = _deviceStateSubs[device.deviceId];
       if (existing != null) {
         if (identical(existing.$1, device)) {
-          continue; // Same object, subscription is still valid
+          continue;
         }
-        // Different object with same ID (BLE reconnect) — replace subscription
         existing.$2.cancel();
       }
-      // New device or replacement: subscribe (skip initial replay — the
-      // current state is already captured by _buildSnapshot)
       final sub = device.connectionState.skip(1).listen((_) => _emitState());
       _deviceStateSubs[device.deviceId] = (device, sub);
     }
@@ -256,10 +249,6 @@ class DevicesHandler {
     app.put('/api/v1/devices/connect', _handleConnect);
     app.put('/api/v1/devices/disconnect', _handleDisconnect);
 
-    // Forget a remembered device: drop it from the persistent registry. If the
-    // device isn't currently present it then no longer appears in the list.
-    // deviceId comes from the body/query (not the path) since serial ids are
-    // paths like /dev/cu.* and WiFi ids contain ':', neither URL-path-safe.
     app.put('/api/v1/devices/forget', _handleForget);
 
     app.get('/ws/v1/devices', sws.webSocketHandler(_handleDevicesSocket));
@@ -286,8 +275,6 @@ class DevicesHandler {
     if (body.isNotEmpty) {
       try {
         final decoded = jsonDecode(body);
-        // Tolerate a wrong-shape body (e.g. an array) by falling through to the
-        // query param, rather than letting a cast throw.
         if (decoded is Map<String, dynamic> && decoded['deviceId'] is String) {
           return decoded['deviceId'] as String;
         }
@@ -301,9 +288,6 @@ class DevicesHandler {
   Future<Response> _handleForget(Request req) async {
     final remembered = _rememberedController;
     if (remembered == null) {
-      // The feature is wired in normal operation; a null controller means it's
-      // unavailable, not that the server broke — 503, not 500, so it doesn't
-      // pollute error monitoring.
       return jsonServiceUnavailable({
         'error': 'remembered devices not available',
       });
@@ -356,9 +340,6 @@ class DevicesHandler {
   void _handleDevicesSocket(WebSocketChannel socket, String? protocol) {
     _log.fine("devices websocket connected");
 
-    // Subscribe to the shared aggregator stream — each WebSocket connection
-    // gets a lightweight listener on the single broadcast output instead of
-    // creating its own set of upstream subscriptions.
     final sub = _aggregator.stateStream.listen((snapshot) {
       try {
         socket.sink.add(jsonEncode(snapshot));

@@ -65,7 +65,6 @@ void main() {
   });
 
   testWidgets('cancel calls cancelActiveScan', (tester) async {
-    // Navigate to the picker state so the Cancel button is visible.
     mockCm.emitStatus(
       ConnectionStatus(
         phase: ConnectionPhase.idle,
@@ -77,7 +76,6 @@ void main() {
     await tester.pumpWidget(buildPage());
     await tester.pump();
 
-    // Find Cancel button.
     final cancelFinder = find.text('Cancel');
     expect(cancelFinder, findsOneWidget);
 

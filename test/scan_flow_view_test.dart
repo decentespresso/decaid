@@ -319,7 +319,6 @@ void main() {
 
         expect(find.text('Machine My DE1 failed to connect.'), findsOneWidget);
 
-        // Select the scale — call selectScale, not a new scan.
         await tester.tap(find.text('My Scale'));
         await tester.pump();
         await tester.tap(find.text('Connect'));

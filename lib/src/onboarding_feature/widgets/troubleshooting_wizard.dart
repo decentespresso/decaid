@@ -129,7 +129,6 @@ class _TroubleshootingWizardDialogState
 
   void _advance() {
     if (_currentIndex >= _visibleSteps.length - 1) {
-      // Last step — dismiss dialog
       Navigator.of(context).pop();
     } else {
       setState(() {

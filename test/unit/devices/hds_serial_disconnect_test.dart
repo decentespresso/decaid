@@ -86,7 +86,6 @@ void main() {
 
   group('HDSSerial.disconnect()', () {
     test('does not throw when called before onConnect', () async {
-      // disconnect() should not throw LateInitializationError
       await expectLater(hds.disconnect(), completes);
     });
 
@@ -103,7 +102,6 @@ void main() {
 
     test('is safe to call twice (re-entrant guard)', () async {
       await hds.disconnect();
-      // Second call should be a no-op, not throw
       await expectLater(hds.disconnect(), completes);
     });
 

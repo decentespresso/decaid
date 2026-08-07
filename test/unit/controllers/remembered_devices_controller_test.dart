@@ -167,7 +167,6 @@ void main() {
         writesAfterFirst,
         reason: 'an identical reconnect must not persist again',
       );
-      // seeded [] (0) + one emission for the first remember (1); no second.
       expect(emissions, [0, 1]);
       await sub.cancel();
     },
@@ -271,7 +270,6 @@ void main() {
   test(
     'a partially-malformed stored list loads only the valid records',
     () async {
-      // One valid record + one missing required fields (dropped).
       await settings.setRememberedDevices(
         '[{"id":"a","name":"A","type":"scale"},{"id":"b"}]',
       );
@@ -299,7 +297,6 @@ void main() {
     await controller.forget('m');
     await Future.delayed(Duration.zero);
 
-    // seeded [] (0), after remember (1), after forget (0)
     expect(emissions, containsAllInOrder([0, 1, 0]));
     await sub.cancel();
   });

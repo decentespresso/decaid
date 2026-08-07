@@ -65,7 +65,6 @@ class SettingsExportSection implements DataExportSection {
     try {
       final data = await input.readWhole();
       final map = data as Map<String, dynamic>;
-      // Import settings
       final settings = map['settings'] as Map<String, dynamic>?;
       if (settings != null) {
         if (settings.containsKey('gatewayMode')) {
@@ -227,13 +226,11 @@ class SettingsExportSection implements DataExportSection {
         }
       }
 
-      // Import wake schedules
       if (map.containsKey('wakeSchedules')) {
         await _controller.setWakeSchedules(map['wakeSchedules'] as String);
         imported++;
       }
 
-      // Import device preferences
       final devicePrefs = map['devicePreferences'] as Map<String, dynamic>?;
       if (devicePrefs != null) {
         if (devicePrefs.containsKey('preferredMachineId')) {

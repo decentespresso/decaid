@@ -96,7 +96,6 @@ class _PermissionsStepViewState extends State<_PermissionsStepView> {
     } else if (Platform.isIOS) {
       await Permission.bluetooth.request();
     } else {
-      // Desktop: wait for BLE adapter
       try {
         await UniversalBle.availabilityStream
             .firstWhere((e) => e == AvailabilityState.poweredOn)

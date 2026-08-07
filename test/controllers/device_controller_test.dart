@@ -411,9 +411,6 @@ void main() {
         service.emit([a]);
         await Future<void>.delayed(Duration.zero);
 
-        // Bring b back. Only b's reconnection_duration_* should land,
-        // not a's (would happen with name-based keying since both named
-        // 'DE1').
         service.emit([a, b]);
         await Future<void>.delayed(Duration.zero);
 
@@ -444,7 +441,7 @@ void main() {
         );
         final afterFirmware = _FakeDevice(
           deviceId: 'CC:33:33:33:33:33',
-          name: 'DE1Pro', // firmware update renamed advertised name
+          name: 'DE1Pro',
           type: DeviceType.machine,
         );
 

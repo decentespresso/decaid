@@ -56,9 +56,6 @@ void main() {
         await de1Controller.connectToDe1(testDe1);
         testDe1.emitShotSettings(_emptyShotSettings());
 
-        // Wait past the 100 ms shot-settings debounce so the timer
-        // callback runs and invokes _processShotSettingsUpdate →
-        // getFlushFlow throws MmrTimeoutException.
         await Future<void>.delayed(const Duration(milliseconds: 200));
 
         testDe1.dispose();

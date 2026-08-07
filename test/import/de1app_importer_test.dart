@@ -21,9 +21,6 @@ import 'package:reaprime/src/settings/scale_power_mode.dart';
 
 import '../helpers/mock_settings_service.dart';
 
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-
 class FakeStorageService implements StorageService {
   final shots = <String, ShotRecord>{};
   final List<String> _existingIds;
@@ -39,7 +36,6 @@ class FakeStorageService implements StorageService {
   @override
   Future<List<String>> getShotIds() async => List.unmodifiable(_existingIds);
 
-  // Stubbed — not needed for import tests (except workflow)
   @override
   Future<void> updateShot(ShotRecord record) => throw UnimplementedError();
   @override
@@ -228,10 +224,6 @@ class FakeGrinderStorageService implements GrinderStorageService {
   Future<void> deleteGrinder(String id) async => grinders.remove(id);
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 De1appImporter makeImporter({
   FakeStorageService? storage,
   FakeProfileStorageService? profileStorage,
@@ -249,9 +241,6 @@ De1appImporter makeImporter({
 }
 
 const _fixturesPath = 'test/fixtures/de1app';
-
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
 
 void main() {
   group('De1appImporter', () {

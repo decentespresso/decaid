@@ -96,12 +96,6 @@ Future<void> _copyPluginDirectoryFromSaf(
   }
 }
 
-// Plugins list and settings
-// Shows a list of all available plugins,
-// has an icon indicating which plugin is currently loaded (on the list)
-// has an icon to edit plugin settings - which opens a new dialog for editing
-// lists permissions for each plugin, as well as other details such as author, plugin name, version
-// also has buttons for adding/installing a plugin as well as removing a specific plugin
 class PluginsSettingsView extends StatefulWidget {
   const PluginsSettingsView({
     super.key,

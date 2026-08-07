@@ -129,8 +129,6 @@ SerialReconcilePlan planSerialReconcile({
     }
   }
 
-  // A liveness pass lifts suppression on every known HDS path so released HDS
-  // get re-probed; a same-pass present self-disconnect re-adds (add wins).
   if (livenessPass) suppressRemove.addAll(hdsPaths);
   suppressRemove.removeAll(suppressAdd);
 
@@ -177,14 +175,12 @@ bool serialPortMatchesCandidate({
       productName == 'Half Decent Scale') {
     return true;
   }
-  // Unix-style USB serial port names.
   if (name.contains('serial') ||
       name.contains('usbmodem') ||
       name.contains('ttyACM') ||
       name.contains('ttyUSB')) {
     return true;
   }
-  // Windows COM ports with USB transport.
   if (transport == 'USB' && name.startsWith('COM')) return true;
   return false;
 }

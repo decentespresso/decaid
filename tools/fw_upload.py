@@ -62,7 +62,7 @@ def read_until_prompt(port: serial.Serial, timeout: float = 2.0) -> str:
         waiting = port.in_waiting
         if waiting > 0:
             data += port.read(waiting)
-            deadline = time.time() + 0.1  # reset short timeout on activity
+            deadline = time.time() + 0.1
         else:
             time.sleep(0.01)
     return data.decode("utf-8", errors="replace")
@@ -85,7 +85,6 @@ def upload_firmware(port: serial.Serial, fw_data: bytes, batch_size: int, pause_
         send_command(port, f"<F>{to_hex(packet)}")
         chunk_num += 1
 
-        # Pause after every batch to let machine process
         if chunk_num % batch_size == 0:
             time.sleep(pause_s)
 
@@ -102,7 +101,6 @@ def reader_thread(port: serial.Serial, stop_event: threading.Event):
             waiting = port.in_waiting
             if waiting > 0:
                 data = port.read(waiting)
-                # Don't print during upload to avoid clutter
             else:
                 time.sleep(0.05)
         except Exception:
@@ -163,7 +161,6 @@ def main():
     if port.in_waiting:
         port.read(port.in_waiting)
 
-    # Step 2: Erase firmware
     print("2. Erasing firmware...")
     send_fw_erase(port)
     print("   Waiting 10 seconds for erase to complete...")
@@ -176,7 +173,6 @@ def main():
         resp = port.read(port.in_waiting)
         print(f"   Erase response: {resp}")
 
-    # Step 3: Upload firmware
     print(f"3. Uploading firmware ({len(fw_data)} bytes)...")
     t0 = time.time()
     upload_firmware(port, fw_data, batch_size, pause_s)

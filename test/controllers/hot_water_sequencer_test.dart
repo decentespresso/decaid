@@ -270,9 +270,6 @@ void main() {
   });
 
   group('stopping', () {
-    // Drives a machine into hotWater and emits the post-tare zero frame so the
-    // monitor confirms the tare applied (mirrors a scale reporting ~0 after the
-    // tare command lands).
     Future<_TestMachine> armAndConfirmTare() async {
       final m = _TestMachine();
       de1.emitMachine(m);
@@ -370,7 +367,6 @@ void main() {
       await build();
       final m = await armAndConfirmTare();
 
-      // First dispense reaches target and stops.
       clock = clock.add(const Duration(seconds: 1));
       scale.emitWeight(30, flow: 0, at: clock);
       await settle();
@@ -380,7 +376,6 @@ void main() {
       await settle();
       expect(sequencer.isArmed, isFalse);
 
-      // Second dispense: re-arm, re-tare, confirm, reach target, stop again.
       m.emit(_snap(MachineState.hotWater));
       await settle();
       expect(sequencer.isArmed, isTrue);

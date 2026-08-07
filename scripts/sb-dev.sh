@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-# sb-dev.sh — Decent dev-session manager
-# Manages a `flutter run` process for simulate-mode development by default,
-# with opt-in flags for running against real hardware (including Android
-# devices via adb port forwarding). See
-# .agents/skills/decent-app/lifecycle.md for the full reference.
-# Runtime state lives under $SB_RUNTIME_DIR (default /tmp/decent-$USER).
 
 set -euo pipefail
 
@@ -101,13 +95,6 @@ wait_ready() {
 connect_machine() {
   local needle="$1" start
   start=$(date +%s)
-  # Re-scan each iteration: early post-boot scans can return empty
-  # (simulate service may not have populated yet, and real BLE scans
-  # take ~15 s), so we retry within the 30 s window rather than trusting
-  # a single scan result. Each scan call blocks until
-  # ConnectionManager.connect() completes, so the loop self-paces.
-  # Match by either device name or id so callers can pass "DE1" or a
-  # BLE MAC like "D9:11:0B:E6:9F:86" against real hardware.
   while (( $(date +%s) - start < 30 )); do
     curl -sf "$BASE_URL/api/v1/devices/scan?connect=true" >/dev/null || {
       echo "Scan request failed" >&2
@@ -183,8 +170,6 @@ start_cmd() {
     for d in ${extra_defines[@]+"${extra_defines[@]}"}; do printf '%s\n' "--dart-define ${d#--dart-define=}"; done
   } > "$FLAGSFILE"
 
-  # Set up adb port forwarding before spawning flutter so readiness
-  # checks against $BASE_URL work immediately after the app binds 8080.
   if [[ "$adb_forward" -eq 1 ]]; then
     if ! command -v adb >/dev/null 2>&1; then
       echo "error: --adb-forward requires adb on PATH" >&2
@@ -200,12 +185,6 @@ start_cmd() {
 
   local -a defines=()
   [[ "$real" -eq 0 ]] && defines+=("--dart-define=simulate=1")
-  # In simulate mode the mock device's name doubles as its id, so
-  # reusing `--connect-machine` for `preferredMachineId` is harmless.
-  # In `--real` mode a name like "DE1" won't match a device.deviceId
-  # like "D9:11:0B:E6:9F:86", so only wire up the preferred-id dart
-  # define when the caller has explicitly provided one via
-  # `--preferred-machine-id` (same for scale).
   if [[ "$real" -eq 0 && -n "$machine" ]]; then
     defines+=("--dart-define=preferredMachineId=$machine")
   fi
@@ -253,8 +232,6 @@ cleanup_runtime() {
     kill "$(cat "$HOLDER_PIDFILE")" 2>/dev/null || true
     rm -f "$HOLDER_PIDFILE"
   fi
-  # Best-effort: remove the adb forward we installed on start. Ignore
-  # errors (adb may be gone, device detached, etc).
   if [[ -f "$ADB_FORWARD_MARK" ]]; then
     if command -v adb >/dev/null 2>&1; then
       adb forward --remove "tcp:$PORT" 2>/dev/null || true

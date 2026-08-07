@@ -96,20 +96,10 @@ NightPhase _determineNightPhase(int nowMinutes, NightModeConfig config) {
   final morning = config.morningTimeMinutes;
   final sleep = config.sleepTimeMinutes;
 
-  // Normalize all times relative to morningTime as "start of day".
-  // This way we can do simple range comparisons without worrying about
-  // midnight wrapping.
   final now = (nowMinutes - morning) % 1440;
   final sleepNorm = (sleep - morning) % 1440;
   final hoverStart = (sleepNorm - 120) % 1440;
   final chargeStart = (sleepNorm - 30) % 1440;
-
-  // In normalized space, the day goes:
-  //   0 (morning) -> hoverStart -> chargeStart -> sleepNorm -> 1440 (next morning)
-  // sleeping phase: sleepNorm to end of normalized day (1440)
-  // normal phase: 0 to hoverStart
-  // hovering: hoverStart to chargeStart
-  // chargingToMax: chargeStart to sleepNorm
 
   if (now < hoverStart) {
     return NightPhase.normal;
@@ -204,7 +194,6 @@ ChargingDecision decide({
       case NightPhase.normal:
         break;
       case NightPhase.inactive:
-        // Should not happen when nightModeConfig is non-null
         break;
     }
   }

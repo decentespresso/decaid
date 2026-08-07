@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Distribution-signing gates for the Sparkle-enabled macOS build. Runs after
-# scripts/sign_macos_deepest_first.sh and again after notarization/stapling.
 # Usage: verify_macos_signature.sh <Decaid.app> [team-id] [post-staple]
 set -euo pipefail
 

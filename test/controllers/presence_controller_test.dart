@@ -23,9 +23,6 @@ import 'package:rxdart/subjects.dart';
 
 import '../helpers/mock_settings_service.dart';
 
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-
 /// Minimal DeviceDiscoveryService for constructing DeviceController.
 class _FakeDiscoveryService implements DeviceDiscoveryService {
   @override
@@ -267,7 +264,6 @@ void main() {
         controller.initialize();
         de1Controller.setDe1(testDe1);
 
-        // Flush microtasks for stream subscriptions
         async.flushMicrotasks();
 
         controller.heartbeat();
@@ -309,7 +305,6 @@ void main() {
       'heartbeat resets sleep timer - no sleep if heartbeat before timeout',
       () {
         fakeAsync((async) {
-          // Set 5-minute timeout for faster test
           settingsController.setSleepTimeoutMinutes(5);
           async.flushMicrotasks();
 
@@ -325,14 +320,12 @@ void main() {
           controller.heartbeat();
           async.flushMicrotasks();
 
-          // Advance to just before timeout (4 min 50 sec)
           async.elapse(const Duration(minutes: 4, seconds: 50));
           expect(testDe1.requestedStates, isEmpty);
 
           controller.heartbeat();
           async.flushMicrotasks();
 
-          // Advance past original timeout (another 20 sec — total 5 min 10 sec from start)
           async.elapse(const Duration(seconds: 20));
           expect(
             testDe1.requestedStates.contains(MachineState.sleeping),
@@ -415,11 +408,9 @@ void main() {
         controller.heartbeat();
         async.flushMicrotasks();
 
-        // Put machine in espresso state before timeout
         testDe1.emitState(MachineState.espresso);
         async.flushMicrotasks();
 
-        // Advance past timeout
         async.elapse(const Duration(minutes: 5, seconds: 1));
 
         // Should NOT have slept — should have restarted timer
@@ -432,7 +423,6 @@ void main() {
         testDe1.emitState(MachineState.idle);
         async.flushMicrotasks();
 
-        // Now advance past the restarted timeout
         async.elapse(const Duration(minutes: 5, seconds: 1));
 
         expect(testDe1.requestedStates, contains(MachineState.sleeping));
@@ -478,7 +468,6 @@ void main() {
             reason: 'Shot end should have restarted the sleep countdown',
           );
 
-          // A full timeout after the shot ended: now it sleeps.
           async.elapse(const Duration(minutes: 2));
           expect(testDe1.requestedStates, contains(MachineState.sleeping));
 
@@ -508,7 +497,6 @@ void main() {
         testDe1.emitState(MachineState.needsWater);
         async.flushMicrotasks();
 
-        // Advance past the timeout while in needsWater.
         async.elapse(const Duration(minutes: 5, seconds: 1));
 
         expect(
@@ -541,7 +529,6 @@ void main() {
         testDe1.emitState(MachineState.needsWater);
         async.flushMicrotasks();
 
-        // Advance well past the timeout while in needsWater.
         async.elapse(const Duration(minutes: 5, seconds: 1));
 
         expect(
@@ -551,8 +538,6 @@ void main() {
               'FW < 1357 latches the request; must not send sleep from needsWater',
         );
 
-        // User refills the tank (heartbeat re-arms the timer) and the machine
-        // returns to idle: sleep works there as before.
         controller.heartbeat();
         async.flushMicrotasks();
         testDe1.emitState(MachineState.idle);
@@ -586,7 +571,6 @@ void main() {
         testDe1.emitState(MachineState.needsWater);
         async.flushMicrotasks();
 
-        // Advance well past the timeout while in needsWater.
         async.elapse(const Duration(minutes: 5, seconds: 1));
 
         expect(
@@ -659,7 +643,6 @@ void main() {
         de1Controller.setDe1(testDe1);
         async.flushMicrotasks();
 
-        // Machine is idle (not sleeping)
         testDe1.emitState(MachineState.idle);
         async.flushMicrotasks();
 
@@ -738,7 +721,6 @@ void main() {
         async.elapse(const Duration(minutes: 4));
         expect(testDe1.requestedStates, isEmpty);
 
-        // Change timeout to 10 minutes — this should reset the timer
         settingsController.setSleepTimeoutMinutes(10);
         async.flushMicrotasks();
 

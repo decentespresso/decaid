@@ -174,14 +174,8 @@ class FakeBleTransport extends BLETransport {
       if (callback != null) scheduleMicrotask(() => callback(response));
     }
 
-    // The DE1 firmware overloads `Endpoint.readFromMMR` for *requests*:
-    // a write to that characteristic asks for a payload; the firmware
-    // then notifies on the same UUID. Synthesize a matching notification
-    // when the test has queued a response for the requested address.
     if (characteristicUUID != Endpoint.readFromMMR.uuid) return;
     if (data.length < 4) return;
-    // Drop this notification (but keep the queued response) to simulate a
-    // lost notify; the retry's next write will be answered.
     if (dropNextMmrResponses > 0) {
       dropNextMmrResponses--;
       return;
@@ -238,8 +232,6 @@ class FakeBleTransport extends BLETransport {
     view.setInt32(4, value, Endian.little);
     final cb = subscribers[Endpoint.readFromMMR.uuid];
     if (cb != null) {
-      // Emit asynchronously so `_mmrRead`'s firstWhere subscription is
-      // set up before the value lands.
       scheduleMicrotask(() => cb(resp));
     }
   }

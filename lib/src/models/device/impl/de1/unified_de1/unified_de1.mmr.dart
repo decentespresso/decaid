@@ -124,10 +124,6 @@ extension UnifiedDe1MMR on UnifiedDe1 {
   }
 
   int _unpackMMRInt(List<int> buffer) {
-    // Defensive guard: `_mmrRead` now throws `MmrTimeoutException` on
-    // missing responses and shouldn't reach here with a short buffer,
-    // but an explicit error beats a downstream `RangeError` if the
-    // upstream contract ever changes. The loop below reads 20 bytes.
     if (buffer.length < 20) {
       throw StateError(
         'MMR response buffer too short (got ${buffer.length} bytes, '

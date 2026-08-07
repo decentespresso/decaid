@@ -57,9 +57,6 @@ class HDSWifi implements Scale, TransportHandoffScale {
   }) : _transportFactory = transportFactory,
        _recognitionTimeout = recognitionTimeout,
        _watchdogInterval = watchdogInterval {
-    // `package:logging` rejects names ending in '.'; hosts are normalized
-    // upstream, but strip a trailing dot defensively so a stray FQDN can't
-    // crash construction.
     _log = Logger('HDSWifi#${host.replaceAll(RegExp(r'\.+$'), '')}');
   }
 
@@ -113,11 +110,6 @@ class HDSWifi implements Scale, TransportHandoffScale {
   /// own.
   @override
   Future<void> onConnect() {
-    // Fail any still-pending prior attempt before replacing its completer:
-    // `_attempt()` bumps the generation so the old attempt's timers/callbacks
-    // all bail, which means nothing else would ever complete the old future —
-    // a re-entrant onConnect() would otherwise orphan it (a silent hang for an
-    // awaiting caller).
     final prev = _connectCompleter;
     if (prev != null && !prev.isCompleted) {
       prev.completeError(StateError('superseded by a new connect attempt'));

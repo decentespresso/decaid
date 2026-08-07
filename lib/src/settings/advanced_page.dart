@@ -184,8 +184,6 @@ class AdvancedPage extends StatelessWidget {
                     value: controller.enableSimulatedWebViews,
                     onChanged: (v) async {
                       await controller.setEnableSimulatedWebViews(v);
-                      // Disabling returns to the native WebView so the window
-                      // snaps back to its normal size and no device shims linger.
                       if (!v) {
                         await setSimulatedWebViewDevice(null);
                       }

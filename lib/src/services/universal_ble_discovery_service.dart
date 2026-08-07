@@ -71,11 +71,6 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
   @override
   bool get supportsDeviceWatch => _watchSupportGate();
 
-  // Persistent background watch state. `_watchRequested` is the desired
-  // state (a watch has been asked for and not stopped); `_watchScanActive`
-  // is the actual state (an OS scan is running for it). They diverge while
-  // a burst scan owns the radio (universal_ble has one global scan
-  // session) and while the adapter is off.
   DeviceWatchFilter? _watchRequested;
   bool _watchScanActive = false;
   StreamSubscription<BleDevice>? _watchScanSub;
@@ -199,9 +194,6 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
   }
 
   Future<void> _startWatchScan() {
-    // Concurrent callers (adapter replay, power-on recovery) share the
-    // in-flight start instead of replacing it — replacing would leave
-    // pause/stop awaiting a no-op future while the real start runs.
     final existing = _watchStartInFlight;
     if (existing != null) return existing;
     final start = _runWatchScanStart();
@@ -240,12 +232,6 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
           withNamePrefix: namePrefix != null ? [namePrefix] : [],
           withServices: [],
         ),
-        // balanced (~40% duty cycle) discovers a freshly powered-on scale
-        // in 1-5s while leaving most radio time to DE1 GATT traffic —
-        // the duty cycle, not filtering, is what protects the DE1 link.
-        // The fork evaluates withNamePrefix plugin-side (the OS scan runs
-        // unfiltered either way), so it neither hardware-filters nor
-        // keeps the scan alive with the screen off.
         platformConfig: PlatformConfig(
           android: AndroidOptions(
             scanMode: AndroidScanMode.balanced,
@@ -258,12 +244,6 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
       _cancelWatchScanSub();
       rethrow;
     }
-    // Guard the start window: state may have moved while startScan was
-    // in flight. Ordered by ownership: a stop means undo the scan; a
-    // burst owns the session now (its finally-block resume restarts the
-    // watch); ANY adapter transition (even off-and-back-on) may have
-    // killed the native scan, so the start discards itself and a fresh
-    // start runs once this one settles.
     if (_watchRequested == null) {
       log.fine('Watch stopped during start; undoing scan');
       await _deactivateWatchScan(stopOsScan: true, context: 'start-undo');
@@ -280,9 +260,6 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
         stopOsScan: true,
         context: 'start-adapter-transition',
       );
-      // Retry (via _startWatchScan's whenComplete) once this future is
-      // no longer the in-flight one; its own guards re-check adapter
-      // state and the request.
       _watchStartNeedsRetry = true;
       return;
     }
@@ -305,7 +282,6 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
         log.fine('Watch liveness probe failed', e, st);
         alive = true;
       }
-      // A burst/stop may have taken ownership during the await.
       if (!_watchScanActive || _isScanning) return;
       if (alive) {
         _armWatchLiveness();
@@ -321,8 +297,6 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     _watchRefreshTimer?.cancel();
     _watchRefreshTimer = Timer(_watchRefreshInterval, () async {
       _watchRefreshTimer = null;
-      // A burst owns the radio right now; its finally-block resume will
-      // start a fresh watch scan anyway.
       if (!_watchScanActive || _isScanning) return;
       log.fine('Refreshing watch scan (30-min opportunistic-downgrade guard)');
       await _deactivateWatchScan(stopOsScan: true, context: 'watch-refresh');
@@ -384,10 +358,6 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
 
   bool _isScanning = false;
 
-  // Cancellable 15s scan-duration wait. External stopScan() cancels the
-  // timer and completes the completer so scanForDevices returns promptly
-  // instead of being pinned for 15s with _isScanning stuck true
-  // (parity with BluePlusDiscoveryService, comms-harden #11).
   Timer? _scanDurationTimer;
   Completer<void>? _scanDurationCompleter;
 
@@ -411,12 +381,6 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
 
     var initialState = await UniversalBle.getBluetoothAvailabilityState();
 
-    // iOS with bluetooth-central background mode: universal_ble returns
-    // `unknown` without creating CBCentralManager when permission is
-    // .notDetermined, to avoid triggering the permission prompt during
-    // background state-restoration launches. Force-create the manager
-    // here so the system permission dialog appears on first foreground
-    // launch and the availability stream resolves to the real state.
     if (Platform.isIOS && initialState == AvailabilityState.unknown) {
       log.info('iOS adapter state is unknown; requesting BLE permissions');
       await UniversalBle.requestPermissions();
@@ -425,8 +389,6 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
 
     final mappedInitialState = _mapAvailabilityState(initialState);
     _adapterStateSubject.add(mappedInitialState);
-    // Seed the watch's change detector so the availability stream's
-    // initial replay of this same state doesn't count as a transition.
     _lastWatchAdapterState = mappedInitialState;
 
     _availabilitySubscription = UniversalBle.availabilityStream.listen((state) {
@@ -461,9 +423,6 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
 
   @override
   void stopScan() {
-    // stopScan means "stop the burst". When only the watch scan is
-    // running, killing it would silently end scale reacquisition — the
-    // watch has its own lifecycle via stopDeviceWatch().
     if (!_isScanning && _watchScanActive) {
       log.fine('stopScan ignored: only the background watch is running');
       return;
@@ -546,18 +505,8 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
         await _deviceScanned(result);
       });
 
-      // Unfiltered scan — empty services list (sb-044: name-match is the
-      // documented discovery path; service UUIDs are only a scan-filter
-      // optimization, not needed on macOS/iOS).
       final scanFilter = ScanFilter(withServices: []);
 
-      // Android: use aggressive scan settings to avoid the chip-side
-      // advert de-duplication that throttles results to ~1 per 12 s.
-      // matchMode: aggressive disables firmware-layer de-duplication;
-      // numOfMatches: max removes the per-device match cap;
-      // scanMode: lowLatency prioritises scan duty cycle over power.
-      // callbackType omitted: allMatches is the Android default, and
-      // matchLost causes IllegalArgumentException on some GSI images.
       final platformConfig = Platform.isAndroid
           ? PlatformConfig(
               android: AndroidOptions(
@@ -588,8 +537,6 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
         log.fine('System device check failed', e, st);
       }
 
-      // Scan for up to 15s; external stopScan() ends the wait early so the
-      // scanner frees `_isScanning` without waiting out the full duration.
       await _waitForScanDuration(const Duration(seconds: 15));
     } finally {
       await sub?.cancel();

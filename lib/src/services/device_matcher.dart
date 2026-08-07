@@ -129,7 +129,6 @@ class DeviceMatcher {
       return Skale2Scale(transport: transport);
     }
 
-    // DE1 family — check before generic prefix matches
     if (name == 'DE1' || nameLower == 'nrf5x' || nameLower.startsWith('de1')) {
       return UnifiedDe1(transport: transport);
     }
@@ -144,7 +143,6 @@ class DeviceMatcher {
       return BlackCoffeeScale(transport: transport);
     }
 
-    // Contains matches — check specific before generic
     if (nameLower.contains('acaia') ||
         nameLower.contains('lunar') ||
         nameLower.contains('pearl') ||

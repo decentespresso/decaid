@@ -240,7 +240,6 @@ void main() {
       final gramsIndex = transport.operations.indexWhere(
         (op) => op.contains('write:ef80:[0x3]'),
       );
-      // Find the second occurrence of 0xED
       final lcdOnIndices = transport.operations
           .asMap()
           .entries
@@ -300,9 +299,6 @@ void main() {
     });
 
     test('wakeDisplay re-subscribes to weight notifications', () async {
-      // Simulate BLE link dropping: disconnect event resets subscription
-      // flags, then clearSubscriptions simulates the transport losing
-      // its CCCD entries.
       await transport.emitConnectionState(ConnectionState.disconnected);
       transport.clearSubscriptions();
 
@@ -321,7 +317,6 @@ void main() {
     });
 
     test('wakeDisplay re-subscribes to button notifications', () async {
-      // Simulate BLE link dropping.
       await transport.emitConnectionState(ConnectionState.disconnected);
       transport.clearSubscriptions();
 

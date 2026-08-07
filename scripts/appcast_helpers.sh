@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
-# Pure appcast helpers for the Sparkle publish job. Sourced by
-# publish_appcast.sh and exercised by test_appcast_helpers.sh. All functions
-# exit non-zero on failure so callers can fail fast.
 
 # Largest sparkle:version (CFBundleVersion) among all appcast items.
-# Empty string when the feed has no items.
 appcast_max_build() {
   local appcast="$1"
   xmllint --xpath \
@@ -36,9 +32,6 @@ appcast_item_counts() {
   echo "$total $default_count"
 }
 
-# Every non-bootstrap publication adds exactly one strictly newer item, so
-# assert the exact deltas: one more item total, and one more default-channel
-# item for a stable publication (a beta item leaves the default count alone).
 assert_feed_grew() {
   local old_pair="$1" appcast="$2" channel="$3"
   local old_total old_default new_total new_default
@@ -82,8 +75,6 @@ assert_old_items_preserved() {
   done
 }
 
-# Assert the item for $build carries the expected enclosure URL, an EdDSA
-# signature, and the expected channel ("" for the default/stable channel).
 appcast_assert_item() {
   local appcast="$1" build="$2" expected_url="$3" expected_channel="$4"
 

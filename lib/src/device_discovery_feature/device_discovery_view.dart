@@ -76,7 +76,6 @@ class _DeviceDiscoveryState extends State<DeviceDiscoveryView> {
   void initState() {
     super.initState();
 
-    // Show telemetry consent dialog once (non-blocking, after frame renders)
     if (!widget.settingsController.telemetryConsentDialogShown) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _showTelemetryConsentDialog();
@@ -86,8 +85,6 @@ class _DeviceDiscoveryState extends State<DeviceDiscoveryView> {
     _statusSubscription = widget.connectionManager.status.listen((status) {
       if (!mounted) return;
 
-      // Navigate when ready (only once — connectMachine and connectScale
-      // both emit ready, so guard against double navigation)
       if (status.phase == ConnectionPhase.ready &&
           status.pendingAmbiguity == null &&
           !_navigated) {
@@ -101,9 +98,6 @@ class _DeviceDiscoveryState extends State<DeviceDiscoveryView> {
       });
     });
 
-    // Kick off the connection flow.
-    // Automatic startup uses `connect()` (remembered-machine quick-connect +
-    // early stop). Explicit user/API scans use `scanAndConnect()` instead.
     widget.connectionManager.connect();
   }
 
@@ -126,7 +120,6 @@ class _DeviceDiscoveryState extends State<DeviceDiscoveryView> {
       return;
     }
 
-    // Ensure WebUI is ready
     if (!widget.webUIService.isServing) {
       widget.logger.info('WebUI not serving, attempting to start...');
 
@@ -158,7 +151,6 @@ class _DeviceDiscoveryState extends State<DeviceDiscoveryView> {
     if (!mounted) return;
 
     if (route == SkinView.routeName) {
-      // Push both routes to stack: LauncherView first, then SkinView on top
       Navigator.popAndPushNamed(context, LauncherView.routeName);
       Navigator.of(context).pushNamed(SkinView.routeName);
     } else {
@@ -179,8 +171,6 @@ class _DeviceDiscoveryState extends State<DeviceDiscoveryView> {
   }
 
   Widget _body(BuildContext context) {
-    // Error state is handled by ConnectionErrorBanner above the body.
-    // Scanning
     if (_status.phase == ConnectionPhase.scanning) {
       return _searchingView(context);
     }

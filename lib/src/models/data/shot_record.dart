@@ -19,7 +19,6 @@ class ShotRecord {
   /// shots the app didn't sequence (e.g. full gateway mode, backgrounded).
   final String? stopReason;
 
-  // Legacy fields kept for backward compatibility during migration.
   final String? _shotNotes;
   final Map<String, dynamic>? _metadata;
 

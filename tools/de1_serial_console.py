@@ -36,8 +36,6 @@ from datetime import datetime
 
 import serial
 
-# Endpoint letter → human label. Mirrors `Endpoint` enum in
-# lib/src/models/device/impl/de1/de1.models.dart.
 ENDPOINTS = {
     "M": "shotSample",
     "N": "stateInfo",
@@ -116,8 +114,6 @@ SUBSTATE_NAMES = {
 }
 
 
-# Matches a complete `[X]hex` frame followed by `[` (next frame) or newline.
-# Mirrors the regex in `UnifiedDe1Transport._messagePattern`.
 MESSAGE_RE = re.compile(rb"(\[[A-Z]\][0-9A-Fa-f\s]*?)(?=\[|\n)")
 
 
@@ -228,7 +224,6 @@ class Reader(threading.Thread):
             self._drain()
 
     def _drain(self):
-        # Discard junk before the first `[`, mirroring the Dart side.
         idx = self._buf.find(b"[")
         if idx < 0:
             self._buf = b""
@@ -354,8 +349,6 @@ def main():
         for letter in SUB_ALL:
             write_command(port, f"<+{letter}>")
             time.sleep(0.05)
-        # Probe state so the first [N] arrives without a manual nudge —
-        # same bootstrap as `_serialConnect` in unified_de1_transport.dart.
         write_command(port, "<B>02")
 
     try:
@@ -403,7 +396,6 @@ def main():
             except ValueError as e:
                 print(f"error: {e}")
     finally:
-        # Best-effort unsubscribe so the firmware stops streaming when we go.
         try:
             for letter in SUB_ALL:
                 port.write(f"<-{letter}>\n".encode())

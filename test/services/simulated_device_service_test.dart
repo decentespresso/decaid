@@ -129,7 +129,6 @@ void main() {
         'machine is enabled after the scale', () async {
       final service = SimulatedDeviceService();
 
-      // Scale first — no machine to follow yet.
       service.enabledDevices = {SimulatedDevicesTypes.scale};
       await service.scanForDevices();
 

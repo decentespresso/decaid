@@ -62,16 +62,10 @@ class DeviceController
 
   TelemetryService? _telemetryService;
 
-  // Track when devices were last seen disconnecting, keyed by deviceId.
-  // Keying by id (not name) avoids cross-attribution when two devices
-  // advertise the same name, and survives firmware-update name changes
-  // (comms-harden #20).
   final Map<String, DateTime> _disconnectedAt = {};
 
   final Set<String> _previousDeviceIds = {};
 
-  // Map of deviceId → display name for the most recent observation.
-  // Used only to render human-readable log messages; correlation is by id.
   final Map<String, String> _deviceNamesById = {};
 
   /// Set the telemetry service for tracking device state changes
@@ -82,11 +76,6 @@ class DeviceController
     _telemetryService = service;
   }
 
-  // Expose the BehaviorSubject's own stream directly — it is already
-  // broadcast-compatible and supports multiple listeners with replay.
-  // Avoids the previous `asBroadcastStream()` wrapping, which created
-  // a new broadcast wrapper on every getter call and accumulated
-  // underlying subscriptions (comms-harden #14).
   @override
   Stream<List<Device>> get deviceStream => _deviceStream.stream;
 
@@ -178,11 +167,6 @@ class DeviceController
     _scanningStream.add(true);
     final start = DateTime.now();
     try {
-      // Throw out disconnected/discovered devices (keep connected and
-      // connecting). Run the per-device `connectionState.first` checks
-      // across every service in parallel so pre-scan latency is
-      // capped at 2s total regardless of how many services or
-      // devices are cached (comms-harden #23).
       final pairs = <({DeviceDiscoveryService service, Device device})>[];
       for (final entry in _devices.entries) {
         for (final device in entry.value) {
@@ -205,9 +189,6 @@ class DeviceController
           _invalidateDevicesCache();
         }
       }
-      // Sync the disconnect-detection baseline with the cleaned list so
-      // that service emissions arriving during the scan don't see false
-      // diffs.
       _previousDeviceIds.clear();
       _previousDeviceIds.addAll(devices.map((d) => d.deviceId));
       _deviceNamesById
@@ -215,10 +196,6 @@ class DeviceController
         ..addEntries(devices.map((d) => MapEntry(d.deviceId, d.name)));
       _deviceStream.add(devices);
 
-      // Run every service's scan in parallel and capture per-service
-      // failures in the result rather than torpedoing the whole scan.
-      // A user with BLE permission denied but a USB DE1 connected still
-      // gets their machine back from the serial service.
       final failures = <ServiceScanFailure>[];
       await Future.wait(
         _services.map((service) async {
@@ -239,12 +216,6 @@ class DeviceController
       );
 
       _log.info("current devices: $devices");
-      // Settle delay before flipping scanningStream so downstream UI
-      // observers see a stable "scanning" period rather than a
-      // zero-duration flicker when services resolve synchronously.
-      // Preserved from the pre-PR-A implementation to keep widget-test
-      // timing assumptions intact; revisit in PR B when status
-      // derivation is in place.
       await Future.delayed(ConnectionTimings.postScanSettleDelay);
       return ScanResult(
         matchedDevices: List.unmodifiable(devices),
@@ -337,20 +308,13 @@ class DeviceController
     _devices[service] = devices;
     _invalidateDevicesCache();
 
-    // Snapshot current device ids + id→name map. Correlation keys are
-    // always deviceId; name is kept only for human-readable log output
-    // (comms-harden #20).
     final currentDevices = this.devices;
     final currentDeviceIds = currentDevices.map((d) => d.deviceId).toSet();
     for (final d in currentDevices) {
       _deviceNamesById[d.deviceId] = d.name;
     }
 
-    // Skip disconnect/reconnect detection during active scans — the device
-    // list is in flux and intermediate states are transient noise. The scan
-    // will produce the authoritative list when it completes.
     if (!isScanning) {
-      // Detect disconnections: devices that were in previous update but not in current
       final disconnectedIds = _previousDeviceIds.difference(currentDeviceIds);
       for (var deviceId in disconnectedIds) {
         _disconnectedAt[deviceId] = DateTime.now();
@@ -401,8 +365,6 @@ class DeviceController
     int sensorCount = 0;
 
     for (var device in devices) {
-      // Set individual device type key, keyed by deviceId so same-named
-      // devices don't clobber each other (comms-harden #20).
       _telemetryService!.setCustomKey(
         'device_${device.deviceId}_type',
         device.type.name,

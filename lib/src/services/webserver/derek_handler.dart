@@ -30,8 +30,6 @@ class DerekHandler {
   }
 
   Future<Response> _handle(Request request) async {
-    // The request body is a small JSON blob — buffering it is fine. It is
-    // forwarded verbatim; Derek validates the fields and returns its own 4xx.
     final body = await request.read().fold<List<int>>(
       <int>[],
       (buffer, chunk) => buffer..addAll(chunk),
@@ -53,8 +51,6 @@ class DerekHandler {
       headers: {
         'Content-Type': upstream.headers['content-type'] ?? 'text/event-stream',
         'Cache-Control': 'no-cache',
-        // Defeats response buffering if a reverse proxy (e.g. nginx) is ever
-        // placed in front of the API server.
         'X-Accel-Buffering': 'no',
       },
     );

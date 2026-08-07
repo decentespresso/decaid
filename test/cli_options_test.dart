@@ -61,7 +61,6 @@ void main() {
     });
 
     test('--no-serial (negation)', () {
-      // Ensure --no-serial works correctly with the flag parser
       final defaults = parseCliArgs([]);
       final negated = parseCliArgs(['--no-serial']);
       expect(negated.serial, isFalse);

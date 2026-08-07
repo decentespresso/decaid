@@ -56,8 +56,6 @@ class _FakeDe1 implements De1Interface {
   @override
   Stream<MachineSnapshot> get currentSnapshot => _snapshotController.stream;
 
-  // Non-null so De1Controller.adoptDevice (quick-connect) can subscribe
-  // and De1Controller.dispose can await teardown of an adopted device.
   @override
   Stream<bool> get ready => const Stream.empty();
 
@@ -866,7 +864,6 @@ void main() {
           final connectFuture = connectionManager.connect();
           await mockScanner.scanningStream.firstWhere((s) => s);
 
-          // Machine early-connects; scan stops before any scale appears.
           mockScanner.addDevice(fakeDe1);
           await Future.delayed(Duration.zero);
           await Future.delayed(Duration.zero);
@@ -874,13 +871,10 @@ void main() {
           mockScanner.completeScan();
           await connectFuture;
 
-          // First pass: machine connected (ready), no scale connected,
-          // scan stopped early. Rescan is armed in the background.
           expect(mockScanner.stopScanCallCount, 1);
           expect(mockScaleController.connectCalls, isEmpty);
           expect(connectionManager.currentStatus.phase, ConnectionPhase.ready);
 
-          // Scale shows up only now — after the early stop.
           mockScanner.addDevice(TestScale(deviceId: 'late-scale'));
 
           await Future.delayed(const Duration(milliseconds: 1));
@@ -1021,8 +1015,6 @@ void main() {
             expect(mockScanner.stopScanCallCount, 0);
             expect(mockScaleController.connectCalls, isEmpty);
 
-            // A scale shows up after the (completed) scan. With no early stop
-            // there is no armed rescan, so it stays unconnected.
             mockScanner.addDevice(TestScale(deviceId: 'late-scale'));
             await Future.delayed(const Duration(milliseconds: 1));
             await Future.delayed(Duration.zero);
@@ -1158,13 +1150,8 @@ void main() {
         expect(future2Done, isFalse);
         expect(future3Done, isFalse);
 
-        // Let the first scan finish. The drain runs a second scale-only
-        // scan that resolves future2/future3.
         mockScanner.completeScan();
         await future1;
-        // Second scan (the drain) runs its own scanForDevices call.
-        // MockDeviceScanner.scanForDevices with no completer resolves
-        // synchronously after a microtask, so await everything.
         await Future.delayed(Duration.zero);
         await Future.delayed(Duration.zero);
 
@@ -1233,8 +1220,6 @@ void main() {
           mockScanner.scanCompleter = Completer<void>();
           final future1 = connectionManager.connect();
 
-          // A full-connect call during another full-connect returns
-          // immediately (silent drop), exactly as before.
           final future2 = connectionManager.connect();
           await future2;
 
@@ -2423,13 +2408,11 @@ void main() {
           mockDe1Controller.de1Subject.add(null);
           async.flushMicrotasks();
 
-          // First retry at t=5s (base delay).
           async.elapse(const Duration(seconds: 4));
           expect(scanStarts, 0, reason: 'no retry before the base delay');
           async.elapse(const Duration(seconds: 2));
           expect(scanStarts, 1, reason: 'first retry fires at 5s');
 
-          // Second retry doubles: due 10s after the first (t≈15s).
           async.elapse(const Duration(seconds: 8));
           expect(scanStarts, 1, reason: 'second retry must back off to 10s');
           async.elapse(const Duration(seconds: 2));
@@ -2461,7 +2444,6 @@ void main() {
           final fakeDe1 = _FakeDe1(deviceId: 'stale-de1');
           mockDe1Controller.de1Subject.add(fakeDe1);
           async.flushMicrotasks();
-          // First snapshot frame arms (and re-arms) the watchdog.
           fakeDe1.emitState(MachineState.idle);
           async.flushMicrotasks();
 
@@ -2472,15 +2454,6 @@ void main() {
             0,
             reason: 'must not fire before the staleness timeout',
           );
-          // Counter increments synchronously at the top of the force
-          // action, so it is observable the moment the Timer fires. The
-          // counter proves the watchdog fired and the force path ran
-          // (disconnectMachine → connect). We don't assert on
-          // fakeDe1.disconnectCalls here: BehaviorSubject's Rx.defer
-          // replay doesn't settle under flushMicrotasks/elapse(0) in
-          // fakeAsync, so the async chain only resumes after dispose —
-          // making that assertion flaky without proving anything the
-          // counter doesn't already show.
           async.elapse(const Duration(seconds: 2));
           expect(
             manager.snapshotStalenessReconnects,
@@ -2531,8 +2504,6 @@ void main() {
             fakeDe1.emitState(MachineState.idle);
             async.flushMicrotasks();
 
-            // Deliberate disconnect cancels the watchdog and bumps the
-            // generation token.
             manager.disconnectMachine();
             async.flushMicrotasks();
 
@@ -2625,8 +2596,6 @@ void main() {
       test('a forced reconnect that cannot recover the machine hands off to '
           'the recovery loop (no strand)', () async {
         await settingsController.setPreferredMachineId('stale-de1');
-        // Non-zero base delay avoids a hot recovery loop within the wait
-        // window; we only assert the loop is armed, not how often it scans.
         connectionManager.machineReconnectBaseDelay = const Duration(
           milliseconds: 50,
         );
@@ -2933,9 +2902,6 @@ void main() {
               reason: 'the quick-connect path must be the one exercised',
             );
 
-            // Production: adoptDevice propagates onto the de1 stream and
-            // the supervisor fires machine-connected; simulate that here
-            // (MockDe1Controller overrides the stream adoptDevice feeds).
             qcDe1Controller.de1Subject.add(fakeDe1);
             async.flushMicrotasks();
 
@@ -3088,10 +3054,8 @@ void main() {
         connectionManager.cancelSelectionSession();
         await Future<void>.delayed(Duration.zero);
 
-        // scaleOnly connect should now proceed (not skipped)
         await connectionManager.connect(scaleOnly: true);
         await Future<void>.delayed(Duration.zero);
-        // No exception — the call was not skipped by pending ambiguity guard
       });
 
       test('selection submitted after cancellation is ignored', () async {
@@ -3309,7 +3273,6 @@ void main() {
       final connectFuture = connectionManager.scanAndConnect();
       await Future<void>.delayed(Duration.zero);
 
-      // Cancel while scan is in-flight.
       connectionManager.cancelActiveScan();
       expect(mockScanner.stopScanCallCount, greaterThan(0));
 
@@ -3366,12 +3329,10 @@ void main() {
       scanCompleter.complete();
       await connectFuture;
 
-      // Second scan with 2 machines → machinePicker (not stuck/cancelled).
       mockScanner.addDevice(_FakeDe1(deviceId: 'm2'));
       await connectionManager.scanAndConnect();
       await Future<void>.delayed(Duration.zero);
 
-      // Not cancelled: policy ran and produced expected ambiguity.
       expect(
         connectionManager.currentStatus.pendingAmbiguity,
         AmbiguityReason.machinePicker,
@@ -3466,7 +3427,6 @@ void main() {
       final restartFuture = connectionManager.scanAndConnect();
       await Future<void>.delayed(Duration.zero);
 
-      // Exit before the original scan finishes.
       connectionManager.cancelActiveScan();
 
       scanCompleter.complete();
@@ -3480,7 +3440,6 @@ void main() {
       expect(connectionManager.currentStatus.phase, ConnectionPhase.idle);
       expect(connectionManager.currentStatus.pendingAmbiguity, isNull);
 
-      // Exactly one cancelled report — not a duplicate.
       final cancelled = reports.where(
         (r) => r.scanTerminationReason == ScanTerminationReason.cancelledByUser,
       );

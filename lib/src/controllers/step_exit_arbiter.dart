@@ -55,7 +55,6 @@ class StepExitArbiter {
     required double currentPressure,
     required double currentFlow,
   }) {
-    // No-op firmware exit (e.g. pressure over 0) — treat as weight-only.
     if (exit.value <= 0) {
       _log.fine(
         'Frame $profileFrame: firmware exit value ${exit.value} ≤ 0, '
@@ -69,15 +68,11 @@ class StepExitArbiter {
       ExitType.flow => currentFlow,
     };
 
-    // Distance: how far the sensor is from triggering the firmware exit.
-    // Positive = hasn't triggered yet.
     final distance = switch (exit.condition) {
       ExitCondition.over => exit.value - sensorValue,
       ExitCondition.under => sensorValue - exit.value,
     };
 
-    // Sensor already past threshold — firmware should fire imminently.
-    // Defer once to give it a chance.
     if (distance <= 0) {
       final deferral = _deferrals.putIfAbsent(
         profileFrame,
@@ -112,7 +107,6 @@ class StepExitArbiter {
       double.infinity,
     );
 
-    // Far from threshold — no race risk.
     if (distance > proximityThreshold) {
       _log.info(
         'Frame $profileFrame: firmware exit far '
@@ -144,7 +138,6 @@ class StepExitArbiter {
       return StepExitVerdict.defer;
     }
 
-    // Not trending toward threshold — firmware unlikely to fire.
     _log.info(
       'Frame $profileFrame: near firmware threshold '
       '(distance=$distance) but NOT trending — firing skipStep.',

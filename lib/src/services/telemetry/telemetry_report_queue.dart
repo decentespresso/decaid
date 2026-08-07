@@ -49,7 +49,6 @@ class TelemetryReportQueue {
 
     _queue.add(_ReportEntry(error, stackTrace, fatal: fatal));
 
-    // Start drain loop if not already running
     if (!_isDraining) {
       _startDrainLoop();
     }
@@ -74,7 +73,6 @@ class TelemetryReportQueue {
             fatal: report.fatal,
           );
         } catch (e, st) {
-          // Log send failures but don't crash the queue
           developer.log(
             'Failed to send telemetry report',
             error: e,

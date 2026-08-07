@@ -126,10 +126,6 @@ class EntityExtractor {
     return byModel.values.toList();
   }
 
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
-
   /// Returns the trimmed, lower-cased string, or null if blank.
   String? _normalize(String? value) {
     if (value == null) return null;

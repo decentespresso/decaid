@@ -164,8 +164,6 @@ void main() {
         log: testLog,
       );
 
-      // All three should land on disk; the middle one is sanitised, not
-      // skipped.
       expect(result.extracted, 3);
       expect(result.skipped, 0);
       expect(

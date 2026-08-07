@@ -95,7 +95,7 @@ void main() {
       );
 
       final shots = await db.shotDao.getAllShots();
-      expect(shots.first.id, 's2'); // newer first
+      expect(shots.first.id, 's2');
       expect(shots.last.id, 's1');
     });
 
@@ -155,7 +155,7 @@ void main() {
 
       final page1 = await db.shotDao.getShotsPaginated(limit: 3, offset: 0);
       expect(page1, hasLength(3));
-      expect(page1.first.id, 'shot-9'); // newest first
+      expect(page1.first.id, 'shot-9');
 
       final page2 = await db.shotDao.getShotsPaginated(limit: 3, offset: 3);
       expect(page2, hasLength(3));

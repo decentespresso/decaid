@@ -182,7 +182,6 @@ void main() {
             a.map((d) => d['id']).toList(),
             b.map((d) => d['id']).toList(),
           );
-          // preferred scale first, then deterministic (type, id)
           expect(a.map((d) => d['id']).toList(), ['s1', 'm1', 's2']);
         },
       );

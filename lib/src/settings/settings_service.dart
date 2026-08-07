@@ -68,8 +68,6 @@ abstract class SettingsService {
   Future<void> setSleepTimeoutMinutes(int value);
   Future<String> wakeSchedules();
   Future<void> setWakeSchedules(String json);
-  // Remembered devices, as a JSON array string of {id, name, type}. The
-  // RememberedDevicesController owns encode/decode (RememberedDevice).
   Future<String> rememberedDevices();
   Future<void> setRememberedDevices(String json);
   Future<bool> lowBatteryBrightnessLimit();
@@ -261,9 +259,6 @@ class SharedPreferencesSettingsService extends SettingsService {
   @override
   Future<String> defaultSkinId() async {
     final stored = await prefs.getString(SettingsKeys.defaultSkinId.name);
-    // One-shot migration: old bundled-skin id (github_branch dir-name fallback)
-    // → new release id (declared in skin-manifest.json inside the release zip).
-    // Runs on every call, but rewrites pref only once per user.
     if (stored == 'streamline_project-main') {
       await prefs.setString(SettingsKeys.defaultSkinId.name, 'streamline.js');
       return 'streamline.js';

@@ -44,11 +44,7 @@ class Profile extends Equatable {
   ];
 
   factory Profile.fromJson(Map<String, dynamic> json) {
-    // Fields a profile genuinely needs to be displayed and executed. A missing
-    // or malformed required field is a client error → surfaced as an
-    // ArgumentError so handlers return 400 rather than an opaque 500 from a raw
     // cast/parse failure. Descriptive fields (notes/author/version/beverage
-    // type) stay tolerant: missing values fall back to sensible defaults.
     final title = parseOptionalString(json['title']);
     if (title == null || title.isEmpty) {
       throw ArgumentError('Profile must have a non-empty "title"');

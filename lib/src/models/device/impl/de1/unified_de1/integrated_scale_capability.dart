@@ -132,9 +132,6 @@ mixin IntegratedScaleCapability on UnifiedDe1 {
       );
       return;
     }
-    // When wires are real:
-    // _bengleWeightSub =
-    //     notificationsFor(endpoint).listen(_handleWeightFrame);
   }
 
   /// Cancel the weight subscription and close the snapshot subject.
@@ -160,9 +157,6 @@ mixin IntegratedScaleCapability on UnifiedDe1 {
       );
       return;
     }
-    // When wired:
-    // await writeEndpoint(ctl, Uint8List.fromList(_encodeTareCommand()),
-    //     withResponse: false);
   }
 
   /// Write the autonomous SAW target (grams) to FW. `0.0` disables

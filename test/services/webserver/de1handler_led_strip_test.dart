@@ -190,7 +190,6 @@ void main() {
       final res = await post('/api/v1/machine/ledStrip/reset');
       expect(res.statusCode, 200);
       final body = jsonDecode(await res.readAsString());
-      // After reset, cache is back to what was committed.
       expect(body['frontStrip']['sleeping'], 'FFFF00000000');
     });
 

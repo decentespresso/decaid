@@ -30,7 +30,6 @@ const PORT = parseInt(process.env.PORT || "4444", 10);
 const BRIDGE_URL = process.env.BRIDGE_URL || "http://localhost:8080";
 const bridgeUrl = new URL(BRIDGE_URL);
 
-// ── Plugin loading ──────────────────────────────────────────────────
 
 let plugin = null;
 
@@ -53,7 +52,6 @@ function loadPlugin() {
   console.log(`Loaded plugin ${plugin.id} v${plugin.version}`);
 }
 
-// ── File watching ───────────────────────────────────────────────────
 
 let reloadTimer = null;
 
@@ -77,7 +75,6 @@ function watchPlugin() {
   }
 }
 
-// ── API proxy ───────────────────────────────────────────────────────
 
 function proxyRequest(req, res) {
   const options = {
@@ -102,7 +99,6 @@ function proxyRequest(req, res) {
   req.pipe(proxyReq, { end: true });
 }
 
-// ── Plugin page handler ─────────────────────────────────────────────
 
 function handlePluginPage(endpoint, req, res) {
   if (!plugin) {
@@ -136,7 +132,6 @@ function handlePluginPage(endpoint, req, res) {
   }
 }
 
-// ── HTTP server ─────────────────────────────────────────────────────
 
 const PLUGIN_ROUTES = ["beans", "grinders", "bean-picker", "grinder-picker"];
 
@@ -178,7 +173,6 @@ ${PLUGIN_ROUTES.map((r) => `<a href="/${r}">/${r}</a>`).join("\n")}
   res.end("Not found");
 });
 
-// ── Start ───────────────────────────────────────────────────────────
 
 try {
   loadPlugin();

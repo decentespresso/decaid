@@ -210,8 +210,6 @@ void main() {
   setUp(() async {
     platform = _FakeBlePlatform();
     UniversalBle.setInstance(platform);
-    // Drop any queues left over from a previous test (a hung write keeps
-    // its per-device queue slot busy forever otherwise).
     UniversalBle.clearQueue();
     UniversalBle.queueType = QueueType.perDevice;
     deviceId = 'AA:BB:CC:DD:EE:${(deviceCounter++).toString().padLeft(2, '0')}';
@@ -498,7 +496,6 @@ void main() {
     });
 
     test('advert while transport already disconnected is ignored', () async {
-      // Deliver a real disconnect event first.
       platform.updateConnection(deviceId, false);
       await pump(10);
       expect(observedStates, contains(device.ConnectionState.disconnected));
@@ -610,7 +607,6 @@ void main() {
         await pump();
         expect(oldReceived, [1]);
 
-        // No-op reconnect path: cancel old, listen new.
         final newReceived = <int>[];
         await transport.subscribe(
           service,
@@ -684,7 +680,6 @@ void main() {
       () async {
         platform.throwOnSecondSetNotifiable = true;
 
-        // First subscribe succeeds (first setNotifiable).
         await transport.subscribe(service, chars[0], (_) {});
 
         // Second subscribe (second setNotifiable for the same char) must

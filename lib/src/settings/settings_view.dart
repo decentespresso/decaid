@@ -398,7 +398,6 @@ class SettingsView extends StatelessWidget {
   Future<void> _checkForUpdates(BuildContext context) async {
     final updater = macosUpdater;
     if (updater != null && updater.isSupported) {
-      // macOS: Sparkle owns app updates.
       if (updater.isAvailable) {
         try {
           await updater.checkForUpdates();

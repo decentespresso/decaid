@@ -89,8 +89,6 @@ void main() {
 
   group('POST /api/v1/profiles', () {
     test('creates a profile when notes and author are omitted', () async {
-      // Regression: previously crashed in Profile.fromJson with
-      // "type 'Null' is not a subtype of type 'String'" → opaque 500.
       final response = await postProfile({'profile': profileWithoutMetadata()});
 
       expect(response.statusCode, 201);

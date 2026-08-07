@@ -44,8 +44,6 @@ class ProfileController {
       int skipped = 0;
       int refreshed = 0;
 
-      // Maps each bundled filename to the id (content hash) of its *current*
-      // version, so stale prior copies can be retired afterwards (issue #242).
       final currentFilenames = profileFiles.cast<String>().toSet();
       final currentIdByFilename = <String, String>{};
 

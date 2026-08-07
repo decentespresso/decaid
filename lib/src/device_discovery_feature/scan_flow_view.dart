@@ -141,7 +141,6 @@ class ScanFlowViewState extends State<ScanFlowView> {
         return;
       }
 
-      // --direct: auto-connect to first discovered machine/scale on ambiguity.
       if (widget.directConnect && !_directAutoConnected) {
         if (status.pendingAmbiguity == AmbiguityReason.machinePicker &&
             _discoveredMachines.isNotEmpty) {
@@ -186,7 +185,6 @@ class ScanFlowViewState extends State<ScanFlowView> {
       });
     });
 
-    // Monitor device stream during scanning for live device count
     _deviceSubscription = widget.deviceController.deviceStream.listen((
       devices,
     ) {
@@ -260,17 +258,12 @@ class ScanFlowViewState extends State<ScanFlowView> {
 
     if (blockingCondition != null) {
       content = _adapterErrorView(context, blockingCondition.connectionError);
-    }
-    // Ambiguity picker — show even when an error coexists, with the error
-    // rendered inline so the user can continue without a new scan.
-    else if (_status.pendingAmbiguity == AmbiguityReason.machinePicker ||
+    } else if (_status.pendingAmbiguity == AmbiguityReason.machinePicker ||
         _status.pendingAmbiguity == AmbiguityReason.scalePicker) {
       content = _devicePickerView(context);
     } else if (_status.error != null && _status.phase == ConnectionPhase.idle) {
       content = _errorView(context);
-    }
-    // Scanning
-    else if (_status.phase == ConnectionPhase.scanning) {
+    } else if (_status.phase == ConnectionPhase.scanning) {
       content = _scanningView(context);
     } else if (_status.phase == ConnectionPhase.connectingMachine ||
         _status.phase == ConnectionPhase.connectingScale) {

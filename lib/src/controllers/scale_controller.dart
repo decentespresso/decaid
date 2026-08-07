@@ -49,21 +49,10 @@ class ScaleController {
   }
 
   Future<void> connectToScale(Scale scale) async {
-    // Only one scale is active at a time. Disconnect the previously-connected
-    // scale device before connecting the new one — `_onDisconnect()` only drops
-    // this controller's references/subscriptions; without an explicit
-    // `disconnect()` the old scale keeps reporting `connected` and the device
-    // list shows two scales connected at once.
     final previous = _scale;
     _onDisconnect();
     if (previous != null && previous.deviceId != scale.deviceId) {
       try {
-        // Switching the active scale is a handoff, not a user "turn off". The
-        // BLE Decent Scale powers the physical device off on a normal
-        // disconnect; since the same physical Half Decent Scale can be reached
-        // via BLE/USB/WiFi, powering it off here would defeat a transport
-        // switch (and turn the scale off). Use the non-destructive handoff
-        // path when the scale supports it.
         if (previous is TransportHandoffScale) {
           await (previous as TransportHandoffScale).disconnectForHandoff();
         } else {
@@ -80,11 +69,6 @@ class ScaleController {
     try {
       await scale.onConnect();
     } catch (e) {
-      // `onConnect()` may complete with an error rather than swallow it — the
-      // WiFi scale surfaces its expected failure modes this way (bad manual IP,
-      // recognition timeout). Cancel the snapshot subscription we opened above
-      // and surface `disconnected` before rethrowing, so a failed connect can't
-      // leak a subscription or leave this controller in a half-connected state.
       log.warning('Scale failed to connect (onConnect threw)', e);
       _scaleSnapshot?.cancel();
       _scaleSnapshot = null;

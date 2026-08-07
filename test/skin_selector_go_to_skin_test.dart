@@ -196,7 +196,6 @@ void main() {
       await tester.pump();
       await tester.pumpAndSettle();
 
-      // Server was started with the selected skin before opening it.
       expect(service.servedPaths, ['/tmp/streamline.js']);
 
       if (Platform.isLinux) {

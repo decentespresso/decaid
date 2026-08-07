@@ -74,7 +74,6 @@ void main() {
 
     test('streams published events to connected clients', () async {
       final (channel, messages) = connectWs();
-      // Wait for the replayed seed frame before publishing.
       await messages.first.timeout(const Duration(seconds: 2));
 
       final decisionFrame = messages

@@ -126,16 +126,11 @@ class DifluidScale implements Scale {
 
   @override
   Future<void> sleepDisplay() async {
-    // Difluid Microbalance doesn't have documented display sleep commands
-    // Fallback to disconnect as per scale interface contract
     await disconnect();
   }
 
   @override
-  Future<void> wakeDisplay() async {
-    // Difluid Microbalance doesn't have documented wake display commands
-    // This is a no-op
-  }
+  Future<void> wakeDisplay() async {}
 
   Future<void> _registerNotifications() async {
     await _transport.subscribe(
@@ -164,7 +159,6 @@ class DifluidScale implements Scale {
       return;
     }
 
-    // If unit is not grams, send setUnitToGram command
     if (data[17] != 0) {
       _transport.write(
         serviceIdentifier.long,

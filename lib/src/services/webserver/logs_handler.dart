@@ -94,8 +94,6 @@ class LogsHandler {
       rotated.add(file);
     }
     final live = File(_logFilePath);
-    // Higher index = older, so oldest-first is the rotated files reversed,
-    // with the live (newest) file last.
     return [...rotated.reversed, if (await live.exists()) live];
   }
 
@@ -108,7 +106,7 @@ class LogsHandler {
   /// multi-byte character) mid-way.
   Future<List<_FileSegment>> _tailWindow(List<File> files, int maxBytes) async {
     var remaining = maxBytes;
-    final segments = <_FileSegment>[]; // newest-first; reversed before return
+    final segments = <_FileSegment>[];
     for (final file in files.reversed) {
       if (remaining <= 0) break;
       final length = await file.length();

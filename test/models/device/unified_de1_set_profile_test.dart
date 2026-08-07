@@ -104,7 +104,6 @@ void main() {
     test(
       'retry with the same profile after a failed upload triggers a fresh send',
       () async {
-        // Fail the very first write (the header).
         transport.failIndexOnce = 0;
         await expectLater(
           () => de1.setProfile(profile),
@@ -118,8 +117,6 @@ void main() {
               'only the header write reached the transport before the throw',
         );
 
-        // Retry with the same profile. On the pre-fix code this is a silent
-        // no-op; on the fixed code it re-runs the full send.
         await de1.setProfile(profile);
 
         expect(
@@ -145,14 +142,10 @@ void main() {
 
     test('failed upload invalidates the cache — re-pushing the previously '
         'successful profile re-uploads', () async {
-      // Land profile successfully first.
       await de1.setProfile(profile);
       final writesAfterSuccess = transport.writes.length;
       expect(writesAfterSuccess, greaterThan(0));
 
-      // A different profile fails on its header write. The firmware may now
-      // be wedged mid-receive, so the previously-successful profile can no
-      // longer be assumed present on the device.
       final other = profile.copyWith(title: 'Other Profile');
       transport.failIndexOnce = writesAfterSuccess;
       await expectLater(() => de1.setProfile(other), throwsA(isA<Exception>()));

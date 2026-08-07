@@ -185,7 +185,6 @@ class ScanResultsSummary extends StatelessWidget {
       );
     }
 
-    // Preferred machine not found
     if (report.preferredMachineId != null &&
         !report.matchedDevices.any(
           (d) => d.deviceId == report.preferredMachineId,

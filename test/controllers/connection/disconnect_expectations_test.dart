@@ -58,7 +58,6 @@ void main() {
         e.mark('id-1');
         e.dispose();
         async.elapse(DisconnectExpectations.ttl + const Duration(seconds: 1));
-        // After dispose, consume should already return false (state cleared).
         expect(e.consume('id-1'), isFalse);
       });
     });

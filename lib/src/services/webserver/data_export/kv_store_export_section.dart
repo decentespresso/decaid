@@ -20,8 +20,6 @@ class KvStoreExportSection implements DataExportSection {
 
   @override
   Future<void> exportJson(JsonSink output) async {
-    // Shape: {"namespaces": {ns: {k: v}}} written incrementally so only one
-    // key/value pair is encoded at a time.
     output.writeRaw('{"namespaces":{');
     var firstNamespace = true;
     for (final namespace in _store.namespaces) {

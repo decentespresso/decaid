@@ -10,7 +10,6 @@ class WebUIHandler {
       _service = service;
 
   void addRoutes(RouterPlus app) {
-    // List all installed skins
     app.get('/api/v1/webui/skins', _handleListSkins);
 
     // Get default skin (must be before <id> to avoid route shadowing)
@@ -19,16 +18,13 @@ class WebUIHandler {
     // Set default skin (must be before <id> to avoid route shadowing)
     app.put('/api/v1/webui/skins/default', _handleSetDefaultSkin);
 
-    // Get specific skin details
     app.get('/api/v1/webui/skins/<id>', _handleGetSkin);
 
-    // Install skin from GitHub release
     app.post(
       '/api/v1/webui/skins/install/github-release',
       _handleInstallFromGitHubRelease,
     );
 
-    // Install skin from GitHub branch
     app.post(
       '/api/v1/webui/skins/install/github-branch',
       _handleInstallFromGitHubBranch,

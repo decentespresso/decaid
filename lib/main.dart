@@ -140,8 +140,6 @@ Set<SimulatedDevicesTypes> _parseSimulateFlag(String value) {
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   final cliArgs = parseCliArgs(args);
-  // Force the semantics tree to always be active so assistive technologies
-  // (TalkBack, VoiceOver, Accessibility Inspector) can read Flutter elements.
   SemanticsBinding.instance.ensureSemantics();
   SystemChrome.setEnabledSystemUIMode(
     SystemUiMode.manual,
@@ -155,9 +153,6 @@ void main(List<String> args) async {
 
   if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
     await WindowManager.instance.ensureInitialized();
-    // Windows/macOS lock to the default kiosk window size at startup. Linux is
-    // left free-form (its default windowing is unchanged); WindowManager is
-    // still initialized so a simulated WebView can resize the window on demand.
     if (!Platform.isLinux) {
       WindowManager.instance.setMinimumSize(defaultDesktopWindowSize);
       await WindowManager.instance.setAspectRatio(defaultDesktopAspectRatio);
@@ -201,7 +196,6 @@ void main(List<String> args) async {
     "version: ${BuildInfo.version}, platform: ${Platform.operatingSystem}",
   );
 
-  // Initialize Firebase on supported platforms (not Linux/Windows, not debug, not simulate)
   final isDebugOrSimulate =
       kDebugMode || const String.fromEnvironment("simulate").isNotEmpty;
   if (!Platform.isLinux && !Platform.isWindows && !isDebugOrSimulate) {
@@ -259,10 +253,6 @@ void main(List<String> args) async {
 
   services.add(createSerialService());
 
-  // WiFi Half Decent Scale discovery (DNS-SD + manual-IP fallback). Native
-  // mDNS on every platform via bonsoir; discovered scales flow into the same
-  // device stream as BLE/USB. DeviceController.initialize() calls its
-  // initialize() and wires its device stream like any other service.
   final wifiScaleDiscoveryService = WifiScaleDiscoveryService();
   services.add(wifiScaleDiscoveryService);
 
@@ -309,11 +299,6 @@ void main(List<String> args) async {
   final scaleController = ScaleController();
   final sensorController = SensorController(controller: deviceController);
 
-  // Remembers devices the user connects to (machine + scale), shown as
-  // unavailable when absent. The stream mappers (which read {id,name,type} off
-  // the connected device and skip simulated devices) live in
-  // `remembered_device_sources.dart` so they're unit-testable; the controller
-  // itself stays interface-agnostic.
   final rememberedDevicesController = RememberedDevicesController(
     machineConnections: de1Controller.de1.map(rememberedFromMachine),
     scaleConnections: scaleController.connectionState.map(
@@ -414,8 +399,6 @@ void main(List<String> args) async {
   final WebUIService webUIService = WebUIService();
   final WebUIStorage webUIStorage = WebUIStorage(settingsController);
 
-  // Credential store + account service — skip on headless Linux where
-  // libsecret blocks on the XDG secrets portal (no desktop session).
   DecentAccountService? decentAccountService;
   DecentProxyService? decentProxyService;
   AccountTokensController? accountTokensController;
@@ -427,8 +410,6 @@ void main(List<String> args) async {
     decentProxyService = null;
   } else {
     credentialStore = await createCredentialStore();
-    // Override with --dart-define=DECENT_BASE_URL=http://localhost:8000 for
-    // local server development; defaults to production.
     const decentBaseUrl = String.fromEnvironment(
       'DECENT_BASE_URL',
       defaultValue: 'https://decentespresso.com',
@@ -445,15 +426,12 @@ void main(List<String> args) async {
       credentialStore: credentialStore,
       baseUrl: decentBaseUrl,
     );
-    // User-managed API-client tokens: persisted in the same secure store and
-    // loaded into the validator alongside the per-process skin token.
     accountTokensController = AccountTokensController(
       tokenService: proxyTokenService,
       store: ProxyTokenStore(credentialStore: credentialStore),
     );
     await accountTokensController.initialize();
   }
-  // Serve the skin token into :3000 HTML so skins can call the account proxy.
   webUIService.skinProxyToken = proxyTokenService.skinToken;
 
   final PluginLoaderService pluginService = PluginLoaderService(
@@ -461,11 +439,7 @@ void main(List<String> args) async {
     decentProxyService: decentProxyService,
     credentialStore: credentialStore,
   );
-  // Don't initialize plugins yet - wait for permissions to be granted
-  // pluginService.initialize() will be called from PermissionsView after permissions are granted
   await pluginService.pluginManager.attachDe1Controller(de1Controller);
-  // Broadcast a `shotStored` plugin event once a shot is persisted, so plugins
-  // can react to the exact newly-stored shot (no timer/latest-lookup race).
   persistenceController.onShotStored = (shotId) =>
       pluginService.pluginManager.broadcastEvent('shotStored', {'id': shotId});
 
@@ -485,9 +459,6 @@ void main(List<String> args) async {
   );
   displayController.initialize();
 
-  // Update check service — constructed before the web server so the update
-  // API (/api/v1/update, /ws/v1/update) shares its state. initialize() is
-  // still deferred below.
   final updateCheckService = UpdateCheckService(
     settingsService: SharedPreferencesSettingsService(),
     webUIStorage: webUIStorage,
@@ -561,8 +532,6 @@ void main(List<String> args) async {
     log.severe('failed to start web server', e, st);
   }
   BootTiming.mark('webserver_up');
-  // Load the user's preferred theme while the splash screen is displayed.
-  // This prevents a sudden theme change when the app is first displayed.
   settingsController.addListener(() {
     const simEnv = String.fromEnvironment("simulate");
     final dartDefineDevices = simEnv.isNotEmpty
@@ -591,8 +560,6 @@ void main(List<String> args) async {
   bleDiscoveryService.requestLargeMtuNonAndroid = () =>
       settingsController.isFeatureFlagEnabled(.largeBleMtuNonAndroid);
 
-  // CLI overrides — apply after loadSettings so they overwrite any persisted
-  // values and persist themselves.
   if (cliArgs.bypassOnboarding) {
     log.info('--bypass-onboarding: skipping onboarding screens');
     await settingsController.setOnboardingCompleted(true);
@@ -608,8 +575,6 @@ void main(List<String> args) async {
     webUIService.skinOverride = SkinOverride.path(cliArgs.skinPath!);
   }
 
-  // Dart-define overrides for preferred devices — allows headless/MCP launches
-  // to bypass the device selection screen by seeding the direct-connect path.
   const envMachineId = String.fromEnvironment("preferredMachineId");
   const envScaleId = String.fromEnvironment("preferredScaleId");
   if (envMachineId.isNotEmpty) {
@@ -627,7 +592,6 @@ void main(List<String> args) async {
       ) ??
       Level.FINE;
 
-  // Defer the first update check / skin sync (service constructed above).
   Future.delayed(Duration(minutes: 10), () async {
     await updateCheckService.initialize();
   });
@@ -744,9 +708,6 @@ class AppLifecycleObserver with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       _log.info("state: resumed");
 
-      // Re-assert screen brightness: a write issued while the window was paused
-      // (e.g. the wake restore firing as the screen turned back on) may not have
-      // stuck, leaving the screen dark with no other trigger to recover.
       unawaited(displayController?.onAppResumed() ?? Future<void>.value());
 
       if (_wasBackgrounded && updateCheckService?.hasAvailableUpdate == true) {
@@ -803,7 +764,6 @@ class AppLifecycleObserver with WidgetsBindingObserver {
 
     final messenger = ScaffoldMessenger.of(context);
 
-    // Clear any existing snackbars to prevent stacking
     messenger.clearSnackBars();
 
     final controller = messenger.showSnackBar(
@@ -993,10 +953,6 @@ class _AppRootState extends State<AppRoot> {
     if (Platform.isMacOS) {
       return PlatformMenuBar(menus: _buildPlatformMenus(), child: child);
     }
-    // Windows/Linux have no native menu bar, so mirror the macOS simulated-
-    // WebView menu shortcuts with Ctrl+Alt+<digit> bindings (Cmd→Ctrl) when the
-    // feature is enabled. The Advanced-settings picker is the discoverable path;
-    // these match the muscle memory of the macOS menu accelerators.
     if ((Platform.isWindows || Platform.isLinux) &&
         widget.settingsController.enableSimulatedWebViews) {
       return CallbackShortcuts(

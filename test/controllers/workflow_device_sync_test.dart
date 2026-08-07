@@ -260,9 +260,6 @@ void main() {
       workflowController: workflow,
       de1Controller: de1Controller,
     );
-    // The initSettled stream replays the already-settled generation, so
-    // the sync's on-connect push fires immediately. Let it land and
-    // discard it.
     await Future<void>.delayed(const Duration(milliseconds: 10));
     de1.setProfileCalls.clear();
   });
@@ -308,7 +305,6 @@ void main() {
 
   test('a failed setProfile is not marked pushed — the same profile still '
       'lands via the automatic retry', () async {
-    // Build an isolated sync wired to a DE1 whose first upload fails.
     final wf = WorkflowController();
     final dc = DeviceController([MockDeviceDiscoveryService()]);
     await dc.initialize();
@@ -357,13 +353,7 @@ void main() {
     },
   );
 
-  // Serialized/coalescing push loop + failure retry. Regression coverage for
-  // the 2026-07-05 stuck-machine incident: rapid temperature "+" presses
-  // produced overlapping profile uploads whose header/frame writes
-  // interleaved on the BLE queue, wedging the firmware's profile-receive
-  // state machine; and after the resulting write timeout nothing retried.
   group('serialized coalescing push with retry', () {
-    // Short, test-friendly backoff. Last entry is the cap.
     const retryDelays = [
       Duration(milliseconds: 20),
       Duration(milliseconds: 40),
@@ -479,7 +469,6 @@ void main() {
           reason: 'first attempt fails; retry not due yet',
         );
 
-        // First retry is due after retryDelays[0] (20ms).
         await Future<void>.delayed(const Duration(milliseconds: 40));
         expect(
           flaky.setProfileCalls.map((p) => p.title),
@@ -497,9 +486,9 @@ void main() {
       flaky.setProfileCalls.clear();
       flaky.failures = 1;
 
-      applyProfile('A'); // fails, retry armed for +20ms
+      applyProfile('A');
       await Future<void>.delayed(const Duration(milliseconds: 5));
-      applyProfile('B'); // supersedes A before the retry fires
+      applyProfile('B');
 
       await Future<void>.delayed(const Duration(milliseconds: 100));
       expect(
@@ -519,7 +508,6 @@ void main() {
       flaky.failures = 2;
 
       applyProfile('Stubborn');
-      // Attempt 1 at ~0ms fails, retry at +20ms fails, retry at +20+40ms lands.
       await Future<void>.delayed(const Duration(milliseconds: 40));
       expect(
         flaky.setProfileCalls,
@@ -627,7 +615,7 @@ void main() {
       flaky.totalCalls = 0;
       flaky.failures = 100;
 
-      applyProfile('Same'); // attempt 1 fails, retry armed for +20ms
+      applyProfile('Same');
       await Future<void>.delayed(const Duration(milliseconds: 5));
       expect(flaky.totalCalls, 1);
 
@@ -641,7 +629,6 @@ void main() {
         reason: 'identical content must not reset the backoff to now',
       );
 
-      // The originally armed retry still fires on schedule.
       await Future<void>.delayed(const Duration(milliseconds: 40));
       expect(
         flaky.totalCalls,
@@ -674,12 +661,6 @@ void main() {
     });
   });
 
-  // On-connect profile push: the firmware latches
-  // ProfileDownloadInProgress when an upload dies after the header write
-  // (magenta GH-LED ~2 Hz pulse, start requests silently ignored) and only
-  // a complete re-upload clears it. The old single-shot defaults push
-  // swallowed its failure, and the optimistic last-pushed caches blocked
-  // every same-profile repair. The sync now owns the (re)connect push.
   group('on-connect profile push via initSettled', () {
     late WorkflowController wf;
     WorkflowDeviceSync? activeSync;
@@ -777,7 +758,6 @@ void main() {
 
         await controller.connectToDe1(flaky);
         await settleInit(controller, flaky);
-        // First retry is at +20ms; wait for it.
         await Future<void>.delayed(const Duration(milliseconds: 60));
         expect(flaky.setProfileCalls.map((p) => p.title), ['Persisted']);
       },

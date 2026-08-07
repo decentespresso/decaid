@@ -124,8 +124,6 @@ void main() {
         expect(mockDe1Controller.connectCalls, hasLength(1));
         expect(mockDe1Controller.connectCalls.first, same(bengle));
 
-        // The scale slot is taken by the virtual scale, not anything from
-        // the scan.
         expect(mockScaleController.connectCalls, hasLength(1));
         expect(
           mockScaleController.connectCalls.first.deviceId,
@@ -138,11 +136,6 @@ void main() {
       'skips external scale phase when Bengle is the machine '
       '(even with preferredScaleId set + external scale discoverable)',
       () async {
-        // Synchronous co-discovery case: both Bengle and external scale
-        // are visible to the scanner before connect() begins, so a single
-        // _onDevicesUpdate sees both and the Bengle-inference arm of the
-        // gate fires. The interleaved-discovery race (external scale
-        // visible before Bengle) is covered by the next test.
         await settingsController.setPreferredMachineId('bengle-1');
         await settingsController.setPreferredScaleId('external-scale');
 
@@ -283,15 +276,7 @@ void main() {
       final scanCompleter = Completer<void>();
       mockScanner.scanCompleter = scanCompleter;
 
-      // Stage the Bengle to arrive after connect() begins. Using
-      // Future.microtask keeps timing deterministic — the microtask
-      // runs after scanForDevices() has emitted its initial
-      // `scanning: true` + replayed devices, so the watcher sees the
-      // external scale first, then the Bengle as a separate update.
-      // The completeScan() call ends the hold-open.
       Future.microtask(() async {
-        // Yield once so the watcher processes the external-scale-only
-        // emission before the Bengle arrives.
         await Future.delayed(Duration.zero);
         mockScanner.addDevice(bengle);
         await Future.delayed(Duration.zero);

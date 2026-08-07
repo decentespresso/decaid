@@ -13,8 +13,6 @@ import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/device.dart' as device;
 import 'package:rxdart/rxdart.dart';
 
-// The shot-state vocabulary lived here before it gained wire serialization;
-// re-export so existing importers keep working.
 export 'package:reaprime/src/models/data/shot_state_event.dart'
     show ShotState, ShotDecision, ShotDecisionKind, ShotDecisionReason;
 
@@ -63,14 +61,6 @@ class ShotSequencer {
   DateTime? _lastVolumeUpdateTime;
   bool _volumeCountingActive = false;
 
-  // Final beverage weight on weighed shots. After the machine-reported stop the
-  // pump is off, so flow onto the scale can only decay — the post-stop window
-  // keeps taking the rising weight (turbo catch-up included, with no flow or
-  // gram cap) and locks the yield on the first of three events: the scale
-  // settles, the cup is removed (a sharp drop), or a touch spikes the flow back
-  // up against the decay. The saved trace stops at the stop boundary, so only
-  // this value follows the tail, not the graph. Null when no scale weighs the
-  // shot.
   static const double _settleFlowThreshold = 0.4;
   static const int _settleSampleCount = 10;
   static const double _removalFlowThreshold = 3.0;
@@ -107,8 +97,6 @@ class ShotSequencer {
       "Initializing ShotSequencer (weightFlowMultiplier: $_weightFlowMultiplier, volumeFlowMultiplier: $_volumeFlowMultiplier, machineHasAutonomousSAW: $_machineHasAutonomousSAW, stepExitArbiterEnabled: $_stepExitArbiterEnabled)",
     );
 
-    // When the app won't tare (SAW bypass), trust the scale's readings as-is —
-    // there's no app-side tare to gate on.
     _scaleTared = _bypassSAW;
 
     final scaleConnected =
@@ -116,9 +104,6 @@ class ShotSequencer {
         device.ConnectionState.connected;
 
     if (_blockOnNoScale && !scaleConnected) {
-      // The sequencer is created reactively, after the machine has already
-      // entered espresso (incl. GHC / physical starts), so "block" means abort
-      // the shot in progress and publish the reason rather than prevent it.
       _emitDecision(
         ShotDecisionKind.abort,
         ShotDecisionReason.noScale,
@@ -330,9 +315,6 @@ class ShotSequencer {
   void _processSnapshot(ShotSnapshot snapshot) {
     _log.finest("Processing snapshot");
 
-    // Until the scale is tared for this shot, suppress its weight and flow:
-    // the pre-tare reading reflects whatever is resting on the scale, not the
-    // beverage, and the flow derived from it is noise.
     if (!_scaleTared && snapshot.scale != null) {
       final raw = snapshot.scale!;
       snapshot = snapshot.copyWith(
@@ -368,8 +350,6 @@ class ShotSequencer {
         final timeDelta =
             now.difference(_lastVolumeUpdateTime!).inMilliseconds / 1000.0;
 
-        // Integrate flow over time to get volume
-        // Flow is in ml/s, timeDelta is in seconds
         final volumeDelta = machine.flow * timeDelta;
         _accumulatedVolume += volumeDelta;
 
@@ -462,14 +442,6 @@ class ShotSequencer {
         break;
 
       case ShotState.preheating:
-        // Abort arm: the machine left espresso before the pour began (GHC /
-        // app / REST stop during preheat, or a mode change). End the shot as
-        // an abort so De1StateManager tears the sequencer down — otherwise it
-        // sits in `preheating` forever, hangs the shotState feed on a stale
-        // frame, and gets recycled into the next espresso/steam/hot-water
-        // session. A steam session (De1SubState.steaming also maps to the
-        // `pouring` substate) is caught here by the state check, not the
-        // substate check below.
         if (machine.state.state != MachineState.espresso) {
           final intent = de1controller.consumeStopIntent();
           // No _finalStopReason: an aborted shot is never persisted — the
@@ -562,11 +534,6 @@ class ShotSequencer {
         }
         if (machine.state.substate == MachineSubstate.pouringDone ||
             machine.state.substate == MachineSubstate.idle) {
-          // The machine reported the end without an app-side target firing.
-          // If a stop command recently passed through this app (REST client
-          // or the in-app Stop button), attribute it to that source; the
-          // unmarked remainder is the GHC or natural profile completion,
-          // indistinguishable from the substate stream alone.
           final intent = de1controller.consumeStopIntent();
           final reason = intent ?? ShotDecisionReason.machineEnded;
           _finalStopReason ??= reason;
@@ -688,7 +655,6 @@ class ShotSequencer {
       return;
     }
 
-    // Mixed step: consult the arbiter to avoid racing firmware.
     if (_stepExitArbiterEnabled && step.exit != null) {
       final verdict = _stepExitArbiter.evaluate(
         profileFrame: profileFrame,
@@ -720,10 +686,6 @@ class ShotSequencer {
   void _enterStopping(WeightSnapshot? scale) {
     _latchTrustedFinalYield(scale);
     dataCollectionEnabled = false;
-    // The post-stop window exists solely to catch the final drips on the scale
-    // and fold them into the yield (see _refineStoppingYield). With a scale,
-    // hold in `stopping` until the yield locks; without one there is nothing to
-    // catch, so end the shot immediately — no settling window, no waiting.
     _state = _trustedFinalYield != null
         ? ShotState.stopping
         : ShotState.finished;
@@ -760,13 +722,10 @@ class ShotSequencer {
     final prevFlow = _prevStoppingFlow;
     _prevStoppingFlow = flow;
 
-    // Cup removal — a sharp drop. Keep the peak from before it.
     if (flow < -_removalFlowThreshold) {
       _stoppingYieldLocked = true;
       return;
     }
-    // Touch/bump — flow jumps up against the post-stop decay. Keep the prior
-    // value. Skipped on the first sample, which has no decay baseline yet.
     if (prevFlow != null && flow > prevFlow + _spikeFlowJump) {
       _stoppingYieldLocked = true;
       return;
@@ -776,8 +735,6 @@ class ShotSequencer {
       _trustedFinalYield = weight;
     }
 
-    // Settled — trust the settled reading (authoritative over any earlier
-    // transient peak) and lock.
     if (flow.abs() < _settleFlowThreshold) {
       if (++_settleSamples >= _settleSampleCount) {
         _trustedFinalYield = weight;
@@ -793,7 +750,3 @@ class ShotSequencer {
     _stateStream.add(_state);
   }
 }
-
-// ShotState, ShotDecision, ShotDecisionKind and ShotDecisionReason moved to
-// lib/src/models/data/shot_state_event.dart (re-exported above) when the
-// decision stream gained wire serialization for /ws/v1/machine/shotState.

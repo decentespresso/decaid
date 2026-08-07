@@ -151,7 +151,6 @@ void main() {
         return http.Response('must not happen', 200);
       }).proxyForPlugin(
         pluginId: 'test.plugin',
-        // read-only permission: not enough for a write
         manifest: manifestWith({PluginPermissions.proxyDecentApi}),
         path: 'support/api/shot_upload',
         method: 'POST',

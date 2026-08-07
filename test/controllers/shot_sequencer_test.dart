@@ -23,9 +23,6 @@ import 'package:rxdart/rxdart.dart';
 import '../helpers/test_de1.dart';
 import '../helpers/test_scale.dart';
 
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
-
 /// Minimal DeviceDiscoveryService that does nothing.
 class _FakeDiscoveryService extends DeviceDiscoveryService {
   @override
@@ -712,7 +709,6 @@ void main() {
 
         scaleController.emitWeight(40.0);
 
-        // Emit a machine snapshot to trigger combined stream processing
         testDe1.emitStateAndSubstate(
           MachineState.espresso,
           MachineSubstate.pouring,
@@ -810,7 +806,6 @@ void main() {
         driveToPouring(shotSequencer);
         async.elapse(Duration(milliseconds: 10));
 
-        // Emit weight above step threshold with pressure near firmware exit.
         scaleController.emitWeight(12.0);
         emitPouringFrameWithPressure(0, 4.0);
         async.elapse(Duration(milliseconds: 10));
@@ -823,7 +818,6 @@ void main() {
               'should defer to avoid racing firmware.',
         );
 
-        // After max deferral frames (3), fires regardless.
         scaleController.emitWeight(12.0);
         emitPouringFrameWithPressure(0, 4.2);
         async.elapse(Duration(milliseconds: 10));
@@ -925,8 +919,6 @@ void main() {
 
     test('mixed-exit deferral is frame-local', () {
       fakeAsync((async) {
-        // Frame 0: mixed step with near firmware exit → defers.
-        // Frame 1: pure weight step → fires immediately.
         profile = _profileWithSteps([
           _pressureStep(
             name: 'near-exit',
@@ -958,7 +950,6 @@ void main() {
         driveToPouring(shotSequencer);
         async.elapse(Duration(milliseconds: 10));
 
-        // Frame 0: near firmware exit → defers
         scaleController.emitWeight(12.0);
         emitPouringFrameWithPressure(0, 4.0);
         async.elapse(Duration(milliseconds: 10));
@@ -1008,7 +999,6 @@ void main() {
         driveToPouring(shotSequencer);
         async.elapse(Duration(milliseconds: 10));
 
-        // Frame 0: weight reached, near firmware exit → defers
         scaleController.emitWeight(12.0);
         emitPouringFrameWithPressure(0, 4.0);
         async.elapse(Duration(milliseconds: 10));
@@ -1019,8 +1009,6 @@ void main() {
           reason: 'Deferred on frame 0',
         );
 
-        // Firmware advances to frame 1 (firmware handled the exit itself).
-        // Weight 12.0 is below frame 1's weight threshold (50), so no skip.
         scaleController.emitWeight(12.0);
         emitPouringFrame(1);
         async.elapse(Duration(milliseconds: 10));
@@ -1039,8 +1027,6 @@ void main() {
 
     test('mixed flow-under step defers when near threshold', () {
       fakeAsync((async) {
-        // Flow exit under 2.0 ml/s. Emit flow 2.5 → distance 0.5, proximity =
-        // 2.0 * 0.25 = 0.5 → boundary (not > 0.5) → near → defer.
         profile = _profileWithSteps([
           _flowStep(
             name: 'flow-near',
@@ -1071,7 +1057,6 @@ void main() {
         driveToPouring(shotSequencer);
         async.elapse(Duration(milliseconds: 10));
 
-        // Weight above threshold, flow near firmware exit.
         scaleController.emitWeight(12.0);
         emitPouringFrameWithFlow(0, 2.5);
         async.elapse(Duration(milliseconds: 10));
@@ -1082,7 +1067,6 @@ void main() {
           reason: 'Flow near under-2.0 exit → defer to avoid racing firmware.',
         );
 
-        // After max deferral frames (3), fires regardless.
         scaleController.emitWeight(12.0);
         emitPouringFrameWithFlow(0, 2.3);
         async.elapse(Duration(milliseconds: 10));
@@ -1288,8 +1272,6 @@ void main() {
         );
         async.elapse(Duration(milliseconds: 10));
 
-        // Ten near-still samples settle the yield (raised from 3 for
-        // Kalman smoothness — avoids locking before trailing drips).
         for (var i = 0; i < 10; i++) {
           scaleController.emitWeight(36.1, weightFlow: 0.1);
           testDe1.emitStateAndSubstate(
@@ -1379,7 +1361,6 @@ void main() {
           MachineSubstate.pouring,
           reason: 'trace ends on the last actively-pouring sample',
         );
-        // The yield, however, follows the last drip.
         expect(shotSequencer.trustedFinalYield, 36.4);
 
         shotSequencer.dispose();
@@ -1426,8 +1407,6 @@ void main() {
         );
         async.elapse(Duration(milliseconds: 10));
 
-        // preheating → pouring: the pour-time tare fires here. This frame is
-        // gated before the transition, so it is still 0...
         scaleController.emitWeight(0.0, weightFlow: 0.0);
         testDe1.emitStateAndSubstate(
           MachineState.espresso,
@@ -1702,8 +1681,6 @@ void main() {
         emitPouringFrameWithPressure(0, 4.0);
         async.elapse(Duration(milliseconds: 10));
 
-        // With arbiter disabled, skipStep fires immediately despite
-        // being near the firmware exit threshold.
         expect(
           testDe1.requestedStates,
           contains(MachineState.skipStep),
@@ -2009,8 +1986,6 @@ void main() {
         expect(skip.data?['frame'], 0);
         expect(testDe1.requestedStates, contains(MachineState.skipStep));
 
-        // Firmware acknowledges the skip by advancing to frame 1 — the vacated
-        // frame was app-skipped, so no firmware-natural advance is reported.
         scaleController.emitWeight(12.0);
         emitPouringFrame(1);
         async.elapse(Duration(milliseconds: 10));
@@ -2197,7 +2172,6 @@ void main() {
         );
         async.elapse(Duration(milliseconds: 10));
 
-        // Machine aborts back to idle before first drops.
         testDe1.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
         async.elapse(Duration(milliseconds: 10));
 

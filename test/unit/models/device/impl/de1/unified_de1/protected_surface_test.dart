@@ -8,15 +8,6 @@ import 'package:reaprime/src/models/device/transport/logical_endpoint.dart';
 
 import '../../../../../../helpers/fake_ble_transport.dart';
 
-// The mixin-on-UnifiedDe1 setup below (`_TestCapability` + `_TestDe1`) is
-// itself the load-bearing demonstration that the protected surface is
-// reachable from real capability code: any future Bengle/scale/etc.
-// capability uses the exact same `mixin Foo on UnifiedDe1` pattern. Do
-// not refactor `_TestCapability` into helpers on `_TestDe1` — that
-// would let the test class reach the protected members through plain
-// subclassing and stop proving what we actually need to prove (mixins
-// can call them).
-
 mixin _TestCapability on UnifiedDe1 {
   Future<int> readFan() => readMmrInt(MMRItem.fanThreshold);
   Future<int> readFanViaWrongHelper() => readMmrInt(MMRItem.targetSteamFlow);
@@ -96,8 +87,6 @@ void main() {
     setUp(() async {
       transport = FakeBleTransport();
       de1 = _TestDe1(transport: transport);
-      // Subscribe wiring needs the BLE connect path to run; queue the
-      // MMR reads `onConnect` performs so it can complete.
       transport.queueOnConnectResponses();
       await de1.onConnect();
     });
@@ -158,8 +147,6 @@ void main() {
           name: 'cupWarmerStatus',
           kind: MmrValueKind.bytes,
         );
-        // First read request's notification is lost; the queued response
-        // survives for the retry, which lands after the 4s timeout + settle.
         transport.dropNextMmrResponses = 1;
         transport.queueMmrResponseRaw(addr, [0xDE, 0xAD, 0xBE, 0xEF]);
 
@@ -240,11 +227,6 @@ void main() {
     test(
       'notificationsFor(shotSample) routes to transport shotSample',
       () async {
-        // The transport's BLE subscriber for the shotSample characteristic
-        // pushes onto the underlying BehaviorSubject. We emit synthetic
-        // bytes through that callback and verify the protected method's
-        // stream observes them — proving the dispatch table routes
-        // Endpoint.shotSample to the right subject.
         final stream = de1.capNotifications(Endpoint.shotSample);
         final marker = Uint8List(19);
         marker[0] = 0x7F;

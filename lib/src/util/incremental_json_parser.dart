@@ -72,7 +72,6 @@ class IncrementalJsonParser {
   bool _documentDone = false;
   JsonContainerKind? _topKind;
 
-  // Current token (string / scalar / key) raw text.
   final StringBuffer _token = StringBuffer();
   bool _inString = false;
   bool _inEscape = false;
@@ -82,10 +81,6 @@ class IncrementalJsonParser {
   bool _inScalar = false;
   int _tokenBytes = 0;
 
-  // Raw span of the value currently at [eventDepth] (may be a container,
-  // string, or scalar). Cleared when each event-candidate value starts.
-  // [_spanBytes] tracks the UTF-8 byte length incrementally so container
-  // values are capped while they are constructed, not after the fact.
   final StringBuffer _span = StringBuffer();
   bool _spanOpen = false;
   int _spanBytes = 0;
@@ -169,7 +164,6 @@ class IncrementalJsonParser {
       );
     }
     if (_inScalar) {
-      // Scalars may legally end at EOF; complete the token now.
       _completeScalar();
     }
     if (_spanOpen) {
@@ -206,14 +200,10 @@ class IncrementalJsonParser {
     }
 
     if (_ws.contains(c)) {
-      // Whitespace between values is not part of any span; inside an open
-      // event span it is harmless and tolerated by the decoder.
       if (_spanOpen) _spanWriteCharCode(c);
       return;
     }
 
-    // Structural characters ( `{ [ " , : } ]` and scalar starts) are part of
-    // the enclosing event span when one is open.
     if (_spanOpen) _spanWriteCharCode(c);
 
     if (_stack.isEmpty) {
@@ -522,8 +512,6 @@ class IncrementalJsonParser {
   void _closeContainer() {
     _stack.removeLast();
     final closedDepth = _stack.length;
-    // The closing char was already written into the span (if open) by
-    // `_feedChar` before this container closed.
     if (closedDepth == _eventDepth) {
       if (!_spanOpen) {
         throw const JsonStreamFormatException('Internal parser error.');

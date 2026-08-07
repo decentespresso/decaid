@@ -601,7 +601,6 @@ void main() {
         );
         await tester.pump();
 
-        // Should still render the scan flow (no crash)
         expect(find.byType(ShadProgress), findsOneWidget);
       },
     );

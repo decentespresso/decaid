@@ -30,17 +30,8 @@ const _benignBleErrorCodes = <String>{
 /// Individual device implementations should still catch these at their
 /// write/heartbeat level for graceful recovery.
 bool isBenignFrameworkError(Object error) {
-  // DeviceNotConnectedException — thrown by _handleGattError when a BLE
-  // write/read/subscribe hits a gone device. Upper layers catch it; when
-  // it escapes a timer callback it hits the framework handler.
   if (error is DeviceNotConnectedException) return true;
 
-  // UniversalBleException with a gone-device code — the raw exception
-  // from universal_ble's native layer that _handleGattError converts to
-  // DeviceNotConnectedException. When it escapes from a fire-and-forget
-  // context or a clearQueue'd pending item, it reaches the framework
-  // handler before our try/catch sees it. Match by toString() prefix to
-  // avoid a layer dependency on the universal_ble package.
   final errorString = error.toString();
   if (errorString.startsWith('UniversalBleException:') ||
       errorString.contains('UniversalBleException:')) {
@@ -52,9 +43,6 @@ bool isBenignFrameworkError(Object error) {
     }
   }
 
-  // PlatformException from bonsoir DNS-SD plugin — ServiceNotRunning means
-  // the mDNS daemon isn't available on the platform (iOS/macOS transient
-  // state). Not a code bug.
   if (errorString.startsWith('PlatformException(') &&
       (errorString.contains('Bonsoir') ||
           errorString.contains('ServiceNotRunning'))) {

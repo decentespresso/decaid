@@ -116,10 +116,6 @@ class TclShotParser {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Internal helpers
-  // ---------------------------------------------------------------------------
-
   static List<ShotSnapshot> _parseSnapshots(
     Map<String, dynamic> map,
     DateTime baseTimestamp,

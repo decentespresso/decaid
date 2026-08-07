@@ -174,10 +174,6 @@ class DisplayController {
     _stateSubject.close();
   }
 
-  // ---------------------------------------------------------------------------
-  // Public API
-  // ---------------------------------------------------------------------------
-
   /// Set screen brightness to a value between 0 and 100.
   ///
   /// Value 100 resets to OS-managed brightness (respects auto-brightness).
@@ -216,14 +212,9 @@ class DisplayController {
   Future<void> releaseWakeLock() async {
     _wakeLockOverride = false;
     _updateState(wakeLockOverride: false);
-    // Re-evaluate: if machine is sleeping/disconnected, release wake-lock
     await _evaluateWakeLock();
     _log.fine('Wake-lock override released');
   }
-
-  // ---------------------------------------------------------------------------
-  // Brightness logic
-  // ---------------------------------------------------------------------------
 
   Future<void> _applyBrightness() async {
     if (!_platformSupport.brightness) return;
@@ -251,7 +242,6 @@ class DisplayController {
   }
 
   int _computeEffectiveBrightness() {
-    // No battery stream means desktop — no cap
     if (_batteryStateStream == null) return _requestedBrightness;
 
     // Setting must be enabled
@@ -280,10 +270,6 @@ class DisplayController {
     unawaited(_evaluateWakeLock());
   }
 
-  // ---------------------------------------------------------------------------
-  // DE1 connection handling
-  // ---------------------------------------------------------------------------
-
   void _onDe1Changed(De1Interface? de1) {
     if (de1 == _de1) return;
 
@@ -308,7 +294,6 @@ class DisplayController {
 
     _syncBrightnessForMachineState();
 
-    // Wake-lock only needs re-evaluating when the state actually changes.
     if (previousState != _currentMachineState) {
       unawaited(_evaluateWakeLock());
     }
@@ -355,10 +340,6 @@ class DisplayController {
     await _applyBrightness();
   }
 
-  // ---------------------------------------------------------------------------
-  // Wake-lock logic
-  // ---------------------------------------------------------------------------
-
   Future<void> _evaluateWakeLock() async {
     // keepAwake setting: screen always on while the app runs (full override).
     if (_settingsController.keepAwake) {
@@ -371,7 +352,6 @@ class DisplayController {
       return;
     }
 
-    // Auto-manage: enable if connected and not sleeping
     final shouldEnable =
         _de1 != null && _currentMachineState != MachineState.sleeping;
     await _applyWakeLock(shouldEnable);
@@ -389,10 +369,6 @@ class DisplayController {
       _log.warning('Failed to ${enable ? "enable" : "disable"} wake-lock: $e');
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // State management
-  // ---------------------------------------------------------------------------
 
   void _updateState({
     bool? wakeLockEnabled,

@@ -109,7 +109,6 @@ void main() {
       await db.beanDao.insertBean(makeBean(id: 'b1'));
       await db.beanDao.insertBean(makeBean(id: 'b2'));
 
-      // First emission after both inserts should have 2 beans
       final beans = await stream.first;
       expect(beans, hasLength(2));
     });

@@ -202,9 +202,6 @@ class DataSyncHandler {
     final tempDir = await TempArchiveDir.create('reaprime-sync-pull-');
     final deadline = DateTime.now().add(limits.syncOverallTimeout);
     final abortCompleter = Completer<void>();
-    // Abort the transport when the deadline expires. Future.timeout only
-    // stops waiting; without this, a pre-header timeout would leave the
-    // connection and the target's export running to completion.
     final abortTimer = Timer(limits.syncOverallTimeout, () {
       if (!abortCompleter.isCompleted) abortCompleter.complete();
     });
@@ -214,8 +211,6 @@ class DataSyncHandler {
         Uri.parse('$target/api/v1/data/export'),
         abortTrigger: abortCompleter.future,
       );
-      // No short header timeout: the target only responds after generating
-      // its export archive. The deadline bounds the wait.
       final streamed = await _httpClient
           .send(request)
           .timeout(_remaining(deadline));
@@ -352,8 +347,6 @@ class DataSyncHandler {
         if (!aborted) await request.sink.close();
       });
 
-      // Aborts the upload: the transport closes the connection, the sink's
-      // listener errors, and addStream cancels the file read.
       Future<void> abortUpload() async {
         aborted = true;
         if (!abortCompleter.isCompleted) abortCompleter.complete();
@@ -363,10 +356,6 @@ class DataSyncHandler {
       }
 
       try {
-        // The target only responds after it has received and imported the
-        // whole archive, so there is no short header timeout here; the
-        // network deadline bounds the wait. send() completes only after
-        // the body has been fully written, so bodySent is settled here.
         final completed = await Future.wait<Object?>([
           _httpClient.send(request),
           bodyStreamDone,
@@ -407,9 +396,6 @@ class DataSyncHandler {
         final uploadComplete = bodySent;
         await abortUpload();
         if (uploadComplete) {
-          // The whole archive reached the transport before the deadline;
-          // the target may have already imported it. Report the outcome as
-          // unknown rather than claiming the push did not happen.
           return DataTransferPhaseOutcome.failed(
             error: 'Sync timed out',
             message:
@@ -515,8 +501,6 @@ class DataSyncHandler {
       );
     }
     if (error is http.RequestAbortedException) {
-      // Only the phase deadline completes the abort trigger, so an aborted
-      // request means the deadline expired.
       return DataTransferPhaseOutcome.failed(
         error: 'Target unreachable',
         message: 'Request timed out',

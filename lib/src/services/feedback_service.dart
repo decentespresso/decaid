@@ -251,7 +251,6 @@ class FeedbackService {
       if (result.length <= maxBytes) return result;
     }
 
-    // Last resort: return smallest attempt
     _log.warning('Could not scale image below $maxBytes bytes');
     return imageBytes;
   }
@@ -259,7 +258,6 @@ class FeedbackService {
   /// Build the title for the GitHub issue
   String _buildIssueTitle(FeedbackRequest request) {
     final prefix = '[${request.type.displayName}]';
-    // Use first line or first 80 chars of description as title
     final firstLine = request.description.split('\n').first;
     final title = firstLine.length > 80
         ? '${firstLine.substring(0, 77)}...'

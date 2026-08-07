@@ -24,10 +24,6 @@ class FakeCredentialStore implements CredentialStore {
       _store.containsKey('email') && _store.containsKey('password');
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 const _baseUrl = 'https://decentespresso.com';
 
 http_testing.MockClient _mockClient({
@@ -38,9 +34,6 @@ http_testing.MockClient _mockClient({
     return http.Response(body, statusCode);
   });
 }
-
-// ---------------------------------------------------------------------------
-// ---------------------------------------------------------------------------
 
 void main() {
   group('DecentAccountService', () {
@@ -130,7 +123,6 @@ void main() {
       test('persists encrypted password on successful login', () async {
         await service.login('test@example.com', 'hunter2');
         expect(await store.read(key: 'email'), 'test@example.com');
-        // Stores the encrypted password returned by the API, not the plaintext.
         expect(await store.read(key: 'password'), 'cryptpw_abc123');
       });
 

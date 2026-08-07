@@ -91,10 +91,6 @@ class DataExportHandler {
     app.post('/api/v1/data/import', _handleImport);
   }
 
-  // ---------------------------------------------------------------------
-  // Export
-  // ---------------------------------------------------------------------
-
   /// Exports selected sections into a uniquely owned temporary ZIP inside
   /// [tempDir]. The ZIP is complete and valid only when this returns; on any
   /// section or archive failure a [DataExportException] is thrown and no ZIP
@@ -205,10 +201,6 @@ class DataExportHandler {
     }
   }
 
-  // ---------------------------------------------------------------------
-  // Import
-  // ---------------------------------------------------------------------
-
   /// Imports from a staged ZIP file. The caller owns [zipFile]'s lifecycle.
   Future<DataImportOutcome> importFromZipFile(
     File zipFile,
@@ -295,16 +287,12 @@ class DataExportHandler {
           if (result.errors.isNotEmpty &&
               result.imported == 0 &&
               result.skipped == 0) {
-            // Preserve the legacy failed-section shape (errors only, no
-            // zero counts) for structurally rejected sections.
             results[key] = {'errors': result.errors};
           } else {
             results[key] = result.toJson();
           }
         } catch (e, st) {
           if (e is InvalidBackupException) {
-            // ZIP integrity failures abort the whole import as 400; only
-            // section-local (JSON-level) failures stay isolated here.
             rethrow;
           }
           _log.severe('Error importing ${section.filename}', e, st);
@@ -453,10 +441,6 @@ class DataExportHandler {
     }
   }
 
-  // ---------------------------------------------------------------------
-  // Metadata and section resolution
-  // ---------------------------------------------------------------------
-
   Future<String?> _readMetadata(
     StreamingZipReader reader,
     File jsonFile,
@@ -567,8 +551,6 @@ class _EntryJsonSink implements JsonSink {
 
   @override
   void writeRaw(String fragment) {
-    // Encode once and check the encoded byte length: the record limit is
-    // documented in bytes, and UTF-8 can be up to 3x the UTF-16 length.
     final encoded = utf8.encode(fragment);
     if (encoded.length > _limits.maxRecordBytes) {
       throw DataExportException(

@@ -33,8 +33,6 @@ class BeanExportSection implements DataExportSection {
       );
       if (page.isEmpty) break;
       for (final bean in page) {
-        // One bean's batches are materialized at a time; a bean record
-        // (including its batches) is a single bounded JSON value.
         final batches = await _storage.getBatchesForBean(
           bean.id,
           includeArchived: true,
@@ -75,7 +73,6 @@ class BeanExportSection implements DataExportSection {
                 .toList() ??
             [];
 
-        // Remove batches from bean JSON before parsing
         final beanJson = Map<String, dynamic>.from(json)..remove('batches');
         final bean = Bean.fromJson(beanJson);
 
@@ -92,7 +89,6 @@ class BeanExportSection implements DataExportSection {
           imported++;
         }
 
-        // Import batches for this bean
         for (final batch in batches) {
           try {
             final existingBatch = await _storage.getBatchById(batch.id);

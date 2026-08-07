@@ -101,8 +101,6 @@ class ForegroundTaskService {
       onStart: () => start(),
     );
 
-    // Skip initial null emission from BehaviorSubject to avoid
-    // immediately starting the grace period at startup.
     bool isFirstEmission = true;
     _machineSubscription = machineStream.listen((machine) {
       if (isFirstEmission && machine == null) {
@@ -138,8 +136,6 @@ class FirstTaskHandler extends TaskHandler {
     _log.info("Foreground service destroyed. Timeout: $isTimeout");
   }
 
-  // This method is called periodically based on the interval set in ForegroundTaskOptions
-  // It's critical to keep the service alive - if this doesn't run, Android will kill the service
   @override
   void onRepeatEvent(DateTime timestamp) {
     _eventCount++;
@@ -154,8 +150,6 @@ class FirstTaskHandler extends TaskHandler {
   @override
   void onNotificationPressed() {
     _log.info('Notification tapped - bringing app to foreground');
-    // flutter_foreground_task handles launching the activity automatically
-    // singleTask launch mode ensures existing activity is surfaced
   }
 
   String _formatUptime() {

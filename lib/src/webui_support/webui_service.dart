@@ -178,30 +178,6 @@ class WebUIService {
     await _server?.close(force: true);
     _localIP ??= await _resolveLocalIP();
 
-    // 1. Get system temp directory
-    // final documents = await getApplicationDocumentsDirectory();
-    // final tempDir = Directory("${documents.path}/served_folder_");
-    // if (await tempDir.exists()) {
-    //   await tempDir.delete(recursive: true);
-    // }
-    // final tempPath = tempDir.path;
-    // final srcDir = Directory(path);
-    // _log.fine("attempting copy from:");
-    // _log.fine("${srcDir.listSync(recursive: true)}");
-    // if (await srcDir.exists() == false) {
-    //     throw "No";
-    //   }
-
-    // 2. Copy folder to temp
-    // await tempDir.create(recursive: true);
-    // await _copyDirectory(Directory(path), tempDir);
-    // copyDirectorySync(srcDir, tempDir);
-
-    // _log.fine("copied data:");
-    // final list = tempDir.listSync(recursive: true);
-    // _log.fine("${list}");
-    // _log.fine("loading from $tempPath");
-
     final webUI = createStaticHandler(
       path,
       defaultDocument: 'index.html',
@@ -234,11 +210,6 @@ class WebUIService {
         if (request.requestedUri.path.startsWith('/ws')) {
           return response;
         }
-
-        // Option 2: Alternatively, check if the request has an Upgrade header
-        // if ((request.headers['upgrade']?.toLowerCase() ?? '') == 'websocket') {
-        //   return response;
-        // }
 
         return response.change(
           headers: {

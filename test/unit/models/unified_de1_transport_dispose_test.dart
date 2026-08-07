@@ -77,8 +77,6 @@ void main() {
 
       expect(fake.disposeCalled, isTrue);
 
-      // After dispose, subjects are closed and complete without emitting
-      // placeholder values.
       for (final stream in [
         transport.state,
         transport.shotSample,
@@ -100,7 +98,6 @@ void main() {
     await transport.dispose();
     expect(fake.disposeCalled, isTrue);
 
-    // Second call should not throw
     fake.disposeCalled = false;
     await transport.dispose();
     expect(fake.disposeCalled, isTrue);

@@ -30,7 +30,6 @@ final class PluginsHandler {
         if (url == null || url.isEmpty) {
           return jsonBadRequest({'error': 'url is required'});
         }
-        // Plugin install from URL not yet implemented
         return jsonNotImplemented({
           'error': 'Plugin install from URL not yet implemented',
         });
@@ -203,12 +202,10 @@ final class PluginsHandler {
         'query': req.url.queryParameters,
       };
 
-      // Register the pending request before dispatching to the plugin.
       final responseFuture = pluginManager.registerPendingHttp(id, requestId);
 
       pluginManager.dispatchEvent(id, 'httpRequest', requestData);
 
-      // Wait for the plugin's response (with timeout)
       final response = await responseFuture;
 
       final status = response['status'] as int? ?? 200;

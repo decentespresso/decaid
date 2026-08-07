@@ -39,7 +39,6 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
   @override
   Future<double> getCupWarmerTemperature() async => _cupWarmerTemp;
 
-  // --- LED strip ---
   /// Cache of the last-set config (not necessarily committed to NVM).
   final BehaviorSubject<LedStripState> _ledState =
       BehaviorSubject<LedStripState>.seeded(const LedStripState());
@@ -68,24 +67,15 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
     _ledState.add(_committedLedState);
   }
 
-  // --- integrated scale ---
-  // Weight synthesis lives in the shared SimulatedShotWeightModel (also used
-  // by the standalone MockScale): preinfusion absorbed, first-drops holdback,
-  // saturation ramp-in, then weight tracking flow 1:1. BehaviorSubject so a
-  // late subscriber (e.g. WS client connecting mid-shot) immediately gets the
-  // current weight without waiting for the next flow sample. Closed on
-  // onDisconnect; existing subscribers receive `done`.
   final SimulatedShotWeightModel _weightModel = SimulatedShotWeightModel();
   final BehaviorSubject<ScaleSnapshot> _weight = BehaviorSubject();
   StreamSubscription<MachineSnapshot>? _flowSub;
 
-  // --- SAW ---
   /// `0.0` = SAW disabled.
   double _sawTarget = 0.0;
   final BehaviorSubject<double> _sawTargetSubject =
       BehaviorSubject<double>.seeded(0.0);
 
-  // --- milk probe / stop-at-temperature ---
   /// `0.0` = stop disabled.
   double _stopAtTempTarget = 0.0;
   final BehaviorSubject<double> _stopAtTempTargetSubject =

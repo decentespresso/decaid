@@ -61,9 +61,8 @@ void main() {
     });
 
     testWidgets('displays discovered machines', (tester) async {
-      // Add device before building so initState picks it up
       mockService.addDevice(MockDe1());
-      await tester.pump(); // flush stream microtasks to DeviceController
+      await tester.pump();
 
       await tester.pumpWidget(
         buildTestApp(
@@ -81,9 +80,8 @@ void main() {
     });
 
     testWidgets('displays discovered scales', (tester) async {
-      // Add device before building so initState picks it up
       mockService.addDevice(TestScale());
-      await tester.pump(); // flush stream microtasks to DeviceController
+      await tester.pump();
 
       await tester.pumpWidget(
         buildTestApp(

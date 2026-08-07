@@ -90,7 +90,6 @@ class _Parser {
     if (tokens.isEmpty) return '';
 
     if (tokens.length == 1) {
-      // Single token — return as string (could be a number, a word, etc.)
       return tokens[0].value;
     }
 
@@ -102,14 +101,6 @@ class _Parser {
       }
     }
 
-    // Treat as a key-value map when:
-    //  (a) There are at least 4 tokens (2+ pairs) with an even count, OR
-    //  (b) There are at least 2 tokens and at least one value token is braced.
-    // This correctly classifies:
-    //   `{Colombia Huila}` (2 plain tokens) → String
-    //   `{63mm conical}` (2 plain tokens) → String
-    //   `{setting_type numeric small_step 1}` (4 plain tokens) → Map
-    //   `{setting_type numeric burrs {63mm conical}}` (nested brace) → Map
     final hasNestedBraces = tokens.any((t) => t.isBraced);
     final looksLikePairs =
         tokens.length.isEven &&

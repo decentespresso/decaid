@@ -35,8 +35,6 @@ String sanitizeZipEntryPath(String entryName) {
   final sanitised = segments
       .map((segment) {
         var s = segment.replaceAll(_win32ReservedChars, '_');
-        // Win32 silently drops trailing dots and spaces from path components;
-        // strip them so what we ask for is what we get on disk.
         while (s.isNotEmpty && (s.endsWith('.') || s.endsWith(' '))) {
           s = s.substring(0, s.length - 1);
         }
@@ -113,8 +111,6 @@ ExtractionResult extractArchiveToDirectory(
   required bool sanitize,
   Logger? log,
 }) {
-  // Pass 1: validate every entry before writing any files. A single unsafe
-  // entry rejects the whole archive so nothing can land outside destDir.
   for (final entry in archive) {
     final originalName = entry.name;
     final safeName = sanitize

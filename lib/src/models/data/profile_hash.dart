@@ -26,8 +26,6 @@ class ProfileHash {
       'target_weight': profile.targetWeight,
       'target_volume': profile.targetVolume,
       'target_volume_count_start': profile.targetVolumeCountStart,
-      // legacy_profile_type and type don't exist in current Profile model
-      // If they're added later, include them here
     };
 
     final jsonStr = _encodeJsonStable(data);
@@ -35,7 +33,6 @@ class ProfileHash {
     final bytes = utf8.encode(jsonStr);
     final hash = sha256.convert(bytes);
 
-    // Return first 20 characters prefixed with 'profile:'
     return 'profile:${hash.toString().substring(0, 20)}';
   }
 

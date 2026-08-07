@@ -70,10 +70,6 @@ class DataManagementPage extends StatefulWidget {
 }
 
 class _DataManagementPageState extends State<DataManagementPage> {
-  // Progress-dialog bookkeeping. Captured navigator lets us dismiss the
-  // dialog even if the widget unmounts mid-prep (no stranded dialog route);
-  // the flag is reset by the dialog future's completion so a system-back
-  // dismiss doesn't cause a later pop() to pop the page instead.
   bool _progressDialogOpen = false;
   NavigatorState? _progressNavigator;
 
@@ -313,7 +309,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       await tempDir.dispose();
       return;
     }
-    _dismissProgressDialog(); // dismiss progress dialog before picker/share
+    _dismissProgressDialog();
 
     final timestamp = DateTime.now()
         .toIso8601String()
@@ -323,8 +319,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
     final fileName = 'decent_export_$timestamp.zip';
 
     if (Platform.isIOS || Platform.isAndroid) {
-      // OS share/save sheet with the temp file; the receiving app may read
-      // the file after the sheet closes, so cleanup is deferred.
       try {
         final result = await SharePlus.instance.share(
           ShareParams(
@@ -357,8 +351,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
       }
     } else {
       try {
-        // Desktop: obtain a destination path, then stream-copy the temp
-        // file (no bytes are passed to the picker).
         final outputFile = await FilePicker.saveFile(
           fileName: fileName,
           dialogTitle: 'Choose where to save backup',
@@ -431,7 +423,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
     }
 
     if (!mounted) return;
-    _dismissProgressDialog(); // dismiss progress dialog before picker
+    _dismissProgressDialog();
 
     try {
       final outputFile = await FilePicker.saveFile(
@@ -483,7 +475,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
     }
 
     if (!mounted) return;
-    _dismissProgressDialog(); // dismiss progress dialog before picker
+    _dismissProgressDialog();
 
     try {
       final outputFile = await FilePicker.saveFile(

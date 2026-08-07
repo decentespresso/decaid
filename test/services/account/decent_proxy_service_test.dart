@@ -74,7 +74,6 @@ void main() {
     expect(result.statusCode, 200);
     expect(result.body, 'SN001\nSN002');
 
-    // Credentials are attached server-side as Basic auth.
     final expected =
         'Basic ${base64Encode(utf8.encode('user@example.com:cryptpw_abc123'))}';
     expect(captured.headers['authorization'], expected);

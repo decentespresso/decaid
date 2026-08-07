@@ -49,7 +49,6 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Token is shown once, and it's a real registered token.
     final shown = tester.widget<SelectableText>(
       find.byKey(const Key('token-value')),
     );

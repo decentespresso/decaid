@@ -45,9 +45,6 @@ def strip_tcl_braces(value):
     return value
 
 
-# ---------------------------------------------------------------------------
-# TCL parser
-# ---------------------------------------------------------------------------
 
 def parse_tcl_profile(content):
     """Parse a de1app TCL profile into a dict matching v2 JSON structure.
@@ -60,7 +57,6 @@ def parse_tcl_profile(content):
     """
     result = {}
 
-    # Extract advanced_shot first (it's a TCL nested list on one line)
     advanced_match = re.match(r'^advanced_shot\s+(.*)', content, re.MULTILINE)
     raw_steps_str = ""
     if advanced_match:
@@ -129,8 +125,6 @@ def _parse_tcl_steps(raw):
         raw = raw[1:-1].strip()
 
     steps = []
-    # Split on }{ boundaries (each step is in {braces})
-    # But step values can contain {braces} too (e.g. name {Extraction start})
     step_strings = _split_tcl_list(raw)
 
     for step_str in step_strings:
@@ -280,9 +274,6 @@ def _tokenize_tcl(s):
     return tokens
 
 
-# ---------------------------------------------------------------------------
-# JSON/common conversion
-# ---------------------------------------------------------------------------
 
 def convert_step(step):
     """Convert a parsed profile step to Decent format."""

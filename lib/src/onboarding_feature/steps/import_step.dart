@@ -116,7 +116,6 @@ class _ImportStepViewState extends State<_ImportStepView> {
   Future<void> _onFolderSelected(String folderPathOrUri) async {
     String effectivePath = folderPathOrUri;
 
-    // On Android, folderPathOrUri is a SAF tree URI — copy to local cache first.
     if (Platform.isAndroid) {
       setState(() {
         _phase = _ImportPhase.copying;

@@ -83,8 +83,6 @@ class SimulatedShotWeightModel {
       final ramp = (_pourElapsed / saturationSecs).clamp(0.0, 1.0);
       _shotVolume += s.flow * dtSec * ramp;
     } else if (s.state.state == MachineState.hotWater) {
-      // Hot water pours straight into the cup — no puck to absorb it or
-      // hold back the first drops.
       _settledWeight += s.flow * dtSec;
     }
   }

@@ -79,9 +79,6 @@ void main() {
     });
 
     test('connect → disconnect → connect lifecycle is leak-free', () async {
-      // First lifecycle was set up in setUp(). Disconnect (which now
-      // routes through UnifiedDe1.disconnect → onDisconnect →
-      // disposeIntegratedScale) should close the subject.
       await bengle.disconnect();
       await expectLater(bengle.weightSnapshot, emitsDone);
 

@@ -286,7 +286,6 @@ void main() {
   });
 
   test('re-applies current target on Bengle (re)connect', () async {
-    // Pre-edit the workflow before any machine is connected.
     final ctx = workflow.currentWorkflow.context ?? const WorkflowContext();
     workflow.updateWorkflow(context: ctx.copyWith(targetYield: 28.0));
 

@@ -48,9 +48,6 @@ class StatusPublisher {
     if (effectiveError == null &&
         prev.error != null &&
         ConnectionErrorKind.sticky.contains(prev.error!.kind)) {
-      // Caller published null but a sticky error was active — keep it.
-      // Sticky errors only clear via explicit environmental-recovery
-      // handlers.
       effectiveError = prev.error;
     } else if (effectiveError != null &&
         movingIntoClearingPhase &&

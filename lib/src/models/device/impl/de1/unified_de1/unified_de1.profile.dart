@@ -97,9 +97,6 @@ extension UnifiedDe1Profile on UnifiedDe1 {
 
     data[0] = profile.steps.length;
 
-    // Ignore writing shot vol limit, it's not compatible with active scale and breaks with high PI flows.
-    // Helper.convert_float_to_U10P0_for_tail(profile.targetVolume ?? 0, data, 1);
-
     data[3] = 0;
     data[4] = 0;
     data[5] = 0;
@@ -151,8 +148,6 @@ class Helper {
     if (ix > 1023) {
       ix = 1023;
     }
-    // there is a mismatch between docs and actual implementation in the firmware
-    // instead 0f 0x8000 for ignorePI, 0x400 sets PI counting to enabled.
     data[index] = ix >> 8;
     data[index + 1] = (ix & 0xff);
   }
@@ -168,10 +163,6 @@ class Helper {
 
     int ix = x.toInt() | 1024;
     d.buffer.asByteData().setInt16(0, ix);
-
-    // if (ix > 255) {
-    //   ix = 255;
-    // }
 
     data[index] = d.buffer.asByteData().getUint8(0);
     data[index + 1] = d.buffer.asByteData().getUint8(1);

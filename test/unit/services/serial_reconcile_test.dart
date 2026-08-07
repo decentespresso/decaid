@@ -161,9 +161,6 @@ void main() {
         livenessTick: 1,
         livenessEveryN: 3,
         tracked: [
-          // present + disconnected HDS → released first (not connected), so it
-          // won't reach the reap branch. Use a NON-HDS present self-disconnect
-          // that is also (artificially) in hdsPaths to exercise the net.
           _port(
             '/x',
             hds: false,

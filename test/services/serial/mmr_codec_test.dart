@@ -42,8 +42,6 @@ void main() {
     });
 
     test('returns the int32 value for a Bengle-range model (>= 128)', () {
-      // Real Bengle reply observed on hardware: [4, 80, 0, c, 80, 0, 0, 0, ...]
-      // Value bytes [4..7] = [0x80, 0x00, 0x00, 0x00] little-endian = 128.
       final payload = [
         0x04,
         0x80,

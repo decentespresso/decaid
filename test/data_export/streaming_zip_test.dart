@@ -354,9 +354,6 @@ void main() {
     });
 
     test('rejects CRC mismatch', () async {
-      // Build a STORED (uncompressed) legacy zip and flip a content byte so
-      // the CRC no longer matches the central directory without breaking
-      // the deflate stream.
       final archive = Archive();
       final file = ArchiveFile.string('a.json', 'hello world');
       file.compression = CompressionType.none;
@@ -365,7 +362,7 @@ void main() {
       await zipFile.writeAsBytes(ZipEncoder().encode(archive));
       final bytes = await zipFile.readAsBytes();
       final corrupted = Uint8List.fromList(bytes);
-      corrupted[36] = corrupted[36] ^ 0xFF; // first content byte
+      corrupted[36] = corrupted[36] ^ 0xFF;
       await zipFile.writeAsBytes(corrupted);
       final reader = await StreamingZipReader.open(
         zipFile,
