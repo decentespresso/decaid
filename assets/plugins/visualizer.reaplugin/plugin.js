@@ -183,6 +183,14 @@ function createPlugin(host) {
     const context = reaShot.workflow?.context || {};
     let totalWaterDispensed = 0;
 
+    // Recipe tags (set in the recipe editor, carried in workflow.context.extras)
+    // and shot-review tags (added after the pour, carried in annotations.extras)
+    // are separate sources — merge and dedupe them into the single tags list
+    // Visualizer expects.
+    const recipeTags = Array.isArray(context.extras?.tags) ? context.extras.tags : [];
+    const shotTags = Array.isArray(annotations.extras?.tags) ? annotations.extras.tags : [];
+    const tags = Array.from(new Set([...recipeTags, ...shotTags]));
+
     const visualizerShot = {
       // start_time: reaShot.measurements[0].machine.timestamp,
       timestamp: Math.floor(firstTimestamp / 1000),
@@ -208,6 +216,7 @@ function createPlugin(host) {
             drink_ey: annotations.drinkEy != null ? String(annotations.drinkEy) : undefined,
             espresso_enjoyment: annotations.enjoyment != null ? String(Math.round(Number(annotations.enjoyment))) : undefined,
             espresso_notes: annotations.espressoNotes,
+            tags: tags.length > 0 ? tags : undefined,
           }
         }
       },
