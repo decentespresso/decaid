@@ -201,8 +201,6 @@ void main() {
     });
 
     group('frame reconstruction', () {
-      // TCL .shot files don't embed a profile — we synthesize an empty-steps
-      // profile from settings, so all snapshots stay at frame 0.
       test('all snapshots at frame 0 when profile has no steps', () {
         for (final snap in result.shot.measurements) {
           expect(snap.machine.profileFrame, equals(0));

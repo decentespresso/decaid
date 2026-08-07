@@ -67,8 +67,6 @@ void main() {
           .toList()
           .timeout(const Duration(seconds: 3));
 
-      // 15 ticks @ 100ms = 1.5s. Preinfusion steps are 2+2=4s long.
-      // Weight should be near zero throughout.
       for (final s in snapshots) {
         expect(
           s.weight.abs(),

@@ -55,8 +55,6 @@ void main() {
 
     test('transient errors get stripped when moving into a clearing phase', () {
       pub.emitError(_err(ConnectionErrorKind.scaleConnectFailed));
-      // Caller re-publishes current status (preserves error via copyWith)
-      // while transitioning into `scanning`, a clearing phase.
       pub.publish(pub.current.copyWith(phase: ConnectionPhase.scanning));
       expect(
         pub.current.error,
@@ -76,11 +74,6 @@ void main() {
             error: () => _err(ConnectionErrorKind.scaleConnectFailed),
           ),
         );
-        // Under current semantics (matching the pre-refactor behaviour)
-        // a brand-new error passed atomically with a clearing-phase
-        // transition is also stripped. Keep this test pinning that
-        // behaviour; when we move to unified emission in a later phase,
-        // the assertion will flip.
         expect(pub.current.error, isNull);
       },
     );

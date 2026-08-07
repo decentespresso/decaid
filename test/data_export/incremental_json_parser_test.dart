@@ -184,8 +184,6 @@ void main() {
     });
 
     test('measures limits in UTF-8 bytes, not UTF-16 code units', () {
-      // 9 '\u00E9' chars + quotes = 20 bytes; 10 chars = 22 bytes. A
-      // UTF-16 length check would admit both.
       final ok = IncrementalJsonParser(eventDepth: 1, maxValueBytes: 20);
       final events = <JsonValueEvent>[];
       ok.feed('["${'\u00E9' * 9}"]');

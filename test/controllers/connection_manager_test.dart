@@ -174,8 +174,6 @@ void main() {
     late MockSettingsService mockSettingsService;
     late ConnectionManager connectionManager;
 
-    // MockDe1Controller requires a DeviceController for its super constructor.
-    // We use a real one with a dummy discovery service just to satisfy that.
     late MockDeviceDiscoveryService dummyDiscoveryService;
 
     setUp(() async {
@@ -1138,8 +1136,6 @@ void main() {
 
       test('concurrent scaleOnly during another connect is queued and '
           'drained after the in-flight call (comms-harden #9)', () async {
-        // Start a scaleOnly connect that will block on the scan
-        // completer for deterministic timing.
         mockScanner.scanCompleter = Completer<void>();
         final future1 = connectionManager.connect(scaleOnly: true);
 
@@ -1149,8 +1145,6 @@ void main() {
         final future2 = connectionManager.connect(scaleOnly: true);
         final future3 = connectionManager.connect(scaleOnly: true);
 
-        // No scan should have started for future2/future3 yet —
-        // queued requests share the in-flight scan.
         await Future.delayed(Duration.zero);
         expect(future2, isA<Future<void>>());
         expect(future3, isA<Future<void>>());
@@ -1524,8 +1518,6 @@ void main() {
         await connectionManager.connectMachine(fakeDe1);
         await Future.delayed(Duration.zero);
 
-        // Two trailing idles: one from the phase revert, one from _emit
-        // re-publishing the status with the structured error attached.
         expect(phases, [
           ConnectionPhase.idle,
           ConnectionPhase.connectingMachine,
@@ -1882,8 +1874,6 @@ void main() {
         await connectionManager.connectScale(testScale);
         await Future.delayed(Duration.zero);
 
-        // Two trailing idles: one from the phase revert, one from _emit
-        // re-publishing on the same phase with the error attached.
         expect(phases, [
           ConnectionPhase.idle,
           ConnectionPhase.connectingScale,
@@ -2683,9 +2673,6 @@ void main() {
       );
 
       setUp(() async {
-        // Retire the shared legacy manager from the outer setUp — it
-        // listens to the same subjects and, with supportsWatch flipped
-        // on, would double-arm the watch alongside this group's manager.
         await connectionManager.dispose();
         mockScanner.supportsWatch = true;
       });
@@ -2712,9 +2699,6 @@ void main() {
                 'match advertised names; Dart-side matching owns this',
           );
 
-          // The load-bearing regression assertion: past the full legacy
-          // backoff ladder (5→60s), no burst scan may fire — the watch
-          // replaces the loop entirely.
           async.elapse(const Duration(seconds: 70));
           async.flushMicrotasks();
           expect(
@@ -2927,8 +2911,6 @@ void main() {
 
             final fakeDe1 = _FakeDe1(deviceId: 'pref-de1');
             mockScanner.quickConnectResult = fakeDe1;
-            // Fresh controller: the group setUp disposed the shared one
-            // (closing its subjects), which would make adoptDevice throw.
             final qcDe1Controller = MockDe1Controller(
               controller: DeviceController([dummyDiscoveryService]),
             );
@@ -3015,8 +2997,6 @@ void main() {
           async.flushMicrotasks();
           expect(mockScanner.startWatchCallCount, 1);
 
-          // Simulates a failed refresh / post-burst resume / adapter
-          // recovery inside the discovery service.
           mockScanner.emitWatchFailure();
           async.flushMicrotasks();
 
@@ -3470,9 +3450,6 @@ void main() {
       scan1Completer.complete();
       await Future.wait([f1, f2, f3]);
       await Future<void>.delayed(Duration.zero);
-
-      // All three callers completed without throwing.
-      // The futures resolved (no exception caught).
     });
 
     test('cancelActiveScan discards queued explicit replacement', () async {
@@ -3556,23 +3533,17 @@ void main() {
       connectionManager.connect(scaleOnly: true);
       await Future<void>.delayed(Duration.zero);
 
-      // Phase 2: add scanB for the drain to hold the scale-only scan.
-      // Then complete A so the drain runs scale-only, which waits on scanB.
       final scanB = Completer<void>();
       mockScanner.queuedScanCompleters.add(scanB);
 
       scanA.complete();
       await Future<void>.delayed(Duration.zero);
 
-      // Scale-only B is now active (waiting on scanB).
-      // Request explicit scan — this supersedes B.
       final explicitFuture = connectionManager.scanAndConnect();
       await Future<void>.delayed(Duration.zero);
 
       expect(mockScanner.stopScanCallCount, greaterThan(0));
 
-      // Complete B. Generation mismatch → cancelled report. Drain picks
-      // up queued explicit scan.
       scanB.complete();
       await Future<void>.delayed(Duration.zero);
 
@@ -3585,8 +3556,6 @@ void main() {
       await explicitFuture;
       await Future<void>.delayed(Duration.zero);
 
-      // Phase 4: no stranded queued request — a subsequent scanAndConnect
-      // runs normally.
       final newFuture = connectionManager.scanAndConnect();
       final scanD = Completer<void>();
       mockScanner.queuedScanCompleters.add(scanD);

@@ -4,9 +4,6 @@ import 'package:reaprime/src/models/device/impl/atomheart/atomheart_scale.dart';
 void main() {
   group('AtomheartScale timer parsing', () {
     test('parseFrame extracts timer from BLE frame', () {
-      // Build a valid 10-byte frame: 'W' + int32_le weight_mg + uint32_le timer_ms + xor
-      // Weight: 1500 mg = 0x000005DC LE => [0xDC, 0x05, 0x00, 0x00]
-      // Timer: 5000 ms = 0x00001388 LE => [0x88, 0x13, 0x00, 0x00]
       final payload = [0xDC, 0x05, 0x00, 0x00, 0x88, 0x13, 0x00, 0x00];
       var xor = 0;
       for (var b in payload) {

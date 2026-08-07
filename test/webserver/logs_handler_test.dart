@@ -89,8 +89,6 @@ void main() {
     });
 
     test('?kb=N returns the most recent window, newest-first', () async {
-      // 200 lines of 9 bytes each ("lineNNNN\n") = 1800 bytes, so a 1KB
-      // window drops the oldest lines.
       final lines = [
         for (var i = 0; i < 200; i++) 'line${i.toString().padLeft(4, '0')}',
       ];
@@ -225,8 +223,6 @@ void main() {
       });
 
       test('?kb=N windows the tail across file boundaries', () async {
-        // Each file is 1000 bytes ("lineNNNN\n" = 9 bytes x ~111). Ask for a
-        // window that spans the live file and reaches into log.txt.1.
         String block(String prefix) => [
           for (var i = 0; i < 111; i++)
             '$prefix${i.toString().padLeft(4, '0')}',
@@ -282,8 +278,6 @@ void main() {
       });
 
       test('the default cap spans rotated files but stays bounded', () async {
-        // Live file (1000 bytes) + rotation (1000 bytes) against a 1KB cap:
-        // the window covers the live file and only the tail of the rotation.
         String block(String prefix) => [
           for (var i = 0; i < 111; i++)
             '$prefix${i.toString().padLeft(4, '0')}',

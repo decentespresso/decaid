@@ -25,7 +25,6 @@ import 'package:rxdart/subjects.dart';
 import '../helpers/mock_settings_service.dart';
 
 // ---------------------------------------------------------------------------
-// Test-local mocks
 // ---------------------------------------------------------------------------
 
 /// Minimal DeviceDiscoveryService for constructing DeviceController.
@@ -328,10 +327,6 @@ void main() {
 
     test('platformSupported reports correct values', () {
       fakeAsync((async) {
-        // Construct DisplayController directly so the auto-detected
-        // platformSupport is exercised (the _createController helper
-        // injects a brightness-enabled default for the brightness/cap
-        // tests, which would hide the auto-detection logic here).
         final controller = DisplayController(
           de1Controller: de1Controller,
           settingsController: settingsCtrl,
@@ -831,23 +826,16 @@ void main() {
           controller.setBrightness(100);
           async.flushMicrotasks();
 
-          // A normal sleep then wake. The skin's sleep-dim write is still in
-          // flight when the wake transition is processed.
           testDe1.emitState(MachineState.sleeping);
           async.flushMicrotasks();
           testDe1.emitState(MachineState.idle);
           async.flushMicrotasks();
           expect(controller.currentState.brightness, 100);
 
-          // The deferred sleep-dim finally lands — but the machine is already
-          // awake and will emit no further state transition.
           controller.setBrightness(0);
           async.flushMicrotasks();
           expect(controller.currentState.brightness, 0);
 
-          // The next telemetry frame is the same awake state (no transition). The
-          // old edge-gated logic ignored it and left the screen stuck at 0; the
-          // per-snapshot restore heals it.
           testDe1.emitState(MachineState.idle);
           async.flushMicrotasks();
           expect(controller.currentState.brightness, 100);

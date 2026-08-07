@@ -77,9 +77,6 @@ void main() {
     Request('PUT', Uri.parse('http://localhost/api/v1/machine/state/espresso')),
   );
 
-  // The general blockOnNoScale matrix (scale connected / setting off / other
-  // states) lives in de1handler_settings_reset_test.dart. This file covers the
-  // cleaning-profile carve-out specifically.
   group('PUT /api/v1/machine/state/espresso — cleaning profile carve-out', () {
     test('still blocks a normal espresso profile with no scale', () async {
       await wire(

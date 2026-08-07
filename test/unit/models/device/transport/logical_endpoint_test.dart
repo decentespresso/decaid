@@ -115,8 +115,6 @@ void main() {
       final transport = _StubSerialTransport();
       addTearDown(transport.dispose);
       final unified = UnifiedDe1Transport(transport: transport);
-      // Has both uuid and representation set so the only failing guard is
-      // the `is! Endpoint` one.
       const stub = _StubEndpoint(
         uuid: 'A0FF',
         representation: 'Z',

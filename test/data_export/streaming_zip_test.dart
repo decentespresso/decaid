@@ -129,9 +129,6 @@ void main() {
     });
 
     test('bounds the completed archive by the import request limit', () async {
-      // Incompressible content: deflate output is slightly larger than the
-      // input, so the finished ZIP exceeds the tiny request limit even
-      // though the entry itself is small.
       final w = await StreamingZipWriter.create(
         tempDir,
         const DataTransferLimits(maxImportRequestBytes: 500),

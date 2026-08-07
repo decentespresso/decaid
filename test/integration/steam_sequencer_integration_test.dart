@@ -107,9 +107,6 @@ void main() {
 
         final record = await db.steamDao.getLatestSteam();
         expect(record, isNotNull);
-        // Wrapping into SteamMapper would deserialize; for now just
-        // confirm the JSON blob has measurement entries with a probe
-        // temperature.
         expect(record!.measurementsJson, contains('milkTemperature'));
 
         await bengle.onDisconnect();

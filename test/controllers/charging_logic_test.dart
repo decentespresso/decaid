@@ -287,8 +287,6 @@ void main() {
   });
 
   group('night mode phase determination', () {
-    // sleep=22:00 (1320), morning=07:00 (420)
-    // balanced mode at 60% with wasCharging=false
     final config = NightModeConfig(
       sleepTimeMinutes: 1320,
       morningTimeMinutes: 420,
@@ -384,7 +382,6 @@ void main() {
   });
 
   group('night mode hovering phase', () {
-    // sleep=22:00 (1320), morning=07:00 (420), time=20:30
     final config = NightModeConfig(
       sleepTimeMinutes: 1320,
       morningTimeMinutes: 420,
@@ -441,7 +438,6 @@ void main() {
   });
 
   group('night mode chargingToMax phase', () {
-    // sleep=22:00 (1320), morning=07:00 (420), time=21:45
     final config = NightModeConfig(
       sleepTimeMinutes: 1320,
       morningTimeMinutes: 420,
@@ -486,7 +482,6 @@ void main() {
   });
 
   group('night mode sleeping phase', () {
-    // sleep=22:00 (1320), morning=07:00 (420), time=03:00
     final config = NightModeConfig(
       sleepTimeMinutes: 1320,
       morningTimeMinutes: 420,

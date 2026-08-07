@@ -111,9 +111,6 @@ void main() {
         await storage.installFromPath(goodSource.path);
         expect(storage.getSkin('good.skin'), isNotNull);
 
-        // Drop a malicious skin dir whose manifest declares an unsafe id
-        // directly into the web-ui root, then re-trigger the scan via another
-        // install.
         final evilDir = Directory('${webUIDir.path}/evil-dir')..createSync();
         File(
           '${evilDir.path}/skin-manifest.json',

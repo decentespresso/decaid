@@ -455,8 +455,6 @@ void main() {
       scanStateGuardian.onAppResumed();
       await tester.pump();
 
-      // scanAndConnect was called again, which triggers the superseding
-      // logic (stop scan + queue replacement) when an active scan exists.
       expect(mockCm.scanAndConnectCallCount, greaterThan(callsBefore));
     });
   });

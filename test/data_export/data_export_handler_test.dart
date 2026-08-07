@@ -713,8 +713,6 @@ void main() {
               {'id': 's1'},
             ],
           });
-          // No section filtering via query param in the REST API; test the
-          // programmatic path instead.
           final tempDir = await Directory.systemTemp.createTemp('sel-');
           try {
             final zipFile = File('${tempDir.path}/import.zip');

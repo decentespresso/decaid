@@ -193,11 +193,6 @@ void main() {
     test(
       'leaves entry names untouched when sanitize is false (POSIX hosts)',
       () {
-        // On macOS/Linux, a filename containing `:` is valid — we want it
-        // written as-is so skins that intentionally use such filenames keep
-        // working. On Windows the OS would reject it; we gate sanitisation
-        // at the caller with Platform.isWindows, so this test is only
-        // meaningful on POSIX hosts.
         final archive = Archive()
           ..addFile(ArchiveFile.string('shots/2025-09-12T16:04:38.json', 'ok'));
 

@@ -10,7 +10,6 @@ void main() {
   });
 
   // ---------------------------------------------------------------
-  // Pressure / over
   // ---------------------------------------------------------------
 
   group('pressure over exit', () {
@@ -119,7 +118,6 @@ void main() {
   });
 
   // ---------------------------------------------------------------
-  // Flow / under
   // ---------------------------------------------------------------
 
   group('flow under exit', () {
@@ -198,7 +196,6 @@ void main() {
   });
 
   // ---------------------------------------------------------------
-  // Edge cases
   // ---------------------------------------------------------------
 
   group('edge cases', () {
@@ -455,9 +452,6 @@ void main() {
       // Firmware advances to frame 1 (it handled the exit).
       arbiter.onFrameAdvanced(1);
 
-      // Frame 1 has its own step. No skipStep was sent for frame 0 —
-      // double-skip avoided.
-      // (Frame 0 deferral state was cleared by onFrameAdvanced.)
       final v1 = arbiter.evaluate(
         profileFrame: 1,
         exit: const StepExitCondition(
@@ -468,8 +462,6 @@ void main() {
         currentPressure: 5.1,
         currentFlow: 3.0,
       );
-      // Frame 1: pressure 5.1, exit 9.0 → distance 3.9 > 1.8 (20% of 9.0)
-      // → far → fire (if its weight exit is met).
       expect(
         v1,
         StepExitVerdict.fire,
@@ -600,8 +592,6 @@ void main() {
     });
 
     test('near flow threshold, tiny margin defers', () {
-      // Exit under 2.0 ml/s. Flow at 2.02 → distance 0.02.
-      // Proximity = 2.0 * 0.25 = 0.5. 0.02 < 0.5 → near.
       const exit = StepExitCondition(
         type: ExitType.flow,
         condition: ExitCondition.under,

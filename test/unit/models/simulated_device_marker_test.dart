@@ -7,10 +7,6 @@ import 'package:reaprime/src/settings/settings_service.dart';
 void main() {
   test('every device SimulatedDeviceService produces implements the '
       'SimulatedDevice marker', () async {
-    // Forcing function: a mock added to the simulate service WITHOUT the marker
-    // would be wrongly eligible for the remembered registry — fromDevice only
-    // skips devices that are `is SimulatedDevice`. Driving the real service
-    // (rather than a hand-maintained list) keeps this honest as mocks are added.
     final service = SimulatedDeviceService()
       ..enabledDevices = SimulatedDevicesTypes.values.toSet();
 

@@ -113,8 +113,6 @@ void main() {
     test(
       'auto-attaches BengleVirtualScale on Bengle machine connect',
       () async {
-        // Bengle is the preferred machine, no external scale advertised, no
-        // preferredScaleId set.
         await settingsController.setPreferredMachineId('bengle-1');
         final bengle = _FakeBengle(deviceId: 'bengle-1');
         mockScanner.addDevice(bengle);
@@ -192,8 +190,6 @@ void main() {
       );
       await settingsController.setPreferredScaleId('external-scale');
 
-      // Bengle connects (pushed directly — virtual attach hasn't run,
-      // so the scale slot is still open and the watch gate holds).
       mockDe1Controller.de1Subject.add(_FakeBengle(deviceId: 'bengle-1'));
       await Future<void>.delayed(Duration.zero);
 

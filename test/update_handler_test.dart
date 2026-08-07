@@ -65,8 +65,6 @@ void main() {
   });
 
   group('handleCommand', () {
-    // Exercise the command switch directly — the WS plumbing is the same
-    // shape as DevicesHandler; the branching is what's worth asserting here.
     test('unknown command yields an error reply', () {
       final replies = <Map<String, dynamic>>[];
       updateHandler.handleCommand({'command': 'bogus'}, replies.add);

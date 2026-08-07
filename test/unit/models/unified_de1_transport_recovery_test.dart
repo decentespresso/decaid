@@ -107,8 +107,6 @@ void main() {
       await unified.write(Endpoint.requestedState, Uint8List.fromList([0x02]));
       await Future<void>.delayed(Duration.zero);
 
-      // Recovery happened (disconnect + reconnect under the hood) and the
-      // write was retried successfully.
       expect(fake.disconnectCount, 1);
       expect(fake.connectCount, 1);
       expect(fake.writeCount, 2);

@@ -144,7 +144,5 @@ void main() {
 }
 
 ProfileController _controller(MockProfileStorage storage) {
-  // A tiny controller stand-in: ProfileExportSection only needs
-  // get/update/importProfiles/getAllIds. Use the real controller.
   return ProfileController(storage: storage);
 }

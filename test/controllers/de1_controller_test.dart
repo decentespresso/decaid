@@ -135,9 +135,6 @@ void main() {
             testDe1.setConnectionState(ConnectionState.disconnected);
             await Future<void>.delayed(Duration.zero);
 
-            // Wait past the 100ms debounce window. With the generation
-            // fix, the timer body should find a stale generation (or
-            // null _de1) and bail without touching connectedDe1().
             await Future<void>.delayed(const Duration(milliseconds: 200));
 
             testDe1.dispose();

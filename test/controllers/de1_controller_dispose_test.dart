@@ -37,9 +37,6 @@ void main() {
     () async {
       await de1Controller.dispose();
 
-      // If the connectionState listener leaked, this disconnected emit
-      // would fire _onDisconnect() → _de1Controller.add() on a now-closed
-      // subject → uncaught StateError. Capture any uncaught async error.
       Object? uncaught;
       await runZonedGuarded(
         () async {

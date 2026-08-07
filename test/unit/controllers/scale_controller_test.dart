@@ -358,8 +358,6 @@ void main() {
     final sub = controller.weightSnapshot.listen(frames.add);
 
     final t0 = DateTime(2026, 1, 1, 12, 0, 0);
-    // Pre-tare samples build up weight (and therefore a real flow reading) and
-    // establish the latest scale-clock timestamp.
     scale.emitAt(t0, 10.0);
     scale.emitAt(t0.add(const Duration(milliseconds: 100)), 14.0);
     await Future.delayed(Duration.zero);

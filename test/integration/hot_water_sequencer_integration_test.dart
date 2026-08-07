@@ -70,8 +70,6 @@ void main() {
     final machine = MockDe1();
     await de1Controller.connectToDe1(machine);
     final scale = MockScale();
-    // Same wiring SimulatedDeviceService applies: the scale's weight follows
-    // the machine's dispense flow.
     scale.attachMachine(machine);
     await scaleController.connectToScale(scale);
 

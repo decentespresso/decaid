@@ -24,7 +24,6 @@ import 'package:rxdart/subjects.dart';
 import '../helpers/mock_settings_service.dart';
 
 // ---------------------------------------------------------------------------
-// Test-local mocks
 // ---------------------------------------------------------------------------
 
 /// Minimal DeviceDiscoveryService for constructing DeviceController.

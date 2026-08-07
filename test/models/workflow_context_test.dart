@@ -134,9 +134,6 @@ void main() {
           grinderSetting: '5',
           beanBatchId: 'batch-1',
         );
-        // Simulate a client sending numeric grinderSetting; the
-        // handler's deepMerge produces a mixed-type map, which then
-        // needs to round-trip through fromJson on the next PUT.
         final merged = {...ctx.toJson(), 'grinderSetting': 7};
         final reparsed = WorkflowContext.fromJson(merged);
         expect(reparsed.grinderSetting, '7');

@@ -327,8 +327,6 @@ void main() {
     });
 
     group('frame reconstruction', () {
-      // Fixture profile: Best Practice — 2 steps (preinfusion 10s, hold 30s)
-      // Elapsed range: 0..2 seconds → all within frame 0
       test('all snapshots in frame 0 for short shot', () {
         for (final snap in result.shot.measurements) {
           expect(snap.machine.profileFrame, equals(0));
@@ -408,9 +406,6 @@ void main() {
             .map((s) => s.machine.profileFrame)
             .toList();
 
-        // Step 0 (preinfusion): 0–10s → frames at t=0, 5 are in step 0
-        // Step 1 (hold): 10–40s → frames at t=10.5, 15, 30 are in step 1
-        // Step 2 (decline): 40+s → frame at t=50 is in step 2
         expect(frames, equals([0, 0, 1, 1, 1, 2]));
       });
 

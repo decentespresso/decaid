@@ -138,8 +138,6 @@ class FakeBleTransport extends BLETransport {
   }) async {
     final q = _readQueue[characteristicUUID];
     if (q != null && q.isNotEmpty) return q.removeFirst();
-    // 20-byte zero buffer matches MMR/state response width; tolerated by
-    // parsers during onConnect.
     return Uint8List(20);
   }
 

@@ -75,11 +75,6 @@ void main() {
     test(
       'multi-field De1Controller sequence: one emit per updateShotSettings',
       () async {
-        // Mirrors what WorkflowHandler does for a multi-field PUT that
-        // touches steam + hot-water + rinse (the original 5-emit
-        // report). With value equality + sequential awaits + nudge
-        // removal + distinct, the expected output is one emit per
-        // path that actually performs an updateShotSettings write.
         await de1Controller.updateFlushSettings(
           RinseData(targetTemperature: 91, duration: 11, flow: 6.5),
         );
@@ -101,9 +96,6 @@ void main() {
         );
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
-        // rinse  : no updateShotSettings call (only MMR writes).
-        // steam  : 1 updateShotSettings with new steam fields.
-        // hw     : 1 updateShotSettings with new hw fields.
         expect(
           observedEmits.length,
           equals(2),

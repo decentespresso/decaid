@@ -288,8 +288,6 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 10));
     expect(de1.setProfileCalls.length, equals(1));
 
-    // Apply a workflow with a semantically-equal profile — should
-    // short-circuit via Profile's Equatable equality.
     workflow.setWorkflow(next.copyWith(profile: _profile('Adaptive v2')));
     await Future<void>.delayed(const Duration(milliseconds: 10));
 
@@ -654,8 +652,6 @@ void main() {
 
     test('failed upload invalidates last-pushed — reverting to the previous '
         'profile re-uploads instead of short-circuiting', () async {
-      // Call 1 is the on-connect push; call 2 (profile P1) succeeds,
-      // call 3 (P2) fails mid-upload.
       final de1 = _FailNthDe1({3});
       final controller = await connect(de1);
       buildSync(controller);

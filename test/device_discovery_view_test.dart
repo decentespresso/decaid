@@ -279,11 +279,7 @@ void main() {
         await tester.pump();
 
         expect(find.byType(ConnectionErrorBanner), findsOneWidget);
-        // Banner title is specific to its rendering; distinguishes it from
-        // the DeviceDiscoveryView's own inline _errorView.
         expect(find.text('Connect failed'), findsOneWidget);
-        // Banner and inline fallback may both show the message in the
-        // idle+error state, so just assert at least one renders it.
         expect(
           find.textContaining('Scale connect timed out'),
           findsAtLeastNWidgets(1),

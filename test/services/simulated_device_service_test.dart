@@ -65,8 +65,6 @@ void main() {
       await service.scanForDevices();
       final devices = await emission;
 
-      // MockBengle extends MockDe1, so the type filter matches both —
-      // count by deviceId instead.
       final ids = devices.map((d) => d.deviceId).toSet();
       expect(ids, containsAll(['MockDe1', 'MockBengle']));
     });
@@ -205,8 +203,6 @@ void main() {
       service.enabledDevices = {SimulatedDevicesTypes.bengle};
       await service.scanForDevices();
 
-      // Switching to a different non-empty set so the next scan still
-      // emits (empty enabledDevices early-returns without emission).
       service.enabledDevices = {SimulatedDevicesTypes.machine};
       final emission = service.devices.first;
       await service.scanForDevices();

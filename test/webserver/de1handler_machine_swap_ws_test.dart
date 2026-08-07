@@ -412,8 +412,6 @@ void main() {
       await de1Controller.connectToDe1(first);
 
       final (channel, messages) = connectWs('/ws/v1/machine/raw');
-      // Drain server-to-client frames (including the initial replay) so we
-      // can focus on the inbound command.
       messages.listen((_) {});
       await settle();
 

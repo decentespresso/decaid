@@ -35,8 +35,6 @@ void main() {
     });
 
     test('initIntegratedScale logs and no-ops when wires are unwired', () {
-      // initIntegratedScale was already called via onConnect in setUp.
-      // Confirm a log message was emitted noting the unwired endpoint.
       expect(
         logRecords.any(
           (r) =>

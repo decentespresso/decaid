@@ -690,8 +690,6 @@ void main() {
 
       sub.cancel();
 
-      // Should have fewer emissions than the 3 additions due to debouncing.
-      // The final emission should show all 3 devices.
       final lastDevices = emissions.last['devices'] as List;
       expect(lastDevices, hasLength(3));
       expect(emissions.length, lessThan(3));

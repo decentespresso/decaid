@@ -141,10 +141,6 @@ void main() {
   });
 
   group('Workflow equality', () {
-    // Workflow carries an id + profile; for workflow_handler's diff
-    // checks the meaningful equivalence is "all the settings block
-    // fields match by value". These tests pin down that contract.
-
     test('steamSettings equality survives fromJson round-trip', () {
       final original = SteamSettings(
         targetTemperature: 150,
@@ -181,8 +177,6 @@ void main() {
       () {
         final controller = WorkflowController();
         final wf = controller.currentWorkflow;
-        // Re-deserialize via toJson round-trip (what WorkflowHandler does
-        // on every PUT).
         final roundTrip = Workflow.fromJson(wf.toJson());
         expect(wf.steamSettings, equals(roundTrip.steamSettings));
         expect(wf.hotWaterData, equals(roundTrip.hotWaterData));

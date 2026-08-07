@@ -87,9 +87,6 @@ Future<(UpdateCheckService, _RecordingUpdater)> _pumpSettingsView(
     );
   } catch (_) {}
 
-  // ShadApp provides no ScaffoldMessenger (WidgetsApp-based); SettingsView's
-  // own Scaffold supplies the Material ancestor, so only the messenger needs
-  // wrapping here.
   await tester.pumpWidget(
     ShadApp(
       home: ScaffoldMessenger(
@@ -280,8 +277,6 @@ void main() {
         sparkleConfigureFails: true,
       );
 
-      // Initial switch value is on; toggle off, then on, then off so no
-      // periodic timer is left pending.
       await tester.tap(
         find.widgetWithText(ShadSwitch, 'Automatic update checks'),
       );

@@ -145,8 +145,6 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
 
       await tester.tap(find.text('This is taking a while...'));
-      // Use pump() with duration instead of pumpAndSettle() because
-      // ShadProgress has an ongoing animation that prevents settling.
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
 

@@ -20,11 +20,8 @@ import '../../../../../../helpers/fake_ble_transport.dart';
 mixin _TestCapability on UnifiedDe1 {
   Future<int> readFan() => readMmrInt(MMRItem.fanThreshold);
   Future<int> readFanViaWrongHelper() => readMmrInt(MMRItem.targetSteamFlow);
-  // Intentionally calls `readMmrScaled` on an int32 address (fanThreshold)
-  // — exercises the kind-mismatch StateError path.
   Future<double> readFanAsScaledFloat() => readMmrScaled(MMRItem.fanThreshold);
 
-  // Re-exports so tests can drive these from a mixin context (the only
   // legitimate access path for `@protected` members).
   Future<List<int>> capRead(MmrAddress addr) => readMmrRaw(addr);
   Future<void> capWrite(MmrAddress addr, List<int> bytes) =>
@@ -149,9 +146,6 @@ void main() {
       );
       transport.queueMmrResponseRaw(addr, [0xDE, 0xAD, 0xBE, 0xEF]);
       final result = await de1.capRead(addr);
-      // Result is the full 20-byte MMR frame: bytes 0..3 are the
-      // length+address echo from the request, bytes 4..7 are the
-      // queued payload.
       expect(result.sublist(4, 8), [0xDE, 0xAD, 0xBE, 0xEF]);
     });
 

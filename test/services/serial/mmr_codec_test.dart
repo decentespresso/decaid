@@ -7,8 +7,6 @@ void main() {
       final req = buildMmrReadRequest(address: 0x0080000C, length: 4);
 
       expect(req, hasLength(20));
-      // Layout: setInt32(0, addr, big-endian) writes [0x00, 0x80, 0x00, 0x0C]
-      // then byte 0 is overwritten with length.
       expect(req[0], equals(4));
       expect(req[1], equals(0x80));
       expect(req[2], equals(0x00));
@@ -19,10 +17,6 @@ void main() {
 
   group('decodeMmrInt32Response', () {
     test('returns the int32 value when the address triplet matches', () {
-      // Build a fake [E]... payload: bytes [length, addr1, addr2, addr3, v0..v3, ...].
-      // For address 0x0080000C, expectedAddr = (0x80, 0x00, 0x0C).
-      // value = 0x00000005 (DE1Cafe per MMRItem.v13Model description)
-      // Encoded little-endian at bytes [4..7].
       final payload = [
         0x04,
         0x80,

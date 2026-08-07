@@ -184,8 +184,6 @@ void main() {
           ),
         ),
       );
-      // Use pump() instead of pumpAndSettle() — CircularProgressIndicator
-      // has an ongoing animation that prevents settling
       await tester.pump();
 
       expect(find.byType(CircularProgressIndicator), findsOneWidget);

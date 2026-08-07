@@ -81,8 +81,6 @@ void main() {
     'M2: a stale prior version of a changed default is hidden, current stays visible',
     () async {
       final storage = InMemoryProfileStorage();
-      // Simulate the pre-curation milky: same filename, different content (bump a
-      // step) so it gets a different content-hash id.
       final json = await _bundledJson(_milkyFile);
       (json['steps'] as List).first['seconds'] = '999';
       final stale = ProfileRecord.create(

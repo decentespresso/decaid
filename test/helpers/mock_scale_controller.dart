@@ -60,7 +60,6 @@ class MockScaleController extends ScaleController {
       throw Exception('MockScaleController: simulated connection failure');
     }
     // Don't call super — we don't want real connection logic in tests.
-    // Instead, emit connected state so listeners see the change.
     _mockLastConnectedDeviceId = scale.deviceId;
     connectionStateSubject.add(ConnectionState.connected);
   }

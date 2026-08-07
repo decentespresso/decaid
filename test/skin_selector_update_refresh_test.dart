@@ -57,8 +57,6 @@ void main() {
 
       await tester.pumpWidget(
         ShadApp(
-          // The production app provides a ScaffoldMessenger above the page
-          // (app.dart); the page's update-check snackbars require one.
           home: ScaffoldMessenger(
             child: SkinSelectorPage(
               settingsController: SettingsController(MockSettingsService()),

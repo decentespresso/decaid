@@ -406,9 +406,6 @@ void main() {
         if (!completer.isCompleted) completer.complete(snapshot);
       });
 
-      // Simulate a weight of 100.0g
-      // rawValue = 100.0 * 2560 = 256000 = 0x0003E800
-      // little-endian: [0x00, 0xE8, 0x03, 0x00]
       transport.simulateWeightNotification([0x00, 0xE8, 0x03, 0x00]);
 
       final snapshot = await completer.future.timeout(

@@ -4,8 +4,6 @@ import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/models/device/impl/mock_scale/mock_scale.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 
-// Single pouring step counting weight from frame 0, so extraction starts as
-// soon as the simulated shot does.
 Profile _pourProfile() => Profile(
   version: '1.0',
   title: 'pour',

@@ -2,9 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/impl/simulated_shot_weight_model.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 
-// Synthetic machine snapshots at a fixed 100ms cadence, mirroring MockDe1's
-// tick rate. Only the fields the weight model reads matter (timestamp, state,
-// flow, profileFrame); the rest are filler.
 MachineSnapshot _snap(
   DateTime t, {
   double flow = 0.0,

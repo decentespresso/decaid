@@ -346,8 +346,6 @@ class SpyDe1 implements De1Interface {
 }
 
 Future<void> _settleHandler(SpyDe1 spy) async {
-  // Wait for the connect-time startup defaults (fan write) to land so
-  // writeOrder traces start from a clean slate in each test.
   while (spy.setFanThreshholdCalls.isEmpty) {
     await Future<void>.delayed(const Duration(milliseconds: 1));
   }
@@ -523,8 +521,6 @@ void main() {
         },
       });
 
-      // Wait for the debounce timer to fire and _applyPendingUpdate
-      // to run (or, pre-fix, to throw silently and hang).
       await _settleHandler(spy);
 
       // With the fix, the completer is completed with a 400 response
@@ -804,8 +800,6 @@ void main() {
         });
         await entered.future.timeout(const Duration(seconds: 2));
 
-        // The machine disconnects while the write is still blocked: the
-        // controller now has NO machine (a real disconnected interval).
         spy.setConnectionState(ConnectionState.disconnected);
         await Future<void>.delayed(Duration.zero);
         expect(de1Controller.connectedDe1OrNull, isNull);
@@ -1293,8 +1287,6 @@ void main() {
         }();
         await entered.future.timeout(const Duration(seconds: 2));
 
-        // The machine disconnects mid-write and no replacement ever
-        // appears within the bounded wait.
         shortSpy.setConnectionState(ConnectionState.disconnected);
         release.complete();
 
@@ -1486,8 +1478,6 @@ void main() {
         expect(spy.setHotWaterFlowCalls, [hotWaterFlow]);
         expect(spy.setSteamFlowCalls, [steamFlow]);
 
-        // The machine disconnects while the settings write is blocked;
-        // the controller now has no machine.
         spy.setConnectionState(ConnectionState.disconnected);
         await Future<void>.delayed(Duration.zero);
         expect(de1Controller.connectedDe1OrNull, isNull);
@@ -1737,9 +1727,6 @@ void main() {
         expect(responses[0].statusCode, 200);
         expect(responses[1].statusCode, 202);
         expect(responses[2].statusCode, 200);
-        // The complete reset sequence is contiguous between the two
-        // workflow steam writes: no field of the reset may be split off
-        // by another queue entry.
         expect(spy.writeOrder, [
           'steam:$blockedFlow',
           'fan:55',
@@ -1773,8 +1760,6 @@ void main() {
         expect(spy.setHeaterIdleTempCalls, [95]);
         expect(spy.setHeaterPhase1FlowCalls, [2.0]);
 
-        // The machine disconnects while the reset write is blocked; the
-        // controller now has no machine.
         spy.setConnectionState(ConnectionState.disconnected);
         await Future<void>.delayed(Duration.zero);
         expect(de1Controller.connectedDe1OrNull, isNull);

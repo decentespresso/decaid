@@ -73,9 +73,6 @@ void main() {
     await watch.arm();
     expect(watch.armed, isTrue);
     expect(scanner.startWatchCallCount, 1);
-    // No OS name filter: remembered names are friendly constants that
-    // rarely match advertised names, and the universal_ble fork filters
-    // plugin-side anyway. Matching happens in Dart via DeviceMatcher.
     expect(scanner.lastWatchFilter?.namePrefix, isNull);
   });
 

@@ -4,10 +4,6 @@ import 'package:reaprime/src/skin_feature/simulated_webview_device.dart';
 void main() {
   group('simulatedWebViewDevices', () {
     test('every selectable device round-trips through its persisted id', () {
-      // The advanced-settings picker offers `simulatedWebViewDevices`, while
-      // startup reload resolves the persisted choice via
-      // `simulatedWebViewDeviceById`. If the two drift, a device a user picks
-      // won't survive a restart — so keep them in lockstep.
       for (final device in simulatedWebViewDevices) {
         expect(
           simulatedWebViewDeviceById(device.id),

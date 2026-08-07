@@ -303,8 +303,6 @@ void main() {
 
     test('false today because MMR slot is stubbed', () {
       final m = _BengleTestMachine();
-      // All three "real" preconditions met; predicate still false
-      // because BengleSteamMmr.stopAtTemperatureTarget.address == 0.
       expect(
         sequencer.useFwAutonomousStop(
           machine: m,

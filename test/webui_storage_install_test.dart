@@ -43,8 +43,6 @@ void main() {
       if (tmpRoot.existsSync()) tmpRoot.deleteSync(recursive: true);
     });
 
-    // Builds a source skin directory whose skin-manifest.json shares [id] but
-    // carries a distinct [version], mimicking two builds of the same skin.
     Directory makeSkinSource(String version) {
       final dir = Directory('${tmpRoot.path}/src_$version');
       dir.createSync(recursive: true);

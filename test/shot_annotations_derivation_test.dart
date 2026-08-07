@@ -45,8 +45,6 @@ void main() {
     });
 
     test('ignores the portafilter placement spike at the start', () {
-      // Observed on real shots: the scale reads ~286 g when the cup/PF lands,
-      // tares to 0, then climbs to the real yield.
       final m = _trace([286.7, 0.0, 0.0, 12.0, 40.0, 40.1, 40.0]);
       expect(ShotAnnotations.finalScaleWeight(m), 40.0);
     });

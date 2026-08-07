@@ -31,8 +31,6 @@ void main() {
     });
 
     test('FW slot address is still TBD', () {
-      // Pin the precondition for the local-cache branch. When this
-      // breaks, the production wire is real and the rest of this
       // group needs the assertions inverted.
       expect(BengleScaleMmr.stopAtWeightTarget.address, 0x00000000);
     });

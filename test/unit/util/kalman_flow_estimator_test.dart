@@ -145,10 +145,6 @@ void main() {
       }
       expect(estimator.weight, closeTo(0.0, 0.01));
 
-      // Step to 40g (like placing a cup). The constant-velocity model
-      // momentarily interprets the step as flow → overshoot. In practice a
-      // tare follows, which resets the Kalman. We only assert that weight
-      // moves in the right direction and flow ultimately settles.
       for (int i = 21; i <= 70; i++) {
         estimator.addSample(t0.add(dt * i), 40.0);
       }

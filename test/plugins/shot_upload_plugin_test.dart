@@ -198,8 +198,6 @@ void main() {
       // app version from /api/v1/info, not the hard-coded plugin version
       expect(body['app']['version'], '9.9.9');
 
-      // the shot record is marked uploaded: PUT /shots/<id> with
-      // annotations.extras.uploaded_to_decent = <epoch seconds>
       final puts =
           jsonDecode(
                 manager.js

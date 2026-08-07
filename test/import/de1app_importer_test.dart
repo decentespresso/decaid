@@ -22,7 +22,6 @@ import 'package:reaprime/src/settings/scale_power_mode.dart';
 import '../helpers/mock_settings_service.dart';
 
 // ---------------------------------------------------------------------------
-// In-memory fake implementations
 // ---------------------------------------------------------------------------
 
 class FakeStorageService implements StorageService {
@@ -252,7 +251,6 @@ De1appImporter makeImporter({
 const _fixturesPath = 'test/fixtures/de1app';
 
 // ---------------------------------------------------------------------------
-// Tests
 // ---------------------------------------------------------------------------
 
 void main() {

@@ -156,9 +156,6 @@ void main() {
         de1Controller: de1Controller,
         debounce: _debounce,
       );
-      // The connect-time re-apply runs immediately on bridge construction
-      // (de1Controller already has the BehaviorSubject seeded with the
-      // connected machine). Drain it.
       await Future<void>.delayed(Duration.zero);
       bengle.sawWrites.clear();
 

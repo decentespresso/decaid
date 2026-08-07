@@ -525,8 +525,6 @@ function createPlugin() {
         );
         expect(absDir.existsSync(), isFalse);
 
-        // Windows-style separators are literal on POSIX hosts, but the id is
-        // still rejected so nothing is created.
         final winSep = Directory('${pluginsDir.path}/a\\b');
         await expectLater(
           service.addPlugin(makePluginSource(r'a\b').path),

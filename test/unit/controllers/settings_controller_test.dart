@@ -330,8 +330,6 @@ void main() {
       final spy = _SpySettingsService();
       final controller = SettingsController(spy);
 
-      // Without calling loadSettings, the in-memory map is empty.
-      // isFeatureFlagEnabled falls back to defaultFeatureFlagValues.
       expect(
         controller.isFeatureFlagEnabled(FeatureFlag.stepExitArbiter),
         isTrue,
