@@ -52,7 +52,7 @@ void main() {
           ),
         ),
       );
-      addTearDown(manager.cancelAllOperations);
+      addTearDown(manager.dispose);
 
       final done = Completer<void>();
       final sub = manager.emitStream.listen((e) {

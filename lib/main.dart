@@ -475,7 +475,7 @@ void main(List<String> args) async {
   );
   // Don't initialize plugins yet - wait for permissions to be granted
   // pluginService.initialize() will be called from PermissionsView after permissions are granted
-  pluginService.pluginManager.de1Controller = de1Controller;
+  await pluginService.pluginManager.attachDe1Controller(de1Controller);
   // Broadcast a `shotStored` plugin event once a shot is persisted, so plugins
   // can react to the exact newly-stored shot (no timer/latest-lookup race).
   persistenceController.onShotStored = (shotId) =>
@@ -651,6 +651,7 @@ void main(List<String> args) async {
       updateCheckService: updateCheckService,
       de1Controller: de1Controller,
       displayController: displayController,
+      pluginLoaderService: pluginService,
     ),
   );
 
@@ -694,6 +695,7 @@ class AppLifecycleObserver with WidgetsBindingObserver {
   final UpdateCheckService? updateCheckService;
   final De1Controller? de1Controller;
   final DisplayController? displayController;
+  final PluginLoaderService? pluginLoaderService;
 
   late Timer _memTimer;
   bool _wasBackgrounded = false;
@@ -705,6 +707,7 @@ class AppLifecycleObserver with WidgetsBindingObserver {
     this.updateCheckService,
     this.de1Controller,
     this.displayController,
+    this.pluginLoaderService,
   }) {
     _memTimer = Timer.periodic(Duration(minutes: 5), (t) {
       final rss = ProcessInfo.currentRss / (1024 * 1024);
@@ -745,6 +748,10 @@ class AppLifecycleObserver with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached) {
+      _memTimer.cancel();
+      unawaited(_handleDetached());
+    }
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
       // STOP charts, timers, streams
@@ -765,6 +772,28 @@ class AppLifecycleObserver with WidgetsBindingObserver {
         _showUpdateNotification();
       }
       _wasBackgrounded = false;
+    }
+  }
+
+  Future<void> _handleDetached() async {
+    final stateSubscription = _stateStreamSubscription;
+    _stateStreamSubscription = null;
+    final machineSubscription = _machineStateSubscription;
+    _machineStateSubscription = null;
+    try {
+      await stateSubscription?.cancel();
+    } catch (error, stackTrace) {
+      _log.warning('State subscription detach failed', error, stackTrace);
+    }
+    try {
+      await machineSubscription?.cancel();
+    } catch (error, stackTrace) {
+      _log.warning('Machine subscription detach failed', error, stackTrace);
+    }
+    try {
+      await pluginLoaderService?.dispose();
+    } catch (error, stackTrace) {
+      _log.severe('Plugin loader disposal failed', error, stackTrace);
     }
   }
 

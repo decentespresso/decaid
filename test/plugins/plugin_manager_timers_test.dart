@@ -12,9 +12,7 @@ void main() {
     manager = PluginManager(kvStore: FakeKeyValueStoreService());
   });
 
-  tearDown(() {
-    manager.cancelAllOperations();
-  });
+  tearDown(() async => manager.dispose());
 
   Future<List<String>> collectEvents(Duration window) async {
     final events = <String>[];

@@ -34,9 +34,7 @@ void main() {
     );
   });
 
-  tearDown(() {
-    manager.cancelAllOperations();
-  });
+  tearDown(() async => manager.dispose());
 
   Future<String> runFetch(
     String url, {
@@ -216,12 +214,11 @@ void main() {
     });
     await Future<void>.delayed(const Duration(milliseconds: 100));
     await manager.unloadPlugin('fetch.plugin');
-    final value = await result.future
-        .timeout(const Duration(seconds: 5))
-        .whenComplete(sub.cancel);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
 
-    expect(value, startsWith('rejected:'));
+    expect(result.isCompleted, isFalse);
     expect(manager.activePendingOpCount, 0);
+    await sub.cancel();
   });
 
   test(
