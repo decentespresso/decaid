@@ -170,6 +170,33 @@ function createPlugin(host) {
     return measurements.slice(firstEspressoIndex, lastEspressoIndex + 1);
   }
 
+  // Recipe tags (set in the recipe editor, carried in workflow.context.extras)
+  // and shot-review tags (added after the pour, carried in annotations.extras)
+  // are separate sources — merge and dedupe them into the single tags list
+  // Visualizer expects.
+  function extractTags(shot) {
+    const annotations = shot?.annotations || {};
+    const context = shot?.workflow?.context || {};
+    const recipeTags = Array.isArray(context.extras?.tags) ? context.extras.tags : [];
+    const shotTags = Array.isArray(annotations.extras?.tags) ? annotations.extras.tags : [];
+    return Array.from(new Set([...recipeTags, ...shotTags]));
+  }
+
+  // Push tags onto an already-uploaded Visualizer shot. The /shots/upload JSON
+  // importer only captures a fixed field set that does not include tags, so
+  // tags must be applied as a separate PATCH using the same field name
+  // Visualizer's own API (and our back-sync reader) uses.
+  async function pushTagsToVisualizer(shot, visualizerId) {
+    const tags = extractTags(shot);
+    if (tags.length === 0) return;
+    try {
+      await visualizerPatch(`/shots/${visualizerId}`, { shot: { tags } });
+      log(`Synced ${tags.length} tag(s) to Visualizer shot ${visualizerId}`);
+    } catch (e) {
+      log(`Failed to sync tags to Visualizer shot ${visualizerId}: ${e.message}`);
+    }
+  }
+
   function convertReaToVisualizerFormat(reaShot) {
     if (!reaShot || !reaShot.measurements || reaShot.measurements.length === 0) {
       throw new Error("Invalid or empty Decent shot data for conversion.");
@@ -182,14 +209,6 @@ function createPlugin(host) {
     const annotations = reaShot.annotations || {};
     const context = reaShot.workflow?.context || {};
     let totalWaterDispensed = 0;
-
-    // Recipe tags (set in the recipe editor, carried in workflow.context.extras)
-    // and shot-review tags (added after the pour, carried in annotations.extras)
-    // are separate sources — merge and dedupe them into the single tags list
-    // Visualizer expects.
-    const recipeTags = Array.isArray(context.extras?.tags) ? context.extras.tags : [];
-    const shotTags = Array.isArray(annotations.extras?.tags) ? annotations.extras.tags : [];
-    const tags = Array.from(new Set([...recipeTags, ...shotTags]));
 
     const visualizerShot = {
       // start_time: reaShot.measurements[0].machine.timestamp,
@@ -216,7 +235,6 @@ function createPlugin(host) {
             drink_ey: annotations.drinkEy != null ? String(annotations.drinkEy) : undefined,
             espresso_enjoyment: annotations.enjoyment != null ? String(Math.round(Number(annotations.enjoyment))) : undefined,
             espresso_notes: annotations.espressoNotes,
-            tags: tags.length > 0 ? tags : undefined,
           }
         }
       },
@@ -296,6 +314,8 @@ function createPlugin(host) {
       const result = await uploadShot(convertReaToVisualizerFormat(fullShot), null);
       state.lastUploadedShot = fullShot.id;
       state.lastVisualizerId = result.id;
+
+      await pushTagsToVisualizer(fullShot, result.id);
 
       host.storage({
         type: "write",
@@ -653,6 +673,16 @@ function createPlugin(host) {
     if (force === true) {
       const title = shot.workflow?.profile?.title || shot.workflow?.name;
       if (typeof title === "string" && title.trim() !== "") payload.profile_title = title;
+    }
+    // Tags can change on either side (recipe extras or shot-review extras), so
+    // touched-ness is checked on both patch sources; the value sent is always
+    // the full deduped set (there's no per-tag diff to send).
+    if (
+      force === true ||
+      has(patchAnnotations.extras || {}, "tags") ||
+      has(patchContext.extras || {}, "tags")
+    ) {
+      payload.tags = extractTags(shot);
     }
 
     return payload;
@@ -1070,6 +1100,7 @@ function createPlugin(host) {
           };
         }
 
+        let requestedShot;
         return fetch(`${LOCAL_API_URL}/shots/${encodeURIComponent(shotId)}`)
           .then(async (response) => {
             const body = await response.text();
@@ -1082,9 +1113,13 @@ function createPlugin(host) {
 
             return JSON.parse(body);
           })
-          .then((shot) => uploadShot(convertReaToVisualizerFormat(shot), null))
+          .then((shot) => {
+            requestedShot = shot;
+            return uploadShot(convertReaToVisualizerFormat(shot), null);
+          })
           .then(async (shotResponse) => {
             await rememberUpload(shotId, shotResponse.id);
+            await pushTagsToVisualizer(requestedShot, shotResponse.id);
 
             return {
               requestId: request.requestId,
