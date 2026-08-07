@@ -1,14 +1,4 @@
-/// A parser for TCL-like formats used by de1app:
-/// - `.shot` files (shot history)
-/// - `.tdb` files (grinder database)
-///
-/// Produces a `Map<String, dynamic>` where values are:
-///   - `String` — simple or single-token braced values
-///   - `List<String>` — braced values where all tokens are numbers
-///   - `Map<String, dynamic>` — multi-line braced blocks or single-line
-///     braced blocks that contain key-value pairs
 class TclParser {
-  /// Parse [input] and return the resulting map.
   static Map<String, dynamic> parse(String input) {
     final lines = input.split('\n');
     final _Parser parser = _Parser(lines);
@@ -22,8 +12,6 @@ class _Parser {
 
   _Parser(this._lines);
 
-  /// Parse lines until [endMarker] is found (or end of input).
-  /// [endMarker] is the exact trimmed line that signals end (e.g., `}`).
   Map<String, dynamic> parseBlock({required String? endMarker}) {
     final result = <String, dynamic>{};
 
@@ -61,7 +49,6 @@ class _Parser {
     return result;
   }
 
-  /// Find the index of the first unescaped space in [s].
   int _findKeyEnd(String s) {
     for (int i = 0; i < s.length; i++) {
       if (s[i] == ' ' && (i == 0 || s[i - 1] != r'\')) {
@@ -71,17 +58,8 @@ class _Parser {
     return -1;
   }
 
-  /// Replace `\ ` (backslash-space) sequences with a plain space.
   String _unescapeKey(String key) => key.replaceAll(r'\ ', ' ');
 
-  /// Parse the content inside `{ ... }` on a single line.
-  ///
-  /// Returns:
-  ///   - `''` for empty content
-  ///   - `List<String>` if all tokens are numbers (and more than one token)
-  ///   - `Map<String, dynamic>` if the content looks like key-value pairs
-  ///     (contains nested braces, or even number of plain tokens)
-  ///   - `String` otherwise (single token or non-pair multi-word strings)
   dynamic _parseBracedValue(String inner) {
     if (inner.isEmpty) return '';
 
@@ -114,7 +92,6 @@ class _Parser {
     return inner;
   }
 
-  /// Build a map from an even-length list of alternating key/value tokens.
   Map<String, dynamic> _buildMapFromTokens(List<_Token> tokens) {
     final map = <String, dynamic>{};
     for (int i = 0; i < tokens.length; i += 2) {
@@ -129,7 +106,6 @@ class _Parser {
     return map;
   }
 
-  /// Whether all tokens at even-indexed positions (0,2,4…) are plain.
   bool _indicesAre(
     List<_Token> tokens, {
     required bool isOdd,
@@ -141,9 +117,6 @@ class _Parser {
     return true;
   }
 
-  /// Tokenise a string respecting nested `{...}` groups.
-  /// Returns a list of tokens, each either a plain word or a braced group
-  /// (with the braces stripped from the value).
   List<_Token> _tokenise(String s) {
     final tokens = <_Token>[];
     int i = 0;
@@ -182,8 +155,6 @@ class _Parser {
     return tokens;
   }
 
-  /// Find the index of the closing `}` that matches the `{` at [openIdx].
-  /// Returns -1 if not found.
   int _findClosingBrace(String s, int openIdx) {
     int depth = 0;
     for (int i = openIdx; i < s.length; i++) {

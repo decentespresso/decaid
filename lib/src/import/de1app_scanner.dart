@@ -2,8 +2,6 @@ import 'dart:io';
 import 'package:reaprime/src/import/import_result.dart';
 
 class De1appScanner {
-  /// Scan a folder for de1app data sources.
-  /// Returns ScanResult with counts and detected source types.
   static Future<ScanResult> scan(String path) async {
     int shotCount = 0;
     String? shotSource;

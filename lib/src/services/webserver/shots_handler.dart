@@ -155,9 +155,6 @@ class ShotsHandler {
 
   Future<Response> _getIds(Request req) async {
     try {
-      // Use lightweight selectOnly query instead of loading full shot rows.
-      // Note: getShotIds() returns IDs unordered — callers needing ordered
-      // results should use the paginated /shots endpoint instead.
       final ids = await _controller.storageService.getShotIds();
       return jsonOk(ids);
     } catch (e, st) {

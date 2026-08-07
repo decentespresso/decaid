@@ -27,7 +27,6 @@ class KvStoreExportSection implements DataExportSection {
       _writeKey(output, namespace);
       output.writeRaw(':{');
       var firstKey = true;
-      // ponytail: key list is materialized once; add storage cursors if measured key counts make this too large
       final keys = await _store.keys(namespace: namespace);
       for (final key in keys) {
         final value = await _store.get(namespace: namespace, key: key);

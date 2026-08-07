@@ -49,22 +49,12 @@ class De1Controller {
 
   Stream<RinseData> get rinseData => _rinseStream.stream;
 
-  /// Live shot state + decision feed, backing `/ws/v1/machine/shotState`.
-  ///
-  /// De1StateManager forwards each per-shot ShotSequencer's state transitions
-  /// and decisions into here via [publishShotEvent] — the sequencer itself is
-  /// recreated every shot and its streams close on dispose, so this long-lived
-  /// subject is what WebSocket clients subscribe to. Seeded with an idle frame
-  /// so a late joiner never replays a stale mid-shot frame from a previous
-  /// shot.
   final BehaviorSubject<ShotStateEvent> _shotStateSubject =
       BehaviorSubject.seeded(ShotStateEvent.idle());
 
   Stream<ShotStateEvent> get shotState => _shotStateSubject.stream;
   ShotStateEvent get currentShotState => _shotStateSubject.value;
 
-  /// WS-frame trail at FINE; the per-decision INFO/WARNING line is emitted
-  /// once by ShotSequencer under the same logger name — don't log it twice.
   static final Logger _shotStateLog = Logger('ShotState');
 
   void publishShotEvent(ShotStateEvent event) {
@@ -77,13 +67,6 @@ class De1Controller {
     }
   }
 
-  /// Pre-declared stop intent, so the sequencer can attribute a
-  /// machine-reported shot end to the command that caused it. The REST state
-  /// handler and the in-app Stop button record intent just before issuing
-  /// `requestState(idle)`; when the resulting `pouringDone` arrives the
-  /// sequencer consumes it. Anything older than [_stopIntentWindow] is stale —
-  /// a leftover stamp from an unrelated request must not label a later,
-  /// natural shot end.
   static const Duration _stopIntentWindow = Duration(seconds: 5);
   ShotDecisionReason? _pendingStopIntent;
   DateTime? _pendingStopIntentAt;
@@ -98,8 +81,6 @@ class De1Controller {
     _pendingStopIntentAt = clock.now();
   }
 
-  /// Returns the pending intent if one was recorded within [window], and
-  /// clears it either way — an intent is attributed at most once.
   ShotDecisionReason? consumeStopIntent({Duration window = _stopIntentWindow}) {
     final intent = _pendingStopIntent;
     final at = _pendingStopIntentAt;
@@ -115,18 +96,8 @@ class De1Controller {
   Timer? _shotSettingsDebounce;
   Future<void> _deviceWriteQueue = Future<void>.value();
 
-  /// Bumped every time `_onDisconnect()` runs. Captured by the
-  /// `_shotSettingsUpdate` debounce-timer closure at scheduling
-  /// time so a timer that fires after a disconnect can see "the
-  /// connection I was scheduled for is gone" and bail out before
-  /// calling `connectedDe1()` (which would throw
-  /// `DeviceNotConnectedException`). Covers comms-harden #5.
   int _connectionGeneration = 0;
 
-  /// Emits the connection generation when initialization settles (machine
-  /// ready + startup defaults attempt complete), or null on disconnect.
-  /// Consumers compare the value against their own generation token to
-  /// reject stale completions from a previous connection.
   final BehaviorSubject<int?> _initSettledSubject = BehaviorSubject.seeded(
     null,
   );
@@ -135,9 +106,6 @@ class De1Controller {
 
   int get connectionGeneration => _connectionGeneration;
 
-  /// Bounded wait for a replacement machine after a mid-write
-  /// disconnect (see [ConnectionTimings.machineReplacementTimeout]).
-  /// Overridable in tests to keep the timeout short.
   final Duration machineReplacementTimeout;
 
   De1Controller({
@@ -197,10 +165,6 @@ class De1Controller {
     );
   }
 
-  /// Adopt a device that has already been connected and had [onConnect]
-  /// called by [tryQuickConnect]. Skips [onConnect] and wires up stream
-  /// subscriptions directly — the inverse of [connectToDe1] minus the
-  /// connect call.
   void adoptDevice(De1Interface de1Interface) {
     if (de1Interface == _de1) {
       _log.fine('adoptDevice: already connected to this device, exit early');
@@ -368,12 +332,6 @@ class De1Controller {
     return _de1!;
   }
 
-  /// Non-throwing accessor for callers that already model the
-  /// "no machine connected" branch (e.g. periodic timers). Returning
-  /// `null` here keeps the expected case off the WARNING log path,
-  /// which would otherwise reach Crashlytics via the telemetry
-  /// forwarder. Use this whenever pre-checking is cheaper than
-  /// catching `DeviceNotConnectedException`.
   De1Interface? get connectedDe1OrNull => _de1;
 
   Future<T> runDeviceWrite<T>(
@@ -396,10 +354,6 @@ class De1Controller {
   ) async {
     final attempts = retryOnReplacement ? 2 : 1;
     for (var attempt = 0; attempt < attempts; attempt++) {
-      // Machine acquisition is inside the retry logic: a disconnected
-      // interval (no machine at this moment) only blocks the first
-      // attempt when there was never a machine to begin with. After a
-      // generation change the retry waits for a replacement.
       De1Interface device;
       try {
         device = connectedDe1();
@@ -437,8 +391,6 @@ class De1Controller {
     throw StateError('Machine changed during device write');
   }
 
-  /// Wait up to [timeout] for a non-null machine to appear on the
-  /// controller stream. Returns null if no machine appears in time.
   Future<De1Interface?> _waitForMachineReplacement(Duration timeout) async {
     try {
       return await _de1Controller.stream
@@ -617,12 +569,6 @@ class De1Controller {
     if (hotWaterChanged) _publishHotWaterSettings(hotWater);
   }
 
-  /// Flow setters live outside the DE1 shot-settings characteristic, so
-  /// changing them used to require a nudge re-emit on `shotSettings` to
-  /// kick `_shotSettingsUpdate` into rebroadcasting the data-controllers
-  /// that UI subscribes to. The nudge leaked redundant WS emits; these
-  /// helpers replace it by writing the MMR value and updating the
-  /// relevant data-controller directly.
   Future<void> setSteamFlow(double newFlow) async {
     await runDeviceWrite(
       (device) => device.setSteamFlow(newFlow),
@@ -647,11 +593,6 @@ class De1Controller {
     _publishFlushFlow(newFlow);
   }
 
-  /// One queued grouped write for `POST /api/v1/machine/settings`.
-  /// All physical writes share one queue entry; the controller flow
-  /// streams are published only after the grouped write completed and
-  /// its final machine-generation check passed, so the streams never
-  /// reflect values a machine did not receive.
   Future<void> updateMachineSettings({
     bool? usb,
     int? fan,
@@ -681,9 +622,6 @@ class De1Controller {
     if (steamFlow != null) _publishSteamFlow(steamFlow);
   }
 
-  /// Publish-only steam-flow update. Call only after the physical write
-  /// has been applied, so the stream cannot reflect a value the machine
-  /// never received.
   void _publishSteamFlow(double newFlow) {
     final current = _steamDataController.valueOrNull;
     if (current != null) {
@@ -697,7 +635,6 @@ class De1Controller {
     }
   }
 
-  /// Publish-only hot-water-flow update, see [_publishSteamFlow].
   void _publishHotWaterFlow(double newFlow) {
     final current = _hotWaterDataController.valueOrNull;
     if (current != null) {
@@ -712,7 +649,6 @@ class De1Controller {
     }
   }
 
-  /// Publish-only flush-flow update, see [_publishSteamFlow].
   void _publishFlushFlow(double newFlow) {
     final current = _rinseStream.valueOrNull;
     if (current != null) {

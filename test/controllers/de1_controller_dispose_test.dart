@@ -7,14 +7,6 @@ import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 
 import '../helpers/mock_device_discovery_service.dart';
 
-/// Regression tests for De1Controller.dispose().
-///
-/// dispose() must cancel the listeners it registered in connectToDe1()
-/// (`ready` + `connectionState`) and the pending shot-settings debounce
-/// timer. It cannot rely on `_onDisconnect()` to do that: _de1.dispose()
-/// closes the transport subjects, which delivers `onDone` to the
-/// connectionState listener rather than a `disconnected` event, so
-/// `_onDisconnect()` never runs.
 void main() {
   late MockDe1 mockDe1;
   late DeviceController deviceController;
@@ -62,7 +54,6 @@ void main() {
 
   test('dispose is safe to call more than once', () async {
     await de1Controller.dispose();
-    // Second call must not throw (subjects already closed, _de1 null).
     await expectLater(de1Controller.dispose(), completes);
   });
 }

@@ -13,7 +13,6 @@ mixin _TestCapability on UnifiedDe1 {
   Future<int> readFanViaWrongHelper() => readMmrInt(MMRItem.targetSteamFlow);
   Future<double> readFanAsScaledFloat() => readMmrScaled(MMRItem.fanThreshold);
 
-  // legitimate access path for `@protected` members).
   Future<List<int>> capRead(MmrAddress addr) => readMmrRaw(addr);
   Future<void> capWrite(MmrAddress addr, List<int> bytes) =>
       writeMmrRaw(addr, bytes);
@@ -28,8 +27,6 @@ mixin _TestCapability on UnifiedDe1 {
   }) => writeEndpoint(ep, data, withResponse: withResponse);
 }
 
-/// Capability-supplied MMR address that is *not* a [MMRItem]. Mirrors
-/// what e.g. `BengleCupWarmerMmr` will look like.
 class _CapabilityAddr implements MmrAddress {
   @override
   final int address;
@@ -59,8 +56,6 @@ class _CapabilityAddr implements MmrAddress {
   });
 }
 
-/// LogicalEndpoint that isn't part of the [Endpoint] enum — mirrors
-/// what a future capability subscription will look like.
 class _StubLogicalEndpoint implements LogicalEndpoint {
   @override
   final String? uuid;

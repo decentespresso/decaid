@@ -177,8 +177,6 @@ void main() {
   });
 
   group('Profile equality + JSON round-trip', () {
-    // determines whether the guard short-circuits. If notes contain
-
     test('default profile (no newlines) round-trips equal', () {
       final p = Defaults.createDefaultProfile();
       expect(Profile.fromJson(p.toJson()), equals(p));

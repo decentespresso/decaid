@@ -5,15 +5,11 @@ import 'package:logging/logging.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart'
     show CredentialStore;
 
-/// Thrown when a proxied call is attempted but no Decent account is linked.
-/// Front doors map this to HTTP 401.
 class DecentAccountNotLinkedException implements Exception {
   @override
   String toString() => 'DecentAccountNotLinkedException: no account linked';
 }
 
-/// Thrown when a caller requests a path outside the allowed proxy surface.
-/// Front doors map this to HTTP 403.
 class DecentProxyForbiddenPathException implements Exception {
   final String path;
   DecentProxyForbiddenPathException(this.path);
@@ -22,7 +18,6 @@ class DecentProxyForbiddenPathException implements Exception {
       'DecentProxyForbiddenPathException: path not allowed: $path';
 }
 
-/// An upstream response, ready to be relayed to the caller as-is.
 class DecentProxyResponse {
   final int statusCode;
   final Map<String, String> headers;
@@ -37,31 +32,15 @@ class DecentProxyResponse {
   String get body => utf8.decode(bodyBytes);
 }
 
-/// Auth-enriching reverse proxy for the Decent backend.
-///
-/// This is the **single owner of credential use** for network clients: it reads
-/// the stored Decent credentials, attaches them as Basic auth, forwards the
-/// request to `decentespresso.com`, and relays the upstream status + body back.
-/// Callers never see the credentials or the `Authorization` header. Every call
-/// must carry a [callerId] (skin / plugin id / api-client) so use is auditable.
-///
-/// Forwarding is restricted to explicit methods and the `support/api/` prefix.
-/// See `doc/plans/account-proxy-design.md`.
 class DecentProxyService {
   final http.Client _httpClient;
   final CredentialStore _store;
   final String baseUrl;
 
-  /// Path prefixes the proxy is allowed to forward to (no leading slash).
   final Set<String> allowedPrefixes;
 
   final Logger _log = Logger('DecentProxy');
 
-  /// Response headers never relayed to callers (auth/session/transport).
-  ///
-  /// `content-length`/`content-encoding` are dropped because forwarding may
-  /// still be re-framed by the local HTTP server; relaying upstream transfer
-  /// metadata would describe the wrong bytes.
   static const _strippedResponseHeaders = {
     'set-cookie',
     'www-authenticate',
@@ -82,13 +61,6 @@ class DecentProxyService {
   }) : _httpClient = httpClient,
        _store = credentialStore;
 
-  /// Forwards a request to `<baseUrl>/<path>` with the stored Decent
-  /// credentials attached as Basic auth, returning the upstream response
-  /// verbatim (minus sensitive headers).
-  ///
-  /// Throws [DecentProxyForbiddenPathException] if [path] is outside
-  /// [allowedPrefixes], or [DecentAccountNotLinkedException] if no account is
-  /// linked.
   Future<DecentProxyResponse> proxy({
     required String callerId,
     required String method,
@@ -160,7 +132,6 @@ class DecentProxyService {
     );
   }
 
-  /// Forwards a GET to `<baseUrl>/<path>`.
   Future<DecentProxyResponse> proxyGet({
     required String callerId,
     required String path,
@@ -176,7 +147,6 @@ class DecentProxyService {
     );
   }
 
-  /// Forwards a POST to `<baseUrl>/<path>`.
   Future<DecentProxyResponse> proxyPost({
     required String callerId,
     required String path,
@@ -198,7 +168,6 @@ class DecentProxyService {
     );
   }
 
-  /// Forwards a PUT to `<baseUrl>/<path>`.
   Future<DecentProxyResponse> proxyPut({
     required String callerId,
     required String path,

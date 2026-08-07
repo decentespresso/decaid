@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/services/account/encrypted_credential_store.dart';
 
-/// In-memory blob backend so the crypto logic can be tested without files.
 class InMemoryBlobStore implements SecretBlobStore {
   Uint8List? bytes;
   int writeCount = 0;

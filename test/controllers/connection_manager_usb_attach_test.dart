@@ -45,7 +45,6 @@ class _ProbeScanner extends _AttachScanner implements UsbAttachProbe {
   int probeCallCount = 0;
   final List<DeviceAttachedEvent> probeEvents = [];
 
-  /// When set, [connectAttachedMachine] waits for this before returning.
   Completer<void>? probeGate;
   final Completer<void> probeStarted = Completer<void>();
 

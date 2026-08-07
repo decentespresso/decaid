@@ -32,13 +32,6 @@ class DeviceController
   Stream<bool> get scanningStream => _scanningStream.stream;
   bool get isScanning => _scanningStream.value;
 
-  /// Adapter state surfaced to consumers. Currently reflects the most
-  /// recent emission from *any* registered `BleDiscoveryService`, last
-  /// writer wins — we assume a single BLE adapter per host (true on
-  /// every platform this app runs on). If a second BLE stack is ever
-  /// added, this needs to merge per-adapter states rather than
-  /// overwrite, e.g. `on` if any adapter on, else `off` if any off,
-  /// else `unknown` (comms-harden #29).
   final BehaviorSubject<AdapterState> _adapterStateStream =
       BehaviorSubject.seeded(AdapterState.unknown);
 
@@ -55,7 +48,6 @@ class DeviceController
   Stream<DeviceAttachedEvent> get deviceAttached =>
       _deviceAttachedStream.stream;
 
-  /// Weak origin association for attach-probe routing.
   final Expando<DeviceDiscoveryService> _attachOrigins = Expando();
 
   final List<StreamSubscription> _serviceSubscriptions = [];
@@ -68,10 +60,6 @@ class DeviceController
 
   final Map<String, String> _deviceNamesById = {};
 
-  /// Set the telemetry service for tracking device state changes
-  ///
-  /// Should be called before initialize() to ensure device state is tracked
-  /// from the start. Follows setter injection pattern used in SettingsController.
   set telemetryService(TelemetryService service) {
     _telemetryService = service;
   }
@@ -79,9 +67,6 @@ class DeviceController
   @override
   Stream<List<Device>> get deviceStream => _deviceStream.stream;
 
-  /// Flattened view over `_devices`. Rebuilt lazily when the underlying
-  /// per-service lists mutate (comms-harden #28 — hot-path callers like
-  /// telemetry + scan-cleanup were paying the fold cost per call).
   List<Device>? _flatDevicesCache;
 
   @override
@@ -146,14 +131,8 @@ class DeviceController
         _log.warning("Service $service failed to init:", e);
       }
     }
-    // Note: we no longer auto-scan here. The UI layer decides whether to run
-    // a targeted scan (preferred device) or a full scan (no preference).
-    // This avoids competing BLE scans that interfere with each other.
   }
 
-  /// In-flight scan Future so concurrent callers share a single scan
-  /// cycle instead of kicking off parallel scans that would interfere
-  /// with each other at the BLE layer.
   Future<ScanResult>? _inFlightScan;
 
   @override
@@ -228,7 +207,6 @@ class DeviceController
     }
   }
 
-  /// Stop all in-progress scans across all discovery services.
   @override
   void stopScan() {
     for (final service in _services) {
@@ -267,11 +245,6 @@ class DeviceController
   @override
   bool get supportsBackgroundWatch => _watchCapableServices.isNotEmpty;
 
-  /// Fan a persistent scale watch out to every supporting discovery
-  /// service. Unlike [scanForDevices] this touches neither
-  /// [_scanningStream] (no UI scanning indicator) nor the pre-scan
-  /// stale-device prune — the watch is invisible bookkeeping until a
-  /// device actually appears on [deviceStream].
   @override
   Future<void> startScaleWatch(DeviceWatchFilter filter) async {
     for (final service in _watchCapableServices) {
@@ -285,8 +258,6 @@ class DeviceController
       try {
         await service.stopDeviceWatch();
       } catch (e, st) {
-        // Best-effort teardown — a service failing to stop its watch
-        // (e.g. already disposed) must not block the others.
         _log.fine('stopDeviceWatch failed for $service', e, st);
       }
     }
@@ -353,10 +324,6 @@ class DeviceController
     _updateDeviceCustomKeys();
   }
 
-  /// Update telemetry custom keys with current device state
-  ///
-  /// Called on every device list change to keep telemetry context up-to-date.
-  /// Sets individual device keys (device_{name}_type) and summary counts by type.
   void _updateDeviceCustomKeys() {
     if (_telemetryService == null) return;
 

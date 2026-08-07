@@ -4,15 +4,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/transport/web_socket_transport.dart';
 
-/// In-memory [TextSocket] so transport behavior can be tested without a real
-/// network. Lets the test push inbound frames and capture outbound sends.
 class FakeTextSocket implements TextSocket {
   final _inbound = StreamController<dynamic>.broadcast();
   final List<String> sent = [];
   final Completer<void> _ready = Completer<void>();
   bool closed = false;
 
-  /// If set, `ready` completes with this error to simulate a failed connect.
   Object? readyError;
 
   FakeTextSocket({bool readyImmediately = true}) {
@@ -22,10 +19,8 @@ class FakeTextSocket implements TextSocket {
   void completeReady() => _ready.complete();
   void failReady(Object error) => _ready.completeError(error);
 
-  /// Simulate a frame arriving from the peer.
   void emit(dynamic frame) => _inbound.add(frame);
 
-  /// Simulate the peer closing the socket.
   void closeFromPeer() => _inbound.close();
 
   @override
@@ -145,7 +140,6 @@ void main() {
     test('dispose closes streams', () async {
       await transport.connect();
       await transport.dispose();
-      // A second dispose must be safe.
       await transport.dispose();
     });
   });

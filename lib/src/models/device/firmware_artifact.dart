@@ -1,11 +1,5 @@
-/// Source of a firmware artifact in the catalog.
 enum FirmwareArtifactSource { bundled }
 
-/// Managed firmware artifact metadata.
-///
-/// Represents a known-good firmware image plus its catalog-facing metadata.
-/// The bytes are loaded on demand; this model carries only the metadata needed
-/// to select and validate an artifact before loading.
 final class FirmwareArtifact {
   final String id;
   final FirmwareArtifactSource source;
@@ -68,19 +62,8 @@ final class FirmwareArtifact {
   }
 }
 
-/// Per-artifact eligibility for the connected machine.
-enum FirmwareEligibilityStatus {
-  /// The artifact can be applied to the connected machine.
-  applicable,
+enum FirmwareEligibilityStatus { applicable, notApplicable, unknown }
 
-  /// The artifact cannot be applied (incompatible model, etc.).
-  notApplicable,
-
-  /// Cannot determine eligibility (no machine connected).
-  unknown,
-}
-
-/// Stable machine-readable eligibility reason codes.
 enum FirmwareEligibilityReason {
   machineNotConnected('machine_not_connected'),
   machineModelUnknown('machine_model_unknown'),
@@ -100,7 +83,6 @@ enum FirmwareEligibilityReason {
   }
 }
 
-/// Eligibility result for a single artifact.
 final class FirmwareEligibility {
   final FirmwareEligibilityStatus status;
   final List<String> reasons;

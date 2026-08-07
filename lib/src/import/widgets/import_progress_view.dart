@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:reaprime/src/import/import_result.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
-/// Determinate progress bar showing import phase and running counts.
 class ImportProgressView extends StatelessWidget {
   final ImportProgress progress;
   final int shotsImported;

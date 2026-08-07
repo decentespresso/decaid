@@ -11,10 +11,6 @@ const _serviceUuid = '0000a000-0000-1000-8000-00805f9b34fb';
 const _charUuid = '0000a00e-0000-1000-8000-00805f9b34fb';
 const _writeTimeout = Duration(milliseconds: 50);
 
-/// Fake [UniversalBlePlatform] driving [UniversalBleTransport] recovery
-/// tests. `hangWrites` makes writeValue never complete (so the facade's
-/// command queue times out, the same path a dead link produces);
-/// `connectionStateResult` is what the OS-level probe reports.
 class _FakeBlePlatform extends UniversalBlePlatform {
   BleConnectionState connectionStateResult = BleConnectionState.connected;
   Completer<BleConnectionState>? connectionStateBlocker;
@@ -38,9 +34,6 @@ class _FakeBlePlatform extends UniversalBlePlatform {
   final List<String> disconnectCalls = [];
   final List<BleInputProperty> notificationProperties = [];
 
-  /// When true, the second `setNotifiable` call (per device+characteristic)
-  /// throws a [UniversalBleException] — used to prove `subscribe()`
-  /// surfaces the error instead of swallowing it.
   bool throwOnSecondSetNotifiable = false;
   final Map<String, int> _setNotifiableCounts = {};
 
@@ -567,15 +560,6 @@ void main() {
     });
   });
 
-  // Characterization tests for the universal_ble shared broadcast
-  // controller (the `_valueStreamController` with `onCancel: close`). The
-  // 2026-07-07 field incident showed A00E push notifications dying while
-  // A005 solicited reads kept working. These tests prove the Dart-side
-  // broadcast controller does NOT silently drop pushes on a no-op
-  // reconnect — so the silent A00E-only death is a native-layer behavior
-  // (CCCD write succeeds locally but is lost on the zombie GATT link),
-  // confirmable only on real Android hardware. They pin that boundary so
-  // a future regression in the Dart layer is caught.
   group('re-subscribe push channel (universal_ble broadcast controller)', () {
     const service = '0000a000-0000-1000-8000-00805f9b34fb';
     const chars = [
@@ -646,9 +630,6 @@ void main() {
         expect(oldReceived[i], [i + 1]);
       }
 
-      // Re-subscribe all six sequentially — the shared broadcast controller
-      // always has ≥5 listeners during each swap, so onCancel:close never
-      // fires mid-sequence.
       for (var i = 0; i < chars.length; i++) {
         await transport.subscribe(
           service,
@@ -682,8 +663,6 @@ void main() {
 
         await transport.subscribe(service, chars[0], (_) {});
 
-        // Second subscribe (second setNotifiable for the same char) must
-        // throw — not swallow — so the caller learns the CCCD write failed.
         await expectLater(
           transport.subscribe(service, chars[0], (_) {}),
           throwsA(isA<UniversalBleException>()),

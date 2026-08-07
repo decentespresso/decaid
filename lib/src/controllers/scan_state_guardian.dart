@@ -16,7 +16,6 @@ class ScanStateGuardian with WidgetsBindingObserver {
 
   Stream<ScanStateEvent> get events => _eventSubject.stream;
 
-  /// Current adapter state as last reported by the BLE service.
   AdapterState get currentAdapterState => _lastAdapterState;
 
   ScanStateGuardian({this.bleService}) {
@@ -33,9 +32,6 @@ class ScanStateGuardian with WidgetsBindingObserver {
 
     if (previous == AdapterState.poweredOn &&
         state == AdapterState.poweredOff) {
-      // Adapter on/off is a user-driven environmental state, surfaced to
-      // the UI through ScanStateEvent. Logging at WARNING used to push it
-      // through the telemetry forwarder as a Crashlytics non-fatal.
       _log.info('BLE adapter turned off');
       _eventSubject.add(ScanStateEvent.adapterTurnedOff);
     } else if (previous == AdapterState.poweredOff &&
@@ -52,7 +48,6 @@ class ScanStateGuardian with WidgetsBindingObserver {
     }
   }
 
-  /// Public for testability — called by WidgetsBindingObserver on resume.
   void onAppResumed() {
     _log.fine('App resumed, checking scan state');
     _eventSubject.add(ScanStateEvent.scanStateStale);

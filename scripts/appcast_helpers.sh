@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-# Largest sparkle:version (CFBundleVersion) among all appcast items.
 appcast_max_build() {
   local appcast="$1"
   xmllint --xpath \
@@ -8,7 +7,6 @@ appcast_max_build() {
     "$appcast" 2>/dev/null | tr ' ' '\n' | sort -n | tail -1
 }
 
-# Refuse publishing an update Sparkle can never select (equal/lower build).
 assert_build_increasing() {
   local new="$1" existing="$2"
   if [ -n "$existing" ] && [ "$new" -le "$existing" ]; then
@@ -49,9 +47,6 @@ assert_feed_grew() {
     echo "FAIL: default-channel items expected $expected_default, got $new_default"; return 1; }
 }
 
-# The old (version, channel) set must be a subset of the new feed: a beta
-# publication can never erase stable or historical items, and an existing
-# item's channel must not change.
 assert_old_items_preserved() {
   local old_feed="$1" new_feed="$2"
   local old_versions new_versions v old_ch new_ch

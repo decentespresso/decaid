@@ -10,12 +10,6 @@ import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:rxdart/rxdart.dart';
 
-/// Minimal BLE transport whose initial connection state is controllable, so
-/// we can drive `UnifiedDe1Transport.connect()` down the first-connect path
-/// (transport disconnected) vs. the no-op-reconnect path (already connected).
-/// Records call order and captures per-characteristic subscribe callbacks so
-/// tests can assert on disconnect-before-connect ordering and on which
-/// listener receives a pushed notification after a re-subscribe.
 class _Fake extends BLETransport {
   _Fake(ConnectionState initial, {ConnectionState? osProbeState})
     : _connState = BehaviorSubject<ConnectionState>.seeded(initial),
@@ -23,21 +17,12 @@ class _Fake extends BLETransport {
 
   final BehaviorSubject<ConnectionState> _connState;
 
-  /// What `getConnectionState()` returns when probed. Defaults to
-  /// `disconnected` so existing tests keep the old teardown behavior.
-  /// Set to `connected` to test the #431 probe-before-teardown path.
   final ConnectionState _osProbeState;
 
-  /// When true, `getConnectionState()` throws instead of returning a
-  /// value — simulates a platform error / timeout.
   bool throwOnGetConnectionState = false;
 
-  /// Ordered record of `disconnect` / `connect` / `subscribe:<uuid>` calls,
-  /// so tests can assert a no-op reconnect now tears down before re-connect.
   final List<String> callOrder = [];
 
-  /// Last callback registered per characteristic uuid — lets a test invoke
-  /// the *current* listener and assert it (not a stale one) receives pushes.
   final Map<String, void Function(Uint8List)> subscribers = {};
 
   @override
@@ -117,7 +102,6 @@ void main() {
 
       await transport.connect();
 
-      // disconnect must come before connect, and connect before any subscribe.
       final disconnectAt = fake.callOrder.indexOf('disconnect');
       final connectAt = fake.callOrder.indexOf('connect');
       final firstSubscribeAt = fake.callOrder.indexWhere(
@@ -199,8 +183,6 @@ void main() {
       reason: 're-subscribe must wire a NEW callback',
     );
 
-    // The new callback must still drive the state stream (the transport's
-    // internal wiring is intact after the clean teardown + reconnect).
     final secondSeen = <ByteData>[];
     final sub2 = transport.state.listen(secondSeen.add);
     secondCb!(Uint8List.fromList([0x06, 0x00, 0x00, 0x00]));

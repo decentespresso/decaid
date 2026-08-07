@@ -10,12 +10,8 @@ import 'package:reaprime/src/services/feedback_service.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-/// Maximum number of screenshots that can be attached.
 const _maxScreenshots = 2;
 
-/// Shows the feedback dialog for submitting user feedback.
-///
-/// The [githubToken] is injected at build time via --dart-define.
 void showFeedbackDialog(BuildContext context, {required String githubToken}) {
   showShadDialog(
     context: context,
@@ -23,7 +19,6 @@ void showFeedbackDialog(BuildContext context, {required String githubToken}) {
   );
 }
 
-/// Dialog for collecting and submitting user feedback as a GitHub issue.
 class FeedbackDialog extends StatefulWidget {
   final String githubToken;
 

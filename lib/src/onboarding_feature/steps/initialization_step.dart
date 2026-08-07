@@ -17,10 +17,6 @@ import '../onboarding_controller.dart';
 
 final _log = Logger('InitializationStep');
 
-/// Creates an [OnboardingStep] that initializes core services.
-///
-/// Always shown — runs WebUI storage/service init, plugin loading,
-/// and device controller initialization on every launch.
 OnboardingStep createInitializationStep({
   required DeviceController deviceController,
   required De1Controller de1Controller,
@@ -121,7 +117,6 @@ class _InitializationStepViewState extends State<_InitializationStepView> {
       }
     }
 
-    // BLE must be ready before the scan step calls connect().
     await deviceInit;
     BootTiming.mark('init_ready');
 

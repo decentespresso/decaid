@@ -9,25 +9,6 @@ import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:rxdart/rxdart.dart';
 
-/// Regression coverage for four Crashlytics FATAL paths that all traced
-/// back to one missing `await` in `DecentScale.disconnect()`:
-///
-/// - iOS   `d84d8f29…` — blamed `BluePlusTransport.write`
-/// - Android `5792e252…` — blamed `AndroidBluePlusTransport.write`
-/// - iOS   `21b6c4a7…` — blamed `FirebaseCrashlyticsTelemetryService`
-///   at the `PlatformDispatcher.onError` handler
-/// - Android `4d12d3a3…` — same as above on Android
-///
-/// The last two are just the `PlatformDispatcher.onError` fallback
-/// catching the exception that orphaned out of `disconnect()`'s
-/// try/catch because `_sendPowerOff()` wasn't awaited.
-///
-/// The fix is a single `await` in front of `_sendPowerOff()`. This test
-/// drives `disconnect()` against a transport whose `write()` throws
-/// the exact `device is disconnected` exception seen in production and
-/// asserts that the exception is caught inside `disconnect()` rather
-/// than leaking to the surrounding Zone.
-
 class _DisconnectedBleTransport extends BLETransport {
   final _connectionState = BehaviorSubject<ConnectionState>.seeded(
     ConnectionState.disconnected,
@@ -75,9 +56,6 @@ class _DisconnectedBleTransport extends BLETransport {
   @override
   Future<void> setTransportPriority(bool prioritized) async {}
 
-  /// Mirrors the production failure mode: `flutter_blue_plus` throws
-  /// `PlatformException(writeCharacteristic, device is disconnected)`
-  /// on any write after the peer has dropped.
   @override
   Future<void> write(
     String serviceUUID,
@@ -97,10 +75,6 @@ class _DisconnectedBleTransport extends BLETransport {
   }
 }
 
-/// Variant of the throwing transport whose `write()` hangs forever.
-/// Models a flaky BLE link where the platform channel never resolves
-/// the write — the reason `disconnect()` now caps the wait with a 2 s
-/// timeout instead of relying on the underlying 10 s write timeout.
 class _HangingBleTransport extends _DisconnectedBleTransport {
   @override
   Future<void> write(
@@ -110,7 +84,7 @@ class _HangingBleTransport extends _DisconnectedBleTransport {
     bool withResponse = true,
     Duration? timeout,
   }) {
-    return Completer<void>().future; // never completes
+    return Completer<void>().future;
   }
 }
 

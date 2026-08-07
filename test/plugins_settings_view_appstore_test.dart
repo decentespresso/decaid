@@ -5,7 +5,6 @@ import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'package:reaprime/src/settings/plugins_settings_view.dart';
 
-/// A fake PluginLoaderService that avoids creating a real PluginManager/JS runtime.
 class FakePluginLoaderService extends Fake implements PluginLoaderService {
   FakePluginLoaderService({this.plugins = const [], this.settings = const {}});
 

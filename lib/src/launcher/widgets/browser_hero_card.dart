@@ -5,9 +5,6 @@ import 'package:pretty_qr_code/pretty_qr_code.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-/// Hero card shown when the platform has no WebView support or is a degraded
-/// Android version. Displays the webUI URL, QR code, and action buttons so
-/// users can connect from another device's browser.
 class BrowserHeroCard extends StatelessWidget {
   const BrowserHeroCard({super.key, required this.deviceIp, this.port = 3000});
 

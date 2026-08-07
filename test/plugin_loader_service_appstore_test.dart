@@ -277,7 +277,6 @@ function createPlugin() {
         'Nickname': 'nick',
       });
 
-      // Omitted fields preserve the existing value.
       await service.savePluginSettings(id, {'Username': 'new-user'});
 
       expect(await service.pluginSettings(id), {
@@ -286,7 +285,6 @@ function createPlugin() {
         'Nickname': 'nick',
       });
 
-      // A null value removes the setting instead of storing a JSON null.
       await service.savePluginSettings(id, {'Nickname': null});
 
       expect(await service.pluginSettings(id), {
@@ -508,7 +506,6 @@ function createPlugin() {
         );
         expect(escapeDir.existsSync(), isFalse);
 
-        // Nested ids must not create nested directories.
         final nested = Directory('${pluginsDir.path}/a/b');
         await expectLater(
           service.addPlugin(makePluginSource('a/b').path),
@@ -516,7 +513,6 @@ function createPlugin() {
         );
         expect(nested.existsSync(), isFalse);
 
-        // Absolute ids must not resolve under the plugins root.
         final absDir = Directory('${pluginsDir.path}/abs');
         if (absDir.existsSync()) absDir.deleteSync(recursive: true);
         await expectLater(

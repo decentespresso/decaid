@@ -10,20 +10,8 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../onboarding_controller.dart';
 
-/// First Android version (12 / API 31) where the full WebView + BLE experience
-/// is reliable. Devices below this get a one-time, dismissible warning.
 const int _fullExperienceSdk = 31;
 
-/// Creates an [OnboardingStep] that warns Android users on older OS versions
-/// about reduced performance.
-///
-/// Shown only on Android below SDK [_fullExperienceSdk] and only once — the
-/// `Continue` button persists `androidWarningDismissed` so it never reappears.
-/// Informational and dismissible: it never blocks onboarding.
-///
-/// [sdkVersionProvider] returns the Android SDK int, or `null` on non-Android
-/// platforms; injectable for testing. Defaults to a real `DeviceInfoPlugin`
-/// probe.
 OnboardingStep createAndroidWarningStep({
   required SettingsController settingsController,
   Future<int?> Function()? sdkVersionProvider,

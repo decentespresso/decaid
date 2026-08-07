@@ -58,7 +58,6 @@ class MockSerialTransport implements SerialTransport {
     writtenHexCommands.add(command);
   }
 
-  /// Push raw bytes into the rawStream (simulates data from device).
   void emitRawData(Uint8List data) {
     _rawController.add(data);
   }

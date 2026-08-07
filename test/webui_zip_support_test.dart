@@ -7,12 +7,6 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:reaprime/src/webui_support/webui_zip_support.dart';
 
-/// Tests for the pure helpers that back WebUIStorage zip handling.
-///
-/// Covers:
-///   - sanitizeZipEntryPath (issue #147 — Win32-reserved chars)
-///   - extractArchiveToDirectory (issue #147 — per-entry error isolation)
-///   - installBundledSkinList (issue #148 — per-skin loop continuation)
 void main() {
   group('sanitizeZipEntryPath', () {
     test('leaves a normal filename unchanged', () {
@@ -48,9 +42,6 @@ void main() {
     });
 
     test('strips trailing dots from each path segment', () {
-      // Win32 silently drops trailing dots from path components; force them
-      // out so later reads resolve the same path we wrote. Embedded dots
-      // (e.g. `file.tar.gz`) are valid and must survive untouched.
       expect(sanitizeZipEntryPath('weird./file.tar.gz'), 'weird/file.tar.gz');
       expect(
         sanitizeZipEntryPath('trailing.../normal.txt'),
@@ -142,7 +133,6 @@ void main() {
       );
       expect(sanitised.existsSync(), isTrue);
       expect(jsonDecode(sanitised.readAsStringSync()), {'ok': true});
-      // Original name must NOT exist — if it did, sanitisation is a no-op.
       expect(
         File(
           p.join(tempDir.path, 'shots', '2025-09-12T16:04:38.049213.json'),
@@ -294,8 +284,6 @@ void main() {
 
       expectArchiveRejected(archive, 'traversal entry after a valid entry');
 
-      // Pre-validation must reject the whole archive before any entry is
-      // written — not even the innocent first entry may land.
       expect(
         tempDir.listSync(),
         isEmpty,
@@ -364,8 +352,6 @@ void main() {
           if (id == 'boom') throw StateError('simulated install failure');
         }, log: testLog);
         expect(calls, ['first', 'boom', 'third']);
-        // The failure must be surfaced at warning level so users and logs
-        // notice — the original bug hid it at fine.
         final warnings = logged.where((r) => r.level >= Level.WARNING).toList();
         expect(warnings, hasLength(1));
         expect(warnings.single.message, contains('boom'));

@@ -1,26 +1,4 @@
 #!/usr/bin/env python3
-"""Ingest de1app TCL or v2 JSON profiles into Decent format.
-
-Supports:
-  - de1app TCL profiles with advanced_shot steps (e.g. from de1app/de1plus/profiles/)
-  - v2 JSON profiles that already have steps
-  - Legacy TCL profiles (settings_2a/2b) are rejected because their stored frames
-    are not authoritative
-
-Usage:
-    # Convert specific profiles (auto-detects format by extension)
-    python3 tools/ingest_profiles.py path/to/profile.json -o assets/defaultProfiles/
-    python3 tools/ingest_profiles.py path/to/profile.tcl -o assets/defaultProfiles/
-
-    # Convert multiple profiles (mixed formats OK)
-    python3 tools/ingest_profiles.py profiles/*.json de1app/profiles/*.tcl -o assets/defaultProfiles/
-
-    # Dry run (print converted JSON to stdout)
-    python3 tools/ingest_profiles.py path/to/profile.tcl --dry-run
-
-    # Also update manifest.json
-    python3 tools/ingest_profiles.py profiles/*.json -o assets/defaultProfiles/ --update-manifest
-"""
 
 import argparse
 import json
@@ -39,7 +17,6 @@ BEVERAGE_TYPE_MAP = {
 
 
 def strip_tcl_braces(value):
-    """Remove TCL artifact curly braces from string values."""
     if isinstance(value, str) and value.startswith("{") and value.endswith("}"):
         return value[1:-1]
     return value
@@ -47,14 +24,6 @@ def strip_tcl_braces(value):
 
 
 def parse_tcl_profile(content):
-    """Parse a de1app TCL profile into a dict matching v2 JSON structure.
-
-    TCL profiles have two parts:
-    1. advanced_shot - a TCL list of step dicts (may be empty for legacy profiles)
-    2. Flat key-value pairs for profile metadata and legacy settings
-
-    Returns a dict that can be fed into convert_profile().
-    """
     result = {}
 
     advanced_match = re.match(r'^advanced_shot\s+(.*)', content, re.MULTILINE)
@@ -112,11 +81,6 @@ def parse_tcl_profile(content):
 
 
 def _parse_tcl_steps(raw):
-    """Parse TCL advanced_shot list into a list of step dicts.
-
-    The format is: {{key val key val ...} {key val key val ...} ...}
-    Steps are delimited by {braces} inside the outer braces.
-    """
     raw = raw.strip()
     if not raw or raw == "{}":
         return []
@@ -136,10 +100,6 @@ def _parse_tcl_steps(raw):
 
 
 def _split_tcl_list(raw):
-    """Split a TCL list into its top-level elements.
-
-    Handles nested {braces} correctly.
-    """
     elements = []
     depth = 0
     current = []
@@ -168,11 +128,6 @@ def _split_tcl_list(raw):
 
 
 def _parse_tcl_step(step_str):
-    """Parse a single TCL step string into a profile step dict.
-
-    TCL step format: key1 val1 key2 val2 ...
-    Values can be in {braces} if they contain spaces.
-    """
     tokens = _tokenize_tcl(step_str.strip())
     if len(tokens) < 2:
         return None
@@ -238,7 +193,6 @@ def _parse_tcl_step(step_str):
 
 
 def _tokenize_tcl(s):
-    """Tokenize a TCL key-value string, handling {braced} values."""
     tokens = []
     i = 0
     while i < len(s):
@@ -276,7 +230,6 @@ def _tokenize_tcl(s):
 
 
 def convert_step(step):
-    """Convert a parsed profile step to Decent format."""
     converted = {
         "name": step["name"],
         "pump": step["pump"],
@@ -319,7 +272,6 @@ def convert_step(step):
 
 
 def convert_profile(source):
-    """Convert a parsed profile dict to Decent format."""
     beverage_type = strip_tcl_braces(source.get("beverage_type", "espresso"))
     beverage_type = BEVERAGE_TYPE_MAP.get(beverage_type, beverage_type)
     if beverage_type not in VALID_BEVERAGE_TYPES:
@@ -359,7 +311,6 @@ def convert_profile(source):
 
 
 def load_profile(input_path):
-    """Load a profile from JSON or TCL file, returning a parsed dict."""
     with open(input_path) as f:
         content = f.read()
 
@@ -370,7 +321,6 @@ def load_profile(input_path):
 
 
 def update_manifest(output_dir, new_filenames):
-    """Add new filenames to manifest.json if not already present."""
     manifest_path = os.path.join(output_dir, "manifest.json")
     if os.path.exists(manifest_path):
         with open(manifest_path) as f:

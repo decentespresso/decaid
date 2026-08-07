@@ -7,11 +7,6 @@ import 'package:reaprime/src/settings/settings_controller.dart';
 
 import '../onboarding_controller.dart';
 
-/// Creates an [OnboardingStep] that scans for devices and connects.
-///
-/// Shows progress with coffee messages during scanning, a "taking too long"
-/// button after 8 seconds, device pickers when ambiguity arises, and
-/// auto-advances when connection is ready.
 OnboardingStep createScanStep({
   required ConnectionManager connectionManager,
   required DeviceController deviceController,
@@ -35,7 +30,6 @@ OnboardingStep createScanStep({
   );
 }
 
-/// Visible for testing. Thin onboarding wrapper around [ScanFlowView].
 @visibleForTesting
 class ScanStepView extends StatelessWidget {
   final OnboardingController onboardingController;
@@ -46,7 +40,6 @@ class ScanStepView extends StatelessWidget {
   final bool directConnect;
   final VoidCallback? onSkipToDashboard;
 
-  /// Preserved for existing tests that pump this threshold.
   @visibleForTesting
   static const scanTooLongThreshold = ScanFlowView.scanTooLongThreshold;
 

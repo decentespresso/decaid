@@ -23,11 +23,6 @@ import 'package:reaprime/src/controllers/workflow_controller.dart';
 
 enum _ImportPhase { pickSource, copying, scanning, summary, importing, result }
 
-/// Creates an [OnboardingStep] that manages the import flow:
-/// source picker → scanning → summary → importing → result.
-///
-/// shouldShow is always true — the caller (app.dart) determines whether the
-/// import step is included in the active onboarding flow.
 OnboardingStep createImportStep({
   required StorageService storageService,
   required ProfileStorageService profileStorageService,

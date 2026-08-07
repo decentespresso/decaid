@@ -1,12 +1,3 @@
-/**
- * <dye2-grinder-picker> Web Component
- * Lightweight grinder picker for workflow selection.
- * Fetches active grinders; click to select and update the workflow.
- * Runs in the BROWSER (not flutter_js).
- *
- * Events emitted:
- *   picker-done — when a grinder is selected, detail: { grinderId, grinderModel }
- */
 export const grinderPickerComponent = `
 class Dye2GrinderPicker extends HTMLElement {
   constructor() {

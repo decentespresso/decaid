@@ -11,20 +11,6 @@ import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/settings/gateway_mode.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 
-/// Long-lived service that stops a hot-water dispense once the scale reaches the
-/// configured target weight — the hot-water counterpart of the espresso
-/// stop-at-weight in [ShotSequencer].
-///
-/// Hot water is always started externally on this platform (group-head
-/// controller, physical button, REST, or a skin), so this service *reacts* to
-/// the machine entering `hotWater`: it tares the scale and then monitors the
-/// weight, asking the machine to stop the moment the (flow-projected) weight
-/// reaches the target. It mirrors the shape of [SteamSequencer] — created once
-/// in `main.dart`, lives across the app lifetime.
-///
-/// The target weight is the configured hot-water `volume` (ml ≈ g). We never
-/// mutate the machine's own volume/time targets, so the DE1's native stop stays
-/// as a safe backstop when there's no scale or the weight never climbs.
 class HotWaterSequencer {
   HotWaterSequencer({
     required De1Controller de1Controller,
@@ -49,24 +35,13 @@ class HotWaterSequencer {
   final DateTime Function() _now;
   final Logger _log = Logger('HotWaterSequencer');
 
-  /// Window after a tare during which the scale reading is not yet trustworthy
-  /// (matches [ScaleController.defaultSmoothingWindow]).
   static const Duration _tareSettleWindow =
       ScaleController.defaultSmoothingWindow;
 
-  /// A scale frame older than this is considered stale.
   static const Duration _scaleFreshWindow = Duration(seconds: 2);
 
-  /// The tare is trusted only once the scale has actually been *observed* to
-  /// drop to/below this many grams — proof the tare applied. A meaningful
-  /// pre-tare load (e.g. the cup still on the platter) could otherwise trigger
-  /// a false early stop if the physical tare lags the time window. If the tare
-  /// never lands, the stop simply never arms and the machine's own volume/time
-  /// stop takes over — failing safe.
   static const double _tareConfirmGrams = 3.0;
 
-  /// Lookahead used when the configured `hotWaterFlowMultiplier` is non-positive.
-  /// Matches that setting's default so a misconfig still behaves sanely.
   static const double _defaultLookaheadSeconds = 0.3;
 
   StreamSubscription<De1Interface?>? _de1Sub;
@@ -82,7 +57,6 @@ class HotWaterSequencer {
   DateTime? _lastWeightAt;
   bool _scaleConnected = false;
 
-  /// Whether the post-tare zero has actually been observed for the armed pour.
   bool _tareConfirmed = false;
 
   HotWaterStopState? _state;

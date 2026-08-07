@@ -1,31 +1,4 @@
 #!/usr/bin/env python3
-"""
-Interactive USB-serial console for DE1 / Bengle.
-
-Mirrors the protocol used by `UnifiedDe1Transport` over the serial path:
-
-  - Notification subscribe:    `<+X>` where X is the endpoint letter
-  - Notification unsubscribe:  `<-X>`
-  - Request state change:      `<B>NN` (NN = hex state byte)
-  - Notification frames:       `[X]<hex_payload>` terminated by `[` or `\n`
-
-Both DE1 and Bengle speak the same protocol over USB. Use the same script
-for either; just point `--port` at the right serial device.
-
-Usage:
-    python3 de1_serial_console.py /dev/cu.usbmodem1234
-
-Then at the `> ` prompt:
-    sub state water shot         # subscribe to the most useful streams
-    sub all                      # subscribe to state, water, shot, settings
-    state idle                   # request idle state
-    state 04                     # request espresso (raw hex)
-    raw <+J>                     # send arbitrary command
-    unsub all
-    quit
-
-Type `help` for a full command list.
-"""
 
 import argparse
 import re
@@ -194,7 +167,6 @@ PARSERS = {
 
 
 class Reader(threading.Thread):
-    """Background reader: drains the serial port, parses `[X]hex` frames."""
 
     def __init__(self, port: serial.Serial):
         super().__init__(daemon=True)

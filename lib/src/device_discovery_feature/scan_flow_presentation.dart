@@ -1,7 +1,6 @@
 import 'package:reaprime/src/controllers/connection_manager.dart';
 import 'package:reaprime/src/models/device/device.dart';
 
-/// How a transport-scoped condition affects the current connection operation.
 enum TransportConditionDisposition { hidden, notice, blocking }
 
 TransportConditionDisposition resolveTransportCondition(

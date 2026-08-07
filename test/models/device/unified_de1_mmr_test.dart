@@ -8,23 +8,6 @@ import 'package:reaprime/src/models/device/transport/serial_port.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:rxdart/rxdart.dart';
 
-/// Regression coverage for comms-harden #2 — MMR read must time out.
-///
-/// Before the fix, `_mmrRead` awaited `_mmr.firstWhere(...)` without a
-/// timeout. A single dropped MMR notify (firmware glitch, BLE drop
-/// between write and notify) during `onConnect()` left the Future
-/// pending forever, permanently wedging `ConnectionManager._isConnecting`.
-///
-/// After the fix, `_mmrRead` bounds the wait with a 2 s timeout and
-/// throws `MmrTimeoutException` on expiry. Callers can fail cleanly.
-///
-/// Option C verification: drive a real `UnifiedDe1` over a stub
-/// `SerialTransport` whose transport never emits MMR responses. A
-/// public MMR-reading method (`getSteamFlow`) surfaces the inner
-/// `_mmrRead` behavior.
-///
-/// See: doc/plans/comms-harden.md #2, doc/plans/comms-phase-0-1.md PR 3.
-
 class _QuietSerialTransport extends SerialTransport {
   final _connState = BehaviorSubject<ConnectionState>.seeded(
     ConnectionState.connected,
@@ -54,7 +37,6 @@ class _QuietSerialTransport extends SerialTransport {
   @override
   Future<void> writeHexCommand(Uint8List command) async {}
 
-  /// Silently accept writes without triggering any MMR response.
   @override
   Future<void> writeCommand(String command) async {}
 

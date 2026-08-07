@@ -25,8 +25,6 @@ import 'dart:convert';
 
 final _log = Logger('De1appImporter');
 
-/// Orchestrates the full de1app import pipeline:
-/// scan → parse shots → extract entities → store everything.
 class De1appImporter {
   final StorageService storageService;
   final ProfileStorageService profileStorageService;
@@ -447,8 +445,6 @@ class De1appImporter {
     );
   }
 
-  /// Returns a copy of [shot] with [batchId] and/or [grinderId] set in the
-  /// workflow's context.
   static ShotRecord _linkShotToEntities(
     ShotRecord shot, {
     String? batchId,

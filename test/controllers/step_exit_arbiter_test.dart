@@ -304,8 +304,6 @@ void main() {
         value: 6.0,
       );
 
-      // proximity = 6.0 * 0.20 = 1.2 bar
-      // distance = 6.0 - 4.8 = 1.2, which is NOT > 1.2 → near
       final vAt = arbiter.evaluate(
         profileFrame: 0,
         exit: exit,
@@ -351,11 +349,6 @@ void main() {
       );
       expect(v2, StepExitVerdict.defer);
 
-      // Frame 0: pressure 7.6 (down from 7.8).
-      // With 3 readings [7.5, 7.8, 7.6]: 7.8>7.5 ✓ but 7.6>7.8 ✗
-      // All comparisons must agree → not trending → fire.
-      // (maxDeferralFrames=3, so frameCount=3 ≥ max → max triggers first.
-      //  On read: fires because max reached, not because trend flipped.)
       final v3 = arbiter.evaluate(
         profileFrame: 0,
         exit: exit,

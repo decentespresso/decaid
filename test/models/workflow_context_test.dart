@@ -138,7 +138,6 @@ void main() {
         final reparsed = WorkflowContext.fromJson(merged);
         expect(reparsed.grinderSetting, '7');
 
-        // Next PUT cycle: serialize + reparse again — must still work.
         final second = WorkflowContext.fromJson(reparsed.toJson());
         expect(second.grinderSetting, '7');
         expect(second.grinderId, 'grinder-1');
@@ -214,65 +213,64 @@ void main() {
       expect(workflow.context!.coffeeRoaster, 'Sey');
     });
 
-    test('context + legacy fields: legacy only backfills null context slots', () {
-      final json = {
-        'id': 'wf-3',
-        'name': 'Blended',
-        'description': '',
-        'profile': {
-          'title': 'Test',
-          'author': 'Test',
-          'notes': '',
-          'beverage_type': 'espresso',
-          'steps': [
-            {
-              'name': 'pour',
-              'pump': 'pressure',
-              'transition': 'fast',
-              'volume': 100,
-              'seconds': 30,
-              'temperature': 93,
-              'sensor': 'coffee',
-              'pressure': 9,
-            },
-          ],
-          'tank_temperature': 0.0,
-          'target_weight': 36.0,
-          'target_volume': 0,
-          'target_volume_count_start': 0,
-          'legacy_profile_type': '',
-          'type': 'advanced',
-          'lang': 'en',
-          'hidden': false,
-          'reference_file': '',
-          'changes_since_last_espresso': '',
-          'version': '2',
-        },
-        // context has targetYield but NOT targetDoseWeight — legacy should backfill it
-        'context': {'targetYield': 38.0},
-        'doseData': {
-          'doseIn': 19.0,
-          'doseOut': 99.0,
-        }, // doseOut must NOT override context's targetYield
-        'steamSettings': {
-          'targetTemperature': 150,
-          'duration': 50,
-          'flow': 0.8,
-        },
-        'hotWaterData': {
-          'targetTemperature': 75,
-          'duration': 30,
-          'volume': 50,
-          'flow': 10.0,
-        },
-        'rinseData': {'targetTemperature': 90, 'duration': 10, 'flow': 6.0},
-      };
+    test(
+      'context + legacy fields: legacy only backfills null context slots',
+      () {
+        final json = {
+          'id': 'wf-3',
+          'name': 'Blended',
+          'description': '',
+          'profile': {
+            'title': 'Test',
+            'author': 'Test',
+            'notes': '',
+            'beverage_type': 'espresso',
+            'steps': [
+              {
+                'name': 'pour',
+                'pump': 'pressure',
+                'transition': 'fast',
+                'volume': 100,
+                'seconds': 30,
+                'temperature': 93,
+                'sensor': 'coffee',
+                'pressure': 9,
+              },
+            ],
+            'tank_temperature': 0.0,
+            'target_weight': 36.0,
+            'target_volume': 0,
+            'target_volume_count_start': 0,
+            'legacy_profile_type': '',
+            'type': 'advanced',
+            'lang': 'en',
+            'hidden': false,
+            'reference_file': '',
+            'changes_since_last_espresso': '',
+            'version': '2',
+          },
+          'context': {'targetYield': 38.0},
+          'doseData': {'doseIn': 19.0, 'doseOut': 99.0},
+          'steamSettings': {
+            'targetTemperature': 150,
+            'duration': 50,
+            'flow': 0.8,
+          },
+          'hotWaterData': {
+            'targetTemperature': 75,
+            'duration': 30,
+            'volume': 50,
+            'flow': 10.0,
+          },
+          'rinseData': {'targetTemperature': 90, 'duration': 10, 'flow': 6.0},
+        };
 
-      final workflow = Workflow.fromJson(json);
+        final workflow = Workflow.fromJson(json);
 
-      expect(workflow.context!.targetYield, 38.0);
-      expect(workflow.context!.targetDoseWeight, 19.0);
-    });
+        expect(workflow.context!.targetYield, 38.0);
+        expect(workflow.context!.targetDoseWeight, 19.0);
+      },
+    );
 
     test(
       'legacy doseData-only JSON (no grinder/coffee) synthesizes partial context',

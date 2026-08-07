@@ -9,32 +9,6 @@ import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/errors.dart';
 
-/// Single writer of `setProfile` for the workflow paths — REST
-/// (`PUT /api/v1/workflow`), UI (`ProfileTile` picker) AND the machine
-/// (re)connect push. Subscribes to `WorkflowController` changes and
-/// pushes the profile to the DE1 on value diff; equality is handled by
-/// `Profile`'s `Equatable` implementation.
-///
-/// Uploads are strictly serialized and coalesced (queue-with-coalesce):
-/// a profile upload is a stateful BLE multi-write sequence (header
-/// declaring N frames, then each frame), so two concurrent uploads
-/// interleave on the BLE queue and wedge the firmware's profile-receive
-/// state machine. While an upload is in flight, later workflow changes
-/// only update the desired profile; when the upload finishes, the latest
-/// desired profile is pushed and intermediates are skipped.
-///
-/// A failed upload (e.g. a GATT write timeout on a flaky link) is retried
-/// automatically with capped backoff ([retryDelays]) until it lands, is
-/// superseded, or the machine disconnects. Retries are deliberately not
-/// gated on machine state: pushes mid-shot are already possible today.
-///
-/// The on-connect profile push is triggered by
-/// [De1Controller.initSettled], which fires after the machine is ready
-/// and startup defaults have been attempted — not by the raw de1 stream
-/// event (which fires before initialization completes). This preserves
-/// the ordering where startup/default writes complete before the profile
-/// upload begins, and avoids any direct coupling between
-/// `De1Controller` and this sync.
 class WorkflowDeviceSync {
   WorkflowDeviceSync({
     required WorkflowController workflowController,
@@ -59,15 +33,8 @@ class WorkflowDeviceSync {
 
   final List<Duration> retryDelays;
 
-  /// Surfaces a persistent upload failure on the app's connection-status
-  /// stream when a retry cycle is active. Wired to
-  /// `ConnectionManager.reportError` in `main.dart`; fired once per
-  /// failing push cycle, on the first failure.
   final void Function(ConnectionError error)? onUploadError;
 
-  /// Invoked when the surfaced upload error is no longer current — either
-  /// a retry landed successfully, the machine disconnected, or the sync
-  /// was disposed.
   final void Function()? onUploadErrorCleared;
 
   Profile? _lastPushedProfile;
@@ -97,10 +64,6 @@ class WorkflowDeviceSync {
     unawaited(_drain());
   }
 
-  /// Kicks the profile push when machine initialization settles (ready +
-  /// defaults attempted). Replaces the old single-shot
-  /// `De1Controller._setDe1Defaults` upload and the short-lived raw-de1
-  /// stream trigger that raced initialization.
   void _onInitSettled(int? generation) {
     if (generation == null || generation != _generation) return;
     _lastPushedProfile = null;

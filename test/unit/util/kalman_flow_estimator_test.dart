@@ -191,12 +191,6 @@ void main() {
         estimator.addSample(t0.add(dt * i), rate * elapsed);
       }
 
-      // After 5 samples the flow estimate should be within 50% of the
-      // true rate. At native 10 Hz all tuning variants (original, aggressive
-      // retune, and this middle ground) reach ~59–66% within 5 samples. The
-      // convergence problem was never in the flow estimate — it was the
-      // weight estimate that lagged (now fixed by raw-passthrough in
-      // ScaleController).
       expect(
         estimator.flow,
         greaterThan(rate * 0.5),
@@ -205,7 +199,6 @@ void main() {
     });
 
     group('golden trace (shot 1, native ~10 Hz)', () {
-      /// Loads the P0 raw trace fixture.
       // ignore: no_leading_underscores_for_local_identifiers
       List<({DateTime timestamp, double weight})> _loadFixture() {
         const raw = [

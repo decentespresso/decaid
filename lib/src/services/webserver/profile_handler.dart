@@ -1,6 +1,5 @@
 part of '../webserver_service.dart';
 
-/// REST API handler for profile management operations
 class ProfileHandler {
   final ProfileController _controller;
 
@@ -10,7 +9,6 @@ class ProfileHandler {
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/profiles', _handleGetAll);
 
-    // Literal one-segment GET routes must be registered before the /<id> route.
     app.get('/api/v1/profiles/defaults', _handleListDefaults);
     app.get('/api/v1/profiles/export', _handleExport);
 
@@ -33,8 +31,6 @@ class ProfileHandler {
     app.delete('/api/v1/profiles/<id>/purge', _handlePurge);
   }
 
-  /// GET /api/v1/profiles
-  /// Query params: visibility, includeHidden, parentId
   Future<Response> _handleGetAll(Request request) async {
     try {
       final params = request.url.queryParameters;
@@ -76,7 +72,6 @@ class ProfileHandler {
     }
   }
 
-  /// GET /api/v1/profiles/defaults
   Future<Response> _handleListDefaults(Request request) async {
     try {
       final defaults = await _controller.listDefaults();
@@ -87,7 +82,6 @@ class ProfileHandler {
     }
   }
 
-  /// GET /api/v1/profiles/{id}
   Future<Response> _handleGetById(Request request, String id) async {
     id = Uri.decodeComponent(id);
     try {
@@ -104,8 +98,6 @@ class ProfileHandler {
     }
   }
 
-  /// POST /api/v1/profiles
-  /// Body: { profile: {...}, parentId?: string, metadata?: {...} }
   Future<Response> _handleCreate(Request request) async {
     try {
       final body = await request.readAsString();
@@ -139,8 +131,6 @@ class ProfileHandler {
     }
   }
 
-  /// PUT /api/v1/profiles/{id}
-  /// Body: { profile?: {...}, metadata?: {...} }
   Future<Response> _handleUpdate(Request request, String id) async {
     id = Uri.decodeComponent(id);
     try {
@@ -171,7 +161,6 @@ class ProfileHandler {
     }
   }
 
-  /// DELETE /api/v1/profiles/{id}
   Future<Response> _handleDelete(Request request, String id) async {
     id = Uri.decodeComponent(id);
     try {
@@ -186,8 +175,6 @@ class ProfileHandler {
     }
   }
 
-  /// PUT /api/v1/profiles/{id}/visibility
-  /// Body: { visibility: "visible" | "hidden" | "deleted" }
   Future<Response> _handleSetVisibility(Request request, String id) async {
     id = Uri.decodeComponent(id);
     try {
@@ -215,7 +202,6 @@ class ProfileHandler {
     }
   }
 
-  /// GET /api/v1/profiles/{id}/lineage
   Future<Response> _handleGetLineage(Request request, String id) async {
     id = Uri.decodeComponent(id);
     try {
@@ -232,8 +218,6 @@ class ProfileHandler {
     }
   }
 
-  /// POST /api/v1/profiles/import
-  /// Body: [{ id, profile, ... }, ...]
   Future<Response> _handleImport(Request request) async {
     try {
       final body = await request.readAsString();
@@ -256,8 +240,6 @@ class ProfileHandler {
     }
   }
 
-  /// GET /api/v1/profiles/export
-  /// Query params: includeHidden, includeDeleted
   Future<Response> _handleExport(Request request) async {
     try {
       final params = request.url.queryParameters;
@@ -282,7 +264,6 @@ class ProfileHandler {
     }
   }
 
-  /// POST /api/v1/profiles/restore/{filename}
   Future<Response> _handleRestoreDefault(
     Request request,
     String filename,
@@ -299,7 +280,6 @@ class ProfileHandler {
     }
   }
 
-  /// DELETE /api/v1/profiles/{id}/purge
   Future<Response> _handlePurge(Request request, String id) async {
     id = Uri.decodeComponent(id);
     try {

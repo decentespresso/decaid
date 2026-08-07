@@ -5,11 +5,6 @@ import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 
 import '../../helpers/fake_ble_transport.dart';
 
-/// Pins the real-`Bengle` stop-at-temperature stub contract. FW slot
-/// for `BengleSteamMmr.stopAtTemperatureTarget` is still `0x00000000`,
-/// so writes cache locally and never hit the MMR endpoint. When FW
-/// publishes the real slot, the pin test flips and the rest of the
-/// group needs the assertions inverted.
 void main() {
   group('Bengle stop-at-temperature wiring (FW slot stubbed)', () {
     late FakeBleTransport transport;

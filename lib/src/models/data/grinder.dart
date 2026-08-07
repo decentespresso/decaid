@@ -14,7 +14,6 @@ enum GrinderSettingType {
   }
 }
 
-/// A grinder entity with model info and UI configuration for setting input.
 class Grinder {
   final String id;
   final String model;

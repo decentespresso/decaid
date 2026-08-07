@@ -6,14 +6,6 @@ import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:rxdart/rxdart.dart';
 
-/// A lightweight Scale for widget tests.
-///
-/// Unlike MockScale (which has a Timer.periodic that conflicts with
-/// pumpAndSettle), this implementation has no timers or active streams.
-///
-/// Connection state defaults to [ConnectionState.connected] and can be
-/// changed dynamically via [setConnectionState] for subscription lifecycle
-/// tests.
 class TestScale implements Scale {
   @override
   final String deviceId;
@@ -41,15 +33,12 @@ class TestScale implements Scale {
   @override
   Stream<ConnectionState> get connectionState => _connectionState.stream;
 
-  /// Update the connection state. Listeners on [connectionState] will be
-  /// notified immediately.
   void setConnectionState(ConnectionState state) {
     _connectionState.add(state);
   }
 
   final BehaviorSubject<ScaleSnapshot> _snapshotSubject = BehaviorSubject();
 
-  /// Emit a [ScaleSnapshot] on the [currentSnapshot] stream.
   void emitSnapshot(ScaleSnapshot snapshot) {
     _snapshotSubject.add(snapshot);
   }

@@ -7,7 +7,6 @@ import 'package:reaprime/src/models/data/workflow.dart';
 import 'package:reaprime/src/services/storage/storage_service.dart';
 import 'package:reaprime/src/util/shot_importer.dart';
 
-/// Mock implementation of StorageService for testing
 class MockStorageService implements StorageService {
   final List<ShotRecord> storedShots = [];
 
@@ -49,7 +48,6 @@ class MockStorageService implements StorageService {
 
   @override
   Future<void> deleteShot(String id) {
-    // TODO: implement deleteShot
     throw UnimplementedError();
   }
 

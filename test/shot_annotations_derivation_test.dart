@@ -4,8 +4,6 @@ import 'package:reaprime/src/models/data/shot_annotations.dart';
 import 'package:reaprime/src/models/data/shot_snapshot.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 
-/// A single throwaway machine snapshot — the derivation only reads scale
-/// weights, so every measurement can share one.
 final _machine = MachineSnapshot(
   timestamp: DateTime(2026, 6, 5),
   state: const MachineStateSnapshot(

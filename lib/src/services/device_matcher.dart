@@ -20,11 +20,6 @@ import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:reaprime/src/models/device/impl/weighmaster/weighmaster_scale.dart';
 
 class DeviceMatcher {
-  /// Service UUIDs advertised by devices of a given [type].
-  /// Used for filtered BLE scans to bypass Android background throttling.
-  ///
-  /// Returns 128-bit UUID strings. [BluePlusDiscoveryService] converts
-  /// them to platform-specific [Guid] objects at the BLE edge.
   static List<String> serviceUuidsFor(DeviceType type) => switch (type) {
     DeviceType.scale => [
       DecentScale.serviceIdentifier.long,
@@ -48,10 +43,6 @@ class DeviceMatcher {
     ],
   };
 
-  /// Map an advertised name to a [DeviceImplementation] without constructing
-  /// a device. Used by [RememberedDevice.migrate] to infer the implementation
-  /// for old records that predate the field. Mirrors the name-matching logic
-  /// in [match] — keep the two in sync when adding a new device.
   static DeviceImplementation? implementationForName(String advertisedName) {
     final name = advertisedName;
     final nameLower = name.toLowerCase();

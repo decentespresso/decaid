@@ -31,7 +31,6 @@ part 'database.g.dart';
 class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
 
-  /// Create with the platform-default SQLite location.
   factory AppDatabase.defaults() {
     return AppDatabase(driftDatabase(name: 'streamline_bridge'));
   }

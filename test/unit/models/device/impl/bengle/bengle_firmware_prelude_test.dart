@@ -15,12 +15,10 @@ void main() {
       addTearDown(transport.dispose);
       final bengle = Bengle(transport: transport);
 
-      // Tests live in the same package; @protected lint is irrelevant here.
       // ignore: invalid_use_of_protected_member
       await bengle.beforeFirmwareUpload();
 
       expect(transport.lastRequestedState, MachineState.fwUpgrade);
-      // Wire byte must be 0x16 (the firmware's FirmwareUp state).
       final stateWrites = transport.writes
           .where((w) => w.characteristicUUID == Endpoint.requestedState.uuid)
           .toList();
@@ -44,9 +42,7 @@ void main() {
           await bengle
               .updateFirmware(Uint8List(0), onProgress: (_) {})
               .timeout(const Duration(seconds: 1));
-        } on TimeoutException catch (_) {
-          // Expected: protocol is blocked waiting on FW-path notifications.
-        }
+        } on TimeoutException catch (_) {}
 
         final fwWrites = transport.writes.sublist(preFwWrites);
         expect(

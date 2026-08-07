@@ -26,8 +26,6 @@ class SteamDao extends DatabaseAccessor<AppDatabase> with _$SteamDaoMixin {
     )..orderBy([(s) => OrderingTerm.desc(s.timestamp)])).get();
   }
 
-  /// Keyset-paged steam records for streaming export: ordered by (timestamp,
-  /// id) ascending; returns up to [limit] rows strictly after the cursor.
   Future<List<SteamRecord>> getSteamsForExport({
     int limit = 200,
     DateTime? cursorTimestamp,
@@ -57,8 +55,6 @@ class SteamDao extends DatabaseAccessor<AppDatabase> with _$SteamDaoMixin {
         .getSingleOrNull();
   }
 
-  /// Latest steam without the measurements blob — for `/latest` metadata
-  /// queries that don't need per-frame data.
   Future<SteamRecord?> getLatestSteamMeta() async {
     final cols = steamRecords.$columns
         .where((c) => c.$name != 'measurements_json')

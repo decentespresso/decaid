@@ -11,14 +11,12 @@ class WorkflowDao extends DatabaseAccessor<AppDatabase>
 
   static const _currentWorkflowId = 'current';
 
-  /// Load the current workflow row.
   Future<Workflow?> loadCurrentWorkflow() {
     return (select(
       workflows,
     )..where((w) => w.id.equals(_currentWorkflowId))).getSingleOrNull();
   }
 
-  /// Save the current workflow (upsert).
   Future<void> saveCurrentWorkflow(WorkflowsCompanion workflow) {
     return into(workflows).insertOnConflictUpdate(
       workflow.copyWith(id: const Value(_currentWorkflowId)),

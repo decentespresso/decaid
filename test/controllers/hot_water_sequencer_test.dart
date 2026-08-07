@@ -320,9 +320,6 @@ void main() {
     test(
       'waits for the post-tare zero before stopping (stale pre-tare weight)',
       () async {
-        // The cup is still on the platter and the physical tare lags: the scale
-        // keeps reporting the pre-tare weight (>= target) past the time window.
-        // The monitor must NOT false-stop until it has seen the weight settle low.
         await build();
         final m = _TestMachine();
         de1.emitMachine(m);

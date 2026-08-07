@@ -13,11 +13,6 @@ import 'package:reaprime/src/models/device/device.dart';
 
 import '../../scale.dart';
 
-/// Atomax Skale2 scale implementation.
-///
-/// Uses a simple single-byte command protocol for tare, display, and timer
-/// controls. Weight is reported as a little-endian int32 divided by 2560.
-/// Battery level is read from the standard BLE Battery Service (0x180F).
 class Skale2Scale implements Scale {
   static final BleServiceIdentifier serviceIdentifier =
       BleServiceIdentifier.short('ff08');
@@ -42,16 +37,12 @@ class Skale2Scale implements Scale {
 
   int _batteryLevel = 0;
 
-  /// Logger for Skale2-specific warnings (e.g. button subscription failure).
   final _log = logging.Logger('Skale2Scale');
 
-  /// Whether we have an active subscription to the weight characteristic (EF81).
   bool _weightSubscribed = false;
 
-  /// Whether we have an active subscription to the button characteristic (EF82).
   bool _buttonSubscribed = false;
 
-  /// Delay between init steps, matching de1app/Decenza staggered sequence.
   static const _initStepDelay = Duration(milliseconds: 1000);
 
   Skale2Scale({required BLETransport transport})
@@ -128,7 +119,6 @@ class Skale2Scale implements Scale {
   DeviceType get type => DeviceType.scale;
 
   Future<void> _initScale() async {
-    // 1. Turn display on and set to weight mode — BEFORE subscribing.
     await _sendDisplayOn();
     await _sendDisplayWeight();
 
@@ -172,17 +162,10 @@ class Skale2Scale implements Scale {
       );
       _buttonSubscribed = true;
     } catch (e) {
-      // Button characteristic may not be available on all devices, but
-      // log a warning so the failure is visible (unlike the previous
-      // silent swallow).  This is the most likely cause of the
-      // "buttons stop working after sleep" bug — if the initial
-      // subscription silently failed, it was never retried.
       _log.warning('Failed to subscribe to button notifications: $e');
     }
   }
 
-  /// Safe write — catches [DeviceNotConnectedException] so a write to a
-  /// disconnected scale doesn't escape as a FATAL (Crashlytics fa51312d).
   Future<void> _safeWrite(Uint8List data) async {
     try {
       await _transport.write(

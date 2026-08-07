@@ -11,12 +11,6 @@ import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/errors.dart';
 import '../../scale.dart';
 
-/// Atomheart Eclair scale implementation.
-///
-/// BLE Protocol:
-/// - Notifications contain 10-byte frames: header('W') + int32_le weight_mg + uint32_le timer + xor_byte
-/// - Weight is in milligrams (signed), divided by 1000 for grams
-/// - XOR validation on payload bytes (bytes 1..end-1) must match last byte
 class AtomheartScale implements Scale {
   static final BleServiceIdentifier serviceIdentifier =
       BleServiceIdentifier.long('b905eaea-6c7e-4f73-b43d-2cdfcab29570');
@@ -104,8 +98,6 @@ class AtomheartScale implements Scale {
   @override
   DeviceType get type => DeviceType.scale;
 
-  /// Safe write — catches [DeviceNotConnectedException] so a write to a
-  /// disconnected scale doesn't escape as a FATAL (Crashlytics fa51312d).
   Future<void> _safeWrite(Uint8List data) async {
     try {
       await _transport.write(
@@ -155,8 +147,6 @@ class AtomheartScale implements Scale {
     );
   }
 
-  /// Parse a BLE notification frame into a ScaleSnapshot.
-  /// Returns null if the frame is invalid.
   static ScaleSnapshot? parseFrame(List<int> data) {
     if (data.length < 9) return null;
     if (data[0] != 0x57) return null;

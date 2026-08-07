@@ -5,8 +5,6 @@ import 'package:reaprime/src/services/webserver_service.dart';
 import 'package:reaprime/src/services/webview_log_service.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
-/// Stub that returns fixed contents, bypassing the IOSink-buffered file the
-/// real [WebViewLogService] writes to (which would race a synchronous read).
 class _StubWebViewLogService extends WebViewLogService {
   final String _contents;
   _StubWebViewLogService(this._contents) : super(logDirectoryPath: '/unused');
@@ -204,7 +202,6 @@ void main() {
       });
 
       test('stops probing at the first missing rotation', () async {
-        // .1 and .3 exist but .2 does not — .3 must not be picked up.
         File('${logFile.path}.3').writeAsStringSync('r3\n');
         File('${logFile.path}.1').writeAsStringSync('r1\n');
         logFile.writeAsStringSync('base\n');
@@ -290,7 +287,6 @@ void main() {
       });
 
       test('an explicit ?kb above the ceiling is clamped', () async {
-        // 2KB of content, 1KB ceiling: kb=100 must still return only 1KB.
         final lines = [
           for (var i = 0; i < 228; i++) 'line${i.toString().padLeft(4, '0')}',
         ];

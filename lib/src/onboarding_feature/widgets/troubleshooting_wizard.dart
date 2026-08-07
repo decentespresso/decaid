@@ -6,7 +6,6 @@ import 'package:reaprime/src/models/adapter_state.dart';
 import 'package:reaprime/src/widgets/accessible_button.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
-/// A single step in the troubleshooting wizard.
 class TroubleshootingStep {
   final String id;
   final String title;
@@ -14,7 +13,6 @@ class TroubleshootingStep {
   final String buttonText;
   final bool Function() shouldShow;
 
-  /// Optional extra widget shown between description and button.
   final Widget Function(BuildContext context)? extraBuilder;
 
   const TroubleshootingStep({
@@ -27,11 +25,6 @@ class TroubleshootingStep {
   });
 }
 
-/// Returns the troubleshooting steps for the given state.
-///
-/// Exposed for testing so that shouldShow logic can be unit-tested directly.
-/// [isIOS] defaults to `Platform.isIOS` but can be overridden in tests.
-/// [isMacOS] defaults to `Platform.isMacOS` but can be overridden in tests.
 List<TroubleshootingStep> troubleshootingSteps({
   required AdapterState adapterState,
   bool? isIOS,
@@ -92,8 +85,6 @@ List<TroubleshootingStep> troubleshootingSteps({
   ];
 }
 
-/// Shows the troubleshooting wizard dialog.
-/// Returns when the dialog is dismissed (either completed or tapped outside).
 Future<void> showTroubleshootingWizard({
   required BuildContext context,
   required AdapterState adapterState,

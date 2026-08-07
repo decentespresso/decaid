@@ -646,7 +646,6 @@ void main() {
 
         expect(aggregator.activeDeviceSubscriptionCount, 1);
 
-        // Verify old object's state changes are NOT observed
         scale1.setConnectionState(ConnectionState.disconnected);
         await Future.delayed(Duration(milliseconds: 200));
 
@@ -704,7 +703,6 @@ void main() {
 
       final countAfterClose = emissions.length;
 
-      // Adding a device after dispose should NOT produce new emissions
       mockDiscovery.addDevice(TestScale(deviceId: 'scale-1', name: 'Scale 1'));
       await Future.delayed(Duration(milliseconds: 200));
 

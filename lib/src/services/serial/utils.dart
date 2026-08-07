@@ -4,7 +4,6 @@ import 'package:logging/logging.dart';
 
 final _log = Logger('SerialUtils');
 
-// ---- Device-specific detection helpers ----
 final _hdsRegex = RegExp(r'\d+ Weight: .*');
 bool isDecentScale(List<String> messages, List<Uint8List> captures) {
   _log.finer("is HDS: checking ${messages.length}, $messages");
@@ -36,15 +35,6 @@ bool serialProbeAllowsProductName(String? productName) {
   return const {'DE1', 'Bengle', 'Half Decent Scale'}.contains(productName);
 }
 
-/// Non-blocking replacement for the native `sp_drain`, which has no timeout
-/// and blocks the calling isolate forever when a USB-serial device never
-/// transmits the buffered bytes (observed when scan probes a non-Decent
-/// device, e.g. a Valve VR Radio on a Windows COM port — it froze startup).
-///
-/// Polls [bytesToWrite] until it reports an empty output buffer or [timeout]
-/// elapses, sleeping [pollInterval] between reads. Always returns; never
-/// waits longer than `ceil(timeout / pollInterval)` polls. [sleep] is
-/// injectable for tests.
 Future<void> drainWithTimeout({
   required int Function() bytesToWrite,
   Duration timeout = const Duration(milliseconds: 200),
@@ -61,8 +51,6 @@ Future<void> drainWithTimeout({
   }
 }
 
-/// Build a stable device ID for HDS from USB metadata.
-/// Returns null if vid or pid are missing (can't form a meaningful ID).
 String? computeUsbStableId({int? vid, int? pid, String? serial}) {
   if (vid == null || pid == null) return null;
   final s = (serial != null && serial.isNotEmpty) ? serial : 'unknown';

@@ -5,8 +5,6 @@ import 'package:rxdart/rxdart.dart';
 
 import 'test_scale.dart';
 
-/// Test [ScaleController] with controllable connection state and weight
-/// emission. Seeds with [device.ConnectionState.connected] by default.
 class TestScaleController extends ScaleController {
   final TestScale testScale;
   final BehaviorSubject<device.ConnectionState> _connectionState;

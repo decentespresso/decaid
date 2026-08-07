@@ -1,7 +1,6 @@
 import 'package:drift/drift.dart';
 import 'package:reaprime/src/services/database/converters/json_converters.dart';
 
-/// Profile records with content-based hash IDs and version tracking.
 class ProfileRecords extends Table {
   TextColumn get id => text()();
   TextColumn get metadataHash => text()();

@@ -143,7 +143,6 @@ class SteamFormSettings {
   int targetTemp;
   int targetDuration;
   double targetFlow;
-  // TODO: purge mode
 
   SteamFormSettings({
     required this.steamEnabled,

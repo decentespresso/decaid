@@ -10,32 +10,18 @@ import 'package:reaprime/src/services/device_matcher.dart';
 import 'package:reaprime/src/settings/settings_service.dart';
 import 'package:rxdart/subjects.dart';
 
-/// Owns the persistent registry of devices the user has connected to (the
-/// "remembered" set). When a remembered device isn't currently present, the
-/// API surfaces it as `available: false` instead of dropping it; the user can
-/// [forget] it.
-///
-/// It is deliberately decoupled from the device interfaces: it consumes two
-/// streams of [RememberedDevice] records (one per device kind), each emitting a
-/// record when a device connects (and null on disconnect, which is ignored —
-/// disconnecting does not forget). The field-reading from `De1Interface`/`Scale`
-/// lives in the wiring, keeping this controller trivially testable.
 class RememberedDevicesController {
   final SettingsService _settings;
   final Stream<RememberedDevice?> _machineConnections;
   final Stream<RememberedDevice?> _scaleConnections;
   final _log = Logger('RememberedDevices');
 
-  /// id -> remembered record. One entry per device id.
   final Map<String, RememberedDevice> _registry = {};
   final BehaviorSubject<List<RememberedDevice>> _changes =
       BehaviorSubject.seeded(const []);
   final List<StreamSubscription> _subs = [];
   bool _initialized = false;
 
-  /// True when a migration persist attempt failed and the in-memory registry
-  /// carries data not yet flushed to disk. A live-device reconnect will retry
-  /// the persist even when sameMetadata() passes.
   bool _migrationPersistPending = false;
 
   RememberedDevicesController({
@@ -46,14 +32,10 @@ class RememberedDevicesController {
        _scaleConnections = scaleConnections,
        _settings = settings;
 
-  /// Current remembered devices.
   List<RememberedDevice> get remembered => List.unmodifiable(_registry.values);
 
-  /// Emits the remembered list whenever it changes.
   Stream<List<RememberedDevice>> get changes => _changes.stream;
 
-  /// Load the persisted registry and start observing connections. Idempotent —
-  /// a second call is a no-op (avoids double-subscribing / double-loading).
   Future<void> initialize() async {
     if (_initialized) return;
     _initialized = true;
@@ -93,9 +75,6 @@ class RememberedDevicesController {
       }
     }
     _emit();
-    // SEVERE, not warning: the scale mapper narrows its catch to the benign
-    // DeviceNotConnectedException race, so anything reaching here is a genuine
-    // upstream defect, not an expected condition.
     _subs.add(
       _machineConnections.listen(
         (d) {
@@ -115,16 +94,10 @@ class RememberedDevicesController {
     );
   }
 
-  /// `_remember` for the un-awaited stream path. A persist failure is already
-  /// logged loudly in [_persist]; swallow the rejected future here so it doesn't
-  /// surface as an unhandled async error — the registry self-heals on the next
-  /// connect.
   Future<void> _rememberFromStream(RememberedDevice device) async {
     try {
       await _remember(device);
-    } catch (_) {
-      // Already logged at SEVERE in _persist.
-    }
+    } catch (_) {}
   }
 
   Future<void> _remember(RememberedDevice device) async {
@@ -153,14 +126,13 @@ class RememberedDevicesController {
     _emit();
   }
 
-  /// Forget a remembered device. No-op if it isn't remembered.
   Future<void> forget(String id) async {
     final removed = _registry.remove(id);
     if (removed == null) return;
     try {
       await _persist();
     } catch (_) {
-      _registry[id] = removed; // roll back: memory must match disk
+      _registry[id] = removed;
       rethrow;
     }
     _log.info('forgot $id');
@@ -178,8 +150,6 @@ class RememberedDevicesController {
     }
   }
 
-  /// Check raw JSON for records with enum values unknown to the current
-  /// build — a successful persist would overwrite them, which is lossy.
   static bool _scanForOpaqueRecords(String raw) {
     dynamic decoded;
     try {

@@ -5,13 +5,6 @@ import 'package:reaprime/src/settings/settings_service.dart';
 
 import '../helpers/mock_settings_service.dart';
 
-// Note: Full HTTP handler integration tests for SettingsHandler require
-// WebServerService setup (SettingsHandler is `part of webserver_service.dart`),
-// which brings in many dependencies. The tests below verify controller logic
-// and the validation building blocks (enum parsing, type checks) that the
-// handler relies on. The handler validation itself (returning 400 for bad
-// input) is best verified via MCP smoke tests against a running app.
-
 void main() {
   late MockSettingsService mockService;
   late SettingsController controller;

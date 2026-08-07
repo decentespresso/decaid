@@ -1,15 +1,3 @@
-/**
- * <dye2-bean-batch-list> Web Component
- * Fetches and displays batches for a specific bean from the core REST API.
- * Runs in the BROWSER (not flutter_js).
- *
- * Attributes:
- *   bean-id — required, specifies which bean's batches to show.
- *
- * Events emitted:
- *   create-batch  — when "Add Batch" is clicked, detail: { beanId }
- *   select-batch  — when a batch card is clicked, detail: { id, beanId }
- */
 export const beanBatchListComponent = `
 class Dye2BeanBatchList extends HTMLElement {
   constructor() {

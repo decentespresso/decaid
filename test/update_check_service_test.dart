@@ -24,7 +24,6 @@ class _FakeUpdater extends AndroidUpdater {
   int downloadCalls = 0;
   int installCalls = 0;
 
-  /// Gate to hold a download open for coalesce tests.
   Completer<void>? downloadGate;
 
   @override
@@ -320,9 +319,6 @@ void main() {
     test('initialize schedules skin refresh without an APK check', () async {
       final svc = build(isMacOS: true);
 
-      // Automatic checks default on; the periodic path must skip the APK
-      // check while still refreshing skins. The network attempt is swallowed
-      // by _updateSkins, so this only asserts the scheduling choice.
       await svc.initialize();
 
       expect(updater.checkCalls, 0);

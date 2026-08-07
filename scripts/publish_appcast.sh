@@ -1,18 +1,4 @@
 #!/usr/bin/env bash
-# Publish the Sparkle appcast for a tagged macOS release.
-# Usage:
-#   publish_appcast.sh <zip> <release-notes.md> <download-url-prefix> <channel> <key-file> <output> [previous-feed]
-#   <channel>        "beta" or "stable" (no channel is written for stable).
-#   <key-file>       Path to the EdDSA private key, or "-" to read it from
-#                    standard input (for a GitHub Actions secret).
-#   <output>         Where the generated appcast.xml is written.
-#   [previous-feed]  The durable feed (gh-pages branch) to merge into. When
-#                    absent, a fresh feed is generated; that one-time bootstrap
-#                    must be authorized by the caller (see release.yml).
-# The previous feed is the source of truth, read through git (not the Pages
-# CDN), so a transient Pages/TLS failure can never be mistaken for a first
-# publication. Fails unless the ZIP's CFBundleVersion is strictly greater than
-# every item already in the feed, and unless item counts never decrease.
 set -euo pipefail
 source "$(dirname "$0")/appcast_helpers.sh"
 

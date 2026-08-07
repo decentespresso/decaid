@@ -7,12 +7,6 @@ const _jsonHeaders = {'Content-Type': 'application/json'};
 Response jsonOk(Object? data) =>
     Response.ok(jsonEncode(data), headers: _jsonHeaders);
 
-/// Like [jsonOk], but adds a strong `ETag` derived from the encoded body and
-/// honours `If-None-Match` from the request — returns `304 Not Modified` with
-/// the same `ETag` and empty body when the client's tag matches.
-///
-/// ETag format: `"<first 16 hex chars of sha256(body)>"` (RFC 7232 strong tag).
-/// `If-None-Match: *` matches any current representation per RFC 7232 §3.2.
 Response jsonOkConditional(Request request, Object? data) {
   final body = jsonEncode(data);
   final digest = sha256.convert(utf8.encode(body)).toString().substring(0, 16);

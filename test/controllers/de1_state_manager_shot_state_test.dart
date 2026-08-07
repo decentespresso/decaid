@@ -24,7 +24,6 @@ import '../helpers/mock_device_discovery_service.dart';
 import '../helpers/mock_settings_service.dart';
 import '../helpers/test_de1.dart';
 
-/// De1Controller whose `de1` stream and `connectedDe1()` are test-driven.
 class _TestDe1Controller extends De1Controller {
   final BehaviorSubject<De1Interface?> de1Subject = BehaviorSubject.seeded(
     null,
@@ -54,7 +53,6 @@ class _TestDe1Controller extends De1Controller {
   }
 }
 
-/// StorageService that records persisted shots and stores nothing else.
 class _CapturingStorageService implements StorageService {
   final List<ShotRecord> storedShots = [];
 
@@ -289,7 +287,6 @@ void main() {
     expect(events.last.shotId, isNull, reason: 'feed re-seeds idle');
     expect(storage.storedShots, isEmpty);
 
-    // A real shot afterwards must not inherit the aborted attempt's id.
     events.clear();
     await driveShot();
 

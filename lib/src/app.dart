@@ -72,7 +72,6 @@ class NavigationService {
   static String? get currentRoute => ModalRoute.of(context!)?.settings.name;
 }
 
-/// The Widget that configures your application.
 class MyApp extends StatefulWidget {
   const MyApp({
     super.key,
@@ -133,8 +132,6 @@ class _MyAppState extends State<MyApp> {
   Timer? _restartTimer;
   late final OnboardingController _onboardingController;
 
-  /// Android SDK < 31 — these devices get the browser hero card instead of the
-  /// in-app skin (reduced WebView/BLE reliability). Resolved once at startup.
   bool _degradedAndroid = false;
 
   @override
@@ -197,8 +194,6 @@ class _MyAppState extends State<MyApp> {
     _resolveDegradedAndroid();
   }
 
-  /// Resolves whether this is a degraded Android device (SDK < 31). Runs once;
-  /// the launcher reads the resolved value synchronously.
   Future<void> _resolveDegradedAndroid() async {
     if (!Platform.isAndroid) return;
     try {
@@ -239,10 +234,6 @@ class _MyAppState extends State<MyApp> {
     );
   }
 
-  /// Navigates to the launcher after onboarding completes, then opens the skin
-  /// on top when the platform supports an in-app WebView and the skin server is
-  /// running. Degraded Android and unsupported platforms stay on the launcher
-  /// (which shows the browser hero card).
   Future<void> _navigateAfterOnboarding() async {
     final navigator = NavigationService.navigatorKey.currentState;
     if (navigator == null) return;

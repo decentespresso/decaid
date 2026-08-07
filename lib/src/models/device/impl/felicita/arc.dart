@@ -97,8 +97,6 @@ class FelicitaArc implements Scale {
   @override
   DeviceType get type => DeviceType.scale;
 
-  /// Safe write — catches [DeviceNotConnectedException] so a write to a
-  /// disconnected scale doesn't escape as a FATAL (Crashlytics fa51312d).
   Future<void> _safeWrite(Uint8List data) async {
     try {
       await _transport.write(

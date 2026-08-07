@@ -12,11 +12,6 @@ void main() {
 
   late MockDeviceScanner scanner;
 
-  /// The gate ScaleWatch consults — mirrors ConnectionManager's
-  /// `_shouldRetryPreferredScale`. Successful connects flip it false
-  /// (scale now connected), failed connects leave it true; ScaleWatch
-  /// itself never throws out of connectScale (ConnectionManager's
-  /// connectScale swallows errors).
   late bool gate;
   late String? preferredId;
   late List<Scale> connectCalls;
@@ -196,7 +191,7 @@ void main() {
     expect(watch.armed, isFalse);
     expect(scanner.watchActive, isFalse);
 
-    await watch.disarm(); // second call must not throw or double-stop
+    await watch.disarm();
     expect(scanner.stopWatchCallCount, 1);
   });
 

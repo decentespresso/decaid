@@ -7,17 +7,6 @@ import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/errors.dart';
 
-/// Reflects `SteamSettings.stopAtTemperature` into the connected
-/// Bengle's `setStopAtTemperatureTarget` MMR endpoint. Mirrors
-/// [BengleSawBridge] — same debounce + serialized latest-value drain +
-/// re-assert on reconnect shape.
-///
-/// **Scaffolding.** While the FW MMR slot is stubbed
-/// (`BengleSteamMmr.stopAtTemperatureTarget.address == 0x00000000`),
-/// `Bengle.setStopAtTemperatureTarget` caches the value locally and
-/// log-onces; this bridge keeps the cache consistent with the workflow
-/// so the day FW lands, the write hits the wire automatically with no
-/// app-side changes.
 class BengleSteamStopBridge {
   BengleSteamStopBridge({
     required WorkflowController workflowController,

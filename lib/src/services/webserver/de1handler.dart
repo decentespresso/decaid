@@ -22,7 +22,6 @@ class De1Handler {
     app.get('/api/v1/machine/state', _stateHandler);
     app.put('/api/v1/machine/state/<newState>', _requestStateHandler);
     app.post('/api/v1/machine/profile', _profileHandler);
-    // TODO: is this still needed?
     app.options('/api/v1/machine/profile', (Request r) {
       return Response.ok(
         '',
@@ -356,8 +355,6 @@ class De1Handler {
     }
   }
 
-  /// Maps the errors a queued machine write can produce: an expired
-  /// bounded replacement wait is `503`, a missing machine is `500`.
   Future<Response> _mapDe1WriteErrors(Future<Response> Function() call) async {
     try {
       return await call();
@@ -373,12 +370,6 @@ class De1Handler {
     }
   }
 
-  /// Like [withDe1], but runs [call] inside the shared device-write
-  /// queue ([De1Controller.runDeviceWrite]), so the physical writes
-  /// cannot interleave with workflow, profile, or shot-settings
-  /// mutations. Machine acquisition happens inside the queue entry;
-  /// a missing machine maps to `500` and an expired bounded
-  /// replacement wait maps to `503`.
   Future<Response> withQueuedDe1(
     Future<Response> Function(De1Interface device) call, {
     bool retryOnReplacement = false,
@@ -391,12 +382,6 @@ class De1Handler {
     );
   }
 
-  /// Attach a machine-gated socket to the current [De1Interface] instance and
-  /// re-attach when [De1Controller] publishes a different instance. Detaches
-  /// while no machine is connected; the socket stays open. Instance identity
-  /// (not deviceId) is used as the swap signal.
-  ///
-  /// See [doc/AI_API_NOTES.md] for design rationale.
   void _withDe1Ws(
     WebSocketChannel socket,
     StreamSubscription<dynamic> Function(De1Interface de1) attach, {
@@ -453,9 +438,6 @@ class De1Handler {
         final de1 = attached;
         if (onMessage == null) return;
         if (de1 == null) {
-          // Command sent while no machine is connected. Send a structured
-          // error frame rather than silently dropping it. Do not close the
-          // socket — telemetry sockets stay open across the reconnect gap.
           socket.sink.add(jsonEncode({'error': 'No machine connected'}));
           return;
         }
@@ -487,11 +469,6 @@ class De1Handler {
     });
   }
 
-  /// Machine state transitions (espresso/steam/idle/...) deliberately
-  /// bypass the shared device-write queue: they are latency-sensitive
-  /// commands — a stop request must not wait behind a settings or
-  /// workflow write — and they target the state characteristic, not the
-  /// settings/MMR registers the queue serializes.
   Future<Response> _requestStateHandler(
     Request request,
     String newState,
@@ -502,8 +479,6 @@ class De1Handler {
       final scaleConnected =
           _scaleController.currentConnectionState ==
           device.ConnectionState.connected;
-      // A cleaning/backflush profile has no yield to weigh, so the no-scale
-      // guard never applies to it.
       final isCleaningProfile =
           _workflowController.currentWorkflow.profile.beverageType ==
           BeverageType.cleaning;
@@ -522,12 +497,6 @@ class De1Handler {
           'type': 'block_no_scale',
         });
       }
-      // Record the intent only for an idle request that (a) targets an
-      // active tracked shot — shotState is non-idle only during an espresso
-      // shot, never during steam/hot-water/flush — and (b) whose BLE write
-      // actually succeeded, so a failed stop can't mislabel a later natural
-      // end. This lets the ShotSequencer attribute the stop to apiStop
-      // instead of the ambiguous machineEnded bucket.
       final stoppingActiveShot =
           requestState == MachineState.idle &&
           _controller.currentShotState.state != ShotState.idle;
@@ -577,10 +546,6 @@ class De1Handler {
     });
   }
 
-  /// Streams the shot state + decision feed (see ShotStateEvent). Unlike the
-  /// machine-gated sockets this one is NOT behind a connected DE1 — the feed
-  /// lives on De1Controller and idles between shots, so clients can attach
-  /// once and wait.
   Future<void> _handleShotState(
     WebSocketChannel socket,
     String? protocol,

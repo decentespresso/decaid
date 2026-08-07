@@ -6,8 +6,6 @@ import 'package:reaprime/src/settings/gateway_mode.dart';
 import 'package:reaprime/src/settings/scale_power_mode.dart';
 import 'package:reaprime/src/settings/settings_service.dart';
 
-/// In-memory SettingsService for widget tests.
-/// Returns sensible defaults without touching SharedPreferences.
 class MockSettingsService extends SettingsService {
   ThemeMode _themeMode = ThemeMode.system;
   GatewayMode _gatewayMode = GatewayMode.disabled;
@@ -42,7 +40,7 @@ class MockSettingsService extends SettingsService {
   bool _keepAwake = true;
   bool _onboardingCompleted = true;
   bool _accountStepSeen = true;
-  bool _androidWarningDismissed = true; // skip android warning in tests
+  bool _androidWarningDismissed = true;
   bool _showSkinExitInstructions = false;
   bool _enableSimulatedWebViews = false;
 
@@ -192,12 +190,8 @@ class MockSettingsService extends SettingsService {
   @override
   Future<void> setWakeSchedules(String json) async => _wakeSchedules = json;
 
-  /// Number of times [setRememberedDevices] has been called — lets tests assert
-  /// that an identical reconnect does not trigger a redundant persist.
   int rememberedDevicesWriteCount = 0;
 
-  /// When true, [setRememberedDevices] throws — simulates a failed persist
-  /// (disk full / platform-channel error).
   bool failRememberedDevicesWrite = false;
   @override
   Future<String> rememberedDevices() async => _rememberedDevices;

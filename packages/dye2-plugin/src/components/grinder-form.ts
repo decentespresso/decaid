@@ -1,15 +1,3 @@
-/**
- * <dye2-grinder-form> Web Component
- * Handles creating and editing grinders via the core REST API.
- * Runs in the BROWSER (not flutter_js).
- *
- * Attributes:
- *   grinder-id — when set, form enters edit mode and loads existing data.
- *
- * Events emitted:
- *   grinder-saved     — after successful POST/PUT
- *   grinder-cancelled — when the user clicks Cancel
- */
 export const grinderFormComponent = `
 class Dye2GrinderForm extends HTMLElement {
   constructor() {

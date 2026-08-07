@@ -26,38 +26,22 @@ import '../onboarding_feature/widgets/troubleshooting_wizard.dart';
 
 final _log = Logger('ScanFlow');
 
-/// Callback-driven scan flow widget.
-///
-/// Shows progress with coffee messages during scanning, a "taking too long"
-/// button after a threshold, device pickers when ambiguity arises, and invokes
-/// [onConnected] when connection is ready. Used by both onboarding (via
-/// [ScanStepView]) and the launcher scan page.
 class ScanFlowView extends StatefulWidget {
   final ConnectionManager connectionManager;
   final DeviceController deviceController;
   final SettingsController settingsController;
   final ScanStateGuardian scanStateGuardian;
 
-  /// When true, auto-connect to the first discovered machine/scale instead
-  /// of showing a picker on ambiguity.
   final bool directConnect;
 
-  /// The initial connection action. When non-null, invoked once from
-  /// [initState] instead of the default [ConnectionManager.connect].
-  /// Launcher pages should pass `connectionManager.scanAndConnect`;
-  /// onboarding uses `connect` (the default when null).
   final VoidCallback? initialConnectionIntent;
 
-  /// Invoked once when the connection phase first reaches `ready`.
   final VoidCallback onConnected;
 
-  /// Invoked when the user chooses to leave the scan without connecting.
   final VoidCallback onExit;
 
-  /// Button copy for the exit affordance (e.g. 'Dashboard', 'Cancel').
   final String exitLabel;
 
-  /// How long to wait before showing the "taking too long" button.
   static const scanTooLongThreshold = Duration(seconds: 16);
 
   const ScanFlowView({
@@ -108,15 +92,11 @@ class ScanFlowViewState extends State<ScanFlowView> {
   bool _showTakingTooLong = false;
   Timer? _tooLongTimer;
 
-  /// Prevents re-triggering auto-connect on subsequent status emissions
-  /// when --direct is active.
   bool _directAutoConnected = false;
 
-  /// Devices discovered so far during the current scan.
   List<De1Interface> _discoveredMachines = [];
   List<device_scale.Scale> _discoveredScales = [];
 
-  /// Currently selected device ID in the picker UI.
   String? _selectedMachineId;
   String? _selectedScaleId;
 
@@ -307,7 +287,6 @@ class ScanFlowViewState extends State<ScanFlowView> {
     return error.message;
   }
 
-  /// Whether devices have been found but the preferred one hasn't.
   bool get _hasDevicesButNotPreferred {
     if (_discoveredMachines.isEmpty && _discoveredScales.isEmpty) return false;
     final preferredMachineId = widget.settingsController.preferredMachineId;
@@ -874,8 +853,6 @@ class ScanFlowViewState extends State<ScanFlowView> {
     );
   }
 
-  /// Stops the scan and forces the device picker to show with currently
-  /// discovered devices.
   void _stopScanAndShowDevices() {
     widget.deviceController.stopScan();
   }

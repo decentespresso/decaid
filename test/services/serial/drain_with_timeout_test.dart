@@ -1,13 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/services/serial/utils.dart';
 
-/// Regression coverage for the Windows scan hang: probing a non-Decent
-/// USB-serial device (e.g. a Valve VR Radio on COM3) blocked the main
-/// isolate forever inside the native `sp_drain`, freezing app startup.
-///
-/// `drainWithTimeout` is the non-blocking replacement — it polls the
-/// output-buffer count and MUST return within its timeout no matter what
-/// the device does. These tests pin that invariant without touching FFI.
 void main() {
   group('drainWithTimeout', () {
     test('returns without sleeping when buffer is already empty', () async {

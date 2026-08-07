@@ -85,7 +85,6 @@ import 'package:reaprime/src/models/wake_schedule.dart';
 import 'package:reaprime/src/models/scan_report.dart';
 import 'package:reaprime/src/services/webview_log_service.dart';
 import 'package:reaprime/src/services/update_check_service.dart';
-import 'package:reaprime/src/services/app_update_state.dart';
 import 'package:reaprime/src/services/webserver/info_handler.dart';
 import 'package:reaprime/src/services/webserver/debug_handler.dart';
 import 'package:reaprime/src/services/firmware/bundled_firmware_catalog.dart';
@@ -309,11 +308,6 @@ Future<void> startWebServer(
 
   final dataSyncHandler = DataSyncHandler(
     exportHandler: dataExportHandler,
-    // The sync client needs a bounded connect timeout but must NOT time out
-    // while the target is generating/importing an archive: the target only
-    // responds after it has processed the whole body. connectionTimeout
-    // covers connection establishment only; phases are bounded by
-    // syncOverallTimeout in the handler.
     httpClient: IOClient(
       HttpClient()
         ..connectionTimeout = dataExportHandler.limits.syncHeaderTimeout,
@@ -566,15 +560,6 @@ Future<void> startApiDocsServer() async {
     apiDir.createSync(recursive: true);
   }
 
-  // Step 2: List of files in assets/api/ you want to unpack.
-  // Flutter doesn’t let you list asset directories dynamically,
-  // so you must declare them explicitly in pubspec.yaml.
-  // For example:
-  // assets:
-  //   - assets/api/index.html
-  //   - assets/api/openapi.json
-  //   - assets/api/style.css
-  // Then, manually list them here:
   final assetFiles = [
     'assets/api/index.html',
     'assets/api/rest_v1.yml',

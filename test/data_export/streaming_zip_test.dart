@@ -9,8 +9,6 @@ import 'package:reaprime/src/services/webserver/data_export/data_transfer_limits
 import 'package:reaprime/src/services/webserver/data_export/streaming_zip_reader.dart';
 import 'package:reaprime/src/services/webserver/data_export/streaming_zip_writer.dart';
 
-/// Builds a ZIP with the given files using the old in-memory ZipEncoder (the
-/// previous decoder path's producer, no data descriptors).
 List<int> buildLegacyZip(Map<String, String> files) {
   final archive = Archive();
   for (final entry in files.entries) {

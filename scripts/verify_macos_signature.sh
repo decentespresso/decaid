@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Usage: verify_macos_signature.sh <Decaid.app> [team-id] [post-staple]
 set -euo pipefail
 
 APP="${1:?usage: verify_macos_signature.sh <Decaid.app> [team-id] [post-staple]}"
@@ -31,8 +30,6 @@ if echo "$HOST_DETAILS" | grep -q 'PRODUCT_BUNDLE_IDENTIFIER'; then
 fi
 
 echo "== Gate 4: all embedded frameworks signed by the Team =="
-# Ad-hoc-signed frameworks pass codesign --verify but fail notarization;
-# every framework must carry the Developer ID Team ID.
 while IFS= read -r -d '' fw; do
   DETAILS="$(codesign -d --verbose=4 "$fw" 2>&1 || true)"
   echo "$DETAILS" | grep -q "TeamIdentifier=$TEAM_ID" \

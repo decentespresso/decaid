@@ -9,8 +9,6 @@ import 'package:reaprime/src/services/update_check_service.dart';
 import 'package:reaprime/src/services/webserver/json_response.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
-/// Debug endpoints for controlling simulated devices.
-/// Only registered when running in simulate mode.
 class DebugHandler {
   final ScaleController _scaleController;
   final De1Controller _de1Controller;

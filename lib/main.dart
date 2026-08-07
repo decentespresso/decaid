@@ -93,8 +93,6 @@ import 'package:reaprime/src/services/webview_log_service.dart';
 import 'package:reaprime/src/skin_feature/simulated_webview_device.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 
-/// Set system information as custom keys in telemetry service.
-/// This provides critical context for diagnosing platform-specific issues.
 Future<void> _setSystemInfoKeys(TelemetryService telemetryService) async {
   try {
     final deviceInfoPlugin = DeviceInfoPlugin();
@@ -121,9 +119,6 @@ Future<void> _setSystemInfoKeys(TelemetryService telemetryService) async {
   }
 }
 
-/// Parses the `--dart-define=simulate=` flag value.
-/// Accepts "1" for all device types, or a comma-delimited list
-/// like "machine,scale" for selective simulation.
 Set<SimulatedDevicesTypes> _parseSimulateFlag(String value) {
   if (value == '1') {
     return SimulatedDevicesTypes.values.toSet();
@@ -183,10 +178,6 @@ void main(List<String> args) async {
   Logger.root.info("==== Decent starting ====");
   BootTiming.start();
 
-  // Keep the Wi-Fi firmware from dropping inbound broadcast/multicast (incl.
-  // ARP) once the radio idles, so the gateway's REST/WebSocket server stays
-  // reachable on the LAN. Android-only; no-op elsewhere. Fire-and-forget — the
-  // lock is held for the process lifetime and never blocks startup.
   unawaited(MulticastLockService().acquire());
 
   Logger.root.info(
@@ -222,8 +213,6 @@ void main(List<String> args) async {
 
   await _setSystemInfoKeys(telemetryService);
 
-  // Hook Logger.root to capture WARNING+ in log buffer with PII scrubbing
-  // and trigger non-fatal error reports with rate limiting
   Logger.root.onRecord.listen((record) {
     if (record.level >= Level.WARNING) {
       final scrubbed = Anonymization.scrubString(
@@ -331,13 +320,6 @@ void main(List<String> args) async {
     persistenceController.saveWorkflow(workflowController.currentWorkflow);
     de1Controller.defaultWorkflow = workflowController.currentWorkflow;
   });
-  // Single writer of DE1 setProfile for the workflow paths (REST
-  // PUT /api/v1/workflow + UI picker) AND the machine (re)connect push
-  // (the old defaults-path upload was single-shot with
-  // swallowed errors). Only POST /api/v1/machine/profile bypasses it —
-  // UnifiedDe1.setProfile serializes uploads across all callers at the
-  // device level. Persistent upload failures surface on the connection
-  // status stream and retract once a retry lands.
   // ignore: unused_local_variable
   final workflowDeviceSync = WorkflowDeviceSync(
     workflowController: workflowController,
@@ -347,38 +329,24 @@ void main(List<String> args) async {
       ConnectionErrorKind.profileUploadFailed,
     ),
   );
-  // Reflects WorkflowContext.targetYield into Bengle's autonomous SAW
-  // MMR. Single writer for both REST and UI yield-edits; re-applies on
-  // every Bengle (re)connect.
   // ignore: unused_local_variable
   final bengleSawBridge = BengleSawBridge(
     workflowController: workflowController,
     de1Controller: de1Controller,
   );
 
-  // Reflects SteamSettings.stopAtTemperature into Bengle's stop-at-
-  // temperature MMR (currently stubbed FW slot — bridge keeps the
-  // cache consistent so the day FW publishes, writes hit the wire
-  // automatically). See [[bengle_steam_stop_bridge]].
   // ignore: unused_local_variable
   final bengleSteamStopBridge = BengleSteamStopBridge(
     workflowController: workflowController,
     de1Controller: de1Controller,
   );
 
-  // Registers a BengleMilkProbe sensor adapter with SensorController
-  // when a Bengle's probe-attached signal flips true. Inert today —
-  // real `Bengle.probeAttached` never emits true until FW publishes
-  // a presence signal.
   // ignore: unused_local_variable
   final bengleProbeBridge = BengleProbeBridge(
     de1Controller: de1Controller,
     sensorController: sensorController,
   );
 
-  // Records steaming sessions + scaffolding for stop-at-temperature.
-  // See [[steam_sequencer]] for the predicate truth table and
-  // record lifecycle.
   // ignore: unused_local_variable
   final steamSequencer = SteamSequencer(
     de1Controller: de1Controller,
@@ -387,9 +355,6 @@ void main(List<String> args) async {
     persistenceController: persistenceController,
   );
 
-  // Tares the scale and stops hot-water dispensing at the configured volume
-  // target (treated as grams) when a scale is connected — the hot-water
-  // counterpart of the espresso stop-at-weight. See [[hot_water_sequencer]].
   // ignore: unused_local_variable
   final hotWaterSequencer = HotWaterSequencer(
     de1Controller: de1Controller,
@@ -419,8 +384,6 @@ void main(List<String> args) async {
       credentialStore: credentialStore,
       baseUrl: decentBaseUrl,
     );
-    // Same credential store as the account service: the proxy reads the
-    // credentials that account login wrote, and never exposes them to callers.
     decentProxyService = DecentProxyService(
       httpClient: http.Client(),
       credentialStore: credentialStore,
@@ -806,7 +769,6 @@ class AppLifecycleObserver with WidgetsBindingObserver {
     });
   }
 
-  /// Show a download+install dialog that starts downloading immediately.
   void _showAndroidDownloadDialog(BuildContext context, UpdateInfo updateInfo) {
     final updater = AndroidUpdater(owner: 'tadelv', repo: 'reaprime');
     showDialog(
@@ -890,17 +852,8 @@ class _AppRootState extends State<AppRoot> {
   final Logger _log = Logger("AppRoot");
   Key _key = UniqueKey();
 
-  // NOTE: No dispose() override here — _AppRootState is torn down and
-  // recreated on every app restart (WebView crash, reinit), which must
-  // NOT tear down the DE1/scale connection. ConnectionManager.dispose()
-  // is wired but intentionally not called from here. The OS reclaims
-  // BLE handles and serial ports on process death; the subjects are
-  // harmless at exit.
-
   Future<void> restart() async {
     _log.info("recreating App Root");
-    // TODO: need better app base logic for recreate activity
-    // await recreateActivity();
     setState(() {
       _key = UniqueKey();
     });
@@ -912,7 +865,6 @@ class _AppRootState extends State<AppRoot> {
     try {
       await _channel.invokeMethod('recreateActivity');
     } catch (e) {
-      // Log but never crash
       _log.severe('[ActivityControl] recreate failed: $e');
     }
   }
@@ -947,9 +899,6 @@ class _AppRootState extends State<AppRoot> {
       ),
     );
 
-    // PlatformMenuBar must live ABOVE KeyedSubtree so it survives app restarts
-    // (which change the key). Otherwise, the new PlatformMenuBar tries to
-    // acquire the static _lockedContext lock before the old one is disposed.
     if (Platform.isMacOS) {
       return PlatformMenuBar(menus: _buildPlatformMenus(), child: child);
     }
@@ -963,9 +912,6 @@ class _AppRootState extends State<AppRoot> {
     return child;
   }
 
-  /// `Ctrl+Alt+<digit>` accelerators for switching the simulated WebView on
-  /// Windows/Linux, mirroring the macOS Cmd+Alt menu shortcuts in
-  /// [_buildPlatformMenus]: 0 → native, 8 → T50 Mini, 7 → P80X, 6 → P85 Pro.
   Map<ShortcutActivator, VoidCallback> _simulatedWebViewShortcuts() {
     return {
       const SingleActivator(

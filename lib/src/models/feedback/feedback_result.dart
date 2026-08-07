@@ -1,4 +1,3 @@
-/// Result of a feedback submission attempt
 class FeedbackSubmissionResult {
   final bool success;
   final String? issueUrl;

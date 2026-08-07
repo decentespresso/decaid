@@ -5,8 +5,6 @@ import 'package:reaprime/src/controllers/scan_state_guardian.dart';
 import 'package:reaprime/src/device_discovery_feature/scan_flow_view.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 
-/// Full-screen scan page launched from the launcher's connect-hero. Reuses
-/// the shared [ScanFlowView]; pops back to the launcher on connect or cancel.
 class LauncherScanPage extends StatelessWidget {
   static const routeName = '/launcher-scan';
 

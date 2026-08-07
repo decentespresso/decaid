@@ -15,7 +15,6 @@ import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:rxdart/subjects.dart';
 
-// steam is a placeholder for a future simulation mode.
 // ignore: unused_field
 enum _SimulationType { espresso, steam, hotWater, idle }
 
@@ -70,8 +69,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
   double _profileTargetTemperature = 94.0;
   int _targetVolumeCountStart = 0;
 
-  /// First profile frame that counts toward the shot volume/weight — earlier
-  /// frames are preinfusion. Simulated scales gate weight accumulation on it.
   int get targetVolumeCountStart => _targetVolumeCountStart;
   double _fromFlowTarget = 0;
   double _fromPressureTarget = 0;
@@ -429,11 +426,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
 
   double _hotWaterElapsedMs = 0.0;
 
-  /// Simulated hot-water dispense: flow converges to the configured
-  /// hot-water flow and runs until the configured duration elapses (or an
-  /// external `requestState(idle)` — e.g. the app's weight-based stop —
-  /// ends it). No volume-based auto-stop: like the real DE1 as this app
-  /// drives it, weight stops are the app's job, not the machine's.
   MachineSnapshot _simulateHotWater() {
     _hotWaterElapsedMs += 100;
     final settings = _shotSettingsController.value;
@@ -498,9 +490,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
     );
   }
 
-  /// Whether the current step's pressure/flow move-on condition is satisfied by
-  /// the latest reading. Disabled placeholders (value <= 0, e.g. `flow under 0`)
-  /// never fire; weight/volume exits are handled app-side, not here.
   bool _stepExitConditionMet(ProfileStep step) {
     final exit = step.exit;
     if (exit == null || exit.value <= 0) return false;
@@ -512,7 +501,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
         : reading <= exit.value;
   }
 
-  /// Snapshot the current step's targets so smooth transitions can interpolate from them.
   void _captureFromTargets(ProfileStep step) {
     if (step is ProfileStepPressure) {
       _fromPressureTarget = step.pressure;
@@ -543,9 +531,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
     _connectionState.add(ConnectionState.disconnected);
   }
 
-  /// Debug/simulation-only disconnect: emit a disconnected connection
-  /// state explicitly. No automatic reconnect (see
-  /// `POST /api/v1/debug/machine/disconnect`).
   void simulateDisconnect() {
     _stateTimer?.cancel();
     _connectionState.add(ConnectionState.disconnected);
@@ -774,7 +759,6 @@ class MockDe1 implements De1Interface, SimulatedDevice {
   }
 
   @override
-  // TODO: implement rawOutStream
   Stream<De1RawMessage> get rawOutStream => throw UnimplementedError();
 
   @override

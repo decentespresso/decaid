@@ -2,12 +2,8 @@ import Cocoa
 import FlutterMacOS
 import Sparkle
 
-/// Minimal surface MacOSUpdater needs from Sparkle's updater controller.
-/// Protocol so RunnerTests can drive MacOSUpdater without launching Sparkle's
-/// installer machinery.
 @MainActor
 protocol SPUUpdaterControlling: AnyObject {
-  /// Pre-flight check that the host bundle is configured for Sparkle.
   func validateConfiguration() throws
   func startUpdater()
   func checkForUpdates()
@@ -15,7 +11,6 @@ protocol SPUUpdaterControlling: AnyObject {
   func resetUpdateCycleAfterShortDelay()
 }
 
-/// Production controller wrapping Sparkle's standard updater controller.
 @MainActor
 final class SparkleUpdaterController: SPUUpdaterControlling {
   private let standard: SPUStandardUpdaterController
@@ -64,9 +59,6 @@ enum MacOSUpdaterError: LocalizedError {
   }
 }
 
-/// Coordinates Sparkle with Decaid's Flutter settings. The Flutter side
-/// (net.tadel.reaprime/macos_updater) is the only entry point; no update
-/// replacement logic lives in Dart.
 @MainActor
 final class MacOSUpdater: NSObject, SPUUpdaterDelegate {
   static let channelName = "net.tadel.reaprime/macos_updater"
@@ -86,13 +78,10 @@ final class MacOSUpdater: NSObject, SPUUpdaterDelegate {
     super.init()
   }
 
-  /// Sparkle always includes the default channel, so Stable needs no entries.
   nonisolated static func allowedChannels(for channel: String) -> Set<String> {
     channel == "beta" ? ["beta"] : []
   }
 
-  /// Registers the method channel and returns the updater; the caller keeps it
-  /// alive (the AppDelegate owns it).
   @discardableResult
   static func register(with flutterViewController: FlutterViewController) -> MacOSUpdater {
     let updater = MacOSUpdater()
@@ -105,8 +94,6 @@ final class MacOSUpdater: NSObject, SPUUpdaterDelegate {
     return updater
   }
 
-  /// Starts the updater and applies the persisted Flutter settings. Idempotent;
-  /// safe to call again after a channel change or a settings reload.
   func configure(automaticChecks: Bool, channel: String) throws {
     try controller.validateConfiguration()
     if !configured {

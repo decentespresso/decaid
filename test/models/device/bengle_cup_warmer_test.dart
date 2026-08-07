@@ -7,15 +7,6 @@ import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 
 import '../../helpers/fake_ble_transport.dart';
 
-/// Wires the real `Bengle` class through `FakeBleTransport` to confirm the
-/// public cup-warmer API (setCupWarmerTemperature / getCupWarmerTemperature)
-/// rides the scaledFloat MMR helpers and the `BengleMmr.matSetPoint` address.
-///
-/// This is the integration point between `BengleInterface`,
-/// `Bengle`'s extension on `UnifiedDe1`'s `@protected` MMR helpers, and the
-/// `MmrValueKind.scaledFloat` plumbing. The unit-level mechanics
-/// (clamping, packing, kind-mismatch errors) live in
-/// `test/unit/models/device/impl/de1/unified_de1/protected_surface_test.dart`.
 void main() {
   group('Bengle cup warmer wiring', () {
     late FakeBleTransport transport;

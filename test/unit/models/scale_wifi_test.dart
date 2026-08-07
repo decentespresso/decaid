@@ -5,7 +5,6 @@ import 'package:reaprime/src/models/device/scale.dart';
 
 import '../../helpers/fake_web_socket_transport.dart';
 
-/// Returns transports from [queue] in order; reuses the last once exhausted.
 WebSocketTransportFactory _seqFactory(List<FakeWebSocketTransport> queue) {
   var i = 0;
   return () => queue[i < queue.length ? i++ : queue.length - 1];
@@ -49,7 +48,6 @@ void main() {
           recognitionTimeout: const Duration(milliseconds: 60),
         );
 
-        // Never emit a frame → recognition must time out.
         await expectLater(scale.onConnect(), throwsA(isA<StateError>()));
         expect(await scale.connectionState.first, ConnectionState.disconnected);
       },
@@ -209,11 +207,9 @@ void main() {
           transportFactory: _seqFactory([first, second]),
         );
 
-        // Start a connect but never recognize it → its future stays pending.
         final f1 = scale.onConnect();
         final f2 = scale.onConnect();
 
-        // The superseded attempt must complete with an error, not hang forever.
         await expectLater(f1, throwsA(isA<StateError>()));
 
         await Future.delayed(const Duration(milliseconds: 10));

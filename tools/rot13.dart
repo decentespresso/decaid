@@ -1,12 +1,5 @@
 import 'dart:io';
 
-/// Offline ROT13 encoder for the GitHub feedback token.
-///
-/// Usage:
-///   `dart tools/rot13.dart <raw-token>`
-///   `echo "token" | dart tools/rot13.dart`
-///
-/// Outputs the ROT13-encoded string to stdout.
 void main(List<String> args) {
   String input;
 

@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Usage:
-#   DYE2_VERSION     Release tag to install (default: pinned version below).
-#   DYE2_API_VERSION Expected manifest.json apiVersion (default: pinned value below).
 set -euo pipefail
 
 pinned_version="v0.1.4"
@@ -40,7 +37,6 @@ fi
 
 mkdir -p "$plugins_dir"
 rm -rf "$plugins_dir/dye2.reaplugin"
-# ponytail: unzip on ubuntu/macos, bsdtar on windows runners (no unzip there).
 if command -v unzip >/dev/null 2>&1; then
   unzip -q "$zip" -d "$plugins_dir"
 else

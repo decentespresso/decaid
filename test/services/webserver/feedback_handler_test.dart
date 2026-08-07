@@ -8,7 +8,6 @@ import 'package:reaprime/src/services/feedback_service.dart';
 import 'package:reaprime/src/services/webserver/feedback_handler.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
-/// A stub FeedbackService for testing the handler in isolation.
 class _StubFeedbackService implements FeedbackService {
   @override
   final bool isConfigured;

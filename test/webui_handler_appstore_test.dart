@@ -6,7 +6,6 @@ import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
-/// A fake WebUIStorage that tracks install calls without touching the filesystem.
 class FakeWebUIStorage extends Fake implements WebUIStorage {
   bool installFromGitHubReleaseCalled = false;
   bool installFromGitHubCalled = false;

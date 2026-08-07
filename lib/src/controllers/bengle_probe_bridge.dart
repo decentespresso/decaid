@@ -7,14 +7,6 @@ import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/impl/bengle/bengle_milk_probe.dart';
 
-/// Registers a [BengleMilkProbe] adapter with [SensorController] when
-/// the connected machine is a Bengle AND its probe is attached. Removes
-/// the adapter on detach or on machine disconnect.
-///
-/// **Scaffolding.** Today real `Bengle.probeAttached` never emits
-/// `true` (FW signal source is TBD) — the bridge stays inert until FW
-/// publishes a presence signal. `MockBengle` defaults to attached for
-/// tests, so the bridge fires immediately.
 class BengleProbeBridge {
   BengleProbeBridge({
     required De1Controller de1Controller,

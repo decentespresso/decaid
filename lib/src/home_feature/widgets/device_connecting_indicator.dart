@@ -1,18 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
-/// Reusable widget for displaying connection progress indicator
-///
-/// This widget is used in device selection lists to show when a device
-/// is in the process of connecting. It displays a small circular progress
-/// indicator that replaces the normal trailing icon.
-///
-/// Usage:
-/// ```dart
-/// trailing: DeviceConnectingIndicator(
-///   isConnecting: _connectingDeviceId == device.deviceId,
-/// ),
-/// ```
 class DeviceConnectingIndicator extends StatelessWidget {
   final bool isConnecting;
 

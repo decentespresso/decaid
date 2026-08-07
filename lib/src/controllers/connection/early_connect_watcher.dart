@@ -6,17 +6,6 @@ import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 
-/// Watches the scanner's `deviceStream` during a scan and triggers
-/// connect() on preferred devices as soon as they appear — without
-/// waiting for the full scan to complete.
-///
-/// One instance per `_connectImpl` call. Owns its own
-/// `StreamSubscription` + the `(started, pending)` pair per device
-/// type; [awaitPending] blocks until both in-flight early connects
-/// (if any) finish. [stop] cancels the subscription.
-///
-/// Extracted from ConnectionManager as part of comms-harden Phase 4
-/// (roadmap items 15 and 19).
 class EarlyConnectWatcher {
   static final _log = Logger('EarlyConnectWatcher');
 
@@ -59,10 +48,6 @@ class EarlyConnectWatcher {
        _connectScaleTracked = connectScaleTracked,
        _onEarlyAttemptComplete = onEarlyAttemptComplete;
 
-  /// Subscribe to the device stream and begin reacting to preferred
-  /// devices appearing. `skip(1)` drops the BehaviorSubject replay
-  /// of stale (disconnected) devices — we only react to fresh
-  /// discoveries from the active scan.
   void start() {
     _sub = _deviceStream.skip(1).listen(_onDevicesUpdate);
   }
@@ -103,16 +88,11 @@ class EarlyConnectWatcher {
     }
   }
 
-  /// Cancel the device-stream subscription. Safe to call more than
-  /// once; safe to call before [start].
   void stop() {
     _sub?.cancel();
     _sub = null;
   }
 
-  /// Await any in-flight early connects. Errors from the tracked
-  /// callbacks are caught and logged at `fine` — the tracker already
-  /// recorded the outcome on the ScanReport.
   Future<void> awaitPending() async {
     if (_machinePending != null) {
       try {

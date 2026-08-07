@@ -104,10 +104,6 @@ class PluginLoaderService {
     _initialized = true;
   }
 
-  /// Add plugin to REA plugins folder
-  /// treated as "plugin installation"
-  /// user will provide filesystem path and permissions, REA should copy the contents over to
-  /// the plugins folder
   Future<void> addPlugin(String sourcePath) async {
     _ensureActive();
     final source = File(sourcePath);
@@ -153,8 +149,6 @@ class PluginLoaderService {
     _log.info('Plugin installed: ${manifest.id}');
   }
 
-  /// Remove/uninstall a plugin
-  /// This will unload the plugin if it's loaded and delete its files
   Future<void> removePlugin(String pluginId) async {
     _ensureActive();
     if (!isSafePathComponent(pluginId)) {
@@ -185,8 +179,6 @@ class PluginLoaderService {
     });
   }
 
-  /// Load plugin into the runtime
-  /// by using the PluginManager loadPlugin method
   Future<void> loadPlugin(String pluginId) {
     _ensureActive();
     final load = _pluginLoadQueue.then((_) => _loadPlugin(pluginId));
@@ -232,16 +224,12 @@ class PluginLoaderService {
     _log.info('Plugin loaded: $pluginId');
   }
 
-  /// Unload a plugin
-  /// by using the PluginManager unloadPlugin method
   Future<void> unloadPlugin(String pluginId) async {
     _ensureActive();
     await pluginManager.unloadPlugin(pluginId);
     _log.info('Plugin unloaded: $pluginId');
   }
 
-  /// Reload a plugin (unload and load again)
-  /// Useful when plugin settings change
   Future<void> reloadPlugin(String pluginId) async {
     _ensureActive();
     if (!isPluginLoaded(pluginId)) {
@@ -254,11 +242,9 @@ class PluginLoaderService {
 
     await loadPlugin(pluginId);
 
-    // Note: Plugin should load its own settings from the saved location
     _log.info('Plugin reloaded: $pluginId');
   }
 
-  /// Store a setting in prefs, whether a specific plugin should be autoloaded at initialize
   Future<void> setPluginAutoLoad(String pluginId, bool enabled) async {
     _ensureActive();
     if (enabled) {
@@ -270,7 +256,6 @@ class PluginLoaderService {
     await _prefs.setBool('plugin.autoload.$pluginId', enabled);
   }
 
-  /// Check if a plugin should be auto-loaded
   Future<bool> shouldAutoLoad(String pluginId) async {
     return _prefs.getBool('plugin.autoload.$pluginId') ?? false;
   }
@@ -327,24 +312,20 @@ class PluginLoaderService {
     _log.fine('Settings saved for plugin: $pluginId');
   });
 
-  /// Get a list of all the available plugins
   List<PluginManifest> get availablePlugins {
     return _availablePluginsCache.values.toList();
   }
 
-  /// Get a specific plugin's manifest
   PluginManifest? getPluginManifest(String pluginId) {
     return _availablePluginsCache[pluginId];
   }
 
-  /// Check if a plugin is currently loaded
   bool isPluginLoaded(String pluginId) {
     return pluginManager.loadedPlugins.any(
       (plugin) => plugin.pluginId == pluginId,
     );
   }
 
-  /// Get the directory path for a specific plugin
   String getPluginDirectory(String pluginId) {
     if (!isSafePathComponent(pluginId)) {
       throw FormatException(
@@ -357,7 +338,6 @@ class PluginLoaderService {
     return '${_pluginsDir.path}/$pluginId';
   }
 
-  /// Check if a plugin is bundled with the app (from assets)
   Future<bool> isPluginBundled(String pluginId) async {
     final bundledPlugins = await _getBundledPluginPaths();
     for (final pluginPath in bundledPlugins) {
@@ -369,8 +349,6 @@ class PluginLoaderService {
     return false;
   }
 
-  /// Get a list of currently loaded plugins
-  /// from PluginManager
   List<PluginRuntime> get loadedPlugins {
     return pluginManager.loadedPlugins;
   }
@@ -612,8 +590,6 @@ class PluginLoaderService {
     }
   }
 
-  /// Compares two semver-style version strings numerically.
-  /// Returns negative if a < b, zero if equal, positive if a > b.
   static int _compareVersions(String a, String b) {
     final partsA = a.split('.').map((s) => int.tryParse(s) ?? 0).toList();
     final partsB = b.split('.').map((s) => int.tryParse(s) ?? 0).toList();
@@ -656,8 +632,6 @@ class PluginLoaderService {
         final manifestJson = jsonDecode(await manifestFile.readAsString());
         final manifest = PluginManifest.fromJson(manifestJson);
 
-        // An unsafe id must not enter the cache, where it could later drive
-        // filesystem paths (issue #547 follow-up).
         if (!isSafePathComponent(manifest.id)) {
           _log.warning(
             'Skipping plugin with unsafe id "${manifest.id}" at ${dir.path}',
@@ -752,13 +726,9 @@ class PluginLoaderService {
           'Setting "$key" not defined in plugin manifest',
         );
       }
-
-      // TODO: Add more sophisticated validation based on schema type
-      // For now, just check that the key exists in manifest
     }
   }
 
-  /// Nukes the plugins folder
   Future<void> reset() async {
     _ensureActive();
     for (var plugin in availablePlugins) {

@@ -15,9 +15,6 @@ class ScaleController {
   StreamSubscription<ConnectionState>? _scaleConnection;
   StreamSubscription<ScaleSnapshot>? _scaleSnapshot;
 
-  /// The deviceId of the most recently connected scale. Not cleared on
-  /// disconnect — ConnectionManager reads this after a drop to know which
-  /// device went away. Overwritten on the next successful connect.
   String? _lastConnectedDeviceId;
   String? get lastConnectedDeviceId => _lastConnectedDeviceId;
   int _connectionGeneration = 0;
@@ -30,9 +27,6 @@ class ScaleController {
 
   ScaleController();
 
-  /// End-of-life cleanup. Cancels active stream subscriptions and
-  /// closes the exposed subjects so downstream listeners see
-  /// `onDone` (comms-harden #13). Safe to call more than once.
   void dispose() {
     _scaleSnapshot?.cancel();
     _scaleSnapshot = null;
@@ -84,18 +78,11 @@ class ScaleController {
       throw StateError('Scale failed to connect (state: ${state.name})');
     }
     _snapshotSessionActive = true;
-    // Subscribe to connection state AFTER onConnect succeeds, so we don't
-    // get poisoned by a BehaviorSubject replaying a stale 'disconnected'
-    // state from before reconnection.
     _scale = scale;
     _lastConnectedDeviceId = scale.deviceId;
     _scaleConnection = scale.connectionState.listen(_processConnection);
   }
 
-  /// Adopt a scale that has already been connected and had [onConnect]
-  /// called by [tryQuickConnect]. Skips [onConnect] and wires up stream
-  /// subscriptions directly — the inverse of [connectToScale] minus the
-  /// connect call.
   Future<void> adoptScale(Scale scale) async {
     final previous = _scale;
     _onDisconnect();
@@ -178,23 +165,12 @@ class ScaleController {
     windowDuration: defaultSmoothingWindow,
   );
 
-  /// Latest scale-clock timestamp seen. Used to time the post-tare flow-settle
-  /// window off the scale's own clock rather than the wall clock.
   DateTime? _lastSnapshotTime;
 
-  /// Until this scale-clock time, report `weightFlow` as 0.
   DateTime? _flowSettleUntil;
 
   KalmanFlowEstimator? _kalmanEstimator;
 
-  /// Tare the connected scale and swallow the resulting flow spike.
-  ///
-  /// Route tare requests through here (rather than `connectedScale().tare()`)
-  /// so the controller can drop the flow history accumulated across the tare's
-  /// weight discontinuity and suppress flow for one smoothing window — without
-  /// that, a phantom flow transient leaks into the shot trace and the
-  /// visualizer right after each tare. Throws [DeviceNotConnectedException] if
-  /// no scale is connected.
   Future<void> tare() async {
     final scale = connectedScale();
     await scale.tare();

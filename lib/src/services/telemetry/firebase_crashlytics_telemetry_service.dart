@@ -7,20 +7,10 @@ import 'package:reaprime/src/services/telemetry/telemetry_service.dart';
 import 'package:reaprime/src/services/telemetry/log_buffer.dart';
 import 'package:reaprime/src/services/telemetry/telemetry_report_queue.dart';
 
-/// Firebase Crashlytics implementation of TelemetryService
-///
-/// Wraps Firebase Crashlytics SDK with privacy-first defaults:
-/// - Telemetry collection disabled by default (requires explicit consent)
-/// - Rolling log buffer attached to all error reports for context
-/// - Custom keys for session and device metadata
-/// - Bounded async report queue to prevent blocking UI thread
 class FirebaseCrashlyticsTelemetryService implements TelemetryService {
   final LogBuffer _logBuffer;
   late final TelemetryReportQueue _queue;
 
-  /// Create a new Firebase Crashlytics telemetry service
-  ///
-  /// [logBuffer] - Rolling log buffer for attaching context to error reports
   FirebaseCrashlyticsTelemetryService(this._logBuffer) {
     _queue = TelemetryReportQueue(_sendReport);
   }
@@ -35,14 +25,6 @@ class FirebaseCrashlyticsTelemetryService implements TelemetryService {
       await FirebasePerformance.instance.setPerformanceCollectionEnabled(false);
     }
 
-    // TELE-04: Set up global error handlers to route through TelemetryService.
-    // Filter known-benign exceptions (DeviceNotConnectedException and typed
-    // UniversalBleException disconnect/cancellation errors) from fire-and-forget
-    // contexts (Timer callbacks, unawaited Futures). These are handled by upper
-    // layers but can reach the framework error handler without being caught —
-    // recording them as FATAL creates false crash signals in Crashlytics
-    // (see fa51312d, eeea9be0). This is the safety net; device implementations
-    // should still catch at their write level for graceful recovery.
     FlutterError.onError = (details) {
       if (isBenignFrameworkError(details.exception)) return;
       FirebaseCrashlytics.instance.recordFlutterFatalError(details);
@@ -55,10 +37,6 @@ class FirebaseCrashlyticsTelemetryService implements TelemetryService {
     };
   }
 
-  /// Internal method to actually send a report to Firebase
-  ///
-  /// This is called by the queue's async drain loop and performs the actual
-  /// platform channel IPC to Firebase Crashlytics.
   Future<void> _sendReport(
     Object error,
     StackTrace? stackTrace, {

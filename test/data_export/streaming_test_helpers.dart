@@ -2,8 +2,6 @@ import 'package:reaprime/src/services/webserver/data_export/data_export_section.
 import 'package:reaprime/src/services/webserver/data_export/data_transfer_limits.dart';
 import 'package:reaprime/src/util/incremental_json_parser.dart';
 
-/// Captures fragments written to a [JsonSink] so export tests can decode the
-/// full payload.
 class CapturingJsonSink implements JsonSink {
   final StringBuffer _buffer = StringBuffer();
 
@@ -13,9 +11,6 @@ class CapturingJsonSink implements JsonSink {
   String get json => _buffer.toString();
 }
 
-/// Serves a fixed JSON payload through the real [IncrementalJsonParser],
-/// mirroring how the handler streams entry content. Malformed payloads throw
-/// [JsonStreamFormatException] exactly like the production path.
 class StringJsonInput implements SectionJsonInput {
   final String json;
   final DataTransferLimits limits;
@@ -78,8 +73,6 @@ class StringJsonInput implements SectionJsonInput {
   }
 }
 
-/// A section whose import validates the payload first (like the handler's
-/// two-pass flow), then runs [importJson].
 Future<SectionImportResult> importSectionJson(
   DataExportSection section,
   String json,

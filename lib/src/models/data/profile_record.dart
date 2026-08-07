@@ -3,19 +3,8 @@ import 'package:flutter/widgets.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/data/profile_hash.dart';
 
-/// Visibility state of a profile record
-enum Visibility {
-  /// Profile is visible and usable
-  visible,
+enum Visibility { visible, hidden, deleted }
 
-  /// Profile is hidden from normal views but not deleted
-  hidden,
-
-  /// Profile is soft-deleted (can be purged later)
-  deleted,
-}
-
-/// Extension to convert visibility enum to/from string
 extension VisibilityExtension on Visibility {
   String get name {
     switch (this) {
@@ -42,43 +31,26 @@ extension VisibilityExtension on Visibility {
   }
 }
 
-/// Envelope around Profile with metadata for storage and versioning
-///
-/// Uses content-based hashing for profile identification:
-/// - `id`: Hash of execution-relevant fields (profile hash)
-/// - `metadataHash`: Hash of presentation fields
-/// - `compoundHash`: Combined hash of both
 @immutable
 class ProfileRecord extends Equatable {
-  /// Unique identifier based on profile content hash
-  /// Format: `profile:<first_20_chars_of_hash>`
   final String id;
 
-  /// The actual profile data
   final Profile profile;
 
-  /// Hash of metadata fields (title, author, notes)
   final String metadataHash;
 
-  /// Combined hash of profile hash + metadata hash
   final String compoundHash;
 
-  /// Reference to the parent profile this was derived from (for versioning)
   final String? parentId;
 
-  /// Current visibility state
   final Visibility visibility;
 
-  /// Whether this is a bundled default profile (cannot be deleted)
   final bool isDefault;
 
-  /// When this record was created
   final DateTime createdAt;
 
-  /// When this record was last updated
   final DateTime updatedAt;
 
-  /// Extensible metadata for future use
   final Map<String, dynamic>? metadata;
 
   const ProfileRecord({
@@ -94,10 +66,6 @@ class ProfileRecord extends Equatable {
     this.metadata,
   });
 
-  /// Create a new profile record with content-based hash ID
-  ///
-  /// The ID is automatically calculated from the profile's execution-relevant
-  /// fields, ensuring identical profiles have identical IDs across all installations.
   factory ProfileRecord.create({
     required Profile profile,
     String? parentId,
@@ -121,9 +89,6 @@ class ProfileRecord extends Equatable {
     );
   }
 
-  /// Create a copy with updated fields
-  ///
-  /// Note: If the profile is updated, hashes will be recalculated automatically.
   ProfileRecord copyWith({
     String? id,
     Profile? profile,
@@ -167,7 +132,6 @@ class ProfileRecord extends Equatable {
     metadata,
   ];
 
-  /// Convert to JSON for storage
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -183,7 +147,6 @@ class ProfileRecord extends Equatable {
     };
   }
 
-  /// Create from JSON
   factory ProfileRecord.fromJson(Map<String, dynamic> json) {
     return ProfileRecord(
       id: json['id'] as String,

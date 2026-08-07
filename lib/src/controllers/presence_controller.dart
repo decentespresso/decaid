@@ -9,26 +9,13 @@ import 'package:reaprime/src/models/keep_awake_occurrence.dart';
 import 'package:reaprime/src/models/wake_schedule.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 
-/// Manages user presence detection, auto-sleep timeout, and scheduled wake.
-///
-/// Three concerns:
-/// 1. **Heartbeat** — event-driven user presence signal, forwarded to DE1 with
-///    5-second throttling. Calls during sleep are deferred and flushed
-///    immediately on wake transition, ensuring the DE1 sees a fresh
-///    `userPresent` before the refill-kit decision is made.
-/// 2. **Sleep timeout** — auto-sleep after configurable timeout with no
-///    heartbeat.
-/// 3. **Scheduled wake** — periodically checks schedules and wakes sleeping
-///    machine at matching times.
 class PresenceController {
   final De1Controller _de1Controller;
   final SettingsController _settingsController;
   final Logger _log = Logger('PresenceController');
 
-  /// Optional clock function for testing. Returns the current time.
   DateTime Function() _clock;
 
-  /// Allows tests to change the clock after construction.
   set clockOverride(DateTime Function() clock) => _clock = clock;
 
   De1Interface? _de1;
@@ -36,28 +23,16 @@ class PresenceController {
   StreamSubscription<De1Interface?>? _de1Subscription;
   StreamSubscription<MachineSnapshot>? _snapshotSubscription;
 
-  /// Throttle: minimum interval between sendUserPresent() calls.
-  /// Reduced from 30s to 5s to avoid a cold `userPresent` write blocking
-  /// the wake-time signal. Further safety: calls during sleep are deferred
-  /// and flushed on wake (see [_pendingUserPresent]).
   static const Duration _presenceThrottle = Duration(seconds: 5);
   DateTime? _lastPresenceSent;
 
-  /// True when a heartbeat arrived while the machine was asleep, meaning a
-  /// `sendUserPresent()` was skipped. Flushed on the next wake transition.
-  /// Cleared after 60s of no wake to avoid a stale flag triggering a write
-  /// on a much-later wake that doesn't need it.
   bool _pendingUserPresent = false;
   Timer? _pendingUserPresentTimer;
 
-  /// Sleep timeout timer.
   Timer? _sleepTimer;
 
-  /// Schedule checker periodic timer.
   Timer? _scheduleTimer;
 
-  /// Tracks which schedule IDs have fired in the current minute to prevent
-  /// re-triggering.
   final Set<String> _firedScheduleIds = {};
   int? _lastCheckedMinute;
 
@@ -96,15 +71,12 @@ class PresenceController {
        _settingsController = settingsController,
        _clock = clock ?? (() => DateTime.now());
 
-  /// Subscribe to DE1 connection stream, start schedule checker timer,
-  /// listen to settings changes.
   void initialize() {
     _de1Subscription = _de1Controller.de1.listen(_onDe1Changed);
     _settingsController.addListener(_onSettingsChanged);
     _startScheduleChecker();
   }
 
-  /// Clean up all subscriptions and timers.
   void dispose() {
     _de1Subscription?.cancel();
     _de1Subscription = null;
@@ -121,10 +93,6 @@ class PresenceController {
     _settingsController.removeListener(_onSettingsChanged);
   }
 
-  /// Called by REST API and NavigatorObserver to signal user presence.
-  ///
-  /// Returns the number of seconds remaining on the sleep timeout, or -1 if
-  /// presence is not enabled or no DE1 is connected.
   int heartbeat() {
     if (!_settingsController.userPresenceEnabled || _de1 == null) {
       return -1;
@@ -298,7 +266,6 @@ class PresenceController {
 
   static const int _kSleepOnRefillMinFwBuild = 1357;
 
-  /// Returns true for machine states where we should NOT auto-sleep.
   bool _isActiveState(MachineState? state) {
     if (state == null) return false;
     switch (state) {

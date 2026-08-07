@@ -107,7 +107,6 @@ class _DeviceDiscoveryState extends State<DeviceDiscoveryView> {
     super.dispose();
   }
 
-  /// Navigates to the appropriate screen after device connection
   Future<void> _navigateAfterConnection() async {
     final supportedPlatforms =
         Platform.isIOS || Platform.isAndroid || Platform.isMacOS;
@@ -146,7 +145,6 @@ class _DeviceDiscoveryState extends State<DeviceDiscoveryView> {
     _navigateToRoute(SkinView.routeName);
   }
 
-  /// Helper to navigate to a specific route
   void _navigateToRoute(String route) {
     if (!mounted) return;
 

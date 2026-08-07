@@ -1,6 +1,5 @@
 import 'dart:typed_data';
 
-/// The type of feedback being submitted
 enum FeedbackType {
   bug,
   feature,
@@ -20,7 +19,6 @@ enum FeedbackType {
     }
   }
 
-  /// Returns the GitHub issue label for this feedback type
   String get issueLabel {
     switch (this) {
       case FeedbackType.bug:
@@ -35,7 +33,6 @@ enum FeedbackType {
   }
 }
 
-/// A user feedback request to be submitted as a GitHub issue
 class FeedbackRequest {
   final String description;
   final FeedbackType type;

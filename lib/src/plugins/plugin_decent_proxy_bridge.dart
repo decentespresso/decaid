@@ -9,9 +9,6 @@ class PluginDecentProxyBridge {
   PluginDecentProxyBridge({required this.decentProxyService, Logger? log})
     : _log = log ?? Logger('PluginDecentProxyBridge');
 
-  /// Exact paths a plugin holding `proxy.decent_api.write` may POST to. Writes
-  /// are least-privilege: a specific method + a specific path, never the whole
-  /// `support/api/` namespace. Add entries here as new write endpoints appear.
   static const Set<String> _writeAllowedPaths = {'support/api/shot_upload'};
 
   static String _canonicalPath(String path) =>

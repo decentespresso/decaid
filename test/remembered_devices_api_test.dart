@@ -34,7 +34,6 @@ void main() {
     final de1Controller = De1Controller(controller: deviceController);
     final scaleController = ScaleController();
     settings = MockSettingsService();
-    // Seed one remembered device that is NOT currently present.
     await settings.setRememberedDevices(
       RememberedDevice.encodeList([
         const RememberedDevice(
@@ -147,24 +146,25 @@ void main() {
     );
   });
 
-  test('forget returns 503 when the remembered controller is unwired', () async {
-    // A handler with no remembered controller — the feature is unavailable, not
-    // a server fault, so it must be 503 (not 500).
-    final bareHandler = DevicesHandler(
-      controller: deviceController,
-      connectionManager: connectionManager,
-    );
-    final app = Router().plus;
-    bareHandler.addRoutes(app);
-    final res = await app.call(
-      Request(
-        'PUT',
-        Uri.parse('http://localhost/api/v1/devices/forget'),
-        body: jsonEncode({'deviceId': 'x'}),
-        headers: {'content-type': 'application/json'},
-      ),
-    );
-    expect(res.statusCode, 503);
-    bareHandler.dispose();
-  });
+  test(
+    'forget returns 503 when the remembered controller is unwired',
+    () async {
+      final bareHandler = DevicesHandler(
+        controller: deviceController,
+        connectionManager: connectionManager,
+      );
+      final app = Router().plus;
+      bareHandler.addRoutes(app);
+      final res = await app.call(
+        Request(
+          'PUT',
+          Uri.parse('http://localhost/api/v1/devices/forget'),
+          body: jsonEncode({'deviceId': 'x'}),
+          headers: {'content-type': 'application/json'},
+        ),
+      );
+      expect(res.statusCode, 503);
+      bareHandler.dispose();
+    },
+  );
 }

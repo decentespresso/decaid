@@ -8,7 +8,6 @@ void main() {
   group('Firmware upload tuning', () {
     test('UnifiedDe1 default batch pause is non-zero on serial transport', () {
       final de1 = UnifiedDe1(transport: FakeBleTransport());
-      // BLE transport → pause should be zero (writeWithResponse acks).
       // ignore: invalid_use_of_protected_member
       expect(de1.firmwareUploadBatchPause, equals(Duration.zero));
     });

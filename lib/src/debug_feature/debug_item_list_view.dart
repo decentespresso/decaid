@@ -7,8 +7,6 @@ import 'package:reaprime/src/debug_feature/debug_item_details_view.dart';
 import 'package:reaprime/src/debug_feature/scale_debug_view.dart';
 import 'package:shadcn_ui/shadcn_ui.dart' hide Scale;
 
-/// Displays a list of discovered devices grouped by type, with Inspect and
-/// Connect actions.
 class DebugItemListView extends StatelessWidget {
   const DebugItemListView({super.key, required this.controller});
 
@@ -85,7 +83,6 @@ class DebugItemListView extends StatelessWidget {
     );
   }
 
-  /// Empty state shown when no devices are discovered and not scanning.
   Widget _buildEmptyState(BuildContext context) {
     final theme = ShadTheme.of(context);
     return Center(
@@ -112,7 +109,6 @@ class DebugItemListView extends StatelessWidget {
     );
   }
 
-  /// Builds the device list grouped by [dev.DeviceType].
   Widget _buildGroupedList(BuildContext context, List<dev.Device> devices) {
     final machines = devices.whereType<De1Interface>().toList();
     final scales = devices.whereType<Scale>().toList();
@@ -144,7 +140,6 @@ class DebugItemListView extends StatelessWidget {
     );
   }
 
-  /// Section header for a device type group.
   Widget _buildSectionHeader(BuildContext context, String title) {
     final theme = ShadTheme.of(context);
     return Padding(
@@ -159,7 +154,6 @@ class DebugItemListView extends StatelessWidget {
     );
   }
 
-  /// A single device row with connection-state icon, name, and Connect button.
   Widget _buildDeviceRow(
     BuildContext context,
     dev.Device device, {

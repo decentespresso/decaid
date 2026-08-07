@@ -3,9 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:reaprime/src/controllers/account_tokens_controller.dart';
 import 'package:reaprime/src/services/account/proxy_token_service.dart';
 
-/// Settings section for managing API-client tokens (#297): create a named token
-/// (shown once), list existing tokens, and revoke. The create dialog offers an
-/// optional write scope, enforced by the account write proxy (#355).
 class AccountTokensSection extends StatefulWidget {
   const AccountTokensSection({super.key, required this.controller});
 

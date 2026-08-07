@@ -1,4 +1,3 @@
-/// <reference path="./host.d.ts" />
 
 import { renderBeansPage } from "./pages/beans";
 import { renderGrindersPage } from "./pages/grinders";

@@ -138,7 +138,6 @@ class _PermissionsViewState extends State<PermissionsView> {
       }
     }
 
-    // Initialize WebUI storage and service BEFORE device controller
     _log.info('Initializing WebUI storage...');
     try {
       await widget.webUIStorage.initialize();

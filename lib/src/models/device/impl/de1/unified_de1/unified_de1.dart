@@ -115,17 +115,11 @@ class UnifiedDe1 implements De1Interface {
     await _transport.disconnect();
   }
 
-  /// End-of-life cleanup. Disconnects if still connected, closes the
-  /// raw message controller, and disposes the transport (closing all
-  /// subjects and releasing native resources). Safe to call more than
-  /// once.
   @override
   Future<void> dispose() async {
     try {
       await disconnect();
-    } catch (_) {
-      // Transport may already be dead
-    }
+    } catch (_) {}
     if (!_rawMessageController.isClosed) {
       _rawMessageController.close();
     }
@@ -223,9 +217,6 @@ class UnifiedDe1 implements De1Interface {
     initRawStream();
     await _transport.connect();
 
-    // Connection edge: the device's profile state is unknown (possibly
-    // wedged mid-receive in ProfileDownloadInProgress), so the first
-    // setProfile must perform a complete upload.
     _currentProfile = null;
 
     if (_info != null) {
@@ -266,13 +257,6 @@ class UnifiedDe1 implements De1Interface {
     await enableUserPresenceFeature();
   }
 
-  /// Lifecycle hook for capability mixins to release resources on
-  /// disconnect. Default: no-op. Subclasses (e.g. `Bengle`) override
-  /// to call their capability's dispose method.
-  ///
-  /// Invoked from [disconnect] before the transport is torn down, so
-  /// overrides may still issue BLE writes if final cleanup needs them.
-  /// Mirrors [onConnect] as an extension point.
   Future<void> onDisconnect() async {}
 
   final StreamController<De1RawMessage> _rawMessageController =
@@ -286,26 +270,8 @@ class UnifiedDe1 implements De1Interface {
       .map((state) => state == ConnectionState.connected)
       .asBroadcastStream();
 
-  /// First DE1 firmware build (`machineInfo.version`) that natively honors
-  /// cold maintenance requests (airPurge/descale/clean) on a GHC-fitted
-  /// machine. Builds below this drop BLE maintenance requests while the machine
-  /// is cold (still preheating). On older firmware we mirror de1app's
-  /// "onestep_cold" workaround: load a 1°C single-frame profile so the machine
-  /// leaves preheat, then send the state (see
-  /// `_prepareColdMaintenanceWorkaround`). 1356 is the first fixed build; on
-  /// it the workaround is off (`1356 < 1356` is false), so the native firmware
-  /// path is exercised. Raise to a high sentinel (e.g. 9999) to force the
-  /// workaround back on if 1356 turns out not to natively honor cold
-  /// maintenance.
   static const int _kColdMaintenancePromotionMinFwBuild = 1356;
 
-  /// Minimal single-frame 1°C profile mirroring de1app's "onestep_cold"
-  /// (`de1_comms.tcl` / `binary.tcl`). Its 1°C group goal is already below the
-  /// current group temperature, so the machine stops preheating the group; its
-  /// tankTemperature of 0 (written to the tank threshold MMR by
-  /// `setProfile`/`_sendProfile`) stops tank preheat too. Both are needed for
-  /// the machine to leave preheat and reach the state where a maintenance
-  /// request is honored. See `_prepareColdMaintenanceWorkaround`.
   static const Profile _onestepColdProfile = Profile(
     version: '1.0',
     title: 'onestep_cold',
@@ -329,28 +295,12 @@ class UnifiedDe1 implements De1Interface {
 
   @override
   Future<void> requestState(MachineState newState) async {
-    // Cold-maintenance workaround: on old firmware + GHC + cold machine, load a
-    // 1°C profile so the machine leaves preheat and can honor the maintenance
-    // request. setProfile writes the tank threshold MMR from the profile's
-    // tankTemperature (0 here), so no separate set-to-0 or restore is needed —
-    // the next brew's profile re-sets it, mirroring de1app.
     await _prepareColdMaintenanceWorkaround(newState);
     final Uint8List data = Uint8List(1);
     data[0] = De1StateEnum.fromMachineState(newState).hexValue;
     await _transport.writeWithResponse(Endpoint.requestedState, data);
   }
 
-  /// On old firmware + GHC + cold machine, prepare the onestep_cold workaround:
-  /// load a 1°C profile whose tankTemperature is 0. The 1°C group goal stops
-  /// group preheat and the 0 tank threshold stops tank preheat, so the machine
-  /// leaves preheat and can honor the maintenance request. Mirrors de1app's
-  /// `de1_send_pre_maintenance_profile` (machine.tcl) + `de1_send_shot_frames`
-  /// (de1_comms.tcl:1505-1514), which sends the frames and the tank-threshold
-  /// MMR in one shot. setProfile does both here, so there is nothing to save or
-  /// restore — the next brew's setProfile writes that profile's tankTemperature,
-  /// exactly as de1app does on every shot. Lives inside `requestState` so EVERY
-  /// caller — web API, native debug view, sequencers, presence — gets it.
-  /// Non-maintenance states return immediately.
   Future<void> _prepareColdMaintenanceWorkaround(MachineState state) async {
     final isMaintenance =
         state == MachineState.airPurge ||
@@ -382,10 +332,6 @@ class UnifiedDe1 implements De1Interface {
   final StreamController<De1RawMessage> _rawInputController =
       StreamController();
 
-  /// Guards `initRawStream()` against a second `.listen()` on the
-  /// single-subscription `_rawInputController`. Without this, a
-  /// reconnect on the same `UnifiedDe1` instance throws
-  /// `Bad state: Stream has already been listened to.` See comms-harden #3.
   bool _rawStreamInitialized = false;
   @override
   void sendRawMessage(De1RawMessage message) {
@@ -439,15 +385,6 @@ class UnifiedDe1 implements De1Interface {
 
   Profile? _currentProfile;
 
-  /// Tail of the profile-upload queue. An upload is a stateful multi-write
-  /// sequence (header + frames + tail) the firmware consumes as one
-  /// conversation; two uploads whose writes interleave on the transport's
-  /// per-device queue wedge the firmware's profile-receive state machine
-  /// until the GATT timeout. Chaining every [setProfile] onto this future
-  /// serializes uploads across ALL callers — `WorkflowDeviceSync`'s
-  /// queue-with-coalesce only covers the workflow path; the REST handler
-  /// (`POST /api/v1/machine/profile`) and the reconnect defaults push call
-  /// [setProfile] directly.
   Future<void> _profileUploadQueue = Future.value();
 
   @override
@@ -466,14 +403,6 @@ class UnifiedDe1 implements De1Interface {
     _currentProfile = null;
     await _sendProfile(profile);
     _currentProfile = profile;
-    // Guard against firmware ProfileDownloadInProgress race: the DE1 writes
-    // the shot descriptor to internal flash inside APIView::write for the
-    // final frame and tail, and only clears ProfileDownloadInProgress when
-    // that flash write returns. If a state=espresso request hits the
-    // firmware task loop before the flag clears, doEspresso() aborts to
-    // HeaterDown and the shot ends after preinfuse. See BC 9788201734.
-    // Kept inside the locked section: a queued upload must not start while
-    // the firmware is still flushing the previous descriptor.
     await Future.delayed(ConnectionTimings.profileDownloadGuard);
   }
 
@@ -619,35 +548,12 @@ class UnifiedDe1 implements De1Interface {
       })
       .map(_parseWaterLevels);
 
-  // and call only the @protected API below.
-
   @protected
   Logger get log => _log;
 
-  /// Override on machine subclasses that need to take an action between
-  /// `requestState(sleeping)` and the start of FW image upload.
-  ///
-  /// Default: no-op. Bengle overrides this to request
-  /// `MachineState.fwUpgrade` (state 0x16) — Bengle FW requires entering
-  /// that state before the `.dat` upload protocol starts. DE1 doesn't.
-  ///
-  /// This resolves the TODO at `unified_de1.firmware.dart:13-14` (commented
-  /// `requestState(MachineState.fwUpgrade)` originally lived in the shared
-  /// upload routine).
   @protected
   Future<void> beforeFirmwareUpload() async {}
 
-  /// Number of 16-byte chunks written per batch during a firmware
-  /// upload before pausing for [firmwareUploadBatchPause].
-  ///
-  /// Tuning rationale: DE1 serial UART has no flow control, so chunks
-  /// pile up in the receive buffer faster than the SPI flash writer can
-  /// drain them. Periodic pauses prevent overrun. BLE writeWithResponse
-  /// provides ack-based backpressure, so no pause is needed.
-  ///
-  /// Bengle has built-in flow control on serial too,
-  /// so it overrides [firmwareUploadBatchPause] to zero — at which
-  /// point this value is unused.
   @protected
   int get firmwareUploadBatchSize {
     return switch (_transport.transportType) {
@@ -656,9 +562,6 @@ class UnifiedDe1 implements De1Interface {
     };
   }
 
-  /// Pause inserted between batches of [firmwareUploadBatchSize] chunks
-  /// during a firmware upload. See [firmwareUploadBatchSize] for the
-  /// rationale and per-transport tuning.
   @protected
   Duration get firmwareUploadBatchPause {
     return switch (_transport.transportType) {
@@ -667,9 +570,6 @@ class UnifiedDe1 implements De1Interface {
     };
   }
 
-  /// Writes [data] to [endpoint]. When [withResponse] is `true` (default)
-  /// dispatches to [UnifiedDe1Transport.writeWithResponse]; when `false`
-  /// dispatches to [UnifiedDe1Transport.write] for fire-and-forget writes.
   @protected
   Future<void> writeEndpoint(
     LogicalEndpoint endpoint,
@@ -695,19 +595,6 @@ class UnifiedDe1 implements De1Interface {
     return _transport.read(endpoint, timeout: timeout);
   }
 
-  /// Returns the broadcast notification stream for [endpoint].
-  ///
-  /// Two fall-through paths exist for callers to be aware of:
-  ///
-  /// 1. A known DE1 [Endpoint] that is not a notifying characteristic
-  ///    (e.g. [Endpoint.versions], [Endpoint.requestedState],
-  ///    [Endpoint.headerWrite]) raises [UnimplementedError] — by design,
-  ///    these endpoints are write-only or one-shot reads. Asking for a
-  ///    notification stream is a usage bug, not a missing feature.
-  /// 2. A non-[Endpoint] [LogicalEndpoint] (capability-supplied — e.g.
-  ///    a future `BengleCupWarmerEndpoint`) also raises
-  ///    [UnimplementedError]. Runtime subscription wiring for capability
-  ///    endpoints lands with the first capability that needs it.
   @protected
   Stream<ByteData> notificationsFor(LogicalEndpoint endpoint) {
     if (endpoint is Endpoint) {
@@ -749,13 +636,6 @@ class UnifiedDe1 implements De1Interface {
     return _unpackMMRInt(raw);
   }
 
-  /// Reads a `scaledFloat` MMR address as `raw * addr.readScale`.
-  ///
-  /// Asymmetric with [writeMmrScaled]: read scaling is purely a
-  /// multiplier — there is no `min`/`max` clamp here. Bounds are a
-  /// write-side concern (the firmware reports whatever it stored;
-  /// callers that need range validation should clamp before writing,
-  /// not after reading).
   @protected
   Future<double> readMmrScaled(MmrAddress addr) async {
     _assertKind(addr, const {MmrValueKind.scaledFloat}, 'readMmrScaled');

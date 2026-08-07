@@ -36,11 +36,6 @@ import 'package:reaprime/src/settings/scale_power_mode.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:rxdart/rxdart.dart';
 
-/// High-level phase of the [ConnectionManager] state machine.
-///
-/// Transitions are documented in `doc/DeviceManagement.md` →
-/// "Phase transitions" (comms-harden #30). All writes route through
-/// `StatusPublisher.publish`.
 enum ConnectionPhase {
   idle,
   scanning,
@@ -124,9 +119,6 @@ class ConnectionManager {
   final ScaleController scaleController;
   final SettingsController settingsController;
 
-  /// Remembered-device registry for quick-connect. Nullable so existing
-  /// tests and wiring without a registry still work — null disables
-  /// quick-connect and falls through to the scan path.
   final RememberedDevicesController? rememberedDevices;
 
   final _log = Logger('ConnectionManager');
@@ -138,33 +130,18 @@ class ConnectionManager {
   Stream<ConnectionStatus> get status => _statusPublisher.stream;
   ConnectionStatus get currentStatus => _statusPublisher.current;
 
-  /// The most recent scan report, or null if no scan has completed yet.
   ScanReport? get lastScanReport => _scanReportSubject.valueOrNull;
 
-  /// Emits a [ScanReport] after each scan + connection cycle completes.
   Stream<ScanReport> get scanReportStream => _scanReportSubject.stream;
 
-  // Re-entry guards for the respective async methods. These prevent
-  // concurrent calls from racing each other; they do NOT duplicate
-  // device-connection state.
   bool _isConnecting = false;
   bool _isConnectingMachine = false;
   bool _isConnectingScale = false;
   bool _activeScaleOnlyScan = false;
   ConnectionSelectionSession? _selectionSession;
 
-  /// Generation counter bumped on each new explicit [scanAndConnect] or
-  /// [cancelActiveScan] call. [_connectImpl] checks it after [runScan]
-  /// returns; if it changed the in-flight scan was cancelled and policy
-  /// must not run.
   int _explicitScanGeneration = 0;
 
-  /// End-to-end timeout for a single `connectMachine` / `connectScale`
-  /// call. Phase 1 bounded the MMR-read hang at 2s; this is the
-  /// belt-and-braces that keeps any other transport-level hang from
-  /// wedging `_isConnecting` (comms-harden #31). Real-hardware
-  /// connect currently observes 3–10s on tablet; 30s leaves ~3x
-  /// headroom for slow adapters without feeling sluggish.
   Duration get _connectTimeout => Platform.isLinux
       ? const Duration(seconds: 60)
       : const Duration(seconds: 30);
@@ -185,15 +162,8 @@ class ConnectionManager {
   final DisconnectExpectations _disconnectExpectations =
       DisconnectExpectations();
 
-  /// Completer shared by all `connect(scaleOnly: true)` callers that
-  /// arrive while another connect is already running. Drained in the
-  /// outer connect()'s finally block (comms-harden #9).
   Completer<void>? _queuedScaleOnly;
 
-  /// Completer shared by all `scanAndConnect()` callers that arrive while
-  /// another connect is already running. Drained BEFORE
-  /// [_queuedScaleOnly] so explicit user-requested discovery is not
-  /// delayed behind background scale reacquisition.
   Completer<void>? _queuedExplicitScan;
   bool _adapterRecoveryQueued = false;
   bool _adapterRecoveryNeeded = false;
@@ -204,42 +174,22 @@ class ConnectionManager {
   @visibleForTesting
   Duration adapterRecoveryDebounce = const Duration(seconds: 1);
 
-  /// Deferred scale-only rescan armed when the preferred machine
-  /// connects but no preferred scale is configured. The initial scan
-  /// stops the instant the machine connects (see [_checkEarlyStop]), so
-  /// a scale that advertises a beat later is missed; this recovers it.
   Timer? _deferredScaleScan;
 
-  /// Preferred-scale reconnect retry while a machine is connected but the
-  /// configured scale is missing. BLE advertisements are only observed during
-  /// scans, so this gives a powered-on scale a chance to appear without user
-  /// interaction.
   Timer? _preferredScaleReconnect;
 
-  /// Consecutive scale-reconnect failures for exponential backoff.
-  /// Reset on successful scale connect or machine disconnect.
   int _scaleReconnectFailures = 0;
 
-  /// Compute exponential backoff delay: 5s → 10s → 20s → 40s → 60s cap.
   Duration get _scaleReconnectBackoff {
     final base = 5;
     final seconds = base * (1 << _scaleReconnectFailures).clamp(1, 12);
     return Duration(seconds: seconds.clamp(5, 60));
   }
 
-  /// Machine auto-reconnect (recovery mode). Armed by an *unexpected*
-  /// machine disconnect when a preferred machine is configured; retries
-  /// full `connect()` scans with the same 5s→60s backoff the scale loop
-  /// uses, and reschedules itself after every attempt that ends without
-  /// a machine. Cleared on machine connect, deliberate disconnect, and
-  /// dispose. Motivated by a power-outage incident where the app sat
-  /// "disconnected" for six hours because nothing ever rescanned — see
-  /// doc/plans/machine-connection-recovery.md.
   bool _machineRecoveryActive = false;
   Timer? _machineReconnect;
   int _machineReconnectFailures = 0;
 
-  /// Base delay for the machine-reconnect backoff. Overridable in tests.
   @visibleForTesting
   Duration machineReconnectBaseDelay = const Duration(seconds: 5);
 
@@ -253,42 +203,20 @@ class ConnectionManager {
   MachineState? _latestMachineState;
   StreamSubscription<MachineSnapshot>? _machineSnapshotSub;
 
-  /// Snapshot-staleness watchdog: if a connected machine stops pushing
-  /// snapshot frames for this long, the push channel is presumed dead
-  /// (live-link + dead-push — the field incident of 2026-07-07). A clean
-  /// forced reconnect re-establishes notifications. See Fix #1.
-  /// Overridable in tests so the watchdog can be driven without a real
-  /// 10s wait.
   @visibleForTesting
   Duration snapshotStalenessTimeout = const Duration(seconds: 10);
 
   Timer? _stateWatchdog;
   int _watchdogGeneration = 0;
 
-  /// Number of times the staleness watchdog forced a machine reconnect.
-  /// Incremented once per force action — tests assert on this instead of
-  /// driving the full disconnect+connect cycle through fake_async.
   @visibleForTesting
   int snapshotStalenessReconnects = 0;
 
-  /// Set true by [_checkEarlyStop] when it actually cut the scan short on
-  /// machine-connect with no preferred scale. Distinguishes that case
-  /// from a full scan that simply completed without a scale — only the
-  /// former warrants a deferred rescan. Reset at the start of each full
-  /// connect.
   bool _earlyStopFired = false;
 
-  /// Delay before the deferred scale rescan fires. Mirrors the post-wake
-  /// reconnect in `De1StateManager`: starting another scan immediately
-  /// after the DE1 connect starves the shared Android BLE radio and
-  /// risks LINK_SUPERVISION_TIMEOUT on the DE1, so we let the link
-  /// stabilise first. Overridable in tests to avoid a real wait.
   @visibleForTesting
   Duration deferredScaleScanDelay = const Duration(seconds: 3);
 
-  /// Whether the scanner supports the persistent background scale watch
-  /// (Android). De1StateManager consults this to skip its wake-time
-  /// scale-only burst scan when the watch already covers reacquisition.
   bool get supportsBackgroundScaleWatch =>
       deviceScanner.supportsBackgroundWatch;
 
@@ -317,11 +245,6 @@ class ConnectionManager {
     );
     _scaleWatch = ScaleWatch(
       scanner: deviceScanner,
-      // The Bengle clause covers arm time AND the post-connect
-      // continuation: a Bengle's integrated scale owns the scale slot
-      // (the rule _runScalePhase enforces on the burst path), so a
-      // refused external-scale sighting must end the watch cycle, not
-      // restart the scan indefinitely.
       shouldWatch: () =>
           _shouldRetryPreferredScale() &&
           _disconnectSupervisor.latestMachine is! BengleInterface,
@@ -578,32 +501,16 @@ class ConnectionManager {
     );
   }
 
-  /// Emit a [ConnectionError] onto the status stream without changing
-  /// the current phase. Thin proxy over [StatusPublisher.emitError] so
-  /// every outbound update goes through the same gatekeeper
-  /// (comms-harden #8).
   void _emit(ConnectionError err) => _statusPublisher.emitError(err);
 
-  /// Surface an out-of-band [ConnectionError] on the status stream —
-  /// for collaborators outside the connect flow (`WorkflowDeviceSync`'s
-  /// profile-upload failure). Routes through the same
-  /// [StatusPublisher] gatekeeper as internal emits.
   void reportError(ConnectionError err) => _emit(err);
 
-  /// Clear the current status error iff it is of [kind]. Lets an
-  /// out-of-band reporter retract its own error on recovery without
-  /// stomping an unrelated one that has since replaced it.
   void clearErrorOfKind(String kind) {
     if (currentStatus.error?.kind == kind) {
       _clearError();
     }
   }
 
-  /// Build a [ConnectionError] for a failed connect attempt. Pulls out
-  /// `ble_code` / `ble_description` when the caught exception is a
-  /// [BleConnectException] (the domain type transports map their native
-  /// BLE error into); otherwise stashes the stringified exception under
-  /// `details.exception`.
   ConnectionError _buildConnectError({
     required String kind,
     required String deviceId,
@@ -636,13 +543,8 @@ class ConnectionManager {
     );
   }
 
-  /// Clears the current error. Proxy over [StatusPublisher.clearError]
-  /// — called by environmental recovery handlers (adapter on,
-  /// permission granted).
   void _clearError() => _statusPublisher.clearError();
 
-  /// Publish a new [ConnectionStatus] with sticky/transient error
-  /// gating. Proxy over [StatusPublisher.publish].
   void _publishStatus(ConnectionStatus next) => _statusPublisher.publish(next);
 
   @visibleForTesting
@@ -675,10 +577,6 @@ class ConnectionManager {
     _statusPublisher.publish(currentStatus.copyWith(phase: phase));
   }
 
-  /// Call immediately before an app-initiated disconnect. The next
-  /// `disconnected` event for `deviceId` will be treated as expected and
-  /// will not emit an error. A 10-second TTL safety timer clears the
-  /// expectation if the disconnect event never arrives.
   void markExpectingDisconnect(String deviceId) {
     _disconnectExpectations.mark(deviceId);
   }
@@ -691,32 +589,6 @@ class ConnectionManager {
   void debugNotifyMachineDisconnected(String deviceId) =>
       _disconnectSupervisor.notifyMachineDisconnected(deviceId);
 
-  /// Quick-connect or scan for devices using automatic recovery policy.
-  ///
-  /// When [scaleOnly] is false (default):
-  /// 1. Scans for all devices
-  /// 2. Applies machine preference policy (auto-connect, picker, or idle)
-  /// 3. On successful machine connection, applies scale preference policy
-  ///
-  /// When [scaleOnly] is true:
-  /// Skips machine policy entirely — use when the machine is already
-  /// connected and only a scale reconnect is needed (e.g., after wake).
-  ///
-  /// Early-stop: if a preferred machine is set, the scan stops early once
-  /// the machine connects (when no preferred scale is configured) or once
-  /// both preferred devices connect (when a preferred scale is set). With
-  /// no preferred machine, the full scan runs to discover all devices.
-  /// When the scan stops on machine-connect with no preferred scale, a
-  /// deferred (fire-and-forget) scale-only rescan is armed to pick up a
-  /// scale that advertised after the early stop — see
-  /// [_maybeArmDeferredScaleScan].
-  ///
-  /// Concurrency: a `scaleOnly` call that arrives while another `connect`
-  /// is already running is queued and replayed after the in-flight call
-  /// completes. Multiple queued `scaleOnly` calls coalesce into one
-  /// replay and share the same returned Future. Non-`scaleOnly` calls
-  /// during an in-flight connect are still dropped silently
-  /// (comms-harden #9).
   Future<void> connect({bool scaleOnly = false}) => _runConnect(
     scaleOnly: scaleOnly,
     policy: scaleOnly
@@ -724,13 +596,6 @@ class ConnectionManager {
         : ConnectionAttemptPolicy.automatic,
   );
 
-  /// Complete an explicit scan before connecting missing device slots.
-  ///
-  /// When a connection cycle is already in progress, the active scan is
-  /// superseded: its generation is invalidated, the scanner is stopped,
-  /// and exactly one replacement explicit scan is queued. Multiple
-  /// concurrent callers share the queued future. The superseded scan
-  /// emits one cancelled report; the replacement emits its normal report.
   Future<void> scanAndConnect() async {
     if (_queuedExplicitScan != null) {
       return _queuedExplicitScan!.future;
@@ -896,8 +761,6 @@ class ConnectionManager {
     }
   }
 
-  /// Attempt to quick-connect the preferred machine from remembered
-  /// metadata. Returns the adopted [De1Interface], or null on failure.
   Future<De1Interface?> _tryQuickConnectMachine() async {
     final registry = rememberedDevices;
     if (registry == null) return null;
@@ -973,10 +836,6 @@ class ConnectionManager {
         ? null
         : settingsController.preferredMachineId;
     final preferredScaleId = settingsController.preferredScaleId;
-    // Early stop is enabled for any full (non-scaleOnly) connect.
-    // Previously gated on preferredMachineId != null, which meant
-    // auto-discovered machines never stopped the scan early even
-    // with both devices found and connected.
     final earlyStopEnabled = !scaleOnly && policy.stopScanAfterPreferredConnect;
 
     final scanStartTime = DateTime.now();
@@ -1130,13 +989,6 @@ class ConnectionManager {
     _completeSelectionSessionIfResolved(selectionSession);
   }
 
-  /// Stop scan early when all preferred devices are connected.
-  ///
-  /// Three branches ordered from most-specific to least:
-  /// 1. Preferred machine + preferred scale → both must be connected.
-  /// 2. Preferred machine only → stop on machine connect.
-  /// 3. No preferences → stop when at least one machine + one scale
-  ///    are connected (the common auto-discovered case).
   void _checkEarlyStop(bool earlyStopEnabled) {
     if (!earlyStopEnabled) return;
     final preferredMachineId = settingsController.preferredMachineId;
@@ -1175,11 +1027,6 @@ class ConnectionManager {
     }
   }
 
-  /// Arm a deferred scale-only scan after machine quick-connect when the
-  /// user has no preferred scale configured. Unlike
-  /// [_maybeArmDeferredScaleScan], this path is independent of
-  /// [_earlyStopFired] — quick-connect skips the scan entirely, so there
-  /// is no early-stop flag to gate on.
   void _armPostQuickConnectScaleScan() {
     if (_scaleConnected) return;
     if (_scaleReconnectBlockedByPowerMode) return;
@@ -1196,19 +1043,6 @@ class ConnectionManager {
     });
   }
 
-  /// Compensate for [_checkEarlyStop] cutting the scan short. When a
-  /// preferred machine is configured but no preferred scale is, the scan
-  /// stops the instant the machine connects — a scale that advertises a
-  /// beat later would never reach the scale phase. If we land here with
-  /// the machine connected but no scale, arm a deferred scale-only rescan
-  /// to pick it up. Fire-and-forget, mirroring the post-wake reconnect in
-  /// `De1StateManager` — the machine is already `ready` and usable; the
-  /// scale connects in the background if one shows up.
-  ///
-  /// Gated on [_earlyStopFired] — the scan was *actually* cut short on
-  /// machine-connect. A full scan that ran to completion already saw
-  /// every scale that advertised, so it never arms a (pointless) rescan,
-  /// even when a preferred machine is set but resolved post-scan.
   void _maybeArmDeferredScaleScan() {
     if (!_earlyStopFired) return;
     if (!_machineConnected || _scaleConnected) return;
@@ -1226,11 +1060,6 @@ class ConnectionManager {
     });
   }
 
-  /// Route scale reacquisition to the persistent background watch when
-  /// the scanner supports it (Android), else to the legacy backoff-burst
-  /// loop. Every former `_maybeSchedulePreferredScaleReconnect` call
-  /// site goes through here; the legacy loop also remains the fallback
-  /// when the watch fails to start (see `onWatchUnavailable`).
   void _ensureScaleReacquisition() {
     if (deviceScanner.supportsBackgroundWatch) {
       unawaited(_scaleWatch.arm());
@@ -1244,9 +1073,6 @@ class ConnectionManager {
     _cancelPreferredScaleReconnect();
   }
 
-  /// Watch-driven connects bypass `_runScalePhase`, so the Bengle rule
-  /// is re-applied here for sightings that land after the watch armed
-  /// but once a Bengle has become the machine.
   Future<void> _connectScaleFromWatch(Scale scale) async {
     if (_disconnectSupervisor.latestMachine is BengleInterface) {
       _log.fine(
@@ -1311,9 +1137,6 @@ class ConnectionManager {
     }
   }
 
-  /// Enter machine recovery mode after an unexpected disconnect and arm
-  /// the first retry. No-op without a `preferredMachineId` — a
-  /// background retry must never surface a machine-picker ambiguity.
   void _startMachineRecovery() {
     if (settingsController.preferredMachineId == null) return;
     _machineRecoveryActive = true;
@@ -1330,8 +1153,6 @@ class ConnectionManager {
     _machineReconnectFailures = 0;
   }
 
-  /// Whether the machine auto-reconnect recovery loop is currently armed.
-  /// Test hook for asserting the staleness watchdog's strand safety-net.
   @visibleForTesting
   bool get machineRecoveryActive => _machineRecoveryActive;
 
@@ -1376,9 +1197,6 @@ class ConnectionManager {
     _armStateWatchdog(machine.deviceId);
     _machineSnapshotSub = snapshots.listen(
       (snapshot) {
-        // Every frame — including a deduped duplicate of the current state —
-        // proves the push channel is alive. Re-arm BEFORE the dedupe check
-        // so a steady non-transitioning state doesn't false-trigger.
         _armStateWatchdog(machine.deviceId);
         final state = snapshot.state.state;
         if (_latestMachineState == state) return;
@@ -1416,11 +1234,6 @@ class ConnectionManager {
     });
   }
 
-  /// Force a deliberate, immediate machine reconnect (no backoff). Bumps
-  /// the generation token first so any in-flight or stale watchdog Timer
-  /// bails; `disconnectMachine` also tears down the watcher (bumps gen
-  /// again, cancels the Timer) and marks the disconnect expected so no
-  /// error banner surfaces.
   Future<void> _forceMachineReconnect() async {
     snapshotStalenessReconnects++;
     _watchdogGeneration++;
@@ -1432,14 +1245,6 @@ class ConnectionManager {
     } catch (e, st) {
       _log.fine('Forced machine reconnect failed', e, st);
     } finally {
-      // Safety net against stranding the machine. `disconnectMachine`
-      // marked the drop expected, so the unexpected-disconnect path never
-      // armed machine recovery; and the `connect()` above can be silently
-      // dropped by the concurrent-connect guard (e.g. a scale-only rescan
-      // already in flight) or return without finding the machine. If
-      // we're still machineless, hand off to the recovery loop: it
-      // retries with backoff and cancels itself the moment the machine
-      // reconnects (no-op without a preferredMachineId).
       if (!_machineConnected) {
         _startMachineRecovery();
       }
@@ -1473,13 +1278,6 @@ class ConnectionManager {
     }
   }
 
-  /// Gate the scale phase on machine type. When the connected machine
-  /// is a [BengleInterface], its integrated scale (exposed as a
-  /// [BengleVirtualScale]) takes the slot and external-scale discovery
-  /// is skipped entirely — even if `preferredScaleId` is set. Multi-scale
-  /// support is a roadmap follow-up; for now Bengle's integrated scale
-  /// always wins. For DE1 (and any non-Bengle machine), the existing
-  /// external-scale discovery flow runs unchanged.
   Future<void> _runScalePhase(
     De1Interface? machine,
     List<Scale> scales,
@@ -1493,9 +1291,6 @@ class ConnectionManager {
     await _applyScalePolicy(scales, preferredScaleId, scanReport);
   }
 
-  /// Wrap the machine's integrated scale in a [BengleVirtualScale] and
-  /// attach it via [ScaleController]. Failures are logged but do not
-  /// propagate — the machine remains connected and usable.
   Future<void> _attachBengleVirtualScale(BengleInterface machine) async {
     final virtual = BengleVirtualScale(machine);
     if (_scaleConnected &&
@@ -1509,7 +1304,6 @@ class ConnectionManager {
     }
   }
 
-  /// Apply the scale-phase policy, tracking attempts on [scanReport].
   Future<void> _applyScalePolicy(
     List<Scale> scales,
     String? preferredScaleId,
@@ -1593,7 +1387,6 @@ class ConnectionManager {
       'connectMachine: connecting to ${machine.name} (${machine.deviceId})',
     );
 
-    // Do not explicitly clear `error` — the gatekeeper handles it.
     _publishStatus(
       currentStatus.copyWith(
         phase: ConnectionPhase.connectingMachine,
@@ -1689,8 +1482,6 @@ class ConnectionManager {
     }
   }
 
-  /// Returns the attempt outcome so tracked callers can report it —
-  /// failures are handled here (status emit) and NOT rethrown.
   Future<ConnectionResult> connectScale(Scale scale) async {
     if (_isConnectingScale) {
       _log.fine('connectScale: already connecting, skipping');
@@ -1710,7 +1501,6 @@ class ConnectionManager {
     _isConnectingScale = true;
     _log.fine('connectScale: connecting to ${scale.name} (${scale.deviceId})');
 
-    // Do not explicitly clear `error` — the gatekeeper handles it.
     _publishStatus(
       currentStatus.copyWith(
         phase: ConnectionPhase.connectingScale,
@@ -1750,11 +1540,6 @@ class ConnectionManager {
               : ConnectionPhase.idle,
         ),
       );
-      // DO NOT REORDER — `ready` is a clearing phase and `scaleConnectFailed`
-      // is transient, so emitting first and then publishing `ready` would
-      // run the error through the gatekeeper's strip rule. Publishing the
-      // phase first (no error present) then calling `_emit` (bypasses the
-      // gatekeeper) is the only order that keeps the error visible.
       final timedOut = e is TimeoutException;
       _emit(
         _buildConnectError(
@@ -1815,8 +1600,6 @@ class ConnectionManager {
     return result;
   }
 
-  /// Connect a machine and record the attempt outcome on the scan
-  /// report builder.
   Future<void> _connectMachineTracked(
     De1Interface machine,
     ScanReportBuilder scanReport,
@@ -1826,8 +1609,6 @@ class ConnectionManager {
     scanReport.recordResult(machine.deviceId, result);
   }
 
-  /// Wrap [_connectScaleTracked] with the early-connect deferral gate.
-  /// See [_shouldDeferEarlyScaleConnect] for the full policy.
   Future<void> _connectScaleTrackedGated(
     Scale scale,
     ScanReportBuilder scanReport,
@@ -1848,29 +1629,6 @@ class ConnectionManager {
     await _connectScaleTracked(scale, scanReport);
   }
 
-  /// Returns true when the external scale's early-connect path should
-  /// be skipped during the scan, leaving the post-scan
-  /// [_runScalePhase] to decide per resolved machine type.
-  ///
-  /// Two conditions trigger a defer:
-  ///
-  /// 1. A Bengle is already (or about to be) the connected machine —
-  ///    [_isBengleAboutToBeMachine]. The integrated scale will take
-  ///    the slot in the post-scan policy stage.
-  ///
-  /// 2. Conservative skip (added 2026-05-05): a `preferredMachineId`
-  ///    is configured but no machine has resolved yet on the de1
-  ///    stream. Without this, an external scale appearing in scan
-  ///    results before the (preferred) Bengle would race past the
-  ///    Bengle-inference check (Bengle not yet visible to scanner /
-  ///    `latestMachine` still null), early-connect, and then the
-  ///    post-scan virtual-attach path would short-circuit because the
-  ///    scale slot is already taken.
-  ///
-  ///    Cost: DE1+scale users lose parallel early-connect (~1s
-  ///    latency in the worst case). Acceptable trade for an
-  ///    unbreakable "integrated-always-wins on Bengle" invariant.
-  ///    Multi-scale support (TODO P2) will revisit.
   bool _shouldDeferEarlyScaleConnect() {
     if (_isBengleAboutToBeMachine()) return true;
     final preferredMachineId = settingsController.preferredMachineId;
@@ -1879,10 +1637,6 @@ class ConnectionManager {
     return false;
   }
 
-  /// True if the connected machine is already a Bengle, or if the
-  /// preferred-machine id matches a `BengleInterface` device currently
-  /// visible to the scanner. Lets us short-circuit external-scale
-  /// connects before the Bengle's `connectToDe1` finishes.
   bool _isBengleAboutToBeMachine() {
     if (_disconnectSupervisor.latestMachine is BengleInterface) {
       return true;
@@ -1897,8 +1651,6 @@ class ConnectionManager {
     return false;
   }
 
-  /// Connect a scale and record the attempt outcome on the scan
-  /// report builder.
   Future<ConnectionResult> _connectScaleTracked(
     Scale scale,
     ScanReportBuilder scanReport,
@@ -1929,14 +1681,6 @@ class ConnectionManager {
     _log.info(ScanReportBuilder.format(report));
   }
 
-  /// Cancels the active explicit scan, including any in-flight discovery.
-  ///
-  /// Bumps the generation token so the in-flight [_connectImpl] either
-  /// bails before runScan (not yet started) or detects the mismatch after
-  /// the scan completes and skips policy. Also stops the scanner and
-  /// cancels any existing selection session.
-  ///
-  /// Safe to call when no scan is active — it is a no-op in that case.
   void cancelActiveScan() {
     _explicitScanGeneration++;
     deviceScanner.stopScan();
@@ -1952,13 +1696,6 @@ class ConnectionManager {
     _ensureScaleReacquisition();
   }
 
-  /// Cancels the active selection session, finalising the scan report
-  /// as cancelled and clearing [pendingAmbiguity]. Safe to call when no
-  /// session is active — it is a no-op in that case.
-  ///
-  /// After cancellation the phase settles from actual connected state
-  /// and scale reacquisition is re-armed so the background watch can
-  /// pick up the preferred scale again.
   void cancelSelectionSession() {
     final session = _selectionSession;
     if (session == null) return;
@@ -1997,9 +1734,7 @@ class ConnectionManager {
       final scale = scaleController.connectedScale();
       markExpectingDisconnect(scale.deviceId);
       await scale.disconnect();
-    } catch (_) {
-      // No scale connected — nothing to disconnect
-    }
+    } catch (_) {}
   }
 
   Future<void> dispose() async {

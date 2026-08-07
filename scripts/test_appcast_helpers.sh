@@ -62,10 +62,6 @@ appcast_assert_item "$TMP/fixture.xml" 101 \
   "https://github.com/decentespresso/decaid/releases/download/v2.0.0/decaid-macos-2.0.0.zip" \
   "beta" && echo "ok: beta item assertions pass"
 
-# --- Growth assertions ---
-# Old fixture: 2 items (1 default + 1 beta). A stable publication must add
-# one default item (3 total, 2 default); a beta one adds a beta item (3
-# total, 1 default).
 cat > "$TMP/grown-stable.xml" <<'XML'
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
@@ -99,8 +95,6 @@ fi
 
 assert_old_items_preserved "$TMP/fixture.xml" "$TMP/grown-stable.xml" \
   && echo "ok: old items preserved in grown feed"
-# A feed that dropped item 100 while adding 102 must be rejected even though
-# its counts grew.
 cat > "$TMP/dropped.xml" <<'XML'
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">

@@ -6,24 +6,9 @@ import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/services/firmware/de1_firmware_header.dart';
 import 'package:reaprime/src/services/firmware/firmware_manifest.dart';
 
-/// Validates a DE1 firmware image against its manifest entry before upload.
-///
-/// All managed checks complete before the erase request. [force] never
-/// bypasses image integrity, header, family, or model validation.
 final class FirmwareValidator {
   const FirmwareValidator();
 
-  /// Validates [image] bytes against [entry].
-  ///
-  /// Checks performed:
-  /// - Parsable DE1 header with the canonical board marker (0xDE100001)
-  /// - Header board marker matches the expected value in the manifest
-  /// - Header firmware version equals the manifest build number
-  /// - Actual file length equals the manifest byte length
-  /// - SHA-256 digest of the complete image equals the manifest digest
-  /// - Header body and CPU byte counts match the manifest and are sane
-  ///
-  /// Throws [FirmwareImageValidationException] on any failure.
   void validate(FirmwareManifestEntry entry, Uint8List image) {
     final artifact = entry.artifact;
 
@@ -113,11 +98,6 @@ final class FirmwareValidator {
     }
   }
 
-  /// Evaluates whether [artifact] is eligible for [connectedModel] running
-  /// [installedBuild].
-  ///
-  /// Returns [FirmwareEligibility] with [FirmwareEligibilityStatus] and
-  /// stable reason codes.
   FirmwareEligibility evaluateEligibility(
     FirmwareArtifact artifact, {
     String? connectedModel,

@@ -17,8 +17,6 @@ class BeanDao extends DatabaseAccessor<AppDatabase> with _$BeanDaoMixin {
     return query.get();
   }
 
-  /// Keyset-paged beans for streaming export: ordered by (createdAt, id)
-  /// ascending; returns up to [limit] rows strictly after the cursor.
   Future<List<Bean>> getBeansForExport({
     int limit = 200,
     DateTime? cursorCreatedAt,
@@ -112,7 +110,6 @@ class BeanDao extends DatabaseAccessor<AppDatabase> with _$BeanDaoMixin {
     return (delete(beanBatches)..where((b) => b.id.equals(id))).go();
   }
 
-  /// Decrement the remaining weight of a batch after a shot.
   Future<void> decrementBatchWeight(String batchId, double amount) async {
     final batch = await getBatchById(batchId);
     if (batch == null) return;

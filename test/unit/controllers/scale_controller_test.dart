@@ -10,7 +10,6 @@ import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:rxdart/subjects.dart';
 
-/// Minimal Scale that connects on [onConnect] and records [disconnect] calls.
 class _TrackingScale implements Scale {
   @override
   final String deviceId;
@@ -63,9 +62,6 @@ class _TrackingScale implements Scale {
       _snap.add(ScaleSnapshot(timestamp: t, weight: weight, batteryLevel: 50));
 }
 
-/// A handoff-capable scale (like the BLE Decent Scale) that records whether it
-/// was released via the destructive [disconnect] (power-off) or the
-/// non-destructive [disconnectForHandoff].
 class _HandoffTrackingScale extends _TrackingScale
     implements TransportHandoffScale {
   _HandoffTrackingScale(super.deviceId);
@@ -78,8 +74,6 @@ class _HandoffTrackingScale extends _TrackingScale
   }
 }
 
-/// A scale whose [onConnect] completes with an error — the WiFi HDS's expected
-/// failure mode (bad manual IP / recognition timeout).
 class _FailingScale extends _TrackingScale {
   _FailingScale(super.deviceId);
 
@@ -174,8 +168,6 @@ void main() {
     );
     expect(controller.currentConnectionState, ConnectionState.disconnected);
 
-    // The snapshot subscription opened before onConnect must have been
-    // cancelled — a late frame must not reach the weight stream.
     final frames = <WeightSnapshot>[];
     final sub = controller.weightSnapshot.listen(frames.add);
     scale.emitSnapshot();
@@ -368,9 +360,6 @@ void main() {
 
     await controller.tare();
 
-    // Within one smoothing window (600ms) of the last pre-tare sample the scale
-    // drops to ~0 — the spike that would otherwise appear must be suppressed,
-    // but the (truthful) weight still passes through.
     scale.emitAt(t0.add(const Duration(milliseconds: 200)), 0.0);
     scale.emitAt(t0.add(const Duration(milliseconds: 500)), 0.0);
     await Future.delayed(Duration.zero);

@@ -1,5 +1,3 @@
-/// Thrown by BLE discovery services when the Bluetooth runtime
-/// permission is not granted.
 class PermissionDeniedException implements Exception {
   final String? message;
   const PermissionDeniedException([this.message]);
@@ -10,17 +8,8 @@ class PermissionDeniedException implements Exception {
       : 'PermissionDeniedException: $message';
 }
 
-/// Which kind of device produced a [DeviceNotConnectedException].
-/// Identifies the general class of a device (machine vs scale vs unknown).
-/// An [unknown] device is a transport that hasn't been classified yet —
-/// used by lower-level BLE transport error handlers that don't know
-/// whether they're connected to a machine or a scale.
 enum DeviceKind { machine, scale, unknown }
 
-/// Thrown when a controller is asked to act on a device that is not
-/// currently connected. Replaces ad-hoc raw-string throws of
-/// "De1 not connected yet" / "No scale connected" so callers can
-/// dispatch on type rather than message text.
 class DeviceNotConnectedException implements Exception {
   final DeviceKind kind;
 
@@ -48,17 +37,6 @@ class DeviceIdentityMismatchException implements Exception {
       'DeviceIdentityMismatchException: expected $expected, got v13Model=$actualModelValue';
 }
 
-/// Recorded as a non-fatal (never thrown) when `UnifiedDe1Transport.connect`
-/// re-runs BLE setup on a transport that already reports `connected` — the
-/// no-op reconnect that, before the per-characteristic subscription guard,
-/// stacked duplicate notification listeners and delivered every frame twice.
-/// The setup is now idempotent; this type exists purely so the condition
-/// surfaces in telemetry and we can measure how often it fires in the field.
-///
-/// This is logged as the `error` of a WARNING and forwarded to Crashlytics
-/// verbatim (the telemetry bridge does not scrub the error object), so
-/// [anonymizedDeviceId] MUST already be anonymized by the caller (e.g.
-/// `Anonymization.anonymizeMac`) — never pass a raw BLE MAC / device id.
 class DuplicateBleSubscription implements Exception {
   final String anonymizedDeviceId;
 
@@ -70,10 +48,6 @@ class DuplicateBleSubscription implements Exception {
       'transport ($anonymizedDeviceId)';
 }
 
-/// Thrown by `_mmrRead` in `UnifiedDe1` when a DE1 memory-mapped
-/// register read does not receive a matching notification within the
-/// bounded timeout. Prevents connect attempts from hanging forever on
-/// a dropped BLE notify.
 class EndpointUnavailableException implements Exception {
   final String endpointName;
   final Duration timeout;
@@ -96,9 +70,6 @@ class MmrTimeoutException implements Exception {
       'MmrTimeoutException: no response for $mmrItemName within $timeout';
 }
 
-/// Thrown by `De1Controller` device-write retry when a machine
-/// disconnected mid-write and no replacement machine appeared within
-/// the bounded replacement wait. REST handlers map this to HTTP 503.
 class MachineReplacementTimeoutException implements Exception {
   final Duration timeout;
 
@@ -110,10 +81,6 @@ class MachineReplacementTimeoutException implements Exception {
       'within $timeout';
 }
 
-/// Thrown synchronously by [De1Interface.updateFirmware] when a firmware
-/// operation is already in progress. Callers receive this before any async
-/// work begins, so an API handler can return HTTP 409 before opening a
-/// streaming response.
 class FirmwareUpdateInProgressException implements Exception {
   @override
   String toString() =>
@@ -121,8 +88,6 @@ class FirmwareUpdateInProgressException implements Exception {
       'update is already in progress';
 }
 
-/// Thrown when an in-progress firmware update is cancelled, either by
-/// [De1Interface.cancelFirmwareUpload] or by client disconnect.
 class FirmwareUpdateCancelledException implements Exception {
   const FirmwareUpdateCancelledException();
 
@@ -132,7 +97,6 @@ class FirmwareUpdateCancelledException implements Exception {
       'was cancelled';
 }
 
-/// Thrown when firmware image validation fails before starting the upload.
 class FirmwareImageValidationException implements Exception {
   final String reason;
 

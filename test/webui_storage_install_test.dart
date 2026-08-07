@@ -392,7 +392,6 @@ void main() {
       await storage.installFromPath(makeSkinSource('0.1.33').path);
       expect(installedVersion(), '0.1.33');
 
-      // Bundled (older) copy must not clobber it — issue #250.
       await storage.installFromPath(
         makeSkinSource('0.1.31').path,
         overwriteIfExists: false,

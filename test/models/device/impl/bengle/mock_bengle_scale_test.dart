@@ -25,8 +25,6 @@ Profile _pourProfile() => Profile(
   ],
 );
 
-// A preinfusion + pour profile: weight must stay ~0 through preinfusion and the
-// first-drops lag, then climb without ever going backwards.
 Profile _preinfusionThenPourProfile() => Profile(
   version: '1.0',
   title: 'preinf+pour',

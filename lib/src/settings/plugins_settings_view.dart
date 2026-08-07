@@ -11,7 +11,6 @@ import 'package:reaprime/src/plugins/plugin_manifest.dart';
 const _maxPluginSafDepth = 32;
 const _maxPluginSafEntries = 10000;
 
-// Parses an input string into the value for a setting schema type.
 dynamic parseValue(String value, String type) {
   if (type == 'number') {
     return num.tryParse(value);
@@ -26,11 +25,6 @@ dynamic parseValue(String value, String type) {
   return value;
 }
 
-/// Dialog-local draft for a secure setting input.
-///
-/// The editable text is kept separate from the stored credential state so
-/// that typing (or erasing) never touches the credential until Save. Only the
-/// explicit clear action marks the credential for deletion.
 class _SecureDraft {
   _SecureDraft({required this.originalIsSet, this.type});
 
@@ -415,7 +409,6 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
     }
   }
 
-  // TODO: unify with PluginLoaderService _copyDirectoryRecursively - maybe as a Directory extension?
   Future<void> _copyDirectoryRecursively(
     Directory source,
     Directory destination,

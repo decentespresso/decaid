@@ -1,6 +1,5 @@
 part of '../webserver_service.dart';
 
-/// REST and WebSocket handler for screen display management.
 class DisplayHandler {
   final DisplayController _displayController;
   final log = Logger('DisplayHandler');
@@ -16,7 +15,6 @@ class DisplayHandler {
     app.get('/ws/v1/display', _handleWebSocket);
   }
 
-  /// GET /api/v1/display
   Future<Response> _getState(Request request) async {
     try {
       return jsonOk(_displayController.currentState.toJson());
@@ -26,7 +24,6 @@ class DisplayHandler {
     }
   }
 
-  /// PUT /api/v1/display/brightness
   Future<Response> _setBrightness(Request request) async {
     try {
       final body = await request.readAsString();
@@ -49,7 +46,6 @@ class DisplayHandler {
     }
   }
 
-  /// POST /api/v1/display/wakelock
   Future<Response> _requestWakeLock(Request request) async {
     try {
       await _displayController.requestWakeLock();
@@ -60,7 +56,6 @@ class DisplayHandler {
     }
   }
 
-  /// DELETE /api/v1/display/wakelock
   Future<Response> _releaseWakeLock(Request request) async {
     try {
       await _displayController.releaseWakeLock();
@@ -71,14 +66,6 @@ class DisplayHandler {
     }
   }
 
-  /// ws/v1/display
-  /// Streams DisplayState changes to connected WebSocket clients.
-  /// Auto-releases wake-lock override when the client disconnects.
-  ///
-  /// Note: wake-lock override is not reference-counted across multiple
-  /// WebSocket clients. If multiple clients request an override, the first
-  /// disconnect will release it for all. This is acceptable for the typical
-  /// use case of one skin = one active WebSocket connection.
   Future<Response> _handleWebSocket(Request req) async {
     return sws.webSocketHandler((WebSocketChannel socket, String? protocol) {
       bool overrideRequested = false;

@@ -18,16 +18,9 @@ class BatteryController {
   late Timer _checkTimer;
   bool _wasCharging = false;
 
-  /// Last `shouldCharge` value actually written to the DE1, and when.
-  /// Distinct from [_wasCharging] (which feeds the decision hysteresis):
-  /// these gate redundant `setUsbChargerMode` writes. Reset to null on
-  /// disconnect so the next connected tick re-asserts against a machine
-  /// that has reset to its charging-on default.
   bool? _lastAppliedCharge;
   DateTime? _lastChargeWrite;
 
-  /// While discharging, re-assert "off" at least this often — the DE1
-  /// firmware re-enables the charger on its own. See [shouldWriteChargerMode].
   static const Duration _dischargeReassertInterval = Duration(minutes: 5);
 
   final BehaviorSubject<ChargingState> _stateSubject =

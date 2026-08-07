@@ -13,19 +13,12 @@ import 'package:url_launcher_platform_interface/url_launcher_platform_interface.
 
 import 'helpers/mock_settings_service.dart';
 
-/// Sentinel page wired to [SkinView.routeName] so tests can assert the in-app
-/// skin route was pushed without constructing the real (webview-backed) view.
 const String _skinViewSentinel = 'SKIN VIEW SENTINEL';
 
-/// The primary button is "Go to skin" everywhere except Linux, which has no
-/// in-app WebView and so opens the external browser instead. CI runs on Linux,
-/// so the finder must follow the platform rather than assume "Go to skin".
 final String _primaryActionLabel = Platform.isLinux
     ? 'Open in Browser'
     : 'Go to skin';
 
-/// Records launched URLs so the Linux fallback path can be asserted without
-/// hitting a real platform channel.
 class _RecordingUrlLauncher extends Fake
     with MockPlatformInterfaceMixin
     implements UrlLauncherPlatform {
@@ -47,8 +40,6 @@ class _RecordingUrlLauncher extends Fake
   Future<bool> supportsCloseForMode(PreferredLaunchMode mode) async => false;
 }
 
-/// Stand-in service whose [isServing] flips to true once a folder is served,
-/// mirroring the real lifecycle so we can exercise the start-then-open path.
 class _FakeWebUIService extends Fake implements WebUIService {
   _FakeWebUIService({this.serving = false});
 

@@ -5,7 +5,6 @@ import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 
-/// Helper: create a minimal multi-step profile for substate testing.
 Profile _testProfile({
   int targetVolumeCountStart = 1,
   List<ProfileStep>? steps,

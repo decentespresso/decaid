@@ -3,7 +3,6 @@ import 'package:reaprime/src/import/import_result.dart';
 import 'package:reaprime/src/widgets/accessible_button.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
-/// Shows pre-scan results with item counts and an "Import All" button.
 class ImportSummaryView extends StatelessWidget {
   final ScanResult scanResult;
   final VoidCallback onImportAll;

@@ -1,19 +1,5 @@
 import 'dart:typed_data';
 
-/// MMR request/response encoding for the DE1 serial protocol, factored
-/// out so detection can probe the v13Model MMR without a full
-/// `UnifiedDe1` instance. Mirrors what `unified_de1.mmr.dart` does with
-/// `_transport.writeWithResponse`, but operates directly on the wire
-/// bytes.
-///
-/// The DE1 MMR protocol packs `[length, addr_high, addr_mid, addr_low,
-/// value_b0..b3, ...]` into 20 bytes. `setInt32(0, addr, big-endian)`
-/// writes the address into bytes 0..3, then byte 0 is overwritten with
-/// the read length — so the addr is effectively 24-bit.
-
-/// Builds the 20-byte MMR-read request payload for [address] with
-/// [length] bytes of expected data. The caller hex-encodes the result
-/// and sends it as `<F>${hex}` over the serial transport.
 Uint8List buildMmrReadRequest({required int address, required int length}) {
   final bytes = ByteData(20);
   bytes.setInt32(0, address, Endian.big);
@@ -22,14 +8,6 @@ Uint8List buildMmrReadRequest({required int address, required int length}) {
   return buf;
 }
 
-/// Decodes a serial MMR-read response line of the form `[E]hex...` into
-/// a 32-bit little-endian int value, but only when bytes [1..3] of the
-/// payload match [expectedAddr]. Returns null when the line is the
-/// wrong shape, has malformed hex, or carries a different address.
-///
-/// The address is encoded big-endian in bytes [1..3], but the value
-/// payload at bytes [4..7] is little-endian — matches what
-/// `unified_de1.mmr.dart::_unpackMMRInt` does.
 int? decodeMmrInt32Response(
   String line, {
   required (int, int, int) expectedAddr,

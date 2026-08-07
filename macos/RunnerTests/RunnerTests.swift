@@ -3,8 +3,6 @@ import FlutterMacOS
 import XCTest
 @testable import Decaid
 
-/// Fake controller so MacOSUpdater can be exercised without starting Sparkle's
-/// updater (which would read the host bundle and schedule network checks).
 @MainActor
 private final class FakeUpdaterController: SPUUpdaterControlling {
   var startCalls = 0
@@ -101,7 +99,6 @@ final class RunnerTests: XCTestCase {
     updater.setChannel("beta")
     XCTAssertEqual(fake.resetCalls, 1)
 
-    // Same channel again must not reset.
     updater.setChannel("beta")
     XCTAssertEqual(fake.resetCalls, 1)
   }

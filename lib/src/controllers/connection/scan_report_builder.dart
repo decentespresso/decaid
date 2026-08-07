@@ -2,12 +2,6 @@ import 'package:reaprime/src/models/adapter_state.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/scan_report.dart';
 
-/// Mutable tracker used during a scan to accumulate connection-attempt
-/// results before building the immutable [MatchedDevice].
-///
-/// Public within the `lib/src/controllers/connection/` module so tests
-/// can construct one directly; not part of the public
-/// `ConnectionManager` API.
 class MatchedDeviceTracker {
   final String deviceName;
   final String deviceId;
@@ -30,46 +24,24 @@ class MatchedDeviceTracker {
   );
 }
 
-/// Accumulates per-device connection-attempt results over the lifetime
-/// of one scan and builds the final [ScanReport] from them.
-///
-/// Idempotent `seed` so the early-connect path and the post-scan
-/// snapshot can share one builder without clobbering each other.
-///
-/// Extracted from ConnectionManager as part of comms-harden Phase 4
-/// (roadmap item 15 — god-class split).
 class ScanReportBuilder {
   final DateTime scanStartTime;
 
-  /// Actual scan window as measured by the scanner. Without it, `build()`
-  /// falls back to wall time since [scanStartTime] — which inflates the
-  /// reported duration by however long the post-scan connect/policy phase
-  /// took (a 15s scan read as 35s when two 10s connects followed it).
   Duration? _measuredScanDuration;
   final Map<String, MatchedDeviceTracker> _trackers = {};
 
-  /// Adapter state captured at scan start. Set by the orchestrator
-  /// via [recordAdapterStateAtStart]; used by [build] so callers
-  /// don't have to thread it through a separate arg.
   AdapterState _adapterStateAtStart = AdapterState.unknown;
 
   ScanReportBuilder({required this.scanStartTime});
 
-  /// Record the adapter state sampled at scan start. The end state is
-  /// supplied to [build] so the builder captures a true start/end pair
-  /// around the whole scan+connect window (comms-harden #27).
   void recordAdapterStateAtStart(AdapterState state) {
     _adapterStateAtStart = state;
   }
 
-  /// Record the scanner-measured scan window (see [_measuredScanDuration]).
   void recordScanDuration(Duration duration) {
     _measuredScanDuration = duration;
   }
 
-  /// Ensure a tracker exists for [d]. Does not clobber an existing
-  /// entry — `putIfAbsent` semantics so recorded attempt results
-  /// survive a second seed call.
   void seed(Device d) {
     _trackers.putIfAbsent(
       d.deviceId,
@@ -81,21 +53,14 @@ class ScanReportBuilder {
     );
   }
 
-  /// Mark that a connection attempt was started for [deviceId]. No-op
-  /// if no tracker exists for that id (shouldn't happen in practice
-  /// since connect paths seed before attempting).
   void markAttempted(String deviceId) {
     _trackers[deviceId]?.connectionAttempted = true;
   }
 
-  /// Record the outcome of a connect attempt for [deviceId]. No-op if
-  /// no tracker exists.
   void recordResult(String deviceId, ConnectionResult result) {
     _trackers[deviceId]?.connectionResult = result;
   }
 
-  /// Build the immutable [ScanReport]. Does not clear the builder —
-  /// safe to call again, but typically called once per scan cycle.
   ScanReport build({
     required String? preferredMachineId,
     required String? preferredScaleId,
@@ -118,7 +83,6 @@ class ScanReportBuilder {
     );
   }
 
-  /// Render a multi-line human-readable summary for logs.
   static String format(ScanReport report) {
     final buf = StringBuffer('Scan report: ');
     buf.write('${report.matchedDevices.length} devices matched, ');

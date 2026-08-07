@@ -3,13 +3,6 @@ import 'package:flutter/widget_previews.dart';
 import 'package:reaprime/src/widgets/accessible_button.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
-/// Shared chrome for onboarding steps.
-///
-/// Centers content in a constrained column matching the launcher's visual
-/// language (ShadTheme typography, generous spacing, a primary call-to-action
-/// and an optional secondary action). Steps supply their own [title], [body]
-/// content, and actions; the scaffold owns the layout, padding, and the
-/// [Semantics] wrapper so every step is consistent and accessible.
 class OnboardingScaffold extends StatelessWidget {
   const OnboardingScaffold({
     super.key,
@@ -21,20 +14,14 @@ class OnboardingScaffold extends StatelessWidget {
     this.maxWidth = 440,
   });
 
-  /// Heading shown at the top of the step. Omit for progress/spinner steps
-  /// that only need the shared chrome.
   final String? title;
 
-  /// Accessibility label for the whole step (e.g. 'Welcome screen').
   final String semanticsLabel;
 
-  /// Step content rendered between the title and the actions.
   final List<Widget> body;
 
-  /// Primary call-to-action, rendered full-width below the body.
   final Widget? primaryAction;
 
-  /// Optional secondary action rendered below the primary one.
   final Widget? secondaryAction;
 
   final double maxWidth;

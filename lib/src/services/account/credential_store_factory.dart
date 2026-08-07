@@ -9,17 +9,6 @@ import 'package:reaprime/src/services/account/credential_store.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/account/encrypted_credential_store.dart';
 
-/// Factory that picks the right credential store for the platform.
-///
-/// iOS and Android use flutter_secure_storage (Keychain /
-/// EncryptedSharedPreferences).
-///
-/// macOS can't use the Keychain: flutter_secure_storage sets
-/// kSecUseDataProtectionKeychain, and the Data Protection Keychain is
-/// unavailable to Developer-ID / sideloaded builds, so every call returns
-/// errSecMissingEntitlement (-34018). Instead we use an AES-256-GCM encrypted
-/// file whose key is derived from the machine's hardware UUID — the same
-/// pattern Slack/VS Code/Obsidian use on macOS.
 Future<CredentialStore> createCredentialStore() async {
   if (Platform.isMacOS) {
     return _createMacOSStore();

@@ -6,9 +6,6 @@ import 'package:reaprime/src/services/ble/char_subscriptions.dart';
 void main() {
   group('CharSubscriptions', () {
     test('re-adding the same UUID cancels the prior subscription', () async {
-      // Reproduces the no-op-reconnect duplicate: subscribe() runs again for
-      // the same characteristic without an intervening disconnect, so the
-      // prior listener must be cancelled rather than left stacked.
       final subs = CharSubscriptions();
 
       final c1 = StreamController<int>();
@@ -64,7 +61,7 @@ void main() {
       final c = StreamController<int>();
       await subs.add('a', c.stream.listen((_) {}));
       await subs.cancelAll();
-      await subs.cancelAll(); // must not throw
+      await subs.cancelAll();
       expect(c.hasListener, isFalse);
       addTearDown(() async => c.close());
     });

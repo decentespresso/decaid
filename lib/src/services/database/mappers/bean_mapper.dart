@@ -2,9 +2,7 @@ import 'package:drift/drift.dart';
 import 'package:reaprime/src/models/data/bean.dart' as domain;
 import 'package:reaprime/src/services/database/database.dart';
 
-/// Maps between domain Bean/BeanBatch models and Drift table rows.
 class BeanMapper {
-  /// Convert a Drift Bean row to a domain Bean.
   static domain.Bean fromRow(Bean row) {
     return domain.Bean(
       id: row.id,
@@ -27,7 +25,6 @@ class BeanMapper {
     );
   }
 
-  /// Convert a domain Bean to a Drift companion for insert/update.
   static BeansCompanion toCompanion(domain.Bean bean) {
     return BeansCompanion(
       id: Value(bean.id),
@@ -50,7 +47,6 @@ class BeanMapper {
     );
   }
 
-  /// Convert a Drift BeanBatch row to a domain BeanBatch.
   static domain.BeanBatch batchFromRow(BeanBatche row) {
     return domain.BeanBatch(
       id: row.id,
@@ -77,7 +73,6 @@ class BeanMapper {
     );
   }
 
-  /// Convert a domain BeanBatch to a Drift companion.
   static BeanBatchesCompanion batchToCompanion(domain.BeanBatch batch) {
     return BeanBatchesCompanion(
       id: Value(batch.id),

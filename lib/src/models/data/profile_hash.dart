@@ -2,21 +2,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 
-/// Utilities for calculating content-based hashes for profiles
 class ProfileHash {
-  /// Calculate hash of execution-relevant fields
-  ///
-  /// This hash identifies the functional behavior of the profile.
-  /// Fields included:
-  /// - beverage_type
-  /// - steps
-  /// - tank_temperature
-  /// - target_weight
-  /// - target_volume
-  /// - target_volume_count_start
-  /// - legacy_profile_type
-  /// - type
-  /// - version
   static String calculateProfileHash(Profile profile) {
     final data = {
       'version': profile.version,
@@ -36,13 +22,6 @@ class ProfileHash {
     return 'profile:${hash.toString().substring(0, 20)}';
   }
 
-  /// Calculate hash of metadata/presentation fields
-  ///
-  /// This hash identifies the human-readable aspects of the profile.
-  /// Fields included:
-  /// - title
-  /// - author
-  /// - notes
   static String calculateMetadataHash(Profile profile) {
     final data = {
       'title': profile.title,
@@ -57,9 +36,6 @@ class ProfileHash {
     return hash.toString();
   }
 
-  /// Calculate compound hash (hash of profile hash + metadata hash)
-  ///
-  /// This detects any changes to the profile, whether functional or presentational.
   static String calculateCompoundHash(String profileHash, String metadataHash) {
     final combined = '$profileHash:$metadataHash';
     final bytes = utf8.encode(combined);
@@ -68,7 +44,6 @@ class ProfileHash {
     return hash.toString();
   }
 
-  /// Calculate all three hashes at once
   static ProfileHashes calculateAll(Profile profile) {
     final profileHash = calculateProfileHash(profile);
     final metadataHash = calculateMetadataHash(profile);
@@ -81,12 +56,10 @@ class ProfileHash {
     );
   }
 
-  /// Encode JSON with sorted keys for stable hashing
   static String _encodeJsonStable(Map<String, dynamic> data) {
     return jsonEncode(_sortMapKeys(data));
   }
 
-  /// Recursively sort map keys for stable serialization
   static dynamic _sortMapKeys(dynamic value) {
     if (value is Map) {
       final sortedMap = <String, dynamic>{};
@@ -102,7 +75,6 @@ class ProfileHash {
   }
 }
 
-/// Container for all three hash values
 class ProfileHashes {
   final String profileHash;
   final String metadataHash;

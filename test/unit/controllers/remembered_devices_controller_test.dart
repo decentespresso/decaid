@@ -121,7 +121,7 @@ void main() {
   test('forget is a no-op for an unknown id', () async {
     controller = build();
     await controller.initialize();
-    await controller.forget('nope'); // must not throw
+    await controller.forget('nope');
     expect(controller.remembered, isEmpty);
   });
 
@@ -158,7 +158,6 @@ void main() {
       await Future.delayed(Duration.zero);
       final writesAfterFirst = settings.rememberedDevicesWriteCount;
 
-      // Identical reconnect (BLE drop/reconnect storm) must be a no-op.
       scale.add(device);
       await Future.delayed(Duration.zero);
 
@@ -172,34 +171,35 @@ void main() {
     },
   );
 
-  test('the same physical scale on two transports yields two entries', () async {
-    // The WiFi/USB/BLE views of one physical HDS have distinct deviceIds and
-    // are intentionally NOT merged — each transport is its own remembered entry.
-    controller = build();
-    await controller.initialize();
+  test(
+    'the same physical scale on two transports yields two entries',
+    () async {
+      controller = build();
+      await controller.initialize();
 
-    scale.add(
-      const RememberedDevice(
-        id: 'wifi:hds.local',
-        name: 'HDS',
-        type: DeviceType.scale,
-      ),
-    );
-    scale.add(
-      const RememberedDevice(
-        id: 'AA:BB:CC:DD:EE:FF',
-        name: 'HDS',
-        type: DeviceType.scale,
-      ),
-    );
-    await Future.delayed(Duration.zero);
+      scale.add(
+        const RememberedDevice(
+          id: 'wifi:hds.local',
+          name: 'HDS',
+          type: DeviceType.scale,
+        ),
+      );
+      scale.add(
+        const RememberedDevice(
+          id: 'AA:BB:CC:DD:EE:FF',
+          name: 'HDS',
+          type: DeviceType.scale,
+        ),
+      );
+      await Future.delayed(Duration.zero);
 
-    expect(
-      controller.remembered.map((d) => d.id).toSet(),
-      {'wifi:hds.local', 'AA:BB:CC:DD:EE:FF'},
-      reason: 'same name, distinct ids → distinct entries',
-    );
-  });
+      expect(
+        controller.remembered.map((d) => d.id).toSet(),
+        {'wifi:hds.local', 'AA:BB:CC:DD:EE:FF'},
+        reason: 'same name, distinct ids → distinct entries',
+      );
+    },
+  );
 
   test(
     'a failed persist on the connect path is contained and rolled back',
@@ -208,10 +208,6 @@ void main() {
       await controller.initialize();
       settings.failRememberedDevicesWrite = true;
 
-      // A throwing persist on the un-awaited stream path must be caught (logged in
-      // _persist) — if it leaked as an unhandled async error the test zone would
-      // fail. The registry rolls back so memory matches disk (nothing persisted),
-      // and the device self-heals on the next connect.
       scale.add(
         const RememberedDevice(id: 's', name: 'S', type: DeviceType.scale),
       );
@@ -252,7 +248,7 @@ void main() {
     () async {
       controller = build();
       await controller.initialize();
-      await controller.initialize(); // second call must be a no-op
+      await controller.initialize();
 
       final emissions = <int>[];
       final sub = controller.changes.listen((l) => emissions.add(l.length));

@@ -6,8 +6,6 @@ import 'package:reaprime/src/models/device/de1_rawmessage.dart';
 import 'package:reaprime/src/models/data/utils.dart';
 
 abstract class De1Interface extends Machine {
-  /// End-of-life cleanup. Release resources held by this machine
-  /// implementation. Default is a no-op.
   Future<void> dispose() async {}
 
   Stream<bool> get ready;
@@ -26,12 +24,10 @@ abstract class De1Interface extends Machine {
 
   Future<void> setProfile(Profile profile);
 
-  //// Timeouts and Thresholds
   Future<void> setFanThreshhold(int temp);
   Future<int> getFanThreshhold();
   Future<int> getTankTempThreshold();
   Future<void> setTankTempThreshold(int temp);
-  //// Flow Control
   Future<void> setSteamFlow(double newFlow);
   Future<double> getSteamFlow();
   Future<void> setHotWaterFlow(double newFlow);
@@ -47,24 +43,17 @@ abstract class De1Interface extends Machine {
   Future<double> getFlowEstimation();
   Future<void> setFlowEstimation(double multiplier);
 
-  /// The flow-estimation calibration as last read/written this session, without
-  /// a BLE round-trip. Warmed on connect and updated on [setFlowEstimation];
-  /// null until first read. (The DE1 doesn't advertise to other apps while we're
-  /// connected, so nothing changes it behind our back.)
   double? get cachedFlowEstimation;
 
   Future<De1HeaterVoltage> getHeaterVoltage();
   Future<void> setHeaterVoltage(De1HeaterVoltage voltage);
 
-  //// USB and Charger Settings
   Future<bool> getUsbChargerMode();
   Future<void> setUsbChargerMode(bool t);
 
-  //// Steam Purge
   Future<void> setSteamPurgeMode(int mode);
   Future<int> getSteamPurgeMode();
 
-  //// User Presence
   Future<void> enableUserPresenceFeature();
   Future<void> sendUserPresent();
 
@@ -82,12 +71,8 @@ abstract class De1Interface extends Machine {
     required void Function(double progress) onProgress,
   });
 
-  /// Read-only observable state of the firmware update operation.
-  /// [FirmwareUpdateState.idle] when no operation is active.
   FirmwareUpdateState get firmwareUpdateState => FirmwareUpdateState.idle;
 
-  /// Cancel an in-progress firmware upload. Sets the machine to sleeping.
-  /// No-op if no upload is in progress.
   Future<void> cancelFirmwareUpload() async {}
 }
 

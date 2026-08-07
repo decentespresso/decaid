@@ -27,16 +27,8 @@ import 'package:reaprime/src/skin_selector/skin_selector_page.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
-/// Which skin-related widget the launcher shows above the grid. The three
-/// states are mutually exclusive.
 enum LauncherSkinSlot { browserHero, returnToSkin, skinUnavailable }
 
-/// Pure decision for the launcher's skin slot.
-///
-/// Browser hero wins whenever the skin can't be shown in-app (no WebView, or a
-/// degraded Android where the app steers users to a browser). Otherwise the
-/// return-to-skin button shows while serving, falling back to the
-/// skin-unavailable explanation when the skin server is stopped.
 LauncherSkinSlot resolveLauncherSkinSlot({
   required bool supportsWebView,
   required bool isDegradedAndroid,
@@ -78,8 +70,6 @@ class LauncherView extends StatelessWidget {
   final BatteryController? batteryController;
   final DecentAccountService? decentAccountService;
 
-  /// Whether this is a degraded Android device (SDK < 31). Resolved once at
-  /// app startup and injected so the launcher stays synchronous.
   final bool isDegradedAndroid;
 
   bool get _supportsWebView =>

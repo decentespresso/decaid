@@ -13,17 +13,12 @@ class PersistenceController {
 
   void Function(String shotId)? onShotStored;
 
-  /// Fires whenever shots are added, updated, or deleted.
-  /// Consumers should re-query what they need from [storageService].
   final _shotsChangedSubject = PublishSubject<void>();
   Stream<void> get shotsChanged => _shotsChangedSubject.stream;
 
-  /// Fires whenever steam records are added, updated, or deleted.
   final _steamsChangedSubject = PublishSubject<void>();
   Stream<void> get steamsChanged => _steamsChangedSubject.stream;
 
-  /// Manually fire a shots-changed notification.
-  /// Used after external mutations (e.g., ZIP import via REST endpoint).
   void notifyShotsChanged() {
     _shotsChangedSubject.add(null);
   }

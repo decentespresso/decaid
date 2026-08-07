@@ -5,7 +5,6 @@ import 'package:reaprime/src/models/data/profile_record.dart';
 import 'package:reaprime/src/services/storage/profile_storage_service.dart';
 import 'package:hive_ce/hive.dart';
 
-/// Mock implementation of ProfileStorageService for testing
 class MockProfileStorage implements ProfileStorageService {
   final Map<String, ProfileRecord> _storage = {};
 
@@ -89,8 +88,6 @@ class MockProfileStorage implements ProfileStorageService {
   }
 }
 
-/// A minimal valid step, for profiles that must round-trip through
-/// Profile.fromJson (which requires a non-empty steps array).
 ProfileStep _sampleStep() => ProfileStepPressure(
   name: 'pour',
   transition: TransitionType.fast,
@@ -360,7 +357,6 @@ void main() {
 
       expect(updated.id, isNot(equals(original.id)));
 
-      // Metadata hash unchanged (title/author/notes same)
       expect(updated.metadataHash, equals(original.metadataHash));
 
       expect(updated.compoundHash, isNot(equals(original.compoundHash)));

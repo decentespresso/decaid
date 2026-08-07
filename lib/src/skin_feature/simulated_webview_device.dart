@@ -73,7 +73,6 @@ class SimulatedWebViewDevice {
   );
 }
 
-/// All selectable simulated WebView devices, in the order shown to the user.
 const simulatedWebViewDevices = <SimulatedWebViewDevice>[
   SimulatedWebViewDevice.teclastT50Mini,
   SimulatedWebViewDevice.teclastP80X,
@@ -113,7 +112,6 @@ Future<void> persistSimulatedWebViewDevice(
   await prefs.setString(simulatedWebViewDevicePreferenceKey, device.id);
 }
 
-/// Default desktop window geometry, restored when no device is simulated.
 const defaultDesktopWindowSize = Size(1280, 800);
 const defaultDesktopAspectRatio = 1.6;
 
@@ -127,13 +125,6 @@ Future<Size> simulatedWebViewWindowSize(SimulatedWebViewDevice device) async {
   );
 }
 
-/// Applies [device] as the active simulated WebView: updates the global
-/// [simulatedWebViewDevice] notifier (which drives skin_view's script
-/// injection), optionally persists the choice, and resizes the desktop window
-/// to match the device viewport. Passing null restores the default window.
-///
-/// Desktop-only — it drives [WindowManager], so callers must gate on a desktop
-/// platform (macOS/Windows/Linux) before invoking.
 Future<void> setSimulatedWebViewDevice(
   SimulatedWebViewDevice? device, {
   bool persist = true,

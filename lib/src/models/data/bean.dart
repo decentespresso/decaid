@@ -1,7 +1,6 @@
 import 'package:reaprime/src/models/data/utils.dart';
 import 'package:uuid/uuid.dart';
 
-/// A coffee identity — roaster + name + origin + processing details.
 class Bean {
   final String id;
   final String roaster;
@@ -162,7 +161,6 @@ class Bean {
   String toString() => 'Bean($roaster $name, id: $id)';
 }
 
-/// A specific bag/purchase of a Bean — tracks roast date, weight, etc.
 class BeanBatch {
   final String id;
   final String beanId;

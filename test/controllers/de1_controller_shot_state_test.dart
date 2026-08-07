@@ -7,7 +7,6 @@ import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/scan_filter.dart';
 
-/// Minimal DeviceDiscoveryService that does nothing.
 class _FakeDiscoveryService extends DeviceDiscoveryService {
   @override
   Stream<List<Device>> get devices => const Stream.empty();

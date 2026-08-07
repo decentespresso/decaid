@@ -1,6 +1,5 @@
 import 'package:args/args.dart';
 
-/// Parsed CLI arguments for desktop platforms.
 class CliArgs {
   final bool serial;
   final bool bypassOnboarding;
@@ -19,7 +18,6 @@ class CliArgs {
   });
 }
 
-/// Parse command-line arguments into a [CliArgs] record.
 CliArgs parseCliArgs(List<String> args) {
   final parser = ArgParser()
     ..addFlag('serial', help: 'Serial-only mode; skip BLE service creation.')

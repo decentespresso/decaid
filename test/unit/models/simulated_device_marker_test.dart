@@ -30,9 +30,6 @@ void main() {
       );
     }
 
-    // Only MockScale starts a Timer in its constructor; stop it so the test
-    // zone has no pending timers. (Machines/sensors are timer-free until
-    // onConnect, which the service never calls.)
     for (final d in devices) {
       if (d.type == DeviceType.scale) await d.disconnect();
     }

@@ -2,10 +2,6 @@ import 'package:reaprime/src/models/data/shot_annotations.dart';
 import 'package:reaprime/src/models/data/steam_snapshot.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
 
-/// Persisted record of one steaming session. Mirrors [ShotRecord]
-/// shape and lifecycle — opened on entry to `MachineState.steam`,
-/// finalized when the machine leaves `steam` (and is no longer
-/// pouring), discarded on mid-steam disconnect.
 class SteamRecord {
   final String id;
   final DateTime timestamp;

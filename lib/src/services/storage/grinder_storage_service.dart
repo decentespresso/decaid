@@ -1,6 +1,5 @@
 import 'package:reaprime/src/models/data/grinder.dart';
 
-/// Storage interface for Grinder entities.
 abstract class GrinderStorageService {
   Future<List<Grinder>> getAllGrinders({bool includeArchived = false});
   Stream<List<Grinder>> watchAllGrinders({bool includeArchived = false});

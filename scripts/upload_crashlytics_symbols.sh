@@ -21,11 +21,6 @@ if [ -z "$PATH_TO_CRASHLYTICS_UPLOAD_SCRIPT" ]; then
   done
 fi
 
-# 3) Last-ditch: search likely build roots for the SPM checkout.
-# `flutter build ipa` archives into an ArchiveIntermediates layout whose
-# SourcePackages dir lives under OBJROOT/SYMROOT/BUILD_ROOT (not necessarily
-# ~/Library/Developer/Xcode/DerivedData), so probe those too — that's the iOS
-# case macOS's direct build never hits.
 if [ -z "$PATH_TO_CRASHLYTICS_UPLOAD_SCRIPT" ]; then
   for root in \
     "$BUILD_DIR" \

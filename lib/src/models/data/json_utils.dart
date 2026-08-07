@@ -1,19 +1,5 @@
-/// Utility functions for JSON manipulation
 library;
 
-/// Deep merges two JSON objects.
-///
-/// Values from [updates] will override values in [base].
-/// For nested maps, the merge is recursive.
-/// For all other types (lists, primitives, null), [updates] values replace [base] values.
-///
-/// Example:
-/// ```dart
-/// final base = {'a': 1, 'b': {'c': 2, 'd': 3}};
-/// final updates = {'b': {'d': 4}};
-/// final result = deepMergeJson(base, updates);
-/// // result: {'a': 1, 'b': {'c': 2, 'd': 4}}
-/// ```
 Map<String, dynamic> deepMergeJson(
   Map<String, dynamic> base,
   Map<String, dynamic> updates,

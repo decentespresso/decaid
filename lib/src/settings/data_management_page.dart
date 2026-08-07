@@ -33,10 +33,6 @@ import 'package:share_plus/share_plus.dart';
 
 final Logger _log = Logger("DataManagement");
 
-/// Zips the given `name -> bytes` entries into a single zip archive.
-///
-/// Top-level so it can run in a background isolate via [compute] — zip
-/// encoding is CPU-bound and would otherwise jank the UI on large exports.
 Uint8List _zipFiles(Map<String, Uint8List> files) {
   final archive = Archive();
   files.forEach((name, bytes) {
@@ -282,8 +278,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
     final transfer = BackupTransferService();
     late final File zipFile;
     try {
-      // Streams the localhost response into a temp file after validating
-      // HTTP status and MIME; never accumulates the archive in memory.
       zipFile = await transfer.downloadExportZip(
         'http://localhost:8080/api/v1/data/export',
         tempDir.directory,
@@ -304,8 +298,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
     }
 
     if (!mounted) {
-      // The page went away while downloading; the downloaded backup must not
-      // be left behind in the system temp directory.
       await tempDir.dispose();
       return;
     }
@@ -327,7 +319,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
           ),
         );
         if (result.status == ShareResultStatus.dismissed) {
-          // Cancelled — do not report success.
           await tempDir.dispose();
           return;
         }
@@ -550,9 +541,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
     final transfer = BackupTransferService();
     try {
       final file = result.files.first;
-      // Prefer the picker's local path; fall back to the read stream (cloud/
-      // provider files) or an in-memory blob for tiny files. Never read the
-      // whole archive via readAsBytes().
       final filePath = file.path;
       Stream<List<int>>? readStream = file.readStream;
       final int? length;
@@ -914,12 +902,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
     ).then((_) => _progressDialogOpen = false);
   }
 
-  /// Dismiss the progress dialog shown by [_showProgressDialog], if still open.
-  ///
-  /// Uses the navigator captured at show time, so this works even if the
-  /// widget has unmounted (cleans up an orphaned dialog route). No-op if the
-  /// dialog already closed (e.g. system-back dismiss reset the flag via the
-  /// dialog future), which prevents accidentally popping the page.
   void _dismissProgressDialog() {
     if (_progressDialogOpen && _progressNavigator != null) {
       _progressNavigator!.pop();

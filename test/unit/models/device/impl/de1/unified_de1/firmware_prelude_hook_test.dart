@@ -12,13 +12,8 @@ class _FwHookProbe extends UnifiedDe1 {
 
   bool hookCalled = false;
 
-  /// Number of writes captured at the moment the hook fires. Lets a test
-  /// assert ordering relative to `requestState(sleeping)` without driving
-  /// the full FW protocol.
   int writeCountAtHook = -1;
 
-  /// Set by tests to read the underlying transport's write log when the
-  /// hook fires.
   late FakeBleTransport probeTransport;
 
   @override
@@ -35,8 +30,6 @@ void main() {
       final transport = FakeBleTransport();
       addTearDown(transport.dispose);
       final de1 = UnifiedDe1(transport: transport);
-      // The default implementation must complete without side effects.
-      // Tests live in the same package; @protected lint is irrelevant here.
       // ignore: invalid_use_of_protected_member
       await de1.beforeFirmwareUpload();
       expect(transport.writes, isEmpty);
@@ -57,9 +50,7 @@ void main() {
         await de1
             .updateFirmware(Uint8List(0), onProgress: (_) {})
             .timeout(const Duration(seconds: 1));
-      } on TimeoutException catch (_) {
-        // Expected: no erase response arrives.
-      }
+      } on TimeoutException catch (_) {}
 
       expect(
         de1.hookCalled,
@@ -69,9 +60,6 @@ void main() {
             'by the FW upload path',
       );
 
-      // The hook must fire AFTER requestState(sleeping) — i.e., at least
-      // one write to Endpoint.requestedState must have landed on the
-      // wire before hookCalled flipped.
       expect(
         de1.writeCountAtHook,
         greaterThan(preFwWrites),

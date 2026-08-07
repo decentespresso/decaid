@@ -27,7 +27,6 @@ void corruptCentralDirectoryCrc(List<int> zipBytes, String filename) {
   zipBytes[namePosition - 46 + 16] ^= 0xFF;
 }
 
-/// A mock section implementing the streaming contract.
 class MockExportSection implements DataExportSection {
   @override
   final String filename;
@@ -40,7 +39,6 @@ class MockExportSection implements DataExportSection {
   ConflictStrategy? lastStrategy;
   int importCalls = 0;
 
-  /// Records the largest fragment written (boundedness proof).
   int maxFragmentLength = 0;
 
   MockExportSection({
@@ -77,7 +75,6 @@ class MockExportSection implements DataExportSection {
   }
 }
 
-/// A section that writes a huge fragment, exceeding the record cap.
 class OversizeExportSection implements DataExportSection {
   @override
   final String filename;
@@ -97,8 +94,6 @@ class OversizeExportSection implements DataExportSection {
   ) async => const SectionImportResult();
 }
 
-/// A section whose fragment is under the record cap in UTF-16 code units
-/// but over it in UTF-8 bytes (non-ASCII content).
 class UnicodeExportSection implements DataExportSection {
   @override
   final String filename;
@@ -163,8 +158,6 @@ void main() {
     );
   }
 
-  /// Helper: build a ZIP archive with given files and return its bytes
-  /// (the old in-memory producer — exercises backward compatibility).
   List<int> buildZip(Map<String, dynamic> files) {
     final archive = Archive();
     for (final entry in files.entries) {
@@ -182,7 +175,6 @@ void main() {
     return ZipEncoder().encode(archive);
   }
 
-  /// Reads the full response body.
   Future<List<int>> responseBytes(Response response) async {
     return await response.read().expand((b) => b).toList();
   }
@@ -354,9 +346,6 @@ void main() {
       test(
         'record cap is measured in UTF-8 bytes, not UTF-16 code units',
         () async {
-          // 40 '\u00E9' chars: 40 UTF-16 code units but 80 UTF-8 bytes. With
-          // a 64-byte cap the fragment must be rejected even though its
-          // UTF-16 length is under the limit.
           final handlerWithUnicode = DataExportHandler(
             sections: [UnicodeExportSection('big.json')],
             limits: const DataTransferLimits(maxRecordBytes: 64),

@@ -7,25 +7,6 @@ import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/errors.dart';
 
-/// Reflects `WorkflowContext.targetYield` into the connected
-/// `BengleInterface`'s autonomous stop-at-weight MMR. Bengle FW stops
-/// the shot when its integrated scale reaches the target — the app
-/// only has to keep FW informed.
-///
-/// Two listeners:
-/// 1. `WorkflowController.addListener` — debounced writes after the
-///    user (or REST) edits the target yield. Same single-writer shape
-///    as `lib/src/controllers/workflow_device_sync.dart` (profile
-///    push), plus a debounce because target-yield edits can come from
-///    a slider drag.
-/// 2. `De1Controller.de1` stream — re-applies the current target the
-///    moment a `BengleInterface` machine becomes connected (covers a
-///    Bengle reboot or a late connect after the app has been editing
-///    the workflow).
-///
-/// A cancellable debounce timer feeds a serialized latest-value drain so a
-/// disconnect during the debounce window cleanly drops the pending write
-/// instead of throwing on a stale `connectedDe1()`.
 class BengleSawBridge {
   BengleSawBridge({
     required WorkflowController workflowController,

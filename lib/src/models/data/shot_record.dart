@@ -10,13 +10,6 @@ class ShotRecord {
   final Workflow workflow;
   final ShotAnnotations? annotations;
 
-  /// Why the shot ended, as decided by the ShotSequencer
-  /// (`ShotDecisionReason.name`, e.g. `targetWeight`, `machineEnded`).
-  /// Machine-derived and immutable — deliberately NOT part of
-  /// [ShotAnnotations], which holds user-entered tasting metadata. Stored as
-  /// an open string: newer builds may persist reasons this build doesn't
-  /// know, and they must survive round-trips. Null for legacy shots and for
-  /// shots the app didn't sequence (e.g. full gateway mode, backgrounded).
   final String? stopReason;
 
   final String? _shotNotes;
@@ -34,7 +27,6 @@ class ShotRecord {
   }) : _shotNotes = annotations != null ? annotations.espressoNotes : shotNotes,
        _metadata = annotations != null ? annotations.extras : metadata;
 
-  /// Synthesized from annotations when available, otherwise from legacy field.
   @Deprecated('Use annotations?.espressoNotes instead')
   String? get shotNotes => _shotNotes;
 
@@ -54,7 +46,6 @@ class ShotRecord {
     };
   }
 
-  /// JSON without measurements — used for paginated list responses.
   Map<String, dynamic> toJsonWithoutMeasurements() {
     return {
       "id": id,

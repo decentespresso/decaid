@@ -105,9 +105,6 @@ class EurekaScale implements Scale {
   @override
   DeviceType get type => DeviceType.scale;
 
-  /// Safe write — catches [DeviceNotConnectedException] from the transport
-  /// layer's gone-device handler so a write to a disconnected scale doesn't
-  /// escape to the framework error handler as a FATAL (Crashlytics fa51312d).
   Future<void> _safeWrite(Uint8List data) async {
     try {
       await _transport.write(
@@ -127,19 +124,16 @@ class EurekaScale implements Scale {
     await _safeWrite(Uint8List.fromList([0xAA, 0x02, 0x31, 0x31]));
   }
 
-  /// Start the scale timer
   @override
   Future<void> startTimer() async {
     await _safeWrite(Uint8List.fromList([0xAA, 0x02, 0x33, 0x33]));
   }
 
-  /// Stop the scale timer
   @override
   Future<void> stopTimer() async {
     await _safeWrite(Uint8List.fromList([0xAA, 0x02, 0x34, 0x34]));
   }
 
-  /// Reset the scale timer
   @override
   Future<void> resetTimer() async {
     await _safeWrite(Uint8List.fromList([0xAA, 0x02, 0x35, 0x35]));
@@ -170,9 +164,7 @@ class EurekaScale implements Scale {
       if (data.isNotEmpty) {
         _batteryLevel = data[0];
       }
-    } catch (_) {
-      // Battery read may fail on some devices; ignore
-    }
+    } catch (_) {}
   }
 
   void _parseNotification(List<int> data) {

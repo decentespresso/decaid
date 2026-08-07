@@ -7,7 +7,6 @@ import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1_transport.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 
-/// Fake BLE transport that tracks whether dispose was called.
 class _Fake extends BLETransport {
   _Fake()
     : _connState = BehaviorSubject<ConnectionState>.seeded(

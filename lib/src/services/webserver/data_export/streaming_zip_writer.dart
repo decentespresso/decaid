@@ -5,9 +5,6 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart' show getCrc32;
 import 'package:reaprime/src/services/webserver/data_export/data_transfer_limits.dart';
 
-/// Thrown when a streaming ZIP write fails (limits exceeded, malformed
-/// state, or an I/O error). The caller must call [abort] and delete the
-/// temporary file.
 class ZipWriteException implements Exception {
   final String message;
   const ZipWriteException(this.message);
@@ -16,17 +13,6 @@ class ZipWriteException implements Exception {
   String toString() => 'ZipWriteException: $message';
 }
 
-/// A ZIP writer that deflates each entry through `dart:io`'s chunked zlib
-/// encoder directly into a temporary file, keeping only the current
-/// in-flight chunk in memory (issue #555).
-///
-/// Entries use data descriptors (general-purpose bit 3) so sizes and CRC are
-/// unknown until the entry finishes; the central directory is written on
-/// [close]. The resulting archive is readable by `archive`'s `ZipDecoder`
-/// (data-descriptor handling confirmed in its `ZipFile.read`).
-///
-/// The writer never materializes a whole entry, a whole section, or a whole
-/// archive in memory.
 class StreamingZipWriter {
   final File _file;
   final RandomAccessFile _raf;
@@ -42,7 +28,6 @@ class StreamingZipWriter {
 
   StreamingZipWriter._(this._file, this._raf, this._limits);
 
-  /// Creates the temporary ZIP file and opens the writer.
   static Future<StreamingZipWriter> create(
     Directory tempDir,
     DataTransferLimits limits,
@@ -52,11 +37,8 @@ class StreamingZipWriter {
     return StreamingZipWriter._(file, raf, limits);
   }
 
-  /// The completed ZIP file (only valid after [close]).
   File get file => _file;
 
-  /// Starts a new entry. The returned [ZipEntrySink] accepts raw bytes that
-  /// are deflated incrementally into the file.
   ZipEntrySink addEntry(String name) {
     if (_closed || _aborted) {
       throw const ZipWriteException('The ZIP writer is already closed.');
@@ -101,16 +83,10 @@ class StreamingZipWriter {
     return ZipEntrySink._(this, entry);
   }
 
-  /// Finalizes the archive: flushes the deflate output, writes data
-  /// descriptors, the central directory, and the end-of-central-directory
-  /// record. The file is complete and valid only after this returns.
   Future<void> close() async {
     if (_closed || _aborted) return;
     _closed = true;
 
-    // No entries are left open: addEntry returns sinks that must be closed
-    // by the caller; if a sink is still open the section export threw and we
-    // abort instead. Central directory offset starts after all local data.
     final cdOffset = _offset;
     final cd = BytesBuilder(copy: false);
     for (final entry in _centralDirectory) {
@@ -122,8 +98,6 @@ class StreamingZipWriter {
         'Export exceeds the 4 GiB ZIP limit; use selected-section export.',
       );
     }
-    // The completed archive must fit the import request limit, or Decaid
-    // would create backups its own import/sync endpoints reject.
     if (_offset + cdBytes.length + 22 > _limits.maxImportRequestBytes) {
       throw const ZipWriteException(
         'Export exceeds the import size limit; use selected-section export.',
@@ -146,22 +120,16 @@ class StreamingZipWriter {
     await _raf.close();
   }
 
-  /// Closes the file handle and deletes the temporary ZIP. Safe to call
-  /// multiple times and after [close] (cleanup on failure paths).
   Future<void> abort() async {
     if (_aborted) return;
     _aborted = true;
     _closed = true;
     try {
       await _raf.close();
-    } catch (_) {
-      // Best effort; the file may already be closed.
-    }
+    } catch (_) {}
     try {
       if (await _file.exists()) await _file.delete();
-    } catch (_) {
-      // Best effort cleanup.
-    }
+    } catch (_) {}
   }
 
   void _registerEntry(_EntryState entry, {required int compressedSize}) {
@@ -239,7 +207,6 @@ class StreamingZipWriter {
       (dt.day & 0x1F);
 }
 
-/// In-progress state of one entry being written.
 class _EntryState {
   final int localHeaderOffset;
   final Uint8List nameBytes;
@@ -273,7 +240,6 @@ class _CdEntry {
   });
 }
 
-/// Accepts raw entry bytes; deflates them incrementally into the ZIP file.
 class ZipEntrySink {
   final StreamingZipWriter _writer;
   final _EntryState _entry;
@@ -298,7 +264,6 @@ class ZipEntrySink {
     _inSink = encoder.startChunkedConversion(_deflateSink);
   }
 
-  /// Feeds raw bytes to the deflater.
   void write(Uint8List bytes) {
     if (_closed) {
       throw const ZipWriteException('The ZIP entry is already closed.');
@@ -318,8 +283,6 @@ class ZipEntrySink {
     _inSink.add(bytes);
   }
 
-  /// Flushes deflate output, writes the data descriptor, and finalizes the
-  /// entry's central-directory record.
   void close() {
     if (_closed) return;
     _closed = true;
@@ -327,8 +290,6 @@ class ZipEntrySink {
   }
 }
 
-/// Receives deflated chunks from the zlib encoder and writes them straight to
-/// the ZIP file, tracking the compressed byte count and offset.
 class _DeflateFileSink implements Sink<List<int>> {
   final StreamingZipWriter _writer;
   final _EntryState _entry;

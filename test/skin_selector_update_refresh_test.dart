@@ -8,16 +8,11 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 
 import 'helpers/mock_settings_service.dart';
 
-/// Minimal stand-in: never serving, so the page renders the "Check for Skin
-/// Updates" control.
 class _FakeWebUIService extends Fake implements WebUIService {
   @override
   bool get isServing => false;
 }
 
-/// Stand-in storage whose single installed skin reports a newer version after
-/// [updateAllSkins] runs — mirroring a real update check that bumps the
-/// on-disk skin from 0.2.2 to 0.2.3 and re-scans the registry.
 class _FakeWebUIStorage extends Fake implements WebUIStorage {
   _FakeWebUIStorage(this._version);
 

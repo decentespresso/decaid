@@ -7,7 +7,6 @@ import 'package:reaprime/src/models/data/steam_snapshot.dart';
 import 'package:reaprime/src/models/data/workflow.dart' as domain_workflow;
 import 'package:reaprime/src/services/database/database.dart' as db;
 
-/// Maps between domain SteamRecord and Drift SteamRecords rows.
 class SteamMapper {
   static domain.SteamRecord fromRow(db.SteamRecord row) {
     final workflow = domain_workflow.Workflow.fromJson(row.workflowJson);

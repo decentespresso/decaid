@@ -1,6 +1,5 @@
 part of '../webserver_service.dart';
 
-/// REST API handler for user presence heartbeats and wake schedules.
 class PresenceHandler {
   final PresenceController _presenceController;
   final SettingsController _settingsController;
@@ -22,8 +21,6 @@ class PresenceHandler {
     app.delete('/api/v1/presence/schedules/<id>', _deleteScheduleHandler);
   }
 
-  /// POST /api/v1/machine/heartbeat
-  /// Signals user presence. Returns `{"timeout": secondsRemaining}`.
   Future<Response> _heartbeatHandler(Request request) async {
     try {
       final seconds = _presenceController.heartbeat();
@@ -34,8 +31,6 @@ class PresenceHandler {
     }
   }
 
-  /// GET /api/v1/presence/settings
-  /// Returns current presence settings and schedules.
   Future<Response> _getSettingsHandler(Request request) async {
     try {
       final schedulesJson = _settingsController.wakeSchedules;
@@ -58,8 +53,6 @@ class PresenceHandler {
     }
   }
 
-  /// POST /api/v1/presence/settings
-  /// Updates `userPresenceEnabled` and/or `sleepTimeoutMinutes`.
   Future<Response> _updateSettingsHandler(Request request) async {
     try {
       final body = await request.readAsString();
@@ -110,8 +103,6 @@ class PresenceHandler {
     }
   }
 
-  /// GET /api/v1/presence/schedules
-  /// Returns array of schedule JSON objects.
   Future<Response> _getSchedulesHandler(Request request) async {
     try {
       final schedulesJson = _settingsController.wakeSchedules;
@@ -127,8 +118,6 @@ class PresenceHandler {
     }
   }
 
-  /// POST /api/v1/presence/schedules
-  /// Adds a new schedule from JSON body. Returns 201.
   Future<Response> _addScheduleHandler(Request request) async {
     try {
       final body = await request.readAsString();
@@ -173,8 +162,6 @@ class PresenceHandler {
     }
   }
 
-  /// PUT /api/v1/presence/schedules/:id
-  /// Updates an existing schedule by ID. Returns updated schedule or 404.
   Future<Response> _updateScheduleHandler(Request request, String id) async {
     try {
       final schedulesJson = _settingsController.wakeSchedules;
@@ -242,8 +229,6 @@ class PresenceHandler {
     }
   }
 
-  /// DELETE /api/v1/presence/schedules/:id
-  /// Deletes a schedule by ID. Returns 200.
   Future<Response> _deleteScheduleHandler(Request request, String id) async {
     try {
       final schedulesJson = _settingsController.wakeSchedules;

@@ -1,19 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
-/// Shows an informational dialog explaining the Gateway Mode settings
-///
-/// This dialog explains the three gateway modes (Tracking, Full, Disabled)
-/// and when to use them. It can be reused in both the Settings view and
-/// the Home screen quick settings card.
-///
-/// Usage:
-/// ```dart
-/// IconButton(
-///   icon: const Icon(Icons.info_outline),
-///   onPressed: () => showGatewayModeInfoDialog(context),
-/// )
-/// ```
 void showGatewayModeInfoDialog(BuildContext context) {
   showShadDialog(
     context: context,
@@ -69,7 +56,6 @@ void showGatewayModeInfoDialog(BuildContext context) {
   );
 }
 
-/// Internal widget for displaying a single gateway mode option
 class _GatewayModeOption extends StatelessWidget {
   final String title;
   final String description;

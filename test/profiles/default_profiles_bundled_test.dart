@@ -5,10 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/data/profile_hash.dart';
 
-/// Guards the curated bundled default profiles (issue #242): every manifest
-/// entry parses, no leftover Visualizer/import cruft in titles or notes, and no
-/// two profiles share execution content (which would collide on the content-hash
-/// id and silently drop one at seed time).
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 

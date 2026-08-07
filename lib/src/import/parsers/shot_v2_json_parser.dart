@@ -11,8 +11,6 @@ import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/data/utils.dart' as parse_utils;
 import 'package:uuid/uuid.dart';
 
-/// Holds a parsed [ShotRecord] plus extracted metadata strings for entity
-/// extraction in later import stages.
 class ParsedShot {
   final ShotRecord shot;
   final String? beanBrand;
@@ -35,11 +33,9 @@ class ParsedShot {
   });
 }
 
-/// Parses de1app history_v2 JSON files into [ParsedShot] instances.
 class ShotV2JsonParser {
   ShotV2JsonParser._();
 
-  /// Parses a de1app history_v2 JSON map into a [ParsedShot].
   static ParsedShot parse(Map<String, dynamic> json) {
     final clockValue = json['clock'];
     if (clockValue == null) {
@@ -170,8 +166,6 @@ class ShotV2JsonParser {
     return (data?['settings'] as Map<String, dynamic>?) ?? {};
   }
 
-  /// Pre-computes cumulative step end-times from profile step durations.
-  /// Used to reconstruct frame numbers for history snapshots.
   static List<double> _stepBoundaries(Profile profile) {
     final boundaries = <double>[];
     var cumulative = 0.0;
@@ -182,7 +176,6 @@ class ShotV2JsonParser {
     return boundaries;
   }
 
-  /// Returns the profile step index for [elapsedSeconds] given step [boundaries].
   static int _frameForElapsed(double elapsedSeconds, List<double> boundaries) {
     for (var i = 0; i < boundaries.length; i++) {
       if (elapsedSeconds < boundaries[i]) return i;
@@ -275,12 +268,9 @@ class ShotV2JsonParser {
     return snapshots;
   }
 
-  /// Safe index access — returns 0.0 if out of bounds.
   static double _at(List<double> list, int i) =>
       i < list.length ? list[i] : 0.0;
 
-  /// Parses a JSON list of numbers that may contain strings, ints, or doubles.
-  /// Returns an empty list if [value] is null or not a list.
   static List<double> _numList(dynamic value) {
     if (value == null || value is! List) return [];
     return value.map((e) {
@@ -289,7 +279,6 @@ class ShotV2JsonParser {
     }).toList();
   }
 
-  /// Returns a non-null, non-empty string or null.
   static String? _str(dynamic value) {
     if (value == null) return null;
     final s = value.toString().trim();

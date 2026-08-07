@@ -2,7 +2,6 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 
-/// Standalone hex-to-bytes conversion matching the transport implementation.
 Uint8List hexToBytes(String hex) {
   hex = hex.replaceAll(RegExp(r'\s+'), '');
   if (hex.length.isOdd) {
@@ -16,8 +15,6 @@ Uint8List hexToBytes(String hex) {
   return result;
 }
 
-/// The fixed regex: no $ anchor, so incomplete messages at end of buffer
-/// stay unmatched until a real terminator arrives.
 final messagePattern = RegExp(r'(\[[A-Z]\][0-9A-Fa-f\s]*?)(?=\[|\n)');
 
 void main() {

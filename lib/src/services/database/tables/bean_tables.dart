@@ -1,7 +1,6 @@
 import 'package:drift/drift.dart';
 import 'package:reaprime/src/services/database/converters/json_converters.dart';
 
-/// Bean identity — roaster + name + origin + processing details.
 class Beans extends Table {
   TextColumn get id => text()();
   TextColumn get roaster => text()();
@@ -28,7 +27,6 @@ class Beans extends Table {
   Set<Column> get primaryKey => {id};
 }
 
-/// A specific bag/purchase of a Bean — tracks roast date, weight, etc.
 class BeanBatches extends Table {
   TextColumn get id => text()();
   TextColumn get beanId => text().references(Beans, #id)();

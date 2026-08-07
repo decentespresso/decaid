@@ -53,20 +53,6 @@ class ChargingState {
   }
 }
 
-/// Decides whether to push `setUsbChargerMode(shouldCharge)` to the DE1 on
-/// this tick.
-///
-/// The DE1 firmware re-enables the USB charger on its own, so keeping the
-/// tablet discharging requires periodically re-asserting "off". When we want
-/// to charge, the firmware default already matches, so re-writing every tick
-/// is pure BLE noise.
-///
-/// - Write whenever the target differs from [lastApplied] (`null` forces a
-///   write — first tick, or after a reconnect cleared it; a reconnected
-///   machine resets to its charging-on default).
-/// - While discharging (`shouldCharge == false`), re-assert once at least
-///   [reassertInterval] has elapsed since [lastWrite].
-/// - While charging and unchanged, skip.
 bool shouldWriteChargerMode({
   required bool shouldCharge,
   required bool? lastApplied,
@@ -83,15 +69,6 @@ bool shouldWriteChargerMode({
 
 int _minutesSinceMidnight(DateTime dt) => dt.hour * 60 + dt.minute;
 
-/// Determines the night phase based on current time and night mode config.
-///
-/// Phases (relative to sleepTime):
-/// - normal: morningTime to sleepTime - 120min
-/// - hovering: sleepTime - 120min to sleepTime - 30min
-/// - chargingToMax: sleepTime - 30min to sleepTime
-/// - sleeping: sleepTime to morningTime
-///
-/// All arithmetic is modulo 1440 to handle midnight wrapping.
 NightPhase _determineNightPhase(int nowMinutes, NightModeConfig config) {
   final morning = config.morningTimeMinutes;
   final sleep = config.sleepTimeMinutes;
@@ -112,10 +89,6 @@ NightPhase _determineNightPhase(int nowMinutes, NightModeConfig config) {
   }
 }
 
-/// Applies hysteresis charging logic.
-///
-/// If battery <= low, charge. If battery >= high, stop.
-/// In between, maintain the previous charging direction (wasCharging).
 bool _hysteresis({
   required int batteryPercent,
   required int low,
@@ -127,13 +100,6 @@ bool _hysteresis({
   return wasCharging;
 }
 
-/// Pure function that decides whether to charge the battery.
-///
-/// Priority order:
-/// 1. Emergency: battery <= 15% -> always charge
-/// 2. Disabled mode -> always charge
-/// 3. Night mode phases (if config provided)
-/// 4. Charging mode hysteresis ranges
 ChargingDecision decide({
   required int batteryPercent,
   required DateTime currentTime,

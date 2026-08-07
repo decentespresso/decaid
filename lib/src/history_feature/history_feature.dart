@@ -437,7 +437,6 @@ class _HistoryFeatureState extends State<HistoryFeature> {
                                   ),
                                 ],
 
-                                // Notes preview
                                 if (record.annotations?.espressoNotes != null &&
                                     record
                                         .annotations!
@@ -791,7 +790,6 @@ class _HistoryFeatureState extends State<HistoryFeature> {
               ),
             ),
 
-            // Notes section
             if (record.annotations?.espressoNotes != null &&
                 record.annotations!.espressoNotes!.isNotEmpty) ...[
               SizedBox(height: 16),

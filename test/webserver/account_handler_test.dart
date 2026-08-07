@@ -74,7 +74,6 @@ void main() {
     expect(response.statusCode, 200);
     final body = jsonDecode(await response.readAsString()) as Map;
     expect(body['loggedIn'], true);
-    // Email is PII and the endpoint is unauthenticated — never include it.
     expect(body.containsKey('email'), isFalse);
   });
 

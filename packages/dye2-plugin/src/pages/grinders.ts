@@ -2,7 +2,6 @@ import { pageShell } from "./layout";
 import { grinderListComponent } from "../components/grinder-list";
 import { grinderFormComponent } from "../components/grinder-form";
 
-/** Page-level orchestration: show/hide form, refresh list on save */
 const grinderPageOrchestration = `
 document.addEventListener('create-grinder', () => {
   const form = document.querySelector('dye2-grinder-form');

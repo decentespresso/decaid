@@ -5,17 +5,6 @@ import 'package:reaprime/src/models/scan_report.dart'
 export 'package:reaprime/src/models/scan_report.dart'
     show ScanTerminationReason;
 
-/// Result of a single scan cycle across all discovery services.
-///
-/// Completes when every service's scan has finished (success or failure).
-/// Per-service failures are captured in [failedServices] rather than
-/// thrown — one BLE permission denial does not torpedo a user who is
-/// running serial-only, for example. Callers inspect [failedServices]
-/// if they need to surface errors for individual transport classes.
-///
-/// A catastrophic, scan-wide failure (no services could even be
-/// invoked) is still signalled by the Future rejecting, preserving the
-/// existing classify-and-emit path in `ConnectionManager`.
 class ScanResult {
   final List<Device> matchedDevices;
   final List<ServiceScanFailure> failedServices;
@@ -30,10 +19,6 @@ class ScanResult {
   });
 }
 
-/// A single discovery-service failure surfaced through [ScanResult].
-/// `serviceName` is the Dart runtime type of the failing
-/// `DeviceDiscoveryService`, suitable for logs and debugging but not
-/// part of any public contract.
 class ServiceScanFailure {
   final String serviceName;
   final Object error;

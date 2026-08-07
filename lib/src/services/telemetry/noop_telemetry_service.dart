@@ -1,10 +1,6 @@
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/services/telemetry/telemetry_service.dart';
 
-/// No-op implementation of TelemetryService
-///
-/// Used on Linux or when in debug/simulation mode.
-/// All methods are no-ops - no data is collected or sent.
 class NoOpTelemetryService implements TelemetryService {
   static final _logger = Logger('NoOpTelemetryService');
 

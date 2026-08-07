@@ -8,11 +8,6 @@ abstract class BLETransport extends DataTransport {
 
   Future<List<String>> discoverServices();
 
-  /// Query the platform BLE stack for the live connection state of
-  /// the underlying peripheral. Unlike the [connectionState] stream
-  /// this is a point-in-time read and survives transport-instance
-  /// teardown — useful for detecting an already-live connection
-  /// when reconnecting through a fresh transport.
   Future<ConnectionState> getConnectionState();
 
   Future<void> subscribe(

@@ -7,17 +7,6 @@ import 'package:reaprime/src/models/device/sensor.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:rxdart/rxdart.dart';
 
-/// `Sensor` adapter wrapping Bengle's internal milk-probe signals.
-///
-/// **Scaffolding** — real `Bengle` never emits on the probe streams
-/// today (probe discovery + data transport is TBD with FW). This
-/// adapter only carries data when wrapping a `MockBengle` (synthesised
-/// during steam) or once FW lands. The adapter is created and
-/// registered with `SensorController` by `BengleProbeBridge`.
-///
-/// Lifecycle is **probe-attached**, not machine-connected: the bridge
-/// instantiates this when `probeAttached` flips `true` and removes it
-/// when `false` (or when the machine disconnects).
 class BengleMilkProbe implements Sensor {
   BengleMilkProbe({required BengleInterface bengle, String? deviceId})
     : _bengle = bengle,

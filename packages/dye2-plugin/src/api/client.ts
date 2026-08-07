@@ -1,7 +1,3 @@
-/**
- * REST API client for use in browser-side Web Components.
- * This code is compiled to a string and inlined in served HTML pages.
- */
 
 const API_BASE = "/api/v1";
 

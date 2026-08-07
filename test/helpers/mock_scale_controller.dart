@@ -3,24 +3,13 @@ import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:rxdart/rxdart.dart';
 
-/// A ScaleController subclass for testing ConnectionManager.
-///
-/// Records all [connectToScale] calls and allows controlling the
-/// `connectionState` stream and simulating connection failures.
 class MockScaleController extends ScaleController {
-  /// Every [Scale] passed to [connectToScale].
   final List<Scale> connectCalls = [];
 
-  /// When true, [connectToScale] throws a generic [Exception].
   bool shouldFailConnect = false;
 
-  /// When non-null, [connectToScale] throws this exact object. Takes
-  /// precedence over [shouldFailConnect]. Useful for exercising
-  /// typed-exception branches (e.g. `FlutterBluePlusException`).
   Object? failNextConnectWith;
 
-  /// The subject backing the overridden [connectionState] stream.
-  /// Tests can call `connectionStateSubject.add(...)` to simulate changes.
   final BehaviorSubject<ConnectionState> connectionStateSubject =
       BehaviorSubject.seeded(ConnectionState.discovered);
 
@@ -34,13 +23,10 @@ class MockScaleController extends ScaleController {
   @override
   String? get lastConnectedDeviceId => _mockLastConnectedDeviceId;
 
-  /// Seed [lastConnectedDeviceId] without going through [connectToScale].
   void debugSetLastConnectedId(String id) {
     _mockLastConnectedDeviceId = id;
   }
 
-  /// Push a [ConnectionState] onto the stream that ConnectionManager
-  /// subscribes to, simulating a transport-level transition.
   void mockEmitConnectionState(ConnectionState state) {
     connectionStateSubject.add(state);
   }

@@ -979,12 +979,6 @@ class PluginManager {
           cleanupStackTrace,
         );
       }
-      // WARNING, not SEVERE: a plugin failing to load is almost always a
-      // user-installed third-party plugin with a bad manifest id or a JS
-      // syntax error, not an app defect. The caller (e.g. PluginsSettingsView)
-      // surfaces the failure to the user. Keeping this at SEVERE escalated
-      // every broken user plugin into Crashlytics crash signal (issue
-      // e396ab1d — a catch-all cluster of unrelated plugin-load failures).
       _log.warning("Failed to load plugin $id", e, st);
       rethrow;
     }
@@ -1044,9 +1038,6 @@ class PluginManager {
   }
 
   void _cleanupPluginResources(String pluginId, String? pluginBridgeToken) {
-    // Reject operations first: settling promises drains pending jobs, which
-    // can run plugin rejection handlers that schedule new timers. The timer
-    // sweep after must be the last word.
     Object? firstError;
     StackTrace? firstStackTrace;
 
@@ -1191,8 +1182,6 @@ class PluginManager {
 
   void _setTimer(String pluginId, int generation, int id, int delayMs) {
     if (!_plugins.containsKey(pluginId)) return;
-    // Deferred bridge messages can arrive after a reload; a timer from an
-    // older generation must not register against the current plugin.
     if (generation != (_pluginGenerations[pluginId] ?? 0)) return;
     final existing = _timers[id];
     if (existing != null && existing.pluginId != pluginId) return;
@@ -1677,8 +1666,6 @@ class PluginManager {
     final generation = msg['generation'] is num
         ? (msg['generation'] as num).toInt()
         : 0;
-    // Deferred bridge messages can arrive after a reload; a fetch from an
-    // older generation must not start network work against the new plugin.
     if (generation != (_pluginGenerations[pluginId] ?? 0)) {
       js.evaluate(
         'globalThis.__handleFetchResponse('

@@ -8,30 +8,24 @@ part 'shot_dao.g.dart';
 class ShotDao extends DatabaseAccessor<AppDatabase> with _$ShotDaoMixin {
   ShotDao(super.db);
 
-  /// Get all shot IDs.
   Future<List<String>> getAllShotIds() async {
     final query = selectOnly(shotRecords)..addColumns([shotRecords.id]);
     final rows = await query.get();
     return rows.map((row) => row.read(shotRecords.id)!).toList();
   }
 
-  /// Get a single shot by ID (includes measurements).
   Future<ShotRecord?> getShotById(String id) {
     return (select(
       shotRecords,
     )..where((s) => s.id.equals(id))).getSingleOrNull();
   }
 
-  /// Get all shots ordered by timestamp descending (includes measurements).
   Future<List<ShotRecord>> getAllShots() {
     return (select(
       shotRecords,
     )..orderBy([(s) => OrderingTerm.desc(s.timestamp)])).get();
   }
 
-  /// Keyset-paged shots for streaming export: ordered by (timestamp, id)
-  /// descending; returns up to [limit] rows strictly after the cursor. Stable
-  /// under concurrent inserts/deletes (no duplicates or omissions).
   Future<List<ShotRecord>> getShotsForExport({
     int limit = 200,
     DateTime? cursorTimestamp,
@@ -54,8 +48,6 @@ class ShotDao extends DatabaseAccessor<AppDatabase> with _$ShotDaoMixin {
     return query.get();
   }
 
-  /// Paginated shot list without measurements for list views.
-  /// Returns rows with measurementsJson set to '[]'.
   Future<List<ShotRecord>> getShotsPaginated({
     int limit = 20,
     int offset = 0,
@@ -116,7 +108,6 @@ class ShotDao extends DatabaseAccessor<AppDatabase> with _$ShotDaoMixin {
     return query.get();
   }
 
-  /// Count total shots matching filters (for pagination metadata).
   Future<int> countShots({
     String? grinderId,
     String? grinderModel,
@@ -167,7 +158,6 @@ class ShotDao extends DatabaseAccessor<AppDatabase> with _$ShotDaoMixin {
     return result.read(countExpr) ?? 0;
   }
 
-  /// Watch all shots (for reactive UI).
   Stream<List<ShotRecord>> watchAllShots() {
     return (select(
       shotRecords,
@@ -192,7 +182,6 @@ class ShotDao extends DatabaseAccessor<AppDatabase> with _$ShotDaoMixin {
     return (delete(shotRecords)..where((s) => s.id.equals(id))).go();
   }
 
-  /// Get the most recent shot (full row including measurements).
   Future<ShotRecord?> getLatestShot() {
     return (select(shotRecords)
           ..orderBy([(s) => OrderingTerm.desc(s.timestamp)])
@@ -200,8 +189,6 @@ class ShotDao extends DatabaseAccessor<AppDatabase> with _$ShotDaoMixin {
         .getSingleOrNull();
   }
 
-  /// Get the most recent shot metadata (excludes measurementsJson from SQL).
-  /// Returns a [ShotRecord] with measurementsJson set to '[]'.
   Future<ShotRecord?> getLatestShotMeta() async {
     final cols = shotRecords.$columns
         .where((c) => c.$name != 'measurements_json')

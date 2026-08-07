@@ -3,10 +3,6 @@ import 'package:logging/logging.dart';
 import 'package:reaprime/src/services/firmware/firmware_manifest.dart';
 import 'package:reaprime/src/services/firmware/firmware_validator.dart';
 
-/// Loads the bundled firmware catalog from Flutter assets.
-///
-/// Uses constructor-injected [AssetBundle] so tests can supply an in-memory
-/// bundle. Production code supplies `rootBundle`.
 final class BundledFirmwareCatalog {
   final AssetBundle _bundle;
   final Logger _log;
@@ -31,8 +27,6 @@ final class BundledFirmwareCatalog {
     return bytes.buffer.asUint8List(bytes.offsetInBytes, bytes.lengthInBytes);
   }
 
-  /// Loads every manifest artifact, reads its actual bytes, and verifies
-  /// unique IDs, loadability, SHA-256, and length against the real bytes.
   Future<void> verifyAllArtifacts() async {
     final manifest = await loadManifest();
     for (final entry in manifest.entries) {

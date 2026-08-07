@@ -7,7 +7,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pub_semver/pub_semver.dart';
 import 'package:reaprime/src/services/apk_installer.dart';
 
-/// Represents an available update from GitHub releases
 class UpdateInfo {
   final String version;
   final String downloadUrl;
@@ -43,10 +42,8 @@ class UpdateInfo {
   }
 }
 
-/// Update channel configuration
 enum UpdateChannel { stable, beta }
 
-/// Service for checking and installing app updates from GitHub releases
 class AndroidUpdater {
   final Logger _log = Logger('AndroidUpdater');
   final String _owner;
@@ -64,16 +61,9 @@ class AndroidUpdater {
        _httpClient = httpClient ?? http.Client(),
        _apkInstaller = apkInstaller ?? ApkInstaller();
 
-  /// GitHub API URL for releases
   String get _releasesUrl =>
       'https://api.github.com/repos/$_owner/$_repo/releases';
 
-  /// Check if an update is available for the given current version
-  ///
-  /// [currentVersion] - The current app version (e.g., "1.2.3")
-  /// [channel] - The update channel to check (stable or beta)
-  ///
-  /// Returns [UpdateInfo] if an update is available, null otherwise
   Future<UpdateInfo?> checkForUpdate(
     String currentVersion, {
     UpdateChannel channel = UpdateChannel.stable,
@@ -127,15 +117,6 @@ class AndroidUpdater {
     }
   }
 
-  /// Download an APK file and save it to the app's cache directory
-  ///
-  /// [updateInfo] - The update information containing the download URL
-  /// [onProgress] - Optional callback for download progress (0.0 to 1.0).
-  ///   Only fires when the server reports a Content-Length.
-  /// [cacheDir] - Target directory (defaults to the app temp dir); injected
-  ///   in tests to avoid the path_provider platform channel.
-  ///
-  /// Returns the path to the downloaded APK file
   Future<String> downloadUpdate(
     UpdateInfo updateInfo, {
     Function(double progress)? onProgress,
@@ -176,13 +157,6 @@ class AndroidUpdater {
     }
   }
 
-  /// Install an APK file using the system package installer
-  ///
-  /// On Android 8.0+, this requires REQUEST_INSTALL_PACKAGES permission
-  ///
-  /// [apkPath] - Path to the APK file to install
-  ///
-  /// Returns true if the installation was triggered successfully
   Future<bool> installUpdate(String apkPath) async {
     if (!Platform.isAndroid) {
       throw UnsupportedError('APK installation is only supported on Android');

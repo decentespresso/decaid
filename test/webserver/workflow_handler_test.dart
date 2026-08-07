@@ -26,13 +26,6 @@ import '../helpers/mock_settings_service.dart';
 import '../helpers/test_scale.dart';
 import '../helpers/test_scale_controller.dart';
 
-/// Observes every call the WorkflowHandler + De1Controller make on the
-/// DE1 surface. Used to pin the contract down to the device boundary.
-///
-/// Unlike `helpers/test_de1.dart`, this spy keeps a [BehaviorSubject]
-/// for `shotSettings` (mirroring both `MockDe1` and `UnifiedDe1`), so
-/// read-modify-write races on the controller surface reproduce here
-/// exactly like they do on the running app.
 class SpyDe1 implements De1Interface {
   SpyDe1({De1ShotSettings? seed, bool readyState = true}) {
     _shotSettings = BehaviorSubject.seeded(
@@ -72,9 +65,6 @@ class SpyDe1 implements De1Interface {
   final List<double> steamFlowEntryOrder = [];
   final List<double> steamFlowCompletionOrder = [];
 
-  /// Ordered trace of every physical flow/register write this spy
-  /// received, used to prove that one request's writes stay contiguous
-  /// (no interleaving from another queue entry).
   final List<String> writeOrder = [];
 
   double? blockedSteamFlow;
@@ -86,8 +76,6 @@ class SpyDe1 implements De1Interface {
   Completer<void>? heaterPhase2FlowRelease;
   double? failHeaterPhase2Flow;
 
-  /// Every emit that crosses the `shotSettings` stream, in order. This
-  /// is the stream `/ws/v1/machine/shotSettings` subscribes to.
   final List<De1ShotSettings> emittedShotSettings = [];
 
   @override
@@ -149,9 +137,6 @@ class SpyDe1 implements De1Interface {
     writeOrder.add('flushTemp:$newTemp');
   }
 
-  /// Drive the connection-state stream; a `disconnected` emission makes
-  /// `De1Controller` run `_onDisconnect()` (generation bump, machine
-  /// cleared), which is how tests model a real disconnect gap.
   void setConnectionState(ConnectionState state) {
     _connectionState.add(state);
   }
@@ -521,8 +506,6 @@ void main() {
 
       await _settleHandler(spy);
 
-      // With the fix, the completer is completed with a 400 response
-      // instead of never completing.
       final response = await future;
       expect(response.statusCode, equals(400));
       final body = jsonDecode(await response.readAsString());
@@ -557,8 +540,6 @@ void main() {
         final badResponse = await badFuture;
         expect(badResponse.statusCode, equals(400));
 
-        // Second: a valid PUT that must work because _pendingMerge
-        // was cleared after the failure.
         final goodFuture = put({
           'steamSettings': {'duration': 25},
         });
@@ -796,8 +777,6 @@ void main() {
         await Future<void>.delayed(Duration.zero);
         expect(de1Controller.connectedDe1OrNull, isNull);
 
-        // Release the old write; it finishes on the old machine, but the
-        // generation has changed so the retry must wait for a replacement.
         release.complete();
         await Future<void>.delayed(const Duration(milliseconds: 50));
         var completed = false;
@@ -1214,9 +1193,6 @@ void main() {
         });
         await entered.future.timeout(const Duration(seconds: 2));
 
-        // A second request expires with 503 and must release its slot
-        // immediately even though its queue entry never reaches the
-        // front (the first write is still blocked).
         final expiredResponse = await expPut({
           'steamSettings': {'flow': blockedFlow + 1},
         });
@@ -1428,8 +1404,6 @@ void main() {
         expect(responses[0].statusCode, 200);
         expect(responses[1].statusCode, 202);
         expect(responses[2].statusCode, 200);
-        // B's two fields must be contiguous: no write from A or C may
-        // land between the hot-water and steam writes of one request.
         expect(spy.writeOrder, [
           'steam:$blockedFlow',
           'hotWater:$settingsHotWaterFlow',
@@ -1757,10 +1731,6 @@ void main() {
 
         final response = await resetFuture.timeout(const Duration(seconds: 3));
         expect(response.statusCode, 202);
-        // The replacement receives the complete reset (its own startup
-        // fan write is the first entry, then the full reset sequence);
-        // the old machine never receives the writes after the failed
-        // heater phase-2 write.
         expect(replacement.writeOrder.sublist(1), [
           'fan:55',
           'heaterIdleTemp:95.0',

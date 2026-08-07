@@ -109,10 +109,6 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
     );
   }
 
-  /// Card header: title/subtitle on the left, plus the library-wide "Check for
-  /// updates" action on the right (it refreshes *all* installed skins, not the
-  /// selected one, so it lives at the section level rather than next to the
-  /// per-skin "Go to skin" button).
   Widget _buildHeader() {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -152,8 +148,6 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
     );
   }
 
-  /// Quiet footer for the niche skin-server controls (start/stop, open in an
-  /// external browser). De-emphasised vs. the primary actions above.
   Widget _buildServerFooter() {
     final serving = widget.webUIService.isServing;
     final muted = Theme.of(
@@ -614,10 +608,6 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
     );
   }
 
-  /// Opens the selected skin inside the app, starting the skin server first if
-  /// it isn't already running so the button works in a single tap. Linux has no
-  /// in-app WebView (the plugin is a no-op there), so it falls back to the
-  /// external browser — same policy as the home screen's "Open" button.
   Future<void> _goToSkin() async {
     if (!widget.webUIService.isServing) {
       await _startSelectedSkin();
@@ -662,7 +652,6 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
 
 enum _ActionButtonVariant { primary, outline, ghost }
 
-/// Small helper for consistent action buttons in the skin selector.
 class _ActionButton extends StatelessWidget {
   final String label;
   final IconData icon;
@@ -670,8 +659,6 @@ class _ActionButton extends StatelessWidget {
   final _ActionButtonVariant variant;
   final ShadButtonSize? size;
 
-  /// Overrides the icon/text color — used to tint a ghost button (e.g. the
-  /// destructive "Stop server") without giving it a filled destructive style.
   final Color? foregroundColor;
 
   const _ActionButton({

@@ -76,27 +76,13 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
   StreamSubscription<BleDevice>? _watchScanSub;
   Timer? _watchRefreshTimer;
 
-  /// Bumped on every adapter state CHANGE (replays of the same state
-  /// don't count). A watch start captures it and discards itself on
-  /// completion if it changed — the transition may have killed the
-  /// native scan the start opened, so claiming active would leave the
-  /// watch permanently silent.
   int _watchAdapterGeneration = 0;
   AdapterState? _lastWatchAdapterState;
 
-  /// One-shot flag set when a start discarded itself on an adapter
-  /// generation change; the retry runs after the in-flight future is
-  /// cleared (a retry from within the start would await itself).
   bool _watchStartNeedsRetry = false;
 
-  /// Android silently downgrades scans running longer than 30 minutes to
-  /// opportunistic mode (results only when another app scans). Restart
-  /// the watch scan before that kicks in.
   static const _watchRefreshInterval = Duration(minutes: 25);
 
-  /// Dead-scan probe cadence. The native scan can die without any event
-  /// reaching Dart; see doc/AI_BLE_NOTES.md ("Watch Scan Silent Death")
-  /// for the fork mechanics and the probe's coverage limits.
   static const _watchLivenessInterval = Duration(seconds: 90);
   Timer? _watchLivenessTimer;
 
@@ -106,9 +92,6 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
   @override
   Stream<void> get deviceWatchFailures => _watchFailureController.stream;
 
-  /// In-flight [_startWatchScan] call. Pause/stop paths await this so
-  /// watch-start and burst-start are genuinely serialized — universal_ble
-  /// has one global scan session and ownership must be deterministic.
   Future<void>? _watchStartInFlight;
 
   @override
@@ -136,26 +119,15 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     if (inflight == null) return;
     try {
       await inflight;
-    } catch (_) {
-      // The start failed — its own error handling ran; nothing to settle.
-    }
+    } catch (_) {}
   }
 
-  /// Detach the watch's scan-stream listener. Fire-and-forget: awaiting
-  /// `StreamSubscription.cancel()` can resolve through the root zone,
-  /// which deadlocks fakeAsync tests, and the ordering is not
-  /// load-bearing — a stray advert between cancel and stopScan just
-  /// takes the normal `_deviceScanned` path.
   void _cancelWatchScanSub() {
     final sub = _watchScanSub;
     _watchScanSub = null;
     unawaited(sub?.cancel());
   }
 
-  /// Single teardown path for the watch scan's local state (refresh
-  /// timer, scan-stream listener, active flag). [stopOsScan] also stops
-  /// the OS scan; pass false when something else owns or already killed
-  /// the session (burst hand-over, adapter power-off).
   Future<void> _deactivateWatchScan({
     required bool stopOsScan,
     required String context,
@@ -175,11 +147,6 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     }
   }
 
-  /// Restart the watch scan after it lost the OS session (refresh,
-  /// post-burst resume, adapter recovery). On failure the watch is dead
-  /// and cannot self-heal: clear the request and report it so ScaleWatch
-  /// activates the legacy backoff fallback instead of staying silently
-  /// armed.
   Future<void> _restartWatchOrReportFailure(String context) async {
     try {
       await _startWatchScan();
@@ -278,7 +245,6 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
       try {
         alive = await UniversalBle.isScanning();
       } catch (e, st) {
-        // Fail open: an unprovable probe must not churn the session.
         log.fine('Watch liveness probe failed', e, st);
         alive = true;
       }
@@ -304,9 +270,6 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     });
   }
 
-  /// Pause the watch scan so a burst scan can own the radio. Awaits any
-  /// in-flight watch start first so session ownership is deterministic.
-  /// The burst's finally-block calls [_resumeWatchAfterBurst].
   Future<void> _pauseWatchForBurst() async {
     await _awaitInFlightWatchStart();
     if (!_watchScanActive) return;
@@ -316,15 +279,9 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
 
   Future<void> _resumeWatchAfterBurst() async {
     if (_watchRequested == null) return;
-    // A resume failure must never fail the burst that triggered it —
-    // _restartWatchOrReportFailure never throws.
     await _restartWatchOrReportFailure('post-burst resume');
   }
 
-  /// Adapter transitions: the OS kills any running scan on power-off; a
-  /// still-requested watch restarts on power-on (unless a burst runs).
-  /// Every transition bumps the generation so an in-flight start
-  /// invalidates itself (see [_runWatchScanStart]).
   void _onAdapterStateForWatch(AdapterState state) {
     if (state == _lastWatchAdapterState) return;
     _lastWatchAdapterState = state;
@@ -374,9 +331,6 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
   Future<void> initialize() async {
     if (_availabilitySubscription != null) return;
     _disposed = false;
-    // perDevice: each BLE peripheral gets its own command queue, so
-    // DE1 GATT operations never block scale heartbeat writes and vice
-    // versa. Mirrors flutter_blue_plus' per-connection serialization.
     UniversalBle.queueType = QueueType.perDevice;
 
     var initialState = await UniversalBle.getBluetoothAvailabilityState();
@@ -431,18 +385,11 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     UniversalBle.stopScan();
   }
 
-  /// Transport pre-connect hook: stop the native scan AND end the
-  /// scan-duration wait, so a connect started mid-scan closes the scan
-  /// cycle instead of leaving it dead-waiting (native scan already
-  /// stopped, no results flowing) — scan reports then show the real
-  /// scan window.
   Future<void> _stopScanForConnect() async {
     _cancelScanDurationWait();
     await UniversalBle.stopScan();
   }
 
-  /// Cancel the scheduled 15s stopScan and unblock the awaiter in
-  /// scanForDevices so it can proceed to cleanup / free `_isScanning`.
   void _cancelScanDurationWait() {
     _scanDurationTimer?.cancel();
     _scanDurationTimer = null;
@@ -453,8 +400,6 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     _scanDurationCompleter = null;
   }
 
-  /// Wait up to [duration] for the scan to finish, or return early if
-  /// `stopScan()` is called. The BLE scan is stopped in either case.
   Future<void> _waitForScanDuration(Duration duration) async {
     final completer = Completer<void>();
     _scanDurationCompleter = completer;
@@ -486,8 +431,6 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     StreamSubscription<BleDevice>? sub;
 
     try {
-      // universal_ble has one global scan session — a running watch scan
-      // must yield to the burst and is resumed in the finally below.
       await _pauseWatchForBurst();
 
       log.fine("Clearing stale connections");
@@ -521,11 +464,6 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
         platformConfig: platformConfig,
       );
 
-      // CoreBluetooth/BlueZ hide system-connected/bonded BLE devices from
-      // scan results; query them explicitly so a DE1 paired via System
-      // Settings is still discovered (#126). Optional — must never abort the
-      // main scan (parity with BluePlusDiscoveryService's macOS guard), so
-      // failures are swallowed.
       try {
         final systemDevices = await UniversalBle.getSystemDevices(
           withServices: [],

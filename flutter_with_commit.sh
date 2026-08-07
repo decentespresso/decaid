@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -e
 
-# --- Load local env file if present (not used in CI) ---
 if [ -f .env.dev ]; then
   set -a
   source .env.dev
@@ -13,9 +12,6 @@ COMMIT_SHORT=$(git rev-parse --short HEAD 2>/dev/null || echo unknown)
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)
 BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-# --- Optional secrets from environment ---
-# Note: env var is FEEDBACK_TOKEN (not GITHUB_*) because GitHub Actions
-# reserves the GITHUB_ prefix for its own variables.
 FEEDBACK_TOKEN_DEFINE=()
 if [ -n "$FEEDBACK_TOKEN" ]; then
   FEEDBACK_TOKEN_DEFINE=(--dart-define=GITHUB_FEEDBACK_TOKEN="$FEEDBACK_TOKEN")

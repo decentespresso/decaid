@@ -27,9 +27,6 @@ class InfoHandler {
     return jsonOk(info);
   }
 
-  /// The gateway's Wi-Fi/LAN IP, for WebUI skins building phone hand-off URLs
-  /// (a skin webview runs on localhost and can't discover the LAN IP itself).
-  /// Empty string when unavailable (e.g. on Ethernet, or in tests).
   Future<String> _localIp() async {
     try {
       return await NetworkInfo().getWifiIP() ?? '';

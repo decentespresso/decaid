@@ -11,9 +11,6 @@ import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/models/feedback/feedback_request.dart';
 import 'package:reaprime/src/models/feedback/feedback_result.dart';
 
-/// Service responsible for submitting user feedback as GitHub issues.
-///
-/// Uses the GitHub API to create issues and optionally attach logs as Gists.
 class FeedbackService {
   final String _githubToken;
   final String _repo;
@@ -27,10 +24,8 @@ class FeedbackService {
   }) : _githubToken = githubToken,
        _repo = repo;
 
-  /// Whether the service is configured with a valid token
   bool get isConfigured => _githubToken.isNotEmpty;
 
-  /// Submit feedback as a GitHub issue
   Future<FeedbackSubmissionResult> submitFeedback(
     FeedbackRequest request,
   ) async {
@@ -86,7 +81,6 @@ class FeedbackService {
     }
   }
 
-  /// Collect system information for the feedback report
   String _collectSystemInfo() {
     final info = StringBuffer();
     info.writeln('**System Information:**');
@@ -101,10 +95,6 @@ class FeedbackService {
     return info.toString();
   }
 
-  /// Upload logs and screenshots as a single GitHub Gist.
-  ///
-  /// Screenshots are scaled down to fit within ~48KB raw (which becomes
-  /// ~64KB base64) before being included as base64-encoded files in the Gist.
   Future<String?> _uploadGist({
     required bool includeLogs,
     required List<Uint8List> screenshots,
@@ -172,7 +162,6 @@ class FeedbackService {
     }
   }
 
-  /// Read the log file contents
   Future<String?> _readLogFile() async {
     try {
       final docs = await getApplicationDocumentsDirectory();
@@ -188,7 +177,6 @@ class FeedbackService {
     }
   }
 
-  /// Read the webview console log file contents
   Future<String?> _readWebViewLogFile() async {
     try {
       final docs = await getApplicationDocumentsDirectory();
@@ -204,8 +192,6 @@ class FeedbackService {
     }
   }
 
-  /// Scale an image (JPEG or PNG bytes) down until the resulting PNG
-  /// is smaller than [maxBytes]. Uses progressive quality reduction.
   Future<Uint8List> _scaleImageToMaxSize(
     Uint8List imageBytes,
     int maxBytes,
@@ -255,7 +241,6 @@ class FeedbackService {
     return imageBytes;
   }
 
-  /// Build the title for the GitHub issue
   String _buildIssueTitle(FeedbackRequest request) {
     final prefix = '[${request.type.displayName}]';
     final firstLine = request.description.split('\n').first;
@@ -265,7 +250,6 @@ class FeedbackService {
     return '$prefix $title';
   }
 
-  /// Build the body content for the GitHub issue
   String _buildIssueBody({
     required FeedbackRequest request,
     required String systemInfo,
@@ -297,12 +281,10 @@ class FeedbackService {
     return body.toString();
   }
 
-  /// Build the labels for the GitHub issue
   List<String> _buildLabels(FeedbackRequest request) {
     return ['user-feedback', request.type.issueLabel];
   }
 
-  /// Create a GitHub issue via the API
   Future<Map<String, dynamic>?> _createGitHubIssue({
     required String title,
     required String body,
@@ -329,10 +311,6 @@ class FeedbackService {
     }
   }
 
-  /// Generate an HTML feedback report for local export.
-  ///
-  /// Used as a fallback when GitHub submission fails, so users can
-  /// save the report and share it manually.
   Future<String> generateHtmlReport(FeedbackRequest request) async {
     final systemInfo = request.includeSystemInfo ? _collectSystemInfo() : '';
     String? logContent;
@@ -432,7 +410,6 @@ class FeedbackService {
     return html.toString();
   }
 
-  /// Escape HTML special characters
   static String _escapeHtml(String text) {
     return text
         .replaceAll('&', '&amp;')
@@ -441,7 +418,6 @@ class FeedbackService {
         .replaceAll('"', '&quot;');
   }
 
-  /// Common auth headers for GitHub API requests
   Map<String, String> get _authHeaders => {
     'Authorization': 'token $_githubToken',
     'Accept': 'application/vnd.github.v3+json',

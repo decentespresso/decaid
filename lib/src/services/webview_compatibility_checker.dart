@@ -5,7 +5,6 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:logging/logging.dart';
 
-/// Result of WebView compatibility check
 class CompatibilityResult {
   final bool isCompatible;
   final String reason;
@@ -34,34 +33,14 @@ enum CompatibilityIssue {
   webView2RuntimeMissing,
 }
 
-/// Checks if the device's WebView implementation is compatible with SkinView
-///
-/// Combines static device detection (manufacturer/model/Android version) with
-/// dynamic runtime testing to determine if the WebView can render properly.
-///
-/// Known issues:
-/// - Teclast tablets with MediaTek chipsets have GPU driver artifacts
-/// - Budget tablets with older Android versions may have rendering issues
-/// - Some devices have broken hardware acceleration
 class WebViewCompatibilityChecker {
   static final _log = Logger('WebViewCompatibilityChecker');
   static CompatibilityResult? _cachedResult;
 
-  /// Settle delay inserted before the headless WebView test on devices
-  /// whose platform-channel throughput can't cope with BLE traffic
-  /// running concurrently. Validated on the Teclast M50Mini at
-  /// 500 ms release. Longer debug-specific delays (up to 1500 ms)
-  /// and bumping the internal test timeout (up to 30 s) were both
-  /// tried and neither unblocked debug-build WebView on Teclast —
-  /// the failure mode is different in debug and needs proper
-  /// investigation (see TODO: inspect app launch path).
   static const _problematicManufacturerSettleDelay = Duration(
     milliseconds: 500,
   );
 
-  /// Checks WebView compatibility using device info and runtime test
-  ///
-  /// Returns cached result if available, otherwise performs full check.
   static Future<CompatibilityResult> checkCompatibility({
     bool forceRecheck = false,
   }) async {
@@ -110,15 +89,6 @@ class WebViewCompatibilityChecker {
     return _cachedResult!;
   }
 
-  /// Checks if the WebView2 Runtime is installed on Windows.
-  ///
-  /// Returns compatible if `WebViewEnvironment.getAvailableVersion()`
-  /// reports a non-null version. Returns an incompatible result with
-  /// `webView2RuntimeMissing` otherwise so the UI can prompt the user
-  /// to install it.
-  ///
-  /// WebView2 Runtime ships with Windows 11 but may be missing on
-  /// Windows 10 installations.
   static Future<CompatibilityResult> _checkWindowsWebView2Runtime() async {
     _log.info('Checking WebView2 Runtime availability on Windows...');
     try {
@@ -145,7 +115,6 @@ class WebViewCompatibilityChecker {
     }
   }
 
-  /// Checks device manufacturer, model, and Android version
   static Future<CompatibilityResult> _checkDeviceInfo() async {
     try {
       final deviceInfo = DeviceInfoPlugin();
@@ -161,7 +130,6 @@ class WebViewCompatibilityChecker {
         'Android: $androidVersion (SDK $sdkInt)',
       );
 
-      // Log warnings for historically problematic devices, but don't block —
       if (_isProblematicManufacturer(manufacturer)) {
         _log.warning(
           'Device manufacturer $manufacturer has had WebView issues in the past. '
@@ -190,7 +158,6 @@ class WebViewCompatibilityChecker {
       return const CompatibilityResult.compatible();
     } catch (e, stackTrace) {
       _log.severe('Failed to get device info', e, stackTrace);
-      // If we can't get device info, assume incompatible for safety
       return CompatibilityResult.incompatible(
         'Unable to determine device compatibility: $e',
         CompatibilityIssue.webViewNotAvailable,
@@ -198,7 +165,6 @@ class WebViewCompatibilityChecker {
     }
   }
 
-  /// Tests WebView by creating a headless instance and verifying it can render
   static Future<CompatibilityResult> _testWebViewRendering() async {
     _log.info('Starting runtime WebView test...');
 
@@ -362,7 +328,6 @@ class WebViewCompatibilityChecker {
     }
   }
 
-  /// Checks if manufacturer is known to have WebView issues
   static bool _isProblematicManufacturer(String manufacturer) {
     final problematic = ['teclast', 'allwinner', 'rockchip'];
 
@@ -375,7 +340,6 @@ class WebViewCompatibilityChecker {
     return false;
   }
 
-  /// Checks if device model is known to have WebView issues
   static bool _isProblematicModel(String model) {
     final problematic = ['p80', 'p20', 'p10', 'm40'];
 
@@ -393,7 +357,6 @@ class WebViewCompatibilityChecker {
             afterMt[0].codeUnitAt(0) >= '0'.codeUnitAt(0) &&
             afterMt[0].codeUnitAt(0) <= '9'.codeUnitAt(0)) {
           _log.warning('Possible MediaTek chipset detected in model: $model');
-          // Don't automatically fail, but log warning
         }
       }
     }
@@ -401,7 +364,6 @@ class WebViewCompatibilityChecker {
     return false;
   }
 
-  /// Clears the cached compatibility result
   static void clearCache() {
     _log.fine('Clearing compatibility cache');
     _cachedResult = null;

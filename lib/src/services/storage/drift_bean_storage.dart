@@ -3,7 +3,6 @@ import 'package:reaprime/src/services/database/database.dart';
 import 'package:reaprime/src/services/database/mappers/bean_mapper.dart';
 import 'package:reaprime/src/services/storage/bean_storage_service.dart';
 
-/// Drift/SQLite implementation of [BeanStorageService].
 class DriftBeanStorageService implements BeanStorageService {
   final AppDatabase _db;
 

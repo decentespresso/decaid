@@ -3,7 +3,6 @@ import 'package:reaprime/src/services/database/database.dart';
 import 'package:reaprime/src/services/database/mappers/profile_mapper.dart';
 import 'package:reaprime/src/services/storage/profile_storage_service.dart';
 
-/// Drift/SQLite implementation of [ProfileStorageService].
 class DriftProfileStorageService implements ProfileStorageService {
   final AppDatabase _db;
 

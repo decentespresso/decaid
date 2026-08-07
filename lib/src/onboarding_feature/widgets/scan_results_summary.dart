@@ -3,9 +3,6 @@ import 'package:reaprime/src/models/scan_report.dart';
 import 'package:reaprime/src/widgets/accessible_button.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
-/// Displays a human-readable summary of scan results when no devices
-/// are successfully connected. Derives a contextual message from the
-/// [ScanReport] and offers action buttons for next steps.
 class ScanResultsSummary extends StatelessWidget {
   final ScanReport report;
   final VoidCallback onScanAgain;
@@ -151,13 +148,6 @@ class ScanResultsSummary extends StatelessWidget {
     );
   }
 
-  /// Derives icon, heading, and message from the scan report.
-  ///
-  /// Priority order:
-  /// 1. No BLE devices seen at all
-  /// 2. Matched device with failed connection
-  /// 3. Preferred machine not found
-  /// 4. Devices seen but none matched
   (IconData, String, String) _deriveContent() {
     if (report.totalBleDevicesSeen == 0) {
       return (

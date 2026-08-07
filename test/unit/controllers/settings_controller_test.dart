@@ -6,7 +6,6 @@ import 'package:reaprime/src/settings/settings_service.dart';
 
 import '../../helpers/mock_settings_service.dart';
 
-/// Spy settings service that tracks calls to setSimulatedDevices.
 class _SpySettingsService implements SettingsService {
   int setSimulatedDevicesCallCount = 0;
   int setEnableSimulatedWebViewsCallCount = 0;

@@ -1,16 +1,3 @@
-/**
- * <dye2-bean-batch-form> Web Component
- * Handles creating and editing coffee bean batches via the core REST API.
- * Runs in the BROWSER (not flutter_js).
- *
- * Attributes:
- *   bean-id  — required for create mode (which bean the batch belongs to).
- *   batch-id — when set, form enters edit mode and loads existing data.
- *
- * Events emitted:
- *   batch-saved     — after successful POST/PUT
- *   batch-cancelled — when the user clicks Cancel
- */
 export const beanBatchFormComponent = `
 class Dye2BeanBatchForm extends HTMLElement {
   constructor() {

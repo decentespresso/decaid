@@ -43,8 +43,6 @@ Profile _representativeProfile() => const Profile(
   tankTemperature: 93,
 );
 
-/// Returns ordered profile payloads — header + frames + tail — from [writes],
-/// filtering out MMR writes (`A006`).
 List<Uint8List> profilePayloads(List<FakeBleWrite> writes) => writes
     .where(
       (w) =>

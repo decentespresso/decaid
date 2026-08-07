@@ -1,16 +1,4 @@
-/// Scale power management mode for automatic power control
-/// tied to machine state transitions
-enum ScalePowerMode {
-  /// Disable automatic scale power management (manual control only)
-  disabled,
-
-  /// Put scale display to sleep when machine sleeps
-  /// Scales that don't support display control will disconnect instead
-  displayOff,
-
-  /// Disconnect scale when machine sleeps
-  disconnect,
-}
+enum ScalePowerMode { disabled, displayOff, disconnect }
 
 extension ScalePowerModeExtension on ScalePowerMode {
   String get displayName {

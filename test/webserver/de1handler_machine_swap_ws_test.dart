@@ -21,18 +21,6 @@ import '../helpers/mock_device_discovery_service.dart';
 import '../helpers/mock_settings_service.dart';
 import '../helpers/test_de1.dart';
 
-/// Bench bug i14 — "the app never reconnects after a power-cycle".
-///
-/// A machine power-cycle drops the De1 object and builds a NEW one under the
-/// SAME device id (the USB stable id is derived from the SAMD21 factory
-/// serial, so it is byte-identical across a power-cycle). The machine sockets
-/// used to bind to one De1 *instance* at open and never re-bind, so a client
-/// that connected before the power-cycle sat on an open-but-silent socket
-/// forever.
-///
-/// These lock the server-side contract: a client that connected BEFORE the
-/// swap receives frames from the NEW machine after it, with no client-side
-/// action — and exactly one copy of each frame.
 void main() {
   late De1Controller de1Controller;
   late HttpServer server;
@@ -74,16 +62,12 @@ void main() {
     return (channel, messages);
   }
 
-  /// Let the WebSocket + rx plumbing settle.
   Future<void> settle([int turns = 6]) async {
     for (var i = 0; i < turns; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 20));
     }
   }
 
-  /// The power-cycle, exactly as De1Controller sees it on the bench: the
-  /// transport reports `disconnected` (→ `_onDisconnect()` nulls the de1),
-  /// then the next scan builds a brand-new instance under the same id.
   Future<TestDe1> powerCycle(TestDe1 old) async {
     old.setConnectionState(ConnectionState.disconnected);
     await settle();
@@ -164,7 +148,6 @@ void main() {
               'a leaked subscription per swap would multiply the frame rate',
         );
 
-        // The dead instances must have no listener left on them.
         expect(first.snapshotSubject.hasListener, isFalse);
         expect(second.snapshotSubject.hasListener, isFalse);
 
@@ -396,7 +379,6 @@ void main() {
         reason: 'a leaked subscription per swap would multiply the frame rate',
       );
 
-      // The dead instances must have no listener left on their raw stream.
       expect(first.rawOutSubject.hasListener, isFalse);
       expect(second.rawOutSubject.hasListener, isFalse);
 
@@ -423,7 +405,6 @@ void main() {
       channel.sink.add(jsonEncode(command.toJson()));
       await settle();
 
-      // The command must reach only the new machine.
       expect(
         second.sentRawMessages,
         hasLength(1),
@@ -431,7 +412,6 @@ void main() {
       );
       expect(second.sentRawMessages.first.characteristicUUID, '0x2a');
 
-      // The old machine must not receive the command.
       expect(
         first.sentRawMessages,
         isEmpty,
@@ -476,7 +456,6 @@ void main() {
       channel.sink.add(jsonEncode(cmd2.toJson()));
       await settle();
 
-      // First machine must not receive the second command.
       expect(
         first.sentRawMessages,
         isEmpty,
@@ -590,7 +569,6 @@ void main() {
         channel.sink.add(jsonEncode(command.toJson()));
         await settle();
 
-        // Must see an error frame, not silence.
         final errors = received.where((f) => f['error'] != null);
         expect(
           errors,

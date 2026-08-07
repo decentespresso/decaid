@@ -1,6 +1,3 @@
-/// Identifiers for BLE-related errors surfaced on
-/// `ConnectionManager.status`. Wire format treats these as plain
-/// strings — adding new kinds is a server-only change.
 class ConnectionErrorKind {
   static const scaleConnectFailed = 'scaleConnectFailed';
   static const machineConnectFailed = 'machineConnectFailed';
@@ -11,23 +8,14 @@ class ConnectionErrorKind {
   static const bluetoothPermissionDenied = 'bluetoothPermissionDenied';
   static const scanFailed = 'scanFailed';
 
-  /// A profile upload to the machine failed and is being retried.
-  /// Surfaced by `WorkflowDeviceSync` via `ConnectionManager.reportError`;
-  /// retracted through `clearErrorOfKind` when a retry lands, the machine
-  /// disconnects, or the sync is disposed.
   static const profileUploadFailed = 'profileUploadFailed';
 
-  /// Kinds that survive `ConnectionPhase` transitions. They only clear
-  /// when the specific environmental condition recovers.
   static const sticky = <String>{
     adapterOff,
     bluetoothPermissionDenied,
     scanFailed,
   };
 
-  /// Kinds that survive phase transitions but are cleared explicitly by
-  /// the reporter rather than environmental recovery. Distinct from
-  /// [sticky] which describes conditions the user must resolve.
   static const phasePersistent = <String>{profileUploadFailed};
 
   const ConnectionErrorKind._();

@@ -15,10 +15,6 @@ import '../onboarding_controller.dart';
 
 final _log = Logger('PermissionsStep');
 
-/// Creates an [OnboardingStep] that requests BLE permissions.
-///
-/// Only shown when platform permissions are not yet granted.
-/// After permissions are obtained, calls [OnboardingController.advance].
 OnboardingStep createPermissionsStep({required De1Controller de1Controller}) {
   return OnboardingStep(
     id: 'permissions',
@@ -30,7 +26,6 @@ OnboardingStep createPermissionsStep({required De1Controller de1Controller}) {
   );
 }
 
-/// Checks whether BLE permissions still need to be requested.
 Future<bool> _checkPermissionsNeeded() async {
   if (Platform.isAndroid) {
     final info = await DeviceInfoPlugin().androidInfo;

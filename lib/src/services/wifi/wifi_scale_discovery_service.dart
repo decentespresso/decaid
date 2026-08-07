@@ -12,44 +12,27 @@ import 'package:reaprime/src/services/wifi/bonsoir_wifi_scale_browser.dart';
 import 'package:reaprime/src/services/wifi/wifi_ip_cache.dart';
 import 'package:rxdart/subjects.dart';
 
-/// A WiFi scale endpoint surfaced by the [WifiScaleBrowser].
 class WifiScaleEndpoint {
-  /// Logical host — the mDNS hostname (e.g. `hds.local`) when available,
-  /// otherwise the resolved IP. Stable across reconnects; basis of the
-  /// scale's `deviceId`.
   final String host;
 
-  /// Resolved IPv4 address, if known. Cached for fast/resilient reconnect.
   final String? ip;
 
   const WifiScaleEndpoint({required this.host, this.ip});
 }
 
-/// Abstraction over the mDNS (DNS-SD) browser.
-///
-/// Keeping bonsoir behind this seam lets [WifiScaleDiscoveryService]'s
-/// endpoint→device logic be unit-tested with a fake, while the real
-/// bonsoir-backed [BonsoirWifiScaleBrowser] is verified on-device.
 abstract class WifiScaleBrowser {
-  /// The set of currently-visible resolved endpoints.
   Stream<List<WifiScaleEndpoint>> get endpoints;
 
-  /// Start (or no-op if already started) browsing for `_decentscale._tcp`.
   Future<void> start();
 
-  /// Stop browsing and release resources.
   Future<void> stop();
 }
 
-/// Persists manually-added WiFi scale hosts so they survive restarts and can
-/// be re-emitted for auto-reconnect.
 abstract class WifiManualEndpointStore {
   Future<List<String>> load();
   Future<void> save(List<String> hosts);
 }
 
-/// Cheap reachability check: does `host:port` accept a TCP connection?
-/// Injected so tests can decide reachability without a real socket.
 typedef WifiReachabilityProbe = Future<bool> Function(String host, int port);
 
 Future<bool> _defaultReachabilityProbe(String host, int port) async {
@@ -66,27 +49,14 @@ Future<bool> _defaultReachabilityProbe(String host, int port) async {
   }
 }
 
-/// Discovers the WiFi Half Decent Scale on the local network (DNS-SD) and
-/// surfaces manually-added endpoints, emitting an [HDSWifi] per known host
-/// into the unified device stream.
-///
-/// Mirrors the USB HDS path: it constructs the scale *directly* rather than
-/// routing through the BLE-coupled `DeviceMatcher`. Each scale is built with a
-/// transport factory that connects to the cached IP first (then the hostname),
-/// honoring the firmware's resolve-once / prefer-IPv4 guidance.
 class WifiScaleDiscoveryService implements DeviceDiscoveryService {
   final _log = Logger('WifiScaleDiscovery');
   final WifiScaleBrowser _browser;
   final WifiIpCache _cache;
   final WifiManualEndpointStore _manualStore;
 
-  /// Port the HDS WiFi scale serves (ws://host:80/snapshot); also the port the
-  /// reachability probe connects to.
   static const int _wifiScalePort = 80;
 
-  /// Reused scale instances keyed by `deviceId` so a connected scale survives
-  /// list rebuilds (never recreate an in-use HDSWifi). This is the KNOWN set
-  /// (mDNS-discovered ∪ manually-added); visibility is governed by [_unreachable].
   final Map<String, HDSWifi> _scales = {};
   List<String> _manualHosts = [];
   StreamSubscription<List<WifiScaleEndpoint>>? _browserSub;
@@ -154,8 +124,6 @@ class WifiScaleDiscoveryService implements DeviceDiscoveryService {
       await _browser.start();
       _started = true;
     } catch (e, st) {
-      // Discovery unavailable (e.g. Linux without Avahi). Manual-IP entry
-      // still works; do not crash the scan.
       _log.warning(
         'mDNS browser failed to start; manual entry still available',
         e,
@@ -164,10 +132,8 @@ class WifiScaleDiscoveryService implements DeviceDiscoveryService {
     }
   }
 
-  /// The currently-configured manually-added hosts (IPs or hostnames).
   List<String> get manualEndpoints => List.unmodifiable(_manualHosts);
 
-  /// Add a manually-entered host (IP or hostname). Idempotent.
   Future<void> addManualEndpoint(String host) async {
     final h = host.trim();
     if (h.isEmpty || _manualHosts.contains(h)) return;
@@ -177,7 +143,6 @@ class WifiScaleDiscoveryService implements DeviceDiscoveryService {
     _emit();
   }
 
-  /// Remove a manually-added host and tear down its scale instance.
   Future<void> removeManualEndpoint(String host) async {
     if (!_manualHosts.contains(host)) return;
     _manualHosts = _manualHosts.where((h) => h != host).toList();
@@ -191,10 +156,6 @@ class WifiScaleDiscoveryService implements DeviceDiscoveryService {
     _emit();
   }
 
-  /// mDNS browse result. Discovery-only: record IPs, ensure a scale exists, and
-  /// clear any "unreachable" mark for a host mDNS just re-announced (it's back).
-  /// Never removes — a vanished mDNS record does NOT hide the scale (that's the
-  /// reachability probe's job), so mDNS flapping can't flicker the list.
   void _onEndpoints(List<WifiScaleEndpoint> eps) {
     for (final ep in eps) {
       if (ep.ip != null) _cache.record(ep.host, ep.ip!);
@@ -212,14 +173,6 @@ class WifiScaleDiscoveryService implements DeviceDiscoveryService {
     }
   }
 
-  /// Probe each known scale's cached IP. Only an actively CONNECTED scale is
-  /// skipped — its live socket already proves reachability, and a second probe
-  /// socket could occupy one of the HDS's few client slots. A CONNECTING scale
-  /// is still probed: when a scale powers off the controller keeps retrying it
-  /// (a flat reconnect retry), so it sits in `connecting` against a dead IP — if
-  /// we skipped that too, it would never be hidden. Others are hidden after
-  /// [_failureThreshold] consecutive failures and re-surfaced on the next
-  /// success.
   Future<void> _checkLiveness() async {
     if (_scales.isEmpty || _probing) return;
     _probing = true;

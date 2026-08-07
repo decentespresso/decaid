@@ -1,7 +1,6 @@
 import 'package:drift/drift.dart';
 import 'package:reaprime/src/services/database/converters/json_converters.dart';
 
-/// Grinder entity with model info and UI config for setting input.
 class Grinders extends Table {
   TextColumn get id => text()();
   TextColumn get model => text()();

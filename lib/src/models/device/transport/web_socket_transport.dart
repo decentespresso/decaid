@@ -8,50 +8,31 @@ import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:rxdart/subjects.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
-/// Domain transport for a text-framed WebSocket connection.
-///
-/// Scale code depends on this abstraction, never on `web_socket_channel`
-/// directly — the library type is confined to [_ChannelSocket] in this file,
-/// honoring the project's "no 3rd-party transport types outside the transport
-/// layer" rule.
 abstract class WebSocketTransport extends DataTransport {
   @override
   TransportType get transportType => TransportType.wifi;
 
-  /// Send a text frame to the peer.
   Future<void> sendMessage(String message);
 
-  /// Inbound text frames from the peer (binary frames are utf8-decoded).
   Stream<String> get messages;
 }
 
-/// Minimal duplex socket [WsTransport] needs. Production wraps
-/// `web_socket_channel`; tests supply an in-memory fake. Keeping this seam
-/// here means `web_socket_channel` types never escape this file.
 abstract class TextSocket {
-  /// Completes once the socket is connected and ready, or completes with an
-  /// error if the connection failed.
   Future<void> get ready;
 
-  /// Inbound frames. Text frames arrive as `String`; binary frames as
-  /// `List<int>` and are utf8-decoded by the transport.
   Stream<dynamic> get stream;
 
-  /// Send a text frame.
   void send(String message);
 
-  /// Close the socket.
   Future<void> close();
 }
 
-/// Opens a [TextSocket] for [uri]. Injectable so tests bypass the network.
 typedef TextSocketConnector = Future<TextSocket> Function(Uri uri);
 
 Future<TextSocket> _defaultConnector(Uri uri) async {
   return _ChannelSocket(WebSocketChannel.connect(uri));
 }
 
-/// Adapter confining `web_socket_channel` types to this file.
 class _ChannelSocket implements TextSocket {
   final WebSocketChannel _channel;
   _ChannelSocket(this._channel);
@@ -69,11 +50,6 @@ class _ChannelSocket implements TextSocket {
   Future<void> close() => _channel.sink.close();
 }
 
-/// WebSocket transport for the WiFi Half Decent Scale.
-///
-/// Connects to `ws://<host>:<port><path>` (default `ws://<host>:80/snapshot`)
-/// and exposes inbound frames as text. Reconnect/recognition/watchdog logic
-/// lives in the scale; this is a thin, library-encapsulating I/O layer.
 class WsTransport implements WebSocketTransport {
   final String host;
   final int port;
@@ -92,7 +68,6 @@ class WsTransport implements WebSocketTransport {
 
   Uri get uri => Uri(scheme: 'ws', host: host, port: port, path: path);
 
-  /// Transport-scoped, stable identity used as the scale's `deviceId`.
   @override
   String get id => WifiScaleId.forHost(host);
 

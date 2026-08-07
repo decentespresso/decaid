@@ -33,7 +33,6 @@ class DecentTemp implements Sensor {
   Stream<Map<String, dynamic>> get data => _streamSubject.stream;
 
   @override
-  // TODO: device serial?
   String get deviceId => _transport.id;
 
   @override
@@ -52,7 +51,6 @@ class DecentTemp implements Sensor {
     String commandId,
     Map<String, dynamic>? parameters,
   ) {
-    // TODO: swallow or throw here?
     throw UnimplementedError();
   }
 

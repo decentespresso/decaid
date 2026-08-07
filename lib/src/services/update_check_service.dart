@@ -9,26 +9,19 @@ import 'package:reaprime/src/services/app_update_state.dart';
 import 'package:reaprime/src/settings/settings_service.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 
-/// Service for periodically checking for app updates
 class UpdateCheckService {
   final Logger _log = Logger('UpdateCheckService');
   final SettingsService _settingsService;
   final AndroidUpdater _updater;
   final WebUIStorage _webUIStorage;
 
-  /// Whether this platform can install an update in-app (Android only).
-  /// Injectable so the state machine is testable off-device.
   final bool _isAndroid;
 
-  /// Whether Sparkle owns app updates on this platform (macOS only).
-  /// Injectable so scheduling behavior is testable off-device.
   final bool _isMacOS;
 
   Timer? _periodicTimer;
   UpdateInfo? _availableUpdate;
 
-  /// Single source of truth for the API surface (`/api/v1/update`,
-  /// `/ws/v1/update`). Derived from [_availableUpdate] plus the current phase.
   late final BehaviorSubject<AppUpdateState> _state;
 
   static const Duration _checkInterval =
@@ -50,22 +43,16 @@ class UpdateCheckService {
     _state = BehaviorSubject.seeded(_snapshot(AppUpdatePhase.idle));
   }
 
-  /// Get the currently available update, if any
   UpdateInfo? get availableUpdate => _availableUpdate;
 
-  /// Check if there's an available update
   bool get hasAvailableUpdate => _availableUpdate != null;
 
-  /// Live app-update state for the API (replays the latest value on listen).
   Stream<AppUpdateState> get updateState => _state.stream;
 
-  /// Synchronous snapshot of the current app-update state (for the REST read).
   AppUpdateState get currentState => _state.value;
 
-  /// Whether an in-app install can be triggered on this platform.
   bool get canInstall => _isAndroid;
 
-  /// Build an [AppUpdateState] for [phase] from the current [_availableUpdate].
   AppUpdateState _snapshot(
     AppUpdatePhase phase, {
     double? progress,
@@ -95,16 +82,11 @@ class UpdateCheckService {
     AppUpdatePhase.installing,
   }.contains(_state.value.phase);
 
-  /// API command: force a re-check. No-op (coalesced) if an operation is
-  /// already in flight.
   Future<void> requestCheck() async {
     if (_inProgress) return;
     await checkForUpdate();
   }
 
-  /// API command: ensure an update is known (auto-checking if needed), then
-  /// download and launch the system installer. No-op (coalesced) if an
-  /// operation is already in flight. Only call when [canInstall] is true.
   Future<void> downloadAndInstall() async {
     if (_inProgress) return;
     if (!_isAndroid) return;
@@ -144,7 +126,6 @@ class UpdateCheckService {
     }
   }
 
-  /// Initialize the service and start periodic checks
   Future<void> initialize() async {
     final automaticUpdateCheck = await _settingsService.automaticUpdateCheck();
     if (automaticUpdateCheck) {
@@ -152,8 +133,6 @@ class UpdateCheckService {
     }
   }
 
-  /// Start periodic update checks. On macOS Sparkle owns app updates, so the
-  /// timer only refreshes skins; the APK-based check never runs.
   Future<void> _startPeriodicChecks() async {
     _log.info(
       'Starting periodic update checks (every ${_checkInterval.inHours} hours)'
@@ -180,14 +159,12 @@ class UpdateCheckService {
     });
   }
 
-  /// Stop periodic update checks
   void _stopPeriodicChecks() {
     _log.info('Stopping periodic update checks');
     _periodicTimer?.cancel();
     _periodicTimer = null;
   }
 
-  /// Update all skins with known sources
   Future<void> _updateSkins() async {
     try {
       _log.info('Updating skins...');
@@ -198,9 +175,6 @@ class UpdateCheckService {
     }
   }
 
-  /// Manually check for updates. No-op on macOS: Sparkle owns app updates and
-  /// presents its own UI; the REST/WS API must not mirror partial Sparkle
-  /// state into [AppUpdateState].
   Future<UpdateInfo?> checkForUpdate() async {
     if (_isMacOS) {
       _log.info('macOS app updates are owned by Sparkle; skipping APK check');
@@ -244,41 +218,32 @@ class UpdateCheckService {
     }
   }
 
-  /// Get the GitHub releases page URL
   String getReleasesUrl() {
     return 'https://github.com/decentespresso/decaid/releases';
   }
 
-  /// Get the specific release URL if an update is available
   String? getReleaseUrl([UpdateInfo? update]) {
     final release = update ?? _availableUpdate;
     if (release == null) return null;
     return 'https://github.com/decentespresso/decaid/releases/tag/${release.tagName}';
   }
 
-  /// Enable automatic update checks
   Future<void> enableAutomaticChecks() async {
     await _settingsService.setAutomaticUpdateCheck(true);
     await _startPeriodicChecks();
   }
 
-  /// Disable automatic update checks
   Future<void> disableAutomaticChecks() async {
     await _settingsService.setAutomaticUpdateCheck(false);
     _stopPeriodicChecks();
     _availableUpdate = null;
   }
 
-  /// Clear the available update notification
   void clearAvailableUpdate() {
     _availableUpdate = null;
     _emit(AppUpdatePhase.idle);
   }
 
-  /// Force an update to appear for testing. Only use in debug builds.
-  ///
-  /// [downloadUrl] points at a real APK so the download/install path can be
-  /// exercised end-to-end; defaults to the latest released Android APK.
   void debugForceUpdate({String version = '99.0.0', String? downloadUrl}) {
     _log.info('DEBUG: forcing fake update notification ($version)');
     _availableUpdate = UpdateInfo(
@@ -293,7 +258,6 @@ class UpdateCheckService {
     _emit(AppUpdatePhase.available);
   }
 
-  /// Skip the current update version permanently
   Future<void> skipCurrentUpdate() async {
     final version = _availableUpdate?.version;
     if (version != null) {
@@ -304,7 +268,6 @@ class UpdateCheckService {
     _emit(AppUpdatePhase.idle);
   }
 
-  /// Dispose of resources
   void dispose() {
     _periodicTimer?.cancel();
     _updater.dispose();

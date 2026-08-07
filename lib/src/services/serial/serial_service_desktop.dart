@@ -23,7 +23,6 @@ import 'utils.dart';
 
 import 'package:rxdart/subjects.dart';
 
-// libserialport is supplied via dependency_overrides (git fork).
 // ignore: depend_on_referenced_packages
 import 'package:libserialport/libserialport.dart';
 
@@ -36,62 +35,18 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
 
   final Map<String, _DesktopSerialPort> _portPathToTransport = {};
 
-  // Path -> the Device bound to that path. Liveness is checked through this
-  // (the device's own connectionState), NOT through deviceId. On macOS the
-  // CH34x serial chip reports null vid/pid/serial via libserialport, so a
-  // serial device's id falls back to `_DesktopSerialPort`'s port-address
-  // handle, which changes on every `SerialPort()` construction. Keying
-  // liveness by deviceId therefore churned — a present device failed the id
-  // check, got reaped, and was re-probed; each re-probe re-opened the port,
-  // which (for the Half Decent Scale, with limited client slots) contended
-  // with a WiFi connection to the same physical scale. Holding the Device by
-  // stable port path is immune to that.
   final Map<String, Device> _portPathToDevice = {};
 
   Set<String> _lastEmittedIds = {};
 
-  // Paths whose bound device SELF-disconnected (watchdog/serial error/explicit
-  // disconnect) while the OS port was still present. The timer reconcile must
-  // NOT auto-re-probe these: a Half Decent Scale that's currently serving
-  // another transport (BLE/WiFi) streams no data over USB, so its watchdog
-  // disconnects ~12s in; immediately re-probing reconnects it, it disconnects
-  // again, and so on — a reap→re-probe→reconnect churn loop. An explicit user
-  // scan clears this set and retries (intentional, user-initiated recovery); a
-  // physical unplug (port vanished) also clears the path so a replug re-detects
-  // fresh.
   final Set<String> _selfDisconnectedPaths = {};
 
-  // Paths that were ever detected as a Half Decent Scale. The HDS streams
-  // weight to every connected transport (BLE/USB/WiFi) at once, but its server
-  // has only a few client slots — so the contention comes from holding the USB
-  // port open *persistently* as an extra client (see `_portPathToDevice` and
-  // the HDS branch in `_detectDevice`), NOT from reading data. A *discovered*
-  // (not-connected) HDS therefore releases its port and would otherwise linger
-  // as "available" forever even after the physical scale is switched off, since
-  // nothing re-reads it. Every Nth reconcile we re-verify these by re-probing
-  // the port: still streaming → keep; silent → reap (scale off). A quick
-  // open-read-close is safe precisely because the scale serves all transports
-  // simultaneously — the transient probe sees live data without displacing a
-  // live WiFi/BLE client.
   final Set<String> _hdsPaths = {};
 
-  // Ports we probed and confirmed are NOT a Decent device (LG Monitor
-  // Controls, Valve VR Radio, etc.). Skipped on subsequent timer reconciles
-  // so we don't spam them with DE1-protocol probes every ~8s. Cleared when
-  // the OS port vanishes, so a replaced device (different physical hardware
-  // on the same path, e.g. Linux /dev/ttyUSB0) gets re-probed.
   final Set<String> _nonDecentPorts = {};
   int _livenessTick = 0;
   static const int _livenessEveryNReconciles = 3;
 
-  // Force the next reconcile to emit even if the device set is unchanged.
-  // Set by an explicit `scanForDevices()`: DeviceController clears `discovered`
-  // devices from its own map at scan start and relies on each service
-  // RE-EMITTING its current devices during the scan to repopulate. Without
-  // this, a discovered (but unchanged) serial device gets cleared by
-  // DeviceController and never handed back — it vanishes from the device list
-  // while still tracked here. The timer-driven reconcile does not set this, so
-  // steady-state ticks stay silent.
   bool _forceEmitOnNextScan = false;
 
   bool _isScanning = false;
@@ -118,8 +73,6 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
     _reconcileTimer ??= Timer.periodic(_reconcileInterval, (_) => _runScan());
   }
 
-  /// Stop the reconcile timer and release tracked transports. Safe to call
-  /// more than once.
   Future<void> dispose() async {
     _reconcileTimer?.cancel();
     _reconcileTimer = null;
@@ -220,12 +173,6 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
   Future<void> scanForDevices({ScanFilter? filter}) =>
       _runScan(forceEmit: true);
 
-  /// Run a reconcile, coalescing with any in-flight one. Called both by an
-  /// explicit `scanForDevices()` ([forceEmit] true — always re-emit, honoring
-  /// DeviceController's clear-and-repopulate contract) and by the periodic
-  /// reconcile timer ([forceEmit] false — emit only on change). Both do the
-  /// same path-keyed reconcile (reap vanished/disconnected, probe untracked
-  /// candidates).
   Future<void> _runScan({bool forceEmit = false}) async {
     if (forceEmit) _forceEmitOnNextScan = true;
     if (_isScanning) {
@@ -264,9 +211,6 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
       );
     }
 
-    // Decide the pre-probe transition (liveness releases, reaps, suppression).
-    // The `++_livenessTick` only advances on a timer reconcile (an explicit
-    // scan is always a liveness pass and must not shift the timer's phase).
     final plan = planSerialReconcile(
       explicitScan: explicitScan,
       livenessTick: explicitScan ? _livenessTick : ++_livenessTick,
@@ -295,12 +239,6 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
         .toSet();
 
     final scanPorts = ports.where((p) {
-      // Already tracked → never re-probe. THIS is what stops the contention:
-      // an identified device (e.g. the HDS, which releases its port after
-      // discovery) is never re-opened, so it can't fight a WiFi connection to
-      // the same physical scale. Untracked candidate ports are still probed
-      // every reconcile, so a transient open failure self-heals on the next
-      // tick and a newly-plugged device is picked up.
       if (_portPathToDevice.containsKey(p)) return false;
       if (_selfDisconnectedPaths.contains(p)) return false;
       if (_nonDecentPorts.contains(p)) return false;
@@ -372,9 +310,6 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
     }
   }
 
-  /// Drop a tracked path from all maps and dispose its transport. [reap]
-  /// distinguishes the log level for a stale-port reap (warning) from a
-  /// liveness re-verify release (fine) — both are non-actionable on failure.
   Future<void> _dropAndDispose(String path, {required bool reap}) async {
     _portPathToDevice.remove(path);
     _portPathToDeviceId.remove(path);
@@ -392,10 +327,6 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
   }
 
   _PortMetadata _readPortMetadata(String path, SerialPort port) {
-    // libserialport reads USB descriptors from sysfs on Linux; some drivers
-    // (or missing udev rules / permissions) cause getters to throw
-    // `SerialPortError: No such file or directory, errno = 2`. Any throw here
-    // must not abort the whole scan — fall back to name-based matching.
     String name = path;
     String transport = 'Unknown';
     String? productName;
@@ -608,15 +539,6 @@ class _DesktopSerialPort implements SerialTransport {
   @override
   Stream<ConnectionState> get connectionState => _open.asBroadcastStream();
 
-  // Identity is cached ONCE at construction. The libserialport getters
-  // (vendorId/productId/serialNumber/name) read the native `sp_port` struct
-  // over FFI; once `dispose()` calls `_port.dispose()` (sp_free_port), any
-  // later read is a use-after-free on freed C memory — observed as an
-  // EXC_BAD_ACCESS / pointer-authentication SIGSEGV surfacing in a Dart
-  // microtask (e.g. the scan reconcile reading `device.deviceId` AFTER it
-  // disposed the transport for a vanished/unplugged port). Port path and USB
-  // descriptors are static per physical device, so caching is correct and the
-  // getters never touch the port again after this point.
   late final String _cachedId = _computeId();
   late final String _cachedName = _safePortName() ?? "Unknown port";
 
@@ -667,15 +589,9 @@ class _DesktopSerialPort implements SerialTransport {
     if (!_open.isClosed) _open.add(ConnectionState.disconnected);
   }
 
-  /// End-of-life cleanup. Calls `disconnect()` to stop the reader isolate +
-  /// close the tty, then frees the libserialport `sp_port` FFI handle and
-  /// closes the exposed stream controllers. Safe to call more than once.
   @override
   Future<void> dispose() async {
     if (_disposed) return;
-    // Mark disposed BEFORE freeing native so a racing connect()/disconnect()/
-    // write() bails instead of touching freed memory. Inline the close here
-    // (disconnect() now no-ops once disposed).
     _disposed = true;
     try {
       _portSubscription?.cancel();
@@ -821,11 +737,6 @@ class _DesktopSerialPort implements SerialTransport {
       throw StateError("serial transport disposed (id=$id) — cannot write");
     }
     try {
-      // Write all bytes, handling short writes by looping.
-      // Finite timeout (not 0 = block-forever): scan probes non-Decent
-      // USB-serial devices, and a device that never accepts the bytes must
-      // not be able to wedge the isolate. A zero-progress write means the
-      // device isn't draining — stop instead of spinning.
       int offset = 0;
       while (offset < command.length) {
         final chunk = offset == 0
@@ -845,8 +756,6 @@ class _DesktopSerialPort implements SerialTransport {
         }
         offset += written;
       }
-      // Bounded stand-in for the native `_port.drain()`, which blocks the
-      // isolate forever on a device that never transmits the buffer.
       await drainWithTimeout(bytesToWrite: () => _port.bytesToWrite);
       _log.fine("wrote: ${command.map((e) => e.toRadixString(16))}");
       if (Platform.isLinux || Platform.isMacOS) {

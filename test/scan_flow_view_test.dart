@@ -218,12 +218,10 @@ void main() {
         await tester.tap(find.text('Connect'));
         await tester.pumpAndSettle();
 
-        // Picker must still be visible with both candidates.
         expect(find.text('DE1 #1'), findsOneWidget);
         expect(find.text('DE1 #2'), findsOneWidget);
         expect(find.text('Connect'), findsOneWidget);
 
-        // Failure text must be visible.
         expect(find.text('Machine DE1 #1 failed to connect.'), findsOneWidget);
 
         await tester.tap(find.text('DE1 #2'));

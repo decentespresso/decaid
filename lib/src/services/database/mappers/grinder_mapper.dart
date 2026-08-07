@@ -2,7 +2,6 @@ import 'package:drift/drift.dart';
 import 'package:reaprime/src/models/data/grinder.dart' as domain;
 import 'package:reaprime/src/services/database/database.dart';
 
-/// Maps between domain Grinder and Drift table rows.
 class GrinderMapper {
   static domain.Grinder fromRow(Grinder row) {
     return domain.Grinder(

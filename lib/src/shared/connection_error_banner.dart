@@ -3,15 +3,6 @@ import 'package:reaprime/src/controllers/connection_error.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
-/// A banner that surfaces the current BLE-related [ConnectionError] from
-/// [ConnectionManager.status].
-///
-/// Renders a destructive [ShadAlert] while `status.error != null`. Shows a
-/// Retry button for transient kinds. Disconnect recovery dispatches
-/// `connectionManager.connect()`; failed explicit connections dispatch
-/// `connectionManager.scanAndConnect()`. Environmental kinds
-/// (adapterOff, bluetoothPermissionDenied, scanFailed) require user action
-/// outside the app, so only the instruction text is shown — no retry button.
 class ConnectionErrorBanner extends StatelessWidget {
   final ConnectionManager connectionManager;
 
@@ -64,10 +55,6 @@ class ConnectionErrorBanner extends StatelessWidget {
     }
   }
 
-  /// Retry makes sense for transient kinds — the user can re-trigger a scan
-  /// and connect attempt. For environmental kinds (adapterOff,
-  /// bluetoothPermissionDenied, scanFailed) the user must act outside the
-  /// app first (turn on Bluetooth, grant permission), so no retry button.
   bool _shouldOfferRetry(String kind) {
     return kind == ConnectionErrorKind.scaleConnectFailed ||
         kind == ConnectionErrorKind.machineConnectFailed ||

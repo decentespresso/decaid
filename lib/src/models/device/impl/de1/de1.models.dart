@@ -33,10 +33,6 @@ enum Endpoint implements LogicalEndpoint {
 
   const Endpoint(this.uuid, this.representation);
 
-  // Dart enums auto-synthesize `name`, but the analyzer doesn't see it as
-  // satisfying `LogicalEndpoint.name` through `implements` — the cast forces
-  // dispatch to the synthesized Enum.name. Do not "simplify" by removing the
-  // cast; it will fail to compile (see fix commits 553550d / b7b8ed7).
   @override
   String get name => (this as Enum).name;
 
@@ -68,9 +64,7 @@ enum De1StateEnum {
   inBootLoader(0x13),
   airPurge(0x14),
   schedIdle(0x15),
-  fwUpgrade(
-    0x16,
-  ), // FirmwareUp (corrected from 0x22, which was never a wire value)
+  fwUpgrade(0x16),
   unknown(-1);
 
   final int hexValue;
@@ -384,11 +378,6 @@ enum MMRItem implements MmrAddress {
     this.max,
   });
 
-  // Dart enums auto-synthesize `name`, but the analyzer doesn't see it as
-  // satisfying `MmrAddress.name` through `implements` — the cast forces
-  // dispatch to the synthesized Enum.name. Do not "simplify" by removing the
-  // cast; it will fail to compile (see Endpoint history, fix commits
-  // 553550d / b7b8ed7).
   @override
   String get name => (this as Enum).name;
 }

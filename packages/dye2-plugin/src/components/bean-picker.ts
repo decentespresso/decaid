@@ -1,13 +1,3 @@
-/**
- * <dye2-bean-picker> Web Component
- * Lightweight bean/batch picker for workflow selection.
- * Fetches active beans, expands to show batches, selects a batch.
- * On selection: updates workflow via PUT, dispatches events + postMessage.
- * Runs in the BROWSER (not flutter_js).
- *
- * Events emitted:
- *   picker-done — when a batch is selected, detail: { beanBatchId, coffeeName, coffeeRoaster }
- */
 export const beanPickerComponent = `
 class Dye2BeanPicker extends HTMLElement {
   constructor() {

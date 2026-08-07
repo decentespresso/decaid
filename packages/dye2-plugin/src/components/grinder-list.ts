@@ -1,8 +1,3 @@
-/**
- * <dye2-grinder-list> Web Component
- * Fetches and displays grinders from the core REST API.
- * Runs in the BROWSER (not flutter_js).
- */
 export const grinderListComponent = `
 class Dye2GrinderList extends HTMLElement {
   constructor() {

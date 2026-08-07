@@ -29,13 +29,8 @@ class MainActivity: FlutterFragmentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // super.onCreate() MUST be called before any early return (incl. finish()).
-        // ActivityThread.performLaunchActivity throws SuperNotCalledException if
-        // onCreate() returns without the superclass having run — the early-return
-        // guards below would otherwise crash the app on launch.
         super.onCreate(savedInstanceState)
 
-        // FIRST: Check for cloned environment (Parallel Space, Island, etc.)
         if (isRunningInClonedEnvironment()) {
             Log.w(TAG, "App running in cloned environment - not supported")
             Toast.makeText(this, "App cloning is not supported for security reasons", 
@@ -44,7 +39,6 @@ class MainActivity: FlutterFragmentActivity() {
             return
         }
         
-        // SECOND: Prevent duplicate instances from launcher
         if (!isTaskRoot && intent.hasCategory(Intent.CATEGORY_LAUNCHER) && 
             intent.action == Intent.ACTION_MAIN) {
             Log.w(TAG, "Duplicate launcher instance detected - finishing")
@@ -52,8 +46,6 @@ class MainActivity: FlutterFragmentActivity() {
             return
         }
         
-        // Enable software rendering for WebView on devices with GPU issues
-        // This is a workaround for MediaTek chipsets with broken hardware acceleration
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
             try {
                 WebView.setWebContentsDebuggingEnabled(true)
@@ -242,7 +234,6 @@ class MainActivity: FlutterFragmentActivity() {
             try {
                 activity.recreate()
             } catch (e: Exception) {
-                // Never crash here — just log
                 e.printStackTrace()
             }
         }

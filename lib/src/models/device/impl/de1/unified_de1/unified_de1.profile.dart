@@ -5,15 +5,6 @@ extension UnifiedDe1Profile on UnifiedDe1 {
     await _writeHeader(profile);
     await _writeSteps(profile);
     await _writeTail(profile);
-    // The tank temperature threshold is a separate MMR (MMRItem.tankTemp), not
-    // part of the profile frames — frames go via frameWrite, and there is no
-    // MMR for steps. The DE1 expects the tank threshold to be written
-    // alongside a profile load; mirror de1app's `de1_send_shot_frames`, which
-    // writes the frames then `set_tank_temperature_threshold`
-    // (de1_comms.tcl:1505-1514). Writing it on every profile load means the
-    // next brew re-sets it from its own tankTemperature, so the cold-maintenance
-    // workaround (which loads a tankTemperature:0 profile) needs no separate
-    // set-to-0 or restore.
     await _writeMMRInt(MMRItem.tankTemp, profile.tankTemperature.round());
   }
 
@@ -54,7 +45,7 @@ extension UnifiedDe1Profile on UnifiedDe1 {
       data[index] = Helper.convertProfileFlags(step);
       index++;
       data[index] = (0.5 + step.getTarget() * scale).toInt();
-      index++; // note to add 0.5, as "round" is used, not truncate
+      index++;
       data[index] = (0.5 + step.temperature * 2.0).toInt();
       index++;
       data[index] = Helper.convert_float_to_F8_1_7(step.seconds);
@@ -183,7 +174,6 @@ class Helper {
   static int ignoreLimit = 0x40;
 
   static int convertProfileFlags(ProfileStep step) {
-    // TODO: maybe don't ignore this if we need to reach high flow values?
     int flag = ignoreLimit;
 
     if (step is ProfileStepFlow) flag |= ctrlF;

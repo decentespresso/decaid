@@ -3,7 +3,6 @@ import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/data/profile_record.dart' as domain;
 import 'package:reaprime/src/services/database/database.dart' as db;
 
-/// Maps between domain ProfileRecord and Drift ProfileRecords table rows.
 class ProfileMapper {
   static domain.ProfileRecord fromRow(db.ProfileRecord row) {
     return domain.ProfileRecord(

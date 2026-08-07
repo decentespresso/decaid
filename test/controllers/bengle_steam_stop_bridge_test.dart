@@ -16,8 +16,6 @@ import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import '../helpers/mock_device_discovery_service.dart';
 import '../helpers/test_de1.dart';
 
-/// Recording stub of BengleInterface — only the steam-stop surface is
-/// exercised; everything else routes through `noSuchMethod`.
 class _RecordingBengle implements BengleInterface {
   @override
   String get deviceId => 'rec-bengle';

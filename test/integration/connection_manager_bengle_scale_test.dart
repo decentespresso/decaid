@@ -18,8 +18,6 @@ import '../helpers/mock_scale_controller.dart';
 import '../helpers/mock_settings_service.dart';
 import '../helpers/test_scale.dart';
 
-/// Minimal BengleInterface stub. Implements only what ConnectionManager
-/// touches during connect — `noSuchMethod` swallows the rest.
 class _FakeBengle implements BengleInterface {
   @override
   final String deviceId;
@@ -49,7 +47,6 @@ class _FakeBengle implements BengleInterface {
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 
-/// Minimal De1Interface stub for the regression-guard test.
 class _FakeDe1 implements De1Interface {
   @override
   final String deviceId;
@@ -148,8 +145,6 @@ void main() {
         await connectionManager.connect();
         await Future.delayed(Duration.zero);
 
-        // Exactly one scale was attached, and it's the virtual one — the
-        // external scale was never even attempted.
         expect(mockScaleController.connectCalls, hasLength(1));
         expect(
           mockScaleController.connectCalls.first.deviceId,
@@ -169,10 +164,6 @@ void main() {
 
     test('background scale watch ignores external scale sightings while a '
         'Bengle is the machine', () async {
-      // Watch-path variant of the Bengle rule: watch-driven connects
-      // bypass _runScalePhase, so ConnectionManager must re-apply
-      // "integrated scale owns the slot" before connecting a sighted
-      // external scale.
       await connectionManager.dispose();
       mockScanner.supportsWatch = true;
       connectionManager = ConnectionManager(
@@ -208,10 +199,6 @@ void main() {
 
     test('a late Bengle transition disarms the watch instead of restarting '
         'it forever', () async {
-      // The watch arms legitimately while a DE1 is the machine; a Bengle
-      // then takes over. A sighting of the (still-preferred) external
-      // scale is refused — and the refusal must END the watch cycle, not
-      // restart the scan indefinitely.
       await connectionManager.dispose();
       mockScanner.supportsWatch = true;
       connectionManager = ConnectionManager(
@@ -254,14 +241,6 @@ void main() {
 
     test('external scale visible BEFORE Bengle still loses the slot to the '
         'virtual scale', () async {
-      // Regression for the interleaved-discovery race the synchronous
-      // co-discovery test cannot exercise: the external scale appears
-      // in scan results FIRST, then the Bengle joins mid-scan. Without
-      // the conservative-skip gate, the external scale would
-      // early-connect (Bengle-inference returns false because Bengle
-      // isn't yet visible to the scanner and `latestMachine` is still
-      // null), and the post-scan virtual-attach would short-circuit
-      // because the slot is taken.
       await settingsController.setPreferredMachineId('bengle-1');
       await settingsController.setPreferredScaleId('external-scale');
 
@@ -270,9 +249,6 @@ void main() {
 
       mockScanner.addDevice(externalScale);
 
-      // Hold the scan open so we can add the Bengle mid-scan. Without
-      // this, scanForDevices() completes synchronously and the
-      // EarlyConnectWatcher never sees the second device emission.
       final scanCompleter = Completer<void>();
       mockScanner.scanCompleter = scanCompleter;
 

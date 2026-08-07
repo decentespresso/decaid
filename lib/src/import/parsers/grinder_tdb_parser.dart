@@ -1,16 +1,6 @@
 import 'package:reaprime/src/import/parsers/tcl_parser.dart';
 import 'package:reaprime/src/models/data/grinder.dart';
 
-/// Parses DYE's grinders.tdb file into a list of [Grinder] entities.
-///
-/// The TDB format has one entry per line:
-///   ModelName {setting_type TYPE small_step N big_step N burrs {DESC}}
-///
-/// Top-level keys are grinder model names; values are maps with:
-///   - setting_type (numeric | preset)
-///   - small_step
-///   - big_step
-///   - burrs
 class GrinderTdbParser {
   static List<Grinder> parse(String content) {
     final data = TclParser.parse(content);

@@ -3,11 +3,6 @@ import 'dart:convert';
 import 'package:reaprime/src/models/device/firmware_artifact.dart';
 import 'package:reaprime/src/services/firmware/de1_firmware_header.dart';
 
-/// Parsed contents of `assets/firmware/manifest.json`.
-///
-/// The manifest declares the catalog of bundled firmware artifacts available
-/// offline. Each entry carries metadata plus an internal asset path for
-/// loading the actual bytes through the Flutter asset bundle.
 final class FirmwareManifest {
   final int schemaVersion;
   final List<FirmwareManifestEntry> entries;
@@ -80,26 +75,17 @@ final class FirmwareManifest {
   }
 }
 
-/// A single entry in the bundled firmware manifest.
-///
-/// Extends [FirmwareArtifact] with fields private to the bundled catalog
-/// (asset path, expected header/body/CPU metadata).
 final class FirmwareManifestEntry {
   final FirmwareArtifact artifact;
 
-  /// Flutter asset key, e.g. `assets/firmware/de1/de1-1352.bin`.
   final String assetPath;
 
-  /// Expected DE1 header board marker (0xDE100001).
   final int expectedHeaderBoardMarker;
 
-  /// Expected image-body byte count from the DE1 header.
   final int expectedBodyByteCount;
 
-  /// Expected CPU byte count from the DE1 header.
   final int expectedCpuByteCount;
 
-  /// Provenance/build reference sufficient to identify the supplied image.
   final String provenance;
 
   const FirmwareManifestEntry({

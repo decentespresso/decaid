@@ -6,7 +6,6 @@ import 'package:reaprime/src/models/device/impl/decent_scale/scale_serial.dart';
 
 import 'hds_serial_disconnect_test.dart';
 
-/// Build a valid HDS weight frame: [0x03, 0xCE, high, low, 0x00]
 Uint8List weightFrame(double weight) {
   final raw = (weight * 10).toInt();
   return Uint8List.fromList([0x03, 0xCE, (raw >> 8) & 0xFF, raw & 0xFF, 0x00]);
@@ -42,7 +41,6 @@ void main() {
 
         final initialCommands = transport.writtenHexCommands.length;
 
-        // Advance past warning threshold (6s = 3 watchdog ticks at 2s each)
         async.elapse(Duration(seconds: 7));
 
         expect(
@@ -79,12 +77,10 @@ void main() {
         transport.emitRawData(weightFrame(10.0));
         async.elapse(Duration(milliseconds: 100));
 
-        // Gap of 5 seconds (past warning but before disconnect)
         async.elapse(Duration(seconds: 5));
 
         transport.emitRawData(weightFrame(20.0));
 
-        // Another 10 seconds — should NOT disconnect because timer reset
         async.elapse(Duration(seconds: 10));
 
         expect(transport.disconnectCalled, isFalse);

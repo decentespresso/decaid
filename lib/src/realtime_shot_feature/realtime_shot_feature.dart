@@ -69,7 +69,6 @@ class _RealtimeShotFeatureState extends State<RealtimeShotFeature> {
     _shotSubscription.cancel();
     _resetCommandSubscription.cancel();
     _stateSubscription.cancel();
-    // ShotSequencer is owned by De1StateManager — do not dispose here.
     super.dispose();
   }
 

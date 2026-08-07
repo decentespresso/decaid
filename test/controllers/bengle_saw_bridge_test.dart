@@ -17,9 +17,6 @@ import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import '../helpers/mock_device_discovery_service.dart';
 import '../helpers/test_de1.dart';
 
-/// Recording BengleInterface stub. Implements only what
-/// [BengleSawBridge] touches; `noSuchMethod` swallows the rest so we
-/// don't drag in MockBengle's periodic timer.
 class _RecordingBengle implements BengleInterface {
   _RecordingBengle();
 

@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:drift/drift.dart';
 
-/// Converts a JSON map to/from a string for Drift storage.
 class JsonMapConverter extends TypeConverter<Map<String, dynamic>, String> {
   const JsonMapConverter();
 
@@ -17,7 +16,6 @@ class JsonMapConverter extends TypeConverter<Map<String, dynamic>, String> {
   }
 }
 
-/// Converts a nullable JSON map to/from a string.
 class NullableJsonMapConverter
     extends TypeConverter<Map<String, dynamic>?, String?> {
   const NullableJsonMapConverter();
@@ -35,7 +33,6 @@ class NullableJsonMapConverter
   }
 }
 
-/// Converts a string list to/from a JSON array string.
 class StringListConverter extends TypeConverter<List<String>, String> {
   const StringListConverter();
 
@@ -50,7 +47,6 @@ class StringListConverter extends TypeConverter<List<String>, String> {
   }
 }
 
-/// Converts a nullable string list to/from a JSON array string.
 class NullableStringListConverter
     extends TypeConverter<List<String>?, String?> {
   const NullableStringListConverter();
@@ -68,7 +64,6 @@ class NullableStringListConverter
   }
 }
 
-/// Converts a nullable int list to/from a JSON array string.
 class NullableIntListConverter extends TypeConverter<List<int>?, String?> {
   const NullableIntListConverter();
 

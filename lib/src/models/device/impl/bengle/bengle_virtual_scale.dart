@@ -6,13 +6,6 @@ import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 
-/// Adapter that exposes a [BengleInterface]'s integrated scale to
-/// `ScaleController` as a regular [Scale]. Lifecycle is owned by the
-/// underlying machine — `onConnect` / `disconnect` on this adapter
-/// are no-ops; the adapter is connect-by-construction.
-///
-/// Display and timer methods are no-ops: the integrated scale has no
-/// independent display, and shot timing is owned by `ShotSequencer`.
 class BengleVirtualScale extends Scale {
   final BengleInterface _machine;
 

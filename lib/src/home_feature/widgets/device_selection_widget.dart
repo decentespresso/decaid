@@ -6,11 +6,6 @@ import 'package:reaprime/src/home_feature/widgets/device_connecting_indicator.da
 import 'package:reaprime/src/models/device/device.dart' as dev;
 import 'package:shadcn_ui/shadcn_ui.dart';
 
-/// Reusable widget for displaying a list of discovered devices of a given type.
-///
-/// This is a pure display widget — it does not own connection state.
-/// The parent is responsible for managing connection logic and passing
-/// [connectingDeviceId] and [errorMessage] as props.
 class DeviceSelectionWidget extends StatefulWidget {
   final DeviceController deviceController;
   final dev.DeviceType deviceType;

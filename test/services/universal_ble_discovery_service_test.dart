@@ -20,9 +20,6 @@ import 'package:reaprime/src/settings/settings_controller.dart';
 import '../helpers/fake_ble_transport.dart';
 import '../helpers/mock_settings_service.dart';
 
-/// Fake platform backend for universal_ble. The abstract base class
-/// already carries the stream plumbing (`updateScanResult`,
-/// `updateAvailability`); this fake records scan start/stop calls.
 class _FakeBlePlatform extends UniversalBlePlatform {
   final List<BleDevice> systemDevices = [];
 
@@ -41,9 +38,6 @@ class _FakeBlePlatform extends UniversalBlePlatform {
   @override
   Future<bool> disableBluetooth() async => true;
 
-  /// When set, the next [startScan] call blocks until this completes
-  /// (consumed after one use). Lets tests race other operations into
-  /// the start window.
   Completer<void>? holdNextStartScan;
 
   @override
@@ -71,9 +65,6 @@ class _FakeBlePlatform extends UniversalBlePlatform {
     nativeScanning = false;
   }
 
-  /// Mirrors the native scanner state (set by startScan/stopScan).
-  /// Tests flip it to false directly to simulate a silent scan death
-  /// (Android killing the scan without any callback reaching Dart).
   bool nativeScanning = false;
 
   @override
@@ -364,9 +355,6 @@ void main() {
   group('start-window races', () {
     test('stopDeviceWatch during an in-flight start waits for it and '
         'undoes the scan', () async {
-      // stopDeviceWatch serializes against the in-flight start (it must
-      // not act while session ownership is undecided), so the test
-      // releases the hold before awaiting the stop.
       final hold = Completer<void>();
       platform.holdNextStartScan = hold;
 
@@ -492,10 +480,6 @@ void main() {
 
     test('adapter off AND on completing within the start window discards '
         'the raced start and starts a fresh scan', () async {
-      // The off/on transition may have killed the native scan the raced
-      // start opened; its completion must never claim active. The
-      // power-on recovery fires while the start is still in flight, so
-      // the retry must happen after the raced start settles.
       final hold = Completer<void>();
       platform.holdNextStartScan = hold;
 
@@ -541,7 +525,6 @@ void main() {
             'back to the legacy loop instead of staying silently armed',
       );
 
-      // The request is cleared: adapter recovery must not resurrect it.
       platform.updateAvailability(AvailabilityState.poweredOff);
       await pump();
       platform.updateAvailability(AvailabilityState.poweredOn);
@@ -587,10 +570,6 @@ void main() {
     });
 
     test('the liveness probe restarts a silently dead native scan', () {
-      // The fork's SafeScanner can swallow a start (scan-frequency
-      // throttling returns success without scanning, and a later stop
-      // cancels the pending auto-start) and onScanFailed never reaches
-      // Dart — so the watch must verify the native scan actually exists.
       fakeAsync((async) {
         final zoned = UniversalBleDiscoveryService(
           watchSupportGate: () => true,

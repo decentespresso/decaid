@@ -9,12 +9,9 @@ import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
-/// Title shown in the debug view header. Switches on the machine's
-/// concrete type so a connected Bengle is visibly distinct from a DE1.
 String debugViewTitle(De1Interface machine) =>
     machine is BengleInterface ? 'Bengle Details' : 'DE1 Details';
 
-/// Displays detailed information about a machine.
 class De1DebugView extends StatefulWidget {
   const De1DebugView({super.key, required this.machine});
 

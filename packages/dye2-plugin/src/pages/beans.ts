@@ -4,7 +4,6 @@ import { beanFormComponent } from "../components/bean-form";
 import { beanBatchListComponent } from "../components/bean-batch-list";
 import { beanBatchFormComponent } from "../components/bean-batch-form";
 
-/** Page-level orchestration: show/hide forms and lists, wire events */
 const beanPageOrchestration = `
 // Helper references
 function beanList() { return document.querySelector('dye2-bean-list'); }

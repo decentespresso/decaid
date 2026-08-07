@@ -2,7 +2,6 @@ import 'package:drift/drift.dart';
 import 'package:reaprime/src/models/data/workflow.dart' as domain;
 import 'package:reaprime/src/services/database/database.dart' as db;
 
-/// Maps between domain Workflow and Drift Workflows table rows.
 class WorkflowMapper {
   static domain.Workflow fromRow(db.Workflow row) {
     return domain.Workflow.fromJson(row.workflowJson);

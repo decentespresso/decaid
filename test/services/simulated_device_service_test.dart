@@ -112,8 +112,6 @@ void main() {
       await scale.onConnect();
       expect(await scale.connectionState.first, ConnectionState.connected);
 
-      // A subsequent scan (e.g. the preferred-scale reconnect retry) must
-      // not clobber the connected instance with a fresh `discovered` one.
       final secondEmission = service.devices.first;
       await service.scanForDevices();
       final second = await secondEmission;
@@ -132,7 +130,6 @@ void main() {
       service.enabledDevices = {SimulatedDevicesTypes.scale};
       await service.scanForDevices();
 
-      // Machine enabled later; the rescan must attach the existing scale.
       service.enabledDevices = {
         SimulatedDevicesTypes.machine,
         SimulatedDevicesTypes.scale,
@@ -149,7 +146,6 @@ void main() {
       await scale.onConnect();
       await de1.setProfile(_pourProfile());
 
-      // Idle machine: the scale must read ~0, not drift upward on its own.
       final idle = await scale.currentSnapshot.first.timeout(
         const Duration(seconds: 2),
       );

@@ -56,10 +56,6 @@ class DecentScale implements Scale, TransportHandoffScale {
     : _deviceId = transport.id,
       _device = transport;
 
-  /// Build a 7-byte Decent Scale BLE command frame.
-  /// Prepends [0x03] header and appends XOR checksum over bytes 0-5.
-  /// Matches canonical `calculateChecksum` in openscale: XOR all bytes
-  /// (including header), starting from 0.
   static Uint8List _buildCommand(List<int> commandBytes) {
     final bytes = <int>[0x03, ...commandBytes];
     int xor = 0;
@@ -320,10 +316,6 @@ class DecentScale implements Scale, TransportHandoffScale {
   @override
   disconnect() async => _disconnect(powerOff: true);
 
-  /// [TransportHandoffScale]: release the BLE link WITHOUT powering the
-  /// physical scale off, so the controller can hand the active-scale role to
-  /// another transport (USB/WiFi) of the SAME physical Half Decent Scale.
-  /// Powering off here would turn the shared device off mid-switch.
   @override
   Future<void> disconnectForHandoff() => _disconnect(powerOff: false);
 
@@ -382,8 +374,6 @@ class DecentScale implements Scale, TransportHandoffScale {
     }
   }
 
-  /// Causes the scale to respond with battery level, while the actual request
-  /// is to turn on the display (OledOn)
   Future<bool> _requestBatteryData() async {
     final heartbeatByte = isUsingHeartBeat ? 0x01 : 0x00;
     return _writeCommand([0x0A, 0x01, 0x01, 0x00, heartbeatByte]);

@@ -5,8 +5,6 @@ import 'dart:typed_data';
 
 import 'package:reaprime/src/settings/backup_import_response.dart';
 
-/// Raised when a native backup transfer fails (bad status, wrong MIME,
-/// oversized response, or I/O error).
 class BackupTransferException implements Exception {
   final String message;
   final int? statusCode;
@@ -17,13 +15,6 @@ class BackupTransferException implements Exception {
   String toString() => 'BackupTransferException: $message';
 }
 
-/// Native full-backup transfer logic, extracted from the settings page so it
-/// can be tested without a platform picker or share sheet.
-///
-/// Everything here is file-stream based: exports are downloaded into a
-/// uniquely owned temp directory (never accumulated in a `BytesBuilder`) and
-/// imports stream the picked file into the localhost request (never
-/// `readAsBytes()` + `request.add(bytes)`).
 class BackupTransferService {
   final HttpClient _client;
   final int maxResponseBytes;
@@ -33,10 +24,6 @@ class BackupTransferService {
     this.maxResponseBytes = 8 * 1024 * 1024,
   }) : _client = client ?? HttpClient();
 
-  /// GETs [url], validates status 200 and `application/zip` MIME, and streams
-  /// the body into [tempDir]/export.zip. Returns the completed temp file.
-  ///
-  /// Throws [BackupTransferException] on bad status/MIME or stream errors.
   Future<File> downloadExportZip(String url, Directory tempDir) async {
     final request = await _client.getUrl(Uri.parse(url));
     final response = await request.close();
@@ -67,11 +54,6 @@ class BackupTransferService {
     return file;
   }
 
-  /// POSTs a backup ZIP to [url] (with `?onConflict=`), streaming either a
-  /// local file ([filePath]) or an arbitrary byte stream ([readStream]).
-  ///
-  /// Returns the parsed [BackupImportResponse]. [contentLength] should be
-  /// supplied when known so the request is not chunked.
   Future<BackupImportResponse> uploadZip(
     String url,
     String onConflict, {

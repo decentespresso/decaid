@@ -3,12 +3,6 @@ import 'package:logging/logging.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
-/// Shared email/password login form for the Decent account.
-///
-/// Owns its own controllers (disposed automatically), loading state, and error
-/// display, and runs [DecentAccountService.login]. Used by both the onboarding
-/// login step and the settings "Link Account" dialog so the login logic lives
-/// in one place.
 class DecentLoginForm extends StatefulWidget {
   const DecentLoginForm({
     super.key,
@@ -20,11 +14,8 @@ class DecentLoginForm extends StatefulWidget {
 
   final DecentAccountService accountService;
 
-  /// Called after a successful login.
   final VoidCallback onSuccess;
 
-  /// Optional secondary action rendered beside the Login button
-  /// (e.g. "Skip for now" in onboarding, "Cancel" in the settings dialog).
   final String? secondaryLabel;
   final VoidCallback? onSecondary;
 

@@ -67,8 +67,6 @@ class SteamsHandler {
     }
   }
 
-  /// Partial update — only annotations are accepted; the rest of the
-  /// record (measurements, workflow) is immutable.
   Future<Response> _updateSteam(Request req, String id) async {
     id = Uri.decodeComponent(id);
     try {

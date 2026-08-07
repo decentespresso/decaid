@@ -33,7 +33,6 @@ void main() {
       clock = DateTime(2026, 1, 1, 8, 0, 0);
     });
 
-    /// Feed [seconds] of snapshots at 100ms cadence.
     void run(
       double seconds, {
       double flow = 0.0,
@@ -122,7 +121,6 @@ void main() {
       run(6.0, flow: 2.0);
       run(1.0, flow: 0.0, state: MachineState.idle);
       model.tare();
-      // Shot 2 must lag again instead of tracking flow instantly.
       run(0.5, flow: 2.0);
       expect(
         model.weight,

@@ -10,15 +10,7 @@ import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:rxdart/rxdart.dart';
 
-/// A shared De1Interface test double with a controllable snapshot stream.
-///
-/// Unlike the test-local `_TestDe1` in presence_controller_test.dart,
-/// [requestState] only records the call — it does NOT emit a new state.
-/// Use [emitSnapshot] or [emitStateAndSubstate] to drive the stream explicitly.
 class TestDe1 implements De1Interface {
-  /// Override for [deviceId]/[name]. Tests that need to distinguish two
-  /// TestDe1 instances (e.g. picker tests) pass these; everything else
-  /// gets the legacy defaults.
   final String _deviceId;
   final String _name;
 
@@ -52,45 +44,32 @@ class TestDe1 implements De1Interface {
   final BehaviorSubject<De1RawMessage> rawOutSubject =
       BehaviorSubject<De1RawMessage>();
 
-  /// Messages passed to [sendRawMessage], in order.
   final List<De1RawMessage> sentRawMessages = [];
 
-  /// Emit a [De1RawMessage] on the [rawOutStream].
   void emitRawMessage(De1RawMessage message) {
     rawOutSubject.add(message);
   }
 
-  /// Drives the [shotSettings] stream — tests call [emitShotSettings]
-  /// to push a value, which is how [De1Controller._initializeData]
-  /// and its debounce-timer subscription are exercised.
   final BehaviorSubject<De1ShotSettings> _shotSettingsSubject =
       BehaviorSubject<De1ShotSettings>();
 
-  /// Emit a [De1ShotSettings] on the [shotSettings] stream.
   void emitShotSettings(De1ShotSettings settings) {
     _shotSettingsSubject.add(settings);
   }
 
-  /// Drives the [waterLevels] stream. Unseeded, so a machine that is never
-  /// asked emits nothing (the old `Stream.empty()` behaviour).
   final BehaviorSubject<De1WaterLevels> _waterLevelsSubject =
       BehaviorSubject<De1WaterLevels>();
 
-  /// Emit a [De1WaterLevels] on the [waterLevels] stream.
   void emitWaterLevels(De1WaterLevels levels) {
     _waterLevelsSubject.add(levels);
   }
 
-  /// Records every [MachineState] passed to [requestState].
   final List<MachineState> requestedStates = [];
 
-  /// Emit an arbitrary [MachineSnapshot].
   void emitSnapshot(MachineSnapshot snapshot) {
     snapshotSubject.add(snapshot);
   }
 
-  /// Convenience: emit a snapshot that differs from the current one only in
-  /// state and substate.
   void emitStateAndSubstate(MachineState state, MachineSubstate substate) {
     final current = snapshotSubject.value;
     snapshotSubject.add(
@@ -100,8 +79,6 @@ class TestDe1 implements De1Interface {
     );
   }
 
-  /// Update the connection state. Listeners on [connectionState] will be
-  /// notified immediately.
   void setConnectionState(ConnectionState state) {
     _connectionState.add(state);
   }

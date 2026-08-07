@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/widget_previews.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
-/// Launcher hero card shown when no machine is connected. Tapping the
-/// action drives the launcher scan flow. Sits above the skin slot.
 class ConnectDeviceHeroCard extends StatelessWidget {
   const ConnectDeviceHeroCard({super.key, required this.onScan});
 

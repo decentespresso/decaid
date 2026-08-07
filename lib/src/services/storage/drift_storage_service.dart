@@ -7,7 +7,6 @@ import 'package:reaprime/src/services/database/mappers/steam_mapper.dart';
 import 'package:reaprime/src/services/database/mappers/workflow_mapper.dart';
 import 'package:reaprime/src/services/storage/storage_service.dart';
 
-/// Drift/SQLite implementation of [StorageService] for shots and workflow.
 class DriftStorageService implements StorageService {
   final AppDatabase _db;
 

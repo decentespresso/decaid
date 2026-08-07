@@ -340,7 +340,6 @@ Widget statusBarPreview() {
   return MaterialApp(home: Scaffold(body: _StatusBarPreviewStatic()));
 }
 
-/// Static preview that doesn't depend on controllers (which use dart:io).
 class _StatusBarPreviewStatic extends StatelessWidget {
   @override
   Widget build(BuildContext context) {

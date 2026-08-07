@@ -3,13 +3,6 @@ import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 
-// A real-world 5-step profile ("Gentle and sweet"): a flow preinfusion that
-// moves on at 4 bar, a pressure rise, a hold, and a decline — the shape most
-// espresso profiles take. The simulated curves are checked against how a real
-// pull behaves: pressure builds through preinfusion and holds at the ceiling
-// (never spikes), the group temperature dips on cold-puck contact and recovers,
-// steps advance on their pressure/flow exit (not just their fallback duration),
-// and flow falls out under the held pressure.
 Profile _gentleAndSweet() => Profile(
   version: '2',
   title: 'Gentle and sweet',
@@ -101,7 +94,6 @@ void main() {
         .map((s) => s.groupTemperature)
         .reduce((a, b) => a < b ? a : b);
 
-    // Pressure holds near the ~6 bar profile ceiling — never the old 12 bar spike.
     expect(
       maxPressure,
       lessThan(7.5),

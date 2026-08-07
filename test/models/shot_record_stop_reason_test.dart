@@ -37,8 +37,6 @@ void main() {
     });
 
     test('an unknown reason string survives a round-trip untouched', () {
-      // The wire vocabulary is an open set — a newer app may persist reasons
-      // this build does not know. They must pass through, not be dropped.
       final record = makeRecord(stopReason: 'someFutureReason');
       final parsed = ShotRecord.fromJson(record.toJson());
       expect(parsed.stopReason, 'someFutureReason');

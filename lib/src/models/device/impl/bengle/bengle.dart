@@ -27,10 +27,6 @@ class Bengle extends UnifiedDe1
   Future<double> getCupWarmerTemperature() =>
       readMmrScaled(BengleMmr.matSetPoint);
 
-  /// Bengle FW requires entering state 0x16 (`MachineState.fwUpgrade`) between
-  /// the `requestState(sleeping)` step and the start of `.dat` upload.
-  /// DE1 doesn't need this — see [UnifiedDe1.beforeFirmwareUpload]
-  /// for the hook contract.
   @override
   @protected
   Future<void> beforeFirmwareUpload() async {
@@ -39,19 +35,10 @@ class Bengle extends UnifiedDe1
     });
   }
 
-  /// Bengle has hardware flow control on the serial
-  /// path, so the per-batch backpressure pause that DE1 needs (UART
-  /// has none) is unnecessary. Stream chunks at full bandwidth.
   @override
   @protected
   Duration get firmwareUploadBatchPause => Duration.zero;
 
-  // --- Milk-probe steam stop (FW-stubbed scaffolding) -----------------------
-  // Mirrors `IntegratedScaleCapability`'s SAW stub: cache locally,
-  // log-once, no MMR write until FW publishes the slot. `probeAttached`
-  // stays `false` and `probeTemperature` never emits — probe discovery
-  // and data transport are TBD (may be a new BLE characteristic, not
-  // another MMR slot).
   final BehaviorSubject<double> _stopAtTempTarget =
       BehaviorSubject<double>.seeded(0.0);
   final BehaviorSubject<bool> _probeAttached = BehaviorSubject<bool>.seeded(

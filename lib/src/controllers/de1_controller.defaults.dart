@@ -1,9 +1,6 @@
 part of 'de1_controller.dart';
 
 extension Defaults on De1Controller {
-  /// Device-pinned default-write helper. Every read/write goes through
-  /// the captured [device] so a disconnect/reconnect race cannot write to
-  /// the replacement machine.
   Future<void> _setDe1DefaultsFor(
     De1Interface device,
     bool Function() stillCurrent,
@@ -110,10 +107,6 @@ extension Defaults on De1Controller {
     _rinseStream.add(settings);
   }
 
-  /// Bulk reset of firmware settings. Writes through the passed
-  /// [device] (never a fresh `_de1` read) so the whole reset is one
-  /// queued, retryable group; call via [runDeviceWrite] from the REST
-  /// route. Does not reserve a queue entry itself.
   Future<void> applySettingsDefaults(De1Interface device) async {
     await device.setFanThreshhold(55);
 

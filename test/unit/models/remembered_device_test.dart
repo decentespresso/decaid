@@ -87,7 +87,6 @@ void main() {
         RememberedDevice.fromJson({'id': 1, 'name': 'n', 'type': 'scale'}),
         isNull,
       );
-      // Empty id is rejected so decodeList never trips the constructor assert.
       expect(
         RememberedDevice.fromJson({'id': '', 'name': 'n', 'type': 'scale'}),
         isNull,

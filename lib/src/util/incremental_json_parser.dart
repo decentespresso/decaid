@@ -1,17 +1,10 @@
 import 'dart:convert';
 
-/// A complete JSON value emitted at a requested depth by
-/// [IncrementalJsonParser].
 class JsonValueEvent {
-  /// Container depth of the value: 0 is the whole document, 1 is an element
-  /// of the top-level array/object, etc.
   final int depth;
 
-  /// Key path of the value (object keys of ancestor objects, outermost first).
-  /// Array ancestors contribute nothing, so `keys.length <= depth`.
   final List<String> keys;
 
-  /// The decoded value.
   final Object? value;
 
   const JsonValueEvent({
@@ -21,9 +14,6 @@ class JsonValueEvent {
   });
 }
 
-/// Thrown when a JSON stream is structurally malformed: truncated input,
-/// bad escapes, invalid tokens, trailing garbage, oversize values, or
-/// excessive nesting.
 class JsonStreamFormatException implements Exception {
   final String message;
   const JsonStreamFormatException(this.message);
@@ -40,21 +30,8 @@ int utf8CodePointByteLength(int codePoint) => codePoint < 0x80
     ? 3
     : 4;
 
-/// The top-level container kind of a JSON payload.
 enum JsonContainerKind { array, object }
 
-/// A real incremental JSON parser.
-///
-/// Consumes decoded text chunks and yields complete values at a configured
-/// [eventDepth]: 0 yields the whole document, 1 yields top-level elements of
-/// the document's array/object, 3 yields values nested three containers deep
-/// (e.g. the `{"namespaces": {ns: {k: v}}}` KV payload).
-///
-/// Handles strings with escapes and `\uXXXX` (including surrogate pairs),
-/// strict JSON numbers, nesting, and UTF-8 boundaries (chunks come from
-/// `Utf8Decoder`, which rejects malformed input). Never splits on commas or
-/// braces: a value is emitted only after its full span parses, and malformed
-/// input always throws instead of yielding a prefix.
 class IncrementalJsonParser {
   final int _maxValueBytes;
   final int _maxKeyBytes;
@@ -131,22 +108,18 @@ class IncrementalJsonParser {
     0x6E,
   };
 
-  /// Feeds a decoded text chunk. Emitted events are collected and returned by
-  /// [drain].
   void feed(String chunk) {
     for (final rune in chunk.runes) {
       _feedChar(rune);
     }
   }
 
-  /// Returns events emitted since the last call to [drain].
   List<JsonValueEvent> drain() {
     final events = _pendingEvents.toList(growable: false);
     _pendingEvents.clear();
     return events;
   }
 
-  /// The top-level container kind, valid after the document started.
   JsonContainerKind get topKind {
     final kind = _topKind;
     if (kind == null) {
@@ -155,8 +128,6 @@ class IncrementalJsonParser {
     return kind;
   }
 
-  /// Must be called after the final chunk. Throws if the stream ended in the
-  /// middle of a value or if the payload is empty.
   void finish() {
     if (_inString) {
       throw const JsonStreamFormatException(
@@ -334,15 +305,12 @@ class IncrementalJsonParser {
     }
   }
 
-  /// Opens a fresh event span (raw text of the value at [_eventDepth]).
   void _openSpan() {
     _span.clear();
     _spanBytes = 0;
     _spanOpen = true;
   }
 
-  /// Appends one character to the open event span, tracking its UTF-8 byte
-  /// length so an oversized container is rejected while it is constructed.
   void _spanWriteCharCode(int c) {
     _span.writeCharCode(c);
     _spanBytes += utf8CodePointByteLength(c);
@@ -465,9 +433,6 @@ class IncrementalJsonParser {
     _completeValue(token);
   }
 
-  /// Completes a value whose raw text is [token]. For containers the caller
-  /// passes the accumulated span; for strings/scalars the token buffer. Size
-  /// limits were already enforced while the text was constructed.
   void _completeValue(String token) {
     final isEvent = _stack.length == _eventDepth;
     if (isEvent) {

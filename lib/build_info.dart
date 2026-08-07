@@ -24,10 +24,7 @@ class BuildInfo {
     defaultValue: '0',
   );
 
-  /// Whether this is an App Store build (iOS).
-  /// Pass --dart-define=APP_STORE=true to enable.
   static const bool appStore = bool.fromEnvironment('APP_STORE');
 
-  /// Full version string including build number (e.g., "1.2.3+456")
   static String get fullVersion => '$version+$buildNumber';
 }

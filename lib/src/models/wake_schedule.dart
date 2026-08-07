@@ -2,10 +2,6 @@ import 'dart:convert';
 
 import 'package:uuid/uuid.dart';
 
-/// Represents a recurring machine wake schedule.
-///
-/// Used by PresenceController to determine when the machine should
-/// automatically wake up, and by the REST API for CRUD operations.
 class WakeSchedule {
   final String id;
   final int hour;
@@ -13,17 +9,8 @@ class WakeSchedule {
   final Set<int> daysOfWeek;
   final bool enabled;
 
-  /// How long (in minutes) to keep the machine awake after waking.
-  ///
-  /// Null means wake-only (current behavior — machine wakes but no keep-awake
-  /// window is enforced). Valid values are 1–720.
   final int? keepAwakeFor;
 
-  /// Creates a new WakeSchedule.
-  ///
-  /// [hour] must be 0-23, [minute] must be 0-59.
-  /// [daysOfWeek] uses ISO 8601 weekday numbers: 1=Monday through 7=Sunday.
-  /// An empty set means every day.
   const WakeSchedule({
     required this.id,
     required this.hour,
@@ -33,7 +20,6 @@ class WakeSchedule {
     this.keepAwakeFor,
   });
 
-  /// Creates a new WakeSchedule with a generated UUID.
   factory WakeSchedule.create({
     required int hour,
     required int minute,
@@ -54,12 +40,6 @@ class WakeSchedule {
     );
   }
 
-  /// Creates a WakeSchedule from a JSON map.
-  ///
-  /// Expected format:
-  /// ```json
-  /// {"id": "...", "time": "HH:MM", "daysOfWeek": [1,2,...], "enabled": true}
-  /// ```
   factory WakeSchedule.fromJson(Map<String, dynamic> json) {
     final timeParts = (json['time'] as String).split(':');
     final days = (json['daysOfWeek'] as List).cast<int>();
@@ -75,9 +55,6 @@ class WakeSchedule {
     );
   }
 
-  /// Serializes this schedule to a JSON map.
-  ///
-  /// Time is formatted as a zero-padded "HH:MM" string.
   Map<String, dynamic> toJson() {
     final json = <String, dynamic>{
       'id': id,
@@ -92,12 +69,6 @@ class WakeSchedule {
     return json;
   }
 
-  /// Returns true if this schedule matches the given [dateTime].
-  ///
-  /// A schedule matches when:
-  /// - It is [enabled], AND
-  /// - The hour and minute match, AND
-  /// - The weekday is in [daysOfWeek] (or [daysOfWeek] is empty, meaning every day)
   bool matchesTime(DateTime dateTime) {
     if (!enabled) return false;
     if (dateTime.hour != hour || dateTime.minute != minute) return false;
@@ -107,9 +78,6 @@ class WakeSchedule {
     return true;
   }
 
-  /// Returns a copy of this schedule with the given fields replaced.
-  ///
-  /// To clear [keepAwakeFor] to null, pass `clearKeepAwakeFor: true`.
   WakeSchedule copyWith({
     String? id,
     int? hour,
@@ -131,12 +99,10 @@ class WakeSchedule {
     );
   }
 
-  /// Serializes a list of WakeSchedule objects to a JSON string.
   static String serializeList(List<WakeSchedule> schedules) {
     return jsonEncode(schedules.map((s) => s.toJson()).toList());
   }
 
-  /// Deserializes a JSON string to a list of WakeSchedule objects.
   static List<WakeSchedule> deserializeList(String jsonString) {
     final list = jsonDecode(jsonString) as List;
     return list

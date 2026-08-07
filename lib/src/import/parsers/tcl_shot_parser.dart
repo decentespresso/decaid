@@ -12,11 +12,9 @@ import 'package:reaprime/src/models/data/workflow_context.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:uuid/uuid.dart';
 
-/// Parses de1app `history/*.shot` (TCL format) into [ParsedShot] instances.
 class TclShotParser {
   TclShotParser._();
 
-  /// Parses a de1app `.shot` file [content] into a [ParsedShot].
   static ParsedShot parse(String content) {
     final map = TclParser.parse(content);
 
@@ -185,7 +183,6 @@ class TclShotParser {
     return snapshots;
   }
 
-  /// Pre-computes cumulative step end-times from profile step durations.
   static List<double> _stepBoundaries(Profile profile) {
     final boundaries = <double>[];
     var cumulative = 0.0;
@@ -196,7 +193,6 @@ class TclShotParser {
     return boundaries;
   }
 
-  /// Returns the profile step index for [elapsedSeconds] given step [boundaries].
   static int _frameForElapsed(double elapsedSeconds, List<double> boundaries) {
     for (var i = 0; i < boundaries.length; i++) {
       if (elapsedSeconds < boundaries[i]) return i;
@@ -204,7 +200,6 @@ class TclShotParser {
     return boundaries.isEmpty ? 0 : boundaries.length - 1;
   }
 
-  /// Parses a TCL list value ([List] of strings from [TclParser]) into a list of doubles.
   static List<double> _parseDoubleList(dynamic value) {
     if (value == null) return [];
     if (value is List) {
@@ -214,14 +209,12 @@ class TclShotParser {
     return d != null ? [d] : [];
   }
 
-  /// Returns a non-null, non-empty string or null.
   static String? _str(dynamic value) {
     if (value == null) return null;
     final s = value.toString().trim();
     return s.isEmpty ? null : s;
   }
 
-  /// Parses a string-encoded double.
   static double? _parseOptDouble(dynamic value) {
     if (value == null) return null;
     if (value is num) return value.toDouble();

@@ -4,8 +4,6 @@ import 'package:reaprime/src/controllers/workflow_controller.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
 import 'package:reaprime/src/services/webserver/data_export/data_export_section.dart';
 
-/// Workflow is a singleton section: a single recipe object, bounded by the
-/// handler's maximum record size.
 class WorkflowExportSection implements DataExportSection {
   final WorkflowController _controller;
 

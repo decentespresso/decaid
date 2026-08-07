@@ -23,20 +23,9 @@ import 'package:reaprime/src/models/device/impl/weighmaster/weighmaster_scale.da
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:reaprime/src/models/device/transport/serial_port.dart';
 
-/// Maps [DeviceImplementation] to the concrete [Device] constructor.
-/// Used by [DeviceDiscoveryService.tryQuickConnect] to construct a device
-/// from persisted metadata without name-matching or port-probing.
-///
-/// BLE and serial are separate methods because the constructor signatures
-/// differ by transport type. WiFi ([HDSWifi]) has a bespoke constructor
-/// (host + transport factory) and is constructed by the WiFi discovery
-/// service directly, not through this factory.
 class DeviceFactory {
   DeviceFactory._();
 
-  /// Create a BLE-connected device from its [implementation] and an
-  /// already-connected [transport]. Returns null if [implementation] is
-  /// not a BLE device (serial-only or WiFi-only).
   static Device? createBle(
     DeviceImplementation implementation,
     BLETransport transport,
@@ -76,9 +65,6 @@ class DeviceFactory {
     };
   }
 
-  /// Create a serial-connected device from its [implementation] and an
-  /// already-open [transport]. Returns null if [implementation] is not a
-  /// serial device.
   static Device? createSerial(
     DeviceImplementation implementation,
     SerialTransport transport,

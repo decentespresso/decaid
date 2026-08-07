@@ -43,9 +43,6 @@ class _StubDe1Controller extends De1Controller {
   void emit(De1Interface? device) => _subj.add(device);
 }
 
-/// Bare machine surface for sequencer unit tests. Lets the test drive
-/// `currentSnapshot` directly via [emit] and records `requestState`
-/// calls.
 class _TestMachine implements De1Interface {
   _TestMachine({this.id = 'test-machine'});
 

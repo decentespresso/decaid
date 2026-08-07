@@ -1,12 +1,5 @@
 part of '../webserver_service.dart';
 
-/// HTTP front door for the Decent account proxy.
-///
-/// Forwards `GET /api/v1/account/proxy/<decent-path>` through
-/// [DecentProxyService], which attaches the stored credentials and relays the
-/// upstream response. Caller identity comes from [proxyAuthMiddleware] (via
-/// [proxyCallerOf]); this handler assumes the middleware has already rejected
-/// unauthenticated requests under this prefix.
 class AccountProxyHandler {
   final DecentProxyService _proxy;
   final bool enableWrites;

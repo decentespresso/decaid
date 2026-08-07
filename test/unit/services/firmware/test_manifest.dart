@@ -1,7 +1,3 @@
-/// Shared test data for firmware catalog tests.
-///
-/// Used by [BundledFirmwareCatalog] tests and API handler tests.
-/// The manifest JSON is in-memory so tests don't depend on Flutter asset bundling.
 const testManifestJson = '''
 {
   "schemaVersion": 1,

@@ -3,8 +3,6 @@ import 'dart:convert';
 import 'package:reaprime/src/services/account/decent_account_service.dart'
     show CredentialStore;
 
-/// A persisted API-client token: the bearer secret plus the metadata needed to
-/// validate it and display it in settings.
 class PersistedProxyToken {
   final String token;
   final String label;
@@ -34,11 +32,6 @@ class PersistedProxyToken {
       );
 }
 
-/// Persists API-client tokens across restarts, backed by the same secure
-/// [CredentialStore] used for account credentials. The whole set is stored as a
-/// JSON list under a single key — bearer tokens are written verbatim (same trust
-/// level as the account password already in the secure store) because validation
-/// is an exact-match lookup.
 class ProxyTokenStore {
   final CredentialStore _credentialStore;
   final String _storageKey;

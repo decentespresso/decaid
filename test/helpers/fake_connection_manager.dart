@@ -11,17 +11,6 @@ import 'mock_device_scanner.dart';
 import 'mock_scale_controller.dart';
 import 'mock_settings_service.dart';
 
-/// A [ConnectionManager] subclass that gives tests direct control over the
-/// status stream and records `connect()` calls. Builds its own minimal
-/// collaborators so tests only need:
-///
-/// ```dart
-/// final cm = FakeConnectionManager();
-/// cm.setError(ConnectionError(...));
-/// ```
-///
-/// Widgets that consume `ConnectionManager.status` + `connect()` can be
-/// driven directly by this fake.
 class FakeConnectionManager extends ConnectionManager {
   final BehaviorSubject<ConnectionStatus> _statusOverride =
       BehaviorSubject.seeded(const ConnectionStatus());
@@ -34,9 +23,6 @@ class FakeConnectionManager extends ConnectionManager {
   bool _scaleOnlyLastCall = false;
   bool get scaleOnlyLastCall => _scaleOnlyLastCall;
 
-  /// Protected constructor — exposed so subclasses in other test files
-  /// can build their own collaborator wiring. Most tests should use
-  /// the default [FakeConnectionManager.new] factory below.
   FakeConnectionManager.forSubclass({
     required super.deviceScanner,
     required super.de1Controller,
@@ -65,8 +51,6 @@ class FakeConnectionManager extends ConnectionManager {
 
   void emitStatus(ConnectionStatus status) => _statusOverride.add(status);
 
-  /// Sets or clears the `error` field on the current status. Pass `null`
-  /// to clear.
   void setError(ConnectionError? err) {
     _statusOverride.add(_statusOverride.value.copyWith(error: () => err));
   }

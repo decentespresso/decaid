@@ -106,9 +106,6 @@ void main() {
     });
 
     test('does not collide with /{id} route', () async {
-      // Regression: the /defaults literal must match before the /{id} catch-all,
-      // otherwise a GET on /defaults would land in _handleGetById with id='defaults'
-      // and 404 instead of returning the manifest list.
       wireHandler([
         {
           'filename': 'Only.json',

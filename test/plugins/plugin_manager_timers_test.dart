@@ -165,7 +165,6 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 100));
     await manager.unloadPlugin('timer.plugin');
 
-    // The rejection handler's setTimeout must be swept, not resurrected.
     expect(manager.activeTimerCount, 0);
     expect(jsTimerCount(), '0');
 

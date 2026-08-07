@@ -1,15 +1,3 @@
-/**
- * <dye2-bean-form> Web Component
- * Handles creating and editing coffee beans via the core REST API.
- * Runs in the BROWSER (not flutter_js).
- *
- * Attributes:
- *   bean-id — when set, form enters edit mode and loads existing data.
- *
- * Events emitted:
- *   bean-saved     — after successful POST/PUT
- *   bean-cancelled — when the user clicks Cancel
- */
 export const beanFormComponent = `
 class Dye2BeanForm extends HTMLElement {
   constructor() {

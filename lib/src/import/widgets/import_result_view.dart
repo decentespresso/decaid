@@ -8,7 +8,6 @@ import 'package:reaprime/src/widgets/accessible_button.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:share_plus/share_plus.dart';
 
-/// Post-import summary with optional error details and share/save report.
 class ImportResultView extends StatefulWidget {
   final ImportResult result;
   final VoidCallback onContinue;

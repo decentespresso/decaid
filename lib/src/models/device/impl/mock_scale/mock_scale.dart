@@ -78,8 +78,6 @@ class MockScale implements Scale, SimulatedDevice {
     _startEmission();
   }
 
-  /// Follow [machine]'s simulated flow so the weight responds to its shots.
-  /// Idempotent for the same machine; switches cleanly to a new one.
   void attachMachine(MockDe1 machine) {
     if (identical(machine, _machine)) return;
     _machineSub?.cancel();
@@ -91,7 +89,6 @@ class MockScale implements Scale, SimulatedDevice {
     });
   }
 
-  /// Stop following the machine. The reading freezes at its current value.
   void detachMachine() {
     _machineSub?.cancel();
     _machineSub = null;
@@ -124,17 +121,14 @@ class MockScale implements Scale, SimulatedDevice {
     });
   }
 
-  /// Stop emitting weight snapshots. Scale stays "connected".
   void simulateDataStall() {
     _stalled = true;
   }
 
-  /// Resume weight emission after a stall.
   void simulateResume() {
     _stalled = false;
   }
 
-  /// Emit disconnected state and stop weight emission.
   void simulateDisconnect() {
     _stalled = true;
     _emissionTimer?.cancel();

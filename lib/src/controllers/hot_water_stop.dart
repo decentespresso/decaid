@@ -1,37 +1,16 @@
 import 'package:reaprime/src/models/device/machine.dart';
 
-/// Pure decision logic for stopping a hot-water dispense at a target weight.
-///
-/// It is deliberately free of any I/O — the [HotWaterSequencer] feeds it
-/// observations and acts on the resulting [HotWaterStopDecision]. Keeping the
-/// rule pure makes the stop table exhaustively unit-testable.
-///
-/// The model: once the machine is actually seen pouring hot water and the
-/// post-tare reading has settled, project the weight a short time ahead
-/// (`weight + flow * lookahead`) and request a stop the moment that projection
-/// reaches the target. The lookahead compensates for the latency between
-/// asking the machine to stop and the pump actually closing.
-
-/// How long to wait for the machine to actually enter `hotWater` after arming
-/// before giving up and clearing. Guards an arm that never turns into a pour.
 const Duration kHotWaterArmTimeout = Duration(seconds: 10);
 
 class HotWaterStopState {
-  /// Target beverage weight in grams (the configured hot-water volume).
   final double targetWeight;
 
-  /// Configured hot-water flow (ml/s ≈ g/s), used as the lookahead flow before
-  /// the scale's own derived flow becomes trustworthy.
   final double configuredFlow;
 
-  /// Seconds of flow to project ahead when deciding to stop.
   final double lookaheadSeconds;
 
-  /// Whether the machine has been observed in the `hotWater` state at least
-  /// once since arming.
   final bool activeSeen;
 
-  /// Whether a stop has already been requested (latched to avoid double-stop).
   final bool stopRequested;
 
   const HotWaterStopState({
@@ -54,23 +33,16 @@ class HotWaterStopState {
 }
 
 class HotWaterStopInput {
-  /// Latest machine state, if known.
   final MachineState? machineState;
 
-  /// Time elapsed since the controller armed (tared) for this pour.
   final Duration sinceArmed;
 
-  /// Whether the post-tare settle window has elapsed, so the scale reading now
-  /// reflects the tared zero rather than the pre-tare discontinuity.
   final bool tareSettled;
 
-  /// Whether the scale is connected and emitting recent frames.
   final bool freshScale;
 
-  /// Latest scale weight in grams (may be null before the first frame).
   final double? weight;
 
-  /// Latest scale-derived flow in g/s (may be null/zero early in the pour).
   final double? weightFlow;
 
   const HotWaterStopInput({
@@ -88,10 +60,8 @@ enum HotWaterStopAction { wait, clear, stop }
 class HotWaterStopDecision {
   final HotWaterStopAction action;
 
-  /// Next controller state. Null only when [action] is [HotWaterStopAction.clear].
   final HotWaterStopState? state;
 
-  /// Weight and projected weight at the moment of a stop decision (0 otherwise).
   final double weight;
   final double projectedWeight;
 
@@ -128,8 +98,6 @@ HotWaterStopDecision nextHotWaterStop(
   if (input.machineState == MachineState.hotWater) {
     next = next.copyWith(activeSeen: true);
   } else if (next.activeSeen || input.sinceArmed > kHotWaterArmTimeout) {
-    // Either we left hot water after pouring, or we armed but the pour never
-    // started — disarm.
     return HotWaterStopDecision.clear();
   }
 

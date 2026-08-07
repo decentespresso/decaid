@@ -18,8 +18,6 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'settings_controller.dart';
 
-/// Flat iOS-style list of settings. Heavy sub-pages (devices, data, skins,
-/// account, advanced) are standalone launcher destinations.
 class SettingsView extends StatelessWidget {
   const SettingsView({
     super.key,
@@ -410,8 +408,6 @@ class SettingsView extends StatelessWidget {
         }
         return;
       }
-      // Sparkle could not be configured: no functional app-update path exists
-      // on macOS, so never claim a Dart "latest version" result.
       if (!context.mounted) return;
       showDialog(
         context: context,

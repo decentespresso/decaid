@@ -30,31 +30,12 @@ class ShotSequencer {
   final double _volumeFlowMultiplier;
   final bool _stepExitArbiterEnabled;
 
-  /// `true` when the connected machine runs its own autonomous SAW
-  /// (currently only Bengle). The app's SAW loop must defer to FW to
-  /// avoid double-stop.
-  ///
-  /// Captured once at construction. A sequencer's lifetime is bound
-  /// to a single shot (owned + recreated per shot by [De1StateManager])
-  /// and machines can't be swapped mid-shot — if the connection dies
-  /// the shot is already over and a stale flag is the least of our
-  /// problems. Don't try to make this reactive.
-  ///
-  /// Only the FINAL target-yield stop is bypassed for autonomous-SAW
-  /// machines. Per-step weight exits (`ProfileStep.weight`) still run
-  /// app-side: FW only exposes one SAW target, not per-frame weight
-  /// transitions. Wiring per-step skips into FW would need a new
-  /// `ProfileStepFrame` data object and likely a separate endpoint —
-  /// out of scope until that exists.
   final bool _machineHasAutonomousSAW;
 
   List<int> skippedSteps = [];
   final StepExitArbiter _stepExitArbiter = StepExitArbiter();
   int _lastProfileFrame = -1;
 
-  /// Highest profile frame reported so far this shot, for one-shot
-  /// `profileAdvance` emission that survives BLE frame reordering. See
-  /// [_trackFrameAdvance].
   int _maxFrameSeen = -1;
 
   double _accumulatedVolume = 0.0;
@@ -169,36 +150,19 @@ class ShotSequencer {
   );
   Stream<ShotState> get state => _stateStream.stream;
 
-  /// Sequencer decisions (e.g. why a shot was stopped). Groundwork for a
-  /// future `/ws/v1/shotState` topic. BehaviorSubject so consumers that
-  /// subscribe after construction still receive a decision emitted in the
-  /// constructor (e.g. the blockOnNoScale abort).
   final BehaviorSubject<ShotDecision> _decisionStream = BehaviorSubject();
   Stream<ShotDecision> get decisions => _decisionStream.stream;
 
-  /// Dedicated logger for the decision trail: one consistent, greppable line
-  /// per decision, regardless of who owns this sequencer (De1StateManager or
-  /// a route-constructed instance). The per-site `_log.info` lines this
-  /// replaces were deleted — do not re-add them, or every decision double-logs.
   static final Logger _decisionLog = Logger('ShotState');
 
-  /// The reason the shot stopped, retained for persistence onto the
-  /// ShotRecord. Set by the stop/abort/terminal decision sites; `finalize`
-  /// decisions (e.g. the stopping backstop) never overwrite it — they close
-  /// the settling window, they are not why the shot stopped.
   ShotDecisionReason? _finalStopReason;
   ShotDecisionReason? get finalStopReason => _finalStopReason;
 
-  /// Current shot phase — lets the owner distinguish a natural finish from a
-  /// mid-shot teardown (disconnect) without subscribing to [state].
   ShotState get currentState => _state;
 
   bool get scaleLost => _scaleLost;
   bool get machineHasAutonomousSAW => _machineHasAutonomousSAW;
 
-  /// Emits a decision on [decisions] and writes the single consolidated log
-  /// line. Abort/terminal log at WARNING (abnormal endings, telemetry-worthy
-  /// and rare); finalize at FINE (window bookkeeping); the rest at INFO.
   void _emitDecision(
     ShotDecisionKind kind,
     ShotDecisionReason reason, {
@@ -237,17 +201,6 @@ class ShotSequencer {
   WeightSnapshot? _latestScale;
   static const Duration _scaleFreshWindow = Duration(seconds: 2);
 
-  /// Whether this shot's scale has been tared for the pour yet. Flips `true`
-  /// when the app issues the pour-time tare (the preheating→pouring
-  /// transition). Until then the scale's absolute reading is whatever sits on
-  /// the platter (cup, portafilter, residual drips) and the derived flow is
-  /// noise — so we report 0 for both rather than feed pre-tare garbage into the
-  /// recorded trace and the visualizer upload. Gating through the whole
-  /// preheat (rather than flipping at the earlier preparing-for-shot tare)
-  /// also sidesteps the in-flight-tare race: by the pour the scale has
-  /// physically settled to zero. Seeded `true` when the app won't tare (SAW
-  /// bypass, e.g. Bengle's autonomous SAW) — there's no app-side tare to wait
-  /// for, so the scale's own readings are trusted as-is.
   bool _scaleTared = false;
   StreamSubscription<device.ConnectionState>? _scaleConnectionSubscription;
 
@@ -378,10 +331,6 @@ class ShotSequencer {
 
     _log.finest("State in: ${_state.name}");
 
-    // Terminal arm: a machine fault ends the shot from any active phase.
-    // Without this the sequencer would sit in `pouring` forever — the DE1
-    // reports MachineState.error, not espresso/pouringDone, so the regular
-    // stop detection below never fires.
     if (machine.state.state == MachineState.error &&
         _state != ShotState.idle &&
         _state != ShotState.finished) {
@@ -444,8 +393,6 @@ class ShotSequencer {
       case ShotState.preheating:
         if (machine.state.state != MachineState.espresso) {
           final intent = de1controller.consumeStopIntent();
-          // No _finalStopReason: an aborted shot is never persisted — the
-          // abort decision itself carries the reason to the feed.
           _emitDecision(
             ShotDecisionKind.abort,
             intent ?? ShotDecisionReason.machineEnded,
@@ -472,8 +419,6 @@ class ShotSequencer {
             "Volume counting activated. Will start from frame ${targetProfile.targetVolumeCountStart}",
           );
 
-          // TODO: Settings control, whether reset should happen here or not
-          //_resetCommand.add(true);
           _state = ShotState.pouring;
           _stateStream.add(_state);
         }
@@ -568,8 +513,6 @@ class ShotSequencer {
           break;
         }
 
-        // Safety backstop: a noisy scale might never produce a settle / removal
-        // / spike event. Guarantee the shot still finalizes.
         _stoppingStateFuture ??= Future.delayed(_stoppingBackstop, () {
           if (_state == ShotState.stopping) {
             _emitDecision(
@@ -595,17 +538,6 @@ class ShotSequencer {
     _log.finest("State out: ${_state.name}");
   }
 
-  /// Tracks profile-frame changes during pouring and reports firmware-natural
-  /// advances (frames the app did NOT skip) as `profileAdvance` decisions.
-  ///
-  /// `skippedSteps` records the *vacated* frame at the moment the app
-  /// requests a skip, so an increment whose previous frame is in that set is
-  /// the firmware acknowledging our skip — already reported as `profileSkip`.
-  /// The frame index is a raw byte off the BLE shot sample with no
-  /// monotonicity guarantee, so advances are emitted against a high-water
-  /// mark ([_maxFrameSeen]): a jump >1 reports each vacated frame once, and a
-  /// regression followed by recovery does not re-report frames already
-  /// emitted. The arbiter still tracks the true current frame separately.
   void _trackFrameAdvance(int profileFrame) {
     if (profileFrame != _lastProfileFrame) {
       _stepExitArbiter.onFrameAdvanced(profileFrame);
@@ -698,20 +630,6 @@ class ShotSequencer {
     _trustedFinalYield = weight;
   }
 
-  /// Refines the final yield during the post-stop window.
-  ///
-  /// The pump is off, so flow onto the scale can only decay. We keep taking the
-  /// rising weight — turbo catch-up included, with no flow or gram cap — and
-  /// lock the yield on the first of:
-  ///   * removal: a sharp drop (flow below -[_removalFlowThreshold]) — keep the
-  ///     peak from before it;
-  ///   * spike: flow jumping up vs the previous sample (a touch/bump rising
-  ///     against the decay) — keep the prior value;
-  ///   * settle: [_settleSampleCount] consecutive near-still samples — trust the
-  ///     settled reading itself.
-  ///
-  /// Magnitude is never gated, so a high-flow turbo tail is not mistaken for a
-  /// spike; only flow rising *against* the decay is.
   void _refineStoppingYield(WeightSnapshot? scale) {
     if (_stoppingYieldLocked) return;
     final weight = scale?.weight;

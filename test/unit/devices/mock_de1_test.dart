@@ -13,7 +13,6 @@ void main() {
       await mock.setHeaterPhase2Timeout(7.5);
 
       expect(await mock.getHeaterPhase2Timeout(), 7.5);
-      // Writing an ordinary MMR setting must not drop the machine.
       await Future<void>.delayed(const Duration(milliseconds: 20));
       expect(states, isNot(contains(device.ConnectionState.disconnected)));
       await sub.cancel();

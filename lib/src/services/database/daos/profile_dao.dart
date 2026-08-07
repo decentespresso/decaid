@@ -8,7 +8,6 @@ part 'profile_dao.g.dart';
 class ProfileDao extends DatabaseAccessor<AppDatabase> with _$ProfileDaoMixin {
   ProfileDao(super.db);
 
-  /// Get all profiles filtered by visibility.
   Future<List<ProfileRecord>> getAllProfiles({String? visibility}) {
     final query = select(profileRecords);
     if (visibility != null) {
@@ -18,7 +17,6 @@ class ProfileDao extends DatabaseAccessor<AppDatabase> with _$ProfileDaoMixin {
     return query.get();
   }
 
-  /// Watch all profiles filtered by visibility.
   Stream<List<ProfileRecord>> watchAllProfiles({String? visibility}) {
     final query = select(profileRecords);
     if (visibility != null) {
@@ -28,14 +26,12 @@ class ProfileDao extends DatabaseAccessor<AppDatabase> with _$ProfileDaoMixin {
     return query.watch();
   }
 
-  /// Get a single profile by ID.
   Future<ProfileRecord?> getProfileById(String id) {
     return (select(
       profileRecords,
     )..where((p) => p.id.equals(id))).getSingleOrNull();
   }
 
-  /// Check if a profile exists by ID.
   Future<bool> profileExists(String id) async {
     final result = await (select(
       profileRecords,
@@ -43,21 +39,18 @@ class ProfileDao extends DatabaseAccessor<AppDatabase> with _$ProfileDaoMixin {
     return result != null;
   }
 
-  /// Get all profile IDs.
   Future<List<String>> getAllProfileIds() async {
     final query = selectOnly(profileRecords)..addColumns([profileRecords.id]);
     final rows = await query.get();
     return rows.map((row) => row.read(profileRecords.id)!).toList();
   }
 
-  /// Get profiles by parent ID (for version chain).
   Future<List<ProfileRecord>> getByParentId(String parentId) {
     return (select(
       profileRecords,
     )..where((p) => p.parentId.equals(parentId))).get();
   }
 
-  /// Count profiles by visibility.
   Future<int> countProfiles({String? visibility}) async {
     final countExpr = profileRecords.id.count();
     final query = selectOnly(profileRecords)..addColumns([countExpr]);
@@ -88,7 +81,6 @@ class ProfileDao extends DatabaseAccessor<AppDatabase> with _$ProfileDaoMixin {
     return (delete(profileRecords)..where((p) => p.id.equals(id))).go();
   }
 
-  /// Clear all profiles.
   Future<void> clearAll() {
     return delete(profileRecords).go();
   }

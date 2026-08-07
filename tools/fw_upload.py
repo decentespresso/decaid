@@ -1,19 +1,4 @@
 #!/usr/bin/env python3
-"""
-DE1 firmware upload over serial.
-
-Usage:
-    python3 fw_upload.py <serial_port> <firmware_file> [--batch N] [--pause MS]
-
-Options:
-    --batch N     Send N chunks before pausing (default: 8)
-    --pause MS    Pause duration in ms after each batch (default: 100)
-
-Example:
-    python3 fw_upload.py /dev/cu.usbmodem1234 firmware.bin
-    python3 fw_upload.py /dev/cu.usbmodem1234 firmware.bin --batch 4 --pause 200
-    python3 fw_upload.py /dev/cu.usbmodem1234 firmware.bin --batch 16 --pause 50
-"""
 
 import sys
 import time
@@ -22,7 +7,6 @@ import serial
 
 
 def encode_u24(value: int) -> bytes:
-    """Encode an integer as a 3-byte big-endian unsigned value."""
     return bytes([
         (value >> 16) & 0xFF,
         (value >> 8) & 0xFF,
@@ -31,31 +15,26 @@ def encode_u24(value: int) -> bytes:
 
 
 def to_hex(data: bytes) -> str:
-    """Convert bytes to hex string (no separators)."""
     return data.hex()
 
 
 def send_command(port: serial.Serial, cmd: str):
-    """Send a serial command string followed by newline."""
     line = f"{cmd}\n".encode()
     port.write(line)
     port.flush()
 
 
 def send_fw_erase(port: serial.Serial):
-    """Send firmware erase request via <I> (fwMapRequest) endpoint."""
     payload = bytes([0x00, 0x00, 0x01, 0x01, 0xFF, 0xFF, 0xFF])
     send_command(port, f"<I>{to_hex(payload)}")
 
 
 def send_fw_verify(port: serial.Serial):
-    """Send firmware verify/map request via <I> endpoint."""
     payload = bytes([0x00, 0x00, 0x00, 0x01, 0xFF, 0xFF, 0xFF])
     send_command(port, f"<I>{to_hex(payload)}")
 
 
 def read_until_prompt(port: serial.Serial, timeout: float = 2.0) -> str:
-    """Read from port until no more data arrives."""
     data = b""
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -69,11 +48,6 @@ def read_until_prompt(port: serial.Serial, timeout: float = 2.0) -> str:
 
 
 def upload_firmware(port: serial.Serial, fw_data: bytes, batch_size: int, pause_s: float):
-    """Upload firmware in 16-byte chunks via <F> (writeToMMR) endpoint.
-
-    Sends batch_size chunks, then pauses for pause_s to let the machine
-    drain its UART buffer and complete SPI flash writes.
-    """
     total = len(fw_data)
     chunk_num = 0
     for i in range(0, total, 16):
@@ -95,7 +69,6 @@ def upload_firmware(port: serial.Serial, fw_data: bytes, batch_size: int, pause_
 
 
 def reader_thread(port: serial.Serial, stop_event: threading.Event):
-    """Background thread to print incoming serial data (for debugging)."""
     while not stop_event.is_set():
         try:
             waiting = port.in_waiting

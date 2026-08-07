@@ -9,15 +9,6 @@ import 'package:reaprime/src/models/errors.dart';
 import '../helpers/mock_device_discovery_service.dart';
 import '../helpers/test_de1.dart';
 
-/// Regression coverage for Crashlytics issue `a2aee0d1…` — a
-/// `MmrTimeoutException` thrown from the shot-settings readback (e.g.
-/// `getFlushFlow`) used to bubble out of the debounce Timer callback as
-/// an uncaught async error → Flutter error zone → Crashlytics fatal.
-///
-/// Fix: `_processShotSettingsUpdate`'s caller now catches
-/// `MmrTimeoutException` alongside `DeviceNotConnectedException` and
-/// logs it at warning level instead.
-
 class _MmrTimingOutDe1 extends TestDe1 {
   _MmrTimingOutDe1()
     : super(deviceId: 'mmr-timeout-de1', name: 'MmrTimeoutDe1');

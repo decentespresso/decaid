@@ -10,43 +10,15 @@ import 'package:reaprime/src/models/device/transport/web_socket_transport.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:rxdart/subjects.dart';
 
-/// Builds a fresh [WebSocketTransport] for a connect attempt. Each call may
-/// resolve a different IP (cached-then-mDNS); the scale's identity stays
-/// pinned to its logical host. Injected so the discovery service owns
-/// resolution and tests can supply a fake.
 typedef WebSocketTransportFactory = WebSocketTransport Function();
 
-/// The Half Decent Scale over WiFi (JSON-over-WebSocket).
-///
-/// A sibling of the BLE `DecentScale` and USB `HDSSerial` — same physical
-/// hardware, entirely different wire protocol. Owns the WebSocket-specific
-/// connect concerns: the `rate 10k`/`events on`/`status` handshake, an
-/// HDS-recognition gate (don't report `connected` until the endpoint proves
-/// it's a scale), and a snapshot watchdog (only the scale can see a silent
-/// stall — frames stopping without the socket closing).
-///
-/// Reconnect is intentionally NOT handled here. Like the BLE/USB scales, a
-/// drop is reported by emitting `disconnected`; `ConnectionManager`'s
-/// preferred-scale reconnect owns re-connection — one reconnect policy for all
-/// transports. A generation token guards every timer/callback so a teardown
-/// can't be undone by a stale closure.
-///
-/// Implements [TransportHandoffScale]: a WiFi disconnect only closes the socket
-/// (it sends no power-off/sleep command), so the handoff path is identical to a
-/// normal disconnect — but declaring the capability makes "switching away from
-/// this scale won't power off the shared physical HDS" a compile-checked
-/// property rather than an accident of the current implementation.
 class HDSWifi implements Scale, TransportHandoffScale {
-  /// Logical host (hostname or IP) — the stable identity, independent of the
-  /// IP a given connect attempt resolves to.
   final String host;
   final WebSocketTransportFactory _transportFactory;
   final Duration _recognitionTimeout;
   final Duration _watchdogInterval;
   late final Logger _log;
 
-  /// Declare the stream dead after this many consecutive watchdog intervals
-  /// with no frame.
   static const int _stallTicks = 2;
 
   HDSWifi({
@@ -80,8 +52,6 @@ class HDSWifi implements Scale, TransportHandoffScale {
   @override
   Stream<ConnectionState> get connectionState => _connectionSubject.stream;
 
-  /// Synchronous current connection state. The discovery service consults this
-  /// to avoid reachability-probing a scale that's already connected/connecting.
   ConnectionState get currentState => _connectionSubject.value;
 
   final BehaviorSubject<ScaleSnapshot> _snapshot = BehaviorSubject();
@@ -94,20 +64,12 @@ class HDSWifi implements Scale, TransportHandoffScale {
   Timer? _recognitionTimer;
   Timer? _watchdogTimer;
 
-  /// Bumped on every terminal transition; captured by timers/callbacks so a
-  /// stale closure bails instead of acting on a torn-down connection.
   int _generation = 0;
   int _ticksSinceFrame = 0;
   bool _recognized = false;
   int _batteryLevel = 100;
   Completer<void>? _connectCompleter;
 
-  /// Connect once. The returned future completes when the scale is recognized,
-  /// or errors if the attempt fails (connect error / recognition timeout).
-  ///
-  /// After a drop, `ConnectionManager` reconnects by calling `onConnect()`
-  /// again on this same instance — this scale runs no reconnect loop of its
-  /// own.
   @override
   Future<void> onConnect() {
     final prev = _connectCompleter;
@@ -166,10 +128,6 @@ class HDSWifi implements Scale, TransportHandoffScale {
 
   void _onFrame(int gen, String raw) {
     if (gen != _generation) return;
-    // Defense-in-depth: this is the single chokepoint for every inbound frame.
-    // A handling exception must be logged and swallowed, never escape into the
-    // transport's stream listener as an unhandled async (zone) error — a stray
-    // frame can't be allowed to drop the connection.
     try {
       final frame = HdsWifiFrame.parse(raw);
       if (frame == null) return;
@@ -226,8 +184,6 @@ class HDSWifi implements Scale, TransportHandoffScale {
     });
   }
 
-  /// A live connection dropped (socket close, watchdog stall, or power_off).
-  /// Report `disconnected` and tear down — `ConnectionManager` owns reconnect.
   void _reportLost(int gen, String reason) {
     if (gen != _generation) return;
     _generation++;
@@ -236,9 +192,6 @@ class HDSWifi implements Scale, TransportHandoffScale {
     _emit(ConnectionState.disconnected);
   }
 
-  /// An in-progress connect attempt failed. Report `disconnected` and surface
-  /// the error to the `onConnect()` caller (initial connect / manual-entry
-  /// validation).
   void _failAttempt(int gen, Object error) {
     if (gen != _generation) return;
     _generation++;
@@ -264,17 +217,9 @@ class HDSWifi implements Scale, TransportHandoffScale {
   @override
   Future<void> disconnectForHandoff() => disconnect();
 
-  /// End-of-life cleanup. Tears down any live connection and closes the exposed
-  /// subjects so listeners see `onDone`. Used when an instance is permanently
-  /// discarded (e.g. a manually-added endpoint is removed). Safe to call more
-  /// than once.
   Future<void> dispose() async {
     _generation++;
     _teardownTransport();
-    // Emit `disconnected` BEFORE closing the subject so a listener (e.g.
-    // ScaleController, which has no onDone handler) sees the transition and
-    // tears down — otherwise disposing the active scale strands the controller
-    // reporting `connected` for a dead device.
     _emit(ConnectionState.disconnected);
     if (!_connectionSubject.isClosed) await _connectionSubject.close();
     if (!_snapshot.isClosed) await _snapshot.close();

@@ -6,8 +6,6 @@ import 'package:reaprime/src/services/wifi/wifi_scale_discovery_service.dart';
 import 'package:rxdart/subjects.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
-/// No-op browser: emits no discovered endpoints, so the test exercises only
-/// the manual-endpoint path.
 class _FakeBrowser implements WifiScaleBrowser {
   final _subject = BehaviorSubject<List<WifiScaleEndpoint>>.seeded(const []);
   @override
@@ -18,7 +16,6 @@ class _FakeBrowser implements WifiScaleBrowser {
   Future<void> stop() async {}
 }
 
-/// In-memory persistence for manual hosts.
 class _MemStore implements WifiManualEndpointStore {
   List<String> _hosts = [];
   @override

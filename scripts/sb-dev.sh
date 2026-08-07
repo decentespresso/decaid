@@ -203,7 +203,6 @@ start_cmd() {
   rm -f "$STDIN_FIFO"
   mkfifo "$STDIN_FIFO"
 
-  # Persistent writer so flutter's reader never sees EOF
   tail -f /dev/null > "$STDIN_FIFO" &
   echo $! > "$HOLDER_PIDFILE"
 

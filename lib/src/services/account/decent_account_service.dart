@@ -10,7 +10,6 @@ abstract class CredentialStore {
 }
 
 class DecentAccountService {
-  /// Flip to true for enabled serial verification.
   static const bool kEnableSerialVerification = true;
 
   final http.Client _httpClient;
@@ -45,7 +44,6 @@ class DecentAccountService {
 
   Future<bool> isLoggedIn() async => await _store.read(key: 'email') != null;
 
-  /// Returns the stored email address, or null if not logged in.
   Future<String?> getEmail() async => _store.read(key: 'email');
 
   Future<List<String>> fetchSerialNumbers() async {
@@ -78,9 +76,6 @@ class DecentAccountService {
     return list.contains(serial);
   }
 
-  /// Emails Decent tech support about a serial number not being associated
-  /// with the current user's account. Mirrors de1app's
-  /// `fetch_decent_api "email?subject=...&body=..."`.
   Future<void> emailSerialMismatch(String serial) async {
     final email = await _store.read(key: 'email');
     final password = await _store.read(key: 'password');

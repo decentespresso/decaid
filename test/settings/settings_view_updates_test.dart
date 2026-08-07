@@ -14,10 +14,6 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../helpers/mock_settings_service.dart';
 
-/// The SettingsView branches on the injected `macosUpdater.isSupported`
-/// capability, so both the macOS (Sparkle) and the Dart-service paths run on
-/// every test host. The harness's Dart service uses `platformIsMacOS: false`
-/// so its reactions (immediate checks, timers) stay observable.
 class _RecordingUpdater extends AndroidUpdater {
   _RecordingUpdater() : super(owner: 'tadelv', repo: 'reaprime');
   int checkCalls = 0;
@@ -178,7 +174,6 @@ void main() {
 
       expect(updater.checkCalls, 1);
 
-      // Toggle OFF: Sparkle scheduling stops AND the Dart timer must stop.
       await tester.tap(
         find.widgetWithText(ShadSwitch, 'Automatic update checks'),
       );
@@ -221,8 +216,6 @@ void main() {
           calls,
           macos: true,
           sparkleConfigureFails: true,
-          // A real macOS service would no-op app checks; the degraded path
-          // must never route through it or claim "latest version".
           serviceIsMacOS: true,
         );
 

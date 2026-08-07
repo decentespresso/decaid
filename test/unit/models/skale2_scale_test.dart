@@ -8,21 +8,16 @@ import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:rxdart/rxdart.dart';
 
-/// Test double for [BLETransport] that records the order of all operations
-/// (writes, subscribes, reads) so tests can assert on the exact sequence.
 class _RecordableBleTransport extends BLETransport {
   final List<String> serviceUUIDs = const [
     '0000ff08-0000-1000-8000-00805f9b34fb',
   ];
 
-  /// Ordered log of every operation. Each entry is a string like
-  /// `write:EF80:[0xED]`, `subscribe:EF81`, or `read:2A19`.
   final List<String> operations = [];
 
   final BehaviorSubject<ConnectionState> _connectionState =
       BehaviorSubject.seeded(ConnectionState.disconnected);
 
-  /// Callbacks set by the last subscribe call, keyed by characteristic UUID.
   final Map<String, void Function(Uint8List)> _notifyCallbacks = {};
 
   _RecordableBleTransport();
@@ -104,22 +99,17 @@ class _RecordableBleTransport extends BLETransport {
     _connectionState.close();
   }
 
-  /// Simulate a weight notification arriving from the scale.
   void simulateWeightNotification(List<int> data) {
     _notifyCallbacks['ef81']?.call(Uint8List.fromList(data));
   }
 
-  /// Simulate a button notification arriving from the scale.
   void simulateButtonNotification(List<int> data) {
     _notifyCallbacks['ef82']?.call(Uint8List.fromList(data));
   }
 
-  /// Whether a notification subscription is currently active for the given
-  /// characteristic (by short UUID, e.g. `ef81` or `ef82`).
   bool isSubscribed(String shortUuid) =>
       _notifyCallbacks.containsKey(shortUuid.toLowerCase());
 
-  /// Clear all subscriptions (simulates what happens when the BLE link drops).
   void clearSubscriptions() {
     _notifyCallbacks.clear();
   }

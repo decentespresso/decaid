@@ -4,7 +4,6 @@ import 'package:reaprime/src/services/account/decent_account_service.dart'
 import 'package:reaprime/src/services/account/proxy_token_service.dart';
 import 'package:reaprime/src/services/account/proxy_token_store.dart';
 
-/// In-memory CredentialStore double — mirrors the secure store contract.
 class _FakeCredentialStore implements CredentialStore {
   final Map<String, String> _data = {};
 

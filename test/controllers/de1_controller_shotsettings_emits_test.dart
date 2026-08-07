@@ -11,17 +11,6 @@ import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 
 import '../helpers/mock_device_discovery_service.dart';
 
-/// Counts every event that crosses `MockDe1.shotSettings` — the same
-/// stream `/ws/v1/machine/shotSettings` delivers to clients. These
-/// tests pin the emit-count contract per De1Controller write op so we
-/// catch regressions in the number of WS messages per workflow change.
-///
-/// Context: the original redundant-writes report observed 5 WS emits
-/// per single steam-duration PUT. After adding value equality on the
-/// workflow data classes, awaiting individual settings writes in
-/// WorkflowHandler, dropping the `setXFlow` nudge re-emit in
-/// MockDe1/UnifiedDe1, and applying `.distinct()` on the shotSettings
-/// getter, the count is 1 per changed field.
 void main() {
   late MockDe1 mockDe1;
   late DeviceController deviceController;

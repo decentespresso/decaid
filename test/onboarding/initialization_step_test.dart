@@ -15,9 +15,6 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 import '../helpers/mock_de1_controller.dart';
 import '../helpers/mock_settings_service.dart';
 
-/// WebUIStorage fake: fast local init, no default skin (so the serve step is
-/// skipped), and a remote-download that never completes — so the test can
-/// assert the critical path does NOT await it.
 class _FakeWebUIStorage extends WebUIStorage {
   bool? initDownloadRemote;
   bool downloadRescanCalled = false;
@@ -35,12 +32,10 @@ class _FakeWebUIStorage extends WebUIStorage {
   @override
   Future<void> downloadRemoteSkinsAndRescan() {
     downloadRescanCalled = true;
-    return Completer<void>().future; // never completes
+    return Completer<void>().future;
   }
 }
 
-/// Plugin loader fake whose initialize() never completes — so the test can
-/// assert the critical path kicks it off without awaiting.
 class _FakePluginLoaderService extends PluginLoaderService {
   bool initCalled = false;
 
@@ -50,7 +45,7 @@ class _FakePluginLoaderService extends PluginLoaderService {
   @override
   Future<void> initialize() {
     initCalled = true;
-    return Completer<void>().future; // never completes
+    return Completer<void>().future;
   }
 }
 
@@ -106,10 +101,7 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
 
-    // Critical path completed and advanced even though the deferred work
-    // (plugin init + remote download) never completes.
     expect(onboarding.advanceCallCount, 1);
-    // Remote download was NOT awaited on the critical path...
     expect(storage.initDownloadRemote, isFalse);
     expect(storage.downloadRescanCalled, isTrue);
     expect(plugins.initCalled, isTrue);

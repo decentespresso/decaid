@@ -9,80 +9,38 @@ import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:rxdart/rxdart.dart';
 
-/// Recorded write captured by [FakeBleTransport]. Includes the
-/// `withResponse` flag so tests covering `writeWithResponse` vs.
-/// fire-and-forget paths can distinguish them.
 typedef FakeBleWrite = ({
   String characteristicUUID,
   Uint8List data,
   bool withResponse,
 });
 
-/// Consolidated BLE transport stub for tests.
-///
-/// Replaces the per-test stubs that lived in `protected_surface_test.dart`
-/// (`_ProgrammableBleTransport`), `firmware_prelude_hook_test.dart`
-/// (`_CapturingBleTransport`), and `bengle_firmware_prelude_test.dart`
-/// (`_CapturingBleTransport`).
-///
-/// Capabilities provided:
-///
-/// * BLE service discovery returns `[de1ServiceUUID]`.
-/// * Per-UUID subscribe-callback capture.
-/// * Per-UUID `read()` queue ([queueRead]) — falls through to a 20-byte
-///   zero buffer for unstubbed reads.
-/// * Ordered write capture in [writes].
-/// * MMR-response synthesis: calling [queueMmrResponseInt] /
-///   [queueMmrResponseRaw] sets up a pending response that is emitted
-///   on the `readFromMMR` notification stream when a matching MMR
-///   read request hits `Endpoint.readFromMMR.uuid`.
-/// * [lastRequestedState] decodes the most recent write to
-///   `Endpoint.requestedState` back into a [MachineState] for
-///   readable assertions.
 class FakeBleTransport extends BLETransport {
   final _connState = BehaviorSubject<ConnectionState>.seeded(
     ConnectionState.connected,
   );
 
-  /// Subscribe callbacks keyed by characteristic UUID.
   final Map<String, void Function(Uint8List)> subscribers = {};
 
-  /// Address -> integer to emit on the next matching MMR read request.
   final Map<int, int> _intResponses = {};
 
-  /// Address -> raw 16-byte payload (bytes 4..19 of the 20-byte MMR
-  /// notification frame). Takes precedence over [_intResponses] when
-  /// both are queued for the same address.
   final Map<int, List<int>> _rawResponses = {};
 
-  /// Per-UUID queued `read()` payloads.
   final Map<String, Queue<Uint8List>> _readQueue = {};
   final Queue<Uint8List> _firmwareMapResponses = Queue<Uint8List>();
 
-  /// Ordered writes seen by the transport.
   final List<FakeBleWrite> writes = [];
 
-  /// Number of upcoming matching MMR read requests whose notification is
-  /// silently dropped (the queued response is left intact for a retry).
-  /// Simulates the Android post-connect notify-loss the `_mmrReadRaw`
-  /// retry guards against.
   int dropNextMmrResponses = 0;
 
-  /// Queue an integer to be returned when a read request to [item] hits
-  /// the MMR write characteristic.
   void queueMmrResponseInt(MmrAddress item, int value) {
     _intResponses[item.address] = value;
   }
 
-  /// Queue a raw payload (1..16 bytes) to be returned when a read
-  /// request to [item] hits the MMR write characteristic.
   void queueMmrResponseRaw(MmrAddress item, List<int> payload) {
     _rawResponses[item.address] = payload;
   }
 
-  /// Queue [bytes] for the next `read()` call against [characteristicUUID].
-  /// Subsequent reads pop further entries; once empty the default 20-byte
-  /// zero buffer is returned.
   void queueRead(String characteristicUUID, Uint8List bytes) {
     _readQueue.putIfAbsent(characteristicUUID, Queue.new).add(bytes);
   }
@@ -95,7 +53,6 @@ class FakeBleTransport extends BLETransport {
     subscribers[Endpoint.fwMapRequest.uuid]?.call(Uint8List.fromList(bytes));
   }
 
-  /// Decoded last `requestedState` write, or null if none seen.
   MachineState? get lastRequestedState {
     for (final w in writes.reversed) {
       if (w.characteristicUUID != Endpoint.requestedState.uuid) continue;
@@ -236,10 +193,6 @@ class FakeBleTransport extends BLETransport {
     }
   }
 
-  /// Queue the standard set of MMR responses needed for `onConnect()` to
-  /// complete (`v13Model`, `ghcInfo`, `serialN`, `cpuFirmwareBuild`,
-  /// `heaterV`, `refillKitPresent`). Override individual values via
-  /// keyword arguments.
   void queueOnConnectResponses({
     int v13Model = 1,
     int ghcInfo = 0,

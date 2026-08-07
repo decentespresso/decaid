@@ -10,7 +10,6 @@ import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:rxdart/rxdart.dart';
 
-/// Discovery service that emits whatever the test feeds it.
 class _TestDiscovery extends DeviceDiscoveryService {
   final BehaviorSubject<List<Device>> _subj = BehaviorSubject.seeded(const []);
   @override

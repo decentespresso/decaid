@@ -1,18 +1,5 @@
 #!/usr/bin/env node
 
-/**
- * DYE2 Plugin Dev Server
- *
- * Loads the built plugin.js in a Node.js VM, serves its pages via HTTP,
- * and proxies /api/v1/* requests to a running Decent instance.
- *
- * Usage:
- *   npm run serve                          # defaults: port 3000, bridge at localhost:8080
- *   PORT=4000 BRIDGE_URL=http://192.168.1.5:8080 npm run serve
- *
- * Pair with `npm run dev` in another terminal for watch builds — the server
- * auto-reloads plugin.js when it changes on disk.
- */
 
 import { createServer, request as httpRequest } from "node:http";
 import { readFileSync, watch } from "node:fs";

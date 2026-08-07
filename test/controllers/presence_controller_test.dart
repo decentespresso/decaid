@@ -23,7 +23,6 @@ import 'package:rxdart/subjects.dart';
 
 import '../helpers/mock_settings_service.dart';
 
-/// Minimal DeviceDiscoveryService for constructing DeviceController.
 class _FakeDiscoveryService implements DeviceDiscoveryService {
   @override
   Stream<List<Device>> get devices => const Stream.empty();
@@ -38,8 +37,6 @@ class _FakeDiscoveryService implements DeviceDiscoveryService {
   Future<Device?> tryQuickConnect(RememberedDevice remembered) async => null;
 }
 
-/// A De1Interface test double that records calls to sendUserPresent and
-/// requestState, and exposes a controllable snapshot stream.
 class _TestDe1 implements De1Interface {
   final BehaviorSubject<MachineSnapshot> _snapshotSubject =
       BehaviorSubject.seeded(
@@ -220,7 +217,6 @@ class _TestDe1 implements De1Interface {
   Future<void> dispose() async {}
 }
 
-/// A De1Controller subclass that exposes a settable de1 subject.
 class _TestDe1Controller extends De1Controller {
   final BehaviorSubject<De1Interface?> _de1Subject = BehaviorSubject.seeded(
     null,
@@ -413,7 +409,6 @@ void main() {
 
         async.elapse(const Duration(minutes: 5, seconds: 1));
 
-        // Should NOT have slept — should have restarted timer
         expect(
           testDe1.requestedStates.where((s) => s == MachineState.sleeping),
           isEmpty,
@@ -450,8 +445,6 @@ void main() {
           controller.heartbeat();
           async.flushMicrotasks();
 
-          // A hands-off pull that begins and ends well within the timeout window,
-          // with no further heartbeats (the user never touches the screen).
           async.elapse(const Duration(minutes: 1));
           testDe1.emitState(MachineState.espresso);
           async.flushMicrotasks();
@@ -459,8 +452,6 @@ void main() {
           testDe1.emitState(MachineState.idle);
           async.flushMicrotasks();
 
-          // Past the ORIGINAL heartbeat-anchored timeout (5m after the heartbeat):
-          // must NOT sleep, because the shot ending restarted the countdown.
           async.elapse(const Duration(minutes: 3, seconds: 30));
           expect(
             testDe1.requestedStates.where((s) => s == MachineState.sleeping),

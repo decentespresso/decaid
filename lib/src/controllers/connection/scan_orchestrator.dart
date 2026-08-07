@@ -15,21 +15,11 @@ import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/scan_filter.dart';
 import 'package:reaprime/src/models/errors.dart';
 
-/// Outcome of [ScanOrchestrator.runScan].
-///
-/// `null` from the orchestrator means a catastrophic scan failure
-/// (bluetoothPermissionDenied / scanFailed) — the orchestrator has
-/// already emitted the sticky error and phase=idle on the status
-/// stream; the coordinator should bail.
 class ScanRunResult {
-  /// Machines matched during the scan.
   final List<De1Interface> machines;
 
-  /// Scales matched during the scan.
   final List<Scale> scales;
 
-  /// The per-scan builder. The coordinator feeds connection-attempt
-  /// results back into this before calling [emit].
   final ScanReportBuilder reportBuilder;
 
   const ScanRunResult({
@@ -39,14 +29,6 @@ class ScanRunResult {
   });
 }
 
-/// Runs one scan cycle and wires the EarlyConnectWatcher, the
-/// `DeviceScanner.scanForDevices()` call, sticky-error clearing, and
-/// the post-scan ScanReportBuilder seeding. The coordinator stays
-/// responsible for applying the policy + emitting the final
-/// ScanReport so status-emission ownership remains clear.
-///
-/// Extracted from ConnectionManager as part of comms-harden Phase 4
-/// (roadmap items 15, 16).
 class ScanOrchestrator {
   static final _log = Logger('ScanOrchestrator');
 
@@ -74,14 +56,6 @@ class ScanOrchestrator {
        _isMachineConnected = isMachineConnected,
        _isScaleConnected = isScaleConnected;
 
-  /// Publish `phase: scanning`, set up the early-connect watcher,
-  /// run the scan, wait for early connects, and return a snapshot
-  /// for the coordinator's policy stage.
-  ///
-  /// Returns `null` if the scan failed catastrophically — in that
-  /// case this method has already emitted the classified error +
-  /// `phase: idle` and the coordinator should bail without running
-  /// the policy stage.
   Future<ScanRunResult?> runScan({
     required String? preferredMachineId,
     required String? preferredScaleId,
@@ -147,11 +121,6 @@ class ScanOrchestrator {
     );
   }
 
-  /// Classify an exception thrown by `scanForDevices()` into a
-  /// ConnectionErrorKind, publish `phase: idle`, and emit the
-  /// classified error. Preserves the pre-refactor "DO NOT REORDER"
-  /// invariant (publish phase first so the gatekeeper strips any
-  /// stale transient, then emit the new sticky error).
   void _emitScanStartError(Object e) {
     final kind = _classifyScanError(e);
     _statusPublisher.publish(
@@ -208,11 +177,6 @@ class ScanOrchestrator {
     }
   }
 
-  /// Map a scan-start exception to a [ConnectionErrorKind]. Checks
-  /// the exception type first (for the known [PermissionDeniedException]
-  /// type); falls back to a lowercase substring match on the message
-  /// so platforms that surface permission failures as generic
-  /// exceptions still route to the right kind.
   static String _classifyScanError(Object e) {
     if (e is PermissionDeniedException) {
       return ConnectionErrorKind.bluetoothPermissionDenied;

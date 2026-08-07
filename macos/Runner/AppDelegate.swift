@@ -3,7 +3,6 @@ import FlutterMacOS
 
 @main
 class AppDelegate: FlutterAppDelegate {
-  /// Retains the Sparkle coordinator registered by MainFlutterWindow.
   var macosUpdater: MacOSUpdater?
 
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

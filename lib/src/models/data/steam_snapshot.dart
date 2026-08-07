@@ -1,9 +1,5 @@
 import 'package:reaprime/src/models/device/machine.dart';
 
-/// One sample collected during steaming. Analogue of [ShotSnapshot]:
-/// wraps the full [MachineSnapshot] and adds the milk-probe reading
-/// when one is available. `milkTemperature` is `null` until a sensor
-/// is registered with `SensorController` and emits a reading.
 class SteamSnapshot {
   final MachineSnapshot machine;
   final double? milkTemperature;

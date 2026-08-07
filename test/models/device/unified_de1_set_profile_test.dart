@@ -8,32 +8,12 @@ import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart
 import 'package:reaprime/src/models/device/transport/serial_port.dart';
 import 'package:rxdart/rxdart.dart';
 
-/// Regression coverage for comms-harden #1 — `setProfile` equality guard.
-///
-/// The guard short-circuits when `_currentProfile == profile`. Before the
-/// fix, `_currentProfile` was assigned **before** `_sendProfile` was
-/// awaited, so a mid-upload throw (e.g. a BLE timeout after the header
-/// frame but before the tail) poisoned the cache: a retry with the same
-/// profile hit the guard and silently no-op'd, leaving the DE1 running
-/// on a half-loaded profile with the caller seeing success.
-///
-/// After the fix, `_currentProfile` is assigned only after `_sendProfile`
-/// completes successfully, so a retry with the same profile after a
-/// failed upload proceeds with a fresh upload.
-///
-/// Option C verification: integration test over a real `UnifiedDe1` with
-/// a recording `SerialTransport`. Counts `writeCommand` invocations as a
-/// proxy for "upload happened".
-///
-/// See: doc/plans/comms-harden.md #1, doc/plans/comms-phase-0-1.md PR 2.
 class _RecordingSerialTransport extends SerialTransport {
   final _connState = BehaviorSubject<ConnectionState>.seeded(
     ConnectionState.connected,
   );
   final List<String> writes = [];
 
-  /// If set, the call whose zero-based index matches this value throws
-  /// once, then clears itself.
   int? failIndexOnce;
 
   @override
@@ -150,8 +130,6 @@ void main() {
       transport.failIndexOnce = writesAfterSuccess;
       await expectLater(() => de1.setProfile(other), throwsA(isA<Exception>()));
 
-      // Reverting to the original profile MUST re-upload it, not
-      // short-circuit on the stale success cache.
       await de1.setProfile(profile);
       expect(
         transport.writes.length,
@@ -176,15 +154,6 @@ void main() {
   });
 
   group('concurrent setProfile serialization', () {
-    // A profile upload is a stateful multi-write sequence (header + frames +
-    // tail) the firmware consumes as one conversation. Two uploads whose
-    // writes interleave on the transport queue wedge the firmware's
-    // profile-receive state machine — so UnifiedDe1 must serialize uploads
-    // across ALL callers (workflow sync, REST handler, reconnect defaults).
-    // The two profiles differ in step count so their write sequences differ
-    // in length and content; expectations compare against each profile's
-    // solo-run write sequence, captured once below.
-
     const profileA = Profile(
       version: '2',
       title: 'Serialization A',
@@ -220,7 +189,6 @@ void main() {
     late List<String> soloWritesA;
     late List<String> soloWritesB;
 
-    /// The exact transport writes one upload of [p] produces on its own.
     Future<List<String>> soloWrites(Profile p) async {
       final t = _RecordingSerialTransport();
       final d = UnifiedDe1(transport: t);

@@ -7,7 +7,6 @@ import 'package:shelf_plus/shelf_plus.dart';
 
 import 'json_response.dart';
 
-/// REST API handler for submitting user feedback as GitHub issues
 class FeedbackHandler {
   final Logger _log = Logger('FeedbackHandler');
   final FeedbackService _service;
@@ -18,8 +17,6 @@ class FeedbackHandler {
     app.post('/api/v1/feedback', _handleSubmitFeedback);
   }
 
-  /// POST /api/v1/feedback
-  /// Body: { description: string, type: string, includeLogs?: bool, includeSystemInfo?: bool }
   Future<Response> _handleSubmitFeedback(Request request) async {
     try {
       if (!_service.isConfigured) {

@@ -7,10 +7,6 @@ import 'package:reaprime/src/settings/gateway_mode.dart';
 import 'package:reaprime/src/settings/scale_power_mode.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Abstract interface for storing and retrieving user settings.
-///
-/// Concrete implementations can use SharedPreferences, in-memory storage,
-/// or any other persistence mechanism.
 abstract class SettingsService {
   Future<ThemeMode> themeMode();
   Future<void> updateThemeMode(ThemeMode theme);
@@ -89,7 +85,6 @@ abstract class SettingsService {
   Future<void> setFeatureFlag(FeatureFlag flag, bool value);
 }
 
-/// SharedPreferences-backed implementation of [SettingsService].
 class SharedPreferencesSettingsService extends SettingsService {
   final prefs = SharedPreferencesAsync();
 

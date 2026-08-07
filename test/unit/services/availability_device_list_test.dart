@@ -7,7 +7,6 @@ import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
 
-/// Minimal live Device for exercising the availability merge.
 class _FakeDevice implements Device {
   @override
   final String deviceId;
@@ -128,8 +127,6 @@ void main() {
       test(
         'order is stable regardless of input order or connection state',
         () async {
-          // Same devices, different input order and states — the output order
-          // must be identical (so the list does not shift on connect/disconnect).
           final a = await buildAvailabilityDeviceList(
             [
               _FakeDevice(

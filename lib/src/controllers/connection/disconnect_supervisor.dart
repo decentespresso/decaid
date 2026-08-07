@@ -9,17 +9,6 @@ import 'package:reaprime/src/controllers/connection_manager.dart'
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart' as device;
 
-/// Watches the machine and scale connection streams for the
-/// lifetime of a [ConnectionManager]. Tracks the latest observed state
-/// of each device and emits an error (through [StatusPublisher]) when
-/// a disconnect arrives that wasn't already announced by the app
-/// (via [DisconnectExpectations]).
-///
-/// Also publishes `phase: idle` on machine disconnect so the UI can
-/// react even if the caller didn't issue an explicit `connect()`.
-///
-/// Extracted from ConnectionManager as part of comms-harden Phase 4
-/// (roadmap items 15 and 19).
 class DisconnectSupervisor {
   static final _log = Logger('DisconnectSupervisor');
 
@@ -74,25 +63,13 @@ class DisconnectSupervisor {
     _start();
   }
 
-  /// `true` if the machine stream has last emitted a non-null
-  /// `De1Interface`. Replaces the old `_machineConnected` flag —
-  /// this is a live view of the stream, not parallel state.
   bool get isMachineConnected => _latestDe1 != null;
 
-  /// The last non-null machine emitted on the machine stream, or `null`
-  /// if no machine is currently connected. Used by `ConnectionManager`
-  /// to special-case Bengle machines in the scale phase.
   De1Interface? get latestMachine => _latestDe1;
 
-  /// `true` if the scale stream has last emitted `connected`.
   bool get isScaleConnected =>
       _latestScaleState == device.ConnectionState.connected;
 
-  /// Pre-null the tracked de1 view so the next null emission from
-  /// [machineStream] doesn't trigger the disconnect path. Used by
-  /// [ConnectionManager.disconnectMachine] which publishes
-  /// `phase: idle` itself and doesn't want a redundant emission from
-  /// the supervisor.
   void markMachineOffline() {
     _latestDe1 = null;
   }
@@ -146,9 +123,6 @@ class DisconnectSupervisor {
     });
   }
 
-  /// Returns `true` when the disconnect was unexpected (no matching
-  /// expectation) — mirrors [_handleScaleDisconnect] so the caller can
-  /// gate recovery behavior on it.
   bool _handleMachineDisconnect(String deviceId) {
     if (_expectations.consume(deviceId)) {
       _log.fine('Machine $deviceId: expected disconnect, suppressing error');
@@ -188,18 +162,12 @@ class DisconnectSupervisor {
     return true;
   }
 
-  /// Drive the same error-emission path the stream listener would
-  /// take when it sees an unexpected disconnect for [deviceId].
-  /// Used by ConnectionManager's `@visibleForTesting` wrappers so
-  /// tests can simulate disconnect events without touching the
-  /// underlying streams.
   void notifyMachineDisconnected(String deviceId) =>
       _handleMachineDisconnect(deviceId);
 
   void notifyScaleDisconnected(String deviceId) =>
       _handleScaleDisconnect(deviceId);
 
-  /// Cancel both stream subscriptions. Safe to call more than once.
   void dispose() {
     _machineSub?.cancel();
     _scaleSub?.cancel();

@@ -5,10 +5,6 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../onboarding_controller.dart';
 
-/// Creates an [OnboardingStep] that shows a welcome screen.
-///
-/// shouldShow is determined by the caller — typically shown when onboarding
-/// has not yet been completed.
 OnboardingStep createWelcomeStep() {
   return OnboardingStep(
     id: 'welcome',

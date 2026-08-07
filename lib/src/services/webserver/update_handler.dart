@@ -1,16 +1,5 @@
 part of '../webserver_service.dart';
 
-/// App-update API: a thin REST read plus a live WebSocket that streams
-/// [AppUpdateState] and accepts `{command}` frames. Backed entirely by
-/// [UpdateCheckService] (single source of truth).
-///
-/// - `GET /api/v1/update`  — current state snapshot (no network call).
-/// - `GET /ws/v1/update`   — streams state; accepts `{"command":"check"}` and
-///   `{"command":"install"}`.
-///
-/// Command-level problems (bad command, unsupported platform) are reported as
-/// a transient direct socket reply `{"error": ...}`; operational outcomes flow
-/// through the state stream as `phase: error`. Mirrors `DevicesHandler`.
 class UpdateHandler {
   final UpdateCheckService _service;
   final log = Logger("UpdateHandler");
@@ -57,9 +46,6 @@ class UpdateHandler {
     );
   }
 
-  /// Dispatch an inbound `{command}` frame. [reply] sends a transient
-  /// command-level response back to the caller (operational outcomes flow
-  /// through the state stream instead). Public for testing.
   void handleCommand(
     Map<String, dynamic> data,
     void Function(Map<String, dynamic>) reply,

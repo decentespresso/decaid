@@ -1,4 +1,3 @@
-/** Host API provided by the flutter_js plugin runtime */
 interface PluginHost {
   log(message: string): void;
   emit(eventName: string, payload: Record<string, unknown>): void;

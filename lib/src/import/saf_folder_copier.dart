@@ -8,21 +8,10 @@ import 'package:saf_util/saf_util_platform_interface.dart';
 
 final _log = Logger('SafFolderCopier');
 
-/// Copies relevant de1app subdirectories from an Android SAF-picked folder
-/// to local cache so that [De1appScanner] and [De1appImporter] can access
-/// them with normal dart:io operations.
 class SafFolderCopier {
-  /// The subdirectories (and files) we care about from the de1app folder.
   static const _relevantDirs = ['history_v2', 'history', 'profiles_v2'];
   static const _stagingDirName = 'de1app_import_staging';
 
-  /// Opens the SAF folder picker and copies relevant contents to app cache.
-  ///
-  /// Returns the local staging directory path, or `null` if the user cancelled.
-  /// Opens the SAF folder picker, copies relevant contents to app cache.
-  /// Combines [pickDirectory] and [copyFromUri] in one call.
-  ///
-  /// Returns the local staging directory path, or `null` if the user cancelled.
   Future<String?> pickAndCopy({
     void Function(int copied, int total)? onProgress,
   }) async {
@@ -31,8 +20,6 @@ class SafFolderCopier {
     return copyFromUri(uri, onProgress: onProgress);
   }
 
-  /// Opens the SAF folder picker and returns the tree URI, or `null` if
-  /// the user cancelled. Use with [copyFromUri] for two-step pick+copy.
   Future<String?> pickDirectory() async {
     final picked = await SafUtil().pickDirectory(
       writePermission: false,
@@ -46,10 +33,6 @@ class SafFolderCopier {
     return picked.uri;
   }
 
-  /// Copies relevant de1app subdirectories from a SAF tree URI to app cache.
-  ///
-  /// Returns the local staging directory path, or `null` if no relevant
-  /// files were found.
   Future<String?> copyFromUri(
     String treeUri, {
     void Function(int copied, int total)? onProgress,
@@ -114,7 +97,6 @@ class SafFolderCopier {
     return stagingPath;
   }
 
-  /// Deletes the staging directory if it exists.
   Future<void> cleanup() async {
     final path = await _stagingPath();
     final dir = Directory(path);
@@ -129,8 +111,6 @@ class SafFolderCopier {
     return '${tempDir.path}/$_stagingDirName';
   }
 
-  /// Locates plugins/DYE/grinders.tdb in the SAF tree and adds it to
-  /// [filesToCopy] if found.
   Future<void> _collectGrinderFile(
     List<SafDocumentFile> topLevel,
     String stagingPath,

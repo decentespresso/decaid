@@ -1,9 +1,6 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 
-/// Flutter Secure Storage backed credential store.
-/// Uses iOS Keychain, Android EncryptedSharedPreferences, macOS Keychain,
-/// and Linux libsecret.
 class SecureCredentialStore implements CredentialStore {
   final FlutterSecureStorage _storage;
 

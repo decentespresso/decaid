@@ -24,7 +24,6 @@ import 'usb_ids.dart';
 import 'utils.dart';
 import 'package:rxdart/subjects.dart';
 
-// usb_serial is pulled in transitively via flutter_libserialport's git source.
 // ignore: depend_on_referenced_packages
 import 'package:usb_serial/usb_serial.dart';
 
@@ -47,11 +46,6 @@ class SerialServiceAndroid
        _usbEventStream = usbEventStream ?? (() => UsbSerial.usbEventStream),
        _detectOverride = detectDevice;
 
-  /// Tracks transports created by [_detectDevice] so quick-connect cleanup
-  /// can dispose them. Keyed by [Device.deviceId] (== [AndroidSerialPort.id]).
-  /// The scan path does not dispose from here — pre-existing behavior —
-  /// but the QC path uses it to avoid leaking port handles + stream
-  /// controllers on mismatch / failure / disconnect.
   final Map<String, AndroidSerialPort> _transportForDeviceId = {};
 
   bool _isScanning = false;

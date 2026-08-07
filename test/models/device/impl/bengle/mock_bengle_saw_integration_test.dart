@@ -5,7 +5,6 @@ import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/device/impl/bengle/mock_bengle.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 
-/// SAW (stop-at-weight) profile: step0 preinfusion, step1 pours until weight hits exit.
 Profile _sawProfile() {
   return Profile(
     version: '1.0',
@@ -100,10 +99,6 @@ void main() {
       await bengle.setProfile(_sawProfile());
       await bengle.requestState(MachineState.espresso);
 
-      // Sample entirely within preinfusion (step0 is 1s; prep is the first
-      // ~0.5s). Weight is gated on profileFrame >= targetVolumeCountStart, so it
-      // must read ~0 for every preinfusion sample. Keep the window under 1s —
-      // sampling past the pour boundary would legitimately catch early extraction.
       await Future.delayed(const Duration(milliseconds: 400));
 
       final weights = await bengle.weightSnapshot

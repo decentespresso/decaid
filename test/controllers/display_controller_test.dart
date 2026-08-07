@@ -24,7 +24,6 @@ import 'package:rxdart/subjects.dart';
 
 import '../helpers/mock_settings_service.dart';
 
-/// Minimal DeviceDiscoveryService for constructing DeviceController.
 class _FakeDiscoveryService implements DeviceDiscoveryService {
   @override
   Stream<List<Device>> get devices => const Stream.empty();
@@ -39,7 +38,6 @@ class _FakeDiscoveryService implements DeviceDiscoveryService {
   Future<Device?> tryQuickConnect(RememberedDevice remembered) async => null;
 }
 
-/// A De1Interface test double with a controllable snapshot stream.
 class _TestDe1 implements De1Interface {
   final BehaviorSubject<MachineSnapshot> _snapshotSubject =
       BehaviorSubject.seeded(
@@ -213,7 +211,6 @@ class _TestDe1 implements De1Interface {
   Future<void> dispose() async {}
 }
 
-/// A De1Controller subclass that exposes a settable de1 subject.
 class _TestDe1Controller extends De1Controller {
   final BehaviorSubject<De1Interface?> _de1Subject = BehaviorSubject.seeded(
     null,
@@ -229,7 +226,6 @@ class _TestDe1Controller extends De1Controller {
   }
 }
 
-/// Controllable battery state emitter for testing.
 class _TestBatteryController {
   final BehaviorSubject<ChargingState> _stateSubject =
       BehaviorSubject<ChargingState>();
@@ -255,13 +251,6 @@ class _TestBatteryController {
   }
 }
 
-/// Creates a DisplayController with no-op platform operations for testing.
-/// This allows tests to verify actual state transitions without platform deps.
-///
-/// Defaults [platformSupport] to brightness+wakeLock enabled so tests focused
-/// on brightness/battery-cap behavior don't depend on the host CI platform
-/// (DisplayController's auto-detection treats Linux as brightness-unsupported,
-/// which would otherwise short-circuit those tests on a Linux runner).
 DisplayController _createController(
   _TestDe1Controller de1Controller, {
   required SettingsController settingsController,
@@ -296,8 +285,6 @@ void main() {
     final mockSettings = MockSettingsService();
     settingsCtrl = SettingsController(mockSettings);
     await settingsCtrl.loadSettings();
-    // Auto-manage wake-lock tests below assume keepAwake is off; the
-    // keepAwake-setting group re-enables it explicitly.
     await settingsCtrl.setKeepAwake(false);
   });
 
@@ -789,11 +776,6 @@ void main() {
           async.flushMicrotasks();
           expect(controller.currentState.brightness, 0);
 
-          // A BLE reconnect during sleep swaps in a fresh De1Interface, resetting
-          // the controller's last-seen machine state to null. The reconnected
-          // stream is already awake (idle), so the sleeping->idle transition is
-          // never observed: an edge-triggered restore misses it and leaves the
-          // screen stuck dark. The restore must instead fire off the awake state.
           final reconnected = _TestDe1();
           de1Controller.setDe1(reconnected);
           async.flushMicrotasks();
@@ -895,8 +877,6 @@ void main() {
           async.flushMicrotasks();
           final before = resetCount;
 
-          // Even though our state already believes brightness is 100, the write
-          // issued at wake may not have stuck, so resume must re-assert it.
           controller.onAppResumed();
           async.flushMicrotasks();
 

@@ -31,7 +31,6 @@ void main() {
 
         expect(de1.firmwareUpdateState, isNot(FirmwareUpdateState.idle));
 
-        // Second call must throw synchronously.
         expect(
           () => de1.updateFirmware(Uint8List(0), onProgress: (_) {}),
           throwsA(isA<FirmwareUpdateInProgressException>()),
@@ -62,7 +61,6 @@ void main() {
       expect(de1.firmwareUpdateState, FirmwareUpdateState.idle);
       await de1.cancelFirmwareUpload();
       expect(de1.firmwareUpdateState, FirmwareUpdateState.idle);
-      // Must not write to the transport when idle (sets machine to sleep).
       final writesAfter = transport.writes.length;
       expect(writesAfter, 0);
     });

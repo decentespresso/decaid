@@ -16,7 +16,6 @@ import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/services/telemetry/telemetry_service.dart';
 import 'package:rxdart/rxdart.dart';
 
-/// A DeviceDiscoveryService that always throws from `scanForDevices`.
 class _FailingDiscoveryService implements DeviceDiscoveryService {
   final _controller = BehaviorSubject<List<Device>>.seeded(const []);
   final Object error;
@@ -41,7 +40,6 @@ class _FailingDiscoveryService implements DeviceDiscoveryService {
   Future<Device?> tryQuickConnect(RememberedDevice remembered) async => null;
 }
 
-/// A DeviceDiscoveryService that succeeds and reports one device.
 class _QuietDiscoveryService implements DeviceDiscoveryService {
   final _controller = BehaviorSubject<List<Device>>.seeded(const []);
   final Device device;
@@ -68,7 +66,6 @@ class _QuietDiscoveryService implements DeviceDiscoveryService {
   Future<Device?> tryQuickConnect(RememberedDevice remembered) async => null;
 }
 
-/// Manual discovery service — tests push emissions by calling `emit`.
 class _ManualDiscoveryService implements DeviceDiscoveryService {
   final _controller = BehaviorSubject<List<Device>>.seeded(const []);
 
@@ -154,7 +151,6 @@ class _AttachNotifyingDiscoveryService
   void attach(DeviceAttachedEvent event) => _attached.add(event);
 }
 
-/// Minimal `Device` stub.
 class _FakeDevice implements Device {
   @override
   final String deviceId;

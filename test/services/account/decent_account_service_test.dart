@@ -3,7 +3,6 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart' as http_testing;
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 
-/// In-memory fake for testing — no flutter_secure_storage dependency.
 class FakeCredentialStore implements CredentialStore {
   final Map<String, String> _store = {};
 
@@ -54,9 +53,6 @@ void main() {
     group('login', () {
       late http.BaseRequest capturedRequest;
 
-      /// Helper that builds a service whose MockClient captures the request
-      /// and returns [statusCode]/[body], then asserts on [capturedRequest]
-      /// after the async call completes.
       DecentAccountService serviceWithCapture({
         required int statusCode,
         required String body,
@@ -139,7 +135,6 @@ void main() {
       });
 
       test('sends correctly-encoded Basic Auth header', () async {
-        // base64("test@example.com:hunter2") = "dGVzdEBleGFtcGxlLmNvbTpodW50ZXIy"
         const expectedAuth = 'Basic dGVzdEBleGFtcGxlLmNvbTpodW50ZXIy';
         final s = serviceWithCapture(statusCode: 200, body: 'cryptpw_abc123');
 
@@ -228,7 +223,6 @@ void main() {
       test(
         'calls /support/api/sn?onlyespressomachines=1 with Basic Auth from stored credentials',
         () async {
-          // base64("test@example.com:cryptpw_abc123")
           const expectedAuth =
               'Basic dGVzdEBleGFtcGxlLmNvbTpjcnlwdHB3X2FiYzEyMw==';
           final s = serviceWithCapture(statusCode: 200, body: 'DE1-0001');

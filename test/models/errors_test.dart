@@ -6,10 +6,6 @@ import 'package:reaprime/src/models/errors.dart';
 
 import '../helpers/mock_device_discovery_service.dart';
 
-/// Covers comms-harden #25 — typed exceptions for unconnected-device
-/// accessors. Also exercises the new `DeviceNotConnectedException` from
-/// its two call sites (`De1Controller.connectedDe1`,
-/// `ScaleController.connectedScale`).
 void main() {
   group('DeviceNotConnectedException', () {
     test('machine constructor tags kind and message', () {

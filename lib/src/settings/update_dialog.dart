@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:reaprime/src/services/android_updater.dart';
 
-/// Dialog that shows update information and allows downloading/installing
 class UpdateDialog extends StatefulWidget {
   final UpdateInfo updateInfo;
   final String currentVersion;

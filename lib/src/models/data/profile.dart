@@ -2,7 +2,6 @@ import 'package:flutter/widgets.dart';
 import 'package:equatable/equatable.dart';
 import 'utils.dart';
 
-/// Trying to imitate the common v2 profile as close as reasonable
 @immutable
 class Profile extends Equatable {
   final String? version;
@@ -44,7 +43,6 @@ class Profile extends Equatable {
   ];
 
   factory Profile.fromJson(Map<String, dynamic> json) {
-    // cast/parse failure. Descriptive fields (notes/author/version/beverage
     final title = parseOptionalString(json['title']);
     if (title == null || title.isEmpty) {
       throw ArgumentError('Profile must have a non-empty "title"');

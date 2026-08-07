@@ -3,7 +3,6 @@ import 'package:reaprime/src/services/database/database.dart';
 import 'package:reaprime/src/services/database/mappers/grinder_mapper.dart';
 import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
 
-/// Drift/SQLite implementation of [GrinderStorageService].
 class DriftGrinderStorageService implements GrinderStorageService {
   final AppDatabase _db;
 

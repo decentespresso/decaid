@@ -91,12 +91,6 @@ PluginManifest _manifest() => PluginManifest.fromJson(
 String _pluginSource() =>
     File('assets/plugins/shot-upload.reaplugin/plugin.js').readAsStringSync();
 
-/// Advance the plugin's async work until [ready] is true (or the deadline
-/// passes). The plugin awaits JS-stubbed `fetch` promises (which resolve via
-/// QuickJS's pending-job queue) and the Dart proxy round-trip (which resolves
-/// via the Dart microtask queue), so a caller that only waits on a Future never
-/// makes progress: this drains QuickJS jobs and yields to the Dart loop each
-/// turn, the way the running app does continuously.
 Future<void> _pumpUntil(
   PluginManager manager,
   bool Function() ready, {
@@ -110,8 +104,6 @@ Future<void> _pumpUntil(
 }
 
 void main() {
-  /// Manager wired with a linked account + a MockClient that records the upload
-  /// request; the plugin's local REST calls (fetch) are stubbed in JS.
   Future<PluginManager> load({
     required Map<String, dynamic> settings,
     required List<http.Request> captured,

@@ -129,8 +129,6 @@ void main() {
   });
 }
 
-/// Stand-in for UniversalBleException whose toString() matches the real
-/// package's format without importing it.
 class _FakeUniversalBleException implements Exception {
   final String message;
   _FakeUniversalBleException(this.message);

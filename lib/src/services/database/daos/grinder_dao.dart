@@ -17,8 +17,6 @@ class GrinderDao extends DatabaseAccessor<AppDatabase> with _$GrinderDaoMixin {
     return query.get();
   }
 
-  /// Keyset-paged grinders for streaming export: ordered by (createdAt, id)
-  /// ascending; returns up to [limit] rows strictly after the cursor.
   Future<List<Grinder>> getGrindersForExport({
     int limit = 200,
     DateTime? cursorCreatedAt,

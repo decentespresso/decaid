@@ -16,11 +16,6 @@ import 'package:reaprime/src/settings/settings_controller.dart';
 
 import '../helpers/mock_settings_service.dart';
 
-/// Integration tier: wires the real [De1Controller], [ScaleController],
-/// [SettingsController] and [HotWaterSequencer] with the simulated MockDe1 +
-/// MockScale — the same objects `main.dart` constructs. MockDe1 has no
-/// autonomous hot-water stop, so a `hotWater → idle` transition can only have
-/// been driven by the sequencer requesting idle.
 class _EmptyDiscovery extends DeviceDiscoveryService {
   @override
   Stream<List<Device>> get devices => const Stream.empty();
@@ -55,7 +50,6 @@ void main() {
     scaleController.dispose();
   });
 
-  /// Waits for the machine to reach [state], failing after [within].
   Future<void> waitForState(
     MockDe1 machine,
     MachineState state, {
@@ -91,7 +85,6 @@ void main() {
       reason: 'sequencer should arm on hotWater entry',
     );
 
-    // The scale weight ramps past 5 g; the sequencer must request idle.
     await waitForState(machine, MachineState.idle);
     expect(
       sequencer.isArmed,

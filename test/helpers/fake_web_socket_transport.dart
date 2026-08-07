@@ -5,10 +5,6 @@ import 'package:reaprime/src/models/device/transport/web_socket_transport.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:rxdart/subjects.dart';
 
-/// Controllable [WebSocketTransport] for testing [HDSWifi] without a network.
-///
-/// Lets a test drive connect success/failure, inject inbound frames, simulate
-/// a peer-side drop, and inspect sent commands.
 class FakeWebSocketTransport implements WebSocketTransport {
   final String host;
   bool failConnect;
@@ -50,12 +46,10 @@ class FakeWebSocketTransport implements WebSocketTransport {
     _conn.add(ConnectionState.connected);
   }
 
-  /// Simulate an inbound frame from the scale.
   void emit(String frame) {
     if (!_msgs.isClosed) _msgs.add(frame);
   }
 
-  /// Simulate the peer (scale / network) dropping the connection.
   void dropFromPeer() {
     connected = false;
     if (!_conn.isClosed) _conn.add(ConnectionState.disconnected);

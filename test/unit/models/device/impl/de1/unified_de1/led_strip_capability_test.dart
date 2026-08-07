@@ -70,7 +70,6 @@ void main() {
     });
 
     test('commitLedStrip is safe when wires are unwired', () async {
-      // No crash — already verified by the stub-warning log from init.
       await bengle.commitLedStrip();
     });
 

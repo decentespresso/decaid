@@ -9,12 +9,6 @@ import 'package:reaprime/src/models/device/transport/ble_timeout_exception.dart'
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:rxdart/rxdart.dart';
 
-/// Fake BLE transport that models the post-#243 behaviour: `disconnect()`
-/// emits `ConnectionState.disconnected` onto the connection-state stream
-/// (as `BluePlusTransport` does synchronously and `AndroidBluePlusTransport`
-/// does via its native sub). The first `write()` times out to trigger
-/// `UnifiedDe1Transport._handleBleTimeout`; reconnect success/failure is
-/// controlled by [reconnectSucceeds].
 class _RecoveryFakeTransport extends BLETransport {
   _RecoveryFakeTransport({required this.reconnectSucceeds});
 
@@ -110,9 +104,6 @@ void main() {
       expect(fake.connectCount, 1);
       expect(fake.writeCount, 2);
 
-      // The deliberate recovery disconnect must stay invisible — otherwise
-      // De1Controller would null the machine and tear down a connection
-      // that's about to come right back.
       expect(seen, isNot(contains(ConnectionState.disconnected)));
     });
 

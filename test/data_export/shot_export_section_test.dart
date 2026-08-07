@@ -13,14 +13,12 @@ import 'package:reaprime/src/util/incremental_json_parser.dart';
 
 import 'streaming_test_helpers.dart';
 
-/// In-memory storage + instrumented page seam for shot export/import tests.
 class _TestShotStorage {
   final Map<String, Map<String, dynamic>> shots = {};
   int stored = 0;
   int updated = 0;
   int shotsChangedNotifications = 0;
 
-  /// Records page sizes requested by the exporter (boundedness proof).
   final List<int> pageSizes = [];
 
   StorageService get service => _service;
@@ -306,7 +304,6 @@ void main() {
         pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) async =>
             [],
       );
-      // Valid prefix must not import: `[{"id":"x"...}]` then truncated.
       final workflowJson = jsonEncode(makeWorkflowJson());
       await expectLater(
         importSectionJson(

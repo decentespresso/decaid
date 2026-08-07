@@ -1,8 +1,3 @@
-/**
- * <dye2-bean-list> Web Component
- * Fetches and displays beans from the core REST API.
- * Runs in the BROWSER (not flutter_js).
- */
 export const beanListComponent = `
 class Dye2BeanList extends HTMLElement {
   constructor() {

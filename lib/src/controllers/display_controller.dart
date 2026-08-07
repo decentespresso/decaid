@@ -70,16 +70,6 @@ class DisplayState {
   };
 }
 
-/// Manages screen wake-lock and brightness.
-///
-/// Two concerns:
-/// 1. **Wake-lock** — auto-managed based on machine state (enabled when
-///    connected and not sleeping, released on sleep/disconnect). The
-///    `keepAwake` setting forces the wake-lock on while the app runs. Skins
-///    can override via [requestWakeLock] / [releaseWakeLock].
-/// 2. **Brightness** — 0-100 integer range via [setBrightness]. Value 100
-///    resets to OS-managed brightness. Battery-aware cap reduces brightness
-///    when battery is low and the setting is enabled.
 class DisplayController {
   final De1Controller _de1Controller;
   final SettingsController _settingsController;
@@ -174,33 +164,22 @@ class DisplayController {
     _stateSubject.close();
   }
 
-  /// Set screen brightness to a value between 0 and 100.
-  ///
-  /// Value 100 resets to OS-managed brightness (respects auto-brightness).
-  /// Values 0-99 set a specific brightness level.
   Future<void> setBrightness(int value) async {
     final clamped = value.clamp(0, 100);
     _requestedBrightness = clamped;
     await _applyBrightness();
   }
 
-  /// Dim the screen to minimum brightness.
-  ///
-  /// Deprecated: Use [setBrightness] with a value of 5 instead.
   @Deprecated('Use setBrightness(5) instead')
   Future<void> dim() async {
     await setBrightness(5);
   }
 
-  /// Restore screen brightness to system default.
-  ///
-  /// Deprecated: Use [setBrightness] with a value of 100 instead.
   @Deprecated('Use setBrightness(100) instead')
   Future<void> restore() async {
     await setBrightness(100);
   }
 
-  /// Request wake-lock override (skin wants screen always on).
   Future<void> requestWakeLock() async {
     _wakeLockOverride = true;
     await _applyWakeLock(true);
@@ -208,7 +187,6 @@ class DisplayController {
     _log.fine('Wake-lock override requested');
   }
 
-  /// Release wake-lock override (return to auto-managed).
   Future<void> releaseWakeLock() async {
     _wakeLockOverride = false;
     _updateState(wakeLockOverride: false);
@@ -244,12 +222,10 @@ class DisplayController {
   int _computeEffectiveBrightness() {
     if (_batteryStateStream == null) return _requestedBrightness;
 
-    // Setting must be enabled
     if (!_settingsController.lowBatteryBrightnessLimit) {
       return _requestedBrightness;
     }
 
-    // Battery must be below threshold
     if (_lastBatteryPercent != null &&
         _lastBatteryPercent! < _lowBatteryThreshold) {
       return _requestedBrightness.clamp(0, _lowBatteryBrightnessCap);
@@ -265,8 +241,6 @@ class DisplayController {
 
   void _onSettingsChanged() {
     unawaited(_applyBrightness());
-    // keepAwake toggle must take effect immediately, not on the next machine
-    // state transition.
     unawaited(_evaluateWakeLock());
   }
 
@@ -299,25 +273,8 @@ class DisplayController {
     }
   }
 
-  /// Save the user's brightness before sleep; restore it whenever the machine
-  /// is awake again.
-  ///
-  /// Keyed off the awake *condition*, not the precise sleeping->idle edge, and
-  /// re-evaluated on *every* snapshot rather than only on a transition. Two
-  /// things break an edge-triggered restore and leave the screen stuck at the
-  /// sleep-dim (0):
-  ///   * the edge is never observed — a BLE reconnect resets our last-seen
-  ///     state to null, or we start up against an already-sleeping machine;
-  ///   * a stray brightness-0 write lands *after* we've already processed the
-  ///     wake transition — e.g. a skin's deferred sleep-dim arriving a beat
-  ///     after the machine woke, or a buffered "sleeping" frame replayed on a
-  ///     websocket reconnect — so there is no later edge to heal it.
-  /// Re-checking each snapshot self-heals both. It is self-limiting: once
-  /// restored, [_requestedBrightness] is non-zero so the branch stops firing.
   void _syncBrightnessForMachineState() {
     if (_currentMachineState == MachineState.sleeping) {
-      // Never capture a dimmed value: a skin drives brightness to 0 for its
-      // sleep screen, and remembering that would "restore" to black next wake.
       if (_requestedBrightness > 0) {
         _preSleepBrightness = _requestedBrightness;
       }
@@ -327,21 +284,12 @@ class DisplayController {
     }
   }
 
-  /// Re-assert screen brightness after the app window resumes.
-  ///
-  /// A brightness write issued while the activity was paused — e.g. the wake
-  /// restore firing right as the tablet screen was turning back on — can
-  /// silently fail to take effect on Android, and nothing else re-applies it,
-  /// so the screen stays dark even though our state believes it is restored.
-  /// On resume the window is ready again: re-run the restore check and push the
-  /// current value to the OS so a write that never stuck is reapplied.
   Future<void> onAppResumed() async {
     _syncBrightnessForMachineState();
     await _applyBrightness();
   }
 
   Future<void> _evaluateWakeLock() async {
-    // keepAwake setting: screen always on while the app runs (full override).
     if (_settingsController.keepAwake) {
       await _applyWakeLock(true);
       return;

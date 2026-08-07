@@ -169,7 +169,6 @@ void main() {
   );
 
   test('connection failure rejects the promise', () async {
-    // Port 1 is never listening on loopback.
     final result = await runFetch('http://127.0.0.1:1/nowhere');
 
     expect(result, startsWith('err:'));

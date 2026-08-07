@@ -82,8 +82,6 @@ ProfileRecord makeProfile(int i) {
         pressure: 9,
       ),
     ],
-    // Profile content hashes only cover execution-relevant fields, so the
-    // tank temperature must vary per profile to get distinct ids.
     tankTemperature: 90.0 + i,
     targetWeight: 36.0,
     targetVolumeCountStart: 0,

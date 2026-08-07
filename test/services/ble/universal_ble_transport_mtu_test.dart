@@ -6,11 +6,8 @@ import 'package:reaprime/src/services/ble/universal_ble_transport.dart';
 import 'package:universal_ble/universal_ble.dart';
 
 class _MtuRecordingBlePlatform extends UniversalBlePlatform {
-  /// Recorded (deviceId, expectedMtu) pairs from [requestMtu].
   final List<(String, int)> mtuRequests = [];
 
-  /// When true, [requestMtu] throws — simulating a stack that rejects the
-  /// negotiation.
   bool throwOnRequestMtu = false;
   bool systemConnected = true;
   bool attached = false;

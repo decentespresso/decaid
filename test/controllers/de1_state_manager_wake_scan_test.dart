@@ -20,7 +20,6 @@ import '../helpers/mock_device_scanner.dart';
 import '../helpers/mock_settings_service.dart';
 import '../helpers/test_de1.dart';
 
-/// De1Controller whose `de1` stream and `connectedDe1()` are test-driven.
 class _TestDe1Controller extends De1Controller {
   final BehaviorSubject<De1Interface?> de1Subject = BehaviorSubject.seeded(
     null,
@@ -45,8 +44,6 @@ class _TestDe1Controller extends De1Controller {
   }
 }
 
-/// StorageService stub — De1StateManager never touches storage in the
-/// wake path; PersistenceController is lazy so nothing is called.
 class _NoopStorageService implements StorageService {
   @override
   dynamic noSuchMethod(Invocation invocation) => Future<dynamic>.value(null);
@@ -109,8 +106,6 @@ void main() {
     mockScanner.dispose();
   });
 
-  /// Drive the machine through idle → sleeping → idle so the wake
-  /// transition (sleeping → non-sleeping) fires the deferred scale scan.
   Future<void> wakeMachine() async {
     testDe1.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
     await pump();

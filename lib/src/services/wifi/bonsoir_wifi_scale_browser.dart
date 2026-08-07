@@ -6,30 +6,15 @@ import 'package:reaprime/src/services/wifi/wifi_scale_discovery_service.dart';
 import 'package:rxdart/subjects.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// bonsoir-backed [WifiScaleBrowser]. Browses `_decentscale._tcp`, resolves
-/// each service to its host/IP, and publishes the visible set.
-///
-/// Native DNS-SD on every platform (NsdManager / Bonjour / Avahi / dns_sd), so
-/// no app-managed `MulticastLock` is needed on Android. Not unit-tested (it
-/// drives platform channels) — verified on-device; the testable endpoint→device
-/// logic lives in [WifiScaleDiscoveryService] behind the [WifiScaleBrowser] seam.
 class BonsoirWifiScaleBrowser implements WifiScaleBrowser {
-  /// The DNS-SD service type the HDS firmware advertises.
   static const String serviceType = '_decentscale._tcp';
 
-  /// The HDS firmware always sets its mDNS hostname via `MDNS.begin("hds")`,
-  /// so a `_decentscale._tcp` service resolves to `hds.local`. Used as a
-  /// fallback host when bonsoir's resolve step doesn't yield one (observed
-  /// flaky on macOS), so a found scale still surfaces. On macOS/iOS/Linux
-  /// dart:io resolves `.local` natively, so a WebSocket to `ws://hds.local`
-  /// connects without needing bonsoir's resolver.
   static const String _firmwareHost = 'hds.local';
 
   final _log = Logger('BonsoirWifiScaleBrowser');
   BonsoirDiscovery? _discovery;
   StreamSubscription<BonsoirDiscoveryEvent>? _sub;
 
-  /// Resolved endpoints keyed by service instance name.
   final Map<String, WifiScaleEndpoint> _resolved = {};
   final BehaviorSubject<List<WifiScaleEndpoint>> _endpoints =
       BehaviorSubject.seeded(<WifiScaleEndpoint>[]);
@@ -46,9 +31,6 @@ class BonsoirWifiScaleBrowser implements WifiScaleBrowser {
       _sub = discovery.eventStream!.listen(_onEvent);
       await discovery.start();
     } catch (_) {
-      // A transient init/start failure must NOT stick: leave `_discovery` null
-      // (and tear down the half-open discovery) so the next `start()` retries
-      // instead of early-returning forever.
       await _sub?.cancel();
       _sub = null;
       try {
@@ -109,15 +91,9 @@ class BonsoirWifiScaleBrowser implements WifiScaleBrowser {
     }
   }
 
-  /// mDNS hostnames arrive as FQDNs with a trailing dot (`hds.local.`). Strip
-  /// it: a trailing dot breaks `package:logging` Logger names and would make
-  /// `wifi:hds.local.` a different deviceId than the found-event fallback
-  /// `wifi:hds.local`.
   String _normalizeHost(String host) =>
       host.endsWith('.') ? host.substring(0, host.length - 1) : host;
 
-  /// Prefer an IPv4 address (the firmware authors warn AAAA lookups block);
-  /// fall back to the first address if none look like IPv4.
   String? _firstIpv4(List<String> addrs) {
     final ipv4 = RegExp(r'^\d{1,3}(\.\d{1,3}){3}$');
     for (final a in addrs) {
@@ -146,7 +122,6 @@ class BonsoirWifiScaleBrowser implements WifiScaleBrowser {
   }
 }
 
-/// [WifiManualEndpointStore] backed by `shared_preferences`.
 class SharedPrefsWifiManualEndpointStore implements WifiManualEndpointStore {
   static const String _key = 'wifi_scale_manual_hosts';
 

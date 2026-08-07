@@ -13,8 +13,6 @@ abstract class StorageService {
   Future<void> storeCurrentWorkflow(Workflow workflow);
   Future<Workflow?> loadCurrentWorkflow();
 
-  /// Get paginated shots with optional filters.
-  /// Returns shots without measurement data for list views.
   Future<List<ShotRecord>> getShotsPaginated({
     int limit = 20,
     int offset = 0,
@@ -29,7 +27,6 @@ abstract class StorageService {
     bool ascending = false,
   });
 
-  /// Count total shots matching the given filters.
   Future<int> countShots({
     String? grinderId,
     String? grinderModel,
@@ -41,10 +38,8 @@ abstract class StorageService {
     String? search,
   });
 
-  /// Get the most recent shot (full row including measurements).
   Future<ShotRecord?> getLatestShot();
 
-  /// Get the most recent shot metadata (excludes measurements).
   Future<ShotRecord?> getLatestShotMeta();
 
   Future<void> storeSteam(SteamRecord record);

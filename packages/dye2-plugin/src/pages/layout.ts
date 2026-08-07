@@ -1,6 +1,5 @@
 import { html } from "../utils/html";
 
-/** Shared CSS for all DYE2 pages */
 export function sharedStyles(): string {
   return `
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -78,10 +77,6 @@ export function sharedStyles(): string {
   `;
 }
 
-/**
- * Wrap page content in a full HTML document with shared styles
- * and the browser-side API client.
- */
 export function pageShell(title: string, content: string, scripts: string[] = []): string {
   return html`<!DOCTYPE html>
 <html lang="en">

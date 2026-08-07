@@ -58,9 +58,6 @@ class ForegroundTaskService {
     }
   }
 
-  /// Stops only the native foreground service without tearing down
-  /// the machine subscription or grace timer. Used by the grace timer's
-  /// auto-stop so that reconnection can still be detected.
   static Future<void> _stopServiceOnly() async {
     try {
       final isRunning = await FlutterForegroundTask.isRunningService;
@@ -81,8 +78,6 @@ class ForegroundTaskService {
     }
   }
 
-  /// Full stop: tears down subscription, grace timer, and native service.
-  /// Use for explicit exit (e.g., user presses Exit button).
   static Future<void> stop() async {
     _machineSubscription?.cancel();
     _machineSubscription = null;
@@ -91,8 +86,6 @@ class ForegroundTaskService {
     await _stopServiceOnly();
   }
 
-  /// Call once after start() to wire auto-stop to machine connection state.
-  /// Safe to call multiple times (e.g., on hot restart) — cancels previous subscription.
   static void watchMachineConnection(Stream<dynamic> machineStream) {
     _machineSubscription?.cancel();
     _graceTimer?.dispose();

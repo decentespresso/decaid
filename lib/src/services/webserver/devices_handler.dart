@@ -1,9 +1,5 @@
 part of '../webserver_service.dart';
 
-/// Aggregates device, scanning, and charging state into a single broadcast
-/// stream. One instance is shared across all WebSocket connections, avoiding
-/// duplicate subscriptions and ensuring correct cleanup when devices
-/// appear/disappear.
 class DevicesStateAggregator {
   final DeviceController _controller;
   final BatteryController? _batteryController;
@@ -14,9 +10,6 @@ class DevicesStateAggregator {
 
   final List<StreamSubscription> _subscriptions = [];
 
-  /// Per-device connectionState subscriptions keyed by deviceId.
-  /// Stores both the Device reference (for identity comparison) and the
-  /// subscription so we can detect same-ID-different-object replacements.
   final Map<String, (Device, StreamSubscription)> _deviceStateSubs = {};
 
   final BehaviorSubject<Map<String, dynamic>> _stateStream =
@@ -24,10 +17,8 @@ class DevicesStateAggregator {
 
   Timer? _debounceTimer;
 
-  /// Broadcast stream of unified state snapshots.
   Stream<Map<String, dynamic>> get stateStream => _stateStream.stream;
 
-  /// Number of active per-device connectionState subscriptions (for testing).
   int get activeDeviceSubscriptionCount => _deviceStateSubs.length;
 
   DevicesStateAggregator({
@@ -262,8 +253,6 @@ class DevicesHandler {
     );
   }
 
-  /// Extract deviceId from JSON body or query parameter.
-  /// Body takes precedence; query param is kept for backward compatibility.
   Future<String?> _extractDeviceId(Request req) async {
     String body;
     try {
@@ -547,13 +536,6 @@ class DevicesHandler {
   }
 }
 
-/// One entry in the API device list. `available` (is the device currently
-/// present) is a SEPARATE axis from `state` (a live device can be
-/// discovered-but-disconnected while still available), so it gets its own field.
-/// The two factories make the illegal pairings unrepresentable: a remembered
-/// entry is always unavailable + `disconnected`; a live entry carries its real
-/// state. Both REST and WebSocket surfaces serialize via [toJson], so the wire
-/// shape can't drift between them.
 class DeviceListEntry {
   final String id;
   final String name;
@@ -569,7 +551,6 @@ class DeviceListEntry {
     required this.available,
   });
 
-  /// A currently-present device, with its real connection state.
   DeviceListEntry.live(Device device, ConnectionState state)
     : this._(
         id: device.deviceId,
@@ -579,7 +560,6 @@ class DeviceListEntry {
         available: true,
       );
 
-  /// A remembered device that isn't currently present.
   DeviceListEntry.remembered(RememberedDevice r)
     : this._(
         id: r.id,
@@ -598,11 +578,6 @@ class DeviceListEntry {
   };
 }
 
-/// Builds the API device list: currently-present devices (`available: true`)
-/// merged with remembered devices that aren't present (`available: false`,
-/// reported as `disconnected`). A remembered device that IS present is listed
-/// once, as available. Shared by the REST `_deviceList` and the WebSocket
-/// `_buildSnapshot` so both surfaces agree.
 Future<List<Map<String, dynamic>>> buildAvailabilityDeviceList(
   List<Device> liveDevices,
   List<RememberedDevice> remembered, {
@@ -619,10 +594,6 @@ Future<List<Map<String, dynamic>>> buildAvailabilityDeviceList(
     if (liveIds.contains(r.id)) continue;
     entries.add(DeviceListEntry.remembered(r));
   }
-  // Stable order: the preferred scale first, then a deterministic order that
-  // does NOT depend on connection state — so entries don't shift around as
-  // devices connect/disconnect (the underlying live list reorders on every
-  // scan/state change). Key by (type, id); both are stable per device.
   entries.sort((a, b) {
     final aPref = preferredScaleId != null && a.id == preferredScaleId;
     final bPref = preferredScaleId != null && b.id == preferredScaleId;

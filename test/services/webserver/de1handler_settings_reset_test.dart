@@ -137,7 +137,6 @@ void main() {
         expect(res.statusCode, 202);
 
         expect(await de1.getHeaterPhase2Timeout(), 7.0);
-        // An ordinary MMR write must not drop the machine connection.
         expect(controller.connectedDe1OrNull, same(de1));
       },
     );

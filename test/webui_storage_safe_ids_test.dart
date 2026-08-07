@@ -8,12 +8,6 @@ import 'package:reaprime/src/webui_support/webui_storage.dart';
 
 import 'helpers/mock_settings_service.dart';
 
-/// Regression tests for safe skin ID handling.
-///
-/// Skin IDs come from untrusted manifests and are used directly as directory
-/// names under the web-ui root, so an unsafe id must be rejected before any
-/// directory is created or deleted (see issue #547 follow-up — App Store
-/// builds expose the install path, which makes escape-proofing mandatory).
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -47,7 +41,6 @@ void main() {
       if (tmpRoot.existsSync()) tmpRoot.deleteSync(recursive: true);
     });
 
-    /// Builds a source skin directory whose skin-manifest.json declares [id].
     Directory makeSource(String id) {
       final dir = Directory('${tmpRoot.path}/src_${sourceCounter++}')
         ..createSync();
@@ -126,7 +119,6 @@ void main() {
           isFalse,
           reason: 'an unsafe manifest id must not enter the registry',
         );
-        // Valid skins must still be present.
         expect(storage.getSkin('good.skin'), isNotNull);
         expect(storage.getSkin('another.skin'), isNotNull);
       },

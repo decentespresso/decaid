@@ -1,8 +1,5 @@
 import 'package:reaprime/src/models/data/utils.dart';
 
-/// Replaces DoseData, GrinderData, CoffeeData with a single composite.
-/// All fields nullable — supports minimal (dose only), standard (display strings),
-/// and full (entity IDs) usage tiers.
 class WorkflowContext {
   final double? targetDoseWeight;
   final double? targetYield;
@@ -42,9 +39,6 @@ class WorkflowContext {
       ? targetYield! / targetDoseWeight!
       : null;
 
-  /// Deserializes from the `context` JSON object within a Workflow.
-  /// Legacy field migration (doseData/grinderData/coffeeData) is handled
-  /// upstream in Workflow.fromJson, not here.
   factory WorkflowContext.fromJson(Map<String, dynamic> json) {
     return WorkflowContext(
       targetDoseWeight: parseOptionalDouble(json['targetDoseWeight']),

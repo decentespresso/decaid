@@ -223,7 +223,6 @@ void main() {
     final secondGen = await loadProxyPlugin(manager);
     expect((await secondGen.future.timeout(const Duration(seconds: 5))), 'ok');
 
-    // The old generation's late response must be dropped, not delivered.
     await Future<void>.delayed(const Duration(milliseconds: 900));
     expect(manager.activePendingOpCount, 0);
     expect(calls, 2);

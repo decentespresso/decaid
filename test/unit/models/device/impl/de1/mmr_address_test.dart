@@ -42,7 +42,6 @@ void main() {
     });
 
     test('all kinds covered by at least one MMRItem (DE1 baseline)', () {
-      // string and int16 may legitimately be unused by DE1; the others must appear.
       final used = MMRItem.values.map((m) => m.kind).toSet();
       expect(
         used,

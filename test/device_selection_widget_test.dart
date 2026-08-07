@@ -9,7 +9,6 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 import 'helpers/mock_device_discovery_service.dart';
 import 'helpers/test_scale.dart';
 
-/// Helper to wrap a widget in MaterialApp + ShadApp for rendering.
 Widget buildTestApp(Widget child) {
   return ShadApp(home: Scaffold(body: child));
 }

@@ -22,7 +22,6 @@ void main() {
     await controller.loadSettings();
   });
 
-  /// Returns the text inside the sleep-timeout [TextFormField].
   String sleepTimeoutFieldText(WidgetTester tester) {
     final field = find.byType(TextFormField).first;
     return tester.widget<TextFormField>(field).controller!.text;
@@ -115,7 +114,6 @@ void main() {
       await tester.pump();
 
       await tester.enterText(find.byType(TextFormField).first, '37');
-      // do not commit — rebuild by changing an unrelated setting
       controller.setShowSkinExitInstructions(true);
       await tester.pump();
 

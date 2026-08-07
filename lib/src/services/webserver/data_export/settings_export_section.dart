@@ -6,10 +6,6 @@ import 'package:reaprime/src/settings/scale_power_mode.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/services/webserver/data_export/data_export_section.dart';
 
-/// Settings is a singleton section: the payload is a fixed small set of
-/// scalar values, wake schedules, and device preferences. It is materialized
-/// as one JSON value, bounded by the handler's maximum record size (the
-/// sink rejects oversized fragments).
 class SettingsExportSection implements DataExportSection {
   final SettingsController _controller;
 
