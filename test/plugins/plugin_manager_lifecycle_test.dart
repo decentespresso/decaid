@@ -54,8 +54,17 @@ class _CountingRuntime extends JavascriptRuntime {
   String jsonStringify(JsEvalResult jsValue) => delegate.jsonStringify(jsValue);
 
   @override
-  bool setupBridge(String channelName, void Function(dynamic args) fn) =>
-      delegate.setupBridge(channelName, fn);
+  bool setupBridge(
+    String channelName,
+    JavascriptMessageCallback fn, {
+    bool fireAndForget = false,
+    Duration timeout = const Duration(seconds: 30),
+  }) => delegate.setupBridge(
+    channelName,
+    fn,
+    fireAndForget: fireAndForget,
+    timeout: timeout,
+  );
 
   @override
   void setInspectable(bool inspectable) => delegate.setInspectable(inspectable);
@@ -121,7 +130,6 @@ void main() {
         kvStore: FakeKeyValueStoreService(),
         js: runtime,
       );
-      final engineId = runtime.getEngineInstanceId();
       final streamDone = expectLater(manager.emitStream, emitsDone);
 
       final first = manager.dispose();
@@ -133,10 +141,7 @@ void main() {
       await streamDone;
       expect(manager.lifecycle, PluginManagerLifecycle.disposed);
       expect(runtime.disposeCalls, 1);
-      expect(
-        JavascriptRuntime.channelFunctionsRegistered.containsKey(engineId),
-        isFalse,
-      );
+      expect(runtime.delegate.channelFunctions, isEmpty);
       await manager.dispose();
       expect(runtime.disposeCalls, 1);
     },

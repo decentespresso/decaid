@@ -154,11 +154,6 @@ class PluginManager {
         );
       }
       await runStage('async operation cleanup', _cancelAllOperations);
-      await runStage('bridge cleanup', () {
-        JavascriptRuntime.channelFunctionsRegistered.remove(
-          js.getEngineInstanceId(),
-        );
-      });
       await runStage('event stream closure', _emitController.close);
       await runStage('JavaScript runtime disposal', js.dispose);
     } finally {
