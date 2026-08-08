@@ -491,7 +491,12 @@ class PluginManager {
         // Timer bridge: JS holds callbacks, Dart owns real Timers.
         const __timers = new Map();
         let __timerSeq = 0;
-        globalThis.__debugTimers = __timers;
+        Object.defineProperty(globalThis, "__debugTimerCount", {
+          value: () => __timers.size,
+          writable: false,
+          configurable: false,
+          enumerable: false
+        });
         globalThis.__timerSet = function (bridgeToken, generation, callback, delay) {
           const id = ++__timerSeq;
           __timers.set(id, { bridgeToken: bridgeToken, generation: generation, callback: callback });

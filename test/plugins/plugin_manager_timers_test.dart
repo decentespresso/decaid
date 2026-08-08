@@ -24,8 +24,9 @@ void main() {
     return events;
   }
 
-  String jsTimerCount() =>
-      manager.js.evaluate('String(globalThis.__debugTimers.size)').stringResult;
+  String jsTimerCount() => manager.js
+      .evaluate('String(globalThis.__debugTimerCount())')
+      .stringResult;
 
   Future<void> loadTimerPlugin(String jsBody) async {
     await manager.loadPlugin(

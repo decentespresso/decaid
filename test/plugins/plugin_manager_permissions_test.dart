@@ -188,6 +188,54 @@ void main() {
     },
   );
 
+  test('timer debug state cannot expose another plugin token', () async {
+    const privilegedPluginId = 'privileged.timer.plugin';
+    final events = <Map<String, dynamic>>[];
+    final subscription = manager.emitStream.listen(events.add);
+    addTearDown(subscription.cancel);
+
+    await manager.loadPlugin(
+      id: privilegedPluginId,
+      manifest: testManifest(
+        privilegedPluginId,
+        permissions: const {
+          PluginPermissions.emit,
+          PluginPermissions.pluginStorage,
+        },
+      ),
+      settings: {},
+      jsCode:
+          '''
+        function createPlugin(host) {
+          return {
+            id: "$privilegedPluginId",
+            onLoad() { setTimeout(() => {}, 60000); }
+          };
+        }
+      ''',
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(manager.activeTimerCount, 1);
+
+    await load(const {}, '''
+      const timers = globalThis.__debugTimers;
+      if (timers) {
+        const victim = [...timers.values()][0];
+        globalThis.host.emit(victim.bridgeToken, "spoofed", "payload");
+        globalThis.host.storage(victim.bridgeToken, {
+          type: "write", key: "spoofed", data: "payload"
+        });
+      }
+    ''');
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(events, isEmpty);
+    expect(
+      await store.get(namespace: privilegedPluginId, key: 'spoofed'),
+      isNull,
+    );
+  });
+
   test('host.decentProxy rejects with PluginPermissionError', () async {
     final event = manager.emitStream.first;
 
