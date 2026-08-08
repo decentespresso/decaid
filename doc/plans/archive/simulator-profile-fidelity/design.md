@@ -7,7 +7,7 @@ Historical-shot replay ignores the selected profile and makes target-weight beha
 ## Plan
 
 1. Add regression coverage for profile-step limiters, repeat-shot variation, and stop-at-weight through MockDe1, MockScale, and ShotSequencer.
-2. Apply pressure-step flow limiters and flow-step pressure limiters in MockDe1.
+2. Model pressure-step flow limiters and flow-step pressure limiters progressively from their value toward the non-exceedable value-plus-range boundary.
 3. Sample one bounded puck-resistance multiplier at each shot start from a fixed-seed random sequence so pulls vary while test runs remain deterministic.
 4. Run formatting, focused tests, analysis, the full test suite, and a simulate-mode smoke test.
 

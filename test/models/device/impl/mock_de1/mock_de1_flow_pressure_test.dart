@@ -162,9 +162,9 @@ void main() {
       expect(snapshot.targetFlow, closeTo(3.0, 0.1));
     });
 
-    test('pressure-step: flow limiter caps flow', () async {
+    test('pressure-step: flow limiter applies its range', () async {
       await machine.setProfile(
-        _pressureProfile(limiter: const StepLimiter(value: 1.5, range: 0.5)),
+        _pressureProfile(limiter: const StepLimiter(value: 1.5, range: 5)),
       );
       await machine.requestState(MachineState.espresso);
 
@@ -176,13 +176,14 @@ void main() {
 
       expect(
         snapshots.map((snapshot) => snapshot.flow),
-        everyElement(lessThanOrEqualTo(1.5)),
+        everyElement(lessThanOrEqualTo(6.5)),
       );
+      expect(snapshots.any((snapshot) => snapshot.flow > 1.5), isTrue);
     });
 
-    test('flow-step: pressure limiter caps pressure', () async {
+    test('flow-step: pressure limiter applies its range', () async {
       await machine.setProfile(
-        _flowProfile(limiter: const StepLimiter(value: 0.15, range: 0.05)),
+        _flowProfile(limiter: const StepLimiter(value: 0.15, range: 1)),
       );
       await machine.requestState(MachineState.espresso);
 
@@ -194,8 +195,35 @@ void main() {
 
       expect(
         snapshots.map((snapshot) => snapshot.pressure),
-        everyElement(lessThanOrEqualTo(0.15)),
+        everyElement(lessThanOrEqualTo(1.15)),
       );
+      expect(snapshots.any((snapshot) => snapshot.pressure > 0.15), isTrue);
+    });
+
+    test('wider limiter range produces a softer response', () async {
+      Future<double> lastFlow(double range) async {
+        final rangedMachine = MockDe1();
+        await rangedMachine.onConnect();
+        try {
+          await rangedMachine.setProfile(
+            _pressureProfile(limiter: StepLimiter(value: 1.5, range: range)),
+          );
+          await rangedMachine.requestState(MachineState.espresso);
+          await Future.delayed(const Duration(milliseconds: 600));
+          final snapshots = await rangedMachine.currentSnapshot
+              .take(10)
+              .toList()
+              .timeout(const Duration(seconds: 3));
+          return snapshots.last.flow;
+        } finally {
+          await rangedMachine.onDisconnect();
+        }
+      }
+
+      final narrowRangeFlow = await lastFlow(0.1);
+      final wideRangeFlow = await lastFlow(5);
+
+      expect(wideRangeFlow, greaterThan(narrowRangeFlow));
     });
   });
 }
