@@ -140,4 +140,31 @@ void main() {
       reason: 'flow should not collapse to ~0 (no transition glitch)',
     );
   });
+
+  test('successive shots have different puck responses', () async {
+    final machine = MockDe1();
+    await machine.onConnect();
+    await machine.setProfile(_gentleAndSweet());
+
+    Future<List<double>> pull() async {
+      await machine.requestState(MachineState.espresso);
+      final pressures = await machine.currentSnapshot
+          .where((snapshot) => snapshot.state.state == MachineState.espresso)
+          .take(12)
+          .map((snapshot) => snapshot.pressure)
+          .toList()
+          .timeout(const Duration(seconds: 3));
+      await machine.requestState(MachineState.idle);
+      await machine.currentSnapshot
+          .firstWhere((snapshot) => snapshot.state.state == MachineState.idle)
+          .timeout(const Duration(seconds: 2));
+      return pressures;
+    }
+
+    final first = await pull();
+    final second = await pull();
+
+    expect(second, isNot(equals(first)));
+    await machine.onDisconnect();
+  });
 }

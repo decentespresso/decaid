@@ -3,7 +3,7 @@ import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 
-Profile _flowProfile() {
+Profile _flowProfile({StepLimiter? limiter}) {
   return Profile(
     version: '1.0',
     title: 'flow-test',
@@ -16,6 +16,7 @@ Profile _flowProfile() {
       ProfileStepFlow(
         name: 'pour',
         flow: 3.0,
+        limiter: limiter,
         seconds: 5,
         temperature: 94,
         sensor: TemperatureSensor.coffee,
@@ -26,7 +27,7 @@ Profile _flowProfile() {
   );
 }
 
-Profile _pressureProfile() {
+Profile _pressureProfile({StepLimiter? limiter}) {
   return Profile(
     version: '1.0',
     title: 'pressure-test',
@@ -39,6 +40,7 @@ Profile _pressureProfile() {
       ProfileStepPressure(
         name: 'pour',
         pressure: 6.0,
+        limiter: limiter,
         seconds: 5,
         temperature: 94,
         sensor: TemperatureSensor.coffee,
@@ -158,6 +160,42 @@ void main() {
       );
 
       expect(snapshot.targetFlow, closeTo(3.0, 0.1));
+    });
+
+    test('pressure-step: flow limiter caps flow', () async {
+      await machine.setProfile(
+        _pressureProfile(limiter: const StepLimiter(value: 1.5, range: 0.5)),
+      );
+      await machine.requestState(MachineState.espresso);
+
+      await Future.delayed(const Duration(milliseconds: 600));
+      final snapshots = await machine.currentSnapshot
+          .take(10)
+          .toList()
+          .timeout(const Duration(seconds: 3));
+
+      expect(
+        snapshots.map((snapshot) => snapshot.flow),
+        everyElement(lessThanOrEqualTo(1.5)),
+      );
+    });
+
+    test('flow-step: pressure limiter caps pressure', () async {
+      await machine.setProfile(
+        _flowProfile(limiter: const StepLimiter(value: 0.15, range: 0.05)),
+      );
+      await machine.requestState(MachineState.espresso);
+
+      await Future.delayed(const Duration(milliseconds: 600));
+      final snapshots = await machine.currentSnapshot
+          .take(10)
+          .toList()
+          .timeout(const Duration(seconds: 3));
+
+      expect(
+        snapshots.map((snapshot) => snapshot.pressure),
+        everyElement(lessThanOrEqualTo(0.15)),
+      );
     });
   });
 }

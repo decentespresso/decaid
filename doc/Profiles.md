@@ -546,7 +546,7 @@ Example error response:
 
 ### Simulated shot execution (MockDe1 / MockBengle)
 
-Mock machines execute profiles in a simulated shot loop that follows profile step targets (flow, pressure, temperature) with simplified machine-response dynamics. Design decisions are recorded in archived plans — see `doc/plans/mock-shot-fidelity.md` for the substate model, flow→pressure coupling, weight accumulation, transition shaping, and skipStep semantics.
+Mock machines execute profiles in a simulated shot loop that follows profile step targets (flow, pressure, temperature) with simplified machine-response dynamics. Pressure steps honor flow limiters, flow steps honor pressure limiters, and each shot samples bounded puck resistance so repeated pulls are not identical. Design decisions are recorded in archived plans — see `doc/plans/mock-shot-fidelity.md` for the substate model, flow→pressure coupling, weight accumulation, transition shaping, and skipStep semantics.
 
 ### Profile Wire Format
 
