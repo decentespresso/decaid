@@ -3,7 +3,7 @@
   "author": "Decent Espresso",
   "name": "Decent shot upload",
   "description": "Uploads your espresso shots to your Decent account at decentespresso.com so you can see your shot history and charts. Uses your existing Decent login; only your own machines are accepted. Off by default: enable Upload shots automatically to opt in.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "apiVersion": 1,
   "permissions": [
     "log",

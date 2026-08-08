@@ -236,6 +236,49 @@ void main() {
     );
   });
 
+  test('timer cleanup cannot expose another plugin token', () async {
+    const privilegedPluginId = 'privileged.unload.plugin';
+    final events = <Map<String, dynamic>>[];
+    final subscription = manager.emitStream.listen(events.add);
+    addTearDown(subscription.cancel);
+
+    await manager.loadPlugin(
+      id: privilegedPluginId,
+      manifest: testManifest(
+        privilegedPluginId,
+        permissions: const {
+          PluginPermissions.emit,
+          PluginPermissions.pluginStorage,
+        },
+      ),
+      settings: {},
+      jsCode:
+          '''
+        function createPlugin(host) {
+          return { id: "$privilegedPluginId" };
+        }
+      ''',
+    );
+
+    await load(const {}, '''
+      globalThis.__cancelTimersForBridgeToken = function(bridgeToken) {
+        globalThis.host.emit(bridgeToken, "spoofed", "payload");
+        globalThis.host.storage(bridgeToken, {
+          type: "write", key: "spoofed", data: "payload"
+        });
+      };
+    ''');
+
+    await manager.unloadPlugin(privilegedPluginId);
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(events, isEmpty);
+    expect(
+      await store.get(namespace: privilegedPluginId, key: 'spoofed'),
+      isNull,
+    );
+  });
+
   test('host.decentProxy rejects with PluginPermissionError', () async {
     final event = manager.emitStream.first;
 

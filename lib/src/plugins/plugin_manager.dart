@@ -529,11 +529,16 @@ class PluginManager {
             __timers.delete(id);
           }
         };
-        globalThis.__cancelTimersForBridgeToken = function (bridgeToken) {
-          for (const [id, record] of __timers) {
-            if (record.bridgeToken === bridgeToken) __timers.delete(id);
-          }
-        };
+        Object.defineProperty(globalThis, "__cancelTimersForBridgeToken", {
+          value: function (bridgeToken) {
+            for (const [id, record] of __timers) {
+              if (record.bridgeToken === bridgeToken) __timers.delete(id);
+            }
+          },
+          writable: false,
+          configurable: false,
+          enumerable: false
+        });
         globalThis.__cancelAllTimers = function () {
           __timers.clear();
         };
