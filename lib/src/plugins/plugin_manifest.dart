@@ -57,7 +57,8 @@ enum PluginPermissions {
   api('api'),
   emit('emit'),
   pluginStorage('pluginStorage'),
-  pluginNotify('pluginNotify'),
+  eventsMachine('events.machine'),
+  eventsShots('events.shots'),
   proxyDecentApi('proxy.decent_api'),
   proxyDecentApiWrite('proxy.decent_api.write');
 
@@ -77,13 +78,15 @@ extension PluginPermissionsFromJson on PluginPermissions {
     if (json is! List<dynamic>) {
       return <PluginPermissions>{};
     }
-    final rawPermissions = Set<String>.from(json);
-    return rawPermissions.fold(<PluginPermissions>[], (acc, e) {
-      final perm = PluginPermissions.fromString(e);
-      if (perm != null) {
-        acc.add(perm);
+    return json.map((value) {
+      if (value is! String) {
+        throw FormatException('Invalid plugin permission: $value');
       }
-      return acc;
+      final permission = PluginPermissions.fromString(value);
+      if (permission == null) {
+        throw FormatException('Unknown plugin permission: $value');
+      }
+      return permission;
     }).toSet();
   }
 }

@@ -9,7 +9,9 @@
     "log",
     "api",
     "emit",
-    "pluginStorage"
+    "pluginStorage",
+    "events.machine",
+    "events.shots"
   ],
   "settings": {
     "Username": {

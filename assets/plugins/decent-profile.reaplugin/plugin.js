@@ -529,13 +529,6 @@ function createPlugin(host) {
       log("Unloaded");
     },
 
-    onEvent: function(event) {
-      if (event.name === "stateUpdate") {
-        // Machine state available if needed for future enhancements
-        // e.g. auto-push profile when machine enters idle state
-      }
-    },
-
     __httpRequestHandler: function(request) {
       if (request.endpoint === "ui") {
         var override = request && request.query && request.query.layout;

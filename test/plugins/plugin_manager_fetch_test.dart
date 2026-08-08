@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/plugins/plugin_manager.dart';
+import 'package:reaprime/src/plugins/plugin_manifest.dart';
 
 import 'plugin_test_helpers.dart';
 
@@ -40,11 +41,14 @@ void main() {
     String url, {
     Map<String, dynamic>? init,
     Duration? wait,
+    Set<PluginPermissions>? permissions,
   }) async {
     final result = Completer<String>();
     await manager.loadPlugin(
       id: 'fetch.plugin',
-      manifest: testManifest('fetch.plugin'),
+      manifest: permissions == null
+          ? testManifest('fetch.plugin')
+          : testManifest('fetch.plugin', permissions: permissions),
       settings: {},
       jsCode:
           '''
@@ -55,7 +59,7 @@ void main() {
               fetch(${jsonEncode(url)}, ${jsonEncode(init ?? {})})
                 .then((res) => res.text())
                 .then((text) => host.emit("result", "ok:" + text))
-                .catch((e) => host.emit("result", "err:" + e.message));
+                .catch((e) => host.emit("result", "err:" + e.name + ":" + e.message));
             }
           };
         }
@@ -82,6 +86,70 @@ void main() {
 
     expect(result, 'ok:{"hello":"world"}');
     expect(manager.activePendingOpCount, 0);
+  });
+
+  test('fetch rejects without api permission before network access', () async {
+    var requests = 0;
+    final server = await startServer((res) async {
+      requests += 1;
+      res.write('unexpected');
+    });
+    addTearDown(server.close);
+
+    final result = await runFetch(
+      'http://127.0.0.1:${server.port}/data',
+      permissions: const {PluginPermissions.emit},
+    );
+
+    expect(result, contains('PluginPermissionError'));
+    expect(result, contains('api'));
+    expect(requests, 0);
+  });
+
+  test('Dart rejects direct fetch bridge calls without api', () async {
+    var requests = 0;
+    final server = await startServer((res) async {
+      requests += 1;
+      res.write('unexpected');
+    });
+    addTearDown(server.close);
+    final result = Completer<String>();
+    final subscription = manager.emitStream.listen((event) {
+      if (!result.isCompleted) result.complete(event['payload'] as String);
+    });
+    addTearDown(subscription.cancel);
+
+    await manager.loadPlugin(
+      id: 'fetch.plugin',
+      manifest: testManifest(
+        'fetch.plugin',
+        permissions: const {PluginPermissions.emit},
+      ),
+      settings: {},
+      jsCode:
+          '''
+        function createPlugin(host) {
+          return {
+            id: "fetch.plugin",
+            onLoad() {
+              globalThis.__fetchFor(
+                "fetch.plugin",
+                1,
+                "http://127.0.0.1:${server.port}/data"
+              )
+                .then(() => host.emit("result", "unexpected"))
+                .catch((error) => host.emit("result", String(error)));
+            }
+          };
+        }
+      ''',
+    );
+
+    expect(
+      await result.future.timeout(const Duration(seconds: 5)),
+      contains('api'),
+    );
+    expect(requests, 0);
   });
 
   test(

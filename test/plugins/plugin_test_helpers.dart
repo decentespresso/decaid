@@ -46,7 +46,16 @@ class FakeKeyValueStoreService implements KeyValueStoreService {
   }
 }
 
-PluginManifest testManifest(String id) {
+PluginManifest testManifest(
+  String id, {
+  Set<PluginPermissions> permissions = const {
+    PluginPermissions.log,
+    PluginPermissions.api,
+    PluginPermissions.emit,
+    PluginPermissions.pluginStorage,
+  },
+  PluginApi? api,
+}) {
   return PluginManifest(
     id: id,
     name: id,
@@ -54,8 +63,8 @@ PluginManifest testManifest(String id) {
     description: 'Test',
     version: '1.0.0',
     apiVersion: 1,
-    permissions: const {},
+    permissions: permissions,
     settings: {},
-    api: PluginApi(endpoints: []),
+    api: api ?? PluginApi(endpoints: []),
   );
 }

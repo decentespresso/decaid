@@ -5979,7 +5979,7 @@ components:
           type: array
           items:
             type: string
-            enum: [log, api, emit, pluginStorage, pluginNotify, proxy.decent_api, proxy.decent_api.write]
+            enum: [log, api, emit, pluginStorage, events.machine, events.shots, proxy.decent_api, proxy.decent_api.write]
         settings:
           description: Plugin settings schema
           type: object

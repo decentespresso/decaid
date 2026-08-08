@@ -29,7 +29,8 @@ A Decaid plugin consists of two required files:
     "log",
     "api",
     "emit",
-    "pluginStorage"
+    "pluginStorage",
+    "events.machine"
   ],
   "settings": {
     "SettingName": {
@@ -57,13 +58,21 @@ A Decaid plugin consists of two required files:
 
 - **id**: Unique identifier using reverse domain notation (e.g., `com.example.plugin`)
 - **permissions**: Array of capabilities the plugin needs:
-  - `log`: Access to logging
-  - `api`: Ability to make HTTP requests
-  - `emit`: Emit events to the Flutter app
-  - `pluginStorage`: Persistent storage
-  - `proxy.decent_api`: Call the linked Decent account proxy through `host.decentProxy`
+  - `log`: Call `host.log`
+  - `api`: Use plugin `fetch` and expose declared HTTP endpoints
+  - `emit`: Call `host.emit`
+  - `pluginStorage`: Call `host.storage`
+  - `events.machine`: Receive `stateUpdate`
+  - `events.shots`: Receive `shotStored` and `shotUpdated`
+  - `proxy.decent_api`: Send read requests through `host.decentProxy`
+  - `proxy.decent_api.write`: Send allowlisted write requests through `host.decentProxy`
 - **settings**: User-configurable options with `type` (`string`, `number`, `boolean`) and optional `secure` flag for credentials such as passwords. Secure values use platform credential storage, are supplied in memory to `onLoad(settings)`, and are never returned by the REST API.
-- **api**: Events this plugin emits, used for documentation and type checking
+- **api**: HTTP and WebSocket endpoints exposed by the plugin
+
+Unknown permission names make the manifest invalid. Calls without their required
+permission throw or reject with `PluginPermissionError` and are logged by Decaid.
+`setTimeout` and `clearTimeout` are baseline runtime facilities and need no
+manifest permission.
 
 ### 2. `plugin.js` - Main plugin implementation
 
@@ -104,13 +113,13 @@ function createPlugin(host) {
 The `host` object provides these methods:
 
 ### `host.log(message)`
-Log messages to the Flutter app's logger.
+Log messages to the Flutter app's logger. Requires `log`.
 
 ### `host.emit(eventName, payload)`
-Emit events to the Flutter app. These can be listened to by other parts of the application.
+Emit events to the Flutter app. Requires `emit`.
 
 ### `host.storage(command)`
-Interact with persistent storage. Commands:
+Interact with persistent storage. Requires `pluginStorage`. Commands:
 ```javascript
 // Read from storage
 host.storage({
@@ -159,6 +168,9 @@ The returned object has `{ status, headers, body }`. `GET` (read) needs `proxy.d
 
 Plugins receive events in the `onEvent` method:
 
+Machine broadcasts require `events.machine`. Shot lifecycle broadcasts require
+`events.shots`.
+
 - **`stateUpdate`**: Machine state changes (temperature, pressure, flow, etc.)
 
   ```javascript
@@ -188,6 +200,7 @@ Plugins receive events in the `onEvent` method:
   ```
 
 - **`storageWrite`**: Confirmation of storage write
+- **`shotStored`**: A shot finished persisting
 - **`shotUpdated`**: A stored shot was edited via `PUT /api/v1/shots/<id>` (e.g. metadata changes — notes, enjoyment, bean/grinder). Broadcast to every plugin so they can react to edits (the Visualizer plugin uses it to forward-sync edited metadata).
 
   ```javascript
@@ -234,6 +247,9 @@ Will open a websocket through which Decaid will forward all the `timeToReady` ev
 ## HTTP Requests
 
 Plugins can make HTTP requests using the standard `fetch` API (polyfilled by the host):
+
+Plugin `fetch` requires `api`. Declared HTTP endpoints also require `api` before
+Decaid dispatches a request to the plugin.
 
 ```javascript
 // Basic GET request

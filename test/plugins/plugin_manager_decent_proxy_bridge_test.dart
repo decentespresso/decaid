@@ -74,7 +74,7 @@ class FakeKeyValueStoreService implements KeyValueStoreService {
 void main() {
   PluginManifest manifest({
     required String id,
-    Set<PluginPermissions> permissions = const {},
+    Set<PluginPermissions> permissions = const {PluginPermissions.emit},
   }) {
     return PluginManifest(
       id: id,
@@ -225,7 +225,10 @@ void main() {
         id: 'privileged.plugin',
         manifest: manifest(
           id: 'privileged.plugin',
-          permissions: {PluginPermissions.proxyDecentApi},
+          permissions: {
+            PluginPermissions.emit,
+            PluginPermissions.proxyDecentApi,
+          },
         ),
         settings: {},
         jsCode: r'''

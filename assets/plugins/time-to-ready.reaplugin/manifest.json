@@ -7,8 +7,9 @@
   "apiVersion": 1,
   "permissions": [
     "log",
-    "api",
-    "emit"
+    "emit",
+    "pluginStorage",
+    "events.machine"
   ],
   "settings": {
     "Stabilisation": {

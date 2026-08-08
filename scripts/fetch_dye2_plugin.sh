@@ -92,6 +92,13 @@ if [ "$manifest_api_version" != "$expected_api_version" ]; then
   exit 1
 fi
 
+for permission in log api; do
+  if ! jq -e --arg permission "$permission" '.permissions | index($permission) != null' "$manifest" >/dev/null; then
+    echo "fetch_dye2_plugin: manifest.json is missing permission '$permission'" >&2
+    exit 1
+  fi
+done
+
 if ! grep -q 'createPlugin' "$plugin_js"; then
   echo "fetch_dye2_plugin: plugin.js has no 'createPlugin' entry point" >&2
   exit 1

@@ -13,6 +13,8 @@ void main() {
       'permissions': [
         'log',
         'api',
+        'events.machine',
+        'events.shots',
         'proxy.decent_api',
         'proxy.decent_api.write',
       ],
@@ -22,11 +24,40 @@ void main() {
 
     expect(manifest.permissions, contains(PluginPermissions.log));
     expect(manifest.permissions, contains(PluginPermissions.api));
+    expect(manifest.permissions, contains(PluginPermissions.eventsMachine));
+    expect(manifest.permissions, contains(PluginPermissions.eventsShots));
     expect(manifest.permissions, contains(PluginPermissions.proxyDecentApi));
     expect(
       manifest.permissions,
       contains(PluginPermissions.proxyDecentApiWrite),
     );
+  });
+
+  test('rejects unknown manifest permissions', () {
+    expect(
+      () => PluginManifest.fromJson(<String, dynamic>{
+        'id': 'test.plugin',
+        'name': 'Test Plugin',
+        'author': 'Test',
+        'description': 'Test',
+        'version': '1.0.0',
+        'apiVersion': 1,
+        'permissions': ['pluginStorag'],
+        'settings': <String, dynamic>{},
+        'api': <dynamic>[],
+      }),
+      throwsA(
+        isA<FormatException>().having(
+          (error) => error.message,
+          'message',
+          contains('pluginStorag'),
+        ),
+      ),
+    );
+  });
+
+  test('rejects removed pluginNotify permission', () {
+    expect(PluginPermissions.fromString('pluginNotify'), isNull);
   });
 
   test('serializes permissions using manifest wire values', () {

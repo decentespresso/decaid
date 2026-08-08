@@ -38,7 +38,10 @@ void main() {
       description: 'Test',
       version: '1.0.0',
       apiVersion: 1,
-      permissions: const {PluginPermissions.proxyDecentApi},
+      permissions: const {
+        PluginPermissions.emit,
+        PluginPermissions.proxyDecentApi,
+      },
       settings: const {},
       api: PluginApi(endpoints: const []),
     );

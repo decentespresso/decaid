@@ -164,6 +164,13 @@ final class PluginsHandler {
     if (manifest == null) {
       return jsonNotFound({'error': 'plugin with $id not loaded'});
     }
+    if (!manifest.permissions.contains(PluginPermissions.api)) {
+      _log.warning('Plugin $id denied permission api');
+      return jsonForbidden({
+        'error':
+            'PluginPermissionError: Plugin $id requires manifest permission api',
+      });
+    }
 
     final apiEndpoint = manifest.api?.endpoints.firstWhereOrNull(
       (e) => e.id == endpoint,

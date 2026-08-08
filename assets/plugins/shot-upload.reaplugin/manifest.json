@@ -10,7 +10,8 @@
     "api",
     "emit",
     "pluginStorage",
-    "proxy.decent_api.write"
+    "proxy.decent_api.write",
+    "events.shots"
   ],
   "settings": {
     "AutoUpload": {

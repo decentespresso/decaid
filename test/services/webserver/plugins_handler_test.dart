@@ -37,7 +37,9 @@ class _SettingsPluginLoaderService extends Fake implements PluginLoaderService {
 void main() {
   const pluginId = 'http.plugin';
 
-  PluginManifest httpManifest() {
+  PluginManifest httpManifest({
+    Set<PluginPermissions> permissions = const {PluginPermissions.api},
+  }) {
     return PluginManifest(
       id: pluginId,
       name: pluginId,
@@ -45,7 +47,7 @@ void main() {
       description: 'Test',
       version: '1.0.0',
       apiVersion: 1,
-      permissions: const {},
+      permissions: permissions,
       settings: const {},
       api: PluginApi(
         endpoints: [
@@ -163,6 +165,44 @@ void main() {
 
     expect(response.statusCode, 200);
     expect(await response.readAsString(), '{"echo":null}');
+    expect(manager.activePendingOpCount, 0);
+  });
+
+  test('HTTP plugin endpoint rejects missing api permission', () async {
+    final manager = PluginManager(
+      kvStore: FakeKeyValueStoreService(),
+      pluginHttpTimeout: const Duration(seconds: 5),
+    );
+    addTearDown(manager.cancelAllOperations);
+    await manager.loadPlugin(
+      id: pluginId,
+      manifest: httpManifest(permissions: const {}),
+      settings: {},
+      jsCode:
+          '''
+        function createPlugin(host) {
+          return {
+            id: "$pluginId",
+            handleHttpRequest: () => ({status: 200, headers: {}, body: "no"})
+          };
+        }
+      ''',
+    );
+    final app = Router().plus;
+    PluginsHandler(
+      pluginManager: manager,
+      pluginService: _FakePluginLoaderService(),
+    ).addRoutes(app);
+
+    final response = await app.call(
+      Request(
+        'GET',
+        Uri.parse('http://localhost/api/v1/plugins/$pluginId/hello'),
+      ),
+    );
+
+    expect(response.statusCode, 403);
+    expect(await response.readAsString(), contains('api'));
     expect(manager.activePendingOpCount, 0);
   });
 

@@ -32,10 +32,3 @@ class PluginStorageCommand {
     );
   }
 }
-
-class PluginToastNotifyCommand {
-  static final id = PluginPermissions.pluginNotify.name;
-  final String message;
-
-  PluginToastNotifyCommand({required this.message});
-}
