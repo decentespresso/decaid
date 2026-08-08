@@ -559,6 +559,13 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                     if (type == 'number') {
                       return num.tryParse(value);
                     }
+                    if (type == 'boolean') {
+                      return switch (value.trim().toLowerCase()) {
+                        'true' => true,
+                        'false' => false,
+                        _ => null,
+                      };
+                    }
                     return value;
                   }
 
@@ -586,7 +593,47 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                             ),
                           ),
                         const SizedBox(height: 4),
-                        if (schema['type'] == 'boolean')
+                        if (schema['secure'] == true)
+                          ShadInput(
+                            placeholder: Text(
+                              secureValueIsSet
+                                  ? 'Value saved'
+                                  : 'Enter secure value...',
+                            ),
+                            initialValue: '',
+                            keyboardType: schema['type'] == 'number'
+                                ? TextInputType.number
+                                : null,
+                            onChanged: (value) {
+                              final parsedValue = value.isEmpty
+                                  ? null
+                                  : parseValue(value, schema['type']);
+                              if (value.isEmpty || parsedValue != null) {
+                                setState(() {
+                                  newSettings[key] = parsedValue;
+                                });
+                              }
+                            },
+                            obscureText: true,
+                            autocorrect: false,
+                            enableSuggestions: false,
+                            enableIMEPersonalizedLearning: false,
+                            trailing: secureValueIsSet
+                                ? IconButton(
+                                    icon: const Icon(
+                                      LucideIcons.trash2,
+                                      size: 18,
+                                    ),
+                                    tooltip: 'Clear saved value',
+                                    onPressed: () {
+                                      setState(() {
+                                        newSettings[key] = null;
+                                      });
+                                    },
+                                  )
+                                : null,
+                          )
+                        else if (schema['type'] == 'boolean')
                           Row(
                             children: [
                               ShadSwitch(
@@ -621,38 +668,6 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                                 });
                               }
                             },
-                          )
-                        else if (schema['secure'] == true)
-                          ShadInput(
-                            placeholder: Text(
-                              secureValueIsSet
-                                  ? 'Value saved'
-                                  : 'Enter secure value...',
-                            ),
-                            initialValue: '',
-                            onChanged: (value) {
-                              setState(() {
-                                newSettings[key] = value.isEmpty ? null : value;
-                              });
-                            },
-                            obscureText: true,
-                            autocorrect: false,
-                            enableSuggestions: false,
-                            enableIMEPersonalizedLearning: false,
-                            trailing: secureValueIsSet
-                                ? IconButton(
-                                    icon: const Icon(
-                                      LucideIcons.trash2,
-                                      size: 18,
-                                    ),
-                                    tooltip: 'Clear saved value',
-                                    onPressed: () {
-                                      setState(() {
-                                        newSettings[key] = null;
-                                      });
-                                    },
-                                  )
-                                : null,
                           )
                         else
                           ShadInput(

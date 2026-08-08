@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -11,17 +12,42 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class FakeCredentialStore implements CredentialStore {
   Map<String, String> values = {};
+  Completer<void>? _nextWriteStarted;
+  Future<void>? _nextWriteRelease;
+  Object? _nextDeleteError;
+
+  void blockNextWrite(Completer<void> started, Future<void> release) {
+    _nextWriteStarted = started;
+    _nextWriteRelease = release;
+  }
+
+  void failNextDelete(Object error) {
+    _nextDeleteError = error;
+  }
 
   @override
   Future<String?> read({required String key}) async => values[key];
 
   @override
   Future<void> write({required String key, required String value}) async {
+    final started = _nextWriteStarted;
+    if (started != null) {
+      final release = _nextWriteRelease!;
+      _nextWriteStarted = null;
+      _nextWriteRelease = null;
+      started.complete();
+      await release;
+    }
     values = {...values, key: value};
   }
 
   @override
   Future<void> delete({required String key}) async {
+    final error = _nextDeleteError;
+    if (error != null) {
+      _nextDeleteError = null;
+      throw error;
+    }
     values = Map.fromEntries(values.entries.where((entry) => entry.key != key));
   }
 }
@@ -230,6 +256,79 @@ function createPlugin() {
         expect(credentialStore.values, isEmpty);
       },
     );
+
+    test('concurrent setting patches preserve both updates', () async {
+      const id = 'concurrent-patch.reaplugin';
+      const credentialKey = 'plugin.settings.secure.$id';
+      await service.addPlugin(
+        makePluginSource(
+          id,
+          settings: {
+            'Username': {'type': 'string'},
+            'Password': {'type': 'string', 'secure': true},
+          },
+        ).path,
+      );
+      credentialStore.values = {
+        credentialKey: jsonEncode({'Password': 'old-secret'}),
+      };
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        'plugin.settings.$id',
+        jsonEncode({'Username': 'old-user'}),
+      );
+      final staleWriteStarted = Completer<void>();
+      final releaseStaleWrite = Completer<void>();
+      credentialStore.blockNextWrite(
+        staleWriteStarted,
+        releaseStaleWrite.future,
+      );
+
+      final usernameUpdate = service.savePluginSettings(id, {
+        'Username': 'new-user',
+      });
+      await staleWriteStarted.future;
+      final passwordUpdate = service.savePluginSettings(id, {
+        'Password': 'new-secret',
+      });
+      await Future<void>.delayed(Duration.zero);
+      releaseStaleWrite.complete();
+      await Future.wait([usernameUpdate, passwordUpdate]);
+
+      expect(jsonDecode(credentialStore.values[credentialKey]!), {
+        'Password': 'new-secret',
+      });
+      expect(jsonDecode(prefs.getString('plugin.settings.$id')!), {
+        'Username': 'new-user',
+      });
+    });
+
+    test('failed credential cleanup leaves uninstall retryable', () async {
+      const id = 'retry-remove.reaplugin';
+      await service.addPlugin(
+        makePluginSource(
+          id,
+          settings: {
+            'Password': {'type': 'string', 'secure': true},
+          },
+        ).path,
+      );
+      await service.savePluginSettings(id, {'Password': 'secret'});
+      final pluginDir = Directory('${tempDir.path}/plugins/$id');
+      credentialStore.failNextDelete(StateError('delete failed'));
+
+      await expectLater(service.removePlugin(id), throwsStateError);
+
+      expect(service.getPluginManifest(id), isNotNull);
+      expect(pluginDir.existsSync(), isTrue);
+      expect(credentialStore.values, isNotEmpty);
+
+      await service.removePlugin(id);
+
+      expect(service.getPluginManifest(id), isNull);
+      expect(pluginDir.existsSync(), isFalse);
+      expect(credentialStore.values, isEmpty);
+    });
 
     test('assembles secure settings only for plugin onLoad', () async {
       const id = 'load-secure.reaplugin';

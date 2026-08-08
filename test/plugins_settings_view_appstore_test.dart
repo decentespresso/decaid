@@ -152,4 +152,61 @@ void main() {
 
     expect(fakePluginLoaderService.savedSettings, {'Password': null});
   });
+
+  testWidgets('secure number and boolean settings stay obscured and typed', (
+    tester,
+  ) async {
+    final manifest = PluginManifest(
+      id: 'typed-secure.reaplugin',
+      name: 'Typed Secure Plugin',
+      author: 'Test',
+      description: 'Test plugin',
+      version: '1.0.0',
+      apiVersion: 1,
+      permissions: {},
+      settings: {
+        'NumberSecret': {'type': 'number', 'secure': true},
+        'BooleanSecret': {'type': 'boolean', 'secure': true},
+      },
+      api: PluginApi(endpoints: []),
+    );
+    fakePluginLoaderService = FakePluginLoaderService(
+      plugins: [manifest],
+      settings: {
+        'NumberSecret': {'isSet': true},
+        'BooleanSecret': {'isSet': true},
+      },
+    );
+    await tester.pumpWidget(
+      ShadApp(
+        builder: (_, child) => ScaffoldMessenger(child: child!),
+        home: PluginsSettingsView(
+          pluginLoaderService: fakePluginLoaderService,
+          allowInstall: false,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.widgetWithText(ShadButton, 'Settings'));
+    await tester.pumpAndSettle();
+
+    final inputs = find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.byType(ShadInput),
+    );
+    expect(inputs, findsNWidgets(2));
+    expect(
+      tester.widgetList<ShadInput>(inputs).every((input) => input.obscureText),
+      isTrue,
+    );
+    await tester.enterText(inputs.at(0), '42');
+    await tester.enterText(inputs.at(1), 'true');
+    await tester.tap(find.widgetWithText(ShadButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(fakePluginLoaderService.savedSettings, {
+      'NumberSecret': 42,
+      'BooleanSecret': true,
+    });
+  });
 }

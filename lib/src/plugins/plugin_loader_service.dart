@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -38,6 +39,7 @@ class PluginLoaderService {
   final Map<String, PluginManifest> _availablePluginsCache = {};
   Map<String, Map<String, dynamic>> _volatileSecureSettings = {};
   Future<void> _pluginLoadQueue = Future.value();
+  final Map<String, Future<void>> _pluginSettingsLocks = {};
 
   PluginLoaderService({
     required KeyValueStoreService kvStore,
@@ -156,26 +158,22 @@ class PluginLoaderService {
       await unloadPlugin(pluginId);
     }
 
-    // Remove from cache
-    _availablePluginsCache.remove(pluginId);
+    await _withPluginSettingsLock(pluginId, () async {
+      await _deleteSecureSettings(pluginId);
+      await _prefs.remove('plugin.settings.$pluginId');
+      await _prefs.remove('plugin.autoload.$pluginId');
+      await _prefs.remove(_loadFailureKey(pluginId));
+      if (_prefs.getString(_loadingPluginKey) == pluginId) {
+        await _prefs.remove(_loadingPluginKey);
+      }
 
-    // Delete plugin directory
-    final pluginDir = Directory('${_pluginsDir.path}/$pluginId');
-    if (pluginDir.existsSync()) {
-      await pluginDir.delete(recursive: true);
-      _log.info('Plugin removed: $pluginId');
-    }
-
-    // Remove auto-load setting
-    await _prefs.remove('plugin.autoload.$pluginId');
-
-    // Remove plugin settings
-    await _prefs.remove('plugin.settings.$pluginId');
-    await _deleteSecureSettings(pluginId);
-    await _prefs.remove(_loadFailureKey(pluginId));
-    if (_prefs.getString(_loadingPluginKey) == pluginId) {
-      await _prefs.remove(_loadingPluginKey);
-    }
+      final pluginDir = Directory('${_pluginsDir.path}/$pluginId');
+      if (pluginDir.existsSync()) {
+        await pluginDir.delete(recursive: true);
+        _log.info('Plugin removed: $pluginId');
+      }
+      _availablePluginsCache.remove(pluginId);
+    });
   }
 
   /// Load plugin into the runtime
@@ -202,7 +200,7 @@ class PluginLoaderService {
       }
 
       final jsCode = await pluginFile.readAsString();
-      final settings = await _pluginSettingsForLoad(manifest);
+      final settings = await _pluginSettingsForLoad(pluginId);
 
       await pluginManager
           .loadPlugin(
@@ -265,27 +263,28 @@ class PluginLoaderService {
     return _prefs.getBool('plugin.autoload.$pluginId') ?? false;
   }
 
-  Future<Map<String, dynamic>> pluginSettings(String pluginId) async {
-    final manifest = _availablePluginsCache[pluginId];
-    if (manifest == null) return {};
+  Future<Map<String, dynamic>> pluginSettings(String pluginId) =>
+      _withPluginSettingsLock(pluginId, () async {
+        final manifest = _availablePluginsCache[pluginId];
+        if (manifest == null) return {};
 
-    final stored = await _storedSettings(manifest);
-    return {
-      ...stored.ordinary,
-      for (final key in _secureSettingKeys(manifest))
-        key: {'isSet': stored.secure.containsKey(key)},
-    };
-  }
+        final stored = await _storedSettings(manifest);
+        return {
+          ...stored.ordinary,
+          for (final key in _secureSettingKeys(manifest))
+            key: {'isSet': stored.secure.containsKey(key)},
+        };
+      });
 
   Future<void> savePluginSettings(
     String pluginId,
     Map<String, dynamic> settings,
-  ) async {
-    if (!_availablePluginsCache.containsKey(pluginId)) {
+  ) => _withPluginSettingsLock(pluginId, () async {
+    final manifest = _availablePluginsCache[pluginId];
+    if (manifest == null) {
       throw Exception('Plugin not found: $pluginId');
     }
 
-    final manifest = _availablePluginsCache[pluginId]!;
     _validateSettings(manifest, settings);
     final stored = await _storedSettings(manifest);
     final secureKeys = _secureSettingKeys(manifest);
@@ -311,7 +310,7 @@ class PluginLoaderService {
     });
 
     _log.fine('Settings saved for plugin: $pluginId');
-  }
+  });
 
   /// Get a list of all the available plugins
   List<PluginManifest> get availablePlugins {
@@ -371,6 +370,21 @@ class PluginLoaderService {
   String _secureSettingsKey(String pluginId) =>
       'plugin.settings.secure.$pluginId';
 
+  Future<T> _withPluginSettingsLock<T>(
+    String pluginId,
+    Future<T> Function() action,
+  ) {
+    final previous = _pluginSettingsLocks[pluginId] ?? Future<void>.value();
+    final next = Completer<void>();
+    _pluginSettingsLocks[pluginId] = next.future;
+    return previous.then((_) => action()).whenComplete(() {
+      next.complete();
+      if (identical(_pluginSettingsLocks[pluginId], next.future)) {
+        _pluginSettingsLocks.remove(pluginId);
+      }
+    });
+  }
+
   Set<String> _secureSettingKeys(PluginManifest manifest) => {
     for (final entry in manifest.settings.entries)
       if (entry.value is Map && entry.value['secure'] == true) entry.key,
@@ -379,12 +393,15 @@ class PluginLoaderService {
   bool _isSecureState(dynamic value) =>
       value is Map && value.length == 1 && value['isSet'] is bool;
 
-  Future<Map<String, dynamic>> _pluginSettingsForLoad(
-    PluginManifest manifest,
-  ) async {
-    final stored = await _storedSettings(manifest);
-    return {...stored.ordinary, ...stored.secure};
-  }
+  Future<Map<String, dynamic>> _pluginSettingsForLoad(String pluginId) =>
+      _withPluginSettingsLock(pluginId, () async {
+        final manifest = _availablePluginsCache[pluginId];
+        if (manifest == null) {
+          throw Exception('Plugin not found: $pluginId');
+        }
+        final stored = await _storedSettings(manifest);
+        return {...stored.ordinary, ...stored.secure};
+      });
 
   Future<({Map<String, dynamic> ordinary, Map<String, dynamic> secure})>
   _storedSettings(PluginManifest manifest) async {
