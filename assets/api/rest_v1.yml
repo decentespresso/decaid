@@ -2465,36 +2465,49 @@ paths:
     get:
       tags: [Plugins]
       summary: Fetch settings for specific plugin
+      description: Secure settings are represented by an isSet state object and never returned as plaintext.
       parameters:
         - name: id
           in: path
+          required: true
           description: the plugin id
+          schema:
+            type: string
       responses:
         "200":
+          description: Current settings with secure values redacted
           content:
             application/json:
               schema:
-                type: object
+                $ref: '#/components/schemas/PluginSettings'
 
     post:
       tags: [Plugins]
       summary: Save settings for specific plugin
+      description: >
+        Applies a settings patch. Omitted secure fields and isSet state objects
+        preserve the stored credential; null clears it. The response is always
+        redacted and never echoes a submitted credential.
       parameters:
         - name: id
           in: path
+          required: true
           description: the plugin id
+          schema:
+            type: string
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
+              $ref: '#/components/schemas/PluginSettings'
       responses:
         "200":
+          description: Updated settings with secure values redacted
           content:
             application/json:
               schema:
-                type: object
+                $ref: '#/components/schemas/PluginSettings'
 
   /api/v1/plugins/{id}/enable:
     post:
@@ -5941,6 +5954,18 @@ components:
         autoLoad:
           type: boolean
           description: Whether the plugin is set to auto-load on startup
+
+    PluginSettings:
+      type: object
+      description: >
+        Plugin setting values. Fields marked secure in the manifest are returned
+        as objects containing only an isSet boolean instead of their stored
+        values.
+      additionalProperties: true
+      example:
+        Username: user@example.com
+        Password:
+          isSet: true
 
     ProfileRecord:
       type: object

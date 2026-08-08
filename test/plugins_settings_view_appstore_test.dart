@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
@@ -6,9 +7,11 @@ import 'package:reaprime/src/settings/plugins_settings_view.dart';
 
 /// A fake PluginLoaderService that avoids creating a real PluginManager/JS runtime.
 class FakePluginLoaderService extends Fake implements PluginLoaderService {
-  FakePluginLoaderService({this.plugins = const []});
+  FakePluginLoaderService({this.plugins = const [], this.settings = const {}});
 
   final List<PluginManifest> plugins;
+  final Map<String, dynamic> settings;
+  Map<String, dynamic>? savedSettings;
 
   @override
   List<PluginManifest> get availablePlugins => plugins;
@@ -18,6 +21,26 @@ class FakePluginLoaderService extends Fake implements PluginLoaderService {
 
   @override
   Future<bool> shouldAutoLoad(String pluginId) async => false;
+
+  @override
+  PluginManifest? getPluginManifest(String pluginId) {
+    for (final plugin in plugins) {
+      if (plugin.id == pluginId) return plugin;
+    }
+    return null;
+  }
+
+  @override
+  Future<Map<String, dynamic>> pluginSettings(String pluginId) async =>
+      settings;
+
+  @override
+  Future<void> savePluginSettings(
+    String pluginId,
+    Map<String, dynamic> settings,
+  ) async {
+    savedSettings = settings;
+  }
 }
 
 void main() {
@@ -88,5 +111,45 @@ void main() {
 
     expect(find.text('proxy.decent_api'), findsOneWidget);
     expect(find.text('proxyDecentApi'), findsNothing);
+  });
+
+  testWidgets('clears a stored secure setting explicitly', (tester) async {
+    final manifest = PluginManifest(
+      id: 'secure.reaplugin',
+      name: 'Secure Plugin',
+      author: 'Test',
+      description: 'Test plugin',
+      version: '1.0.0',
+      apiVersion: 1,
+      permissions: {},
+      settings: {
+        'Password': {'type': 'string', 'secure': true},
+      },
+      api: PluginApi(endpoints: []),
+    );
+    fakePluginLoaderService = FakePluginLoaderService(
+      plugins: [manifest],
+      settings: {
+        'Password': {'isSet': true},
+      },
+    );
+    await tester.pumpWidget(
+      ShadApp(
+        builder: (_, child) => ScaffoldMessenger(child: child!),
+        home: PluginsSettingsView(
+          pluginLoaderService: fakePluginLoaderService,
+          allowInstall: false,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.widgetWithText(ShadButton, 'Settings'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Clear saved value'));
+    await tester.tap(find.widgetWithText(ShadButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(fakePluginLoaderService.savedSettings, {'Password': null});
   });
 }

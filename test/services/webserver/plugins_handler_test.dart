@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_manager.dart';
@@ -8,6 +10,29 @@ import 'package:shelf_plus/shelf_plus.dart';
 import '../../plugins/plugin_test_helpers.dart';
 
 class _FakePluginLoaderService extends Fake implements PluginLoaderService {}
+
+class _SettingsPluginLoaderService extends Fake implements PluginLoaderService {
+  Map<String, dynamic> publicSettings = {
+    'Username': 'user',
+    'Password': {'isSet': true},
+  };
+  Map<String, dynamic>? savedPatch;
+
+  @override
+  Future<Map<String, dynamic>> pluginSettings(String pluginId) async =>
+      publicSettings;
+
+  @override
+  Future<void> savePluginSettings(
+    String pluginId,
+    Map<String, dynamic> settings,
+  ) async {
+    savedPatch = settings;
+  }
+
+  @override
+  Future<void> reloadPlugin(String pluginId) async {}
+}
 
 void main() {
   const pluginId = 'http.plugin';
@@ -29,6 +54,58 @@ void main() {
       ),
     );
   }
+
+  group('plugin settings API', () {
+    late PluginManager manager;
+    late _SettingsPluginLoaderService pluginService;
+    late RouterPlus app;
+
+    setUp(() {
+      manager = PluginManager(kvStore: FakeKeyValueStoreService());
+      addTearDown(manager.cancelAllOperations);
+      pluginService = _SettingsPluginLoaderService();
+      app = Router().plus;
+      PluginsHandler(
+        pluginManager: manager,
+        pluginService: pluginService,
+      ).addRoutes(app);
+    });
+
+    test('GET returns secure state without the credential', () async {
+      final response = await app.call(
+        Request(
+          'GET',
+          Uri.parse('http://localhost/api/v1/plugins/$pluginId/settings'),
+        ),
+      );
+
+      expect(response.statusCode, 200);
+      expect(jsonDecode(await response.readAsString()), {
+        'Username': 'user',
+        'Password': {'isSet': true},
+      });
+    });
+
+    test('POST never echoes a submitted credential', () async {
+      final response = await app.call(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/api/v1/plugins/$pluginId/settings'),
+          headers: {'content-type': 'application/json'},
+          body: jsonEncode({'Password': 'new-secret'}),
+        ),
+      );
+
+      expect(pluginService.savedPatch, {'Password': 'new-secret'});
+      expect(response.statusCode, 200);
+      final body = await response.readAsString();
+      expect(body, isNot(contains('new-secret')));
+      expect(jsonDecode(body), {
+        'Username': 'user',
+        'Password': {'isSet': true},
+      });
+    });
+  });
 
   test('synchronous plugin response completes the request directly', () async {
     final manager = PluginManager(

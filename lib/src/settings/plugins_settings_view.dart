@@ -543,6 +543,10 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                   final schema = entry.value;
                   final currentValue = newSettings[key];
                   final defaultValue = schema['default'];
+                  final secureValueIsSet =
+                      schema['secure'] == true &&
+                      currentValue is Map &&
+                      currentValue['isSet'] == true;
 
                   // Helper function to get display value
                   String getDisplayValue(dynamic value) {
@@ -620,16 +624,35 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                           )
                         else if (schema['secure'] == true)
                           ShadInput(
-                            placeholder: Text('Enter secure value...'),
-                            initialValue: getDisplayValue(
-                              currentValue ?? defaultValue,
+                            placeholder: Text(
+                              secureValueIsSet
+                                  ? 'Value saved'
+                                  : 'Enter secure value...',
                             ),
+                            initialValue: '',
                             onChanged: (value) {
                               setState(() {
-                                newSettings[key] = value;
+                                newSettings[key] = value.isEmpty ? null : value;
                               });
                             },
                             obscureText: true,
+                            autocorrect: false,
+                            enableSuggestions: false,
+                            enableIMEPersonalizedLearning: false,
+                            trailing: secureValueIsSet
+                                ? IconButton(
+                                    icon: const Icon(
+                                      LucideIcons.trash2,
+                                      size: 18,
+                                    ),
+                                    tooltip: 'Clear saved value',
+                                    onPressed: () {
+                                      setState(() {
+                                        newSettings[key] = null;
+                                      });
+                                    },
+                                  )
+                                : null,
                           )
                         else
                           ShadInput(

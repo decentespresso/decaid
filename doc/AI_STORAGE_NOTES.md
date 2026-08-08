@@ -24,10 +24,18 @@ Read this when changing database schema, migrations, persistent settings, Shared
 |-------|-------|---------|
 | Drift DB | `AppDatabase` | Shots, workflows, beans, grinders, profiles, settings |
 | `SharedPreferences` | `SharedPreferencesSettingsService` | App settings (telemetry consent, feature flags, preferences) |
-| Secure store | `DecentAccountService` | Account credentials (email, password, JWT tokens) |
+| Secure store | `DecentAccountService`, `PluginLoaderService` | Account credentials, API tokens, secure plugin settings |
 | File system | `StorageService` | Data export, log files, skin assets |
 
 Keep these stores independent. A settings reset must not clear account credentials unless explicitly requested.
+
+Plugin settings marked `secure` in the manifest are stored through
+`CredentialStore` under a plugin-scoped key. Ordinary plugin settings remain in
+SharedPreferences. Reads exposed to UI and REST clients return only `{isSet}`
+state for secure fields; `PluginLoaderService` joins the two stores only for
+`onLoad`. Legacy cleartext values migrate on first read. `--no-account` uses
+process-memory secure plugin values because headless Linux cannot access
+libsecret.
 
 ## Database Schema
 

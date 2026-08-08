@@ -250,13 +250,18 @@ Settings fields include: `gatewayMode`, `themeMode`, `logLevel`, `weightFlowMult
 | Method | Path | Description | Handler |
 |--------|------|-------------|---------|
 | GET | `/api/v1/plugins` | List all plugins (with `loaded`, `autoLoad` fields) | `plugins_handler.dart` |
-| GET | `/api/v1/plugins/:id/settings` | Get plugin settings | |
-| POST | `/api/v1/plugins/:id/settings` | Update plugin settings | |
+| GET | `/api/v1/plugins/:id/settings` | Get plugin settings; secure fields return `{isSet}` only | |
+| POST | `/api/v1/plugins/:id/settings` | Patch plugin settings and return a redacted result | |
 | POST | `/api/v1/plugins/:id/enable` | Load plugin + enable auto-load | |
 | POST | `/api/v1/plugins/:id/disable` | Unload plugin + disable auto-load | |
 | DELETE | `/api/v1/plugins/:id` | Remove plugin (unload + delete files) | |
 | POST | `/api/v1/plugins/install` | Install from URL (not yet implemented — returns 501) | |
 | GET/WS | `/api/v1/plugins/:id/:endpoint` | Plugin HTTP/WebSocket proxy | |
+
+Plugin setting updates use patch semantics. Omitting a secure field or sending
+its returned `{ "isSet": true|false }` object preserves the stored credential;
+sending `null` clears it. Secure values are never returned by either endpoint,
+including the POST response.
 
 ### Display
 

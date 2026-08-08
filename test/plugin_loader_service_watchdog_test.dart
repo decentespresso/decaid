@@ -5,18 +5,18 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
+import 'package:reaprime/src/services/account/decent_account_service.dart'
+    show CredentialStore;
 import 'package:reaprime/src/services/storage/kv_store_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-class _ControllablePluginLoaderService extends PluginLoaderService {
-  _ControllablePluginLoaderService({required super.kvStore});
-
-  String? _pausedPluginId;
+class _ControllableCredentialStore implements CredentialStore {
+  String? _pausedKey;
   Completer<void>? _pauseEntered;
   Completer<void>? _resume;
 
-  void pauseSettingsFor(String pluginId) {
-    _pausedPluginId = pluginId;
+  void pauseReadFor(String key) {
+    _pausedKey = key;
     _pauseEntered = Completer<void>();
     _resume = Completer<void>();
   }
@@ -26,13 +26,19 @@ class _ControllablePluginLoaderService extends PluginLoaderService {
   void resume() => _resume!.complete();
 
   @override
-  Future<Map<String, dynamic>> pluginSettings(String pluginId) async {
-    if (pluginId == _pausedPluginId) {
+  Future<String?> read({required String key}) async {
+    if (key == _pausedKey) {
       _pauseEntered!.complete();
       await _resume!.future;
     }
-    return super.pluginSettings(pluginId);
+    return null;
   }
+
+  @override
+  Future<void> write({required String key, required String value}) async {}
+
+  @override
+  Future<void> delete({required String key}) async {}
 }
 
 class _FakeKvStore implements KeyValueStoreService {
@@ -80,7 +86,8 @@ void main() {
   const pluginId = 'watchdog-test.reaplugin';
   late Directory tempDir;
   late Directory sourceDir;
-  late _ControllablePluginLoaderService service;
+  late PluginLoaderService service;
+  late _ControllableCredentialStore credentialStore;
 
   void writePlugin(String js) {
     File('${sourceDir.path}/plugin.js').writeAsStringSync(js);
@@ -115,7 +122,11 @@ void main() {
     );
     writePlugin('function createPlugin() { throw new Error("boom"); }');
 
-    service = _ControllablePluginLoaderService(kvStore: _FakeKvStore());
+    credentialStore = _ControllableCredentialStore();
+    service = PluginLoaderService(
+      kvStore: _FakeKvStore(),
+      credentialStore: credentialStore,
+    );
     await service.initialize();
     await service.addPlugin(sourceDir.path);
     await service.setPluginAutoLoad(pluginId, true);
@@ -217,9 +228,9 @@ function createPlugin() {
 }
 ''');
 
-    service.pauseSettingsFor(pluginId);
+    credentialStore.pauseReadFor('plugin.settings.secure.$pluginId');
     final firstLoad = service.loadPlugin(pluginId);
-    await service.waitUntilPaused();
+    await credentialStore.waitUntilPaused();
 
     var secondCompleted = false;
     final secondLoad = service
@@ -229,7 +240,7 @@ function createPlugin() {
 
     expect(secondCompleted, isFalse);
 
-    service.resume();
+    credentialStore.resume();
     await Future.wait([firstLoad, secondLoad]);
   });
 

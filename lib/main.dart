@@ -431,13 +431,14 @@ void main(List<String> args) async {
   DecentAccountService? decentAccountService;
   DecentProxyService? decentProxyService;
   AccountTokensController? accountTokensController;
+  CredentialStore? credentialStore;
   final proxyTokenService = ProxyTokenService();
   if (cliArgs.noAccount) {
     log.info('--no-account: skipping credential store and account service');
     decentAccountService = null;
     decentProxyService = null;
   } else {
-    final decentCredentialStore = await createCredentialStore();
+    credentialStore = await createCredentialStore();
     // Override with --dart-define=DECENT_BASE_URL=http://localhost:8000 for
     // local server development; defaults to production.
     const decentBaseUrl = String.fromEnvironment(
@@ -446,21 +447,21 @@ void main(List<String> args) async {
     );
     decentAccountService = DecentAccountService(
       httpClient: http.Client(),
-      credentialStore: decentCredentialStore,
+      credentialStore: credentialStore,
       baseUrl: decentBaseUrl,
     );
     // Same credential store as the account service: the proxy reads the
     // credentials that account login wrote, and never exposes them to callers.
     decentProxyService = DecentProxyService(
       httpClient: http.Client(),
-      credentialStore: decentCredentialStore,
+      credentialStore: credentialStore,
       baseUrl: decentBaseUrl,
     );
     // User-managed API-client tokens: persisted in the same secure store and
     // loaded into the validator alongside the per-process skin token.
     accountTokensController = AccountTokensController(
       tokenService: proxyTokenService,
-      store: ProxyTokenStore(credentialStore: decentCredentialStore),
+      store: ProxyTokenStore(credentialStore: credentialStore),
     );
     await accountTokensController.initialize();
   }
@@ -470,6 +471,7 @@ void main(List<String> args) async {
   final PluginLoaderService pluginService = PluginLoaderService(
     kvStore: HiveStoreService(defaultNamespace: "plugins")..initialize(),
     decentProxyService: decentProxyService,
+    credentialStore: credentialStore,
   );
   // Don't initialize plugins yet - wait for permissions to be granted
   // pluginService.initialize() will be called from PermissionsView after permissions are granted

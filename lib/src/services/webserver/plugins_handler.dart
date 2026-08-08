@@ -257,7 +257,7 @@ final class PluginsHandler {
         return jsonBadRequest({'error': e.message});
       }
       await pluginService.reloadPlugin(id);
-      return jsonOk(json);
+      return jsonOk(await pluginService.pluginSettings(id));
     });
   }
 }

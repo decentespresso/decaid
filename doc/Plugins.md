@@ -62,7 +62,7 @@ A Decaid plugin consists of two required files:
   - `emit`: Emit events to the Flutter app
   - `pluginStorage`: Persistent storage
   - `proxy.decent_api`: Call the linked Decent account proxy through `host.decentProxy`
-- **settings**: User-configurable options with `type` (`string`, `number`, `boolean`) and optional `secure` flag for passwords
+- **settings**: User-configurable options with `type` (`string`, `number`, `boolean`) and optional `secure` flag for credentials such as passwords. Secure values use platform credential storage, are supplied in memory to `onLoad(settings)`, and are never returned by the REST API.
 - **api**: Events this plugin emits, used for documentation and type checking
 
 ### 2. `plugin.js` - Main plugin implementation
@@ -436,6 +436,12 @@ Plugins can be managed via REST API:
 | POST | `/api/v1/plugins/install` | Install from URL (not yet implemented) |
 | GET | `/api/v1/plugins/:id/settings` | Get plugin settings |
 | POST | `/api/v1/plugins/:id/settings` | Update plugin settings |
+
+Settings updates are patches. Omitted secure fields and returned `{ "isSet":
+true|false }` markers preserve the credential; `null` clears it. GET and POST
+responses contain only the marker for secure fields, never the submitted or
+stored value. Existing cleartext secure fields are moved out of
+SharedPreferences on first read.
 
 The bundled **settings plugin** (`settings.reaplugin`) provides a web UI for plugin management at `/api/v1/plugins/settings.reaplugin/ui`. It includes an enable/disable toggle and remove button for each plugin, with a self-protection guard that prevents disabling itself.
 

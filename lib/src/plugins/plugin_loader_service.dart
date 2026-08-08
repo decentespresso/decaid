@@ -11,6 +11,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:reaprime/src/plugins/plugin_manager.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'package:reaprime/src/plugins/plugin_runtime.dart';
+import 'package:reaprime/src/services/account/decent_account_service.dart'
+    show CredentialStore;
 import 'package:reaprime/src/services/account/decent_proxy_service.dart';
 import 'package:reaprime/src/util/safe_path.dart';
 
@@ -28,17 +30,21 @@ class PluginLoaderService {
   static const _loadingPluginKey = 'plugin.watchdog.loading';
 
   final PluginManager pluginManager;
+  final CredentialStore? _credentialStore;
   final _log = Logger('PluginLoaderService');
 
   late Directory _pluginsDir;
   late SharedPreferences _prefs;
   final Map<String, PluginManifest> _availablePluginsCache = {};
+  Map<String, Map<String, dynamic>> _volatileSecureSettings = {};
   Future<void> _pluginLoadQueue = Future.value();
 
   PluginLoaderService({
     required KeyValueStoreService kvStore,
     DecentProxyService? decentProxyService,
-  }) : pluginManager = PluginManager(
+    CredentialStore? credentialStore,
+  }) : _credentialStore = credentialStore,
+       pluginManager = PluginManager(
          kvStore: kvStore,
          decentProxyService: decentProxyService,
        );
@@ -165,6 +171,7 @@ class PluginLoaderService {
 
     // Remove plugin settings
     await _prefs.remove('plugin.settings.$pluginId');
+    await _deleteSecureSettings(pluginId);
     await _prefs.remove(_loadFailureKey(pluginId));
     if (_prefs.getString(_loadingPluginKey) == pluginId) {
       await _prefs.remove(_loadingPluginKey);
@@ -195,7 +202,7 @@ class PluginLoaderService {
       }
 
       final jsCode = await pluginFile.readAsString();
-      final settings = await pluginSettings(pluginId);
+      final settings = await _pluginSettingsForLoad(manifest);
 
       await pluginManager
           .loadPlugin(
@@ -258,23 +265,18 @@ class PluginLoaderService {
     return _prefs.getBool('plugin.autoload.$pluginId') ?? false;
   }
 
-  /// Load settings for specified plugin pluginId
   Future<Map<String, dynamic>> pluginSettings(String pluginId) async {
-    final settingsJson = _prefs.getString('plugin.settings.$pluginId');
-    if (settingsJson == null) {
-      return {};
-    }
+    final manifest = _availablePluginsCache[pluginId];
+    if (manifest == null) return {};
 
-    try {
-      return Map<String, dynamic>.from(jsonDecode(settingsJson));
-    } catch (e) {
-      _log.warning('Failed to parse settings for plugin $pluginId', e);
-      return {};
-    }
+    final stored = await _storedSettings(manifest);
+    return {
+      ...stored.ordinary,
+      for (final key in _secureSettingKeys(manifest))
+        key: {'isSet': stored.secure.containsKey(key)},
+    };
   }
 
-  /// Save settings for a specified pluginId,
-  /// Check they match with settings specified in manifest
   Future<void> savePluginSettings(
     String pluginId,
     Map<String, dynamic> settings,
@@ -284,12 +286,29 @@ class PluginLoaderService {
     }
 
     final manifest = _availablePluginsCache[pluginId]!;
-
-    // Validate settings against manifest
     _validateSettings(manifest, settings);
+    final stored = await _storedSettings(manifest);
+    final secureKeys = _secureSettingKeys(manifest);
+    final ordinaryPatch = Map.fromEntries(
+      settings.entries.where((entry) => !secureKeys.contains(entry.key)),
+    );
+    var secure = stored.secure;
+    for (final entry in settings.entries.where(
+      (entry) => secureKeys.contains(entry.key),
+    )) {
+      if (_isSecureState(entry.value)) continue;
+      secure = entry.value == null
+          ? Map.fromEntries(
+              secure.entries.where((current) => current.key != entry.key),
+            )
+          : {...secure, entry.key: entry.value};
+    }
 
-    // Save to SharedPreferences
-    await _prefs.setString('plugin.settings.$pluginId', jsonEncode(settings));
+    await _writeSecureSettings(pluginId, secure);
+    await _writeOrdinarySettings(pluginId, {
+      ...stored.ordinary,
+      ...ordinaryPatch,
+    });
 
     _log.fine('Settings saved for plugin: $pluginId');
   }
@@ -346,6 +365,136 @@ class PluginLoaderService {
 
   String _loadFailureKey(String pluginId) =>
       'plugin.watchdog.loadFailures.$pluginId';
+
+  String _settingsKey(String pluginId) => 'plugin.settings.$pluginId';
+
+  String _secureSettingsKey(String pluginId) =>
+      'plugin.settings.secure.$pluginId';
+
+  Set<String> _secureSettingKeys(PluginManifest manifest) => {
+    for (final entry in manifest.settings.entries)
+      if (entry.value is Map && entry.value['secure'] == true) entry.key,
+  };
+
+  bool _isSecureState(dynamic value) =>
+      value is Map && value.length == 1 && value['isSet'] is bool;
+
+  Future<Map<String, dynamic>> _pluginSettingsForLoad(
+    PluginManifest manifest,
+  ) async {
+    final stored = await _storedSettings(manifest);
+    return {...stored.ordinary, ...stored.secure};
+  }
+
+  Future<({Map<String, dynamic> ordinary, Map<String, dynamic> secure})>
+  _storedSettings(PluginManifest manifest) async {
+    final ordinary = _readOrdinarySettings(manifest.id);
+    final secureKeys = _secureSettingKeys(manifest);
+    final storedSecure = await _readSecureSettings(manifest.id);
+    final secure = Map.fromEntries(
+      storedSecure.entries.where((entry) => secureKeys.contains(entry.key)),
+    );
+    if (secure.length != storedSecure.length) {
+      await _writeSecureSettings(manifest.id, secure);
+    }
+    final legacySecure = Map.fromEntries(
+      ordinary.entries.where((entry) => secureKeys.contains(entry.key)),
+    );
+    if (legacySecure.isEmpty) {
+      return (ordinary: ordinary, secure: secure);
+    }
+
+    final migratedSecure = {...legacySecure, ...secure};
+    final migratedOrdinary = Map.fromEntries(
+      ordinary.entries.where((entry) => !secureKeys.contains(entry.key)),
+    );
+    await _writeSecureSettings(manifest.id, migratedSecure);
+    await _writeOrdinarySettings(manifest.id, migratedOrdinary);
+    return (ordinary: migratedOrdinary, secure: migratedSecure);
+  }
+
+  Map<String, dynamic> _readOrdinarySettings(String pluginId) {
+    final settingsJson = _prefs.getString(_settingsKey(pluginId));
+    if (settingsJson == null) return {};
+
+    try {
+      return Map<String, dynamic>.from(jsonDecode(settingsJson));
+    } catch (e) {
+      _log.warning('Failed to parse settings for plugin $pluginId', e);
+      return {};
+    }
+  }
+
+  Future<Map<String, dynamic>> _readSecureSettings(String pluginId) async {
+    if (_credentialStore == null) {
+      return Map.from(_volatileSecureSettings[pluginId] ?? {});
+    }
+    final settingsJson = await _credentialStore.read(
+      key: _secureSettingsKey(pluginId),
+    );
+    if (settingsJson == null) return {};
+    try {
+      return Map<String, dynamic>.from(jsonDecode(settingsJson));
+    } catch (_) {
+      throw StateError('Secure settings for plugin $pluginId are invalid');
+    }
+  }
+
+  Future<void> _writeOrdinarySettings(
+    String pluginId,
+    Map<String, dynamic> settings,
+  ) async {
+    if (settings.isEmpty) {
+      await _prefs.remove(_settingsKey(pluginId));
+      if (_prefs.containsKey(_settingsKey(pluginId))) {
+        throw StateError('Failed to remove settings for plugin $pluginId');
+      }
+      return;
+    }
+    final saved = await _prefs.setString(
+      _settingsKey(pluginId),
+      jsonEncode(settings),
+    );
+    if (!saved) {
+      throw StateError('Failed to save settings for plugin $pluginId');
+    }
+  }
+
+  Future<void> _writeSecureSettings(
+    String pluginId,
+    Map<String, dynamic> settings,
+  ) async {
+    if (_credentialStore == null) {
+      if (settings.isEmpty) {
+        _volatileSecureSettings = Map.fromEntries(
+          _volatileSecureSettings.entries.where(
+            (entry) => entry.key != pluginId,
+          ),
+        );
+      } else {
+        _volatileSecureSettings = {
+          ..._volatileSecureSettings,
+          pluginId: Map.from(settings),
+        };
+      }
+      return;
+    }
+    if (settings.isEmpty) {
+      await _credentialStore.delete(key: _secureSettingsKey(pluginId));
+      return;
+    }
+    await _credentialStore.write(
+      key: _secureSettingsKey(pluginId),
+      value: jsonEncode(settings),
+    );
+  }
+
+  Future<void> _deleteSecureSettings(String pluginId) async {
+    _volatileSecureSettings = Map.fromEntries(
+      _volatileSecureSettings.entries.where((entry) => entry.key != pluginId),
+    );
+    await _credentialStore?.delete(key: _secureSettingsKey(pluginId));
+  }
 
   Future<void> _recordLoadFailure(String pluginId) async {
     final failureKey = _loadFailureKey(pluginId);
