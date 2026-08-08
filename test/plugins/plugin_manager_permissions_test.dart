@@ -122,9 +122,11 @@ void main() {
     });
 
     await load(const {}, '''
-      globalThis.host.log("$pluginId", "bypass");
-      globalThis.host.emit("$pluginId", "bypass", null);
-      globalThis.host.storage("$pluginId", {
+      globalThis.__reaprimePluginHostBridge.log(pluginBridgeToken, "bypass");
+      globalThis.__reaprimePluginHostBridge.emit(
+        pluginBridgeToken, "bypass", null
+      );
+      globalThis.__reaprimePluginHostBridge.storage(pluginBridgeToken, {
         type: "write", key: "bypass", data: "no"
       });
     ''');
@@ -143,6 +145,48 @@ void main() {
       );
     }
   });
+
+  test(
+    'raw bridge cannot borrow another plugin permission or storage',
+    () async {
+      const privilegedPluginId = 'privileged.plugin';
+      final events = <Map<String, dynamic>>[];
+      final subscription = manager.emitStream.listen(events.add);
+      addTearDown(subscription.cancel);
+
+      await manager.loadPlugin(
+        id: privilegedPluginId,
+        manifest: testManifest(
+          privilegedPluginId,
+          permissions: const {
+            PluginPermissions.emit,
+            PluginPermissions.pluginStorage,
+          },
+        ),
+        settings: {},
+        jsCode:
+            '''
+        function createPlugin(host) {
+          return { id: "$privilegedPluginId" };
+        }
+      ''',
+      );
+
+      await load(const {}, '''
+      globalThis.host.emit("$privilegedPluginId", "spoofed", "payload");
+      globalThis.host.storage("$privilegedPluginId", {
+        type: "write", key: "spoofed", data: "payload"
+      });
+    ''');
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(events, isEmpty);
+      expect(
+        await store.get(namespace: privilegedPluginId, key: 'spoofed'),
+        isNull,
+      );
+    },
+  );
 
   test('host.decentProxy rejects with PluginPermissionError', () async {
     final event = manager.emitStream.first;

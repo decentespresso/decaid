@@ -132,8 +132,8 @@ void main() {
           return {
             id: "fetch.plugin",
             onLoad() {
-              globalThis.__fetchFor(
-                "fetch.plugin",
+              globalThis.__reaprimePluginHostBridge.fetch(
+                pluginBridgeToken,
                 1,
                 "http://127.0.0.1:${server.port}/data"
               )

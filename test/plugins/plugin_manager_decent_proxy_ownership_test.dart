@@ -170,20 +170,14 @@ void main() {
     expect(manager.activePendingOpCount, 0);
   });
 
-  test('invalid bridge token rejects the promise', () async {
-    final manager = await buildManager(
-      (request) async => http.Response('{"serial":"SN001"}', 200),
-    );
+  test('invalid bridge token cannot create an operation', () async {
+    var calls = 0;
+    final manager = await buildManager((request) async {
+      calls += 1;
+      return http.Response('{"serial":"SN001"}', 200);
+    });
     addTearDown(manager.dispose);
 
-    final result = Completer<String>();
-    final sub = manager.emitStream.listen((e) {
-      if (result.isCompleted) return;
-      final event = e['event'] as String;
-      final payload = e['payload'] as Map<String, dynamic>;
-      if (event == 'proxyError') result.complete('err:${payload['message']}');
-    });
-    result.future.whenComplete(sub.cancel);
     await manager.loadPlugin(
       id: pluginId,
       manifest: proxyManifest(),
@@ -196,17 +190,15 @@ void main() {
             onLoad() {
               globalThis.__reaprimePluginBridge.decentProxy(
                 "$pluginId", 0, "bogus-token", "support/api/sn"
-              )
-                .then(() => host.emit("proxyResult", {}))
-                .catch((error) => host.emit("proxyError", { message: String(error) }));
+              );
             }
           };
         }
       ''',
     );
 
-    final value = await result.future.timeout(const Duration(seconds: 5));
-    expect(value, startsWith('err:'));
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(calls, 0);
     expect(manager.activePendingOpCount, 0);
   });
 
