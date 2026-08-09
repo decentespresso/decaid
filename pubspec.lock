@@ -619,7 +619,7 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: master
+      ref: dace4de60e8b03a191a9151223527e14ab2c7f2b
       resolved-ref: dace4de60e8b03a191a9151223527e14ab2c7f2b
       url: "https://github.com/tadelv/dart_js"
     source: git
