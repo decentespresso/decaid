@@ -620,7 +620,7 @@ packages:
     description:
       path: "."
       ref: master
-      resolved-ref: c7cde7b5c9c6ad7013157f296a7320835aac6cdb
+      resolved-ref: dace4de60e8b03a191a9151223527e14ab2c7f2b
       url: "https://github.com/tadelv/dart_js"
     source: git
     version: "0.8.5"
@@ -1654,14 +1654,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.4.1"
-  sync_http:
-    dependency: transitive
-    description:
-      name: sync_http
-      sha256: "7f0cd72eca000d2e026bcd6f990b81d0ca06022ef4e32fb257b30d3d1014a961"
-      url: "https://pub.dev"
-    source: hosted
-    version: "0.3.1"
   term_glyph:
     dependency: transitive
     description:
@@ -1706,11 +1698,11 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "2.2.5"
-      resolved-ref: a2639e32eb873a3b0d313a755ef3f43ca381fba9
+      ref: "2.2.6"
+      resolved-ref: "6116abba1d1c00fb66ecce1d14cc5314d7c184f1"
       url: "https://github.com/tadelv/universal_ble.git"
     source: git
-    version: "2.2.5"
+    version: "2.2.6"
   universal_image:
     dependency: transitive
     description:

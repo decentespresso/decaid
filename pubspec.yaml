@@ -44,7 +44,7 @@ dependencies:
   universal_ble:
     git:
       url: https://github.com/tadelv/universal_ble.git
-      ref: 2.2.5
+      ref: 2.2.6
   shared_preferences: ^2.5.3
   # share_plus HELD at 12.x — 13.x requires win32 ^6, which conflicts with
   # file_picker 11's win32 ^5.9 pin. 13.x is only SDK-floor bumps, no API gain.
