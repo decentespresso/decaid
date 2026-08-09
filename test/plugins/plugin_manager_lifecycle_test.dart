@@ -181,6 +181,30 @@ void main() {
     );
   });
 
+  test('reload persists storage written during onUnload', () async {
+    final store = FakeKeyValueStoreService();
+    final manager = PluginManager(kvStore: store);
+    addTearDown(manager.dispose);
+    await _loadPlugin(
+      manager,
+      'storage.plugin',
+      onUnload: '''
+        host.storage({
+          type: "write",
+          key: "lastEstimation",
+          data: { value: 42 }
+        });
+      ''',
+    );
+
+    await _loadPlugin(manager, 'storage.plugin');
+
+    expect(
+      await store.get(namespace: 'storage.plugin', key: 'lastEstimation'),
+      {'value': 42},
+    );
+  });
+
   test('dispose unloads every plugin and clears owned resources', () async {
     final manager = PluginManager(kvStore: FakeKeyValueStoreService());
     await _loadPlugin(
