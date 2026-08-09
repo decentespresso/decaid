@@ -201,6 +201,10 @@ Plugins receive events in the `onEvent` method:
   }
   ```
 
+#### Visualizer Forward Sync
+
+The bundled Visualizer plugin merges recipe and shot-review tags, reads the current Visualizer tags before replacing them, and forwards later local edits in order. The upload endpoint returns `202` with `visualizer_id` after the Visualizer upload succeeds while the tag PATCH continues in memory. Follow-up failures are reported through `shotForwardSyncError` and `forwardSyncStatus`; tag ownership and pending work are not restored after an app or plugin restart.
+
 ### Events from Plugin → Flutter
 
 Plugins can emit custom events that the Flutter app can listen to:
