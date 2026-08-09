@@ -619,8 +619,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: dace4de60e8b03a191a9151223527e14ab2c7f2b
-      resolved-ref: dace4de60e8b03a191a9151223527e14ab2c7f2b
+      ref: "6348eae"
+      resolved-ref: "6348eae3d7627109bd8555214feb9ed6541953d7"
       url: "https://github.com/tadelv/dart_js"
     source: git
     version: "0.8.5"
