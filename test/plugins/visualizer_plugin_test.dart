@@ -785,6 +785,7 @@ void main() {
       );
       final failTagSync = manager.js.evaluate('globalThis.__failTagSync()');
       expect(failTagSync.isError, isFalse, reason: failTagSync.stringResult);
+      while (manager.js.executePendingJob() > 0) {}
       final event = await errorEvent.timeout(const Duration(seconds: 5));
       expect(event['payload']['error'], contains('Visualizer Premium'));
       expect(event['payload']['error'], contains('HTTP 400'));
