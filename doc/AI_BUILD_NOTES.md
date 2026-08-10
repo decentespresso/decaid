@@ -41,23 +41,34 @@ Simulated devices avoid hardware requirements for smoke testing. Available types
 
 Also toggleable from the settings UI after launch.
 
-### Espresso replay (MockDe1)
+### Espresso replay (MockDe1) — the "Replay simulator" plugin
 
-When a shot starts, `MockDe1` replays a real recorded shot instead of
-synthesizing telemetry — mirroring de1app's simulate mode. The corpus is
-de1app's three `simulations/*.shot` files, converted to native historical-shot
-JSON under `assets/simulations/` (source `.shot` files live in
-`tool/simulation_sources/`). `SimulatedShotLibrary` loads them; `MockDe1` picks
-one at random per shot and streams its samples on the wall-clock timeline via
-`ShotReplayer`, dropping to idle when the recording ends. The simulated scale
-weight follows for free — `MockScale` integrates the machine's (now recorded)
-flow.
+`MockDe1` can replay a real recorded shot instead of synthesizing telemetry —
+mirroring de1app's simulate mode. The corpus is de1app's three
+`simulations/*.shot` files, converted to native historical-shot JSON under
+`assets/simulations/` (source `.shot` files live in `tool/simulation_sources/`).
+`SimulatedShotLibrary` loads them; `MockDe1` picks one at random per shot and
+streams its samples on the wall-clock timeline via `ShotReplayer`, dropping to
+idle when the recording ends. During replay the simulated scale reports the
+recording's real recorded weight (`MockScale` reads `MockDe1.replayWeightGrams`
+directly rather than integrating flow).
 
-Replay is on by default and falls back to the parametric synthetic model when
-no corpus is available (`MockDe1(replayHistoricalShots: false)`, or no library
-injected — e.g. a bare `MockDe1()` in unit tests). To rebuild the corpus after
-editing the sources: `REGEN_SIM_ASSETS=1 flutter test
-test/tools/generate_simulation_assets_test.dart`.
+Replay is **off by default** and is toggled by the **`replay-simulator.reaplugin`**
+extension (Extensions list). The default simulator stays the parametric,
+profile-driven synthetic model so `simulate=1` still exercises profile steps,
+limiters, and the shot-control path. Wiring: the simulator's telemetry is
+produced in the device layer, below the plugin sandbox, so the plugin cannot
+generate the replay itself — instead it emits `setEnabled{enabled}` on
+load/unload; `main.dart` subscribes to `pluginManager.emitStream` and calls
+`SimulatedDeviceService.setReplayHistoricalShots(...)`. `MockDe1` reads that flag
+live at the start of each shot (via the `replayEnabled` callback), so toggling
+the plugin takes effect on the next shot with no device re-creation. The plugin
+is bundled but excluded from the default auto-load-on set
+(`PluginLoaderService._bundledDefaultDisabled`), so it ships present-but-off.
+`MockDe1`'s own `replayHistoricalShots` constructor default is `false` (unit
+tests pass `true` explicitly); a missing/empty corpus also falls back to
+synthetic. To rebuild the corpus after editing the sources: `REGEN_SIM_ASSETS=1
+flutter test test/tools/generate_simulation_assets_test.dart`.
 
 ### `simulate=0` mode
 

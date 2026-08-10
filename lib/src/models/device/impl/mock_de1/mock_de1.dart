@@ -25,18 +25,29 @@ class MockDe1 implements De1Interface, SimulatedDevice {
   MockDe1({
     String deviceId = "MockDe1",
     SimulatedShotLibrary? replayLibrary,
-    bool replayHistoricalShots = true,
+    bool replayHistoricalShots = false,
+    bool Function()? replayEnabled,
     Random? random,
   }) : _deviceId = deviceId,
        _replayLibrary = replayLibrary,
        _replayHistoricalShots = replayHistoricalShots,
+       _replayEnabled = replayEnabled,
        _random = random ?? Random();
 
   /// Corpus of real recorded shots to replay in place of synthetic telemetry.
-  /// When null (or [_replayHistoricalShots] is false, or the corpus is empty)
-  /// the simulator falls back to the parametric synthetic model.
+  /// When null (or replay is disabled, or the corpus is empty) the simulator
+  /// falls back to the parametric synthetic model.
   final SimulatedShotLibrary? _replayLibrary;
+
+  /// Static replay decision used when [_replayEnabled] is null (unit tests
+  /// pass this directly). Default false: replay is opt-in.
   final bool _replayHistoricalShots;
+
+  /// Live replay decision, evaluated at each shot start so the "Replay
+  /// simulator" plugin can toggle replay without recreating the device. When
+  /// non-null it wins over [_replayHistoricalShots].
+  final bool Function()? _replayEnabled;
+
   final Random _random;
 
   ShotReplayer? _replayer;
@@ -264,7 +275,8 @@ class MockDe1 implements De1Interface, SimulatedDevice {
     _replayer = null;
     _replaying = false;
     _replayWeightGrams = null;
-    if (!_replayHistoricalShots || _replayLibrary == null) return;
+    final replay = _replayEnabled?.call() ?? _replayHistoricalShots;
+    if (!replay || _replayLibrary == null) return;
     final shot = _replayLibrary.pickRandom(_random);
     if (shot == null || shot.measurements.isEmpty) return;
     _replayer = ShotReplayer(shot.measurements);

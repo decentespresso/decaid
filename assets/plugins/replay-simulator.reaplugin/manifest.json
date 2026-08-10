@@ -1,0 +1,14 @@
+{
+  "id": "replay-simulator.reaplugin",
+  "author": "Decent Espresso",
+  "name": "Replay simulator",
+  "description": "When enabled, the simulated espresso machine replays a real recorded shot instead of the synthetic, profile-driven model. Only affects simulate mode; no effect on real hardware.",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "permissions": [
+    "log",
+    "emit"
+  ],
+  "settings": {},
+  "api": []
+}

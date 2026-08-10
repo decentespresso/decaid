@@ -423,6 +423,29 @@ The DYE2 (Describe Your Espresso) plugin ships from its own repo, [allofmeng/dye
 
 `packages/dye2-plugin/` still holds the plugin's original TypeScript + Vite source and is useful as a reference for advanced patterns (REST API client, HTML template rendering, Vite dev server — see `packages/dye2-plugin/README.md`), but it is **not** built or bundled by Decaid anymore and is not authoritative for what ships. Treat [allofmeng/dye2](https://github.com/allofmeng/dye2) as the source of truth for the DYE2 plugin; update `packages/dye2-plugin/` only if it's being kept in sync deliberately.
 
+## Bundled Plugin: Replay simulator
+
+`replay-simulator.reaplugin` toggles historical-shot replay in the simulated
+espresso machine. When enabled, the simulated DE1 replays a real recorded shot
+(bundled under `assets/simulations/`) instead of the synthetic, profile-driven
+model; when disabled, the simulator is back to synthetic. It only affects
+simulate mode and has no effect on real hardware.
+
+Because the simulator's telemetry is generated in the device layer — below the
+plugin sandbox — the plugin cannot produce the replay itself. It instead signals
+its enabled state to the app: `onLoad` emits `host.emit("setEnabled", {enabled:
+true})` and `onUnload` emits `{enabled: false}`. `main.dart` subscribes to
+`pluginManager.emitStream` and calls
+`SimulatedDeviceService.setReplayHistoricalShots(...)`; `MockDe1` reads that flag
+live at the start of each shot, so toggling takes effect on the next shot with
+no device re-creation.
+
+Unlike other bundled plugins, it ships **auto-load off** (it is listed in
+`PluginLoaderService._bundledDefaultDisabled`) so the default simulator stays
+profile-driven. Enable it from the Extensions list (or `POST
+/api/v1/plugins/replay-simulator.reaplugin/enable`) when you want realistic
+recorded replay.
+
 ## Plugin Lifecycle Management (REST API)
 
 Plugins can be managed via REST API:

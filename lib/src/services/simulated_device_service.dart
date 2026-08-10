@@ -20,6 +20,20 @@ class SimulatedDeviceService
 
   final SimulatedShotLibrary _replayLibrary;
 
+  /// Whether the simulated DE1 replays a real recorded shot ("Replay
+  /// simulator") instead of the synthetic, profile-driven model. Off by
+  /// default. Driven by the replay-simulator plugin: main.dart listens for the
+  /// plugin's load/unload emit and calls [setReplayHistoricalShots]. The
+  /// MockDe1 reads this live at each shot start, so toggling takes effect on
+  /// the next shot without recreating the device.
+  bool _replayHistoricalShots = false;
+
+  bool get replayHistoricalShots => _replayHistoricalShots;
+
+  void setReplayHistoricalShots(bool value) {
+    _replayHistoricalShots = value;
+  }
+
   final Map<String, Device> _devices = {};
 
   final StreamController<List<Device>> _deviceStreamController =
@@ -53,10 +67,15 @@ class SimulatedDeviceService
     // `discovered`. `putIfAbsent` preserves the live instance; a
     // disabled device is removed and re-created fresh on re-enable.
     if (enabledDevices.contains(SimulatedDevicesTypes.machine)) {
+      // Load the corpus unconditionally so enabling replay mid-session (via the
+      // plugin) has data ready on the very next shot without a load race.
       await _replayLibrary.ensureLoaded();
       _devices.putIfAbsent(
         "MockDe1",
-        () => MockDe1(replayLibrary: _replayLibrary),
+        () => MockDe1(
+          replayLibrary: _replayLibrary,
+          replayEnabled: () => _replayHistoricalShots,
+        ),
       );
     } else {
       _devices.remove("MockDe1");

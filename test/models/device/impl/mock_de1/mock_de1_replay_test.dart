@@ -27,7 +27,11 @@ void main() {
           .map((m) => m.machine.flow)
           .toSet();
 
-      final machine = MockDe1(replayLibrary: library, random: Random(42));
+      final machine = MockDe1(
+        replayLibrary: library,
+        replayHistoricalShots: true,
+        random: Random(42),
+      );
       await machine.onConnect();
       await machine.requestState(MachineState.espresso);
 
@@ -63,7 +67,11 @@ void main() {
           .map((m) => m.scale?.weight ?? 0.0)
           .toSet();
 
-      final machine = MockDe1(replayLibrary: library, random: Random(7));
+      final machine = MockDe1(
+        replayLibrary: library,
+        replayHistoricalShots: true,
+        random: Random(7),
+      );
       final scale = MockScale()..attachMachine(machine);
       await machine.onConnect();
       await scale.onConnect();

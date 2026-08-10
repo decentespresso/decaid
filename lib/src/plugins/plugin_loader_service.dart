@@ -455,6 +455,13 @@ class PluginLoaderService {
     return 0;
   }
 
+  /// Bundled plugins that ship installed but auto-load OFF by default, so they
+  /// are opt-in from the Extensions list. Replay simulator must default off so
+  /// the standard simulator stays synthetic/profile-driven.
+  static const Set<String> _bundledDefaultDisabled = {
+    'replay-simulator.reaplugin',
+  };
+
   Future<List<String>> _getBundledPluginPaths() async {
     // This is a simplified implementation
     // In a real app, you might want to:
@@ -471,6 +478,7 @@ class PluginLoaderService {
       'assets/plugins/dye2.reaplugin',
       'assets/plugins/decent-profile.reaplugin',
       'assets/plugins/shot-upload.reaplugin',
+      'assets/plugins/replay-simulator.reaplugin',
       // Add more bundled plugins here as they are added to the app
     ];
   }
@@ -551,13 +559,18 @@ class PluginLoaderService {
         final manifestJson = jsonDecode(await manifestFile.readAsString());
         final manifest = PluginManifest.fromJson(manifestJson);
 
-        // For bundled plugins, set auto-load to true by default if not already set
+        // For bundled plugins, set auto-load to true by default if not already
+        // set. Exception: plugins in [_bundledDefaultDisabled] ship present but
+        // OFF, so they are opt-in from the Extensions list.
         final autoLoadKey = 'plugin.autoload.${manifest.id}';
         if (!_prefs.containsKey(autoLoadKey)) {
-          // First time seeing this bundled plugin, enable auto-load by default
-          await _prefs.setBool(autoLoadKey, true);
+          final defaultAutoLoad = !_bundledDefaultDisabled.contains(
+            manifest.id,
+          );
+          await _prefs.setBool(autoLoadKey, defaultAutoLoad);
           _log.info(
-            'Set auto-load enabled by default for bundled plugin: ${manifest.id}',
+            'Set auto-load $defaultAutoLoad by default for bundled plugin: '
+            '${manifest.id}',
           );
         }
       }

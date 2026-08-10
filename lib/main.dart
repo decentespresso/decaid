@@ -478,6 +478,19 @@ void main(List<String> args) async {
   // can react to the exact newly-stored shot (no timer/latest-lookup race).
   persistenceController.onShotStored = (shotId) =>
       pluginService.pluginManager.broadcastEvent('shotStored', {'id': shotId});
+  // The "Replay simulator" plugin drives whether the simulated DE1 replays a
+  // real recorded shot. It emits `setEnabled` on load/unload; flip the
+  // simulated-device service to match. Subscribed before pluginService
+  // initializes (that happens later, from PermissionsView), so a plugin that
+  // auto-loads on startup is caught too.
+  pluginService.pluginManager.emitStream.listen((event) {
+    if (event['pluginId'] == 'replay-simulator.reaplugin' &&
+        event['event'] == 'setEnabled') {
+      final payload = event['payload'];
+      final enabled = payload is Map && payload['enabled'] == true;
+      simulatedDevicesService.setReplayHistoricalShots(enabled);
+    }
+  });
 
   BatteryController? batteryController;
   if (Platform.isAndroid || Platform.isIOS) {

@@ -30,6 +30,8 @@ Profile _pourProfile() => Profile(
 );
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('SimulatedDeviceService', () {
     test('emits a MockBengle when bengle is enabled', () async {
       final service = SimulatedDeviceService();
@@ -198,6 +200,88 @@ void main() {
         expect(s.weight.abs(), lessThan(0.2));
       }
       scale.simulateDisconnect();
+    });
+
+    test('by default (Replay simulator off) the MockDe1 uses the synthetic '
+        'model', () async {
+      final service = SimulatedDeviceService();
+      // Replay defaults off.
+      service.enabledDevices = {SimulatedDevicesTypes.machine};
+
+      final emission = service.devices.first;
+      await service.scanForDevices();
+      final devices = await emission;
+      final de1 = devices.firstWhere((d) => d.deviceId == 'MockDe1') as MockDe1;
+
+      await de1.onConnect();
+      await de1.setProfile(_pourProfile());
+      await de1.requestState(MachineState.espresso);
+      await Future.delayed(const Duration(seconds: 1));
+
+      // The synthetic path never populates the recorded-weight seam.
+      expect(
+        de1.replayWeightGrams,
+        isNull,
+        reason: 'synthetic simulator must not expose a recorded weight',
+      );
+      await de1.disconnect();
+    });
+
+    test(
+      'with Replay simulator enabled the MockDe1 replays a recorded shot',
+      () async {
+        final service = SimulatedDeviceService();
+        service.setReplayHistoricalShots(true);
+        service.enabledDevices = {SimulatedDevicesTypes.machine};
+
+        final emission = service.devices.first;
+        await service.scanForDevices();
+        final devices = await emission;
+        final de1 =
+            devices.firstWhere((d) => d.deviceId == 'MockDe1') as MockDe1;
+
+        await de1.onConnect();
+        await de1.setProfile(_pourProfile());
+        await de1.requestState(MachineState.espresso);
+        await Future.delayed(const Duration(seconds: 2));
+
+        // Replay surfaces the recording's real scale weight through this seam.
+        expect(
+          de1.replayWeightGrams,
+          isNotNull,
+          reason: 'replay must expose the recorded weight',
+        );
+        await de1.disconnect();
+      },
+    );
+
+    test('toggling replay at runtime affects the next shot without recreating '
+        'the device', () async {
+      final service = SimulatedDeviceService();
+      service.enabledDevices = {SimulatedDevicesTypes.machine};
+      final emission = service.devices.first;
+      await service.scanForDevices();
+      final devices = await emission;
+      final de1 = devices.firstWhere((d) => d.deviceId == 'MockDe1') as MockDe1;
+      await de1.onConnect();
+      await de1.setProfile(_pourProfile());
+
+      // Replay off: synthetic path, no recorded weight.
+      await de1.requestState(MachineState.espresso);
+      await Future.delayed(const Duration(seconds: 1));
+      expect(de1.replayWeightGrams, isNull);
+      await de1.requestState(MachineState.idle);
+
+      // Enable replay on the SAME instance; the next shot replays.
+      service.setReplayHistoricalShots(true);
+      await de1.requestState(MachineState.espresso);
+      await Future.delayed(const Duration(seconds: 2));
+      expect(
+        de1.replayWeightGrams,
+        isNotNull,
+        reason: 'runtime toggle must take effect on the next shot',
+      );
+      await de1.disconnect();
     });
 
     test('removes MockBengle when bengle becomes disabled', () async {

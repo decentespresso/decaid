@@ -1,5 +1,17 @@
 # Simulator: replay a historical shot instead of synthetic data
 
+> **Update (post-review):** the original PR (#586) made replay the *default*
+> simulator and was closed — the maintainer wants the default simulator to stay
+> synthetic/profile-driven so `simulate=1` keeps exercising profile steps,
+> limiters, and the shot-control path. The replay engine below is retained but
+> is now an opt-in extension: off by default, toggled by the
+> `replay-simulator.reaplugin` plugin (Extensions list). The plugin emits
+> `setEnabled` on load/unload; `main.dart` flips
+> `SimulatedDeviceService.setReplayHistoricalShots`, which `MockDe1` reads live
+> at each shot start. See `doc/AI_BUILD_NOTES.md` and `doc/Plugins.md` for the
+> current wiring. The rest of this document describes the replay engine itself,
+> which is unchanged.
+
 Source: Basecamp todo 10181321154 (John Todo / Impact: medium):
 > decaid espresso machine shot simulator should do same as de1app does: use a
 > historical espresso shot and replay it, instead of creating synthetic fake data.

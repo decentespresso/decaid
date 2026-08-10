@@ -180,6 +180,7 @@ flutter:
     - assets/plugins/dye2.reaplugin/
     - assets/plugins/decent-profile.reaplugin/
     - assets/plugins/shot-upload.reaplugin/
+    - assets/plugins/replay-simulator.reaplugin/
     - assets/defaultProfiles/
     - assets/simulations/
     - assets/bundled_skins/
