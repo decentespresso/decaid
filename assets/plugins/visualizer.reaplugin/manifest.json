@@ -3,7 +3,7 @@
   "author": "Decent Espresso",
   "name": "Visualizer upload",
   "description": "Uploads shots to Visualizer and syncs your edited shot metadata back",
-  "version": "1.5.4",
+  "version": "1.5.5",
   "apiVersion": 1,
   "permissions": [
     "log",

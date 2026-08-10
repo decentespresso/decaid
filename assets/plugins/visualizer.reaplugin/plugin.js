@@ -178,6 +178,20 @@ function createPlugin(host) {
     return Array.from(new Set(tags.map((tag) => String(tag).trim()).filter((tag) => tag.length > 0)));
   }
 
+  function canonicalizeVisualizerTag(tag) {
+    return String(tag).replace(/\s+/g, " ").trim().replace(/[^\w\s-]/g, "").toLowerCase();
+  }
+
+  function canonicalizeVisualizerTags(tags) {
+    if (!Array.isArray(tags)) return [];
+    return Array.from(new Set(
+      tags
+        .flatMap((tag) => String(tag).split(","))
+        .map(canonicalizeVisualizerTag)
+        .filter((tag) => tag.length > 0)
+    ));
+  }
+
   function extractTags(shot) {
     const annotations = shot?.annotations || {};
     const context = shot?.workflow?.context || {};
@@ -740,12 +754,14 @@ function createPlugin(host) {
     }
     const detail = await visualizerGet(`/shots/${visualizerId}?essentials=1`);
     const localTags = normalizeTags(pending.update.tags);
-    const managedTags = new Set(normalizeTags(state.managedLocalTags[visualizerId]));
-    const remoteOnlyTags = normalizeTags(detail?.tags).filter((tag) => !managedTags.has(tag));
-    const remoteOnlySet = new Set(remoteOnlyTags);
+    const managedTags = new Set(canonicalizeVisualizerTags(state.managedLocalTags[visualizerId]));
+    const remoteOnlyTags = normalizeTags(detail?.tags).filter(
+      (tag) => !managedTags.has(canonicalizeVisualizerTag(tag))
+    );
+    const remoteOnlySet = new Set(canonicalizeVisualizerTags(remoteOnlyTags));
     return {
       update: { ...pending.update, tags: normalizeTags([...localTags, ...remoteOnlyTags]) },
-      managedTags: localTags.filter((tag) => !remoteOnlySet.has(tag))
+      managedTags: canonicalizeVisualizerTags(localTags).filter((tag) => !remoteOnlySet.has(tag))
     };
   }
 
@@ -1138,7 +1154,7 @@ function createPlugin(host) {
   // Return the plugin object
   return {
     id: "visualizer.reaplugin",
-    version: "1.5.4",
+    version: "1.5.5",
 
     onLoad(settings) {
       state.username = settings.Username;

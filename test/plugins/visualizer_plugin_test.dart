@@ -497,6 +497,76 @@ void main() {
     ]);
   });
 
+  test('tag ownership follows Visualizer canonicalization', () async {
+    final manager = await _loadPlugin('''
+      globalThis.__remoteTags = [];
+      globalThis.__patches = [];
+      globalThis.fetch = async (url, init = {}) => {
+        if (url.endsWith('/shots/visualizer-9?essentials=1')) {
+          return { ok: true, json: async () => ({ id: 'visualizer-9', tags: globalThis.__remoteTags }) };
+        }
+        if (url.endsWith('/shots/visualizer-9') && init.method === 'PATCH') {
+          const patch = JSON.parse(init.body);
+          globalThis.__patches = [...globalThis.__patches, patch];
+          globalThis.__remoteTags = globalThis.__patches.length === 1
+            ? ['high-speed']
+            : patch.shot.tag_list;
+          return { ok: true, json: async () => ({ id: 'visualizer-9', updated_at: globalThis.__patches.length }) };
+        }
+        throw new Error('Unexpected URL: ' + url);
+      };
+    ''');
+
+    _dispatchShotUpdate(
+      manager,
+      _shot(
+        annotations: {
+          'extras': {
+            'visualizerId': 'visualizer-9',
+            'tags': ['  High@-Speed  '],
+          },
+        },
+      ),
+      {
+        'annotations': {
+          'extras': {
+            'tags': ['  High@-Speed  '],
+          },
+        },
+      },
+    );
+    final firstPatch =
+        await _waitForJs(
+              manager,
+              'globalThis.__patches.length === 1 ? globalThis.__patches[0] : null',
+            )
+            as Map<String, dynamic>;
+    expect((firstPatch['shot'] as Map<String, dynamic>)['tag_list'], [
+      'High@-Speed',
+    ]);
+
+    _dispatchShotUpdate(
+      manager,
+      _shot(
+        annotations: {
+          'extras': {'visualizerId': 'visualizer-9'},
+        },
+      ),
+      {
+        'annotations': {
+          'extras': {'tags': <String>[]},
+        },
+      },
+    );
+    final secondPatch =
+        await _waitForJs(
+              manager,
+              'globalThis.__patches.length === 2 ? globalThis.__patches[1] : null',
+            )
+            as Map<String, dynamic>;
+    expect((secondPatch['shot'] as Map<String, dynamic>)['tag_list'], isEmpty);
+  });
+
   test('legacy metadata and shotNotes patches use canonical shot values', () async {
     final manager = await _loadPlugin('''
       globalThis.__remoteTags = [];
