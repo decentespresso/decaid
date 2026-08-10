@@ -12,13 +12,45 @@ permissions:
   contents: read
 
 jobs:
-  format:
-    name: Format
+  changes:
+    name: Detect relevant changes
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      python: ${{ steps.paths.outputs.python }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Detect Python tool changes
+        id: paths
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if git diff --quiet "$BASE_SHA...$HEAD_SHA" -- \
+            tools tool/ci .github/workflows/pr-checks.yml; then
+            echo "python=false" >> "$GITHUB_OUTPUT"
+          else
+            status=$?
+            if [ "$status" -ne 1 ]; then
+              exit "$status"
+            fi
+            echo "python=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  flutter:
+    name: Analyze / test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -28,23 +60,15 @@ jobs:
           pub-cache: true
 
       - name: Dart format check
-        run: dart format --output=none --set-exit-if-changed lib test
-
-  flutter:
-    name: Analyze / test
-    needs: format
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v5
-
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-          pub-cache: true
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -o pipefail
+          git diff --name-only --diff-filter=ACMR -z \
+            "$BASE_SHA...$HEAD_SHA" -- '*.dart' | \
+            xargs -0 -r dart format --output=none --set-exit-if-changed --
 
       - name: Flutter pub get
         run: flutter pub get
@@ -72,25 +96,42 @@ jobs:
           : > assets/bundled_skins/stub-skin.zip
 
       - name: Flutter analyze
-        run: flutter analyze
+        run: flutter analyze --no-pub
 
       # flutter_js' QuickJS bridge ships a prebuilt .so inside its pub-cache
       # checkout. macOS resolves it via @rpath automatically, but on Linux the
       # test runner needs LD_LIBRARY_PATH pointed at it.
       - name: Flutter test
+        shell: bash
         run: |
+          set -o pipefail
           QUICKJS_LIB_DIR=$(find "$HOME/.pub-cache/git" -path '*dart_js*/linux/shared' -type d | head -1)
           if [ -z "$QUICKJS_LIB_DIR" ]; then
             echo "Could not locate flutter_js native lib dir under ~/.pub-cache/git"
             exit 1
           fi
           echo "Using QuickJS lib dir: $QUICKJS_LIB_DIR"
+          mkdir -p build/test-results
           LD_LIBRARY_PATH="$QUICKJS_LIB_DIR:${LD_LIBRARY_PATH:-}" \
-            flutter test --reporter=expanded
+            flutter test --no-pub --machine | \
+            tee build/test-results/flutter-events.json
+
+      - name: Summarize Flutter tests
+        if: ${{ always() && hashFiles('build/test-results/flutter-events.json') != '' }}
+        continue-on-error: true
+        run: python3 tool/ci/summarize_flutter_tests.py build/test-results/flutter-events.json
+
+      - name: Upload Flutter test events
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: flutter-test-events
+          path: build/test-results/flutter-events.json
+          if-no-files-found: ignore
+          retention-days: 7
 
   build-smoke:
     name: Linux build smoke
-    needs: format
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -119,15 +160,19 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Linux app (unsigned)
-        run: flutter build linux --release
+        run: flutter build linux --release --no-pub
 
   tools:
     name: Python tools tests
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
 
-      - name: Test weight-flow analysis tool
-        run: python3 tools/analyze_weight_flow_test.py
+      - name: Test Python tools
+        run: |
+          python3 tools/analyze_weight_flow_test.py
+          python3 tool/ci/summarize_flutter_tests_test.py
