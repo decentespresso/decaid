@@ -224,13 +224,15 @@ void main() {
     final patch =
         await _waitForJs(manager, 'globalThis.__patch') as Map<String, dynamic>;
 
-    expect((patch['shot'] as Map<String, dynamic>)['tags'], [
+    final shotPatch = patch['shot'] as Map<String, dynamic>;
+    expect(shotPatch['tag_list'], [
       'fast shot',
       'washed',
       'bright',
       'floral',
       'remote',
     ]);
+    expect(shotPatch.containsKey('tags'), isFalse);
   });
 
   test(
@@ -281,7 +283,7 @@ void main() {
         if (url.endsWith('/shots/visualizer-1') && init.method === 'PATCH') {
           const patch = JSON.parse(init.body);
           globalThis.__patches = [...globalThis.__patches, patch];
-          globalThis.__remoteTags = patch.shot.tags;
+          globalThis.__remoteTags = patch.shot.tag_list;
           return { ok: true, json: async () => ({ id: 'visualizer-1', updated_at: globalThis.__patches.length }) };
         }
         throw new Error('Unexpected URL: ' + url + ' ' + (init.method || 'GET'));
@@ -308,7 +310,7 @@ void main() {
                 'globalThis.__patches.length === 1 ? globalThis.__patches[0] : null',
               )
               as Map<String, dynamic>;
-      expect((firstPatch['shot'] as Map<String, dynamic>)['tags'], [
+      expect((firstPatch['shot'] as Map<String, dynamic>)['tag_list'], [
         'during-upload',
       ]);
 
@@ -330,7 +332,7 @@ void main() {
                 'globalThis.__patches.length === 2 ? globalThis.__patches[1] : null',
               )
               as Map<String, dynamic>;
-      expect((secondPatch['shot'] as Map<String, dynamic>)['tags'], [
+      expect((secondPatch['shot'] as Map<String, dynamic>)['tag_list'], [
         'after-mapping',
       ]);
     },
@@ -419,7 +421,7 @@ void main() {
     expect(patches, hasLength(1));
     expect(
       ((patches.single as Map<String, dynamic>)['shot']
-          as Map<String, dynamic>)['tags'],
+          as Map<String, dynamic>)['tag_list'],
       ['latest'],
     );
   });
@@ -435,7 +437,7 @@ void main() {
         if (url.endsWith('/shots/visualizer-9') && init.method === 'PATCH') {
           const patch = JSON.parse(init.body);
           globalThis.__patches = [...globalThis.__patches, patch];
-          globalThis.__remoteTags = patch.shot.tags;
+          globalThis.__remoteTags = patch.shot.tag_list;
           return { ok: true, json: async () => ({ id: 'visualizer-9', updated_at: globalThis.__patches.length }) };
         }
         throw new Error('Unexpected URL: ' + url);
@@ -466,7 +468,7 @@ void main() {
               'globalThis.__patches.length === 1 ? globalThis.__patches[0] : null',
             )
             as Map<String, dynamic>;
-    expect((firstPatch['shot'] as Map<String, dynamic>)['tags'], [
+    expect((firstPatch['shot'] as Map<String, dynamic>)['tag_list'], [
       'local',
       'remote',
     ]);
@@ -490,7 +492,9 @@ void main() {
               'globalThis.__patches.length === 2 ? globalThis.__patches[1] : null',
             )
             as Map<String, dynamic>;
-    expect((secondPatch['shot'] as Map<String, dynamic>)['tags'], ['remote']);
+    expect((secondPatch['shot'] as Map<String, dynamic>)['tag_list'], [
+      'remote',
+    ]);
   });
 
   test('legacy metadata and shotNotes patches use canonical shot values', () async {
@@ -504,7 +508,7 @@ void main() {
         if (url.endsWith('/shots/visualizer-9') && init.method === 'PATCH') {
           const patch = JSON.parse(init.body);
           globalThis.__patches = [...globalThis.__patches, patch];
-          if (patch.shot.tags) globalThis.__remoteTags = patch.shot.tags;
+          if (patch.shot.tag_list) globalThis.__remoteTags = patch.shot.tag_list;
           return { ok: true, json: async () => ({ id: 'visualizer-9', updated_at: globalThis.__patches.length }) };
         }
         throw new Error('Unexpected URL: ' + url);
@@ -533,7 +537,9 @@ void main() {
               'globalThis.__patches.length === 1 ? globalThis.__patches[0] : null',
             )
             as Map<String, dynamic>;
-    expect((firstPatch['shot'] as Map<String, dynamic>)['tags'], ['washed']);
+    expect((firstPatch['shot'] as Map<String, dynamic>)['tag_list'], [
+      'washed',
+    ]);
 
     _dispatchShotUpdate(
       manager,
@@ -550,7 +556,7 @@ void main() {
               'globalThis.__patches.length === 2 ? globalThis.__patches[1] : null',
             )
             as Map<String, dynamic>;
-    expect((secondPatch['shot'] as Map<String, dynamic>)['tags'], isEmpty);
+    expect((secondPatch['shot'] as Map<String, dynamic>)['tag_list'], isEmpty);
 
     _dispatchShotUpdate(
       manager,
@@ -710,12 +716,12 @@ void main() {
             as List<dynamic>;
     final latest = (patches.last as Map<String, dynamic>)['shot'] as Map;
 
-    expect(latest['tags'], ['latest', 'remote']);
+    expect(latest['tag_list'], ['latest', 'remote']);
     expect(latest.containsKey('espresso_notes'), isFalse);
   });
 
   test(
-    'successful upload returns its id before best-effort tag sync',
+    'successful upload returns its id and surfaces the premium tag gate',
     () async {
       final shot = _shot(
         annotations: {
@@ -740,11 +746,16 @@ void main() {
           return { ok: true, json: async () => ({}) };
         }
         if (url.endsWith('/shots/visualizer-1?essentials=1')) {
+          return { ok: true, json: async () => ({ id: 'visualizer-1', tags: [] }) };
+        }
+        if (url.endsWith('/shots/visualizer-1') && init.method === 'PATCH') {
+          globalThis.__tagPatch = JSON.parse(init.body);
           return await new Promise((resolve) => {
             globalThis.__failTagSync = () => resolve({
               ok: false,
-              status: 503,
-              statusText: 'Service Unavailable',
+              status: 400,
+              statusText: 'Bad Request',
+              text: async () => '{"error":"param is missing or the value is empty or invalid: shot"}',
             });
           });
         }
@@ -762,11 +773,21 @@ void main() {
       expect(response['status'], 202);
       expect(body, {'visualizer_id': 'visualizer-1', 'tag_sync_pending': true});
 
-      await _waitForJs(manager, 'globalThis.__failTagSync ? true : null');
+      final tagPatch =
+          await _waitForJs(manager, 'globalThis.__tagPatch')
+              as Map<String, dynamic>;
+      expect((tagPatch['shot'] as Map<String, dynamic>)['tag_list'], [
+        'bright',
+      ]);
+      expect(
+        (tagPatch['shot'] as Map<String, dynamic>).containsKey('tags'),
+        isFalse,
+      );
       final failTagSync = manager.js.evaluate('globalThis.__failTagSync()');
       expect(failTagSync.isError, isFalse, reason: failTagSync.stringResult);
       final event = await errorEvent.timeout(const Duration(seconds: 5));
-      expect(event['payload']['error'], contains('HTTP 503'));
+      expect(event['payload']['error'], contains('Visualizer Premium'));
+      expect(event['payload']['error'], contains('HTTP 400'));
     },
   );
 

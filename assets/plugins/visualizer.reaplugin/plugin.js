@@ -589,6 +589,9 @@ function createPlugin(host) {
     });
     if (!res.ok) {
       const text = await res.text();
+      if ((res.status === 400 || res.status === 403) && hasOwn(body?.shot, "tag_list")) {
+        throw new Error(`Visualizer tag sync requires Visualizer Premium. HTTP ${res.status}: ${text || res.statusText}`);
+      }
       throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
     }
     return await res.json();
@@ -757,7 +760,10 @@ function createPlugin(host) {
             [visualizerId]: merged.managedTags
           };
         }
-        const detail = await visualizerPatch(`/shots/${visualizerId}`, { shot: merged.update });
+        const visualizerUpdate = hasOwn(merged.update, "tags")
+          ? { ...withoutKey(merged.update, "tags"), tag_list: merged.update.tags }
+          : merged.update;
+        const detail = await visualizerPatch(`/shots/${visualizerId}`, { shot: visualizerUpdate });
         const updatedAt = Number(detail?.updated_at) || Number(detail?.meta?.visualizer?.updated_at) || 0;
         if (updatedAt > 0) {
           state.backSyncState = {
