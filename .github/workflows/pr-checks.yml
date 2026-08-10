@@ -18,13 +18,14 @@ jobs:
     timeout-minutes: 5
     outputs:
       python: ${{ steps.paths.outputs.python }}
+      linux_build: ${{ steps.paths.outputs.linux_build }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - name: Detect Python tool changes
+      - name: Detect relevant changes
         id: paths
         shell: bash
         env:
@@ -35,11 +36,19 @@ jobs:
             tools tool/ci .github/workflows/pr-checks.yml; then
             echo "python=false" >> "$GITHUB_OUTPUT"
           else
-            status=$?
-            if [ "$status" -ne 1 ]; then
-              exit "$status"
-            fi
             echo "python=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          if git diff --quiet "$BASE_SHA...$HEAD_SHA" -- \
+            lib linux assets packages \
+            pubspec.yaml pubspec.lock build.yaml l10n.yaml \
+            flutter_launcher_icons.yaml skin_sources.json \
+            bundle_skins.sh flutter_with_commit.sh \
+            scripts/fetch_dye2_plugin.sh \
+            .github/actions .github/workflows/pr-checks.yml; then
+            echo "linux_build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "linux_build=true" >> "$GITHUB_OUTPUT"
           fi
 
   flutter:
@@ -132,6 +141,8 @@ jobs:
 
   build-smoke:
     name: Linux build smoke
+    needs: changes
+    if: needs.changes.outputs.linux_build == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
