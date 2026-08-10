@@ -18,6 +18,24 @@
       "expectedBodyByteCount": 461824,
       "expectedCpuByteCount": 298592,
       "provenance": "decentespresso/de1app commit 74cacdcd2106f968c89c3a94c0fbcb615234913a, de1plus/fw/bootfwupdate.dat; bundling approved by the Decent.app maintainer during #319 implementation review"
+    },
+    {
+      "id": "de1-1358",
+      "source": "bundled",
+      "machineFamily": "de1",
+      "supportedModels": ["DE1Pro", "DE1XL", "DE1XXL", "DE1XXXL"],
+      "build": 1358,
+      "versionLabel": "1358",
+      "imageFormat": "de1",
+      "byteLength": 463872,
+      "sha256": "ada25161ebbd661b44b3aab2c7756f42d95064a931462b3d134e8db66d198747",
+      "channel": "stable",
+      "releaseNotes": "Cold maintenance forwards requests through preheat; sleep and air-purge BLE requests allowed in refill state with no refill kit (out of water).",
+      "assetPath": "assets/firmware/de1/de1-1358.bin",
+      "expectedHeaderBoardMarker": 3725590529,
+      "expectedBodyByteCount": 461824,
+      "expectedCpuByteCount": 298880,
+      "provenance": "decentespresso/de1app commit 7e94ef3c7c68a9b9ae7d188e08e3ee3776780489, de1plus/fw/bootfwupdate.dat; bundling approved by the Decent.app maintainer during this PR's implementation review"
     }
   ]
 }
