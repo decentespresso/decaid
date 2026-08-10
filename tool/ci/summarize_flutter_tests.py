@@ -29,6 +29,7 @@ def parse_events(lines):
     suites = {}
     suite_bounds = {}
     starts = {}
+    errors = {}
     tests = []
     failures = []
     successful = 0
@@ -75,9 +76,14 @@ def parse_events(lines):
             if event_time is not None and isinstance(suite_id, (int, str)):
                 bounds = suite_bounds.setdefault(suite_id, [event_time, None])
                 bounds[0] = min(bounds[0], event_time)
+        elif event_type == "error":
+            test_id = event.get("testID")
+            if isinstance(test_id, (int, str)) and event.get("error") is not None:
+                errors.setdefault(test_id, []).append(str(event["error"]))
         elif event_type == "testDone":
             test_id = event.get("testID")
             started = starts.pop(test_id, {})
+            test_errors = errors.pop(test_id, [])
             suite_id = started.get("suite_id")
             if event_time is not None and isinstance(suite_id, (int, str)):
                 bounds = suite_bounds.get(suite_id)
@@ -96,7 +102,14 @@ def parse_events(lines):
                 successful += 1
             else:
                 failed += 1
-                failures.append({"name": name, "path": path, "result": result})
+                failures.append(
+                    {
+                        "name": name,
+                        "path": path,
+                        "result": result,
+                        "error": "\n".join(test_errors),
+                    }
+                )
 
             duration_ms = _duration(started.get("time"), event_time)
             if duration_ms is not None and not is_skipped:
@@ -164,10 +177,21 @@ def render_summary(report):
 
     if report["failures"]:
         lines.extend(
-            ["", "### Failed tests", "", "| Test | File | Result |", "| --- | --- | --- |"]
+            [
+                "",
+                "### Failed tests",
+                "",
+                "| Test | File | Result | Error |",
+                "| --- | --- | --- | --- |",
+            ]
         )
         lines.extend(
-            f"| {_escape(test['name'])} | {_escape(test['path'])} | {_escape(test['result'])} |"
+            "| {} | {} | {} | {} |".format(
+                _escape(test["name"]),
+                _escape(test["path"]),
+                _escape(test["result"]),
+                _escape(test["error"] or "Unavailable"),
+            )
             for test in report["failures"][:20]
         )
         if len(report["failures"]) > 20:

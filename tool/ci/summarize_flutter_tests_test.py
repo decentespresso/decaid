@@ -48,6 +48,14 @@ class SummarizeFlutterTestsTest(unittest.TestCase):
                 "test": {"id": 3, "name": "fails", "suiteID": 1},
             },
             {
+                "type": "error",
+                "time": 400,
+                "testID": 3,
+                "error": "Expected: <1>\n  Actual: <2>",
+                "stackTrace": "package:test/example_test.dart 10:3  main.<fn>",
+                "isFailure": True,
+            },
+            {
                 "type": "testDone",
                 "time": 500,
                 "testID": 3,
@@ -92,6 +100,9 @@ class SummarizeFlutterTestsTest(unittest.TestCase):
         self.assertEqual(report["malformed_lines"], 1)
         self.assertFalse(report["run_success"])
         self.assertEqual(report["failures"][0]["name"], "fails")
+        self.assertEqual(
+            report["failures"][0]["error"], "Expected: <1>\n  Actual: <2>"
+        )
         self.assertEqual(report["files"][0], (680, "test/slow_test.dart"))
         self.assertEqual(report["tests"][0]["duration_ms"], 600)
 
@@ -100,6 +111,7 @@ class SummarizeFlutterTestsTest(unittest.TestCase):
         self.assertIn("| Flutter result | Failed |", markdown)
         self.assertIn("slow \\| success", markdown)
         self.assertIn("test/slow_test.dart", markdown)
+        self.assertIn("Expected: &lt;1&gt;   Actual: &lt;2&gt;", markdown)
 
     def test_keeps_counts_when_timing_is_unavailable(self):
         lines = [
