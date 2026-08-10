@@ -36,6 +36,10 @@ jobs:
             tools tool/ci .github/workflows/pr-checks.yml; then
             echo "python=false" >> "$GITHUB_OUTPUT"
           else
+            status=$?
+            if [ "$status" -ne 1 ]; then
+              exit "$status"
+            fi
             echo "python=true" >> "$GITHUB_OUTPUT"
           fi
 

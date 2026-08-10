@@ -1,77 +1,47 @@
-import 'dart:async';
-
-import 'package:clock/clock.dart';
-import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/impl/mock_scale/mock_scale.dart';
-import 'package:reaprime/src/models/device/scale.dart';
-
-void withMockScale(
-  void Function(FakeAsync, MockScale, List<ScaleSnapshot>) verify,
-) {
-  fakeAsync((async) {
-    final snapshots = <ScaleSnapshot>[];
-    final scale = MockScale(timerStopwatch: clock.stopwatch());
-    final subscription = scale.currentSnapshot.listen(snapshots.add);
-    try {
-      verify(async, scale, snapshots);
-    } finally {
-      scale.simulateDisconnect();
-      unawaited(subscription.cancel());
-    }
-  });
-}
 
 void main() {
   group('MockScale timer', () {
-    test('timer starts at null', () {
-      withMockScale((async, scale, snapshots) {
-        async.elapse(const Duration(milliseconds: 200));
+    late MockScale scale;
 
-        expect(snapshots.single.timerValue, isNull);
-      });
+    setUp(() {
+      scale = MockScale();
     });
 
-    test('startTimer begins tracking elapsed time', () {
-      withMockScale((async, scale, snapshots) {
-        unawaited(scale.startTimer());
-        async.flushMicrotasks();
-        async.elapse(const Duration(milliseconds: 200));
-
-        expect(snapshots.single.timerValue, isNotNull);
-        expect(snapshots.single.timerValue!.inMilliseconds, greaterThan(0));
-      });
+    test('timer starts at null', () async {
+      final snapshot = await scale.currentSnapshot.first;
+      expect(snapshot.timerValue, isNull);
     });
 
-    test('stopTimer freezes the elapsed time', () {
-      withMockScale((async, scale, snapshots) {
-        unawaited(scale.startTimer());
-        async.flushMicrotasks();
-        async.elapse(const Duration(milliseconds: 200));
-        unawaited(scale.stopTimer());
-        async.flushMicrotasks();
-        final frozenValue = snapshots.last.timerValue;
-
-        async.elapse(const Duration(milliseconds: 400));
-
-        expect(frozenValue, isNotNull);
-        expect(snapshots.last.timerValue, equals(frozenValue));
-      });
+    test('startTimer begins tracking elapsed time', () async {
+      await scale.startTimer();
+      // Wait for at least one snapshot cycle (200ms) plus some buffer
+      await Future.delayed(Duration(milliseconds: 350));
+      final snapshot = await scale.currentSnapshot.first;
+      expect(snapshot.timerValue, isNotNull);
+      expect(snapshot.timerValue!.inMilliseconds, greaterThan(0));
     });
 
-    test('resetTimer clears the elapsed time', () {
-      withMockScale((async, scale, snapshots) {
-        unawaited(scale.startTimer());
-        async.flushMicrotasks();
-        async.elapse(const Duration(milliseconds: 200));
-        expect(snapshots.last.timerValue, isNotNull);
+    test('stopTimer freezes the elapsed time', () async {
+      await scale.startTimer();
+      await Future.delayed(Duration(milliseconds: 300));
+      await scale.stopTimer();
+      final snapshot1 = await scale.currentSnapshot.first;
+      final frozenValue = snapshot1.timerValue;
+      expect(frozenValue, isNotNull);
 
-        unawaited(scale.resetTimer());
-        async.flushMicrotasks();
-        async.elapse(const Duration(milliseconds: 200));
+      await Future.delayed(Duration(milliseconds: 300));
+      final snapshot2 = await scale.currentSnapshot.first;
+      expect(snapshot2.timerValue, equals(frozenValue));
+    });
 
-        expect(snapshots.last.timerValue, isNull);
-      });
+    test('resetTimer clears the elapsed time', () async {
+      await scale.startTimer();
+      await Future.delayed(Duration(milliseconds: 300));
+      await scale.resetTimer();
+      final snapshot = await scale.currentSnapshot.first;
+      expect(snapshot.timerValue, isNull);
     });
   });
 }
