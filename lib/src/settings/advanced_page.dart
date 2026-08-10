@@ -1,4 +1,7 @@
+import 'dart:ui' show AppExitType;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/settings/common.dart';
 import 'package:reaprime/src/settings/feature_flags.dart';
@@ -232,9 +235,17 @@ class AdvancedPage extends StatelessWidget {
                       color: Theme.of(context).colorScheme.error,
                     ),
                   ),
-                  onTap: () {
+                  onTap: () async {
+                    if (Platform.isWindows ||
+                        Platform.isMacOS ||
+                        Platform.isLinux) {
+                      await ServicesBinding.instance.exitApplication(
+                        AppExitType.cancelable,
+                      );
+                      return;
+                    }
                     if (Platform.isAndroid) {
-                      ForegroundTaskService.stop();
+                      await ForegroundTaskService.stop();
                     }
                     exit(0);
                   },

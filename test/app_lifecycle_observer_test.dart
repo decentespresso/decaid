@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -52,6 +53,26 @@ class _SlowCancelDe1 extends TestDe1 {
 }
 
 void main() {
+  testWidgets('desktop exit waits for plugin loader disposal', (tester) async {
+    final loader = _FakePluginLoaderService();
+    final observer = app.AppLifecycleObserver(pluginLoaderService: loader);
+    var exitCompleted = false;
+
+    final exit = observer.didRequestAppExit();
+    unawaited(exit.then((_) => exitCompleted = true));
+    await tester.pump();
+
+    expect(loader.disposeCalls, 1);
+    expect(exitCompleted, isFalse);
+
+    loader.disposed.complete();
+    await expectLater(exit, completion(AppExitResponse.exit));
+
+    observer.didChangeAppLifecycleState(AppLifecycleState.detached);
+    await tester.pump();
+    expect(loader.disposeCalls, 1);
+  });
+
   testWidgets('detached disposes the process plugin loader', (tester) async {
     final loader = _FakePluginLoaderService();
     final observer = app.AppLifecycleObserver(pluginLoaderService: loader);

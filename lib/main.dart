@@ -702,7 +702,7 @@ class AppLifecycleObserver with WidgetsBindingObserver {
   StreamSubscription? _machineStateSubscription;
   StreamSubscription? _stateStreamSubscription;
   int? _lastMachineState;
-  bool _detaching = false;
+  Future<void>? _detachFuture;
 
   AppLifecycleObserver({
     this.updateCheckService,
@@ -724,14 +724,14 @@ class AppLifecycleObserver with WidgetsBindingObserver {
 
     // Monitor machine state changes for sleep-to-idle transitions
     _machineStateSubscription = de1Controller?.de1.listen((machine) {
-      if (_detaching) return;
+      if (_detachFuture != null) return;
       _stateStreamSubscription?.cancel();
 
       if (machine == null) return;
 
       // Check if machine transitioned from sleep to idle
       _stateStreamSubscription = machine.currentSnapshot.listen((snapshot) {
-        if (_detaching) return;
+        if (_detachFuture != null) return;
         final currentState = snapshot.state.state.index;
 
         // Detect transition from sleep (0) to idle (2)
@@ -751,10 +751,8 @@ class AppLifecycleObserver with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.detached && !_detaching) {
-      _detaching = true;
-      _memTimer.cancel();
-      unawaited(_handleDetached());
+    if (state == AppLifecycleState.detached) {
+      unawaited(_detach());
     }
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
@@ -777,6 +775,22 @@ class AppLifecycleObserver with WidgetsBindingObserver {
       }
       _wasBackgrounded = false;
     }
+  }
+
+  @override
+  Future<AppExitResponse> didRequestAppExit() async {
+    await _detach();
+    return AppExitResponse.exit;
+  }
+
+  Future<void> _detach() {
+    final existing = _detachFuture;
+    if (existing != null) return existing;
+
+    _memTimer.cancel();
+    final detaching = _handleDetached();
+    _detachFuture = detaching;
+    return detaching;
   }
 
   Future<void> _handleDetached() async {
@@ -1068,9 +1082,11 @@ class _AppRootState extends State<AppRoot> {
                   LogicalKeyboardKey.keyQ,
                   meta: true,
                 ),
-                onSelected: () {
-                  SystemNavigator.pop();
-                },
+                onSelected: () => unawaited(
+                  ServicesBinding.instance.exitApplication(
+                    AppExitType.cancelable,
+                  ),
+                ),
               ),
             ],
           ),

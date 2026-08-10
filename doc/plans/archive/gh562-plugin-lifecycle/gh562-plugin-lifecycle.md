@@ -13,7 +13,7 @@ PluginManager previously owned a JavaScript runtime, host bridges, controller su
 - Plugin unload uses JavaScript `finally` for registry deletion, rejects pending work, cancels bridge promises and timers, removes bridge tokens, and marks the Dart runtime disposed after host cleanup.
 - Manager disposal detaches controllers, unloads every plugin, cancels remaining work, removes runtime channel registrations, closes the event stream, and calls `JavascriptRuntime.dispose()` exactly once.
 - Loader disposal waits for accepted initialization and queued load work before delegating to manager disposal.
-- The process-wide loader is disposed only for `AppLifecycleState.detached`. Backgrounding and keyed application restarts continue to reuse it.
+- The process-wide loader is disposed for `AppLifecycleState.detached` and before cancelable desktop exit requests complete. Backgrounding and keyed application restarts continue to reuse it.
 
 ## Runtime boundary
 
