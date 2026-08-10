@@ -18,6 +18,8 @@ import '../services/account/decent_proxy_service.dart';
 
 enum _PendingOpKind { fetch, pluginHttp, decentProxy }
 
+enum PluginManagerLifecycle { active, disposing, disposed }
+
 class _PendingOp {
   _PendingOp({
     required this.kind,
@@ -70,8 +72,24 @@ class PluginManager {
   De1Controller? _de1controller;
   StreamSubscription<De1Interface?>? _de1Subscription;
   StreamSubscription<MachineSnapshot>? _snapshotSubscription;
+  Future<void> _attachmentQueue = Future.value();
+  Future<void> _snapshotQueue = Future.value();
+  int _attachmentGeneration = 0;
+  int _snapshotGeneration = 0;
+  PluginManagerLifecycle _lifecycle = PluginManagerLifecycle.active;
+  Future<void>? _disposeFuture;
+  final Map<String, int> _retiringPluginGenerations = {};
+  final Map<(String, int), Set<Future<void>>> _pluginStorageOperations = {};
 
   De1Controller? get de1Controller => _de1controller;
+  PluginManagerLifecycle get lifecycle => _lifecycle;
+  int get attachmentGeneration => _attachmentGeneration;
+  int get activeSubscriptionCount =>
+      (_de1Subscription == null ? 0 : 1) +
+      (_snapshotSubscription == null ? 0 : 1);
+  int get trackedPluginGenerationCount => _pluginGenerations.length;
+  int get bridgeTokenCount => _decentProxyBridgeTokens.length;
+  int? pluginGeneration(String pluginId) => _pluginGenerations[pluginId];
 
   PluginManager({
     required this.kvStore,
@@ -90,6 +108,84 @@ class PluginManager {
     // js.enableXhr();
     // js.enableFetch();
     _bootstrapJs();
+  }
+
+  void _ensureActive() {
+    if (_lifecycle != PluginManagerLifecycle.active) {
+      throw StateError('PluginManager is ${_lifecycle.name}');
+    }
+  }
+
+  Future<void> dispose() {
+    final existing = _disposeFuture;
+    if (existing != null) return existing;
+
+    _lifecycle = PluginManagerLifecycle.disposing;
+    _attachmentGeneration += 1;
+    final disposal = _dispose();
+    _disposeFuture = disposal;
+    return disposal;
+  }
+
+  Future<void> _dispose() async {
+    Object? firstError;
+    StackTrace? firstStackTrace;
+
+    Future<void> runStage(String name, FutureOr<void> Function() action) async {
+      try {
+        await action();
+      } catch (error, stackTrace) {
+        firstError ??= error;
+        firstStackTrace ??= stackTrace;
+        _log.warning(
+          'PluginManager disposal failed during $name',
+          error,
+          stackTrace,
+        );
+      }
+    }
+
+    try {
+      await runStage('attachment queue', () => _attachmentQueue);
+      await runStage('snapshot queue', () => _snapshotQueue);
+      await runStage('controller detachment', _cancelControllerSubscriptions);
+      for (final pluginId in _plugins.keys.toList()) {
+        await runStage(
+          'plugin unload: $pluginId',
+          () => _unloadPlugin(pluginId),
+        );
+      }
+      await runStage('async operation cleanup', _cancelAllOperations);
+      await runStage('event stream closure', _emitController.close);
+      await runStage('JavaScript runtime disposal', js.dispose);
+    } finally {
+      for (final record in _timers.values) {
+        record.timer.cancel();
+      }
+      _timers.clear();
+      for (final op in _pendingOps.values) {
+        op.timeout?.cancel();
+        try {
+          op.request?.abort();
+        } catch (_) {}
+      }
+      _pendingOps.clear();
+      _httpClient?.close(force: true);
+      _httpClient = null;
+      _plugins.clear();
+      _pluginGenerations.clear();
+      _retiringPluginGenerations.clear();
+      _pluginStorageOperations.clear();
+      _decentProxyBridgeTokens.clear();
+      _de1Subscription = null;
+      _snapshotSubscription = null;
+      _de1controller = null;
+      _lifecycle = PluginManagerLifecycle.disposed;
+    }
+
+    if (firstError != null) {
+      Error.throwWithStackTrace(firstError!, firstStackTrace!);
+    }
   }
 
   // ─────────────────────────────────────────────
@@ -216,20 +312,38 @@ class PluginManager {
           pending.resolve(response);
         }
 
+        function __cancelDecentProxyRequestsForPlugin(pluginId, error) {
+          const pendingByPlugin = __mapGet(__pendingDecentProxyRequests, pluginId);
+          if (!pendingByPlugin) return;
+          __mapDelete(__pendingDecentProxyRequests, pluginId);
+          for (const pending of pendingByPlugin.values()) {
+            pending.reject(new __NativeError(error));
+          }
+        }
+
+        function __cancelAllDecentProxyRequests(error) {
+          for (const pluginId of Array.from(__pendingDecentProxyRequests.keys())) {
+            __cancelDecentProxyRequestsForPlugin(pluginId, error);
+          }
+        }
+
         Object.defineProperty(globalThis, "__reaprimePluginBridge", {
           value: __nativeFreeze({
             decentProxy: __decentProxy,
-            completeDecentProxyRequest: __completeDecentProxyRequest
+            completeDecentProxyRequest: __completeDecentProxyRequest,
+            cancelForPlugin: __cancelDecentProxyRequestsForPlugin,
+            cancelAll: __cancelAllDecentProxyRequests
           }),
           writable: false,
           configurable: false,
           enumerable: false
         });
         
-        globalThis.__sendApiResponse = function (pluginId, requestId, response) {
+        globalThis.__sendApiResponse = function (pluginId, generation, requestId, response) {
           console.log("sending plugin api response", pluginId);
           sendMessage("host", JSON.stringify({
             pluginId: pluginId,
+            generation: generation,
             type: "httpResponse",
             requestId: requestId,
             payload: response
@@ -306,9 +420,14 @@ class PluginManager {
           });
           return id;
         };
-        globalThis.__timerClear = function (pluginId, id) {
+        globalThis.__timerClear = function (pluginId, generation, id) {
           if (__timers.delete(id)) {
-            __sendHostMessage({ pluginId: pluginId, type: "timerClear", timerId: id });
+            __sendHostMessage({
+              pluginId: pluginId,
+              generation: generation,
+              type: "timerClear",
+              timerId: id
+            });
           }
         };
         globalThis.__fireTimer = function (id) {
@@ -330,24 +449,27 @@ class PluginManager {
         };
 
         globalThis.host = {
-          log(pluginId, message) {
+          log(pluginId, generation, message) {
             sendMessage("host", JSON.stringify({
               pluginId: pluginId,
+              generation: generation,
               type: "log",
               payload: { message: String(message) }
             }));
           },
-          emit(pluginId, eventName, payload) {
+          emit(pluginId, generation, eventName, payload) {
             sendMessage("host", JSON.stringify({
               pluginId: pluginId,
+              generation: generation,
               type: "emit",
               event: eventName,
               payload: payload
             }));
           },
-          storage(pluginId, command) {
+          storage(pluginId, generation, command) {
             sendMessage("host", JSON.stringify({
               pluginId: pluginId,
+              generation: generation,
               type: "pluginStorage",
               payload: command
             }));
@@ -421,6 +543,21 @@ class PluginManager {
           };
           pending.resolve(response);
         };
+
+        globalThis.__cancelFetchesForPlugin = function (pluginId, error) {
+          for (const [id, pending] of _pendingFetches) {
+            if (pending.pluginId !== pluginId) continue;
+            _pendingFetches.delete(id);
+            pending.reject(new Error(error));
+          }
+        };
+
+        globalThis.__cancelAllFetches = function (error) {
+          for (const pending of _pendingFetches.values()) {
+            pending.reject(new Error(error));
+          }
+          _pendingFetches.clear();
+        };
       })();
     ''');
 
@@ -429,20 +566,18 @@ class PluginManager {
         _log.finest("receiving: $raw");
         final msg = raw as Map<String, dynamic>;
         final pluginId = msg['pluginId'] as String?;
-        final type = msg['type'];
 
         if (pluginId == null) {
           _log.warning("JS message missing pluginId");
           return;
         }
 
-        if (type == 'log') {
-          _log.finest("[JS:$pluginId] ${msg['payload']?['message']}");
-        } else if (type == 'httpResponse') {
-          // Handle HTTP responses from plugin
-          _handlePluginApiResponse(pluginId, msg);
+        final operation = _handleMessageSafely(pluginId, msg);
+        final generation = msg['generation'];
+        if (msg['type'] == 'pluginStorage' && generation is num) {
+          _trackPluginStorageOperation(pluginId, generation.toInt(), operation);
         } else {
-          unawaited(_handleMessageSafely(pluginId, msg));
+          unawaited(operation);
         }
       } catch (e, st) {
         _log.warning("Invalid JS message", e, st);
@@ -467,7 +602,27 @@ class PluginManager {
     // that sent the message, and a nested evaluate + job drain does not
     // settle promises on QuickJS (unhandled-rejection hang).
     await Future<void>.delayed(Duration.zero);
+    final retiringStorageWrite = _isRetiringPluginStorageWrite(pluginId, msg);
+    if (_lifecycle != PluginManagerLifecycle.active && !retiringStorageWrite) {
+      return;
+    }
     try {
+      final type = msg['type'];
+      if (type == 'decentProxy') {
+        await _handleDecentProxyMessage(pluginId, msg);
+        return;
+      }
+      if (!_isCurrentPluginMessage(pluginId, msg) && !retiringStorageWrite) {
+        return;
+      }
+      if (type == 'log') {
+        _log.finest("[JS:$pluginId] ${msg['payload']?['message']}");
+        return;
+      }
+      if (type == 'httpResponse') {
+        _handlePluginApiResponse(pluginId, msg);
+        return;
+      }
       await _handleMessage(pluginId, msg);
     } catch (e, st) {
       _log.warning("Error handling message from $pluginId", e, st);
@@ -476,10 +631,60 @@ class PluginManager {
 
   Future<void> _handleFetchSafely(Map<String, dynamic> msg) async {
     await Future<void>.delayed(Duration.zero);
+    if (_lifecycle != PluginManagerLifecycle.active) return;
     try {
       await _handleFetch(msg);
     } catch (e, st) {
       _log.warning("Invalid fetch message", e, st);
+    }
+  }
+
+  bool _isCurrentPluginMessage(String pluginId, Map<String, dynamic> msg) {
+    final generation = msg['generation'];
+    return generation is num &&
+        generation.toInt() == _pluginGenerations[pluginId] &&
+        _plugins[pluginId]?.isAlive == true;
+  }
+
+  bool _isRetiringPluginStorageWrite(
+    String pluginId,
+    Map<String, dynamic> msg,
+  ) {
+    final generation = msg['generation'];
+    final payload = msg['payload'];
+    return msg['type'] == 'pluginStorage' &&
+        generation is num &&
+        generation.toInt() == _retiringPluginGenerations[pluginId] &&
+        payload is Map &&
+        payload['type'] == 'write' &&
+        _plugins[pluginId]?.state == PluginRuntimeState.stopping;
+  }
+
+  void _trackPluginStorageOperation(
+    String pluginId,
+    int generation,
+    Future<void> operation,
+  ) {
+    final key = (pluginId, generation);
+    final operations = _pluginStorageOperations.putIfAbsent(key, () => {});
+    operations.add(operation);
+    unawaited(
+      operation.whenComplete(() {
+        operations.remove(operation);
+        if (operations.isEmpty) _pluginStorageOperations.remove(key);
+      }),
+    );
+  }
+
+  Future<void> _drainPluginStorageOperations(
+    String pluginId,
+    int generation,
+  ) async {
+    final key = (pluginId, generation);
+    while (true) {
+      final operations = _pluginStorageOperations[key]?.toList() ?? const [];
+      if (operations.isEmpty) return;
+      await Future.wait(operations);
     }
   }
 
@@ -493,9 +698,11 @@ class PluginManager {
     required String jsCode,
     required Map<String, dynamic> settings,
   }) async {
+    _ensureActive();
+    await _unloadPlugin(id);
+    _ensureActive();
     final generation = (_pluginGenerations[id] ?? 0) + 1;
     _pluginGenerations[id] = generation;
-    await unloadPlugin(id);
 
     final runtime = PluginRuntime(pluginId: id, manifest: manifest);
     final decentProxyBridgeToken = _newBridgeToken();
@@ -511,16 +718,16 @@ class PluginManager {
         const pluginId = "$id";
         const pluginGeneration = $generation;
         const setTimeout = (callback, delay) => globalThis.__timerSet(pluginId, pluginGeneration, callback, delay);
-        const clearTimeout = (id) => globalThis.__timerClear(pluginId, id);
+        const clearTimeout = (id) => globalThis.__timerClear(pluginId, pluginGeneration, id);
         const fetch = (input, init) => globalThis.__fetchFor
           ? globalThis.__fetchFor(pluginId, pluginGeneration, input, init)
           : globalThis.fetch(input, init);
         
         // Create the host object for this plugin
         const host = {
-          log: (msg) => globalThis.host.log(pluginId, msg),
-          emit: (type, payload) => globalThis.host.emit(pluginId, type, payload),
-          storage: (cmd) => globalThis.host.storage(pluginId, cmd),
+          log: (msg) => globalThis.host.log(pluginId, pluginGeneration, msg),
+          emit: (type, payload) => globalThis.host.emit(pluginId, pluginGeneration, type, payload),
+          storage: (cmd) => globalThis.host.storage(pluginId, pluginGeneration, cmd),
           decentProxy: (path, options = {}) => {
             return globalThis.__reaprimePluginBridge.decentProxy(
               pluginId,
@@ -587,12 +794,15 @@ class PluginManager {
       runtime.markRunning();
       _log.info("loaded: $id");
     } catch (e, st) {
-      _plugins.remove(id);
-      _decentProxyBridgeTokens.remove(id);
-      js.evaluate('''
-      delete globalThis.__plugins__["$id"];
-    ''');
-      _cleanupPluginResources(id);
+      try {
+        await _unloadPlugin(id);
+      } catch (cleanupError, cleanupStackTrace) {
+        _log.warning(
+          'Failed to clean up plugin after load failure: $id',
+          cleanupError,
+          cleanupStackTrace,
+        );
+      }
       // WARNING, not SEVERE: a plugin failing to load is almost always a
       // user-installed third-party plugin with a bad manifest id or a JS
       // syntax error, not an app defect. The caller (e.g. PluginsSettingsView)
@@ -605,37 +815,84 @@ class PluginManager {
   }
 
   Future<void> unloadPlugin(String id) async {
-    final runtime = _plugins.remove(id);
-    _decentProxyBridgeTokens.remove(id);
+    _ensureActive();
+    await _unloadPlugin(id);
+  }
+
+  Future<void> _unloadPlugin(String id) async {
+    final runtime = _plugins[id];
     if (runtime == null) return;
 
-    try {
-      js.evaluate('''
-        (function () {
-          try {
-            const plugin = globalThis.__plugins__["$id"];
-            plugin?.onUnload?.();
-            delete globalThis.__plugins__["$id"];
-          } catch (e) {
-            console.error("Unload failed ($id)", e);
-          }
-        })();
-      ''');
-    } catch (e, st) {
-      _log.warning("Error during plugin unload: $id", e, st);
-    }
+    final retiringGeneration = _pluginGenerations[id] ?? 0;
+    runtime.markStopping();
+    _retiringPluginGenerations[id] = retiringGeneration;
+    _pluginGenerations[id] = retiringGeneration + 1;
+    _decentProxyBridgeTokens.remove(id);
 
-    runtime.markDisposed();
-    _cleanupPluginResources(id);
-    _log.info("unloaded: $id");
+    try {
+      try {
+        final result = js.evaluate('''
+          (function () {
+            const plugin = globalThis.__plugins__["$id"];
+            try {
+              plugin?.onUnload?.();
+            } finally {
+              delete globalThis.__plugins__["$id"];
+            }
+          })();
+        ''');
+        if (result.isError) {
+          _log.warning('Plugin onUnload failed: $id: ${result.stringResult}');
+        }
+      } catch (e, st) {
+        _log.warning("Error during plugin unload: $id", e, st);
+      }
+      try {
+        _cleanupPluginResources(id);
+      } finally {
+        await _drainPluginStorageOperations(id, retiringGeneration);
+      }
+    } finally {
+      _retiringPluginGenerations.remove(id);
+      runtime.markDisposed();
+      _plugins.remove(id);
+      _log.info("unloaded: $id");
+    }
   }
 
   void _cleanupPluginResources(String pluginId) {
     // Reject operations first: settling promises drains pending jobs, which
     // can run plugin rejection handlers that schedule new timers. The timer
     // sweep after must be the last word.
-    _rejectOpsForPlugin(pluginId);
-    _cancelTimersForPlugin(pluginId);
+    Object? firstError;
+    StackTrace? firstStackTrace;
+
+    void attempt(void Function() action) {
+      try {
+        action();
+      } catch (error, stackTrace) {
+        firstError ??= error;
+        firstStackTrace ??= stackTrace;
+      }
+    }
+
+    attempt(() => _rejectOpsForPlugin(pluginId));
+    attempt(() {
+      js.evaluate('''
+          globalThis.__cancelFetchesForPlugin(
+            ${jsonEncode(pluginId)}, "plugin unloaded"
+          );
+          globalThis.__reaprimePluginBridge.cancelForPlugin(
+            ${jsonEncode(pluginId)}, "plugin unloaded"
+          );
+        ''');
+      while (js.executePendingJob() > 0) {}
+    });
+    attempt(() => _cancelTimersForPlugin(pluginId));
+
+    if (firstError != null) {
+      Error.throwWithStackTrace(firstError!, firstStackTrace!);
+    }
   }
 
   // ─────────────────────────────────────────────
@@ -643,6 +900,7 @@ class PluginManager {
   // ─────────────────────────────────────────────
 
   void broadcastEvent(String name, dynamic payload) {
+    _ensureActive();
     for (final plugin in _plugins.values) {
       if (plugin.isAlive) {
         dispatchEvent(plugin.pluginId, name, payload);
@@ -651,7 +909,10 @@ class PluginManager {
   }
 
   void dispatchEvent(String pluginId, String name, dynamic payload) {
-    if (!_plugins.containsKey(pluginId)) return;
+    _ensureActive();
+    final runtime = _plugins[pluginId];
+    if (runtime?.isAlive != true) return;
+    final generation = _pluginGenerations[pluginId] ?? 0;
 
     String requestId = "";
     if (payload is Map<String, dynamic> && payload['requestId'] is String) {
@@ -675,12 +936,12 @@ class PluginManager {
             // Handle async response
             response.then((res) => {
               if (globalThis.__sendApiResponse) {
-                globalThis.__sendApiResponse("$pluginId", "$requestId", res);
+                globalThis.__sendApiResponse("$pluginId", $generation, "$requestId", res);
               }
             }).catch((err) => {
               console.error("HTTP request handler error:", err);
               if (globalThis.__sendApiResponse) {
-                globalThis.__sendApiResponse("$pluginId", "$requestId", {
+                globalThis.__sendApiResponse("$pluginId", $generation, "$requestId", {
                   status: 500,
                   headers: {'Content-Type': 'application/json'},
                   body: JSON.stringify({error: err.toString()})
@@ -690,13 +951,13 @@ class PluginManager {
           } else if (response) {
             // Handle sync response
             if (globalThis.__sendApiResponse) {
-              globalThis.__sendApiResponse("$pluginId", "$requestId", response);
+              globalThis.__sendApiResponse("$pluginId", $generation, "$requestId", response);
             }
           }
         } catch (e) {
           console.error("HTTP request handler error:", e);
           if (globalThis.__sendApiResponse) {
-            globalThis.__sendApiResponse("$pluginId", "$requestId", {
+            globalThis.__sendApiResponse("$pluginId", $generation, "$requestId", {
               status: 500,
               headers: {'Content-Type': 'application/json'},
               body: JSON.stringify({error: e.toString()})
@@ -731,7 +992,11 @@ class PluginManager {
 
       case 'pluginStorage':
         final cmd = PluginStorageCommand.fromPlugin(payload);
-        await _handlePluginStorage(pluginId, cmd);
+        await _handlePluginStorage(
+          pluginId,
+          (msg['generation'] as num).toInt(),
+          cmd,
+        );
         break;
 
       case 'timerSet':
@@ -789,6 +1054,7 @@ class PluginManager {
   void _fireTimer(int id) {
     final record = _timers.remove(id);
     if (record == null) return;
+    if (_lifecycle != PluginManagerLifecycle.active) return;
     js.evaluate('globalThis.__fireTimer($id);');
     while (js.executePendingJob() > 0) {}
   }
@@ -806,17 +1072,51 @@ class PluginManager {
   }
 
   void cancelAllOperations() {
-    for (final op in _pendingOps.values.toList()) {
-      _completeOp(op, error: 'manager disposal');
+    _ensureActive();
+    _cancelAllOperations();
+  }
+
+  void _cancelAllOperations() {
+    Object? firstError;
+    StackTrace? firstStackTrace;
+
+    void attempt(void Function() action) {
+      try {
+        action();
+      } catch (error, stackTrace) {
+        firstError ??= error;
+        firstStackTrace ??= stackTrace;
+      }
     }
+
+    for (final op in _pendingOps.values.toList()) {
+      attempt(() {
+        _completeOp(op, error: 'manager disposal');
+      });
+    }
+    attempt(() {
+      _httpClient?.close(force: true);
+      _httpClient = null;
+    });
+    attempt(() {
+      js.evaluate('''
+          globalThis.__cancelAllFetches("manager disposal");
+          globalThis.__reaprimePluginBridge.cancelAll("manager disposal");
+        ''');
+      while (js.executePendingJob() > 0) {}
+    });
     for (final record in _timers.values) {
       record.timer.cancel();
     }
     _timers.clear();
-    _httpClient?.close(force: true);
-    _httpClient = null;
-    js.evaluate('globalThis.__cancelAllTimers();');
-    while (js.executePendingJob() > 0) {}
+    attempt(() {
+      js.evaluate('globalThis.__cancelAllTimers();');
+      while (js.executePendingJob() > 0) {}
+    });
+
+    if (firstError != null) {
+      Error.throwWithStackTrace(firstError!, firstStackTrace!);
+    }
   }
 
   // ─────────────────────────────────────────────
@@ -851,9 +1151,19 @@ class PluginManager {
   }
 
   void _rejectOpsForPlugin(String pluginId) {
+    Object? firstError;
+    StackTrace? firstStackTrace;
     for (final op
         in _pendingOps.values.where((op) => op.pluginId == pluginId).toList()) {
-      _completeOp(op, error: 'plugin unloaded');
+      try {
+        _completeOp(op, error: 'plugin unloaded');
+      } catch (error, stackTrace) {
+        firstError ??= error;
+        firstStackTrace ??= stackTrace;
+      }
+    }
+    if (firstError != null) {
+      Error.throwWithStackTrace(firstError, firstStackTrace!);
     }
   }
 
@@ -922,6 +1232,19 @@ class PluginManager {
       return;
     }
 
+    if (generation != _pluginGenerations[pluginId] ||
+        _plugins[pluginId]?.isAlive != true) {
+      final op = _PendingOp(
+        kind: _PendingOpKind.decentProxy,
+        pluginId: pluginId,
+        generation: generation,
+        requestId: requestId,
+      );
+      _pendingOps[op.key] = op;
+      _completeOp(op, error: 'Plugin generation changed');
+      return;
+    }
+
     final op = _PendingOp(
       kind: _PendingOpKind.decentProxy,
       pluginId: pluginId,
@@ -964,6 +1287,7 @@ class PluginManager {
     String? body,
     String? contentType,
   }) async {
+    _ensureActive();
     return _decentProxyBridge.proxyForPlugin(
       pluginId: pluginId,
       manifest: manifest,
@@ -988,6 +1312,7 @@ class PluginManager {
 
   Future<void> _handlePluginStorage(
     String pluginId,
+    int generation,
     PluginStorageCommand cmd,
   ) async {
     // Use pluginId as namespace for storage isolation
@@ -996,6 +1321,9 @@ class PluginManager {
     switch (cmd.type) {
       case PluginStorageCommandType.read:
         final value = await kvStore.get(key: cmd.key, namespace: namespace);
+        if (!_isCurrentPluginMessage(pluginId, {'generation': generation})) {
+          return;
+        }
         dispatchEvent(pluginId, "storageRead", {
           "key": cmd.key,
           "value": value,
@@ -1004,6 +1332,9 @@ class PluginManager {
 
       case PluginStorageCommandType.write:
         await kvStore.set(key: cmd.key, namespace: namespace, value: cmd.data);
+        if (!_isCurrentPluginMessage(pluginId, {'generation': generation})) {
+          return;
+        }
         dispatchEvent(pluginId, "storageWrite", cmd.data);
         break;
     }
@@ -1025,6 +1356,13 @@ class PluginManager {
       );
       return;
     }
+    final generation = msg['generation'];
+    if (op.pluginId != pluginId ||
+        generation is! num ||
+        generation.toInt() != op.generation ||
+        generation.toInt() != _pluginGenerations[pluginId]) {
+      return;
+    }
     _completeOp(op, result: response);
   }
 
@@ -1032,6 +1370,10 @@ class PluginManager {
     String pluginId,
     String requestId,
   ) {
+    _ensureActive();
+    if (_plugins[pluginId]?.isAlive != true) {
+      throw StateError('Plugin is not loaded: $pluginId');
+    }
     final op = _PendingOp(
       kind: _PendingOpKind.pluginHttp,
       pluginId: pluginId,
@@ -1053,24 +1395,109 @@ class PluginManager {
 
   List<PluginRuntime> get loadedPlugins => _plugins.values.toList();
 
-  set de1Controller(De1Controller? controller) {
-    _de1Subscription?.cancel();
-    _snapshotSubscription?.cancel();
+  Future<void> attachDe1Controller(De1Controller? controller) {
+    _ensureActive();
+    final generation = ++_attachmentGeneration;
+    final attachment = _attachmentQueue.then(
+      (_) => _replaceDe1Controller(controller, generation),
+    );
+    _attachmentQueue = attachment.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return attachment;
+  }
+
+  Future<void> _replaceDe1Controller(
+    De1Controller? controller,
+    int generation,
+  ) async {
+    await _cancelControllerSubscriptions();
+    if (_lifecycle != PluginManagerLifecycle.active ||
+        generation != _attachmentGeneration) {
+      return;
+    }
 
     _de1controller = controller;
     if (controller == null) return;
 
     _de1Subscription = controller.de1.listen((de1) {
-      _snapshotSubscription?.cancel();
-      if (de1 != null) {
-        _snapshotSubscription = de1.currentSnapshot.listen((snap) {
-          broadcastEvent('stateUpdate', snap.toJson());
-        });
+      final snapshotGeneration = ++_snapshotGeneration;
+      if (_lifecycle != PluginManagerLifecycle.active ||
+          generation != _attachmentGeneration) {
+        return;
       }
+      final replacement = _snapshotQueue.then(
+        (_) =>
+            _replaceSnapshotSubscription(de1, generation, snapshotGeneration),
+      );
+      _snapshotQueue = replacement.then<void>(
+        (_) {},
+        onError: (Object error, StackTrace stackTrace) {
+          _log.warning(
+            'Failed to replace plugin snapshot subscription',
+            error,
+            stackTrace,
+          );
+        },
+      );
     });
   }
 
+  Future<void> _replaceSnapshotSubscription(
+    De1Interface? de1,
+    int attachmentGeneration,
+    int snapshotGeneration,
+  ) async {
+    final previous = _snapshotSubscription;
+    _snapshotSubscription = null;
+    await previous?.cancel();
+    if (_lifecycle != PluginManagerLifecycle.active ||
+        attachmentGeneration != _attachmentGeneration ||
+        snapshotGeneration != _snapshotGeneration ||
+        de1 == null) {
+      return;
+    }
+
+    _snapshotSubscription = de1.currentSnapshot.listen((snapshot) {
+      if (_lifecycle != PluginManagerLifecycle.active ||
+          attachmentGeneration != _attachmentGeneration ||
+          snapshotGeneration != _snapshotGeneration) {
+        return;
+      }
+      broadcastEvent('stateUpdate', snapshot.toJson());
+    });
+  }
+
+  Future<void> _cancelControllerSubscriptions() async {
+    Object? firstError;
+    StackTrace? firstStackTrace;
+    final snapshot = _snapshotSubscription;
+    _snapshotSubscription = null;
+    try {
+      await snapshot?.cancel();
+    } catch (error, stackTrace) {
+      firstError = error;
+      firstStackTrace = stackTrace;
+    }
+
+    final de1 = _de1Subscription;
+    _de1Subscription = null;
+    try {
+      await de1?.cancel();
+    } catch (error, stackTrace) {
+      firstError ??= error;
+      firstStackTrace ??= stackTrace;
+    }
+    _de1controller = null;
+
+    if (firstError != null) {
+      Error.throwWithStackTrace(firstError, firstStackTrace!);
+    }
+  }
+
   Future<void> _handleFetch(Map<String, dynamic> msg) async {
+    _ensureActive();
     final id = msg['id'];
     final pluginId = msg['pluginId'] as String?;
     if (id is! int || pluginId == null) {

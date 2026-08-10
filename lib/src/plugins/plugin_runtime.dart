@@ -1,7 +1,7 @@
 import 'package:logging/logging.dart';
 import 'plugin_manifest.dart';
 
-enum PluginRuntimeState { loading, running, disposed }
+enum PluginRuntimeState { loading, running, stopping, disposed }
 
 class PluginRuntime {
   final String pluginId;
@@ -17,6 +17,10 @@ class PluginRuntime {
 
   void markRunning() {
     state = PluginRuntimeState.running;
+  }
+
+  void markStopping() {
+    state = PluginRuntimeState.stopping;
   }
 
   void markDisposed() {

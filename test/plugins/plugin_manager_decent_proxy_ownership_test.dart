@@ -74,6 +74,7 @@ void main() {
       }
     });
     result.future.whenComplete(sub.cancel);
+    addTearDown(sub.cancel);
     await manager.loadPlugin(
       id: pluginId,
       manifest: proxyManifest(),
@@ -99,7 +100,7 @@ void main() {
     final manager = await buildManager(
       (request) async => http.Response('{"serial":"SN001"}', 200),
     );
-    addTearDown(manager.cancelAllOperations);
+    addTearDown(manager.dispose);
 
     final result = await loadProxyPlugin(manager);
     expect((await result.future.timeout(const Duration(seconds: 5))), 'ok');
@@ -110,7 +111,7 @@ void main() {
     final manager = await buildManager(
       (request) async => throw http.ClientException('connection refused'),
     );
-    addTearDown(manager.cancelAllOperations);
+    addTearDown(manager.dispose);
 
     final result = await loadProxyPlugin(manager);
     expect(
@@ -125,7 +126,7 @@ void main() {
       await Future<void>.delayed(const Duration(seconds: 10));
       return http.Response('{"serial":"SN001"}', 200);
     }, decentProxyTimeout: const Duration(milliseconds: 200));
-    addTearDown(manager.cancelAllOperations);
+    addTearDown(manager.dispose);
 
     final result = await loadProxyPlugin(manager);
     final value = await result.future.timeout(const Duration(seconds: 5));
@@ -139,14 +140,14 @@ void main() {
       await Future<void>.delayed(const Duration(seconds: 10));
       return http.Response('{"serial":"SN001"}', 200);
     });
-    addTearDown(manager.cancelAllOperations);
+    addTearDown(manager.dispose);
 
     final result = await loadProxyPlugin(manager);
     await Future<void>.delayed(const Duration(milliseconds: 100));
     await manager.unloadPlugin(pluginId);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
 
-    final value = await result.future.timeout(const Duration(seconds: 5));
-    expect(value, startsWith('err:'));
+    expect(result.isCompleted, isFalse);
     expect(manager.activePendingOpCount, 0);
   });
 
@@ -155,7 +156,7 @@ void main() {
       await Future<void>.delayed(const Duration(seconds: 10));
       return http.Response('{"serial":"SN001"}', 200);
     });
-    addTearDown(manager.cancelAllOperations);
+    addTearDown(manager.dispose);
 
     final result = await loadProxyPlugin(manager);
     await Future<void>.delayed(const Duration(milliseconds: 100));
@@ -170,7 +171,7 @@ void main() {
     final manager = await buildManager(
       (request) async => http.Response('{"serial":"SN001"}', 200),
     );
-    addTearDown(manager.cancelAllOperations);
+    addTearDown(manager.dispose);
 
     final result = Completer<String>();
     final sub = manager.emitStream.listen((e) {
@@ -216,15 +217,13 @@ void main() {
       }
       return http.Response('{"serial":"NEW-GEN"}', 200);
     });
-    addTearDown(manager.cancelAllOperations);
+    addTearDown(manager.dispose);
 
     final firstGen = await loadProxyPlugin(manager);
     await Future<void>.delayed(const Duration(milliseconds: 100));
     await manager.unloadPlugin(pluginId);
-    expect(
-      (await firstGen.future.timeout(const Duration(seconds: 5))),
-      startsWith('err:'),
-    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(firstGen.isCompleted, isFalse);
 
     final secondGen = await loadProxyPlugin(manager);
     expect((await secondGen.future.timeout(const Duration(seconds: 5))), 'ok');
