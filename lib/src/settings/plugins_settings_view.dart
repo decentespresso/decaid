@@ -13,6 +13,35 @@ import 'package:reaprime/src/plugins/plugin_manifest.dart';
 const _maxPluginSafDepth = 32;
 const _maxPluginSafEntries = 10000;
 
+// Parses an input string into the value for a setting schema type.
+dynamic parseValue(String value, String type) {
+  if (type == 'number') {
+    return num.tryParse(value);
+  }
+  if (type == 'boolean') {
+    return switch (value.trim().toLowerCase()) {
+      'true' => true,
+      'false' => false,
+      _ => null,
+    };
+  }
+  return value;
+}
+
+/// Dialog-local draft for a secure setting input.
+///
+/// The editable text is kept separate from the stored credential state so
+/// that typing (or erasing) never touches the credential until Save. Only the
+/// explicit clear action marks the credential for deletion.
+class _SecureDraft {
+  _SecureDraft({required this.originalIsSet, this.type});
+
+  final bool originalIsSet;
+  final String? type;
+  String text = '';
+  bool clearRequested = false;
+}
+
 class _PluginSafCopyState {
   final visitedDirectoryUris = <String>{};
   int entriesSeen = 0;
@@ -528,6 +557,17 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
       return;
     }
 
+    final secureDrafts = <String, _SecureDraft>{
+      for (final entry in settingsSchema.entries)
+        if (entry.value is Map && entry.value['secure'] == true)
+          entry.key: _SecureDraft(
+            originalIsSet:
+                newSettings[entry.key] is Map &&
+                (newSettings[entry.key] as Map)['isSet'] == true,
+            type: entry.value['type'] as String?,
+          ),
+    };
+
     await showDialog<void>(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -543,30 +583,17 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                   final schema = entry.value;
                   final currentValue = newSettings[key];
                   final defaultValue = schema['default'];
+                  final secureDraft = secureDrafts[key];
                   final secureValueIsSet =
-                      schema['secure'] == true &&
-                      currentValue is Map &&
-                      currentValue['isSet'] == true;
+                      secureDraft != null &&
+                      secureDraft.originalIsSet &&
+                      secureDraft.text.isEmpty &&
+                      !secureDraft.clearRequested;
 
                   // Helper function to get display value
                   String getDisplayValue(dynamic value) {
                     if (value == null) return '';
                     return value.toString();
-                  }
-
-                  // Helper function to parse value based on type
-                  dynamic parseValue(String value, String type) {
-                    if (type == 'number') {
-                      return num.tryParse(value);
-                    }
-                    if (type == 'boolean') {
-                      return switch (value.trim().toLowerCase()) {
-                        'true' => true,
-                        'false' => false,
-                        _ => null,
-                      };
-                    }
-                    return value;
                   }
 
                   return Padding(
@@ -605,14 +632,10 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                                 ? TextInputType.number
                                 : null,
                             onChanged: (value) {
-                              final parsedValue = value.isEmpty
-                                  ? null
-                                  : parseValue(value, schema['type']);
-                              if (value.isEmpty || parsedValue != null) {
-                                setState(() {
-                                  newSettings[key] = parsedValue;
-                                });
-                              }
+                              setState(() {
+                                secureDrafts[key]!.text = value;
+                                secureDrafts[key]!.clearRequested = false;
+                              });
                             },
                             obscureText: true,
                             autocorrect: false,
@@ -627,7 +650,9 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                                     tooltip: 'Clear saved value',
                                     onPressed: () {
                                       setState(() {
-                                        newSettings[key] = null;
+                                        secureDrafts[key]!.clearRequested =
+                                            true;
+                                        secureDrafts[key]!.text = '';
                                       });
                                     },
                                   )
@@ -705,9 +730,22 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
               ShadButton(
                 onPressed: () async {
                   try {
+                    final outgoing = Map<String, dynamic>.from(newSettings);
+                    for (final entry in secureDrafts.entries) {
+                      final draft = entry.value;
+                      if (draft.clearRequested) {
+                        outgoing[entry.key] = null;
+                      } else if (draft.text.isEmpty) {
+                        outgoing[entry.key] = {'isSet': draft.originalIsSet};
+                      } else {
+                        outgoing[entry.key] =
+                            parseValue(draft.text, draft.type ?? 'string') ??
+                            {'isSet': draft.originalIsSet};
+                      }
+                    }
                     await widget.pluginLoaderService.savePluginSettings(
                       pluginId,
-                      newSettings,
+                      outgoing,
                     );
                     if (context.mounted == false) {
                       return;

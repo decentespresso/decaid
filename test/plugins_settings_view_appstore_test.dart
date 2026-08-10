@@ -12,6 +12,7 @@ class FakePluginLoaderService extends Fake implements PluginLoaderService {
   final List<PluginManifest> plugins;
   final Map<String, dynamic> settings;
   Map<String, dynamic>? savedSettings;
+  int saveCallCount = 0;
 
   @override
   List<PluginManifest> get availablePlugins => plugins;
@@ -39,6 +40,7 @@ class FakePluginLoaderService extends Fake implements PluginLoaderService {
     String pluginId,
     Map<String, dynamic> settings,
   ) async {
+    saveCallCount++;
     savedSettings = settings;
   }
 }
@@ -113,25 +115,27 @@ void main() {
     expect(find.text('proxyDecentApi'), findsNothing);
   });
 
-  testWidgets('clears a stored secure setting explicitly', (tester) async {
-    final manifest = PluginManifest(
-      id: 'secure.reaplugin',
-      name: 'Secure Plugin',
-      author: 'Test',
-      description: 'Test plugin',
-      version: '1.0.0',
-      apiVersion: 1,
-      permissions: {},
-      settings: {
-        'Password': {'type': 'string', 'secure': true},
-      },
-      api: PluginApi(endpoints: []),
-    );
+  PluginManifest secureManifest() => PluginManifest(
+    id: 'secure.reaplugin',
+    name: 'Secure Plugin',
+    author: 'Test',
+    description: 'Test plugin',
+    version: '1.0.0',
+    apiVersion: 1,
+    permissions: {},
+    settings: {
+      'Password': {'type': 'string', 'secure': true},
+    },
+    api: PluginApi(endpoints: []),
+  );
+
+  Future<void> openSecureSettingsDialog(
+    WidgetTester tester, {
+    required Map<String, dynamic> settings,
+  }) async {
     fakePluginLoaderService = FakePluginLoaderService(
-      plugins: [manifest],
-      settings: {
-        'Password': {'isSet': true},
-      },
+      plugins: [secureManifest()],
+      settings: settings,
     );
     await tester.pumpWidget(
       ShadApp(
@@ -145,6 +149,15 @@ void main() {
     await tester.pump();
     await tester.tap(find.widgetWithText(ShadButton, 'Settings'));
     await tester.pumpAndSettle();
+  }
+
+  testWidgets('clears a stored secure setting explicitly', (tester) async {
+    await openSecureSettingsDialog(
+      tester,
+      settings: {
+        'Password': {'isSet': true},
+      },
+    );
 
     await tester.tap(find.byTooltip('Clear saved value'));
     await tester.tap(find.widgetWithText(ShadButton, 'Save'));
@@ -152,6 +165,88 @@ void main() {
 
     expect(fakePluginLoaderService.savedSettings, {'Password': null});
   });
+
+  testWidgets(
+    'secure setting: replacing then erasing the typed value preserves the '
+    'stored credential on Save',
+    (tester) async {
+      await openSecureSettingsDialog(
+        tester,
+        settings: {
+          'Password': {'isSet': true},
+        },
+      );
+
+      final input = find.byType(ShadInput);
+      await tester.enterText(input, 'replacement');
+      await tester.enterText(input, '');
+      await tester.tap(find.widgetWithText(ShadButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(fakePluginLoaderService.savedSettings, {
+        'Password': {'isSet': true},
+      });
+    },
+  );
+
+  testWidgets(
+    'secure setting: Cancel after typing never calls savePluginSettings',
+    (tester) async {
+      await openSecureSettingsDialog(
+        tester,
+        settings: {
+          'Password': {'isSet': true},
+        },
+      );
+
+      await tester.enterText(find.byType(ShadInput), 'replacement');
+      await tester.tap(find.widgetWithText(ShadButton, 'Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(fakePluginLoaderService.saveCallCount, 0);
+      expect(fakePluginLoaderService.savedSettings, isNull);
+    },
+  );
+
+  testWidgets('secure setting: typed replacement is committed on Save', (
+    tester,
+  ) async {
+    await openSecureSettingsDialog(
+      tester,
+      settings: {
+        'Password': {'isSet': true},
+      },
+    );
+
+    await tester.enterText(find.byType(ShadInput), 'new-secret');
+    await tester.tap(find.widgetWithText(ShadButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(fakePluginLoaderService.savedSettings, {'Password': 'new-secret'});
+  });
+
+  testWidgets(
+    'secure setting: typing then erasing with no stored credential never '
+    'sends an unintended clear',
+    (tester) async {
+      await openSecureSettingsDialog(
+        tester,
+        settings: {
+          'Password': {'isSet': false},
+        },
+      );
+
+      final input = find.byType(ShadInput);
+      await tester.enterText(input, 'typo');
+      await tester.enterText(input, '');
+      await tester.tap(find.widgetWithText(ShadButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(fakePluginLoaderService.savedSettings, {
+        'Password': {'isSet': false},
+      });
+    },
+  );
 
   testWidgets('secure number and boolean settings stay obscured and typed', (
     tester,

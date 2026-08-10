@@ -257,6 +257,98 @@ function createPlugin() {
       },
     );
 
+    test('ordinary setting patches set, preserve, and clear values', () async {
+      const id = 'ordinary-patch.reaplugin';
+      await service.addPlugin(
+        makePluginSource(
+          id,
+          settings: {
+            'Username': {'type': 'string'},
+            'Theme': {'type': 'string'},
+            'Nickname': {'type': 'string'},
+          },
+        ).path,
+      );
+      final prefs = await SharedPreferences.getInstance();
+
+      await service.savePluginSettings(id, {
+        'Username': 'user',
+        'Theme': 'dark',
+        'Nickname': 'nick',
+      });
+
+      // Omitted fields preserve the existing value.
+      await service.savePluginSettings(id, {'Username': 'new-user'});
+
+      expect(await service.pluginSettings(id), {
+        'Username': 'new-user',
+        'Theme': 'dark',
+        'Nickname': 'nick',
+      });
+
+      // A null value removes the setting instead of storing a JSON null.
+      await service.savePluginSettings(id, {'Nickname': null});
+
+      expect(await service.pluginSettings(id), {
+        'Username': 'new-user',
+        'Theme': 'dark',
+      });
+      expect(jsonDecode(prefs.getString('plugin.settings.$id')!), {
+        'Username': 'new-user',
+        'Theme': 'dark',
+      });
+    });
+
+    test(
+      'a mixed patch updates, preserves, and clears settings at once',
+      () async {
+        const id = 'mixed-patch.reaplugin';
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'Username': {'type': 'string'},
+              'Theme': {'type': 'string'},
+              'Password': {'type': 'string', 'secure': true},
+              'ApiKey': {'type': 'string', 'secure': true},
+              'Token': {'type': 'string', 'secure': true},
+            },
+          ).path,
+        );
+        final prefs = await SharedPreferences.getInstance();
+
+        await service.savePluginSettings(id, {
+          'Username': 'user',
+          'Theme': 'dark',
+          'Password': 'secret',
+          'ApiKey': 'key',
+          'Token': 'token',
+        });
+
+        await service.savePluginSettings(id, {
+          'Username': 'new-user',
+          'Theme': null,
+          'Password': 'new-secret',
+          'ApiKey': {'isSet': true},
+          'Token': null,
+        });
+
+        expect(await service.pluginSettings(id), {
+          'Username': 'new-user',
+          'Password': {'isSet': true},
+          'ApiKey': {'isSet': true},
+          'Token': {'isSet': false},
+        });
+        expect(jsonDecode(prefs.getString('plugin.settings.$id')!), {
+          'Username': 'new-user',
+        });
+        expect(
+          credentialStore.values.values.single,
+          jsonEncode({'Password': 'new-secret', 'ApiKey': 'key'}),
+        );
+      },
+    );
+
     test('concurrent setting patches preserve both updates', () async {
       const id = 'concurrent-patch.reaplugin';
       const credentialKey = 'plugin.settings.secure.$id';

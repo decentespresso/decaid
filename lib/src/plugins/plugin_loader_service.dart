@@ -303,11 +303,13 @@ class PluginLoaderService {
           : {...secure, entry.key: entry.value};
     }
 
+    final mergedOrdinary = {...stored.ordinary, ...ordinaryPatch};
+    for (final entry in ordinaryPatch.entries) {
+      if (entry.value == null) mergedOrdinary.remove(entry.key);
+    }
+
     await _writeSecureSettings(pluginId, secure);
-    await _writeOrdinarySettings(pluginId, {
-      ...stored.ordinary,
-      ...ordinaryPatch,
-    });
+    await _writeOrdinarySettings(pluginId, mergedOrdinary);
 
     _log.fine('Settings saved for plugin: $pluginId');
   });

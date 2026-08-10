@@ -2485,9 +2485,10 @@ paths:
       tags: [Plugins]
       summary: Save settings for specific plugin
       description: >
-        Applies a settings patch. Omitted secure fields and isSet state objects
-        preserve the stored credential; null clears it. The response is always
-        redacted and never echoes a submitted credential.
+        Applies a settings patch. Omitted fields preserve the existing value;
+        a null value clears the setting. For secure fields, an isSet state
+        object preserves the stored credential; null clears it. The response
+        is always redacted and never echoes a submitted credential.
       parameters:
         - name: id
           in: path
@@ -5960,7 +5961,8 @@ components:
       description: >
         Plugin setting values. Fields marked secure in the manifest are returned
         as objects containing only an isSet boolean instead of their stored
-        values.
+        values. In POST bodies, omitted fields preserve the existing value and
+        a null value clears the setting.
       additionalProperties: true
       example:
         Username: user@example.com

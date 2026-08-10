@@ -105,6 +105,23 @@ void main() {
         'Password': {'isSet': true},
       });
     });
+
+    test('POST passes null clears through to the service unchanged', () async {
+      final response = await app.call(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/api/v1/plugins/$pluginId/settings'),
+          headers: {'content-type': 'application/json'},
+          body: jsonEncode({'Username': 'new-user', 'Password': null}),
+        ),
+      );
+
+      expect(pluginService.savedPatch, {
+        'Username': 'new-user',
+        'Password': null,
+      });
+      expect(response.statusCode, 200);
+    });
   });
 
   test('synchronous plugin response completes the request directly', () async {

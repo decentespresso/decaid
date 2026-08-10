@@ -437,11 +437,12 @@ Plugins can be managed via REST API:
 | GET | `/api/v1/plugins/:id/settings` | Get plugin settings |
 | POST | `/api/v1/plugins/:id/settings` | Update plugin settings |
 
-Settings updates are patches. Omitted secure fields and returned `{ "isSet":
-true|false }` markers preserve the credential; `null` clears it. GET and POST
-responses contain only the marker for secure fields, never the submitted or
-stored value. Existing cleartext secure fields are moved out of
-SharedPreferences on first read.
+Settings updates are patches for every field: an omitted field preserves the
+existing value, `null` clears it, and for secure fields a `{ "isSet":
+true|false }` marker preserves the stored credential. GET and POST responses
+contain only the marker for secure fields, never the submitted or stored
+value. Existing cleartext secure fields are moved out of SharedPreferences on
+first read.
 
 The bundled **settings plugin** (`settings.reaplugin`) provides a web UI for plugin management at `/api/v1/plugins/settings.reaplugin/ui`. It includes an enable/disable toggle and remove button for each plugin, with a self-protection guard that prevents disabling itself.
 
