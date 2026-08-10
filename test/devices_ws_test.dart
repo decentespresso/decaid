@@ -272,7 +272,8 @@ void main() {
     });
 
     test('disconnect command calls device.disconnect()', () async {
-      mockDiscovery.addDevice(TestScale(deviceId: 'scale-1', name: 'Scale'));
+      final scale = _DisconnectingWsScale(deviceId: 'scale-1');
+      mockDiscovery.addDevice(scale);
       await Future.delayed(Duration.zero);
 
       final (channel, messages) = connectWs();
@@ -292,8 +293,7 @@ void main() {
         jsonEncode({'command': 'disconnect', 'deviceId': 'scale-1'}),
       );
 
-      // Give time for the command to process — no error expected
-      await Future.delayed(Duration(milliseconds: 100));
+      await scale.disconnected.future.timeout(const Duration(seconds: 2));
 
       await channel.sink.close();
     });
@@ -302,10 +302,12 @@ void main() {
       final (channel, messages) = connectWs();
 
       await waitForState(messages);
+      final report = connectionManager.scanReportStream.first.timeout(
+        const Duration(seconds: 2),
+      );
       channel.sink.add(jsonEncode({'command': 'scan'}));
 
-      await waitForState(messages);
-      await Future.delayed(const Duration(milliseconds: 300));
+      await report;
       expect(mockDiscovery.scanCallCount, 1);
       expect(connectionManager.lastScanReport, isNotNull);
 
@@ -316,10 +318,13 @@ void main() {
       final (channel, messages) = connectWs();
 
       await waitForState(messages);
+      final scanFinished = messages
+          .where((message) => message['scanning'] == false)
+          .first
+          .timeout(const Duration(seconds: 2));
       channel.sink.add(jsonEncode({'command': 'scan', 'connect': false}));
 
-      await waitForState(messages);
-      await Future.delayed(const Duration(milliseconds: 300));
+      await scanFinished;
       expect(connectionManager.lastScanReport, isNull);
 
       await channel.sink.close();
@@ -359,13 +364,22 @@ void main() {
           .first
           .timeout(Duration(seconds: 2));
 
+      final resultFuture = messages
+          .where(
+            (message) =>
+                message['operation'] == 'connect' &&
+                message['deviceId'] == 'scale-1',
+          )
+          .first
+          .timeout(const Duration(seconds: 2));
+
       // Send connect command
       channel.sink.add(
         jsonEncode({'command': 'connect', 'deviceId': 'scale-1'}),
       );
 
-      // Should not receive an error — give time for processing
-      await Future.delayed(Duration(milliseconds: 100));
+      final result = await resultFuture;
+      expect(result, isNot(contains('error')));
 
       await channel.sink.close();
     });
@@ -654,4 +668,15 @@ class _BlockingWsScale extends TestScale {
 
   @override
   Future<void> onConnect() => blocker.future;
+}
+
+class _DisconnectingWsScale extends TestScale {
+  final disconnected = Completer<void>();
+
+  _DisconnectingWsScale({required super.deviceId});
+
+  @override
+  Future<void> disconnect() async {
+    disconnected.complete();
+  }
 }
