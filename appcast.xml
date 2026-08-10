@@ -7,6 +7,32 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
         <title>Decaid</title>
         <item>
             <title>0.7.17</title>
+            <pubDate>Mon, 10 Aug 2026 07:23:22 +0000</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>2227</sparkle:version>
+            <sparkle:shortVersionString>0.7.17</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* docs(skills): index decent-app scenarios, harden skill description by @tadelv in https://github.com/decentespresso/decaid/pull/570
+* fix(visualizer): shift state_change frame markers to non-zero by @bsnelson in https://github.com/decentespresso/decaid/pull/574
+* README: iPad Full support with SideStep one-click install link by @johnbuckman in https://github.com/decentespresso/decaid/pull/576
+* shot-upload: mark uploaded shots with annotations.extras.uploaded_to_decent by @johnbuckman in https://github.com/decentespresso/decaid/pull/575
+* Enhance acknowledgment section in README by @tadelv in https://github.com/decentespresso/decaid/pull/578
+* plugin-host: own, bound, and cancel plugin timers and pending async requests (#561) by @tadelv in https://github.com/decentespresso/decaid/pull/577
+* Stream backup export, import, and sync data instead of fully buffering it (issue #555) by @tadelv in https://github.com/decentespresso/decaid/pull/569
+* feat(settings): add keepAwake toggle to persist wake lock (gh-572) by @tadelv in https://github.com/decentespresso/decaid/pull/583
+* fix: handle plugin directory paths on Windows by @ODevStudio in https://github.com/decentespresso/decaid/pull/592
+* Update dart_js and universal_ble dependencies by @tadelv in https://github.com/decentespresso/decaid/pull/593
+* fix(plugins): protect secure settings by @ODevStudio in https://github.com/decentespresso/decaid/pull/588
+
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.7.17-beta.3...v0.7.17-beta.4
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.7.17-beta.4/decaid-macos-0.7.17-beta.4.zip" length="71568581" type="application/octet-stream" sparkle:edSignature="l0ZZJMRsnqKdii4JSZUQRioWXXoEyiWHllMiVcOE9yjzK141ZM4V/70MtBicrjjRHn6EXhQr5apPQfoo8cT8Bw=="/>
+        </item>
+        <item>
+            <title>0.7.17</title>
             <pubDate>Thu, 06 Aug 2026 11:07:17 +0000</pubDate>
             <sparkle:channel>beta</sparkle:channel>
             <sparkle:version>2195</sparkle:version>
@@ -37,6 +63,6 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: NQmMO01AWq1rFiOhT6RLCccyzk3B8Z9/2yzHQwt1f7Bgbj29iUMEPKzWFMQo4GlnIzDjsP8mOkj3OdOqCVXyCg==
-length: 2427
+edSignature: BAAGt9ul/3O+k9ljHAPBaQ2T3ofuWF/67mMI29QtHPMg2RLI8sTomOks9gdRAoQOenAY7MvjR9DEtYZCIFJXDg==
+length: 4733
 -->
