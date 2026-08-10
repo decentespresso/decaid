@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ffi';
 
 import 'package:flutter_js/flutter_js.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -20,7 +19,7 @@ class _CountingRuntime extends JavascriptRuntime {
   int disposeCalls = 0;
 
   @override
-  JsEvalResult callFunction(Pointer<NativeType> fn, Pointer<NativeType> obj) =>
+  JsEvalResult callFunction(dynamic fn, dynamic obj) =>
       delegate.callFunction(fn, obj);
 
   @override
