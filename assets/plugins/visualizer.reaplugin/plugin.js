@@ -45,6 +45,10 @@ function createPlugin(host) {
     localSyncStatus: { lastCheck: null, lastResult: null, lastError: null, lastShotId: null, lastVisualizerId: null },
     backSyncStatus: { lastCheck: null, lastResult: null, lastError: null, lastApplied: 0 },
   };
+  let managedLocalTagsReadyResolve;
+  const managedLocalTagsReady = new Promise((resolve) => {
+    managedLocalTagsReadyResolve = resolve;
+  });
 
   function log(msg) {
     host.log(`[visualizer] ${msg}`);
@@ -351,6 +355,15 @@ function createPlugin(host) {
       state.backSyncCursor = Number(payload.value) || 0;
     } else if (payload.key === "backSyncState") {
       state.backSyncState = safeParseObject(payload.value) || {};
+    } else if (payload.key === "managedLocalTags") {
+      const stored = safeParseObject(payload.value) || {};
+      state.managedLocalTags = Object.fromEntries(
+        Object.entries(stored).map(([visualizerId, tags]) => [
+          visualizerId,
+          canonicalizeVisualizerTags(tags)
+        ])
+      );
+      managedLocalTagsReadyResolve();
     }
   }
 
@@ -496,6 +509,7 @@ function createPlugin(host) {
     host.storage({ type: "write", key: "shotMap", namespace: NS, data: JSON.stringify(state.shotMap) });
     host.storage({ type: "write", key: "backSyncCursor", namespace: NS, data: String(state.backSyncCursor) });
     host.storage({ type: "write", key: "backSyncState", namespace: NS, data: JSON.stringify(state.backSyncState) });
+    host.storage({ type: "write", key: "managedLocalTags", namespace: NS, data: JSON.stringify(state.managedLocalTags) });
   }
 
   function localShotVisualizerId(shot) {
@@ -752,6 +766,7 @@ function createPlugin(host) {
     if (!hasOwn(pending.update, "tags")) {
       return { update: pending.update, managedTags: null };
     }
+    await managedLocalTagsReady;
     const detail = await visualizerGet(`/shots/${visualizerId}?essentials=1`);
     const localTags = normalizeTags(pending.update.tags);
     const managedTags = new Set(canonicalizeVisualizerTags(state.managedLocalTags[visualizerId]));
@@ -775,6 +790,7 @@ function createPlugin(host) {
             ...state.managedLocalTags,
             [visualizerId]: merged.managedTags
           };
+          persistBackSyncState();
         }
         const visualizerUpdate = hasOwn(merged.update, "tags")
           ? { ...withoutKey(merged.update, "tags"), tag_list: merged.update.tags }
@@ -1172,6 +1188,7 @@ function createPlugin(host) {
       host.storage({ type: "read", key: "shotMap", namespace: NS });
       host.storage({ type: "read", key: "backSyncCursor", namespace: NS });
       host.storage({ type: "read", key: "backSyncState", namespace: NS });
+      host.storage({ type: "read", key: "managedLocalTags", namespace: NS });
 
       // First run ~30s after load so storage reads have settled.
       if (state.backSyncEnabled) armBackSync(30000);

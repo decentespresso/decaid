@@ -567,6 +567,87 @@ void main() {
     expect((secondPatch['shot'] as Map<String, dynamic>)['tag_list'], isEmpty);
   });
 
+  test('tag ownership survives plugin restart', () async {
+    final manager = await _loadPlugin('''
+      globalThis.__remoteTags = [];
+      globalThis.__patches = [];
+      globalThis.fetch = async (url, init = {}) => {
+        if (url.endsWith('/shots/visualizer-9?essentials=1')) {
+          return { ok: true, json: async () => ({ id: 'visualizer-9', tags: globalThis.__remoteTags }) };
+        }
+        if (url.endsWith('/shots/visualizer-9') && init.method === 'PATCH') {
+          const patch = JSON.parse(init.body);
+          globalThis.__patches = [...globalThis.__patches, patch];
+          globalThis.__remoteTags = patch.shot.tag_list;
+          return { ok: true, json: async () => ({ id: 'visualizer-9', updated_at: globalThis.__patches.length }) };
+        }
+        throw new Error('Unexpected URL: ' + url);
+      };
+    ''');
+    final firstSync = manager.emitStream.firstWhere(
+      (event) => event['event'] == 'shotForwardSynced',
+    );
+
+    _dispatchShotUpdate(
+      manager,
+      _shot(
+        annotations: {
+          'extras': {
+            'visualizerId': 'visualizer-9',
+            'tags': ['washed'],
+          },
+        },
+      ),
+      {
+        'annotations': {
+          'extras': {
+            'tags': ['washed'],
+          },
+        },
+      },
+    );
+    await firstSync.timeout(const Duration(seconds: 5));
+    await manager.unloadPlugin(_manifest.id);
+    final storedOwnership = await manager.kvStore.get(
+      namespace: _manifest.id,
+      key: 'managedLocalTags',
+    );
+    expect(jsonDecode(storedOwnership as String), {
+      'visualizer-9': ['washed'],
+    });
+
+    await manager.loadPlugin(
+      id: _manifest.id,
+      manifest: _manifest,
+      settings: const {
+        'Username': 'user',
+        'Password': 'password',
+        'LengthThreshold': 0,
+      },
+      jsCode: _pluginSource,
+    );
+    _dispatchShotUpdate(
+      manager,
+      _shot(
+        annotations: {
+          'extras': {'visualizerId': 'visualizer-9'},
+        },
+      ),
+      {
+        'annotations': {
+          'extras': {'tags': <String>[]},
+        },
+      },
+    );
+    final removalPatch =
+        await _waitForJs(
+              manager,
+              'globalThis.__patches.length === 2 ? globalThis.__patches[1] : null',
+            )
+            as Map<String, dynamic>;
+    expect((removalPatch['shot'] as Map<String, dynamic>)['tag_list'], isEmpty);
+  });
+
   test('legacy metadata and shotNotes patches use canonical shot values', () async {
     final manager = await _loadPlugin('''
       globalThis.__remoteTags = [];
