@@ -263,7 +263,8 @@ Settings fields include: `gatewayMode`, `themeMode`, `logLevel`, `weightFlowMult
 | POST | `/api/v1/plugins/:id/disable` | Unload plugin + disable auto-load | |
 | DELETE | `/api/v1/plugins/:id` | Remove plugin (unload + delete files) | |
 | POST | `/api/v1/plugins/install` | Install from URL (not yet implemented — returns 501) | |
-| GET/WS | `/api/v1/plugins/:id/:endpoint` | Plugin HTTP/WebSocket proxy | |
+| ANY | `/api/v1/plugins/:id/:endpoint` | Plugin HTTP endpoint; requires `api` and returns 403 without it | |
+| WS | `/ws/v1/plugins/:id/:endpoint` | Plugin WebSocket endpoint | |
 
 Plugin setting updates use patch semantics for every field: an omitted field
 preserves the existing value, a field sent as `null` clears it, and a secure

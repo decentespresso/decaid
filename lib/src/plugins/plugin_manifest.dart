@@ -68,7 +68,7 @@ enum PluginPermissions {
 
   static PluginPermissions? fromString(String value) {
     return PluginPermissions.values.firstWhereOrNull(
-      (e) => e.wireName == value || e.name == value,
+      (e) => e.wireName == value,
     );
   }
 }

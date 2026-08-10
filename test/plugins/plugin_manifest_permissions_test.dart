@@ -60,6 +60,10 @@ void main() {
     expect(PluginPermissions.fromString('pluginNotify'), isNull);
   });
 
+  test('rejects Dart enum names as manifest permission aliases', () {
+    expect(PluginPermissions.fromString('eventsShots'), isNull);
+  });
+
   test('serializes permissions using manifest wire values', () {
     final manifest = PluginManifest(
       id: 'test.plugin',

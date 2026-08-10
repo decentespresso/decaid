@@ -2607,6 +2607,43 @@ paths:
                   id:
                     type: string
 
+  /api/v1/plugins/{id}/{endpoint}:
+    get:
+      summary: Call a plugin HTTP endpoint
+      description: >
+        Routes the request to a loaded plugin's declared HTTP endpoint. The
+        runtime applies this contract to every HTTP method. The plugin manifest
+        must declare the api permission; otherwise Decaid rejects the request
+        before dispatch.
+      tags: [Plugins]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Plugin ID
+        - name: endpoint
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Plugin-declared HTTP endpoint ID
+      responses:
+        "403":
+          description: Plugin manifest does not declare the api permission
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [error]
+                properties:
+                  error:
+                    type: string
+                    example: "PluginPermissionError: Plugin example.plugin requires manifest permission api"
+        default:
+          description: Plugin-defined status, headers, and body
+
   /api/v1/plugins/install:
     post:
       summary: Install a plugin from URL
@@ -5993,7 +6030,7 @@ components:
                 type: string
               type:
                 type: string
-                enum: ['websocket']
+                enum: ['websocket', 'http']
               data:
                 type: object
         loaded:
