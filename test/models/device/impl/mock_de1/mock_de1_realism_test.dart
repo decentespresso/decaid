@@ -161,10 +161,13 @@ void main() {
       return pressures;
     }
 
-    final first = await pull();
-    final second = await pull();
+    try {
+      final first = await pull();
+      final second = await pull();
 
-    expect(second, isNot(equals(first)));
-    await machine.onDisconnect();
+      expect(second, isNot(equals(first)));
+    } finally {
+      await machine.onDisconnect();
+    }
   });
 }
