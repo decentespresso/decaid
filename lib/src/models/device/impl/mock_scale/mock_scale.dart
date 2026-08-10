@@ -87,14 +87,13 @@ class MockScale implements Scale, SimulatedDevice {
   final Random _random = Random();
   MockDe1? _machine;
   StreamSubscription<MachineSnapshot>? _machineSub;
-  final Stopwatch _timerStopwatch;
+  final Stopwatch _timerStopwatch = Stopwatch();
   Duration? _frozenTimerValue;
   bool _timerRunning = false;
   bool _stalled = false;
   Timer? _emissionTimer;
 
-  MockScale({Stopwatch? timerStopwatch})
-    : _timerStopwatch = timerStopwatch ?? Stopwatch() {
+  MockScale() {
     _startEmission();
   }
 
