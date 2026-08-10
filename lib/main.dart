@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show AppExitResponse, AppExitType;
 import 'package:collection/collection.dart';
 // import 'package:flutter/scheduler.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
