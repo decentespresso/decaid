@@ -7,6 +7,28 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
         <title>Decaid</title>
         <item>
             <title>0.7.17</title>
+            <pubDate>Tue, 11 Aug 2026 10:03:31 +0000</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>2259</sparkle:version>
+            <sparkle:shortVersionString>0.7.17</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* fix: decouple shot startup from scale samples by @ODevStudio in https://github.com/decentespresso/decaid/pull/587
+* fix: report device connect command outcomes by @ODevStudio in https://github.com/decentespresso/decaid/pull/591
+* Simulator: honor profile limiters and vary puck resistance by @ODevStudio in https://github.com/decentespresso/decaid/pull/590
+* plugin-host: add complete lifecycle disposal by @ODevStudio in https://github.com/decentespresso/decaid/pull/582
+* fix(plugins): forward recipe and shot tags to Visualizer upload by @bsnelson in https://github.com/decentespresso/decaid/pull/584
+* ci: add Flutter test timing and reduce PR check overhead by @ODevStudio in https://github.com/decentespresso/decaid/pull/595
+* Enforce plugin manifest permissions by @ODevStudio in https://github.com/decentespresso/decaid/pull/589
+
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.7.17-beta.4...v0.7.17-beta.5
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.7.17-beta.5/decaid-macos-0.7.17-beta.5.zip" length="71604083" type="application/octet-stream" sparkle:edSignature="xyIL2nl7MCLyUVdyXuyeFojO4B0alfzQpAPRGv6oJuS0S20kW9Z81MHNT1Y9+oaQevSdo6nryVkRUpWc2cm8CQ=="/>
+        </item>
+        <item>
+            <title>0.7.17</title>
             <pubDate>Mon, 10 Aug 2026 07:23:22 +0000</pubDate>
             <sparkle:channel>beta</sparkle:channel>
             <sparkle:version>2227</sparkle:version>
@@ -63,6 +85,6 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: BAAGt9ul/3O+k9ljHAPBaQ2T3ofuWF/67mMI29QtHPMg2RLI8sTomOks9gdRAoQOenAY7MvjR9DEtYZCIFJXDg==
-length: 4733
+edSignature: M5Zf1UNxnFTV7vj0cFwQ/pr7W+RveUIYjmSh+fa6z7e/5s0/dR5ZBu2jUns8Q8V5lB79KM7eBDmrJizNqLeFDw==
+length: 6455
 -->
