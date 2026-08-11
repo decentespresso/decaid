@@ -1,0 +1,79 @@
+{
+  "fallback": [
+    "simulated_1.json",
+    "simulated_2.json",
+    "simulated_3.json"
+  ],
+  "profiles": [
+    {
+      "file": "Classic_Italian_espresso.json",
+      "profileTitle": "Classic Italian espresso",
+      "profileFile": "Classic_Italian_espresso.json"
+    },
+    {
+      "file": "D-Flow____default.json",
+      "profileTitle": "D-Flow / default",
+      "profileFile": "D-Flow____default.json"
+    },
+    {
+      "file": "Damian_s_LM_Leva.json",
+      "profileTitle": "Damian's LM Leva",
+      "profileFile": "Damian_s_LM_Leva.json"
+    },
+    {
+      "file": "Damian_s_LRv2.json",
+      "profileTitle": "Damian's LRv2",
+      "profileFile": "Damian_s_LRv2.json"
+    },
+    {
+      "file": "Damian_s_LRv3.json",
+      "profileTitle": "Damian's LRv3",
+      "profileFile": "Damian_s_LRv3.json"
+    },
+    {
+      "file": "Default1.json",
+      "profileTitle": "Default",
+      "profileFile": "Default1.json"
+    },
+    {
+      "file": "Extractamundo_Dos.json",
+      "profileTitle": "Extractamundo Dos!",
+      "profileFile": "Extractamundo_Dos.json"
+    },
+    {
+      "file": "Flow_profile_for_milky_drinks.json",
+      "profileTitle": "Flow profile for milky drinks",
+      "profileFile": "Flow_profile_for_milky_drinks.json"
+    },
+    {
+      "file": "Gentle_and_sweet1.json",
+      "profileTitle": "Gentle and sweet",
+      "profileFile": "Gentle_and_sweet1.json"
+    },
+    {
+      "file": "Londonium.json",
+      "profileTitle": "Londonium",
+      "profileFile": "Londonium.json"
+    },
+    {
+      "file": "Two_spring_lever_machine_to_9_bar.json",
+      "profileTitle": "Two spring lever machine to 9 bar",
+      "profileFile": "Two_spring_lever_machine_to_9_bar.json"
+    },
+    {
+      "file": "best_practice.json",
+      "profileTitle": "Adaptive v2",
+      "profileFile": "best_practice.json"
+    },
+    {
+      "file": "cremina.json",
+      "profileTitle": "Cremina lever machine",
+      "profileFile": "cremina.json"
+    },
+    {
+      "file": "filter3.json",
+      "profileTitle": "Filter3",
+      "profileFile": "filter3.json"
+    }
+  ]
+}

@@ -1,0 +1,114 @@
+[
+  {
+    "source_shot_id": "f03d8e78-d1f9-40a8-bea5-e8dedff61527",
+    "profile_file": "Classic_Italian_espresso.json",
+    "profile_title": "Classic Italian espresso",
+    "stem": "Classic_Italian_espresso",
+    "n": 112,
+    "dur": 27.537
+  },
+  {
+    "source_shot_id": "5aa87d4a-4f92-4b93-99e2-c910b338b2b9",
+    "profile_file": "D-Flow____default.json",
+    "profile_title": "D-Flow / default",
+    "stem": "D-Flow____default",
+    "n": 120,
+    "dur": 29.492
+  },
+  {
+    "source_shot_id": "a8752c49-0509-422e-a476-62372040bc20",
+    "profile_file": "Damian_s_LM_Leva.json",
+    "profile_title": "Damian's LM Leva",
+    "stem": "Damian_s_LM_Leva",
+    "n": 190,
+    "dur": 39.188
+  },
+  {
+    "source_shot_id": "af32c722-c0d9-401a-82f3-47184dd2367e",
+    "profile_file": "Damian_s_LRv2.json",
+    "profile_title": "Damian's LRv2",
+    "stem": "Damian_s_LRv2",
+    "n": 126,
+    "dur": 31.013
+  },
+  {
+    "source_shot_id": "c06953ec-06a3-42e8-9879-efefb9e0af1c",
+    "profile_file": "Damian_s_LRv3.json",
+    "profile_title": "Damian's LRv3",
+    "stem": "Damian_s_LRv3",
+    "n": 114,
+    "dur": 27.982
+  },
+  {
+    "source_shot_id": "393a341e-c528-4bf3-85ac-a8dff8772325",
+    "profile_file": "Default1.json",
+    "profile_title": "Default",
+    "stem": "Default1",
+    "n": 148,
+    "dur": 36.852
+  },
+  {
+    "source_shot_id": "2b50a134-dbd5-4682-9fb2-898fbb9e748a",
+    "profile_file": "Extractamundo_Dos.json",
+    "profile_title": "Extractamundo Dos!",
+    "stem": "Extractamundo_Dos",
+    "n": 95,
+    "dur": 23.263
+  },
+  {
+    "source_shot_id": "0b904890-e62b-4119-93eb-84e690ff6a07",
+    "profile_file": "Flow_profile_for_milky_drinks.json",
+    "profile_title": "Flow profile for milky drinks",
+    "stem": "Flow_profile_for_milky_drinks",
+    "n": 101,
+    "dur": 24.794
+  },
+  {
+    "source_shot_id": "2205826a-d677-4304-b156-c5d8dda52342",
+    "profile_file": "Gentle_and_sweet1.json",
+    "profile_title": "Gentle and sweet",
+    "stem": "Gentle_and_sweet1",
+    "n": 100,
+    "dur": 24.433
+  },
+  {
+    "source_shot_id": "e619491f-0648-4d0a-aece-74bdc4d06328",
+    "profile_file": "Londonium.json",
+    "profile_title": "Londonium",
+    "stem": "Londonium",
+    "n": 136,
+    "dur": 33.523
+  },
+  {
+    "source_shot_id": "fcf05052-2b77-4f96-a2b7-f6f59b8f2e78",
+    "profile_file": "Two_spring_lever_machine_to_9_bar.json",
+    "profile_title": "Two spring lever machine to 9 bar",
+    "stem": "Two_spring_lever_machine_to_9_bar",
+    "n": 162,
+    "dur": 33.295
+  },
+  {
+    "source_shot_id": "b1c38ab4-e45a-4b2f-9b6a-19fefb11e979",
+    "profile_file": "best_practice.json",
+    "profile_title": "Adaptive v2",
+    "stem": "best_practice",
+    "n": 115,
+    "dur": 23.572
+  },
+  {
+    "source_shot_id": "dbf89032-0a5b-4438-8bc8-cb98e87e328d",
+    "profile_file": "cremina.json",
+    "profile_title": "Cremina lever machine",
+    "stem": "cremina",
+    "n": 105,
+    "dur": 25.736
+  },
+  {
+    "source_shot_id": "a2a910e6-d316-4199-8c27-22df5e326aed",
+    "profile_file": "filter3.json",
+    "profile_title": "Filter3",
+    "stem": "filter3",
+    "n": 1321,
+    "dur": 274.903
+  }
+]

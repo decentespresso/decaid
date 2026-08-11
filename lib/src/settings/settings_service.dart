@@ -573,7 +573,7 @@ enum SettingsKeys {
   enableSimulatedWebViews,
 }
 
-enum SimulatedDevicesTypes { machine, scale, sensor, bengle }
+enum SimulatedDevicesTypes { machine, scale, sensor, bengle, replay }
 
 extension SimulatedDevicesTypesFromString on SimulatedDevicesTypes {
   static SimulatedDevicesTypes? fromString(String value) {
