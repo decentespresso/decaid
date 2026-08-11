@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/device/impl/replay/mock_replay_de1.dart';
-import 'package:reaprime/src/models/device/impl/replay/mock_replay_scale.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/services/simulated_shot_library.dart';
 
@@ -75,33 +74,61 @@ void main() {
       );
     });
 
-    test('the replay scale reports the recorded weight', () async {
+    test('the integrated scale reports the recorded weight', () async {
       final expected = library.forProfileTitle('Adaptive v2')!;
       final recordedWeights = expected.measurements
           .map((m) => m.scale?.weight ?? 0.0)
           .toSet();
 
       final machine = MockReplayDe1(library: library);
-      final scale = MockReplayScale()..attachMachine(machine);
       await machine.setProfile(_profile('Adaptive v2'));
       await machine.onConnect();
-      await scale.onConnect();
       await machine.requestState(MachineState.espresso);
 
-      final snapshots = await scale.currentSnapshot
-          .take(15)
+      final weights = await machine.weightSnapshot
+          .map((s) => s.weight)
+          .take(12)
           .toList()
           .timeout(const Duration(seconds: 5));
-      await scale.disconnect();
       await machine.disconnect();
 
-      for (final s in snapshots) {
+      for (final w in weights) {
         expect(
-          recordedWeights.any((w) => (w - s.weight).abs() < 1e-6),
+          recordedWeights.any((r) => (r - w).abs() < 1e-6),
           isTrue,
-          reason: '${s.weight}g is not a recorded weight sample',
+          reason: '${w}g is not a recorded weight sample',
         );
       }
+    });
+
+    test('autonomous stop-at-weight stops the shot at target', () async {
+      // Flow-profile-for-milky-drinks reaches ~3 g early, so the shot stops
+      // quickly. This is the Bengle SAW path: the device stops itself.
+      final machine = MockReplayDe1(library: library);
+      await machine.setProfile(_profile('Flow profile for milky drinks'));
+      await machine.onConnect();
+      await machine.setStopAtWeightTarget(3);
+      await machine.requestState(MachineState.espresso);
+
+      final idle = await machine.currentSnapshot
+          .firstWhere((s) => s.state.state == MachineState.idle)
+          .timeout(const Duration(seconds: 15));
+      await machine.disconnect();
+
+      expect(idle.state.state, MachineState.idle);
+    });
+
+    test('steam falls back to synthetic device telemetry', () async {
+      final machine = MockReplayDe1(library: library);
+      await machine.onConnect();
+      await machine.requestState(MachineState.steam);
+
+      final snapshot = await machine.currentSnapshot.first.timeout(
+        const Duration(seconds: 3),
+      );
+      await machine.disconnect();
+
+      expect(snapshot, isNotNull);
     });
   });
 }

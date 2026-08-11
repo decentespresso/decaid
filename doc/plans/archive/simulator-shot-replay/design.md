@@ -20,20 +20,25 @@ single-responsibility puck simulator (Vid's point):
 - **`ShotReplayer`** (`impl/replay/shot_replayer.dart`) — pure playback engine:
   maps wall-clock elapsed → the recorded `MachineSnapshot`/weight; idle past the
   end. No Flutter, trivially testable.
-- **`MockReplayDe1`** (`impl/replay/mock_replay_de1.dart`) — `extends MockDe1`
-  only to inherit the large `De1Interface` stub surface; it runs its own
-  connection, snapshot stream and 100 ms timer and never uses the puck sim. On
-  espresso start it asks `SimulatedShotLibrary.pickForProfile(currentProfile)`
-  for a recording and streams it; end-of-data → idle. Exposes
-  `replayWeightGrams`.
-- **`MockReplayScale`** (`impl/replay/mock_replay_scale.dart`) — standalone
-  `Scale` reporting the recording's real weight (not a flow integration).
+- **`MockReplayDe1`** (`impl/replay/mock_replay_de1.dart`) — a single standalone
+  device (per review), `implements BengleInterface` so it is both machine and
+  integrated scale. It does NOT extend `MockDe1`: it *composes* one, delegates
+  the De1Interface surface to it, and falls back to it for steam / hot water /
+  flush. On espresso start it asks
+  `SimulatedShotLibrary.pickForProfile(currentProfile)` for a recording and
+  streams it at 10 Hz; end-of-data → idle. Its integrated scale
+  (`weightSnapshot`) reports the recording's real weight and the connection
+  manager auto-wraps it as a `BengleVirtualScale`.
+- **Target weight** uses the autonomous SAW path: the `ShotSequencer` bypasses
+  its own SAW for `BengleInterface`, the `BengleSawBridge` pushes the workflow's
+  target yield via `setStopAtWeightTarget`, and the device stops itself when the
+  recorded weight reaches it — exactly like `MockBengle`.
 - **`SimulatedShotLibrary`** — loads `assets/simulations/manifest.json`
   (`fallback` pool + `profiles[]` mapping profile title → shot). `forProfileTitle`
   does a normalized-title lookup; `pickForProfile` returns the match or a random
   fallback.
 - **Wiring** — new `SimulatedDevicesTypes.replay`; `SimulatedDeviceService`
-  creates the pair and attaches the scale; `simulate=replay` / settings toggle.
+  creates the single device; `simulate=replay` / settings toggle.
 
 ## The corpus
 
@@ -51,9 +56,9 @@ single-responsibility puck simulator (Vid's point):
 
 - Match key is the bundled profile title (normalized: lowercased, punctuation →
   spaces, plus the last `/`-segment so `author/Name` and `category/Name` match).
-- `MockReplayDe1 extends MockDe1` for interface reuse; the inherited puck code is
-  never exercised. A shared base could avoid the inheritance, but that would mean
-  refactoring `MockDe1`.
+- `MockReplayDe1` composes a `MockDe1` and delegates the De1Interface surface to
+  it (DRY without modifying `MockDe1`), rather than extending it or extracting a
+  shared mixin.
 - The injected single "Replay" profile step (so the JSON round-trips) is a
   placeholder; the real advanced_shot frames are not reconstructed. Fine for a
   simulator — replay drives telemetry from samples, not the profile.

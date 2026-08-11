@@ -84,7 +84,7 @@ Available via `--dart-define=simulate=1` or settings UI toggle. For end-to-end A
 | `scale` | `MockScale` only |
 | `bengle` | `MockBengle` only |
 | `sensor` | `MockSensor` only |
-| `replay` | `MockReplayDe1` + `MockReplayScale` (replay recorded shots, matched to the selected profile) |
+| `replay` | `MockReplayDe1` (single device: replays recorded shots matched to the profile) |
 
 ## Pre-Commit Checklist
 

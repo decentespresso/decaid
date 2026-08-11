@@ -37,20 +37,27 @@ Simulated devices avoid hardware requirements for smoke testing. Available types
 | `bengle` | `MockBengle` only |
 | `machine,scale` | `MockDe1` + `MockScale` |
 | `sensor` | `MockSensor` only |
-| `replay` | `MockReplayDe1` + `MockReplayScale` (replay recorded shots) |
+| `replay` | `MockReplayDe1` (replay recorded shots, matched to the profile) |
 | `0` | None (debug routes on, real hardware) |
 
 Also toggleable from the settings UI after launch.
 
 ### Replay simulator (`simulate=replay`)
 
-`MockReplayDe1` + `MockReplayScale` play back a real recorded shot instead of
-synthesizing telemetry. On shot start `MockReplayDe1` asks
-`SimulatedShotLibrary` for a bundled recording made with the currently selected
-profile (`forProfileTitle`, normalized match); if none exists it falls back to a
-generic shot. It streams the recording's samples at 10 Hz; `MockReplayScale`
-reports the recording's real weight (it does not integrate flow). These are
-separate devices — `MockDe1`/`MockScale` remain the pure puck simulator.
+`MockReplayDe1` is a single device that plays back a real recorded shot instead
+of synthesizing telemetry. On shot start it asks `SimulatedShotLibrary` for a
+bundled recording made with the currently selected profile (`forProfileTitle`,
+normalized match); if none exists it falls back to a generic shot, and streams
+the recording's samples at 10 Hz.
+
+It implements `BengleInterface`, so it is one device that is both machine and
+integrated scale — the connection manager auto-wraps its `weightSnapshot` as a
+`BengleVirtualScale` (no separate scale device), and target-weight uses the
+autonomous stop-at-weight path (the `ShotSequencer` bypasses its own SAW for
+`BengleInterface`; the device stops itself when the recorded weight reaches the
+target the `BengleSawBridge` pushes). It does NOT extend `MockDe1`: it
+*composes* one, delegating the De1Interface surface to it and falling back to it
+for steam / hot water / flush. `MockDe1`/`MockScale` are untouched.
 
 The corpus lives in `assets/simulations/` (`manifest.json` maps profile titles
 to shot files). Profile-matched shots were pulled from visualizer.coffee, one

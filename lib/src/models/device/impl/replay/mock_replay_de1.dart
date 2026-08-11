@@ -1,96 +1,123 @@
 import 'dart:async';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/data/profile.dart';
+import 'package:reaprime/src/models/device/bengle_interface.dart';
+import 'package:reaprime/src/models/device/de1_interface.dart';
+import 'package:reaprime/src/models/device/de1_rawmessage.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/device_implementation.dart';
+import 'package:reaprime/src/models/device/firmware_update_state.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/models/device/impl/replay/shot_replayer.dart';
+import 'package:reaprime/src/models/device/led_strip.dart';
 import 'package:reaprime/src/models/device/machine.dart';
+import 'package:reaprime/src/models/device/scale.dart';
+import 'package:reaprime/src/models/device/simulated_device.dart';
+import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/services/simulated_shot_library.dart';
 import 'package:rxdart/subjects.dart';
 
-/// A simulated DE1 that replays a real recorded shot instead of synthesizing
-/// telemetry. It picks a bundled recording made with the currently selected
-/// profile when one exists (see [SimulatedShotLibrary]), otherwise a generic
-/// fallback, and streams that recording's samples on the shot timeline.
+/// A single simulated device that replays a real recorded shot, matched to the
+/// currently selected profile when possible (see [SimulatedShotLibrary]).
 ///
-/// It extends [MockDe1] purely to inherit the large [De1Interface] surface
-/// (shot settings, water levels, firmware, calibration, ...) as no-op stubs;
-/// the puck-physics simulation in [MockDe1] is never used — this class runs its
-/// own connection, snapshot stream and timer. Keeping replay in its own device
-/// leaves [MockDe1] a single-responsibility puck simulator.
-class MockReplayDe1 extends MockDe1 {
+/// It implements [BengleInterface] so it is one device that is both machine and
+/// integrated scale (the connection manager wraps [weightSnapshot] as a
+/// `BengleVirtualScale`), and so target-weight uses the autonomous stop-at-
+/// weight path — the `ShotSequencer` bypasses its own SAW for `BengleInterface`
+/// and this device stops itself, exactly like `MockBengle`.
+///
+/// Per review, it does NOT extend [MockDe1]. It *composes* one and delegates the
+/// De1Interface surface to it, replaying only espresso; steam / hot water /
+/// flush fall back to the synthetic device's behaviour.
+class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   MockReplayDe1({required SimulatedShotLibrary library, Random? random})
     : _library = library,
-      _random = random ?? Random(),
-      super(deviceId: "MockReplayDe1");
+      _random = random ?? Random();
 
   final SimulatedShotLibrary _library;
   final Random _random;
+  // ignore: unused_field
   final _log = Logger("MockReplayDe1");
 
-  final BehaviorSubject<ConnectionState> _connection = BehaviorSubject.seeded(
-    ConnectionState.discovered,
-  );
+  /// Synthetic fallback: handles steam / hot water / flush / idle telemetry and
+  /// the full De1Interface stub surface, so this device never duplicates it.
+  final MockDe1 _synthetic = MockDe1(deviceId: "MockReplayDe1-synthetic");
+
   final StreamController<MachineSnapshot> _snapshots =
       StreamController.broadcast();
-
+  final BehaviorSubject<ScaleSnapshot> _weight = BehaviorSubject();
+  StreamSubscription<MachineSnapshot>? _syntheticSub;
   Timer? _timer;
-  int _idleTicks = 0;
+
   MachineState _state = MachineState.idle;
   Profile? _profile;
-
   ShotReplayer? _replayer;
   DateTime _replayStartedAt = DateTime.now();
-  double? _replayWeightGrams;
+  double _replayWeightGrams = 0.0;
 
-  /// Recorded scale weight at the current replay position, for [MockReplayScale]
-  /// to report directly. Null when no shot is loaded; held after the recording
-  /// ends so the reading rests at the final poured weight.
-  double? get replayWeightGrams => _replayWeightGrams;
+  double _sawTarget = 0.0;
+  final BehaviorSubject<double> _sawTargetSubject = BehaviorSubject.seeded(0.0);
 
+  static const double _prepSeconds = 0.3;
+
+  // --- identity -------------------------------------------------------------
   @override
   String get deviceId => "MockReplayDe1";
-
   @override
   String get name => "Replay DE1";
-
   @override
-  Stream<ConnectionState> get connectionState => _connection.stream;
-
+  DeviceType get type => DeviceType.machine;
   @override
-  Stream<MachineSnapshot> get currentSnapshot => _snapshots.stream;
+  DeviceImplementation get implementation => DeviceImplementation.unifiedDe1;
+  @override
+  TransportType get transportType => TransportType.unknown;
+  @override
+  MachineInfo get machineInfo => _synthetic.machineInfo;
+  @override
+  Stream<ConnectionState> get connectionState => _synthetic.connectionState;
 
+  // --- lifecycle ------------------------------------------------------------
   @override
   Future<void> onConnect() async {
-    _connection.add(ConnectionState.connected);
-    _state = MachineState.idle;
+    await _synthetic.onConnect();
+    // Re-emit the synthetic device's telemetry (idle / steam / hot water /
+    // flush) except while a shot is being replayed.
+    _syntheticSub = _synthetic.currentSnapshot.listen((s) {
+      if (_replayer == null) _snapshots.add(s);
+    });
     _timer ??= Timer.periodic(
       const Duration(milliseconds: 100),
       (_) => _tick(),
     );
+    _emitWeight(0);
   }
 
   @override
   disconnect() async {
     _timer?.cancel();
     _timer = null;
+    await _syntheticSub?.cancel();
+    _syntheticSub = null;
     _replayer = null;
-    _connection.add(ConnectionState.disconnected);
+    await _synthetic.disconnect();
   }
 
   @override
   Future<void> dispose() async {
     _timer?.cancel();
+    await _syntheticSub?.cancel();
     await _snapshots.close();
-    await _connection.close();
+    await _weight.close();
+    await _sawTargetSubject.close();
+    await _synthetic.dispose();
   }
 
+  // --- machine telemetry ----------------------------------------------------
   @override
-  Future<void> setProfile(Profile profile) async {
-    _profile = profile;
-  }
+  Stream<MachineSnapshot> get currentSnapshot => _snapshots.stream;
 
   @override
   Future<void> requestState(MachineState newState) async {
@@ -99,83 +126,245 @@ class MockReplayDe1 extends MockDe1 {
       _startReplay();
     } else {
       _replayer = null;
-      _replayWeightGrams = null;
+      // Steam / hot water / flush / idle: fall back to the synthetic device.
+      await _synthetic.requestState(newState);
     }
   }
 
+  @override
+  Future<void> setProfile(Profile profile) async {
+    _profile = profile;
+    await _synthetic.setProfile(profile);
+  }
+
   void _startReplay() {
-    _replayWeightGrams = null;
+    _replayWeightGrams = 0.0;
     final shot = _library.pickForProfile(_profile?.title, _random);
     if (shot == null || shot.measurements.isEmpty) {
       _replayer = null;
-      _log.warning("no recorded shot available to replay");
       return;
     }
     _replayer = ShotReplayer(shot.measurements);
     _replayStartedAt = DateTime.now();
-    final matched = _library.forProfileTitle(_profile?.title) != null;
-    _log.info(
-      "replaying ${shot.id} for profile '${_profile?.title}' "
-      "(${matched ? 'profile match' : 'fallback'}, "
-      "${shot.measurements.length} samples)",
-    );
   }
-
-  // Recordings begin at the pour, but the ShotSequencer only starts a shot
-  // when it sees an espresso/preparingForShot frame first. Synthesize that
-  // brief preparing phase so replay drives the normal shot lifecycle (tare,
-  // stop-at-weight, step exits) exactly like a real pull.
-  static const double _prepSeconds = 0.3;
 
   void _tick() {
     final replayer = _replayer;
-    if (replayer != null && _state == MachineState.espresso) {
-      final now = DateTime.now();
-      final elapsed = now.difference(_replayStartedAt).inMilliseconds / 1000.0;
-      _replayWeightGrams =
-          replayer.scaleAt(elapsed)?.weight ?? _replayWeightGrams;
-      var frame = replayer.frameAt(elapsed, timestamp: now);
-      if (elapsed < _prepSeconds) {
-        frame = frame.copyWith(
-          state: const MachineStateSnapshot(
-            state: MachineState.espresso,
-            substate: MachineSubstate.preparingForShot,
-          ),
-        );
-      }
-      _snapshots.add(frame);
-      if (replayer.isFinished(elapsed)) {
-        _state = MachineState.idle;
-        _replayer = null;
-      }
+    if (replayer == null || _state != MachineState.espresso) return;
+    final now = DateTime.now();
+    final elapsed = now.difference(_replayStartedAt).inMilliseconds / 1000.0;
+    _replayWeightGrams =
+        replayer.scaleAt(elapsed)?.weight ?? _replayWeightGrams;
+
+    var frame = replayer.frameAt(elapsed, timestamp: now);
+    // Recordings begin at the pour; emit a brief preparingForShot phase first
+    // so the ShotSequencer starts its lifecycle like a real pull.
+    if (elapsed < _prepSeconds) {
+      frame = frame.copyWith(
+        state: const MachineStateSnapshot(
+          state: MachineState.espresso,
+          substate: MachineSubstate.preparingForShot,
+        ),
+      );
+    }
+    _snapshots.add(frame);
+    _emitWeight(_replayWeightGrams);
+
+    // Autonomous stop-at-weight, mirroring MockBengle: stop when the recorded
+    // weight reaches the target the SAW bridge pushed.
+    if (_sawTarget > 0.0 &&
+        frame.state.substate != MachineSubstate.preparingForShot &&
+        _replayWeightGrams >= _sawTarget) {
+      _replayer = null;
+      unawaited(requestState(MachineState.idle));
       return;
     }
-    // Idle heartbeat every ~500ms so listeners see a live, ready machine.
-    if (_idleTicks++ % 5 == 0) {
-      _snapshots.add(_idleSnapshot());
+    if (replayer.isFinished(elapsed)) {
+      _replayer = null;
+      unawaited(requestState(MachineState.idle));
     }
   }
 
-  MachineSnapshot _idleSnapshot() {
-    final temp = _profile?.steps.isNotEmpty == true
-        ? _profile!.steps.first.temperature
-        : 90.0;
-    return MachineSnapshot(
-      timestamp: DateTime.now(),
-      state: MachineStateSnapshot(
-        state: _state,
-        substate: MachineSubstate.idle,
+  void _emitWeight(double grams) {
+    if (_weight.isClosed) return;
+    _weight.add(
+      ScaleSnapshot(
+        timestamp: DateTime.now(),
+        weight: grams,
+        batteryLevel: 100,
       ),
-      flow: 0,
-      pressure: 0,
-      targetFlow: 0,
-      targetPressure: 0,
-      mixTemperature: temp,
-      groupTemperature: temp,
-      targetMixTemperature: temp,
-      targetGroupTemperature: temp,
-      profileFrame: 0,
-      steamTemperature: 0,
     );
   }
+
+  // --- BengleInterface: integrated scale ------------------------------------
+  @override
+  Stream<ScaleSnapshot> get weightSnapshot => _weight.stream;
+
+  @override
+  Future<void> tareIntegratedScale() async {
+    _replayWeightGrams = 0.0;
+    _emitWeight(0);
+  }
+
+  // --- BengleInterface: autonomous stop-at-weight ---------------------------
+  @override
+  Future<void> setStopAtWeightTarget(double grams) async {
+    _sawTarget = grams.clamp(0.0, 500.0);
+    _sawTargetSubject.add(_sawTarget);
+  }
+
+  @override
+  Future<double> getStopAtWeightTarget() async => _sawTarget;
+
+  @override
+  Stream<double> get stopAtWeightTarget => _sawTargetSubject.stream;
+
+  // --- BengleInterface: unused capabilities (minimal stubs) -----------------
+  double _cupWarmer = 0.0;
+  @override
+  Future<void> setCupWarmerTemperature(double celsius) async =>
+      _cupWarmer = celsius.clamp(0.0, 80.0);
+  @override
+  Future<double> getCupWarmerTemperature() async => _cupWarmer;
+
+  final BehaviorSubject<LedStripState> _led = BehaviorSubject.seeded(
+    const LedStripState(),
+  );
+  @override
+  Stream<LedStripState> get ledStripState => _led.stream;
+  @override
+  Future<LedStripState> getLedStripState() async => _led.value;
+  @override
+  Future<void> setLedStrip(LedStripState state) async => _led.add(state);
+  @override
+  Future<void> commitLedStrip() async {}
+  @override
+  Future<void> resetLedStrip() async {}
+
+  double _stopAtTemp = 0.0;
+  final BehaviorSubject<double> _stopAtTempSubject = BehaviorSubject.seeded(
+    0.0,
+  );
+  @override
+  Future<void> setStopAtTemperatureTarget(double celsius) async {
+    _stopAtTemp = celsius;
+    _stopAtTempSubject.add(celsius);
+  }
+
+  @override
+  Future<double> getStopAtTemperatureTarget() async => _stopAtTemp;
+  @override
+  Stream<double> get stopAtTemperatureTarget => _stopAtTempSubject.stream;
+  @override
+  Stream<bool> get probeAttached => Stream<bool>.value(false);
+  @override
+  Stream<double> get probeTemperature => const Stream<double>.empty();
+
+  // --- De1Interface: delegate the rest to the composed synthetic device -----
+  @override
+  Stream<bool> get ready => _synthetic.ready;
+  @override
+  Stream<De1RawMessage> get rawOutStream => _synthetic.rawOutStream;
+  @override
+  void sendRawMessage(De1RawMessage message) =>
+      _synthetic.sendRawMessage(message);
+  @override
+  Stream<De1ShotSettings> get shotSettings => _synthetic.shotSettings;
+  @override
+  Future<void> updateShotSettings(De1ShotSettings s) =>
+      _synthetic.updateShotSettings(s);
+  @override
+  Stream<De1WaterLevels> get waterLevels => _synthetic.waterLevels;
+  @override
+  Future<void> setRefillLevel(int level) => _synthetic.setRefillLevel(level);
+  @override
+  Future<De1RefillKitSettings> getRefillKitSettings() =>
+      _synthetic.getRefillKitSettings();
+  @override
+  Future<void> setRefillKitSettings(De1RefillKitSettings s) =>
+      _synthetic.setRefillKitSettings(s);
+  @override
+  Future<void> setFanThreshhold(int temp) => _synthetic.setFanThreshhold(temp);
+  @override
+  Future<int> getFanThreshhold() => _synthetic.getFanThreshhold();
+  @override
+  Future<int> getTankTempThreshold() => _synthetic.getTankTempThreshold();
+  @override
+  Future<void> setTankTempThreshold(int temp) =>
+      _synthetic.setTankTempThreshold(temp);
+  @override
+  Future<void> setSteamFlow(double f) => _synthetic.setSteamFlow(f);
+  @override
+  Future<double> getSteamFlow() => _synthetic.getSteamFlow();
+  @override
+  Future<void> setHotWaterFlow(double f) => _synthetic.setHotWaterFlow(f);
+  @override
+  Future<double> getHotWaterFlow() => _synthetic.getHotWaterFlow();
+  @override
+  Future<void> setFlushFlow(double f) => _synthetic.setFlushFlow(f);
+  @override
+  Future<double> getFlushFlow() => _synthetic.getFlushFlow();
+  @override
+  Future<void> setFlushTimeout(double t) => _synthetic.setFlushTimeout(t);
+  @override
+  Future<double> getFlushTimeout() => _synthetic.getFlushTimeout();
+  @override
+  Future<double> getFlushTemperature() => _synthetic.getFlushTemperature();
+  @override
+  Future<void> setFlushTemperature(double t) =>
+      _synthetic.setFlushTemperature(t);
+  @override
+  Future<double> getFlowEstimation() => _synthetic.getFlowEstimation();
+  @override
+  Future<void> setFlowEstimation(double m) => _synthetic.setFlowEstimation(m);
+  @override
+  double? get cachedFlowEstimation => _synthetic.cachedFlowEstimation;
+  @override
+  Future<De1HeaterVoltage> getHeaterVoltage() => _synthetic.getHeaterVoltage();
+  @override
+  Future<void> setHeaterVoltage(De1HeaterVoltage v) =>
+      _synthetic.setHeaterVoltage(v);
+  @override
+  Future<bool> getUsbChargerMode() => _synthetic.getUsbChargerMode();
+  @override
+  Future<void> setUsbChargerMode(bool t) => _synthetic.setUsbChargerMode(t);
+  @override
+  Future<void> setSteamPurgeMode(int mode) =>
+      _synthetic.setSteamPurgeMode(mode);
+  @override
+  Future<int> getSteamPurgeMode() => _synthetic.getSteamPurgeMode();
+  @override
+  Future<void> enableUserPresenceFeature() =>
+      _synthetic.enableUserPresenceFeature();
+  @override
+  Future<void> sendUserPresent() => _synthetic.sendUserPresent();
+  @override
+  Future<double> getHeaterPhase1Flow() => _synthetic.getHeaterPhase1Flow();
+  @override
+  Future<void> setHeaterPhase1Flow(double v) =>
+      _synthetic.setHeaterPhase1Flow(v);
+  @override
+  Future<double> getHeaterPhase2Flow() => _synthetic.getHeaterPhase2Flow();
+  @override
+  Future<void> setHeaterPhase2Flow(double v) =>
+      _synthetic.setHeaterPhase2Flow(v);
+  @override
+  Future<double> getHeaterPhase2Timeout() =>
+      _synthetic.getHeaterPhase2Timeout();
+  @override
+  Future<void> setHeaterPhase2Timeout(double v) =>
+      _synthetic.setHeaterPhase2Timeout(v);
+  @override
+  Future<double> getHeaterIdleTemp() => _synthetic.getHeaterIdleTemp();
+  @override
+  Future<void> setHeaterIdleTemp(double v) => _synthetic.setHeaterIdleTemp(v);
+  @override
+  Future<void> updateFirmware(
+    Uint8List fwImage, {
+    required void Function(double progress) onProgress,
+  }) => _synthetic.updateFirmware(fwImage, onProgress: onProgress);
+  @override
+  FirmwareUpdateState get firmwareUpdateState => _synthetic.firmwareUpdateState;
+  @override
+  Future<void> cancelFirmwareUpload() => _synthetic.cancelFirmwareUpload();
 }

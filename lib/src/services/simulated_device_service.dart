@@ -7,7 +7,6 @@ import 'package:reaprime/src/models/device/impl/bengle/mock_bengle.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/models/device/impl/mock_scale/mock_scale.dart';
 import 'package:reaprime/src/models/device/impl/replay/mock_replay_de1.dart';
-import 'package:reaprime/src/models/device/impl/replay/mock_replay_scale.dart';
 import 'package:reaprime/src/models/device/impl/sensor/mock/mock_debug_port.dart';
 import 'package:reaprime/src/models/device/impl/sensor/mock/mock_sensor_basket.dart';
 import 'package:reaprime/src/models/device/remembered_device.dart';
@@ -70,16 +69,17 @@ class SimulatedDeviceService
       _devices.remove("MockSensorBasket");
       _devices.remove("MockDebugPort");
     }
+    // Replay: a single device that is both machine and integrated scale (its
+    // integrated scale is auto-wrapped by the connection manager), so no
+    // separate scale is created.
     if (enabledDevices.contains(SimulatedDevicesTypes.replay)) {
       await _replayLibrary.ensureLoaded();
       _devices.putIfAbsent(
         "MockReplayDe1",
         () => MockReplayDe1(library: _replayLibrary),
       );
-      _devices.putIfAbsent("MockReplayScale", () => MockReplayScale());
     } else {
       _devices.remove("MockReplayDe1");
-      _devices.remove("MockReplayScale");
     }
     final scale = _devices["MockScale"];
     if (scale is MockScale) {
@@ -88,15 +88,6 @@ class SimulatedDeviceService
         scale.attachMachine(machine);
       } else {
         scale.detachMachine();
-      }
-    }
-    final replayScale = _devices["MockReplayScale"];
-    final replayMachine = _devices["MockReplayDe1"];
-    if (replayScale is MockReplayScale) {
-      if (replayMachine is MockReplayDe1) {
-        replayScale.attachMachine(replayMachine);
-      } else {
-        replayScale.detachMachine();
       }
     }
     _deviceStreamController.add(_devices.values.toList());
