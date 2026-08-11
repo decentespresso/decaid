@@ -15,6 +15,7 @@ import 'package:reaprime/src/models/device/firmware_update_state.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.utils.dart';
 import 'package:reaprime/src/models/device/impl/de1/mmr_address.dart';
+import 'package:reaprime/src/models/device/impl/de1/unified_de1/bengle_shot_sample.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1_transport.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/led_strip.dart';
@@ -66,26 +67,47 @@ class UnifiedDe1 implements De1Interface {
   @override
   Stream<ConnectionState> get connectionState => _transport.connectionState;
 
-  late final Stream<MachineSnapshot> _currentSnapshot = _transport.shotSample
-      .map((d) {
-        notifyFrom(Endpoint.shotSample, d.buffer.asUint8List());
-        return d;
+  late final Stream<MachineSnapshot> _de1Snapshot = _buildSnapshotStream(
+    _transport.shotSample,
+    Endpoint.shotSample,
+    _parseStateAndShotSample,
+  );
+
+  late final Stream<MachineSnapshot> _bengleSnapshot = _buildSnapshotStream(
+    _transport.bengleShotSample,
+    Endpoint.bengleShotSample,
+    _parseStateAndBengleShotSample,
+  );
+
+  Stream<MachineSnapshot> _buildSnapshotStream(
+    Stream<ByteData> source,
+    Endpoint endpoint,
+    MachineSnapshot? Function(ByteData, ByteData) parse,
+  ) => source
+      .map((data) {
+        notifyFrom(endpoint, data.buffer.asUint8List());
+        return data;
       })
       .withLatestFrom(
-        _transport.state.map((d) {
-          notifyFrom(Endpoint.stateInfo, d.buffer.asUint8List());
-          return d;
+        _transport.state.map((data) {
+          notifyFrom(Endpoint.stateInfo, data.buffer.asUint8List());
+          return data;
         }),
-        (snp, st) {
-          final snapshot = _parseStateAndShotSample(st, snp);
-          _log.finest("new state: ${snapshot.toJson()}");
+        (shot, state) {
+          final snapshot = parse(state, shot);
+          if (snapshot != null) {
+            _log.finest("new state: ${snapshot.toJson()}");
+          }
           return snapshot;
         },
       )
+      .where((snapshot) => snapshot != null)
+      .map((snapshot) => snapshot!)
       .shareReplay(maxSize: 1);
 
   @override
-  Stream<MachineSnapshot> get currentSnapshot => _currentSnapshot;
+  Stream<MachineSnapshot> get currentSnapshot =>
+      implementation == .bengle ? _bengleSnapshot : _de1Snapshot;
 
   @override
   String get deviceId => _transport.id;
@@ -571,6 +593,10 @@ class UnifiedDe1 implements De1Interface {
   }
 
   @protected
+  Future<void> enableBengleShotSample() =>
+      _transport.subscribeBengleShotSample();
+
+  @protected
   Future<void> writeEndpoint(
     LogicalEndpoint endpoint,
     Uint8List data, {
@@ -611,6 +637,8 @@ class UnifiedDe1 implements De1Interface {
           return _mmr;
         case Endpoint.fwMapRequest:
           return _transport.fwMapRequest;
+        case Endpoint.bengleShotSample:
+          return _transport.bengleShotSample;
         default:
           throw UnimplementedError(
             'UnifiedDe1.notificationsFor: Endpoint.${endpoint.name} is '

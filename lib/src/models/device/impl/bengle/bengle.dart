@@ -102,6 +102,7 @@ class Bengle extends UnifiedDe1
         actualModelValue: connectedModelValue,
       );
     }
+    await enableBengleShotSample();
     await initIntegratedScale();
     await initLedStrip();
   }

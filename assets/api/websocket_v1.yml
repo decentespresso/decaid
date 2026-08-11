@@ -481,9 +481,9 @@ components:
     ScaleSnapshot:
       type: object
       description: >
-        Smoothed weight + flow frame emitted on `ws/v1/scale/snapshot`. Mirrors
-        the controller-level `WeightSnapshot` (raw scale frames are processed
-        through the flow calculator before broadcast).
+        Weight + flow frame emitted on `ws/v1/scale/snapshot`. Mirrors the
+        controller-level `WeightSnapshot`. Device-provided flow is passed
+        through; weight-only scales use Decaid's flow estimator.
       properties:
         timestamp:
           type: string
@@ -493,7 +493,7 @@ components:
           description: Current weight reading in grams.
         weightFlow:
           type: number
-          description: Smoothed weight-derived flow in g/s (moving average over the smoothing window).
+          description: Device-provided gravimetric flow when available; otherwise Decaid's smoothed weight-derived estimate.
         battery:
           type: integer
           nullable: true
@@ -634,6 +634,18 @@ components:
           type: integer
         steamTemperature:
           type: number
+        weight:
+          type: number
+          nullable: true
+          description: Bengle integrated-scale net weight in grams; null when unavailable.
+        weightFlow:
+          type: number
+          nullable: true
+          description: Bengle firmware gravimetric flow in g/s; null when unavailable.
+        milkTemperature:
+          type: number
+          nullable: true
+          description: Bengle milk-probe temperature in degrees Celsius; null when unavailable.
     MachineState:
       type: string
       enum:

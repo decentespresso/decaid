@@ -5,6 +5,7 @@ import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/device/device.dart' as device;
 import 'package:reaprime/src/models/device/ble_service_identifier.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
+import 'package:reaprime/src/models/device/impl/de1/unified_de1/bengle_shot_sample.dart';
 import 'package:reaprime/src/models/device/transport/ble_timeout_exception.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
@@ -38,6 +39,8 @@ class UnifiedDe1Transport {
   BehaviorSubject<ByteData> _waterLevelsSubject = BehaviorSubject();
   final PublishSubject<ByteData> _mmrSubject = PublishSubject();
   BehaviorSubject<ByteData> _fwMapRequestSubject = BehaviorSubject();
+  ReplaySubject<ByteData> _bengleShotSampleSubject = ReplaySubject(maxSize: 1);
+  bool _bengleShotSampleEnabled = false;
 
   Stream<ByteData> get state => _stateSubject.asBroadcastStream();
   Stream<ByteData> get shotSample => _shotSampleSubject.asBroadcastStream();
@@ -45,6 +48,7 @@ class UnifiedDe1Transport {
   Stream<ByteData> get waterLevels => _waterLevelsSubject.asBroadcastStream();
   Stream<ByteData> get mmr => _mmrSubject.asBroadcastStream();
   Stream<ByteData> get fwMapRequest => _fwMapRequestSubject.asBroadcastStream();
+  Stream<ByteData> get bengleShotSample => _bengleShotSampleSubject.stream;
 
   String _currentBuffer = "";
 
@@ -144,6 +148,38 @@ class UnifiedDe1Transport {
     });
   }
 
+  Future<void> subscribeBengleShotSample() async {
+    switch (transportType) {
+      case TransportType.ble:
+        if (_transport is! BLETransport) {
+          throw StateError('Expected BLE transport');
+        }
+        await _transport.subscribe(
+          de1ServiceUUID,
+          Endpoint.bengleShotSample.uuid,
+          (data) => _bengleShotSampleNotification(
+            ByteData.sublistView(Uint8List.fromList(data)),
+          ),
+        );
+      case TransportType.serial:
+        if (_transport is! SerialTransport) {
+          throw StateError('Expected serial transport');
+        }
+        await _transport.writeCommand(
+          '<+${Endpoint.bengleShotSample.representation}>',
+        );
+        _bengleShotSampleEnabled = true;
+        await _transport.writeCommand(
+          '<-${Endpoint.shotSample.representation}>',
+        );
+        return;
+      case TransportType.unknown:
+      case TransportType.wifi:
+        throw StateError('Unsupported transport type: $transportType');
+    }
+    _bengleShotSampleEnabled = true;
+  }
+
   Future<void> _serialConnect() async {
     if (_transport is! SerialTransport) {
       throw "Wrong transport type";
@@ -182,6 +218,9 @@ class UnifiedDe1Transport {
     if (!_waterLevelsSubject.isClosed) _waterLevelsSubject.close();
     if (!_mmrSubject.isClosed) _mmrSubject.close();
     if (!_fwMapRequestSubject.isClosed) _fwMapRequestSubject.close();
+    if (!_bengleShotSampleSubject.isClosed) {
+      _bengleShotSampleSubject.close();
+    }
 
     await _transport.dispose();
   }
@@ -216,6 +255,11 @@ class UnifiedDe1Transport {
         await _transport.writeCommand(
           "<-${Endpoint.fwMapRequest.representation}>",
         );
+        if (_bengleShotSampleEnabled) {
+          await _transport.writeCommand(
+            '<-${Endpoint.bengleShotSample.representation}>',
+          );
+        }
         break;
       case TransportType.ble:
         break;
@@ -239,11 +283,14 @@ class UnifiedDe1Transport {
     _shotSettingsSubject.close();
     _waterLevelsSubject.close();
     _fwMapRequestSubject.close();
+    _bengleShotSampleSubject.close();
     _stateSubject = BehaviorSubject();
     _shotSampleSubject = BehaviorSubject();
     _shotSettingsSubject = BehaviorSubject();
     _waterLevelsSubject = BehaviorSubject();
     _fwMapRequestSubject = BehaviorSubject();
+    _bengleShotSampleSubject = ReplaySubject(maxSize: 1);
+    _bengleShotSampleEnabled = false;
   }
 
   static final _messagePattern = RegExp(r'(\[[A-Z]\][0-9A-Fa-f\s]*?)(?=\[|\n)');
@@ -325,6 +372,8 @@ class UnifiedDe1Transport {
           _mmrNotification(data);
         case "I":
           _fwMapNotification(data);
+        case "S":
+          _bengleShotSampleNotification(data);
         default:
           if (!_serialResponses.complete(representation, data)) {
             _log.warning("unhandled de1 message: $input");
@@ -361,6 +410,17 @@ class UnifiedDe1Transport {
       return;
     }
     _shotSampleSubject.add(d);
+  }
+
+  void _bengleShotSampleNotification(ByteData data) {
+    if (data.lengthInBytes < bengleShotSampleLength) {
+      _log.warning(
+        'Dropping short Bengle shot sample frame '
+        '(${data.lengthInBytes} < $bengleShotSampleLength bytes)',
+      );
+      return;
+    }
+    _bengleShotSampleSubject.add(data);
   }
 
   void _stateNotification(ByteData d) {
@@ -482,6 +542,8 @@ class UnifiedDe1Transport {
         throw UnsupportedError('Endpoint ${e.name} has no serial read path');
       case Endpoint.shotSample:
         return _latestSerialFrame(e, _shotSampleSubject, timeout);
+      case Endpoint.bengleShotSample:
+        return _latestSerialFrame(e, _bengleShotSampleSubject, timeout);
       case Endpoint.stateInfo:
         return _latestSerialFrame(e, _stateSubject, timeout);
       case Endpoint.headerWrite:
@@ -680,10 +742,14 @@ class UnifiedDe1Transport {
   Future<bool> _handleBleTimeout(Object error, StackTrace st) async {
     _log.warning('BLE write timed out, attempting reconnect');
     _recovering = true;
+    final restoreBengleShotSample = _bengleShotSampleEnabled;
     try {
       await _transport.disconnect();
       await _transport.connect();
       await _bleConnect();
+      if (restoreBengleShotSample) {
+        await subscribeBengleShotSample();
+      }
       _log.info('BLE reconnect successful after timeout');
       return true;
     } catch (reconnectError) {

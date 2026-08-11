@@ -10,9 +10,7 @@ enum BengleMmr implements MmrAddress {
     max: 800,
     readScale: 0.1,
     writeScale: 10.0,
-  ),
-
-  scaleTare(0x00000000, 4, MmrValueKind.int32, 'ScaleTare');
+  );
 
   const BengleMmr(
     this.address,

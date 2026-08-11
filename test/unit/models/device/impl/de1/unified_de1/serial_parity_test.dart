@@ -193,6 +193,14 @@ void main() {
       expect(result.buffer.asUint8List(), [1, 2]);
     });
 
+    test('Bengle telemetry enables S before disabling M', () async {
+      await transport.subscribeBengleShotSample();
+
+      expect(serial.writes, ['<+S>', '<-M>']);
+      serial.input.add('[S]${'00' * 28}\n');
+      expect((await transport.bengleShotSample.first).lengthInBytes, 28);
+    });
+
     test(
       'MMR and requested-state reads are not aliases of cached state',
       () async {

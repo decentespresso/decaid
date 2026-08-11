@@ -217,21 +217,30 @@ class ScaleController {
     }
     _lastSnapshotTime = snapshot.timestamp;
 
-    _kalmanEstimator ??= KalmanFlowEstimator(initialWeight: snapshot.weight);
-    final (_, controlFlow) = _kalmanEstimator!.addSample(
-      snapshot.timestamp,
-      snapshot.weight,
-    );
+    late final double controlFlow;
+    late final double displayFlow;
+    final providedFlow = snapshot.flow;
+    if (providedFlow != null) {
+      controlFlow = providedFlow;
+      displayFlow = providedFlow;
+    } else {
+      _kalmanEstimator ??= KalmanFlowEstimator(initialWeight: snapshot.weight);
+      final (_, estimatedControlFlow) = _kalmanEstimator!.addSample(
+        snapshot.timestamp,
+        snapshot.weight,
+      );
+      controlFlow = estimatedControlFlow;
 
-    final rawFlow = _flowCalculator.addSample(
-      snapshot.timestamp,
-      snapshot.weight,
-    );
-    weightFlowAverage.add(rawFlow);
-    final settling =
-        _flowSettleUntil != null &&
-        snapshot.timestamp.isBefore(_flowSettleUntil!);
-    final displayFlow = settling ? 0.0 : weightFlowAverage.average;
+      final rawFlow = _flowCalculator.addSample(
+        snapshot.timestamp,
+        snapshot.weight,
+      );
+      weightFlowAverage.add(rawFlow);
+      final settling =
+          _flowSettleUntil != null &&
+          snapshot.timestamp.isBefore(_flowSettleUntil!);
+      displayFlow = settling ? 0.0 : weightFlowAverage.average;
+    }
 
     final weightSnapshot = WeightSnapshot(
       timestamp: snapshot.timestamp,

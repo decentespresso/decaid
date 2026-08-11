@@ -1,39 +1,25 @@
 part of 'unified_de1.dart';
 
-enum BengleScaleEndpoint implements LogicalEndpoint {
-  weight,
-
-  control;
-
-  @override
-  String? get uuid => null;
-
-  @override
-  String? get representation => null;
-
-  @override
-  String get name => (this as Enum).name;
-}
-
 enum BengleScaleMmr implements MmrAddress {
-  stopAtWeightTarget(
-    0x00000000,
+  endOfShotWeight(
+    0x00803864,
     4,
     MmrValueKind.scaledFloat,
-    'StopAtWeightTarget',
+    'EndOfShotWeight',
     min: 0,
-    max: 5000,
-    readScale: 0.1,
-    writeScale: 10.0,
-  );
+    max: 50000,
+    readScale: 0.01,
+    writeScale: 100,
+  ),
+  scaleTare(0x0080388C, 4, MmrValueKind.int32, 'ScaleTare');
 
   const BengleScaleMmr(
     this.address,
     this.length,
     this.kind,
     this.description, {
-    this.readScale = 1.0,
-    this.writeScale = 1.0,
+    this.readScale = 1,
+    this.writeScale = 1,
     this.min,
     this.max,
   });
@@ -59,13 +45,9 @@ enum BengleScaleMmr implements MmrAddress {
 }
 
 mixin IntegratedScaleCapability on UnifiedDe1 {
-  BehaviorSubject<ScaleSnapshot> _bengleWeight =
-      BehaviorSubject<ScaleSnapshot>();
+  ReplaySubject<ScaleSnapshot> _bengleWeight = ReplaySubject(maxSize: 1);
   StreamSubscription<ByteData>? _bengleWeightSub;
-
-  BehaviorSubject<double> _sawTarget = BehaviorSubject<double>.seeded(0.0);
-
-  int _sawStubWarningsEmitted = 0;
+  BehaviorSubject<double> _sawTarget = BehaviorSubject.seeded(0);
 
   Stream<ScaleSnapshot> get weightSnapshot => _bengleWeight.stream;
 
@@ -73,83 +55,54 @@ mixin IntegratedScaleCapability on UnifiedDe1 {
 
   Future<void> initIntegratedScale() async {
     if (_bengleWeight.isClosed) {
-      _bengleWeight = BehaviorSubject<ScaleSnapshot>();
+      _bengleWeight = ReplaySubject(maxSize: 1);
     }
     if (_sawTarget.isClosed) {
-      _sawTarget = BehaviorSubject<double>.seeded(0.0);
+      _sawTarget = BehaviorSubject.seeded(0);
     }
-    final endpoint = BengleScaleEndpoint.weight;
-    if (endpoint.uuid == null && endpoint.representation == null) {
-      this.log.info(
-        'IntegratedScaleCapability: weight endpoint unwired; '
-        'no notify subscription. Awaiting FW.',
-      );
-      return;
-    }
+    await _bengleWeightSub?.cancel();
+    _bengleWeightSub = notificationsFor(
+      Endpoint.bengleShotSample,
+    ).listen(_handleBengleShotSample);
   }
 
   Future<void> disposeIntegratedScale() async {
     await _bengleWeightSub?.cancel();
     _bengleWeightSub = null;
-    if (!_bengleWeight.isClosed) {
-      await _bengleWeight.close();
-    }
-    if (!_sawTarget.isClosed) {
-      await _sawTarget.close();
-    }
+    if (!_bengleWeight.isClosed) await _bengleWeight.close();
+    if (!_sawTarget.isClosed) await _sawTarget.close();
   }
 
   Future<void> tareIntegratedScale() async {
-    final ctl = BengleScaleEndpoint.control;
-    if (ctl.uuid == null && ctl.representation == null) {
-      this.log.info(
-        'IntegratedScaleCapability: tare ignored — control '
-        'endpoint unwired. Awaiting FW.',
-      );
+    try {
+      await writeMmrInt(BengleScaleMmr.scaleTare, 1);
+    } on DeviceNotConnectedException {
       return;
     }
   }
 
   Future<void> setStopAtWeightTarget(double grams) async {
-    final clamped = grams.clamp(0.0, 500.0).toDouble();
-    if (!_sawTarget.isClosed) {
-      _sawTarget.add(clamped);
-    }
-    final addr = BengleScaleMmr.stopAtWeightTarget;
-    if (addr.address == 0x00000000) {
-      _logSawStubOnce('setStopAtWeightTarget($clamped) ignored. Awaiting FW.');
-      return;
-    }
-    await writeMmrScaled(addr, clamped);
+    final target = grams.clamp(0, 500).toDouble();
+    if (!_sawTarget.isClosed) _sawTarget.add(target);
+    await writeMmrScaled(BengleScaleMmr.endOfShotWeight, target);
   }
 
   Future<double> getStopAtWeightTarget() async {
-    final addr = BengleScaleMmr.stopAtWeightTarget;
-    if (addr.address == 0x00000000) {
-      return _sawTarget.value;
-    }
-    final value = await readMmrScaled(addr);
-    if (!_sawTarget.isClosed) {
-      _sawTarget.add(value);
-    }
-    return value;
+    final target = await readMmrScaled(BengleScaleMmr.endOfShotWeight);
+    if (!_sawTarget.isClosed) _sawTarget.add(target);
+    return target;
   }
 
-  void _logSawStubOnce(String msg) {
-    if (_sawStubWarningsEmitted < 1) {
-      this.log.info('IntegratedScaleCapability: SAW endpoint unwired; $msg');
-      _sawStubWarningsEmitted++;
-    }
-  }
-
-  // ignore: unused_element
-  void _handleWeightFrame(ByteData frame) {
-    this.log.warning(
-      'IntegratedScaleCapability: weight frame received but '
-      'parser not yet implemented (FW spec TBD)',
+  void _handleBengleShotSample(ByteData frame) {
+    final sample = decodeBengleShotSample(frame);
+    if (sample == null || _bengleWeight.isClosed) return;
+    _bengleWeight.add(
+      ScaleSnapshot(
+        timestamp: DateTime.now(),
+        weight: sample.weight,
+        batteryLevel: 100,
+        flow: sample.gFlow,
+      ),
     );
   }
-
-  // ignore: unused_element
-  List<int> _encodeTareCommand() => const [];
 }

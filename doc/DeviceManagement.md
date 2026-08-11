@@ -103,6 +103,9 @@ Discovery services are responsible for scanning and creating device instances. E
     representation and always attempt `<-X>` cleanup.
   - Persistent reads return only observed wire data or explicit local state
     recorded after a successful write. They never return seeded zero buffers.
+  - After Bengle identity is confirmed, serial enables the `S` (`0xA013`)
+    telemetry stream and disables the redundant `M` (`0xA00D`) stream. Plain
+    DE1 machines remain on `M`.
   - Missing observed data is temporarily unavailable; endpoints without a
     serial representation are unsupported. These are distinct errors.
   - Notification liveness uses the existing snapshot watchdog and normal
@@ -699,6 +702,12 @@ to `ScaleController` as a virtual `BengleVirtualScale`. The integrated scale
 always wins on Bengle: external scale scanning is skipped entirely, and
 `preferredScaleId` is ignored while a Bengle is connected. Multi-scale
 support (external scale alongside the integrated scale) is on the roadmap.
+
+The confirmed Bengle application telemetry source is its 28-byte `0xA013`
+packet. Integrated weight arrives net of firmware tare, and firmware `GFlow`
+passes through the normal scale surface without a second app-side estimate.
+The normal scale tare command writes Bengle's `ScaleTare` MMR trigger.
+Autonomous stop-at-weight uses the firmware `EndOfShotWeight` register.
 
 Capability discovery: `GET /api/v1/machine/capabilities` includes
 `"integratedScale"` when a Bengle is connected. Skins should use this flag

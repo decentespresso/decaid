@@ -44,6 +44,41 @@ extension MessageParsing on UnifiedDe1 {
     );
   }
 
+  MachineSnapshot? _parseStateAndBengleShotSample(
+    ByteData stateSample,
+    ByteData shotSample,
+  ) {
+    final sample = decodeBengleShotSample(shotSample);
+    if (sample == null) return null;
+    final state = De1StateEnum.fromHexValue(stateSample.getUint8(0));
+    final subState =
+        De1SubState.fromHexValue(stateSample.getUint8(1)) ??
+        De1SubState.noState;
+
+    return MachineSnapshot(
+      timestamp: DateTime.now(),
+      state: MachineStateSnapshot(
+        state: mapDe1ToMachineState(state),
+        substate: mapDe1SubToMachineSubstate(subState),
+      ),
+      pressure: sample.groupPressure,
+      flow: sample.groupFlow,
+      mixTemperature: sample.mixTemperature,
+      groupTemperature: sample.groupTemperature,
+      targetMixTemperature: sample.setMixTemperature,
+      targetGroupTemperature: sample.setGroupTemperature,
+      targetPressure: sample.setGroupPressure,
+      targetFlow: sample.setGroupFlow,
+      profileFrame: sample.frameNumber,
+      steamTemperature: sample.steamTemperature.round(),
+      weight: sample.weight,
+      weightFlow: sample.gFlow,
+      milkTemperature: sample.milkTemperature == 0
+          ? null
+          : sample.milkTemperature,
+    );
+  }
+
   De1WaterLevels _parseWaterLevels(ByteData data) {
     try {
       var waterlevel = data.getUint16(0, Endian.big);

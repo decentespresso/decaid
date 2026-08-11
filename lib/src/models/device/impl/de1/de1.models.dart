@@ -24,7 +24,8 @@ enum Endpoint implements LogicalEndpoint {
   headerWrite('A00F', 'O'),
   frameWrite('A010', 'P'),
   waterLevels('A011', 'Q'),
-  calibration('A012', 'R');
+  calibration('A012', 'R'),
+  bengleShotSample('A013', 'S');
 
   @override
   final String uuid;

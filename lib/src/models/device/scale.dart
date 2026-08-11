@@ -23,12 +23,14 @@ class ScaleSnapshot {
   final double weight;
   final int batteryLevel;
   final Duration? timerValue;
+  final double? flow;
 
   ScaleSnapshot({
     required this.timestamp,
     required this.weight,
     required this.batteryLevel,
     this.timerValue,
+    this.flow,
   });
 
   Map<String, dynamic> toJson() {
@@ -37,6 +39,7 @@ class ScaleSnapshot {
       'weight': weight,
       'batteryLevel': batteryLevel,
       'timerValue': timerValue?.inMilliseconds,
+      'flow': flow,
     };
   }
 }

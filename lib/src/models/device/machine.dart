@@ -47,6 +47,9 @@ class MachineSnapshot {
   final double targetGroupTemperature;
   final int profileFrame;
   final int steamTemperature;
+  final double? weight;
+  final double? weightFlow;
+  final double? milkTemperature;
 
   MachineSnapshot({
     required this.timestamp,
@@ -61,6 +64,9 @@ class MachineSnapshot {
     required this.targetGroupTemperature,
     required this.profileFrame,
     required this.steamTemperature,
+    this.weight,
+    this.weightFlow,
+    this.milkTemperature,
   });
 
   MachineSnapshot copyWith({
@@ -76,6 +82,9 @@ class MachineSnapshot {
     double? targetGroupTemperature,
     int? profileFrame,
     int? steamTemperature,
+    double? weight,
+    double? weightFlow,
+    double? milkTemperature,
   }) {
     return MachineSnapshot(
       timestamp: timestamp ?? this.timestamp,
@@ -91,6 +100,9 @@ class MachineSnapshot {
           targetGroupTemperature ?? this.targetGroupTemperature,
       profileFrame: profileFrame ?? this.profileFrame,
       steamTemperature: steamTemperature ?? this.steamTemperature,
+      weight: weight ?? this.weight,
+      weightFlow: weightFlow ?? this.weightFlow,
+      milkTemperature: milkTemperature ?? this.milkTemperature,
     );
   }
 
@@ -108,6 +120,9 @@ class MachineSnapshot {
       'targetGroupTemperature': targetGroupTemperature,
       'profileFrame': profileFrame,
       'steamTemperature': steamTemperature,
+      'weight': weight,
+      'weightFlow': weightFlow,
+      'milkTemperature': milkTemperature,
     };
   }
 
@@ -132,6 +147,9 @@ class MachineSnapshot {
       targetGroupTemperature: json["targetGroupTemperature"],
       profileFrame: json["profileFrame"],
       steamTemperature: json["steamTemperature"],
+      weight: (json["weight"] as num?)?.toDouble(),
+      weightFlow: (json["weightFlow"] as num?)?.toDouble(),
+      milkTemperature: (json["milkTemperature"] as num?)?.toDouble(),
     );
   }
 }

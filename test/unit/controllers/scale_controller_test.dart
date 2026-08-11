@@ -58,8 +58,9 @@ class _TrackingScale implements Scale {
   @override
   Future<void> resetTimer() async {}
 
-  void emitAt(DateTime t, double weight) =>
-      _snap.add(ScaleSnapshot(timestamp: t, weight: weight, batteryLevel: 50));
+  void emitAt(DateTime t, double weight, {double? flow}) => _snap.add(
+    ScaleSnapshot(timestamp: t, weight: weight, batteryLevel: 50, flow: flow),
+  );
 }
 
 class _HandoffTrackingScale extends _TrackingScale
@@ -86,6 +87,19 @@ class _FailingScale extends _TrackingScale {
 }
 
 void main() {
+  test('uses device-provided flow unchanged', () async {
+    final controller = ScaleController();
+    final scale = _TrackingScale('A');
+    await controller.connectToScale(scale);
+    final snapshot = controller.weightSnapshot.first;
+
+    scale.emitAt(DateTime.utc(2026, 8, 11), 12.0, flow: 1.75);
+
+    expect((await snapshot).weightFlow, 1.75);
+    expect(controller.currentWeightSnapshot!.controlWeightFlow, 1.75);
+    controller.dispose();
+  });
+
   test('connect forwards connected once', () async {
     final controller = ScaleController();
     final scale = _TrackingScale('A');
