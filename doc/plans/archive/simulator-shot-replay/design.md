@@ -58,3 +58,20 @@ single-responsibility puck simulator (Vid's point):
   placeholder; the real advanced_shot frames are not reconstructed. Fine for a
   simulator — replay drives telemetry from samples, not the profile.
 - Coverage is "whenever possible": unmatched profiles replay a generic fallback.
+
+## Honoring the profile's target weight (from PR #590)
+
+PR #590 (merged) argued replay "discards the selected profile and target-weight
+dynamics." Replay answers both:
+
+- **Selected profile** — it plays a recording made with the current profile.
+- **Target weight** — the recorded weight flows through the normal
+  `ScaleController`/`ShotSequencer`, so a replayed shot stops at the profile's
+  target yield via the exact stop-at-weight path a real shot uses. No
+  replay-specific stop logic (respecting #590's "no duplicate stop-at-weight"
+  boundary). Because recordings begin at the pour, `MockReplayDe1` first emits a
+  brief `preparingForShot` phase so the sequencer starts the shot lifecycle.
+  Covered by `test/integration/replay_target_weight_test.dart`.
+
+Per-shot variation (#590's bounded puck-resistance jitter) is inherently a
+synthetic concern and does not apply to replaying real recordings.

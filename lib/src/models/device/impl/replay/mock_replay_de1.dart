@@ -121,6 +121,12 @@ class MockReplayDe1 extends MockDe1 {
     );
   }
 
+  // Recordings begin at the pour, but the ShotSequencer only starts a shot
+  // when it sees an espresso/preparingForShot frame first. Synthesize that
+  // brief preparing phase so replay drives the normal shot lifecycle (tare,
+  // stop-at-weight, step exits) exactly like a real pull.
+  static const double _prepSeconds = 0.3;
+
   void _tick() {
     final replayer = _replayer;
     if (replayer != null && _state == MachineState.espresso) {
@@ -128,7 +134,16 @@ class MockReplayDe1 extends MockDe1 {
       final elapsed = now.difference(_replayStartedAt).inMilliseconds / 1000.0;
       _replayWeightGrams =
           replayer.scaleAt(elapsed)?.weight ?? _replayWeightGrams;
-      _snapshots.add(replayer.frameAt(elapsed, timestamp: now));
+      var frame = replayer.frameAt(elapsed, timestamp: now);
+      if (elapsed < _prepSeconds) {
+        frame = frame.copyWith(
+          state: const MachineStateSnapshot(
+            state: MachineState.espresso,
+            substate: MachineSubstate.preparingForShot,
+          ),
+        );
+      }
+      _snapshots.add(frame);
       if (replayer.isFinished(elapsed)) {
         _state = MachineState.idle;
         _replayer = null;
