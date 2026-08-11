@@ -6,14 +6,22 @@ import 'package:reaprime/src/models/device/scan_filter.dart';
 import 'package:reaprime/src/models/device/impl/bengle/mock_bengle.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/models/device/impl/mock_scale/mock_scale.dart';
+import 'package:reaprime/src/models/device/impl/replay/mock_replay_de1.dart';
+import 'package:reaprime/src/models/device/impl/replay/mock_replay_scale.dart';
 import 'package:reaprime/src/models/device/impl/sensor/mock/mock_debug_port.dart';
 import 'package:reaprime/src/models/device/impl/sensor/mock/mock_sensor_basket.dart';
 import 'package:reaprime/src/models/device/remembered_device.dart';
+import 'package:reaprime/src/services/simulated_shot_library.dart';
 import 'package:reaprime/src/settings/settings_service.dart';
 
 class SimulatedDeviceService
     with ChangeNotifier
     implements DeviceDiscoveryService {
+  SimulatedDeviceService({SimulatedShotLibrary? replayLibrary})
+    : _replayLibrary = replayLibrary ?? SimulatedShotLibrary();
+
+  final SimulatedShotLibrary _replayLibrary;
+
   final Map<String, Device> _devices = {};
 
   final StreamController<List<Device>> _deviceStreamController =
@@ -62,6 +70,17 @@ class SimulatedDeviceService
       _devices.remove("MockSensorBasket");
       _devices.remove("MockDebugPort");
     }
+    if (enabledDevices.contains(SimulatedDevicesTypes.replay)) {
+      await _replayLibrary.ensureLoaded();
+      _devices.putIfAbsent(
+        "MockReplayDe1",
+        () => MockReplayDe1(library: _replayLibrary),
+      );
+      _devices.putIfAbsent("MockReplayScale", () => MockReplayScale());
+    } else {
+      _devices.remove("MockReplayDe1");
+      _devices.remove("MockReplayScale");
+    }
     final scale = _devices["MockScale"];
     if (scale is MockScale) {
       final machine = _devices["MockDe1"] ?? _devices["MockBengle"];
@@ -69,6 +88,15 @@ class SimulatedDeviceService
         scale.attachMachine(machine);
       } else {
         scale.detachMachine();
+      }
+    }
+    final replayScale = _devices["MockReplayScale"];
+    final replayMachine = _devices["MockReplayDe1"];
+    if (replayScale is MockReplayScale) {
+      if (replayMachine is MockReplayDe1) {
+        replayScale.attachMachine(replayMachine);
+      } else {
+        replayScale.detachMachine();
       }
     }
     _deviceStreamController.add(_devices.values.toList());

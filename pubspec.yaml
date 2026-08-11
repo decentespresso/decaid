@@ -182,6 +182,7 @@ flutter:
     - assets/plugins/decent-profile.reaplugin/
     - assets/plugins/shot-upload.reaplugin/
     - assets/defaultProfiles/
+    - assets/simulations/
     - assets/bundled_skins/
     - assets/firmware/
     - assets/firmware/de1/

@@ -37,9 +37,26 @@ Simulated devices avoid hardware requirements for smoke testing. Available types
 | `bengle` | `MockBengle` only |
 | `machine,scale` | `MockDe1` + `MockScale` |
 | `sensor` | `MockSensor` only |
+| `replay` | `MockReplayDe1` + `MockReplayScale` (replay recorded shots) |
 | `0` | None (debug routes on, real hardware) |
 
 Also toggleable from the settings UI after launch.
+
+### Replay simulator (`simulate=replay`)
+
+`MockReplayDe1` + `MockReplayScale` play back a real recorded shot instead of
+synthesizing telemetry. On shot start `MockReplayDe1` asks
+`SimulatedShotLibrary` for a bundled recording made with the currently selected
+profile (`forProfileTitle`, normalized match); if none exists it falls back to a
+generic shot. It streams the recording's samples at 10 Hz; `MockReplayScale`
+reports the recording's real weight (it does not integrate flow). These are
+separate devices — `MockDe1`/`MockScale` remain the pure puck simulator.
+
+The corpus lives in `assets/simulations/` (`manifest.json` maps profile titles
+to shot files). Profile-matched shots were pulled from visualizer.coffee, one
+per bundled profile where a public shot existed, and converted via the same
+`tool/simulation_sources/**.shot` → `TclShotParser` → 10 Hz pipeline. Rebuild
+with `REGEN_SIM_ASSETS=1 flutter test test/tools/generate_simulation_assets_test.dart`.
 
 ### `simulate=0` mode
 
