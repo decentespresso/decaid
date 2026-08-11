@@ -15,7 +15,53 @@ import 'package:reaprime/src/models/data/shot_snapshot.dart';
 /// before each grid point) so replay draws smoothly.
 const _resampleMs = 100;
 
+/// Each recording is extrapolated to this length so there is always enough
+/// tail for stop-at-weight to reach any realistic target yield, even one past
+/// the recorded shot's final weight.
+const _targetDurationSeconds = 150.0;
+
 double _lerp(double a, double b, double f) => a + (b - a) * f;
+
+/// Continue a recording to [seconds] by holding its end-state pressure/flow/
+/// temperature and keeping weight rising at the final pour rate, so a replayed
+/// shot has data for any target weight. Shots already at least this long
+/// (e.g. long filter pours) are returned unchanged.
+List<ShotSnapshot> _extendTo(List<ShotSnapshot> src, double seconds) {
+  if (src.length < 2) return src;
+  final origin = src.first.machine.timestamp;
+  double elapsedOf(ShotSnapshot s) =>
+      s.machine.timestamp.difference(origin).inMicroseconds / 1e6;
+  final lastElapsed = elapsedOf(src.last);
+  if (lastElapsed >= seconds) return src;
+
+  final tail = src.sublist(src.length >= 20 ? src.length - 20 : 0);
+  double avg(double Function(ShotSnapshot) f) =>
+      tail.map(f).reduce((a, b) => a + b) / tail.length;
+  final heldFlow = avg((s) => s.machine.flow);
+  final heldWeightFlow = avg((s) => s.scale?.weightFlow ?? 0);
+  var rate = heldWeightFlow > 0.3 ? heldWeightFlow : heldFlow;
+  rate = rate.clamp(0.5, 3.0);
+
+  final end = src.last.machine;
+  var weight = src.last.scale?.weight ?? 0.0;
+  final out = <ShotSnapshot>[...src];
+  // The tail is steady-state (constant pressure/flow, linearly rising weight),
+  // so 1 Hz keeps the asset small while giving per-second weight resolution —
+  // ample for stop-at-weight. The recorded head stays 10 Hz for smooth replay.
+  const dt = 1.0;
+  for (var t = lastElapsed + dt; t <= seconds + 1e-9; t += dt) {
+    weight += rate * dt;
+    final ts = origin.add(Duration(microseconds: (t * 1e6).round()));
+    out.add(
+      ShotSnapshot(
+        machine: end.copyWith(timestamp: ts, flow: heldFlow),
+        scale: WeightSnapshot(timestamp: ts, weight: weight, weightFlow: rate),
+        volume: src.last.volume,
+      ),
+    );
+  }
+  return out;
+}
 
 List<ShotSnapshot> _resampleTo10Hz(List<ShotSnapshot> src) {
   if (src.length < 2) return src;
@@ -136,6 +182,22 @@ void main() {
         isNotEmpty,
         reason: '$file has no measurements',
       );
+      // Extended to ~2.5 min with a rising weight tail, so stop-at-weight has
+      // enough data for any realistic target yield.
+      final m = shot.measurements;
+      final duration = m.last.machine.timestamp
+          .difference(m.first.machine.timestamp)
+          .inSeconds;
+      expect(
+        duration,
+        greaterThanOrEqualTo(149),
+        reason: '$file is only ${duration}s long',
+      );
+      expect(
+        m.last.scale?.weight ?? 0,
+        greaterThanOrEqualTo(60),
+        reason: '$file final weight too low for large targets',
+      );
     }
     for (final entry in (manifest['profiles'] as List)) {
       expect((entry['profileTitle'] as String).isNotEmpty, isTrue);
@@ -151,7 +213,10 @@ void main() {
         final stem = source.uri.pathSegments.last.replaceAll('.shot', '');
         final parsed = TclShotParser.parse(source.readAsStringSync());
         final shot = parsed.shot.copyWith(
-          measurements: _resampleTo10Hz(parsed.shot.measurements),
+          measurements: _extendTo(
+            _resampleTo10Hz(parsed.shot.measurements),
+            _targetDurationSeconds,
+          ),
         );
 
         final json = shot.toJson();
@@ -192,9 +257,9 @@ void main() {
         );
         expect(roundTripped.measurements, isNotEmpty);
 
-        File(
-          '$outputDir/$stem.json',
-        ).writeAsStringSync(const JsonEncoder.withIndent('  ').convert(json));
+        // Compact (unindented) — these are generated, machine-read data files;
+        // indentation would roughly double the bundled size.
+        File('$outputDir/$stem.json').writeAsStringSync(jsonEncode(json));
         return '$stem.json';
       }
 
