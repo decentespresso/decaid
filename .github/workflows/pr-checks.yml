@@ -10,10 +10,129 @@ concurrency:
 
 permissions:
   contents: read
+  issues: read
+  pull-requests: read
 
 jobs:
+  contribution-policy:
+    name: Contribution policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate issue-first policy and responsibility acknowledgement
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const trustedAssociations = new Set([
+              'OWNER',
+              'MEMBER',
+              'COLLABORATOR',
+            ]);
+
+            if (
+              pr.user?.type === 'Bot' ||
+              trustedAssociations.has(pr.author_association)
+            ) {
+              core.notice(
+                `Contribution policy gate skipped for ${
+                  pr.user?.type === 'Bot' ? 'bot' : pr.author_association
+                }.`,
+              );
+              return;
+            }
+
+            const body = pr.body || '';
+
+            const responsibilityPattern =
+              /^-\s*\[[xX]\].*<!--\s*contributor-responsibility\s*-->.*$/mi;
+            if (!responsibilityPattern.test(body)) {
+              core.setFailed(
+                'Check the Contributor Responsibility acknowledgement in the PR template.',
+              );
+              return;
+            }
+
+            const referencePattern =
+              /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|related)\s+(?:#(\d+)|https:\/\/github\.com\/decentespresso\/decaid\/issues\/(\d+))/gi;
+            const issueNumbers = [
+              ...new Set(
+                [...body.matchAll(referencePattern)].map((match) =>
+                  Number(match[1] || match[2]),
+                ),
+              ),
+            ];
+
+            if (issueNumbers.length === 0) {
+              core.setFailed(
+                'External PRs must reference an accepted open issue using Fixes #123, Closes #123, Resolves #123, or Related #123.',
+              );
+              return;
+            }
+
+            const acceptedLabels = new Set([
+              'ready-for-agent',
+              'ready-for-human',
+            ]);
+            const rejected = [];
+
+            for (const issue_number of issueNumbers) {
+              let issue;
+              try {
+                ({ data: issue } = await github.rest.issues.get({
+                  ...context.repo,
+                  issue_number,
+                }));
+              } catch (error) {
+                if (error.status === 404) {
+                  rejected.push(`#${issue_number} does not exist`);
+                  continue;
+                }
+                throw error;
+              }
+
+              if (issue.pull_request) {
+                rejected.push(`#${issue_number} is a pull request, not an issue`);
+                continue;
+              }
+
+              if (issue.state !== 'open') {
+                rejected.push(`#${issue_number} is not open`);
+                continue;
+              }
+
+              const labels = new Set(
+                issue.labels
+                  .map((label) =>
+                    typeof label === 'string' ? label : label.name,
+                  )
+                  .filter(Boolean),
+              );
+              const acceptedLabel = [...acceptedLabels].find((label) =>
+                labels.has(label),
+              );
+
+              if (acceptedLabel) {
+                core.notice(
+                  `Accepted issue #${issue_number} (${acceptedLabel}).`,
+                );
+                return;
+              }
+
+              rejected.push(
+                `#${issue_number} is missing ready-for-agent or ready-for-human`,
+              );
+            }
+
+            core.setFailed(
+              `No referenced issue satisfies the contribution policy: ${rejected.join(
+                '; ',
+              )}`,
+            );
+
   changes:
     name: Detect relevant changes
+    needs: contribution-policy
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -44,9 +163,17 @@ jobs:
 
   flutter:
     name: Analyze / test
+    needs: contribution-policy
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
+      - name: Enforce contribution policy
+        if: needs.contribution-policy.result != 'success'
+        run: |
+          echo "Contribution policy check failed; skipping test work." >&2
+          exit 1
+
       - name: Check out repository
         uses: actions/checkout@v5
         with:
@@ -132,6 +259,7 @@ jobs:
 
   build-smoke:
     name: Linux build smoke
+    needs: contribution-policy
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

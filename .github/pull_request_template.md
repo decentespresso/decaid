@@ -34,10 +34,24 @@ Describe the problem and fix in 2–5 bullets:
 - [ ] CI / build / infra
 - [ ] Docs / specs
 
-## Linked Issues
+## Linked Issue (required for external contributions)
 
+External PRs must reference an **open issue accepted for implementation** with either the `ready-for-agent` or `ready-for-human` label. If a proposal went through a Discussion or Project first, link the concrete accepted implementation issue here.
+
+Use at least one:
+
+- Fixes #
 - Closes #
+- Resolves #
 - Related #
+
+Maintainer and automated repository-maintenance PRs may write `N/A`.
+
+## Contributor Responsibility (required)
+
+AI-assisted development is allowed. The person submitting the PR remains responsible for the submitted work.
+
+- [ ] I have reviewed and understand all changes in this PR and take responsibility for their correctness, security, behavior, licensing, and provenance, including any AI-assisted or AI-generated work. <!-- contributor-responsibility -->
 
 ## Root Cause (if bug fix)
 
