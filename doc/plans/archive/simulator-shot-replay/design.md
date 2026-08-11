@@ -72,6 +72,11 @@ dynamics." Replay answers both:
   boundary). Because recordings begin at the pour, `MockReplayDe1` first emits a
   brief `preparingForShot` phase so the sequencer starts the shot lifecycle.
   Covered by `test/integration/replay_target_weight_test.dart`.
+- **Enough data for any target** — each recording is extrapolated to ~2.5 min in
+  the generator (`_extendTo`): the recorded head stays 10 Hz, then a 1 Hz tail
+  holds the end-state pressure/flow/temperature and keeps weight rising at the
+  final pour rate. So a target yield past the recorded shot's final weight still
+  has data to stop on. Assets are written compact to keep the bundle small.
 
 Per-shot variation (#590's bounded puck-resistance jitter) is inherently a
 synthetic concern and does not apply to replaying real recordings.
