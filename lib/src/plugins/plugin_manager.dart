@@ -706,9 +706,9 @@ class PluginManager {
         }
 
         final operation = _handleMessageSafely(pluginId, msg);
-        final generation = msg['generation'];
-        if (msg['type'] == 'pluginStorage' && generation is num) {
-          _trackPluginStorageOperation(pluginId, generation.toInt(), operation);
+        final generation = _messageGeneration(pluginId, msg);
+        if (msg['type'] == 'pluginStorage' && generation != null) {
+          _trackPluginStorageOperation(pluginId, generation, operation);
         } else {
           unawaited(operation);
         }
@@ -734,27 +734,31 @@ class PluginManager {
     String pluginId,
     Map<String, dynamic> msg,
   ) async {
-    // Yield before processing: channel callbacks run inside the JS evaluate
-    // that sent the message, and a nested evaluate + job drain does not
-    // settle promises on QuickJS (unhandled-rejection hang).
-    await Future<void>.delayed(Duration.zero);
     final retiringStorageWrite = _isRetiringPluginStorageWrite(pluginId, msg);
     if (_lifecycle != PluginManagerLifecycle.active && !retiringStorageWrite) {
       return;
     }
     try {
       final type = msg['type'];
+      if (type == 'log') {
+        if (_messageGeneration(pluginId, msg) != _pluginGenerations[pluginId] ||
+            !_plugins.containsKey(pluginId)) {
+          return;
+        }
+        if (_hasPermission(pluginId, PluginPermissions.log)) {
+          _log.finest("[JS:$pluginId] ${msg['payload']?['message']}");
+        }
+        return;
+      }
+      // Yield before processing: channel callbacks run inside the JS evaluate
+      // that sent the message, and a nested evaluate + job drain does not
+      // settle promises on QuickJS (unhandled-rejection hang).
+      await Future<void>.delayed(Duration.zero);
       if (type == 'decentProxy') {
         await _handleDecentProxyMessage(pluginId, msg);
         return;
       }
       if (!_isCurrentPluginMessage(pluginId, msg) && !retiringStorageWrite) {
-        return;
-      }
-      if (type == 'log') {
-        if (_hasPermission(pluginId, PluginPermissions.log)) {
-          _log.finest("[JS:$pluginId] ${msg['payload']?['message']}");
-        }
         return;
       }
       if (type == 'httpResponse') {
@@ -789,10 +793,19 @@ class PluginManager {
     }
   }
 
-  bool _isCurrentPluginMessage(String pluginId, Map<String, dynamic> msg) {
+  int? _messageGeneration(String pluginId, Map<String, dynamic> msg) {
     final generation = msg['generation'];
-    return generation is num &&
-        generation.toInt() == _pluginGenerations[pluginId] &&
+    if (generation is num) return generation.toInt();
+    final bridgeToken = msg['bridgeToken'];
+    if (bridgeToken is! String ||
+        _pluginIdsByBridgeToken[bridgeToken] != pluginId) {
+      return null;
+    }
+    return _retiringPluginGenerations[pluginId] ?? _pluginGenerations[pluginId];
+  }
+
+  bool _isCurrentPluginMessage(String pluginId, Map<String, dynamic> msg) {
+    return _messageGeneration(pluginId, msg) == _pluginGenerations[pluginId] &&
         _plugins[pluginId]?.isAlive == true;
   }
 
@@ -800,11 +813,10 @@ class PluginManager {
     String pluginId,
     Map<String, dynamic> msg,
   ) {
-    final generation = msg['generation'];
     final payload = msg['payload'];
     return msg['type'] == 'pluginStorage' &&
-        generation is num &&
-        generation.toInt() == _retiringPluginGenerations[pluginId] &&
+        _messageGeneration(pluginId, msg) ==
+            _retiringPluginGenerations[pluginId] &&
         payload is Map &&
         payload['type'] == 'write' &&
         _plugins[pluginId]?.state == PluginRuntimeState.stopping;
@@ -1159,11 +1171,9 @@ class PluginManager {
 
       case 'pluginStorage':
         final cmd = PluginStorageCommand.fromPlugin(payload);
-        await _handlePluginStorage(
-          pluginId,
-          (msg['generation'] as num).toInt(),
-          cmd,
-        );
+        final generation = _messageGeneration(pluginId, msg);
+        if (generation == null) return;
+        await _handlePluginStorage(pluginId, generation, cmd);
         break;
 
       case 'permissionDenied':
@@ -1540,16 +1550,15 @@ class PluginManager {
       );
       return;
     }
-    final generation = msg['generation'];
+    final generation = _messageGeneration(pluginId, msg);
     if (op.pluginId != pluginId) {
       _log.warning(
         'Rejected HTTP response for $requestId from $pluginId; owned by ${op.pluginId}',
       );
       return;
     }
-    if (generation is! num ||
-        generation.toInt() != op.generation ||
-        generation.toInt() != _pluginGenerations[pluginId]) {
+    if (generation != op.generation ||
+        generation != _pluginGenerations[pluginId]) {
       _log.warning(
         'Rejected stale HTTP response for $requestId from $pluginId',
       );

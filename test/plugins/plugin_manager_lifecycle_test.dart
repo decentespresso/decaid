@@ -7,6 +7,7 @@ import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/plugins/plugin_manager.dart';
+import 'package:reaprime/src/plugins/plugin_manifest.dart';
 
 import '../helpers/test_de1.dart';
 import 'plugin_test_helpers.dart';
@@ -104,7 +105,16 @@ Future<void> _loadPlugin(
 }) {
   return manager.loadPlugin(
     id: id,
-    manifest: testManifest(id),
+    manifest: testManifest(
+      id,
+      permissions: const {
+        PluginPermissions.log,
+        PluginPermissions.api,
+        PluginPermissions.emit,
+        PluginPermissions.pluginStorage,
+        PluginPermissions.eventsMachine,
+      },
+    ),
     settings: const {},
     jsCode:
         '''
