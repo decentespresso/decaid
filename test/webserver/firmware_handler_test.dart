@@ -67,7 +67,7 @@ void main() {
     await devices.initialize();
     controller = _FixedController(
       controller: devices,
-      machine: _FirmwareDe1(version: '1352'),
+      machine: _FirmwareDe1(version: '1358'),
     );
     final app = Router().plus;
     FirmwareHandler(
