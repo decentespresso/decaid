@@ -52,10 +52,10 @@ void main() {
       expect(await m.getStopAtWeightTarget(), 30.0);
     });
 
-    test('clamps over-range values to 500.0', () async {
+    test('clamps over-range values to 10000.0', () async {
       final m = MockBengle();
-      await m.setStopAtWeightTarget(1000.0);
-      expect(await m.getStopAtWeightTarget(), 500.0);
+      await m.setStopAtWeightTarget(12000.0);
+      expect(await m.getStopAtWeightTarget(), 10000.0);
     });
 
     test('clamps negative values to 0.0', () async {

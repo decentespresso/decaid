@@ -85,7 +85,7 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
 
   @override
   Future<void> setStopAtWeightTarget(double grams) async {
-    _sawTarget = grams.clamp(0.0, 500.0).toDouble();
+    _sawTarget = grams.clamp(0.0, 10000.0).toDouble();
     if (!_sawTargetSubject.isClosed) {
       _sawTargetSubject.add(_sawTarget);
     }
@@ -105,7 +105,7 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
 
   @override
   Future<void> setStopAtTemperatureTarget(double celsius) async {
-    _stopAtTempTarget = celsius.clamp(0.0, 80.0).toDouble();
+    _stopAtTempTarget = celsius.clamp(0.0, 85.0).toDouble();
     if (!_stopAtTempTargetSubject.isClosed) {
       _stopAtTempTargetSubject.add(_stopAtTempTarget);
     }

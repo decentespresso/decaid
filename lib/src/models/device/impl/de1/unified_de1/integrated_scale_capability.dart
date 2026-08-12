@@ -7,7 +7,7 @@ enum BengleScaleMmr implements MmrAddress {
     MmrValueKind.scaledFloat,
     'EndOfShotWeight',
     min: 0,
-    max: 50000,
+    max: 1000000,
     readScale: 0.01,
     writeScale: 100,
   ),
@@ -82,7 +82,7 @@ mixin IntegratedScaleCapability on UnifiedDe1 {
   }
 
   Future<void> setStopAtWeightTarget(double grams) async {
-    final target = grams.clamp(0, 500).toDouble();
+    final target = grams.clamp(0, 10000).toDouble();
     if (!_sawTarget.isClosed) _sawTarget.add(target);
     await writeMmrScaled(BengleScaleMmr.endOfShotWeight, target);
   }

@@ -704,8 +704,8 @@ always wins on Bengle: external scale scanning is skipped entirely, and
 support (external scale alongside the integrated scale) is on the roadmap.
 
 The confirmed Bengle application telemetry source is its 28-byte `0xA013`
-packet, decoded once as transport telemetry and fanned out into Decaid's
-existing abstractions:
+packet, consumed as the Bengle transport telemetry source and fanned out into
+Decaid's existing abstractions:
 
 - Machine fields (pressure, flow, temperatures, targets, profile frame,
   steam temperature) feed the normal `MachineSnapshot` stream;
