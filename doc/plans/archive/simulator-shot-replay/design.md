@@ -14,8 +14,9 @@ replay a shot actually made with that profile when we have one.
 
 ## Design (as shipped)
 
-Replay is its own pair of simulated devices, so `MockDe1`/`MockScale` stay the
-single-responsibility puck simulator (Vid's point):
+Replay is a single standalone simulated device (a `BengleInterface` machine with
+an integrated scale), so `MockDe1`/`MockScale` stay the single-responsibility
+puck simulator (Vid's point):
 
 - **`ShotReplayer`** (`impl/replay/shot_replayer.dart`) — pure playback engine:
   maps wall-clock elapsed → the recorded `MachineSnapshot`/weight; idle past the

@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
@@ -21,17 +20,13 @@ import 'package:reaprime/src/services/simulated_shot_library.dart';
 import 'package:rxdart/subjects.dart';
 
 /// A single simulated device that replays a real recorded shot, matched to the
-/// currently selected profile when possible (see [SimulatedShotLibrary]).
+/// selected profile when possible (see [SimulatedShotLibrary]).
 ///
-/// It implements [BengleInterface] so it is one device that is both machine and
-/// integrated scale (the connection manager wraps [weightSnapshot] as a
-/// `BengleVirtualScale`), and so target-weight uses the autonomous stop-at-
-/// weight path — the `ShotSequencer` bypasses its own SAW for `BengleInterface`
-/// and this device stops itself, exactly like `MockBengle`.
-///
-/// Per review, it does NOT extend [MockDe1]. It *composes* one and delegates the
-/// De1Interface surface to it, replaying only espresso; steam / hot water /
-/// flush fall back to the synthetic device's behaviour.
+/// It implements [BengleInterface], so it is one device that is both machine
+/// and integrated scale: the connection manager wraps [weightSnapshot] as a
+/// `BengleVirtualScale`, and target weight uses the autonomous stop-at-weight
+/// path. It composes a [MockDe1] for everything other than espresso replay
+/// (steam / hot water / flush and the rest of the De1Interface surface).
 class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   MockReplayDe1({required SimulatedShotLibrary library, Random? random})
     : _library = library,
@@ -39,11 +34,7 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
 
   final SimulatedShotLibrary _library;
   final Random _random;
-  // ignore: unused_field
-  final _log = Logger("MockReplayDe1");
 
-  /// Synthetic fallback: handles steam / hot water / flush / idle telemetry and
-  /// the full De1Interface stub surface, so this device never duplicates it.
   final MockDe1 _synthetic = MockDe1(deviceId: "MockReplayDe1-synthetic");
 
   final StreamController<MachineSnapshot> _snapshots =
@@ -64,7 +55,6 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
 
   static const double _prepSeconds = 0.3;
 
-  // --- identity -------------------------------------------------------------
   @override
   String get deviceId => "MockReplayDe1";
   @override
@@ -80,12 +70,11 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   @override
   Stream<ConnectionState> get connectionState => _synthetic.connectionState;
 
-  // --- lifecycle ------------------------------------------------------------
   @override
   Future<void> onConnect() async {
     await _synthetic.onConnect();
-    // Re-emit the synthetic device's telemetry (idle / steam / hot water /
-    // flush) except while a shot is being replayed.
+    // The synthetic device drives idle / steam / hot water / flush telemetry;
+    // suppress it while a shot is being replayed.
     _syntheticSub = _synthetic.currentSnapshot.listen((s) {
       if (_replayer == null) _snapshots.add(s);
     });
@@ -116,7 +105,6 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
     await _synthetic.dispose();
   }
 
-  // --- machine telemetry ----------------------------------------------------
   @override
   Stream<MachineSnapshot> get currentSnapshot => _snapshots.stream;
 
@@ -127,7 +115,6 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
       _startReplay();
     } else {
       _replayer = null;
-      // Steam / hot water / flush / idle: fall back to the synthetic device.
       await _synthetic.requestState(newState);
     }
   }
@@ -141,7 +128,7 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   void _startReplay() {
     _replayWeightGrams = 0.0;
     // A debug override forces a specific recording; otherwise match the
-    // selected profile, else a random fallback.
+    // profile, else a random fallback.
     final shot =
         (_forcedShotId != null ? _library.byId(_forcedShotId!) : null) ??
         _library.pickForProfile(_profile?.title, _random);
@@ -175,38 +162,38 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
     if (replayer == null || _state != MachineState.espresso) return;
     final now = DateTime.now();
     final elapsed = now.difference(_replayStartedAt).inMilliseconds / 1000.0;
-    final inPrep = elapsed < _prepSeconds;
 
-    // Recordings begin at the pour; emit a brief preparingForShot phase first
-    // so the ShotSequencer starts its lifecycle like a real pull. During that
-    // pre-shot phase the scale reads 0; once the recorded espresso stages
-    // begin, expose the recording's weight samples unchanged.
-    _replayWeightGrams = inPrep
-        ? 0.0
-        : (replayer.scaleAt(elapsed)?.weight ?? _replayWeightGrams);
-
-    var frame = replayer.frameAt(elapsed, timestamp: now);
-    if (inPrep) {
-      frame = frame.copyWith(
-        state: const MachineStateSnapshot(
-          state: MachineState.espresso,
-          substate: MachineSubstate.preparingForShot,
-        ),
+    // A synthetic pre-shot phase runs first with the scale held at 0; the
+    // recording then plays from its own t=0, so the replay clock is offset by
+    // the prep duration.
+    if (elapsed < _prepSeconds) {
+      _replayWeightGrams = 0.0;
+      _snapshots.add(
+        replayer
+            .frameAt(0, timestamp: now)
+            .copyWith(
+              state: const MachineStateSnapshot(
+                state: MachineState.espresso,
+                substate: MachineSubstate.preparingForShot,
+              ),
+            ),
       );
+      _emitWeight(0);
+      return;
     }
-    _snapshots.add(frame);
+
+    final replayElapsed = elapsed - _prepSeconds;
+    _replayWeightGrams =
+        replayer.scaleAt(replayElapsed)?.weight ?? _replayWeightGrams;
+    _snapshots.add(replayer.frameAt(replayElapsed, timestamp: now));
     _emitWeight(_replayWeightGrams);
 
-    // Autonomous stop-at-weight, mirroring MockBengle: stop when the recorded
-    // weight reaches the target the SAW bridge pushed.
-    if (_sawTarget > 0.0 &&
-        frame.state.substate != MachineSubstate.preparingForShot &&
-        _replayWeightGrams >= _sawTarget) {
+    if (_sawTarget > 0.0 && _replayWeightGrams >= _sawTarget) {
       _replayer = null;
       unawaited(requestState(MachineState.idle));
       return;
     }
-    if (replayer.isFinished(elapsed)) {
+    if (replayer.isFinished(replayElapsed)) {
       _replayer = null;
       unawaited(requestState(MachineState.idle));
     }
@@ -223,21 +210,18 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
     );
   }
 
-  // --- BengleInterface: integrated scale ------------------------------------
   @override
   Stream<ScaleSnapshot> get weightSnapshot => _weight.stream;
 
   @override
   Future<void> tareIntegratedScale() async {
-    // Recordings already start from zero at the pour, so a tare would only
-    // corrupt the recorded samples. Swallow it: pre-shot weight is already 0,
-    // and the espresso stages expose the recording's weight unchanged.
+    // Swallowed: the recording already starts from zero, so taring would only
+    // corrupt its samples. Pre-shot weight is already 0.
   }
 
-  // --- BengleInterface: autonomous stop-at-weight ---------------------------
   @override
   Future<void> setStopAtWeightTarget(double grams) async {
-    // Match the current Bengle firmware-backed range (see MockBengle).
+    // Range matches the current Bengle firmware (see MockBengle).
     _sawTarget = grams.clamp(0.0, 10000.0);
     _sawTargetSubject.add(_sawTarget);
   }
@@ -248,7 +232,6 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   @override
   Stream<double> get stopAtWeightTarget => _sawTargetSubject.stream;
 
-  // --- BengleInterface: unused capabilities (minimal stubs) -----------------
   double _cupWarmer = 0.0;
   @override
   Future<void> setCupWarmerTemperature(double celsius) async =>
@@ -289,7 +272,6 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   @override
   Stream<double> get probeTemperature => const Stream<double>.empty();
 
-  // --- De1Interface: delegate the rest to the composed synthetic device -----
   @override
   Stream<bool> get ready => _synthetic.ready;
   @override

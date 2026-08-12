@@ -54,6 +54,34 @@ void main() {
       }
     });
 
+    test(
+      'replay starts from the beginning of the recording after prep',
+      () async {
+        // Guards the replay-clock offset: the synthetic pre-shot phase must not
+        // consume the start of the recording.
+        final m = library.forProfileTitle('Adaptive v2')!.measurements;
+        final recordingStart = {m[0].machine.pressure, m[1].machine.pressure};
+
+        final machine = MockReplayDe1(library: library);
+        await machine.setProfile(_profile('Adaptive v2'));
+        await machine.onConnect();
+        await machine.requestState(MachineState.espresso);
+
+        final firstPour = await machine.currentSnapshot
+            .firstWhere((s) => s.state.substate == MachineSubstate.pouring)
+            .timeout(const Duration(seconds: 3));
+        await machine.disconnect();
+
+        expect(
+          recordingStart.contains(firstPour.pressure),
+          isTrue,
+          reason:
+              'first post-prep sample should be the recording start, '
+              'got ${firstPour.pressure}',
+        );
+      },
+    );
+
     test('falls back to a generic shot for an unmatched profile', () async {
       final machine = MockReplayDe1(library: library);
       await machine.setProfile(_profile('No Such Profile 999'));
