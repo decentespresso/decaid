@@ -9,6 +9,8 @@ import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:rxdart/rxdart.dart';
 
+import '../../helpers/completing_cancel_stream.dart';
+
 class _DisconnectedBleTransport extends BLETransport {
   final _connectionState = BehaviorSubject<ConnectionState>.seeded(
     ConnectionState.disconnected,
@@ -120,7 +122,8 @@ class _RecordingBleTransport extends BLETransport {
   String get name => 'Recording Decent Scale';
 
   @override
-  Stream<ConnectionState> get connectionState => _connectionState.stream;
+  Stream<ConnectionState> get connectionState =>
+      CompletingCancelStream<ConnectionState>(_connectionState);
 
   @override
   Future<ConnectionState> getConnectionState() async => _nativeState;
@@ -301,31 +304,30 @@ void main() {
     });
   });
 
-  test(
-    'silent FFF4 initialization fails without publishing connected',
-    () async {
+  test('silent FFF4 initialization fails without publishing connected', () {
+    fakeAsync((async) {
       final transport = _RecordingBleTransport(responseSubscribeCalls: const [])
         ..diagnosticRead = Uint8List.fromList([0x03, 0x0A, 0, 0, 100, 0, 0]);
       final scale = DecentScale(transport: transport);
       final states = <ConnectionState>[];
       scale.connectionState.listen(states.add);
+      final connectionErrors = <Object>[];
+      scale.onConnect().then((_) {}, onError: connectionErrors.add);
 
-      final connection = scale.onConnect();
-      await Future<void>.delayed(const Duration(milliseconds: 150));
+      _elapse(async, const Duration(milliseconds: 150));
       transport.emitNotification([0x03, 0x0A, 0, 0, 100, 0]);
-      await expectLater(connection, throwsA(isA<TimeoutException>()));
-      await Future<void>.delayed(Duration.zero);
+      _elapse(async, const Duration(seconds: 5));
 
+      expect(connectionErrors.single, isA<TimeoutException>());
       expect(transport.subscribeCalls, 2);
       expect(transport.resetSubscriptionCalls, 1);
       expect(transport.readCalls, 1);
       expect(states, isNot(contains(ConnectionState.connected)));
       expect(states.last, ConnectionState.disconnected);
       expect(_hasCommand(transport, 0x0A, 0x02), isFalse);
-      await transport.dispose();
-    },
-    timeout: const Timeout(Duration(seconds: 10)),
-  );
+      transport.dispose();
+    });
+  });
 
   test('sleeping reconnect stays dark and verifies FFF4 on wake', () {
     fakeAsync((async) {
@@ -413,27 +415,32 @@ void main() {
     });
   });
 
-  test('silent wake disconnects once without powering off', () async {
-    final transport = _RecordingBleTransport(responseSubscribeCalls: const [1]);
-    final scale = DecentScale(transport: transport);
-    await scale.onConnect();
-    await scale.sleepDisplay();
-    await scale.disconnectForHandoff();
-    transport.writes.clear();
-    transport.disconnectCalls = 0;
-    await scale.onConnect();
+  test('silent wake disconnects once without powering off', () {
+    fakeAsync((async) {
+      final (:scale, :transport) = _sleepingReconnect(
+        async,
+        responseSubscribeCalls: const [1],
+      );
 
-    await expectLater(scale.wakeDisplay(), throwsA(isA<TimeoutException>()));
+      final wakeErrors = <Object>[];
+      scale.wakeDisplay().then((_) {}, onError: wakeErrors.add);
+      _elapse(async, const Duration(seconds: 6));
 
-    expect(transport.disconnectCalls, 1);
-    expect(_hasCommand(transport, 0x0A, 0x02), isFalse);
-    final subscriptions = transport.subscribeCalls;
-    final secondWake = scale.wakeDisplay();
-    await Future<void>.delayed(Duration.zero);
-    expect(transport.subscribeCalls, subscriptions + 1);
-    await scale.sleepDisplay();
-    await secondWake;
-    await transport.dispose();
+      expect(wakeErrors, hasLength(1));
+      expect(wakeErrors.single, isA<TimeoutException>());
+      expect(transport.disconnectCalls, 1);
+      expect(_hasCommand(transport, 0x0A, 0x02), isFalse);
+
+      final subscriptions = transport.subscribeCalls;
+      var secondWakeDone = false;
+      scale.wakeDisplay().then((_) => secondWakeDone = true);
+      async.flushMicrotasks();
+      expect(transport.subscribeCalls, subscriptions + 1);
+      scale.sleepDisplay();
+      _elapse(async, const Duration(seconds: 3));
+      expect(secondWakeDone, isTrue);
+      transport.dispose();
+    });
   });
 
   test('disconnected initialization write never publishes connected', () async {

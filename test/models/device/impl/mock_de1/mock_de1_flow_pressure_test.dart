@@ -56,7 +56,9 @@ void main() {
     late MockDe1 machine;
 
     setUp(() async {
-      machine = MockDe1();
+      machine = MockDe1(
+        simulationTickInterval: const Duration(milliseconds: 10),
+      );
       await machine.onConnect();
     });
 
@@ -68,7 +70,7 @@ void main() {
       await machine.setProfile(_flowProfile());
       await machine.requestState(MachineState.espresso);
 
-      await Future.delayed(const Duration(milliseconds: 600));
+      await Future.delayed(const Duration(milliseconds: 60));
       final snapshots = await machine.currentSnapshot
           .take(10)
           .toList()
@@ -93,7 +95,7 @@ void main() {
       await machine.setProfile(_flowProfile());
       await machine.requestState(MachineState.espresso);
 
-      await Future.delayed(const Duration(milliseconds: 600));
+      await Future.delayed(const Duration(milliseconds: 60));
       final snapshots = await machine.currentSnapshot
           .take(20)
           .toList()
@@ -118,7 +120,7 @@ void main() {
       await machine.setProfile(_pressureProfile());
       await machine.requestState(MachineState.espresso);
 
-      await Future.delayed(const Duration(milliseconds: 600));
+      await Future.delayed(const Duration(milliseconds: 60));
       final snapshots = await machine.currentSnapshot
           .take(30)
           .toList()
@@ -137,7 +139,7 @@ void main() {
       await machine.setProfile(_pressureProfile());
       await machine.requestState(MachineState.espresso);
 
-      await Future.delayed(const Duration(milliseconds: 600));
+      await Future.delayed(const Duration(milliseconds: 60));
       final snapshot = await machine.currentSnapshot.first.timeout(
         const Duration(seconds: 2),
       );
@@ -149,7 +151,7 @@ void main() {
       await machine.setProfile(_flowProfile());
       await machine.requestState(MachineState.espresso);
 
-      await Future.delayed(const Duration(milliseconds: 600));
+      await Future.delayed(const Duration(milliseconds: 60));
       final snapshot = await machine.currentSnapshot.first.timeout(
         const Duration(seconds: 2),
       );
@@ -163,7 +165,7 @@ void main() {
       );
       await machine.requestState(MachineState.espresso);
 
-      await Future.delayed(const Duration(milliseconds: 600));
+      await Future.delayed(const Duration(milliseconds: 60));
       final snapshots = await machine.currentSnapshot
           .take(10)
           .toList()
@@ -182,7 +184,7 @@ void main() {
       );
       await machine.requestState(MachineState.espresso);
 
-      await Future.delayed(const Duration(milliseconds: 600));
+      await Future.delayed(const Duration(milliseconds: 60));
       final snapshots = await machine.currentSnapshot
           .take(10)
           .toList()
@@ -197,14 +199,16 @@ void main() {
 
     test('wider limiter range produces a softer response', () async {
       Future<double> lastFlow(double range) async {
-        final rangedMachine = MockDe1();
+        final rangedMachine = MockDe1(
+          simulationTickInterval: const Duration(milliseconds: 10),
+        );
         await rangedMachine.onConnect();
         try {
           await rangedMachine.setProfile(
             _pressureProfile(limiter: StepLimiter(value: 1.5, range: range)),
           );
           await rangedMachine.requestState(MachineState.espresso);
-          await Future.delayed(const Duration(milliseconds: 600));
+          await Future.delayed(const Duration(milliseconds: 60));
           final snapshots = await rangedMachine.currentSnapshot
               .take(10)
               .toList()

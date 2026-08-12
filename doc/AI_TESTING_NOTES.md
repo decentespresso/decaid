@@ -33,7 +33,7 @@ All Dart tests (unit + integration) live in `test/` and run via `flutter test`. 
 ### fake_async
 `fakeAsync` does not cooperate with rxdart `BehaviorSubject` seed delivery (the `StartWithStreamTransformer` seed event never reaches the fake zone's microtask queue). Prefer a plain `Stream.multi` replay (e.g. `Stream.multi((c) { c.add(value); c.close(); })`) for test doubles whose connection state must be visible under `fakeAsync`.
 
-rxdart subscription `cancel()` futures also never complete under `fakeAsync` (same family of issue). Do not `await` a stream-subscription `cancel()` on the watchdog/disconnect path — the listener must already be inert (generation/epoch guard bumped first), so `unawaited(sub?.cancel())` is correct. Awaiting it hangs the zone.
+Standard stream subscription `cancel()` futures also never complete under `fakeAsync` (plain `StreamController`, broadcast, single-sub, and rxdart alike). If a test double's `cancel()` hangs, fix the test double or its stream implementation — do not weaken production to accommodate it. `test/helpers/completing_cancel_stream.dart` exposes any controller-backed stream through a subscription whose `cancel()` completes immediately while delegating event delivery; Acaia and DecentScale tests use it for their connection-state streams. Production code should keep `await subscription.cancel()` unless the lifecycle semantics explicitly do not require cancellation completion (then `unawaited` is fine, but that is a production decision, not a fake-time workaround).
 
 ### fakeAsync + wall clock
 `fakeAsync` virtualizes timers but code that reads `DateTime.now()` still sees real time. When watchdog/throttle logic combines timers and wall-clock comparisons, make both controllable: inject `DateTime Function() now` at the device boundary, defaulting to `clock.now` (`package:clock` is fake_async-aware, and identical to `DateTime.now` outside a fake zone). Then `fakeAsync` tests get deterministic liveness/watchdog coverage with production durations, no manual clock bookkeeping.
@@ -49,6 +49,12 @@ A loop that re-constructs and fully initializes a simulated hardware device per 
 
 ### UnifiedDe1 connect fixtures
 A silent DE1 transport that intentionally causes the MMR timeout is appropriate only when timeout/retry behavior is the subject. Unrelated parser, state, notification, or error-surfacing tests should provide complete connect responses — normally `FakeBleTransport.queueOnConnectResponses()` — then emit input through `emitNotification()`/`queueRead()`.
+
+### Suite wall span vs active test time
+Under concurrent `flutter test` runs, a suite's wall span (first test start to last test end) is not equivalent to its CPU/active cost — an isolate can sit idle waiting on the scheduler while another suite runs. When identifying optimization candidates use the cumulative sum of individual test durations (the `duration_ms` field in `--machine` events), not the suite wall span. Inspect the individual tests in a file before assuming a long suite span means expensive tests.
+
+### Mock simulator tick cadence
+Mock device simulators (`MockDe1` et al.) drive their state machine with a periodic tick whose model time-step is fixed (100ms of simulated time per tick). The wall-clock tick cadence is injectable (`MockDe1(simulationTickInterval: ...)`): shortening it makes simulated time run faster than wall time without changing generated values, because trajectories are per-tick-count functions. When a simulation test asserts on curve shape or trajectory, shorten the tick and scale wall delays accordingly (e.g. 9000ms wait at 100ms ticks becomes 900ms at 10ms ticks — same 90 ticks, same simulated 9s). Do not scale wall delays alone (that changes the simulated trajectory) or change the model time-step (that changes the calibration). Tests that validate realistic elapsed-time behavior (e.g. a power-off timeout window measured with a Stopwatch) should keep real durations.
 
 ### Stream Propagation
 Add devices to mock service *before* building widgets, then `await tester.pump()` to flush microtasks before `pumpWidget()`.

@@ -367,7 +367,7 @@ class AcaiaScale implements Scale {
   @override
   Future<void> disconnect() async {
     _invalidateConnection();
-    unawaited(_disconnectSubscription?.cancel());
+    await _disconnectSubscription?.cancel();
     _disconnectSubscription = null;
     _connectionStateController.add(ConnectionState.disconnected);
     await _transport.disconnect();

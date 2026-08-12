@@ -117,12 +117,30 @@ def parse_events(lines):
                     {"duration_ms": duration_ms, "name": name, "path": path}
                 )
 
-    file_durations = {}
+    file_span_ms = {}
     for suite_id, bounds in suite_bounds.items():
         duration_ms = _duration(*bounds)
         if duration_ms is not None and suite_id in suites:
             path = suites[suite_id]
-            file_durations[path] = file_durations.get(path, 0) + duration_ms
+            file_span_ms[path] = file_span_ms.get(path, 0) + duration_ms
+
+    # Active test time: the sum of individual non-skipped test durations for
+    # a path. Unlike the suite wall span this is not inflated by concurrent
+    # suite scheduling, so it is the metric to use for optimization targets.
+    file_active_ms = {}
+    for test in tests:
+        path = test["path"]
+        file_active_ms[path] = file_active_ms.get(path, 0) + test["duration_ms"]
+
+    files = [
+        {
+            "path": path,
+            "active_ms": file_active_ms.get(path),
+            "span_ms": file_span_ms.get(path),
+        }
+        for path in set(file_span_ms) | set(file_active_ms)
+    ]
+    files.sort(key=lambda item: item["active_ms"] or 0, reverse=True)
 
     return {
         "duration_ms": _duration(start_time, done_time),
@@ -132,10 +150,7 @@ def parse_events(lines):
         "run_success": run_success,
         "malformed_lines": malformed_lines,
         "failures": failures,
-        "files": sorted(
-            ((duration, path) for path, duration in file_durations.items()),
-            reverse=True,
-        ),
+        "files": files,
         "tests": sorted(tests, key=lambda test: test["duration_ms"], reverse=True),
     }
 
@@ -197,12 +212,22 @@ def render_summary(report):
         if len(report["failures"]) > 20:
             lines.append(f"\n{len(report['failures']) - 20} additional failures omitted.")
 
-    lines.extend(["", "### Slowest test files", ""])
+    lines.extend(["", "### Slowest test files by active test time", ""])
     if report["files"]:
-        lines.extend(["| Duration | File |", "| ---: | --- |"])
+        lines.extend(["| Active time | Suite span | File |", "| ---: | ---: | --- |"])
         lines.extend(
-            f"| {_format_duration(duration)} | {_escape(path)} |"
-            for duration, path in report["files"][:20]
+            "| {} | {} | {} |".format(
+                _format_duration(item["active_ms"]),
+                _format_duration(item["span_ms"]),
+                _escape(item["path"]),
+            )
+            for item in report["files"][:20]
+        )
+        lines.append(
+            "\n"
+            "Active time is the sum of individual non-skipped test "
+            "durations; suite span is first-start to last-test-completion "
+            "and can be inflated by concurrent suite scheduling."
         )
     else:
         lines.append("Timing unavailable from the captured events.")

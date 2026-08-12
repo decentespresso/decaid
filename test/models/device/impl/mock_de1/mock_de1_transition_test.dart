@@ -8,7 +8,9 @@ void main() {
     late MockDe1 machine;
 
     setUp(() async {
-      machine = MockDe1();
+      machine = MockDe1(
+        simulationTickInterval: const Duration(milliseconds: 10),
+      );
       await machine.onConnect();
     });
 
@@ -50,7 +52,7 @@ void main() {
       await machine.setProfile(profile);
       await machine.requestState(MachineState.espresso);
 
-      await Future.delayed(const Duration(milliseconds: 1800));
+      await Future.delayed(const Duration(milliseconds: 180));
 
       final snapshots = await machine.currentSnapshot
           .take(3)
@@ -105,7 +107,7 @@ void main() {
       await machine.setProfile(profile);
       await machine.requestState(MachineState.espresso);
 
-      await Future.delayed(const Duration(milliseconds: 3700));
+      await Future.delayed(const Duration(milliseconds: 370));
 
       final snapshots = await machine.currentSnapshot
           .take(20)

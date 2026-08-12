@@ -19,7 +19,16 @@ import 'package:rxdart/subjects.dart';
 enum _SimulationType { espresso, steam, hotWater, idle }
 
 class MockDe1 implements De1Interface, SimulatedDevice {
-  MockDe1({String deviceId = "MockDe1"}) : _deviceId = deviceId;
+  MockDe1({
+    String deviceId = "MockDe1",
+    Duration simulationTickInterval = const Duration(milliseconds: 100),
+  }) : _deviceId = deviceId,
+       _simulationTickInterval = simulationTickInterval;
+
+  /// Wall-clock cadence of the simulation tick. The simulation model still
+  /// advances 100ms per tick, so shortening this makes simulated time run
+  /// faster than wall time (used by unit tests; production keeps 100ms).
+  final Duration _simulationTickInterval;
 
   static double _applyLimiter(double measurement, StepLimiter? limiter) {
     if (limiter == null || limiter.value <= 0 || measurement <= limiter.value) {
@@ -158,7 +167,7 @@ class MockDe1 implements De1Interface, SimulatedDevice {
   void _simulateState() {
     _snapshotStream.add(_lastSnapshot);
 
-    _stateTimer = Timer.periodic(Duration(milliseconds: 100), (t) {
+    _stateTimer = Timer.periodic(_simulationTickInterval, (t) {
       MachineSnapshot newSnapshot;
       switch (_simulationType) {
         case _SimulationType.espresso:

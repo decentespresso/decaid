@@ -69,7 +69,9 @@ Profile _gentleAndSweet() => Profile(
 
 void main() {
   test('simulated shot curves resemble a real pull', () async {
-    final machine = MockDe1();
+    final machine = MockDe1(
+      simulationTickInterval: const Duration(milliseconds: 10),
+    );
     await machine.onConnect();
     await machine.setProfile(_gentleAndSweet());
 
@@ -77,7 +79,7 @@ void main() {
     final sub = machine.currentSnapshot.listen(samples.add);
 
     await machine.requestState(MachineState.espresso);
-    await Future.delayed(const Duration(milliseconds: 9000));
+    await Future.delayed(const Duration(milliseconds: 900));
     await sub.cancel();
     await machine.onDisconnect();
 
@@ -130,7 +132,9 @@ void main() {
   });
 
   test('successive shots have different puck responses', () async {
-    final machine = MockDe1();
+    final machine = MockDe1(
+      simulationTickInterval: const Duration(milliseconds: 10),
+    );
     await machine.onConnect();
     await machine.setProfile(_gentleAndSweet());
 

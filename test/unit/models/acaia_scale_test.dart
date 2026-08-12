@@ -8,7 +8,8 @@ import 'package:reaprime/src/models/device/impl/acaia/acaia_scale.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:reaprime/src/models/errors.dart';
-import 'package:rxdart/rxdart.dart';
+
+import '../../helpers/completing_cancel_stream.dart';
 
 const _weightBody = <int>[0xDF, 0x06, 0x00, 0x00, 0x01, 0x00];
 const _realWeightFrame = <int>[
@@ -86,9 +87,9 @@ class _AcaiaTransport extends BLETransport {
   final List<String> services;
   final bool emitWeightDuringInit;
   final List<int> initializationFrame;
-  final BehaviorSubject<ConnectionState> states = BehaviorSubject.seeded(
-    ConnectionState.discovered,
-  );
+  ConnectionState _state = ConnectionState.discovered;
+  final StreamController<ConnectionState> _stateController =
+      StreamController<ConnectionState>.broadcast();
   final List<List<int>> writes = [];
   void Function(Uint8List)? notification;
   Future<void> Function(Uint8List)? writeBehavior;
@@ -103,20 +104,26 @@ class _AcaiaTransport extends BLETransport {
   String get name => 'LUNAR-TEST';
 
   @override
-  Stream<ConnectionState> get connectionState => states.stream;
+  Stream<ConnectionState> get connectionState =>
+      CompletingCancelStream<ConnectionState>(_stateController);
 
   @override
-  Future<ConnectionState> getConnectionState() async => states.value;
+  Future<ConnectionState> getConnectionState() async => _state;
 
   @override
-  Future<void> connect() async => states.add(ConnectionState.connected);
+  Future<void> connect() async => emitState(ConnectionState.connected);
 
   @override
   Future<void> disconnect() async {
     disconnectCalls++;
     final error = disconnectError;
     if (error != null) throw error;
-    states.add(ConnectionState.disconnected);
+    emitState(ConnectionState.disconnected);
+  }
+
+  void emitState(ConnectionState state) {
+    _state = state;
+    _stateController.add(state);
   }
 
   @override
@@ -160,7 +167,7 @@ class _AcaiaTransport extends BLETransport {
   Future<void> setTransportPriority(bool prioritized) async {}
 
   @override
-  Future<void> dispose() async => states.close();
+  Future<void> dispose() async => _stateController.close();
 }
 
 _AcaiaTransport _ips({
@@ -665,7 +672,7 @@ void main() {
         scheduleMicrotask(() => transport.emit(_minimalWeightFrame()));
         Timer(
           const Duration(milliseconds: 100),
-          () => transport.states.add(ConnectionState.disconnected),
+          () => transport.emitState(ConnectionState.disconnected),
         );
       };
       final scale = AcaiaScale(transport: transport);
