@@ -172,9 +172,18 @@ _AcaiaTransport _ips({
   initializationFrame: initializationFrame,
 );
 
-Future<(AcaiaScale, _AcaiaTransport)> _connected() async {
+const _zeroTimings = AcaiaTimings(
+  initialIpsSettle: Duration.zero,
+  initialPyxisSettle: Duration.zero,
+  identSettle: Duration.zero,
+  configSettle: Duration.zero,
+);
+
+Future<(AcaiaScale, _AcaiaTransport)> _connected({
+  AcaiaTimings timings = _zeroTimings,
+}) async {
   final transport = _ips();
-  final scale = AcaiaScale(transport: transport);
+  final scale = AcaiaScale(transport: transport, timings: timings);
   await scale.onConnect();
   return (scale, transport);
 }
@@ -186,7 +195,7 @@ void main() {
       ['49535343-fe7d-4ae5-8fa9-9fafd205e455'],
     ]) {
       final transport = _AcaiaTransport(services: services);
-      final scale = AcaiaScale(transport: transport);
+      final scale = AcaiaScale(transport: transport, timings: _zeroTimings);
       await scale.onConnect();
       expect(await scale.connectionState.first, ConnectionState.connected);
       await scale.disconnect();
@@ -198,7 +207,7 @@ void main() {
     final transport = _AcaiaTransport(
       services: const ['0000fff0-0000-1000-8000-00805f9b34fb'],
     );
-    final scale = AcaiaScale(transport: transport);
+    final scale = AcaiaScale(transport: transport, timings: _zeroTimings);
     await scale.onConnect();
     expect(await scale.connectionState.first, ConnectionState.disconnected);
     await transport.dispose();
@@ -226,7 +235,7 @@ void main() {
     'real multi-record direct frame completes initialization once',
     () async {
       final transport = _ips(initializationFrame: _realWeightFrame);
-      final scale = AcaiaScale(transport: transport);
+      final scale = AcaiaScale(transport: transport, timings: _zeroTimings);
       final snapshots = <ScaleSnapshot>[];
       final subscription = scale.currentSnapshot.listen(snapshots.add);
 
@@ -258,7 +267,7 @@ void main() {
   test('minimal direct weight uses the declared protocol length', () async {
     final frame = _minimalWeightFrame();
     final transport = _ips(initializationFrame: frame);
-    final scale = AcaiaScale(transport: transport);
+    final scale = AcaiaScale(transport: transport, timings: _zeroTimings);
     final snapshots = <ScaleSnapshot>[];
     final subscription = scale.currentSnapshot.listen(snapshots.add);
 
@@ -276,7 +285,7 @@ void main() {
   test('heartbeat-wrapped weight completes initialization', () async {
     final frame = _heartbeatWeightFrame();
     final transport = _ips(initializationFrame: frame);
-    final scale = AcaiaScale(transport: transport);
+    final scale = AcaiaScale(transport: transport, timings: _zeroTimings);
     final snapshots = <ScaleSnapshot>[];
     final subscription = scale.currentSnapshot.listen(snapshots.add);
 
@@ -703,59 +712,77 @@ void main() {
     });
   });
 
-  test('known malformed frames do not refresh Pyxis liveness', () async {
-    final transport = _AcaiaTransport(
-      services: const ['49535343-fe7d-4ae5-8fa9-9fafd205e455'],
-    );
-    final scale = AcaiaScale(transport: transport);
-    await scale.onConnect();
-
-    for (var i = 0; i < 13; i++) {
-      transport.emit(const [0xEF, 0xDD, 0x0C, 0x0C, 0x05, 0xAA, 0xBB]);
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-    }
-
-    expect(transport.disconnectCalls, 1);
-    await transport.dispose();
-  });
-
-  test('Pyxis watchdog is independent of a blocked heartbeat', () async {
-    final transport = _AcaiaTransport(
-      services: const ['49535343-fe7d-4ae5-8fa9-9fafd205e455'],
-    );
-    final scale = AcaiaScale(transport: transport);
-    await scale.onConnect();
-    final blocked = Completer<void>();
-    transport.writeBehavior = (data) => blocked.future;
-
-    await Future<void>.delayed(const Duration(milliseconds: 5500));
-
-    expect(transport.disconnectCalls, 1);
-    blocked.complete();
-    await Future<void>.delayed(Duration.zero);
-    await transport.dispose();
-  });
-
-  test('watchdog disconnect failures stay contained', () async {
-    final uncaught = <Object>[];
-    final done = Completer<void>();
-    runZonedGuarded(() async {
+  test('known malformed frames do not refresh Pyxis liveness', () {
+    fakeAsync((async) {
       final transport = _AcaiaTransport(
         services: const ['49535343-fe7d-4ae5-8fa9-9fafd205e455'],
       );
       final scale = AcaiaScale(transport: transport);
-      await scale.onConnect();
-      transport.disconnectError = StateError('disconnect failed');
+      scale.onConnect();
+      async.elapse(const Duration(milliseconds: 1200));
+      async.flushMicrotasks();
+      expect(transport.disconnectCalls, 0);
 
-      await Future<void>.delayed(const Duration(milliseconds: 5500));
+      for (var i = 0; i < 13; i++) {
+        transport.emit(const [0xEF, 0xDD, 0x0C, 0x0C, 0x05, 0xAA, 0xBB]);
+        async.elapse(const Duration(milliseconds: 500));
+        async.flushMicrotasks();
+      }
 
-      expect(await scale.connectionState.first, ConnectionState.disconnected);
-      await transport.dispose();
-      done.complete();
-    }, (error, stackTrace) => uncaught.add(error));
+      expect(transport.disconnectCalls, 1);
+      scale.disconnect();
+      async.flushMicrotasks();
+      transport.dispose();
+    });
+  });
 
-    await done.future.timeout(const Duration(seconds: 8));
-    expect(uncaught, isEmpty);
+  test('Pyxis watchdog is independent of a blocked heartbeat', () {
+    fakeAsync((async) {
+      final transport = _AcaiaTransport(
+        services: const ['49535343-fe7d-4ae5-8fa9-9fafd205e455'],
+      );
+      final scale = AcaiaScale(transport: transport);
+      scale.onConnect();
+      async.elapse(const Duration(milliseconds: 1200));
+      async.flushMicrotasks();
+      final blocked = Completer<void>();
+      transport.writeBehavior = (data) => blocked.future;
+
+      async.elapse(const Duration(seconds: 6));
+      async.flushMicrotasks();
+
+      expect(transport.disconnectCalls, 1);
+      blocked.complete();
+      scale.disconnect();
+      async.flushMicrotasks();
+      transport.dispose();
+    });
+  });
+
+  test('watchdog disconnect failures stay contained', () {
+    fakeAsync((async) {
+      final uncaught = <Object>[];
+      runZonedGuarded(() {
+        final transport = _AcaiaTransport(
+          services: const ['49535343-fe7d-4ae5-8fa9-9fafd205e455'],
+        );
+        final scale = AcaiaScale(transport: transport);
+        final states = <ConnectionState>[];
+        scale.connectionState.listen(states.add);
+        scale.onConnect();
+        async.elapse(const Duration(milliseconds: 1200));
+        async.flushMicrotasks();
+        transport.disconnectError = StateError('disconnect failed');
+
+        async.elapse(const Duration(seconds: 6));
+        async.flushMicrotasks();
+
+        expect(states.last, ConnectionState.disconnected);
+        transport.dispose();
+      }, (error, stackTrace) => uncaught.add(error));
+
+      expect(uncaught, isEmpty);
+    });
   });
 
   test(

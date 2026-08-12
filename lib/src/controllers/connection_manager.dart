@@ -181,10 +181,14 @@ class ConnectionManager {
   int _scaleReconnectFailures = 0;
 
   Duration get _scaleReconnectBackoff {
-    final base = 5;
-    final seconds = base * (1 << _scaleReconnectFailures).clamp(1, 12);
-    return Duration(seconds: seconds.clamp(5, 60));
+    final multiplier = (1 << _scaleReconnectFailures).clamp(1, 12);
+    final delay = scaleReconnectBaseDelay * multiplier;
+    const cap = Duration(seconds: 60);
+    return delay > cap ? cap : delay;
   }
+
+  @visibleForTesting
+  Duration scaleReconnectBaseDelay = const Duration(seconds: 5);
 
   bool _machineRecoveryActive = false;
   Timer? _machineReconnect;

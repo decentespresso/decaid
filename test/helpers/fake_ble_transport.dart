@@ -53,6 +53,10 @@ class FakeBleTransport extends BLETransport {
     subscribers[Endpoint.fwMapRequest.uuid]?.call(Uint8List.fromList(bytes));
   }
 
+  void emitNotification(Endpoint endpoint, List<int> bytes) {
+    subscribers[endpoint.uuid]?.call(Uint8List.fromList(bytes));
+  }
+
   MachineState? get lastRequestedState {
     for (final w in writes.reversed) {
       if (w.characteristicUUID != Endpoint.requestedState.uuid) continue;

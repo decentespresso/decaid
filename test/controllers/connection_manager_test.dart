@@ -1089,6 +1089,7 @@ void main() {
         'auto-scans for preferred scale when machine is ready and scale is missing',
         () async {
           await settingsController.setPreferredScaleId('pref-scale');
+          connectionManager.scaleReconnectBaseDelay = Duration.zero;
           mockScanner.scanCompleter = Completer<void>();
 
           mockDe1Controller.de1Subject.add(_FakeDe1(deviceId: 'connected-de1'));
@@ -1951,6 +1952,7 @@ void main() {
         'unexpected preferred scale disconnect keeps scanning and reconnects',
         () async {
           await settingsController.setPreferredScaleId('pref-scale');
+          connectionManager.scaleReconnectBaseDelay = Duration.zero;
           final fakeDe1 = _FakeDe1(deviceId: 'connected-de1');
           mockScaleController.mockEmitConnectionState(
             ConnectionState.connected,
@@ -1983,6 +1985,7 @@ void main() {
         () async {
           await settingsController.setPreferredScaleId('pref-scale');
           await settingsController.setScalePowerMode(ScalePowerMode.disconnect);
+          connectionManager.scaleReconnectBaseDelay = Duration.zero;
 
           final fakeDe1 = _FakeDe1(deviceId: 'connected-de1');
           mockScaleController.mockEmitConnectionState(
@@ -2032,6 +2035,7 @@ void main() {
         () async {
           await settingsController.setPreferredScaleId('pref-scale');
           await settingsController.setScalePowerMode(ScalePowerMode.disconnect);
+          connectionManager.scaleReconnectBaseDelay = Duration.zero;
 
           final fakeDe1 = _FakeDe1(deviceId: 'connected-de1');
           mockScaleController.mockEmitConnectionState(

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:clock/clock.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/device/ble_service_identifier.dart';
 import 'package:reaprime/src/models/device/device.dart';
@@ -15,6 +16,24 @@ import 'package:rxdart/subjects.dart';
 enum AcaiaProtocol { ips, pyxis }
 
 enum _AcaiaFrameResult { accepted, ignored, malformed }
+
+/// Hardware settle delays used during Acaia initialization.
+///
+/// Production keeps the real hardware-safe defaults; unit tests that only
+/// need an initialized scale can inject zero durations.
+class AcaiaTimings {
+  const AcaiaTimings({
+    this.initialIpsSettle = const Duration(milliseconds: 100),
+    this.initialPyxisSettle = const Duration(milliseconds: 500),
+    this.identSettle = const Duration(milliseconds: 200),
+    this.configSettle = const Duration(milliseconds: 500),
+  });
+
+  final Duration initialIpsSettle;
+  final Duration initialPyxisSettle;
+  final Duration identSettle;
+  final Duration configSettle;
+}
 
 class AcaiaScale implements Scale {
   static final _ipsService = BleServiceIdentifier.short('1820');
@@ -87,15 +106,25 @@ class AcaiaScale implements Scale {
   Timer? _watchdogTimer;
   List<int> _buffer = [];
   bool _partialFramePending = false;
-  DateTime _lastValidFrame = DateTime.now();
+  DateTime _lastValidFrame = clock.now();
   int _batteryLevel = 0;
   int _generation = 0;
   bool _hasValidWeight = false;
   bool _badBatteryLogged = false;
 
-  AcaiaScale({required BLETransport transport})
-    : _transport = transport,
-      _deviceId = transport.id;
+  AcaiaScale({
+    required BLETransport transport,
+    AcaiaTimings timings = const AcaiaTimings(),
+    DateTime Function() now = _defaultNow,
+  }) : _transport = transport,
+       _deviceId = transport.id,
+       _timings = timings,
+       _now = now;
+
+  final AcaiaTimings _timings;
+  final DateTime Function() _now;
+
+  static DateTime _defaultNow() => clock.now();
 
   @override
   Stream<ScaleSnapshot> get currentSnapshot => _streamController.stream;
@@ -199,7 +228,9 @@ class AcaiaScale implements Scale {
     );
     await _ensureCurrentConnection(generation);
     await Future<void>.delayed(
-      Duration(milliseconds: _protocol == AcaiaProtocol.pyxis ? 500 : 100),
+      _protocol == AcaiaProtocol.pyxis
+          ? _timings.initialPyxisSettle
+          : _timings.initialIpsSettle,
     );
     await _ensureCurrentConnection(generation);
 
@@ -212,13 +243,13 @@ class AcaiaScale implements Scale {
         throw StateError('Acaia ident write failed');
       }
       await _ensureCurrentConnection(generation);
-      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await Future<void>.delayed(_timings.identSettle);
       await _ensureCurrentConnection(generation);
       if (!await _write(_encode(0x0C, _configPayload))) {
         throw StateError('Acaia config write failed');
       }
       await _ensureCurrentConnection(generation);
-      await Future<void>.delayed(const Duration(milliseconds: 500));
+      await Future<void>.delayed(_timings.configSettle);
       await _ensureCurrentConnection(generation);
     }
 
@@ -271,7 +302,7 @@ class AcaiaScale implements Scale {
   }
 
   void _startMaintenance(int generation) {
-    _lastValidFrame = DateTime.now();
+    _lastValidFrame = _now();
     _scheduleMaintenance(generation);
     if (_protocol == AcaiaProtocol.pyxis) _scheduleWatchdog(generation);
   }
@@ -298,7 +329,7 @@ class AcaiaScale implements Scale {
 
   void _scheduleWatchdog(int generation) {
     _watchdogTimer?.cancel();
-    final elapsed = DateTime.now().difference(_lastValidFrame);
+    final elapsed = _now().difference(_lastValidFrame);
     final remaining = const Duration(seconds: 5) - elapsed;
     _watchdogTimer = Timer(
       remaining.isNegative ? Duration.zero : remaining,
@@ -310,8 +341,7 @@ class AcaiaScale implements Scale {
 
   Future<void> _runWatchdog(int generation) async {
     if (!_isCurrent(generation)) return;
-    if (DateTime.now().difference(_lastValidFrame) <
-        const Duration(seconds: 5)) {
+    if (_now().difference(_lastValidFrame) < const Duration(seconds: 5)) {
       _scheduleWatchdog(generation);
       return;
     }
@@ -337,7 +367,7 @@ class AcaiaScale implements Scale {
   @override
   Future<void> disconnect() async {
     _invalidateConnection();
-    await _disconnectSubscription?.cancel();
+    unawaited(_disconnectSubscription?.cancel());
     _disconnectSubscription = null;
     _connectionStateController.add(ConnectionState.disconnected);
     await _transport.disconnect();
@@ -432,7 +462,7 @@ class AcaiaScale implements Scale {
       if (result == _AcaiaFrameResult.malformed) {
         _resyncMalformedFrame(frame);
       } else if (result == _AcaiaFrameResult.accepted) {
-        _lastValidFrame = DateTime.now();
+        _lastValidFrame = _now();
         if (_protocol == AcaiaProtocol.pyxis &&
             _connectionStateController.value == ConnectionState.connected) {
           _scheduleWatchdog(_generation);

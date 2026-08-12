@@ -45,9 +45,14 @@ class Skale2Scale implements Scale {
 
   static const _initStepDelay = Duration(milliseconds: 1000);
 
-  Skale2Scale({required BLETransport transport})
-    : _transport = transport,
-      _deviceId = transport.id;
+  Skale2Scale({
+    required BLETransport transport,
+    Duration initStepDelay = _initStepDelay,
+  }) : _transport = transport,
+       _deviceId = transport.id,
+       _initStepDelayOverride = initStepDelay;
+
+  final Duration _initStepDelayOverride;
 
   @override
   Stream<ScaleSnapshot> get currentSnapshot => _streamController.stream;
@@ -122,10 +127,10 @@ class Skale2Scale implements Scale {
     await _sendDisplayOn();
     await _sendDisplayWeight();
 
-    await Future.delayed(_initStepDelay);
+    await Future.delayed(_initStepDelayOverride);
     await _subscribeWeight();
 
-    await Future.delayed(_initStepDelay);
+    await Future.delayed(_initStepDelayOverride);
     await _subscribeButton();
 
     try {
@@ -138,7 +143,7 @@ class Skale2Scale implements Scale {
       }
     } catch (_) {}
 
-    await Future.delayed(_initStepDelay);
+    await Future.delayed(_initStepDelayOverride);
     await _sendDisplayOn();
     await _sendDisplayWeight();
     await _safeWrite(Uint8List.fromList([0x03]));

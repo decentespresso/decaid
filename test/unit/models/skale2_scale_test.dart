@@ -122,7 +122,7 @@ void main() {
 
     setUp(() async {
       transport = _RecordableBleTransport();
-      scale = Skale2Scale(transport: transport);
+      scale = Skale2Scale(transport: transport, initStepDelay: Duration.zero);
       await transport.emitConnectionState(ConnectionState.discovered);
     });
 
@@ -275,7 +275,7 @@ void main() {
 
     setUp(() async {
       transport = _RecordableBleTransport();
-      scale = Skale2Scale(transport: transport);
+      scale = Skale2Scale(transport: transport, initStepDelay: Duration.zero);
       await transport.emitConnectionState(ConnectionState.discovered);
       await scale.onConnect();
       transport.operations.clear();
@@ -351,7 +351,7 @@ void main() {
 
     setUp(() async {
       transport = _RecordableBleTransport();
-      scale = Skale2Scale(transport: transport);
+      scale = Skale2Scale(transport: transport, initStepDelay: Duration.zero);
       await transport.emitConnectionState(ConnectionState.discovered);
       await scale.onConnect();
       transport.operations.clear();
@@ -379,7 +379,7 @@ void main() {
 
     setUp(() async {
       transport = _RecordableBleTransport();
-      scale = Skale2Scale(transport: transport);
+      scale = Skale2Scale(transport: transport, initStepDelay: Duration.zero);
       await transport.emitConnectionState(ConnectionState.discovered);
       await scale.onConnect();
     });
