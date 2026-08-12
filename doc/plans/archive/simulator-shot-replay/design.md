@@ -70,13 +70,14 @@ PR #590 (merged) argued replay "discards the selected profile and target-weight
 dynamics." Replay answers both:
 
 - **Selected profile** — it plays a recording made with the current profile.
-- **Target weight** — the recorded weight flows through the normal
-  `ScaleController`/`ShotSequencer`, so a replayed shot stops at the profile's
-  target yield via the exact stop-at-weight path a real shot uses. No
-  replay-specific stop logic (respecting #590's "no duplicate stop-at-weight"
-  boundary). Because recordings begin at the pour, `MockReplayDe1` first emits a
-  brief `preparingForShot` phase so the sequencer starts the shot lifecycle.
-  Covered by `test/integration/replay_target_weight_test.dart`.
+- **Target weight** — because `MockReplayDe1` is a `BengleInterface`, the
+  workflow target yield flows through the `BengleSawBridge` to the device's
+  autonomous stop-at-weight, and the `ShotSequencer` bypasses its own SAW for
+  `BengleInterface` (no double stop). Because recordings begin at the pour, the
+  device first emits a brief `preparingForShot` phase (weight 0) so the
+  sequencer starts the shot lifecycle; once the espresso stages begin it exposes
+  the recording's weight unchanged, and tare requests are swallowed. Covered by
+  `test/integration/replay_saw_bridge_test.dart`.
 - **Enough data for any target** — each recording is extrapolated to ~2.5 min in
   the generator (`_extendTo`): the recorded head stays 10 Hz, then a 1 Hz tail
   holds the end-state pressure/flow/temperature and keeps weight rising at the
@@ -85,3 +86,15 @@ dynamics." Replay answers both:
 
 Per-shot variation (#590's bounded puck-resistance jitter) is inherently a
 synthetic concern and does not apply to replaying real recordings.
+
+## Opt-in and recording selection
+
+- **Opt-in only.** `simulate=1` expands to the default profile-driven simulator
+  set (`_defaultSimulatedDevices`); replay is never implicitly enabled — it
+  requires explicit `simulate=replay`.
+- **Deterministic selection.** Normally the recording is chosen by profile match
+  (else random fallback). The `debug/` API can list the bundled recordings by a
+  stable id, force one for subsequent pulls, and clear the override (session-
+  only): `GET /api/v1/debug/replay/shots`, `POST /api/v1/debug/replay/shot/{id}`,
+  `DELETE /api/v1/debug/replay/shot`. The normal machine-state API still
+  starts/stops the shot.

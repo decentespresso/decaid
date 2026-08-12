@@ -118,6 +118,43 @@ void main() {
       expect(idle.state.state, MachineState.idle);
     });
 
+    test('debug selection forces a specific recording', () async {
+      final forced = library.byId('sim-best_practice')!;
+      final forcedPressures = forced.measurements
+          .map((m) => m.machine.pressure)
+          .toSet();
+
+      final machine = MockReplayDe1(library: library);
+      expect(machine.availableShots, isNotEmpty);
+      expect(machine.selectShot('no-such-id'), isFalse);
+      expect(machine.selectShot('sim-best_practice'), isTrue);
+      expect(machine.selectedShotId, 'sim-best_practice');
+
+      // A different profile is selected, but the forced recording wins.
+      await machine.setProfile(_profile('Londonium'));
+      await machine.onConnect();
+      await machine.requestState(MachineState.espresso);
+
+      final snapshots = await machine.currentSnapshot
+          .where((s) => s.state.state == MachineState.espresso)
+          .take(15)
+          .toList()
+          .timeout(const Duration(seconds: 5));
+      await machine.disconnect();
+
+      expect(snapshots, isNotEmpty);
+      for (final s in snapshots) {
+        expect(
+          forcedPressures.contains(s.pressure),
+          isTrue,
+          reason: '${s.pressure} is not from the forced recording',
+        );
+      }
+
+      machine.clearSelectedShot();
+      expect(machine.selectedShotId, isNull);
+    });
+
     test('steam falls back to synthetic device telemetry', () async {
       final machine = MockReplayDe1(library: library);
       await machine.onConnect();

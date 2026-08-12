@@ -5,6 +5,18 @@ import 'package:flutter/services.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
 
+/// A bundled recording plus the profile title it was recorded with (null for
+/// the generic fallback shots). Addressable by [id] for deterministic
+/// selection via the debug API.
+class SimulatedShot {
+  const SimulatedShot(this.record, this.profileTitle);
+
+  final ShotRecord record;
+  final String? profileTitle;
+
+  String get id => record.id;
+}
+
 /// Bundled corpus of real recorded shots the replay simulator plays back.
 ///
 /// Two groups, both loaded from `assets/simulations/`:
@@ -27,12 +39,24 @@ class SimulatedShotLibrary {
 
   final List<ShotRecord> _fallback = [];
   final Map<String, ShotRecord> _byProfile = {};
+  final List<SimulatedShot> _catalog = [];
   bool _loaded = false;
 
   bool get isLoaded => _loaded;
   bool get isEmpty => _fallback.isEmpty && _byProfile.isEmpty;
   int get fallbackCount => _fallback.length;
   int get profileCount => _byProfile.length;
+
+  /// All bundled recordings, addressable by their stable [SimulatedShot.id].
+  List<SimulatedShot> get catalog => List.unmodifiable(_catalog);
+
+  /// The recording with the given stable id, or null.
+  ShotRecord? byId(String id) {
+    for (final entry in _catalog) {
+      if (entry.id == id) return entry.record;
+    }
+    return null;
+  }
 
   Future<void> ensureLoaded() async {
     if (_loaded) return;
@@ -44,13 +68,17 @@ class SimulatedShotLibrary {
 
       for (final file in (manifest['fallback'] as List? ?? []).cast<String>()) {
         final shot = await _load('$dir$file');
-        if (shot != null) _fallback.add(shot);
+        if (shot != null) {
+          _fallback.add(shot);
+          _catalog.add(SimulatedShot(shot, null));
+        }
       }
       for (final entry in (manifest['profiles'] as List? ?? [])) {
         final map = entry as Map<String, dynamic>;
         final shot = await _load('$dir${map['file']}');
         final title = map['profileTitle'] as String?;
         if (shot != null && title != null) {
+          _catalog.add(SimulatedShot(shot, title));
           for (final key in _matchKeys(title)) {
             _byProfile.putIfAbsent(key, () => shot);
           }

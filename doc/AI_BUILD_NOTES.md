@@ -59,6 +59,12 @@ target the `BengleSawBridge` pushes). It does NOT extend `MockDe1`: it
 *composes* one, delegating the De1Interface surface to it and falling back to it
 for steam / hot water / flush. `MockDe1`/`MockScale` are untouched.
 
+Replay is **opt-in**: `simulate=1` expands to the default set only and never
+enables it. To force a specific recording (instead of profile match) use the
+debug API: `GET /api/v1/debug/replay/shots` to list stable ids,
+`POST /api/v1/debug/replay/shot/{id}` to force one, `DELETE
+/api/v1/debug/replay/shot` to clear (session-only).
+
 The corpus lives in `assets/simulations/` (`manifest.json` maps profile titles
 to shot files). Profile-matched shots were pulled from visualizer.coffee, one
 per bundled profile where a public shot existed, and converted via the same

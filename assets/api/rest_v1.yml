@@ -4428,6 +4428,116 @@ paths:
         "404":
           description: Unknown command or endpoint not available (non-simulate build)
 
+  /api/v1/debug/replay/shots:
+    get:
+      summary: List replay recordings and current selection (simulate=replay only)
+      description: |
+        Lists the bundled recordings the replay simulator (ReplayDE1) can play,
+        each addressable by a stable `id`, plus the currently forced selection.
+        Only meaningful when the connected machine is the replay simulator.
+      tags: [Debug]
+      responses:
+        "200":
+          description: Recordings listed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  selected:
+                    type: string
+                    nullable: true
+                    description: The forced recording id, or null for profile match.
+                  shots:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        profileTitle:
+                          type: string
+                          nullable: true
+        "400":
+          description: Connected machine is not the replay simulator
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "404":
+          description: Endpoint not available (non-simulate build)
+
+  /api/v1/debug/replay/shot/{id}:
+    post:
+      summary: Force a replay recording for subsequent pulls (simulate=replay only)
+      description: |
+        Forces ReplayDE1 to play the recording with the given stable `id` on the
+        next espresso pulls, overriding profile-match/fallback selection. The
+        override is session-only. The normal machine-state API still starts and
+        stops the shot.
+      tags: [Debug]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Stable recording id from `GET /api/v1/debug/replay/shots`.
+      responses:
+        "200":
+          description: Recording forced
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  selected:
+                    type: string
+        "400":
+          description: Connected machine is not the replay simulator
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "404":
+          description: Unknown recording id, or endpoint not available (non-simulate build)
+
+  /api/v1/debug/replay/shot:
+    delete:
+      summary: Clear the forced replay recording (simulate=replay only)
+      description: |
+        Clears any forced recording, returning ReplayDE1 to normal
+        profile-match/fallback selection.
+      tags: [Debug]
+      responses:
+        "200":
+          description: Override cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  selected:
+                    type: string
+                    nullable: true
+        "400":
+          description: Connected machine is not the replay simulator
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "404":
+          description: Endpoint not available (non-simulate build)
+
   /api/v1/feedback:
     post:
       summary: Submit feedback

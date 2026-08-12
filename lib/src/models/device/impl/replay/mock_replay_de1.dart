@@ -54,6 +54,7 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
 
   MachineState _state = MachineState.idle;
   Profile? _profile;
+  String? _forcedShotId;
   ShotReplayer? _replayer;
   DateTime _replayStartedAt = DateTime.now();
   double _replayWeightGrams = 0.0;
@@ -139,7 +140,11 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
 
   void _startReplay() {
     _replayWeightGrams = 0.0;
-    final shot = _library.pickForProfile(_profile?.title, _random);
+    // A debug override forces a specific recording; otherwise match the
+    // selected profile, else a random fallback.
+    final shot =
+        (_forcedShotId != null ? _library.byId(_forcedShotId!) : null) ??
+        _library.pickForProfile(_profile?.title, _random);
     if (shot == null || shot.measurements.isEmpty) {
       _replayer = null;
       return;
@@ -148,18 +153,40 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
     _replayStartedAt = DateTime.now();
   }
 
+  /// The bundled recordings available to replay, for the debug selection API.
+  List<SimulatedShot> get availableShots => _library.catalog;
+
+  /// The recording id forced via the debug API, or null for profile match.
+  String? get selectedShotId => _forcedShotId;
+
+  /// Force [id] for subsequent espresso pulls (session-only). Returns false if
+  /// no bundled recording has that id.
+  bool selectShot(String id) {
+    if (_library.byId(id) == null) return false;
+    _forcedShotId = id;
+    return true;
+  }
+
+  /// Clear the forced recording, returning to profile-match/fallback selection.
+  void clearSelectedShot() => _forcedShotId = null;
+
   void _tick() {
     final replayer = _replayer;
     if (replayer == null || _state != MachineState.espresso) return;
     final now = DateTime.now();
     final elapsed = now.difference(_replayStartedAt).inMilliseconds / 1000.0;
-    _replayWeightGrams =
-        replayer.scaleAt(elapsed)?.weight ?? _replayWeightGrams;
+    final inPrep = elapsed < _prepSeconds;
+
+    // Recordings begin at the pour; emit a brief preparingForShot phase first
+    // so the ShotSequencer starts its lifecycle like a real pull. During that
+    // pre-shot phase the scale reads 0; once the recorded espresso stages
+    // begin, expose the recording's weight samples unchanged.
+    _replayWeightGrams = inPrep
+        ? 0.0
+        : (replayer.scaleAt(elapsed)?.weight ?? _replayWeightGrams);
 
     var frame = replayer.frameAt(elapsed, timestamp: now);
-    // Recordings begin at the pour; emit a brief preparingForShot phase first
-    // so the ShotSequencer starts its lifecycle like a real pull.
-    if (elapsed < _prepSeconds) {
+    if (inPrep) {
       frame = frame.copyWith(
         state: const MachineStateSnapshot(
           state: MachineState.espresso,
@@ -202,14 +229,16 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
 
   @override
   Future<void> tareIntegratedScale() async {
-    _replayWeightGrams = 0.0;
-    _emitWeight(0);
+    // Recordings already start from zero at the pour, so a tare would only
+    // corrupt the recorded samples. Swallow it: pre-shot weight is already 0,
+    // and the espresso stages expose the recording's weight unchanged.
   }
 
   // --- BengleInterface: autonomous stop-at-weight ---------------------------
   @override
   Future<void> setStopAtWeightTarget(double grams) async {
-    _sawTarget = grams.clamp(0.0, 500.0);
+    // Match the current Bengle firmware-backed range (see MockBengle).
+    _sawTarget = grams.clamp(0.0, 10000.0);
     _sawTargetSubject.add(_sawTarget);
   }
 
@@ -247,8 +276,8 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   );
   @override
   Future<void> setStopAtTemperatureTarget(double celsius) async {
-    _stopAtTemp = celsius;
-    _stopAtTempSubject.add(celsius);
+    _stopAtTemp = celsius.clamp(0.0, 85.0);
+    _stopAtTempSubject.add(_stopAtTemp);
   }
 
   @override

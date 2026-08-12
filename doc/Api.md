@@ -446,6 +446,9 @@ Only registered when the app is launched with a non-empty `simulate` Dart define
 | POST | `/api/v1/debug/scale/resume` | Resume weight emission after stall | `debug_handler.dart` |
 | POST | `/api/v1/debug/scale/disconnect` | Simulate scale disconnect (emits disconnected state, stops data) | `debug_handler.dart` |
 | POST | `/api/v1/debug/machine/disconnect` | Simulate mock machine disconnect (emits disconnected state, no auto-reconnect) | `debug_handler.dart` |
+| GET | `/api/v1/debug/replay/shots` | List the replay simulator's bundled recordings (stable `id` + `profileTitle`) and the current forced selection (`simulate=replay`). | `debug_handler.dart` |
+| POST | `/api/v1/debug/replay/shot/{id}` | Force ReplayDE1 to play recording `id` on subsequent pulls (session-only); overrides profile-match/fallback. | `debug_handler.dart` |
+| DELETE | `/api/v1/debug/replay/shot` | Clear the forced recording, returning to profile-match/fallback selection. | `debug_handler.dart` |
 
 Mock-scale command endpoints return 400 if no scale is connected or the connected scale is not a `MockScale`. The machine command endpoint returns 400 if no machine is connected or the connected machine is not a `MockDe1`, and 404 for unknown commands (any debug route 404s on production builds).
 

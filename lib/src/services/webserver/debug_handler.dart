@@ -5,6 +5,7 @@ import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/models/device/impl/mock_scale/mock_scale.dart';
+import 'package:reaprime/src/models/device/impl/replay/mock_replay_de1.dart';
 import 'package:reaprime/src/services/update_check_service.dart';
 import 'package:reaprime/src/services/webserver/json_response.dart';
 import 'package:shelf_plus/shelf_plus.dart';
@@ -110,6 +111,52 @@ class DebugHandler {
       _log.info('Simulating MockDe1 disconnect');
       de1.simulateDisconnect();
       return jsonOk({'status': 'disconnected'});
+    });
+
+    // Replay simulator (simulate=replay): deterministically choose which
+    // bundled recording ReplayDE1 plays for subsequent espresso pulls. The
+    // normal machine-state API still starts/stops the shot; this only controls
+    // recording selection, and the override is session-only.
+    app.get('/api/v1/debug/replay/shots', (request) {
+      final replay = _de1Controller.connectedDe1OrNull;
+      if (replay is! MockReplayDe1) {
+        return jsonBadRequest({
+          'error': 'Connected machine is not a replay simulator',
+        });
+      }
+      return jsonOk({
+        'selected': replay.selectedShotId,
+        'shots': [
+          for (final shot in replay.availableShots)
+            {'id': shot.id, 'profileTitle': shot.profileTitle},
+        ],
+      });
+    });
+
+    app.post('/api/v1/debug/replay/shot/<id>', (request, String id) {
+      final replay = _de1Controller.connectedDe1OrNull;
+      if (replay is! MockReplayDe1) {
+        return jsonBadRequest({
+          'error': 'Connected machine is not a replay simulator',
+        });
+      }
+      if (!replay.selectShot(id)) {
+        return jsonNotFound({'error': 'Unknown recording id: $id'});
+      }
+      _log.info('Replay recording forced: $id');
+      return jsonOk({'selected': id});
+    });
+
+    app.delete('/api/v1/debug/replay/shot', (request) {
+      final replay = _de1Controller.connectedDe1OrNull;
+      if (replay is! MockReplayDe1) {
+        return jsonBadRequest({
+          'error': 'Connected machine is not a replay simulator',
+        });
+      }
+      replay.clearSelectedShot();
+      _log.info('Replay recording override cleared');
+      return jsonOk({'selected': null});
     });
   }
 }
