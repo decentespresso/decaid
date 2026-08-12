@@ -1,0 +1,43 @@
+{
+  "firmware": {
+    "repository": "tadelv/Bengle",
+    "commit": "2377c7e0e48e9ee2c43cf02ad2f82028252f56e8",
+    "path": "BengleMainCPUFirmware/src/Classes/Data/MMR.def"
+  },
+  "registers": [
+    {"app": "MMRItem.externalFlash", "firmware": "ExternalFlash", "address": "0x00000000", "length": 1048575, "readScale": 1, "writeScale": 1},
+    {"app": "MMRItem.hwConfig", "firmware": "HWConfig", "address": "0x00800000", "length": 4, "readScale": 1, "writeScale": 1},
+    {"app": "MMRItem.model", "firmware": "Model", "address": "0x00800004", "length": 4, "readScale": 1, "writeScale": 1},
+    {"app": "MMRItem.cpuBoardModel", "firmware": "CPUBoardModel", "address": "0x00800008", "length": 4, "readScale": 1, "writeScale": 1},
+    {"app": "MMRItem.v13Model", "firmware": "v13Model", "address": "0x0080000C", "length": 4, "readScale": 1, "writeScale": 1},
+    {"app": "MMRItem.cpuFirmwareBuild", "firmware": "CPUFirmwareBuild", "address": "0x00800010", "length": 4, "readScale": 1, "writeScale": 1},
+    {"app": "MMRItem.debugLen", "firmware": "DebugLen", "address": "0x00802800", "length": 4, "readScale": 1, "writeScale": 1},
+    {"app": "MMRItem.debugBuffer", "firmware": "DebugBuffer", "address": "0x00802804", "length": 4096, "readScale": 1, "writeScale": 1},
+    {"app": "MMRItem.debugConfig", "firmware": "DebugConfig", "address": "0x00803804", "length": 4, "readScale": 1, "writeScale": 1},
+    {"app": "MMRItem.fanThreshold", "firmware": "FanThreshold", "address": "0x00803808", "length": 4, "readScale": 1, "writeScale": 1},
+    {"app": "MMRItem.tankTemp", "firmware": "TankTemp", "address": "0x0080380C", "length": 4, "readScale": 1, "writeScale": 1},
+    {"app": "MMRItem.heaterUp1Flow", "firmware": "HeaterUp1Flow", "address": "0x00803810", "length": 4, "readScale": 0.1, "writeScale": 10},
+    {"app": "MMRItem.heaterUp2Flow", "firmware": "HeaterUp2Flow", "address": "0x00803814", "length": 4, "readScale": 0.1, "writeScale": 10},
+    {"app": "MMRItem.waterHeaterIdleTemp", "firmware": "WaterHeaterIdleTemp", "address": "0x00803818", "length": 4, "readScale": 0.1, "writeScale": 10},
+    {"app": "MMRItem.ghcInfo", "firmware": "GHCInfo", "address": "0x0080381C", "length": 4, "readScale": 1, "writeScale": 1},
+    {"app": "MMRItem.targetSteamFlow", "firmware": "TargetSteamFlow", "address": "0x00803828", "length": 4, "readScale": 0.01, "writeScale": 100},
+    {"app": "MMRItem.steamStartSecs", "firmware": "SteamStartSecs", "address": "0x0080382C", "length": 4, "readScale": 0.01, "writeScale": 100},
+    {"app": "MMRItem.serialN", "firmware": "SerialN", "address": "0x00803830", "length": 4, "readScale": 1, "writeScale": 1},
+    {"app": "MMRItem.heaterV", "firmware": "HeaterV", "address": "0x00803834", "length": 4, "readScale": 1, "writeScale": 1},
+    {"app": "MMRItem.heaterUp2Timeout", "firmware": "HeaterUp2Timeout", "address": "0x00803838", "length": 4, "readScale": 0.1, "writeScale": 10},
+    {"app": "MMRItem.calFlowEst", "firmware": "CalFlowEst", "address": "0x0080383C", "length": 4, "readScale": 0.001, "writeScale": 1000},
+    {"app": "MMRItem.flushFlowRate", "firmware": "FlushFlowRate", "address": "0x00803840", "length": 4, "readScale": 0.1, "writeScale": 10},
+    {"app": "MMRItem.flushTemp", "firmware": "FlushTemp", "address": "0x00803844", "length": 4, "readScale": 0.1, "writeScale": 10},
+    {"app": "MMRItem.flushTimeout", "firmware": "FlushTimeout", "address": "0x00803848", "length": 4, "readScale": 0.1, "writeScale": 10},
+    {"app": "MMRItem.hotWaterFlowRate", "firmware": "HotWaterFlowRate", "address": "0x0080384C", "length": 4, "readScale": 0.1, "writeScale": 10},
+    {"app": "MMRItem.steamPurgeMode", "firmware": "SteamPurgeMode", "address": "0x00803850", "length": 4, "readScale": 1, "writeScale": 1},
+    {"app": "MMRItem.allowUSBCharging", "firmware": "AllowUSBCharging", "address": "0x00803854", "length": 4, "readScale": 1, "writeScale": 1},
+    {"app": "MMRItem.appFeatureFlags", "firmware": "AppFeatureFlags", "address": "0x00803858", "length": 4, "readScale": 1, "writeScale": 1},
+    {"app": "MMRItem.refillKitPresent", "firmware": "RefillKitPresent", "address": "0x0080385C", "length": 4, "readScale": 1, "writeScale": 1},
+    {"app": "MMRItem.userPresent", "firmware": "UserPresent", "address": "0x00803860", "length": 4, "readScale": 1, "writeScale": 1},
+    {"app": "BengleScaleMmr.endOfShotWeight", "firmware": "EndOfShotWeight", "address": "0x00803864", "length": 4, "readScale": 0.01, "writeScale": 100},
+    {"app": "BengleMmr.matSetPoint", "firmware": "MatSetPoint", "address": "0x00803874", "length": 4, "readScale": 1, "writeScale": 1},
+    {"app": "BengleScaleMmr.scaleTare", "firmware": "ScaleTare", "address": "0x0080388C", "length": 4, "readScale": 1, "writeScale": 1},
+    {"app": "BengleSteamMmr.targetMilkTemp", "firmware": "TargetMilkTemp", "address": "0x008038A8", "length": 4, "readScale": 0.1, "writeScale": 10}
+  ]
+}

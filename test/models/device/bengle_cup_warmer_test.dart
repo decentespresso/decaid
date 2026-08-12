@@ -24,7 +24,7 @@ void main() {
     });
 
     test(
-      'setCupWarmerTemperature writes a scaled uint32 to BengleMmr.matSetPoint',
+      'setCupWarmerTemperature writes whole degrees to BengleMmr.matSetPoint',
       () async {
         transport.writes.clear();
         await bengle.setCupWarmerTemperature(60.0);
@@ -40,14 +40,14 @@ void main() {
         expect(frame.data[3], addr.getUint8(3));
 
         final payload = ByteData.sublistView(frame.data, 4, 8);
-        expect(payload.getUint32(0, Endian.little), equals(600));
+        expect(payload.getUint32(0, Endian.little), equals(60));
       },
     );
 
     test(
-      'getCupWarmerTemperature reads a scaled uint32 back from the wire',
+      'getCupWarmerTemperature reads whole degrees back from the wire',
       () async {
-        final bytes = ByteData(4)..setUint32(0, 500, Endian.little);
+        final bytes = ByteData(4)..setUint32(0, 50, Endian.little);
         transport.queueMmrResponseRaw(
           BengleMmr.matSetPoint,
           List<int>.generate(4, (i) => bytes.getUint8(i)),
@@ -66,7 +66,7 @@ void main() {
         (w) => w.characteristicUUID == Endpoint.writeToMMR.uuid,
       );
       final payload = ByteData.sublistView(frame.data, 4, 8);
-      expect(payload.getUint32(0, Endian.little), equals(800));
+      expect(payload.getUint32(0, Endian.little), equals(80));
     });
   });
 }

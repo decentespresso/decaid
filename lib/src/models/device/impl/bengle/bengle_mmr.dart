@@ -7,9 +7,9 @@ enum BengleMmr implements MmrAddress {
     MmrValueKind.scaledFloat,
     'MatSetPoint',
     min: 0,
-    max: 800,
-    readScale: 0.1,
-    writeScale: 10.0,
+    max: 80,
+    readScale: 1.0,
+    writeScale: 1.0,
   );
 
   const BengleMmr(
