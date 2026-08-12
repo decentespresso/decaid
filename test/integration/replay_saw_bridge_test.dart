@@ -65,10 +65,6 @@ Workflow _workflow(Profile profile, double targetYield) => Workflow(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  // Exercises the real target-weight path: the workflow's target yield flows
-  // through the BengleSawBridge to ReplayDE1's autonomous SAW, the integrated
-  // scale feeds the ShotSequencer, and the shot stops. Also asserts weight is
-  // zero during the synthetic pre-shot phase.
   test('workflow target yield stops a replayed shot via the SAW bridge, '
       'with zero pre-shot weight', () async {
     final library = SimulatedShotLibrary();
@@ -99,14 +95,12 @@ void main() {
       );
       await de1Controller.connectToDe1(machine);
 
-      // Integrated scale -> virtual scale -> scale controller.
       final virtualScale = BengleVirtualScale(machine);
       await scaleController.connectToScale(virtualScale);
       await scaleController.connectionState
           .firstWhere((s) => s == ConnectionState.connected)
           .timeout(const Duration(seconds: 2));
 
-      // The workflow target yield propagates to the device via the bridge.
       workflowController.setWorkflow(_workflow(profile, 3));
       await Future.doWhile(() async {
         await Future.delayed(const Duration(milliseconds: 25));
@@ -129,7 +123,6 @@ void main() {
 
       await machine.requestState(MachineState.espresso);
 
-      // Pre-shot phase: the integrated scale reads 0.
       final preShotWeights = await machine.weightSnapshot
           .map((s) => s.weight)
           .take(2)
@@ -141,7 +134,6 @@ void main() {
         reason: 'pre-shot weight must be 0, got $preShotWeights',
       );
 
-      // The device's autonomous SAW stops the shot at the target.
       final idle = await machine.currentSnapshot
           .firstWhere((s) => s.state.state == MachineState.idle)
           .timeout(const Duration(seconds: 20));

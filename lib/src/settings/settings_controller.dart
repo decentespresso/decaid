@@ -233,8 +233,6 @@ class SettingsController with ChangeNotifier {
         : devices.contains(SimulatedDevicesTypes.replay)
         ? 'MockReplayDe1'
         : null;
-    // Replay provides its own integrated scale (BengleInterface -> virtual
-    // scale), so it needs no separate preferred scale id.
     _preferredScaleId = devices.contains(SimulatedDevicesTypes.scale)
         ? 'MockScale'
         : null;

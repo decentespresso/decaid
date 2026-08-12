@@ -119,9 +119,7 @@ Future<void> _setSystemInfoKeys(TelemetryService telemetryService) async {
   }
 }
 
-/// The default simulator set for `simulate=1`. Replay is deliberately excluded:
-/// it is an opt-in alternative telemetry source (`simulate=replay`) and must
-/// not change the default profile-driven simulator.
+/// `simulate=1` set. Replay is opt-in (`simulate=replay`), so it is excluded.
 const _defaultSimulatedDevices = <SimulatedDevicesTypes>{
   SimulatedDevicesTypes.machine,
   SimulatedDevicesTypes.scale,

@@ -113,10 +113,7 @@ class DebugHandler {
       return jsonOk({'status': 'disconnected'});
     });
 
-    // Replay simulator (simulate=replay): deterministically choose which
-    // bundled recording ReplayDE1 plays for subsequent espresso pulls. The
-    // normal machine-state API still starts/stops the shot; this only controls
-    // recording selection, and the override is session-only.
+    // Selection override is session-only; the machine-state API starts/stops.
     app.get('/api/v1/debug/replay/shots', (request) {
       final replay = _de1Controller.connectedDe1OrNull;
       if (replay is! MockReplayDe1) {

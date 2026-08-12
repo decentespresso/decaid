@@ -19,14 +19,10 @@ import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/services/simulated_shot_library.dart';
 import 'package:rxdart/subjects.dart';
 
-/// A single simulated device that replays a real recorded shot, matched to the
-/// selected profile when possible (see [SimulatedShotLibrary]).
-///
-/// It implements [BengleInterface], so it is one device that is both machine
-/// and integrated scale: the connection manager wraps [weightSnapshot] as a
-/// `BengleVirtualScale`, and target weight uses the autonomous stop-at-weight
-/// path. It composes a [MockDe1] for everything other than espresso replay
-/// (steam / hot water / flush and the rest of the De1Interface surface).
+/// A simulated device that replays a real recorded shot, matched to the
+/// selected profile when possible. See the archived design doc for how it is
+/// wired (single `BengleInterface` machine + integrated scale, composing a
+/// [MockDe1] for non-espresso behaviour).
 class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   MockReplayDe1({required SimulatedShotLibrary library, Random? random})
     : _library = library,
@@ -73,8 +69,6 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   @override
   Future<void> onConnect() async {
     await _synthetic.onConnect();
-    // The synthetic device drives idle / steam / hot water / flush telemetry;
-    // suppress it while a shot is being replayed.
     _syntheticSub = _synthetic.currentSnapshot.listen((s) {
       if (_replayer == null) _snapshots.add(s);
     });
@@ -127,8 +121,6 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
 
   void _startReplay() {
     _replayWeightGrams = 0.0;
-    // A debug override forces a specific recording; otherwise match the
-    // profile, else a random fallback.
     final shot =
         (_forcedShotId != null ? _library.byId(_forcedShotId!) : null) ??
         _library.pickForProfile(_profile?.title, _random);
@@ -140,21 +132,17 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
     _replayStartedAt = DateTime.now();
   }
 
-  /// The bundled recordings available to replay, for the debug selection API.
   List<SimulatedShot> get availableShots => _library.catalog;
 
-  /// The recording id forced via the debug API, or null for profile match.
   String? get selectedShotId => _forcedShotId;
 
-  /// Force [id] for subsequent espresso pulls (session-only). Returns false if
-  /// no bundled recording has that id.
+  /// Session-only override; false if [id] is not a bundled recording.
   bool selectShot(String id) {
     if (_library.byId(id) == null) return false;
     _forcedShotId = id;
     return true;
   }
 
-  /// Clear the forced recording, returning to profile-match/fallback selection.
   void clearSelectedShot() => _forcedShotId = null;
 
   void _tick() {
@@ -221,7 +209,6 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
 
   @override
   Future<void> setStopAtWeightTarget(double grams) async {
-    // Range matches the current Bengle firmware (see MockBengle).
     _sawTarget = grams.clamp(0.0, 10000.0);
     _sawTargetSubject.add(_sawTarget);
   }

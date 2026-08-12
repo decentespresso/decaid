@@ -57,8 +57,6 @@ void main() {
     test(
       'replay starts from the beginning of the recording after prep',
       () async {
-        // Guards the replay-clock offset: the synthetic pre-shot phase must not
-        // consume the start of the recording.
         final m = library.forProfileTitle('Adaptive v2')!.measurements;
         final recordingStart = {m[0].machine.pressure, m[1].machine.pressure};
 
@@ -130,8 +128,7 @@ void main() {
     });
 
     test('autonomous stop-at-weight stops the shot at target', () async {
-      // Flow-profile-for-milky-drinks reaches ~3 g early, so the shot stops
-      // quickly. This is the Bengle SAW path: the device stops itself.
+      // milky-drinks reaches the target early, keeping the test short.
       final machine = MockReplayDe1(library: library);
       await machine.setProfile(_profile('Flow profile for milky drinks'));
       await machine.onConnect();
@@ -158,7 +155,6 @@ void main() {
       expect(machine.selectShot('sim-best_practice'), isTrue);
       expect(machine.selectedShotId, 'sim-best_practice');
 
-      // A different profile is selected, but the forced recording wins.
       await machine.setProfile(_profile('Londonium'));
       await machine.onConnect();
       await machine.requestState(MachineState.espresso);

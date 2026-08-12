@@ -69,9 +69,6 @@ class SimulatedDeviceService
       _devices.remove("MockSensorBasket");
       _devices.remove("MockDebugPort");
     }
-    // Replay: a single device that is both machine and integrated scale (its
-    // integrated scale is auto-wrapped by the connection manager), so no
-    // separate scale is created.
     if (enabledDevices.contains(SimulatedDevicesTypes.replay)) {
       await _replayLibrary.ensureLoaded();
       _devices.putIfAbsent(
