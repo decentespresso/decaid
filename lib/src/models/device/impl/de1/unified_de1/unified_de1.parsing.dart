@@ -71,11 +71,6 @@ extension MessageParsing on UnifiedDe1 {
       targetFlow: sample.setGroupFlow,
       profileFrame: sample.frameNumber,
       steamTemperature: sample.steamTemperature.round(),
-      weight: sample.weight,
-      weightFlow: sample.gFlow,
-      milkTemperature: sample.milkTemperature == 0
-          ? null
-          : sample.milkTemperature,
     );
   }
 

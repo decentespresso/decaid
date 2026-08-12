@@ -634,18 +634,6 @@ components:
           type: integer
         steamTemperature:
           type: number
-        weight:
-          type: number
-          nullable: true
-          description: Bengle integrated-scale net weight in grams; null when unavailable.
-        weightFlow:
-          type: number
-          nullable: true
-          description: Bengle firmware gravimetric flow in g/s; null when unavailable.
-        milkTemperature:
-          type: number
-          nullable: true
-          description: Bengle milk-probe temperature in degrees Celsius; null when unavailable.
     MachineState:
       type: string
       enum:

@@ -70,7 +70,7 @@ void main() {
   });
 
   test(
-    'Bengle exposes one real A013 frame as machine and scale telemetry',
+    'one A013 frame fans out to machine, scale, and probe surfaces',
     () async {
       final transport = _transport(model: 128);
       final bengle = Bengle(transport: transport);
@@ -79,16 +79,21 @@ void main() {
       await scaleController.connectToScale(BengleVirtualScale(bengle));
       final machineSnapshots = <MachineSnapshot>[];
       final scaleSnapshots = <WeightSnapshot>[];
+      final probeTemps = <double>[];
+      final probeStates = <bool>[];
       final machineSubscription = bengle.currentSnapshot.listen(
         machineSnapshots.add,
       );
       final scaleSubscription = scaleController.weightSnapshot.listen(
         scaleSnapshots.add,
       );
+      final attachedSubscription = bengle.probeAttached.listen(probeStates.add);
+      final tempSubscription = bengle.probeTemperature.listen(probeTemps.add);
 
       await pumpEventQueue();
       expect(machineSnapshots, isEmpty);
       expect(scaleSnapshots, isEmpty);
+      expect(probeStates, [false]);
 
       transport.subscribers[Endpoint.stateInfo.uuid]!(
         Uint8List.fromList([0x04, 0x05]),
@@ -108,16 +113,61 @@ void main() {
       expect(machine.state.substate, MachineSubstate.pouring);
       expect(machine.pressure, 9.0);
       expect(machine.flow, 2.5);
-      expect(machine.weight, 36.5);
-      expect(machine.weightFlow, 1.8);
-      expect(machine.milkTemperature, 42.5);
+      expect(machine.mixTemperature, 92.5);
+      expect(machine.groupTemperature, 88.0);
+      expect(machine.targetMixTemperature, 93.0);
+      expect(machine.targetGroupTemperature, 90.0);
+      expect(machine.targetPressure, 6.5);
+      expect(machine.targetFlow, 1.75);
+      expect(machine.profileFrame, 7);
+      expect(machine.steamTemperature, 136);
+      // MachineSnapshot stays pure machine telemetry: no weight/GFlow/probe.
+      expect(machine.toJson().containsKey('weight'), isFalse);
+      expect(machine.toJson().containsKey('weightFlow'), isFalse);
+      expect(machine.toJson().containsKey('milkTemperature'), isFalse);
+
       expect(scale.weight, 36.5);
       expect(scale.weightFlow, 1.8);
-      expect(scale.controlWeightFlow, 1.8);
+
+      expect(probeStates, [false, true]);
+      expect(probeTemps, [42.5]);
 
       await machineSubscription.cancel();
       await scaleSubscription.cancel();
+      await attachedSubscription.cancel();
+      await tempSubscription.cancel();
       scaleController.dispose();
+      await bengle.dispose();
+    },
+  );
+
+  test(
+    'MilkTemp 0 reports probe detached without emitting temperature',
+    () async {
+      final transport = _transport(model: 128);
+      final bengle = Bengle(transport: transport);
+      await bengle.onConnect();
+      final probeStates = <bool>[];
+      final probeTemps = <double>[];
+      final attachedSubscription = bengle.probeAttached.listen(probeStates.add);
+      final tempSubscription = bengle.probeTemperature.listen(probeTemps.add);
+      final emit = transport.subscribers[Endpoint.bengleShotSample.uuid]!;
+
+      emit(_goldenFrame);
+      await pumpEventQueue();
+      expect(probeStates, [false, true]);
+      expect(probeTemps, [42.5]);
+
+      final noProbeFrame = Uint8List.fromList(_goldenFrame)
+        ..[25] = 0x00
+        ..[26] = 0x00;
+      emit(noProbeFrame);
+      await pumpEventQueue();
+      expect(probeStates, [false, true, false]);
+      expect(probeTemps, [42.5]);
+
+      await attachedSubscription.cancel();
+      await tempSubscription.cancel();
       await bengle.dispose();
     },
   );
@@ -197,7 +247,6 @@ void main() {
 
     expect(snapshots, hasLength(1));
     expect(snapshots.single.pressure, 1.0);
-    expect(snapshots.single.weight, isNull);
 
     await subscription.cancel();
     await de1.dispose();

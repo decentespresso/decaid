@@ -44,13 +44,13 @@ enum BengleMmr implements MmrAddress {
 }
 
 enum BengleSteamMmr implements MmrAddress {
-  stopAtTemperatureTarget(
-    0x00000000,
+  targetMilkTemp(
+    0x008038A8,
     4,
     MmrValueKind.scaledFloat,
-    'StopAtTemperatureTarget',
+    'TargetMilkTemp',
     min: 0,
-    max: 800,
+    max: 850,
     readScale: 0.1,
     writeScale: 10.0,
   );

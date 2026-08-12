@@ -704,10 +704,21 @@ always wins on Bengle: external scale scanning is skipped entirely, and
 support (external scale alongside the integrated scale) is on the roadmap.
 
 The confirmed Bengle application telemetry source is its 28-byte `0xA013`
-packet. Integrated weight arrives net of firmware tare, and firmware `GFlow`
-passes through the normal scale surface without a second app-side estimate.
+packet, decoded once as transport telemetry and fanned out into Decaid's
+existing abstractions:
+
+- Machine fields (pressure, flow, temperatures, targets, profile frame,
+  steam temperature) feed the normal `MachineSnapshot` stream;
+- Weight and firmware `GFlow` feed the integrated `BengleVirtualScale`
+  surface (`weightFlow` is device-provided for Bengle, so no second app-side
+  estimate is layered on top);
+- `MilkTemp` (0 = no probe) drives the existing Bengle milk-probe sensor
+  (`probeAttached` / `probeTemperature`), which appears through the normal
+  `/ws/v1/sensors/<id>/snapshot` API.
+
 The normal scale tare command writes Bengle's `ScaleTare` MMR trigger.
-Autonomous stop-at-weight uses the firmware `EndOfShotWeight` register.
+Autonomous stop-at-weight uses the firmware `EndOfShotWeight` register;
+autonomous stop-at-temperature uses the firmware `TargetMilkTemp` register.
 
 Capability discovery: `GET /api/v1/machine/capabilities` includes
 `"integratedScale"` when a Bengle is connected. Skins should use this flag

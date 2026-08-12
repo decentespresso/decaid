@@ -87,18 +87,52 @@ class _FailingScale extends _TrackingScale {
 }
 
 void main() {
-  test('uses device-provided flow unchanged', () async {
-    final controller = ScaleController();
-    final scale = _TrackingScale('A');
-    await controller.connectToScale(scale);
-    final snapshot = controller.weightSnapshot.first;
+  test(
+    'device-provided flow feeds display while control stays estimator-derived',
+    () async {
+      final controller = ScaleController();
+      final scale = _TrackingScale('A');
+      await controller.connectToScale(scale);
+      final snapshot = controller.weightSnapshot.first;
 
-    scale.emitAt(DateTime.utc(2026, 8, 11), 12.0, flow: 1.75);
+      scale.emitAt(DateTime.utc(2026, 8, 11), 12.0, flow: 1.75);
 
-    expect((await snapshot).weightFlow, 1.75);
-    expect(controller.currentWeightSnapshot!.controlWeightFlow, 1.75);
-    controller.dispose();
-  });
+      final emitted = await snapshot;
+      expect(emitted.weightFlow, 1.75);
+      // First sample: estimator has no rate history yet.
+      expect(emitted.controlWeightFlow, 0.0);
+      controller.dispose();
+    },
+  );
+
+  test(
+    'control flow goes negative on a decreasing weight even when device flow is zero',
+    () async {
+      final controller = ScaleController();
+      final scale = _TrackingScale('A');
+      await controller.connectToScale(scale);
+      final snapshots = <WeightSnapshot>[];
+      final subscription = controller.weightSnapshot.listen(snapshots.add);
+
+      final t0 = DateTime.utc(2026, 8, 11);
+      scale.emitAt(t0, 100.0, flow: 0.0);
+      scale.emitAt(t0.add(const Duration(seconds: 1)), 99.0, flow: 0.0);
+      scale.emitAt(t0.add(const Duration(seconds: 2)), 98.0, flow: 0.0);
+      scale.emitAt(t0.add(const Duration(seconds: 3)), 97.0, flow: 0.0);
+      await Future<void>.delayed(Duration.zero);
+
+      final last = snapshots.last;
+      expect(last.weightFlow, 0.0, reason: 'device flow must pass through');
+      expect(
+        last.controlWeightFlow,
+        lessThan(0.0),
+        reason: 'control flow must stay signed/estimator-derived',
+      );
+
+      await subscription.cancel();
+      controller.dispose();
+    },
+  );
 
   test('connect forwards connected once', () async {
     final controller = ScaleController();

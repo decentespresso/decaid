@@ -92,6 +92,20 @@ class _TestMachine implements De1Interface {
 
 class _BengleTestMachine extends _TestMachine implements BengleInterface {
   _BengleTestMachine() : super(id: 'bengle-test');
+
+  final BehaviorSubject<bool> _probeAttachedSubject =
+      BehaviorSubject<bool>.seeded(false);
+
+  @override
+  Stream<bool> get probeAttached => _probeAttachedSubject.stream;
+
+  void setProbeAttached(bool attached) => _probeAttachedSubject.add(attached);
+
+  @override
+  Future<void> dispose() async {
+    await super.dispose();
+    await _probeAttachedSubject.close();
+  }
 }
 
 class _TestSensor implements Sensor {
@@ -298,7 +312,7 @@ void main() {
       m.dispose();
     });
 
-    test('false today because MMR slot is stubbed', () {
+    test('true when Bengle internal probe is attached and MMR is wired', () {
       final m = _BengleTestMachine();
       expect(
         sequencer.useFwAutonomousStop(
@@ -306,8 +320,8 @@ void main() {
           probeAttached: true,
           stopAtTemperature: 60,
         ),
-        isFalse,
-        reason: 'FW slot is still 0x00000000 — predicate must stay false',
+        isTrue,
+        reason: 'TargetMilkTemp MMR is real (0x008038A8) — predicate holds',
       );
       m.dispose();
     });
@@ -476,5 +490,58 @@ void main() {
       expect(m.requested, contains(MachineState.idle));
       m.dispose();
     });
+
+    test('Bengle with internal probe lets firmware own the stop', () async {
+      workflow.updateWorkflow(
+        steamSettings: workflow.currentWorkflow.steamSettings.copyWith(
+          stopAtTemperature: 60.0,
+        ),
+      );
+      final m = _BengleTestMachine()..setProbeAttached(true);
+      de1.emit(m);
+      await settle();
+
+      m.emit(_snap(state: MachineState.steam));
+      await settle();
+
+      expect(
+        m.requested,
+        isEmpty,
+        reason:
+            'firmware autonomous stop owns the stop when the internal '
+            'probe is attached',
+      );
+      m.dispose();
+    });
+
+    test(
+      'Bengle with only a third-party sensor uses the app-side stop',
+      () async {
+        workflow.updateWorkflow(
+          steamSettings: workflow.currentWorkflow.steamSettings.copyWith(
+            stopAtTemperature: 60.0,
+          ),
+        );
+        final probe = _TestSensor();
+        await sensors.register(probe);
+
+        final m = _BengleTestMachine();
+        de1.emit(m);
+        await settle();
+
+        m.emit(_snap(state: MachineState.steam));
+        await settle();
+        probe.emit(65.0);
+        m.emit(_snap(state: MachineState.steam));
+        await settle();
+
+        expect(
+          m.requested,
+          contains(MachineState.idle),
+          reason: 'no internal probe attached — app-side stop must take over',
+        );
+        m.dispose();
+      },
+    );
   });
 }

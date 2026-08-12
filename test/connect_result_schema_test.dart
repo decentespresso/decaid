@@ -36,7 +36,7 @@ void main() {
       final spec = await File('assets/api/websocket_v1.yml').readAsString();
 
       expect(
-        spec.replaceAll('\r\n', '\n'),
+        spec,
         contains('''        connectionError:
           oneOf:
             - \$ref: '#/components/schemas/ConnectionError'

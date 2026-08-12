@@ -12,7 +12,6 @@ import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/impl/bengle/bengle_mmr.dart';
 import 'package:reaprime/src/models/device/machine.dart';
-import 'package:reaprime/src/models/device/sensor.dart';
 import 'package:uuid/uuid.dart';
 
 class SteamSequencer {
@@ -36,10 +35,11 @@ class SteamSequencer {
 
   StreamSubscription<De1Interface?>? _de1Sub;
   StreamSubscription<MachineSnapshot>? _snapshotSub;
+  StreamSubscription<bool>? _probeAttachedSub;
   StreamSubscription<Map<String, dynamic>>? _sensorSub;
   De1Interface? _machine;
-  Sensor? _trackedSensor;
   double? _latestSensorTemperature;
+  bool _bengleProbeAttached = false;
 
   String? _openId;
   DateTime? _openTimestamp;
@@ -57,7 +57,7 @@ class SteamSequencer {
     if (machine is! BengleInterface) return false;
     if (stopAtTemperature <= 0) return false;
     if (!probeAttached) return false;
-    if (BengleSteamMmr.stopAtTemperatureTarget.address == 0x00000000) {
+    if (BengleSteamMmr.targetMilkTemp.address == 0x00000000) {
       return false;
     }
     return true;
@@ -71,9 +71,17 @@ class SteamSequencer {
     }
     await _snapshotSub?.cancel();
     _snapshotSub = null;
+    await _probeAttachedSub?.cancel();
+    _probeAttachedSub = null;
+    _bengleProbeAttached = false;
     _machine = machine;
     if (machine != null) {
       _snapshotSub = machine.currentSnapshot.listen(_onSnapshot);
+      if (machine is BengleInterface) {
+        _probeAttachedSub = machine.probeAttached.listen((attached) {
+          _bengleProbeAttached = attached;
+        });
+      }
     }
   }
 
@@ -110,12 +118,10 @@ class SteamSequencer {
   void _trackFirstSensor() {
     _sensorSub?.cancel();
     _sensorSub = null;
-    _trackedSensor = null;
     _latestSensorTemperature = null;
     final entries = _sensors.sensors.entries;
     if (entries.isEmpty) return;
     final sensor = entries.first.value;
-    _trackedSensor = sensor;
     _sensorSub = sensor.data.listen((payload) {
       final raw = payload['temperature'];
       if (raw is num) _latestSensorTemperature = raw.toDouble();
@@ -127,7 +133,7 @@ class SteamSequencer {
     final wf = _openWorkflow ?? _workflow.currentWorkflow;
     final target = wf.steamSettings.stopAtTemperature;
     if (target <= 0) return;
-    final attached = _trackedSensor != null;
+    final attached = _bengleProbeAttached;
     if (useFwAutonomousStop(
       machine: _machine,
       probeAttached: attached,
@@ -181,7 +187,6 @@ class SteamSequencer {
     _appSideStopRequested = false;
     _sensorSub?.cancel();
     _sensorSub = null;
-    _trackedSensor = null;
     _latestSensorTemperature = null;
   }
 
@@ -190,6 +195,8 @@ class SteamSequencer {
     _de1Sub = null;
     await _snapshotSub?.cancel();
     _snapshotSub = null;
+    await _probeAttachedSub?.cancel();
+    _probeAttachedSub = null;
     await _sensorSub?.cancel();
     _sensorSub = null;
   }

@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/impl/bengle/bengle_mmr.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
+import 'package:reaprime/src/models/device/impl/de1/unified_de1/bengle_shot_sample.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/errors.dart';
@@ -45,7 +48,7 @@ class Bengle extends UnifiedDe1
     false,
   );
   final PublishSubject<double> _probeTemperature = PublishSubject<double>();
-  int _stopAtTempStubWarningsEmitted = 0;
+  StreamSubscription<ByteData>? _probeSub;
 
   @override
   Stream<double> get stopAtTemperatureTarget => _stopAtTempTarget.stream;
@@ -58,37 +61,31 @@ class Bengle extends UnifiedDe1
 
   @override
   Future<void> setStopAtTemperatureTarget(double celsius) async {
-    final clamped = celsius.clamp(0.0, 80.0).toDouble();
+    final clamped = celsius.clamp(0.0, 85.0).toDouble();
     if (!_stopAtTempTarget.isClosed) {
       _stopAtTempTarget.add(clamped);
     }
-    final addr = BengleSteamMmr.stopAtTemperatureTarget;
-    if (addr.address == 0x00000000) {
-      _logStopAtTempStubOnce(
-        'setStopAtTemperatureTarget($clamped) ignored. Awaiting FW.',
-      );
-      return;
-    }
-    await writeMmrScaled(addr, clamped);
+    await writeMmrScaled(BengleSteamMmr.targetMilkTemp, clamped);
   }
 
   @override
   Future<double> getStopAtTemperatureTarget() async {
-    final addr = BengleSteamMmr.stopAtTemperatureTarget;
-    if (addr.address == 0x00000000) {
-      return _stopAtTempTarget.value;
-    }
-    final value = await readMmrScaled(addr);
+    final value = await readMmrScaled(BengleSteamMmr.targetMilkTemp);
     if (!_stopAtTempTarget.isClosed) {
       _stopAtTempTarget.add(value);
     }
     return value;
   }
 
-  void _logStopAtTempStubOnce(String msg) {
-    if (_stopAtTempStubWarningsEmitted < 1) {
-      log.info('Bengle: stop-at-temperature endpoint unwired; $msg');
-      _stopAtTempStubWarningsEmitted++;
+  void _handleProbeSample(ByteData frame) {
+    final sample = decodeBengleShotSample(frame);
+    if (sample == null) return;
+    final attached = sample.milkTemperature != 0;
+    if (!_probeAttached.isClosed && attached != _probeAttached.value) {
+      _probeAttached.add(attached);
+    }
+    if (attached && !_probeTemperature.isClosed) {
+      _probeTemperature.add(sample.milkTemperature);
     }
   }
 
@@ -103,12 +100,17 @@ class Bengle extends UnifiedDe1
       );
     }
     await enableBengleShotSample();
+    _probeSub = notificationsFor(
+      Endpoint.bengleShotSample,
+    ).listen(_handleProbeSample);
     await initIntegratedScale();
     await initLedStrip();
   }
 
   @override
   Future<void> onDisconnect() async {
+    await _probeSub?.cancel();
+    _probeSub = null;
     await disposeLedStrip();
     await disposeIntegratedScale();
     if (!_stopAtTempTarget.isClosed) {

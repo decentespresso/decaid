@@ -217,30 +217,26 @@ class ScaleController {
     }
     _lastSnapshotTime = snapshot.timestamp;
 
-    late final double controlFlow;
-    late final double displayFlow;
-    final providedFlow = snapshot.flow;
-    if (providedFlow != null) {
-      controlFlow = providedFlow;
-      displayFlow = providedFlow;
-    } else {
-      _kalmanEstimator ??= KalmanFlowEstimator(initialWeight: snapshot.weight);
-      final (_, estimatedControlFlow) = _kalmanEstimator!.addSample(
-        snapshot.timestamp,
-        snapshot.weight,
-      );
-      controlFlow = estimatedControlFlow;
+    // Control estimator is always fed the raw weight sample; the signed,
+    // control-oriented flow it produces is what shot sequencing consumes.
+    _kalmanEstimator ??= KalmanFlowEstimator(initialWeight: snapshot.weight);
+    final (_, controlFlow) = _kalmanEstimator!.addSample(
+      snapshot.timestamp,
+      snapshot.weight,
+    );
 
-      final rawFlow = _flowCalculator.addSample(
-        snapshot.timestamp,
-        snapshot.weight,
-      );
-      weightFlowAverage.add(rawFlow);
-      final settling =
-          _flowSettleUntil != null &&
-          snapshot.timestamp.isBefore(_flowSettleUntil!);
-      displayFlow = settling ? 0.0 : weightFlowAverage.average;
-    }
+    // Display estimator stays warm as the fallback when the device provides
+    // no flow of its own.
+    final rawFlow = _flowCalculator.addSample(
+      snapshot.timestamp,
+      snapshot.weight,
+    );
+    weightFlowAverage.add(rawFlow);
+    final settling =
+        _flowSettleUntil != null &&
+        snapshot.timestamp.isBefore(_flowSettleUntil!);
+    final displayFlow =
+        snapshot.flow ?? (settling ? 0.0 : weightFlowAverage.average);
 
     final weightSnapshot = WeightSnapshot(
       timestamp: snapshot.timestamp,
