@@ -7,6 +7,47 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
         <title>Decaid</title>
         <item>
             <title>0.7.17</title>
+            <pubDate>Wed, 12 Aug 2026 09:37:14 +0000</pubDate>
+            <sparkle:version>2269</sparkle:version>
+            <sparkle:shortVersionString>0.7.17</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* feat(sleep): auto-sleep from needsWater on FW >= 1357 by @tadelv in https://github.com/decentespresso/decaid/pull/551
+* feat(serial): connect an attached Android USB machine immediately by @tadelv in https://github.com/decentespresso/decaid/pull/558
+* fix(de1): await the DE1 refill-level transport write by @tadelv in https://github.com/decentespresso/decaid/pull/560
+* feat(macos): add Sparkle 2 auto-update with signed GitHub Pages appcast by @tadelv in https://github.com/decentespresso/decaid/pull/563
+* ci: install DYE2 plugin from allofmeng/dye2 release by @allofmeng in https://github.com/decentespresso/decaid/pull/566
+* Add shot-upload plugin + enable plugin Decent-proxy writes by @johnbuckman in https://github.com/decentespresso/decaid/pull/565
+* docs(skills): index decent-app scenarios, harden skill description by @tadelv in https://github.com/decentespresso/decaid/pull/570
+* fix(visualizer): shift state_change frame markers to non-zero by @bsnelson in https://github.com/decentespresso/decaid/pull/574
+* README: iPad Full support with SideStep one-click install link by @johnbuckman in https://github.com/decentespresso/decaid/pull/576
+* shot-upload: mark uploaded shots with annotations.extras.uploaded_to_decent by @johnbuckman in https://github.com/decentespresso/decaid/pull/575
+* Enhance acknowledgment section in README by @tadelv in https://github.com/decentespresso/decaid/pull/578
+* plugin-host: own, bound, and cancel plugin timers and pending async requests (#561) by @tadelv in https://github.com/decentespresso/decaid/pull/577
+* Stream backup export, import, and sync data instead of fully buffering it (issue #555) by @tadelv in https://github.com/decentespresso/decaid/pull/569
+* feat(settings): add keepAwake toggle to persist wake lock (gh-572) by @tadelv in https://github.com/decentespresso/decaid/pull/583
+* fix: handle plugin directory paths on Windows by @ODevStudio in https://github.com/decentespresso/decaid/pull/592
+* Update dart_js and universal_ble dependencies by @tadelv in https://github.com/decentespresso/decaid/pull/593
+* fix(plugins): protect secure settings by @ODevStudio in https://github.com/decentespresso/decaid/pull/588
+* fix: decouple shot startup from scale samples by @ODevStudio in https://github.com/decentespresso/decaid/pull/587
+* fix: report device connect command outcomes by @ODevStudio in https://github.com/decentespresso/decaid/pull/591
+* Simulator: honor profile limiters and vary puck resistance by @ODevStudio in https://github.com/decentespresso/decaid/pull/590
+* plugin-host: add complete lifecycle disposal by @ODevStudio in https://github.com/decentespresso/decaid/pull/582
+* fix(plugins): forward recipe and shot tags to Visualizer upload by @bsnelson in https://github.com/decentespresso/decaid/pull/584
+* ci: add Flutter test timing and reduce PR check overhead by @ODevStudio in https://github.com/decentespresso/decaid/pull/595
+* Enforce plugin manifest permissions by @ODevStudio in https://github.com/decentespresso/decaid/pull/589
+* chore: reduce source comments with uncomment by @ODevStudio in https://github.com/decentespresso/decaid/pull/585
+* feat(firmware): bundle DE1 v1358 (cold maintenance + out-of-water support) by @tadelv in https://github.com/decentespresso/decaid/pull/594
+* feat(bengle): add A013 integrated-scale telemetry by @ODevStudio in https://github.com/decentespresso/decaid/pull/601
+
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.7.16...v0.7.17
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.7.17/decaid-macos-0.7.17.zip" length="72088915" type="application/octet-stream" sparkle:edSignature="0RMlAlQS7HTa94o4oXFOFs/x6Gn1RfUJVa/eRakQ7ncHLoFHuNFoh3LQfBKnBDWhe7F0rqQ094fiA/ZV+h3XBA=="/>
+        </item>
+        <item>
+            <title>0.7.17</title>
             <pubDate>Tue, 11 Aug 2026 10:03:31 +0000</pubDate>
             <sparkle:channel>beta</sparkle:channel>
             <sparkle:version>2259</sparkle:version>
@@ -85,6 +126,6 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: M5Zf1UNxnFTV7vj0cFwQ/pr7W+RveUIYjmSh+fa6z7e/5s0/dR5ZBu2jUns8Q8V5lB79KM7eBDmrJizNqLeFDw==
-length: 6455
+edSignature: Go0603qXm78cdJb4rli4PfSZuF6tyMi2WuMbEERpo2gA3NjE0Tt7v7eSAtmYuVX2i4iRHGuqwMXCRIm63nA2DQ==
+length: 10656
 -->
