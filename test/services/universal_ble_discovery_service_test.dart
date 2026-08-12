@@ -174,8 +174,7 @@ void main() {
 
   _TrackingFakeBleTransport transportForModel(int model) {
     return _TrackingFakeBleTransport()
-      ..queueOnConnectResponses(v13Model: model)
-      ..queueMmrResponseInt(MMRItem.calFlowEst, 100);
+      ..queueOnConnectResponses(v13Model: model, calFlowEst: 100);
   }
 
   Future<void> pump([int n = 3]) async {

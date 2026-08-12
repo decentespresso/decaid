@@ -23,11 +23,15 @@ All Dart tests (unit + integration) live in `test/` and run via `flutter test`. 
 
 ## Test Helpers (`test/helpers/`)
 
+- **`FakeBleTransport`:** `queueOnConnectResponses()` also queues `MMRItem.calFlowEst` (raw `1000` = `1.0`; override via `calFlowEst:`). Without it, every `onConnect()` pays the full MMR timeout (~12.6s: 3 x 4s + 2 x 300ms) because `UnifiedDe1.onConnect()` reads flow calibration last.
 - **`MockDeviceDiscoveryService`:** Controllable discovery for widget tests. Add/remove specific devices at specific times via `addDevice()`, `removeDevice()`, `clear()`.
 - **`TestScale`:** Use instead of `MockScale` — `MockScale` has `Timer.periodic` that conflicts with `pumpAndSettle()`.
 - **`MockSettingsService`:** In-memory `SettingsService`. Sets `telemetryPromptShown` and `telemetryConsentDialogShown` to `true` to skip dialogs.
 
 ## Widget Test Patterns
+
+### fake_async
+`fakeAsync` does not cooperate with rxdart `BehaviorSubject` seed delivery (the `StartWithStreamTransformer` seed event never reaches the fake zone's microtask queue). Prefer a plain `Stream.multi` replay (e.g. `Stream.multi((c) { c.add(value); c.close(); })`) for test doubles whose connection state must be visible under `fakeAsync`.
 
 ### Stream Propagation
 Add devices to mock service *before* building widgets, then `await tester.pump()` to flush microtasks before `pumpWidget()`.

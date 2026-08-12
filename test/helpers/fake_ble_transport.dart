@@ -200,6 +200,8 @@ class FakeBleTransport extends BLETransport {
     int cpuFirmwareBuild = 1300,
     int heaterV = 230,
     int refillKitPresent = 0,
+    // calFlowEst has a read scale of 0.001, so raw 1000 is 1.0.
+    int calFlowEst = 1000,
   }) {
     queueMmrResponseInt(MMRItem.v13Model, v13Model);
     queueMmrResponseInt(MMRItem.ghcInfo, ghcInfo);
@@ -207,6 +209,7 @@ class FakeBleTransport extends BLETransport {
     queueMmrResponseInt(MMRItem.cpuFirmwareBuild, cpuFirmwareBuild);
     queueMmrResponseInt(MMRItem.heaterV, heaterV);
     queueMmrResponseInt(MMRItem.refillKitPresent, refillKitPresent);
+    queueMmrResponseInt(MMRItem.calFlowEst, calFlowEst);
   }
 
   @override

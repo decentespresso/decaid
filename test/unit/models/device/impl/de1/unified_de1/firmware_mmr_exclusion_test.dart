@@ -16,8 +16,7 @@ void main() {
   setUp(() async {
     transport = _BarrierBleTransport();
     addTearDown(transport.dispose);
-    transport.queueOnConnectResponses();
-    transport.queueMmrResponseInt(MMRItem.calFlowEst, 0);
+    transport.queueOnConnectResponses(calFlowEst: 0);
     de1 = UnifiedDe1(transport: transport);
     await de1.onConnect();
     transport.writes.clear();

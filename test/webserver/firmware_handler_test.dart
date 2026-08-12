@@ -6,7 +6,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
-import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/models/device/machine.dart';
@@ -101,8 +100,7 @@ void main() {
   test('NDJSON stays open until successful verification', () async {
     final transport = FakeBleTransport();
     addTearDown(transport.dispose);
-    transport.queueOnConnectResponses(v13Model: 3);
-    transport.queueMmrResponseInt(MMRItem.calFlowEst, 0);
+    transport.queueOnConnectResponses(v13Model: 3, calFlowEst: 0);
     final de1 = UnifiedDe1(
       transport: transport,
       firmwareEraseTimeout: const Duration(seconds: 1),
@@ -202,8 +200,7 @@ void main() {
   test('verification failure emits error and closes without done', () async {
     final transport = FakeBleTransport();
     addTearDown(transport.dispose);
-    transport.queueOnConnectResponses(v13Model: 3);
-    transport.queueMmrResponseInt(MMRItem.calFlowEst, 0);
+    transport.queueOnConnectResponses(v13Model: 3, calFlowEst: 0);
     final de1 = UnifiedDe1(
       transport: transport,
       firmwareEraseTimeout: const Duration(milliseconds: 100),
@@ -228,8 +225,7 @@ void main() {
   test('verification timeout emits error and closes without done', () async {
     final transport = FakeBleTransport();
     addTearDown(transport.dispose);
-    transport.queueOnConnectResponses(v13Model: 3);
-    transport.queueMmrResponseInt(MMRItem.calFlowEst, 0);
+    transport.queueOnConnectResponses(v13Model: 3, calFlowEst: 0);
     final de1 = UnifiedDe1(
       transport: transport,
       firmwareEraseTimeout: const Duration(milliseconds: 100),

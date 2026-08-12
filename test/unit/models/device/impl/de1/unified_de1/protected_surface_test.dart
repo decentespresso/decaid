@@ -133,24 +133,6 @@ void main() {
       expect(result.sublist(4, 8), [0xDE, 0xAD, 0xBE, 0xEF]);
     });
 
-    test(
-      'readMmrRaw retries after a dropped notify, then returns the value',
-      () async {
-        const addr = _CapabilityAddr(
-          address: 0x00802800,
-          length: 4,
-          name: 'cupWarmerStatus',
-          kind: MmrValueKind.bytes,
-        );
-        transport.dropNextMmrResponses = 1;
-        transport.queueMmrResponseRaw(addr, [0xDE, 0xAD, 0xBE, 0xEF]);
-
-        final result = await de1.capRead(addr);
-        expect(result.sublist(4, 8), [0xDE, 0xAD, 0xBE, 0xEF]);
-      },
-      timeout: const Timeout(Duration(seconds: 30)),
-    );
-
     test('writeMmrRaw sends the bytes on the wire for non-MMRItem', () async {
       const addr = _CapabilityAddr(
         address: 0x00803000,

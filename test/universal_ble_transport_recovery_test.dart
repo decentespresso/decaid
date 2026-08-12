@@ -208,6 +208,10 @@ void main() {
     deviceId = 'AA:BB:CC:DD:EE:${(deviceCounter++).toString().padLeft(2, '0')}';
     transport = UniversalBleTransport(
       device: bleDevice(deviceId),
+      // Platform-neutral: the generic recovery tests must not depend on the
+      // CI runner's OS (Linux would add real BlueZ settle/connect delays).
+      isAndroidOverride: false,
+      isLinuxOverride: false,
       faultRecoveryGrace: const Duration(milliseconds: 200),
       faultRecoveryDisconnectTimeout: const Duration(milliseconds: 20),
     );

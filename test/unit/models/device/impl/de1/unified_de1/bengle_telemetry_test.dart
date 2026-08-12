@@ -42,9 +42,9 @@ final _goldenFrame = Uint8List.fromList(const [
   0x01,
 ]);
 
-FakeBleTransport _transport({required int model}) => FakeBleTransport()
-  ..queueMmrResponseInt(MMRItem.calFlowEst, 100)
-  ..queueOnConnectResponses(v13Model: model);
+FakeBleTransport _transport({required int model}) =>
+    FakeBleTransport()
+      ..queueOnConnectResponses(v13Model: model, calFlowEst: 100);
 
 void main() {
   test('decodes the current 28-byte Bengle shot sample', () {

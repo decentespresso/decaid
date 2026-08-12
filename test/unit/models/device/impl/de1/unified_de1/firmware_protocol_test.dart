@@ -18,8 +18,7 @@ void main() {
   setUp(() async {
     transport = FakeBleTransport();
     addTearDown(transport.dispose);
-    transport.queueOnConnectResponses(v13Model: 3);
-    transport.queueMmrResponseInt(MMRItem.calFlowEst, 0);
+    transport.queueOnConnectResponses(v13Model: 3, calFlowEst: 0);
     de1 = UnifiedDe1(
       transport: transport,
       firmwareEraseTimeout: const Duration(milliseconds: 100),
@@ -92,8 +91,7 @@ void main() {
   test('erase response must follow firmware-map dispatch', () async {
     final preflightTransport = _PreflightBarrierBleTransport();
     addTearDown(preflightTransport.dispose);
-    preflightTransport.queueOnConnectResponses(v13Model: 3);
-    preflightTransport.queueMmrResponseInt(MMRItem.calFlowEst, 0);
+    preflightTransport.queueOnConnectResponses(v13Model: 3, calFlowEst: 0);
     final preflightBarrier = Completer<void>();
     final blockedDe1 = _PreludePreflightBlockingDe1(
       transport: preflightTransport,
@@ -147,8 +145,7 @@ void main() {
   test('verification response must follow the verification request', () async {
     final barrierTransport = BarrierBleTransport();
     addTearDown(barrierTransport.dispose);
-    barrierTransport.queueOnConnectResponses(v13Model: 3);
-    barrierTransport.queueMmrResponseInt(MMRItem.calFlowEst, 0);
+    barrierTransport.queueOnConnectResponses(v13Model: 3, calFlowEst: 0);
     final blockedDe1 = UnifiedDe1(
       transport: barrierTransport,
       firmwareEraseTimeout: const Duration(milliseconds: 100),
@@ -176,8 +173,7 @@ void main() {
   test('verification response must follow firmware-map dispatch', () async {
     final preflightTransport = _PreflightBarrierBleTransport();
     addTearDown(preflightTransport.dispose);
-    preflightTransport.queueOnConnectResponses(v13Model: 3);
-    preflightTransport.queueMmrResponseInt(MMRItem.calFlowEst, 0);
+    preflightTransport.queueOnConnectResponses(v13Model: 3, calFlowEst: 0);
     final blockedDe1 = UnifiedDe1(
       transport: preflightTransport,
       firmwareEraseTimeout: const Duration(milliseconds: 100),
