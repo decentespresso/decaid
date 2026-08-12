@@ -689,7 +689,7 @@ class UnifiedDe1 implements De1Interface {
   @protected
   Future<void> writeMmrScaled(MmrAddress addr, double value) async {
     _assertKind(addr, const {MmrValueKind.scaledFloat}, 'writeMmrScaled');
-    final scaled = (value * addr.writeScale).toInt();
+    final scaled = (value * addr.writeScale).round();
     if (addr is MMRItem) return _writeMMRInt(addr, scaled);
     final clamped = (addr.min != null && addr.max != null)
         ? scaled.clamp(addr.min!, addr.max!)

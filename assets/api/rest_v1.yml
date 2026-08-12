@@ -391,10 +391,10 @@ paths:
       description: |
         Returns the optional capability surfaces the currently connected
         machine exposes. Plain DE1s return an empty list; Bengle returns
-        `["cupWarmer", "integratedScale"]` plus any future capabilities
-        as they ship. Skins should query this
-        endpoint once after connect to decide which UI to render and
-        which `/api/v1/machine/...` capability endpoints to call.
+        `["cupWarmer", "integratedScale", "ledStrip", "stopAtWeight"]`
+        plus any future capabilities as they ship. Skins should query this
+        endpoint once after connect to decide which UI to render and which
+        `/api/v1/machine/...` capability endpoints to call.
       tags: [Machine]
       responses:
         "200":

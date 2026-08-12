@@ -219,6 +219,26 @@ void main() {
       expect(payload.getInt32(0, Endian.little), 500);
     });
 
+    test('writeMmrScaled rounds Bengle stop-at-weight writes', () async {
+      transport.writes.clear();
+      await de1.capWriteScaled(BengleScaleMmr.endOfShotWeight, 2.3);
+      final frame = transport.writes.firstWhere(
+        (write) => write.characteristicUUID == Endpoint.writeToMMR.uuid,
+      );
+      final payload = ByteData.sublistView(frame.data, 4, 8);
+      expect(payload.getInt32(0, Endian.little), 230);
+    });
+
+    test('plain DE1 scaled writes keep truncating', () async {
+      transport.writes.clear();
+      await de1.setSteamFlow(2.3);
+      final frame = transport.writes.firstWhere(
+        (write) => write.characteristicUUID == Endpoint.writeToMMR.uuid,
+      );
+      final payload = ByteData.sublistView(frame.data, 4, 8);
+      expect(payload.getInt32(0, Endian.little), 229);
+    });
+
     test(
       'notificationsFor(shotSample) routes to transport shotSample',
       () async {

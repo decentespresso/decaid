@@ -1,6 +1,6 @@
 # Scenario: Bengle integrated scale end-to-end
 
-Verifies that when a Bengle is the connected machine, the integrated scale is auto-attached as a virtual scale (no external scale connection needed), capability discovery advertises `integratedScale`, the `/api/v1/scale/*` REST surface and `/ws/v1/scale/snapshot` stream both flow through the integrated scale, and software stop-at-weight (SAW) ends an espresso shot when the integrated scale weight crosses the profile target.
+Verifies that when a Bengle is the connected machine, the integrated scale is auto-attached as a virtual scale (no external scale connection needed), capability discovery advertises all Bengle surfaces, the `/api/v1/scale/*` REST surface and `/ws/v1/scale/snapshot` stream both flow through the integrated scale, and Bengle firmware stops an espresso shot autonomously when the integrated scale weight reaches the configured target.
 
 ## Preconditions
 
@@ -12,7 +12,7 @@ No `--connect-scale` flag. On Bengle the integrated scale always wins — extern
 
 ## Steps
 
-### 1. Capability discovery lists both Bengle surfaces
+### 1. Capability discovery lists all Bengle surfaces
 
 ```bash
 curl -sf http://localhost:8080/api/v1/machine/capabilities | jq .
@@ -21,17 +21,17 @@ curl -sf http://localhost:8080/api/v1/machine/capabilities | jq .
 Expected:
 
 ```json
-{ "capabilities": ["cupWarmer", "integratedScale"] }
+{ "capabilities": ["cupWarmer", "integratedScale", "ledStrip", "stopAtWeight"] }
 ```
 
 Quick assertions:
 
 ```bash
 curl -sf http://localhost:8080/api/v1/machine/capabilities \
-  | jq -e '.capabilities | index("integratedScale") != null and index("cupWarmer") != null'
+  | jq -e '.capabilities | contains(["cupWarmer", "integratedScale", "ledStrip", "stopAtWeight"])'
 ```
 
-Exit 0 → both identifiers present.
+Exit 0 means all four identifiers are present.
 
 ### 2. Scale snapshot stream is alive without an external scale
 
@@ -59,14 +59,22 @@ websocat --no-async-stdio -n -U -t --max-messages-rev 1 \
 
 Expected: a value within ~±0.1 g of zero.
 
-### 4. Run a shot — software SAW stops at the profile target weight
+### 4. Run a shot — Bengle firmware stops at the profile target weight
 
-Upload the bundled flow profile (target weight = 42 g):
+Upload the bundled flow profile (target weight = 36 g):
 
 ```bash
 curl -sf -X POST http://localhost:8080/api/v1/machine/profile \
   -H 'Content-Type: application/json' \
   --data @assets/defaultProfiles/Flow_profile_for_straight_espresso.json
+```
+
+Set the matching workflow target that `BengleSawBridge` writes to firmware:
+
+```bash
+curl -sf -X PUT http://localhost:8080/api/v1/workflow \
+  -H 'Content-Type: application/json' \
+  --data '{"context":{"targetYield":36}}'
 ```
 
 Tare, then start the espresso shot:
@@ -76,20 +84,14 @@ curl -s -X PUT http://localhost:8080/api/v1/scale/tare
 curl -sX PUT http://localhost:8080/api/v1/machine/state/espresso
 ```
 
-Watch the machine snapshot stream — `MockDe1` simulates flow, `MockBengle` integrates flow into weight, `ShotController` projects `weight + flow * multiplier` against `targetYield` (42 g for this profile) and drives the machine to `idle` once the projection crosses the target:
+Watch the machine snapshot stream. `BengleSawBridge` reflects the workflow's 36 g target into the firmware SAW register. `MockBengle` models the firmware by integrating flow into weight and returning the machine to `idle` when that target is reached. `ShotSequencer` observes the machine transition instead of issuing a competing app-side stop:
 
 ```bash
 websocat --no-async-stdio -n -U -t --max-messages-rev 200 \
   ws://localhost:8080/ws/v1/machine/snapshot | jq -c '{state, substate}'
 ```
 
-Expected sequence ends with `state == "idle"` once the integrated scale crosses ~42 g (projection causes the cutoff slightly before the literal reading). Logs show:
-
-```bash
-sb-dev logs -n 60 --filter "ShotController\|target weight"
-```
-
-Expected log line: `Target weight 42.0g reached (projected: ...). Stopping shot.`
+Expected sequence ends with `state == "idle"` once the integrated scale reaches approximately 36 g. The transition originates from `MockBengle`, matching firmware-autonomous SAW.
 
 ### 5. No external scale connection ever happened
 
@@ -108,5 +110,5 @@ scripts/sb-dev.sh stop
 ## Notes
 
 - **Why no `--connect-scale`?** On Bengle, `ConnectionManager` skips the external-scale phase entirely (see `doc/DeviceManagement.md`). Passing `--connect-scale MockScale` will be ignored / overridden by the integrated-scale auto-attach.
-- **Target weight is profile-driven**, not a global default. The bundled `Flow_profile_for_straight_espresso.json` ships with `target_weight: 42.0`. Workflow target weight (when set via `/api/v1/workflow`) overrides per-run; this scenario relies on the profile value alone for simplicity.
-- **Stop is software SAW**, identical to the external-scale path — `ShotController` makes the stop decision; the integrated scale just sources weight via `BengleVirtualScale` instead of a BLE scale.
+- **Profile and workflow targets are set separately.** The bundled `Flow_profile_for_straight_espresso.json` ships with `target_weight: 36`. Uploading it configures the machine profile; the `/api/v1/workflow` update sets the firmware SAW target for this run.
+- **Stop is firmware-autonomous SAW.** Decaid writes `WorkflowContext.targetYield` to `EndOfShotWeight`; Bengle owns the stop decision and the resulting machine state propagates back to Decaid. `MockBengle` models that ownership in simulation.
