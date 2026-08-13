@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:clock/clock.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
@@ -63,7 +64,7 @@ class MockDe1 implements De1Interface, SimulatedDevice {
     targetPressure: 0,
     targetMixTemperature: 0,
     targetGroupTemperature: 0,
-    timestamp: DateTime.now(),
+    timestamp: clock.now(),
     groupTemperature: 0,
     mixTemperature: 0,
     pressure: 0,
@@ -163,7 +164,7 @@ class MockDe1 implements De1Interface, SimulatedDevice {
   @override
   DeviceType get type => DeviceType.machine;
 
-  DateTime lastIdleSnapshot = DateTime.now();
+  DateTime lastIdleSnapshot = clock.now();
   void _simulateState() {
     _snapshotStream.add(_lastSnapshot);
 
@@ -177,11 +178,10 @@ class MockDe1 implements De1Interface, SimulatedDevice {
           newSnapshot = _simulateHotWater();
           break;
         case _SimulationType.idle:
-          if (DateTime.now().difference(lastIdleSnapshot).inMilliseconds <
-              500) {
+          if (clock.now().difference(lastIdleSnapshot).inMilliseconds < 500) {
             return;
           }
-          lastIdleSnapshot = DateTime.now();
+          lastIdleSnapshot = clock.now();
           newSnapshot = _simulateIdle();
         default:
           newSnapshot = _simulateIdle();
@@ -249,7 +249,7 @@ class MockDe1 implements De1Interface, SimulatedDevice {
     }
 
     shotTime +=
-        DateTime.now().millisecondsSinceEpoch -
+        clock.now().millisecondsSinceEpoch -
         _lastSnapshot.timestamp.millisecondsSinceEpoch;
 
     if (_currentProfile != null && _currentProfile!.steps.isNotEmpty) {
@@ -414,7 +414,7 @@ class MockDe1 implements De1Interface, SimulatedDevice {
     }
 
     return MachineSnapshot(
-      timestamp: DateTime.now(),
+      timestamp: clock.now(),
       state: MachineStateSnapshot(state: _currentState, substate: substate),
       flow: newFlow,
       pressure: newPressure,
@@ -448,7 +448,7 @@ class MockDe1 implements De1Interface, SimulatedDevice {
     final newFlow =
         _lastSnapshot.flow + (targetFlow - _lastSnapshot.flow) * 0.35;
     return MachineSnapshot(
-      timestamp: DateTime.now(),
+      timestamp: clock.now(),
       state: MachineStateSnapshot(
         state: _currentState,
         substate: done ? MachineSubstate.idle : MachineSubstate.pouring,
@@ -476,7 +476,7 @@ class MockDe1 implements De1Interface, SimulatedDevice {
 
   MachineSnapshot _fallbackEspressoSimulation(MachineSubstate substate) {
     return MachineSnapshot(
-      timestamp: DateTime.now(),
+      timestamp: clock.now(),
       state: MachineStateSnapshot(state: _currentState, substate: substate),
       flow: min(_lastSnapshot.flow + 0.05, 4.0),
       pressure: min(_lastSnapshot.pressure + 0.04, 9.0),

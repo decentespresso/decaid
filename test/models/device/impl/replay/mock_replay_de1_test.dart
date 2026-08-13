@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/device/impl/replay/mock_replay_de1.dart';
@@ -129,20 +130,28 @@ void main() {
       }
     });
 
-    test('autonomous stop-at-weight stops the shot at target', () async {
+    test('autonomous stop-at-weight stops the shot at target', () {
       // milky-drinks reaches the target early, keeping the test short.
-      final machine = MockReplayDe1(library: library);
-      await machine.setProfile(_profile('Flow profile for milky drinks'));
-      await machine.onConnect();
-      await machine.setStopAtWeightTarget(3);
-      await machine.requestState(MachineState.espresso);
+      fakeAsync((async) {
+        final machine = MockReplayDe1(library: library);
+        machine.setProfile(_profile('Flow profile for milky drinks'));
+        machine.onConnect();
+        machine.setStopAtWeightTarget(3);
+        machine.requestState(MachineState.espresso);
 
-      final idle = await machine.currentSnapshot
-          .firstWhere((s) => s.state.state == MachineState.idle)
-          .timeout(const Duration(seconds: 15));
-      await machine.disconnect();
+        var idleSeen = false;
+        machine.currentSnapshot.listen((s) {
+          if (s.state.state == MachineState.idle) idleSeen = true;
+        });
 
-      expect(idle.state.state, MachineState.idle);
+        async.elapse(const Duration(seconds: 20));
+        async.flushMicrotasks();
+
+        expect(idleSeen, isTrue, reason: 'shot should stop at the 3g target');
+
+        machine.disconnect();
+        async.flushMicrotasks();
+      });
     });
 
     test('debug selection forces a specific recording', () async {
@@ -210,84 +219,107 @@ void main() {
       },
     );
 
-    test('the integrated scale produces weight during hot water', () async {
-      final machine = MockReplayDe1(library: library);
-      await machine.onConnect();
-      await machine.requestState(MachineState.hotWater);
-
-      final weights = await machine.weightSnapshot
-          .map((s) => s.weight)
-          .take(50)
-          .toList()
-          .timeout(const Duration(seconds: 8));
-      await machine.disconnect();
-
-      expect(
-        weights.any((w) => w > 0.5),
-        isTrue,
-        reason: 'hot water should accumulate integrated-scale weight',
-      );
-    });
-
-    test('autonomous stop-at-weight terminates hot water at target', () async {
-      final machine = MockReplayDe1(library: library);
-      await machine.onConnect();
-      await machine.setStopAtWeightTarget(2);
-
-      var poured = false;
-      double lastWeight = 0;
-      final stopped = Completer<double>();
-      final weightSub = machine.weightSnapshot.listen(
-        (s) => lastWeight = s.weight,
-      );
-      final stateSub = machine.currentSnapshot.listen((s) {
-        if (s.state.substate == MachineSubstate.pouring) poured = true;
-        if (poured &&
-            s.state.state == MachineState.idle &&
-            !stopped.isCompleted) {
-          stopped.complete(lastWeight);
-        }
-      });
-
-      await machine.requestState(MachineState.hotWater);
-      final stopWeight = await stopped.future.timeout(
-        const Duration(seconds: 20),
-      );
-
-      await weightSub.cancel();
-      await stateSub.cancel();
-      await machine.disconnect();
-
-      expect(
-        stopWeight,
-        greaterThanOrEqualTo(2),
-        reason: 'hot water must run until the integrated scale reaches target',
-      );
-    });
-
-    test(
-      'without a target, replay ends at the recording, not the tail',
-      () async {
+    test('the integrated scale produces weight during hot water', () {
+      fakeAsync((async) {
         final machine = MockReplayDe1(library: library);
-        await machine.setProfile(_profile('Extractamundo Dos!'));
-        await machine.onConnect();
-        await machine.requestState(MachineState.espresso);
+        machine.onConnect();
+        machine.requestState(MachineState.hotWater);
 
-        final start = DateTime.now();
-        await machine.currentSnapshot
-            .firstWhere((s) => s.state.state == MachineState.idle)
-            .timeout(const Duration(seconds: 50));
-        final elapsed = DateTime.now().difference(start).inSeconds;
-        await machine.disconnect();
+        final weights = <double>[];
+        machine.weightSnapshot.listen((s) => weights.add(s.weight));
+
+        async.elapse(const Duration(seconds: 8));
+        async.flushMicrotasks();
 
         expect(
-          elapsed,
-          lessThan(60),
+          weights.any((w) => w > 0.5),
+          isTrue,
+          reason: 'hot water should accumulate integrated-scale weight',
+        );
+
+        machine.disconnect();
+        async.flushMicrotasks();
+      });
+    });
+
+    test('autonomous stop-at-weight terminates hot water at target', () {
+      fakeAsync((async) {
+        final machine = MockReplayDe1(library: library);
+        machine.onConnect();
+        machine.setStopAtWeightTarget(2);
+
+        var poured = false;
+        double lastWeight = 0;
+        var stopWeight = 0.0;
+        final stopped = Completer<void>();
+        final weightSub = machine.weightSnapshot.listen(
+          (s) => lastWeight = s.weight,
+        );
+        final stateSub = machine.currentSnapshot.listen((s) {
+          if (s.state.substate == MachineSubstate.pouring) poured = true;
+          if (poured &&
+              s.state.state == MachineState.idle &&
+              !stopped.isCompleted) {
+            stopWeight = lastWeight;
+            stopped.complete();
+          }
+        });
+
+        machine.requestState(MachineState.hotWater);
+        async.elapse(const Duration(seconds: 15));
+        async.flushMicrotasks();
+
+        expect(
+          stopped.isCompleted,
+          isTrue,
+          reason:
+              'hot water must run until the integrated scale reaches target',
+        );
+        expect(
+          stopWeight,
+          greaterThanOrEqualTo(2),
+          reason: 'stop weight must reach the 2g target',
+        );
+
+        weightSub.cancel();
+        stateSub.cancel();
+        machine.disconnect();
+        async.flushMicrotasks();
+      });
+    });
+
+    test('without a target, replay ends at the recording, not the tail', () {
+      fakeAsync((async) {
+        final machine = MockReplayDe1(library: library);
+        machine.setProfile(_profile('Extractamundo Dos!'));
+        machine.onConnect();
+        machine.requestState(MachineState.espresso);
+
+        var idleSeen = false;
+        machine.currentSnapshot.listen((s) {
+          if (s.state.state == MachineState.idle) idleSeen = true;
+        });
+
+        async.elapse(const Duration(seconds: 10));
+        async.flushMicrotasks();
+        expect(
+          idleSeen,
+          isFalse,
+          reason: 'must not end before the recording plays',
+        );
+
+        async.elapse(const Duration(seconds: 25));
+        async.flushMicrotasks();
+        expect(
+          idleSeen,
+          isTrue,
           reason: 'should end near the ~23s recording, not the ~150s tail',
         );
-        expect(elapsed, greaterThan(15), reason: 'should play the recording');
-      },
-    );
+
+        machine.disconnect();
+        async.flushMicrotasks();
+      });
+    });
 
     test('steam falls back to synthetic device telemetry', () async {
       final machine = MockReplayDe1(library: library);

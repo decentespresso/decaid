@@ -11,6 +11,7 @@ import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/firmware_update_state.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/models/device/impl/replay/shot_replayer.dart';
+import 'package:clock/clock.dart';
 import 'package:reaprime/src/models/device/impl/simulated_shot_weight_model.dart';
 import 'package:reaprime/src/models/device/led_strip.dart';
 import 'package:reaprime/src/models/device/machine.dart';
@@ -40,7 +41,7 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   Profile? _profile;
   String? _forcedShotId;
   ShotReplayer? _replayer;
-  DateTime _replayStartedAt = DateTime.now();
+  DateTime _replayStartedAt = clock.now();
   double _replayWeightGrams = 0.0;
   double _originalDurationSeconds = 0.0;
 
@@ -132,7 +133,7 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
 
   void _seekToNextFrame() {
     final replayer = _replayer!;
-    final now = DateTime.now();
+    final now = clock.now();
     final replayElapsed =
         now.difference(_replayStartedAt).inMilliseconds / 1000.0 - _prepSeconds;
     final boundary = replayer.nextFrameBoundaryAfter(replayElapsed);
@@ -160,7 +161,7 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
     _replayer = ShotReplayer(shot.measurements);
     _originalDurationSeconds =
         _library.originalDurationOf(shot.id) ?? _replayer!.durationSeconds;
-    _replayStartedAt = DateTime.now();
+    _replayStartedAt = clock.now();
   }
 
   List<SimulatedShot> get availableShots => _library.catalog;
@@ -179,7 +180,7 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   void _tick() {
     final replayer = _replayer;
     if (replayer == null || _state != MachineState.espresso) return;
-    final now = DateTime.now();
+    final now = clock.now();
     final elapsed = now.difference(_replayStartedAt).inMilliseconds / 1000.0;
 
     // A synthetic pre-shot phase runs first with the scale held at 0; the
@@ -226,11 +227,7 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   void _emitWeight(double grams) {
     if (_weight.isClosed) return;
     _weight.add(
-      ScaleSnapshot(
-        timestamp: DateTime.now(),
-        weight: grams,
-        batteryLevel: 100,
-      ),
+      ScaleSnapshot(timestamp: clock.now(), weight: grams, batteryLevel: 100),
     );
   }
 
