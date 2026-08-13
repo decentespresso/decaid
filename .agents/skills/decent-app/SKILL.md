@@ -42,7 +42,9 @@ Pick the scenario that matches the task, run it verbatim, and finish before call
 | Debug scale control (simulate) | `scenarios/debug-scale-control.md` |
 | Bengle LED strip v2 | `scenarios/bengle-led-strip.md` |
 | Bengle integrated scale end-to-end | `scenarios/bengle-integrated-scale.md` |
-| Bengle cup-warmer + capability discovery | `scenarios/bengle-cup-warmer.md` |
+| Bengle cup-warmer + preheat + capability discovery | `scenarios/bengle-cup-warmer.md` |
+| Bengle scale calibration | `scenarios/bengle-scale-calibration.md` |
+| Bengle firmware wake-schedule sync | `scenarios/bengle-wake-schedule.md` |
 | Account-proxy CORS pinned to skin origin | `scenarios/account-proxy-cors.md` |
 | Account-proxy write forwarding + write-scope gate | `scenarios/account-proxy-write.md` |
 | Plugin Decent-account proxy bridge (host.decentProxy) | `scenarios/plugin-decent-proxy.md` |

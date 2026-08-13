@@ -1,6 +1,10 @@
-# Bengle LED strip v2
+# Bengle LED strip (firmware palette)
 
-Exercises the full LED strip v2 API on a `MockBengle`: PUT configuration, verify response, commit, reset.
+Exercises the real firmware LED palette surface on a `MockBengle`: hydrated
+read, write-through PUT, compatibility commit, truthful reset. Palette
+writes are persisted by the firmware immediately; there is no commit latch
+and no rollback. `frontSwitch` is derived from the front strip (no
+independent switch register) and ignored on write.
 
 ## Preconditions
 
@@ -17,15 +21,17 @@ curl -s http://localhost:8080/api/v1/machine/capabilities | jq
 
 Expect `ledStrip` in the `capabilities` array.
 
-### 2. Read initial (all-off)
+### 2. Read the hydrated palette
 
 ```bash
 curl -s http://localhost:8080/api/v1/machine/ledStrip | jq
 ```
 
-Expect all zones sleeping/awake → `"000000000000"`.
+MockBengle hydrates a deterministic non-black palette at connect, e.g.
+`frontStrip.awake: "FF00F0008000"`. The response is never fabricated
+black: a machine whose hydration failed answers 503.
 
-### 3. Write a config
+### 3. Write a config (write-through)
 
 ```bash
 curl -s -X PUT http://localhost:8080/api/v1/machine/ledStrip \
@@ -37,7 +43,8 @@ curl -s -X PUT http://localhost:8080/api/v1/machine/ledStrip \
   }' | jq
 ```
 
-Expect `{"status": "accepted"}` (status 200).
+Expect `{"status": "accepted"}` (status 200). The palette registers are
+persisted by the firmware on write; `frontSwitch` in the body is ignored.
 
 ### 4. Read back
 
@@ -45,9 +52,10 @@ Expect `{"status": "accepted"}` (status 200).
 curl -s http://localhost:8080/api/v1/machine/ledStrip | jq
 ```
 
-Expect the same values just written.
+Expect `frontStrip`/`backStrip` to match step 3; `frontSwitch` echoes the
+front strip (derived).
 
-### 5. Commit
+### 5. Commit is a compatibility no-op
 
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/machine/ledStrip/commit \
@@ -55,19 +63,9 @@ curl -s -X POST http://localhost:8080/api/v1/machine/ledStrip/commit \
   -d '{}'
 ```
 
-Expect 202.
+Expect 202. Nothing changes: palette writes were already persisted.
 
-### 6. Overwrite cache without committing
-
-```bash
-curl -s -X PUT http://localhost:8080/api/v1/machine/ledStrip \
-  -H 'Content-Type: application/json' \
-  -d '{"frontStrip":{"sleeping":"000000000000","awake":"000000000000"},
-       "backStrip":{"sleeping":"000000000000","awake":"000000000000"},
-       "frontSwitch":{"sleeping":"000000000000","awake":"000000000000"}}'
-```
-
-### 7. Reset — should restore committed values
+### 6. Reset is a truthful reload, not a rollback
 
 ```bash
 curl -s -X POST http://localhost:8080/api/v1/machine/ledStrip/reset \
@@ -75,11 +73,13 @@ curl -s -X POST http://localhost:8080/api/v1/machine/ledStrip/reset \
   -d '{}' | jq
 ```
 
-Expect the config from step 3 (`frontStrip.sleeping: 0000FFFF0000`, etc.), not the all-off from step 6.
+Expect the state from step 3 — the firmware cannot undo a persisted write,
+and Decaid never pretends otherwise.
 
-### 8. Plain DE1 returns 404
+### 7. Plain DE1 returns 404
 
-If you connect a plain DE1 or MockDe1 (no `simulate=1`), all four endpoints return 404:
+If you connect a plain DE1 or MockDe1 (no `simulate=1`), all four endpoints
+return 404:
 
 ```bash
 curl -s http://localhost:8080/api/v1/machine/ledStrip | jq

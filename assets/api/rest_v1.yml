@@ -618,8 +618,6 @@ paths:
           description: Machine connected but does not support LED strip
         "503":
           description: Machine disconnected mid-write and no replacement appeared within the bounded wait, or firmware read failed
-        "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
         "500":
           description: No machine was ever connected
   /api/v1/machine/scaleCalibration:
