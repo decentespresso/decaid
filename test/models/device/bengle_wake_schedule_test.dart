@@ -21,6 +21,7 @@ void main() {
         BengleMmr.scaleCalWeight,
         [0xD0, 0x07, 0x00, 0x00], // probe
       );
+      transport.queuePaletteHydrationResponses();
       await bengle.onConnect();
     });
 

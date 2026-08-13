@@ -24,6 +24,7 @@ void main() {
         BengleMmr.scaleCalWeight,
         [0xD0, 0x07, 0x00, 0x00], // 2000 little-endian = default 200.0 g
       );
+      transport.queuePaletteHydrationResponses();
       await bengle.onConnect();
 
       expect(bengle.bengleFeatureSurfaceSupported, isTrue);
@@ -70,6 +71,7 @@ void main() {
           0x00,
           0x00,
         ]);
+        transport.queuePaletteHydrationResponses();
         await bengle.onConnect();
 
         expect(bengle.bengleFeatureSurfaceSupported, isTrue);

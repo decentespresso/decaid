@@ -43,6 +43,16 @@ class FakeBleTransport extends BLETransport {
     _intResponses[item.address] = value;
   }
 
+  /// Queue a zero response for every LED palette register (rows 45-48,
+  /// 0x00803898-0x008038A4) so the LED hydration in `Bengle.onConnect`
+  /// completes quickly in tests that do not care about LEDs. Without this,
+  /// each unqueued read burns the full MMR timeout path (~4s x 3 attempts).
+  void queuePaletteHydrationResponses() {
+    for (final addr in [0x00803898, 0x0080389C, 0x008038A0, 0x008038A4]) {
+      _intResponses[addr] = 0;
+    }
+  }
+
   /// Queue multiple responses for repeated reads of the same address, in
   /// FIFO order (the one-shot [_intResponses] map can only serve one).
   void queueMmrResponseIntSequence(MmrAddress item, List<int> values) {
