@@ -17,6 +17,7 @@ import 'package:reaprime/src/models/device/led_strip.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/cup_warmer.dart';
+import 'package:reaprime/src/models/firmware_wake_window.dart';
 import 'package:reaprime/src/models/device/scale_calibration.dart';
 import 'package:reaprime/src/models/device/simulated_device.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
@@ -281,6 +282,13 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
         leadMinutes: 0,
         active: false,
       );
+  @override
+  Future<void> setInactivitySleepTimeout(int minutes) async {}
+  @override
+  Future<void> pushFirmwareWakeSchedule({
+    required int secondsSinceSundayLocal,
+    required List<FirmwareWakeWindow> windows,
+  }) async {}
 
   final BehaviorSubject<LedStripState> _led = BehaviorSubject.seeded(
     const LedStripState(),

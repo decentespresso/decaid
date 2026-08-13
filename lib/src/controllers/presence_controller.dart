@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
+import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/machine.dart';
+import 'package:reaprime/src/models/firmware_wake_window.dart';
 import 'package:reaprime/src/models/keep_awake_occurrence.dart';
 import 'package:reaprime/src/models/wake_schedule.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
@@ -123,6 +125,12 @@ class PresenceController {
     if (de1 != null) {
       _log.fine('DE1 connected, subscribing to snapshots');
       _snapshotSubscription = de1.currentSnapshot.listen(_onSnapshot);
+      // The firmware clock and wake table are RAM-only: re-push on every
+      // connect (and after a machine replacement) regardless of whether the
+      // app values changed since the last machine.
+      _lastPushedSleepTimeout = null;
+      _lastPushedSchedulesJson = null;
+      _syncFirmwareScheduleAndTimeout();
     } else {
       _log.fine('DE1 disconnected, cancelling sleep timer');
     }
@@ -168,6 +176,7 @@ class PresenceController {
   }
 
   void _onSettingsChanged() {
+    _syncFirmwareScheduleAndTimeout();
     if (_de1 != null &&
         _settingsController.userPresenceEnabled &&
         _settingsController.sleepTimeoutMinutes > 0) {
@@ -262,6 +271,49 @@ class PresenceController {
         _log.warning('Failed to request sleep', e);
       });
     }
+  }
+
+  int? _lastPushedSleepTimeout;
+  String? _lastPushedSchedulesJson;
+
+  /// Mirror the app's sleep timeout and wake schedules into the Bengle
+  /// firmware (InactivitySleepTimeout is persisted, so only pushes on
+  /// change; the clock + wake table are RAM-only and are re-pushed on every
+  /// connect via the reset above). Pushes are fire-and-forget with error
+  /// logging; stock DE1s and old firmware are skipped.
+  void _syncFirmwareScheduleAndTimeout() {
+    final de1 = _de1;
+    if (de1 is! BengleInterface || !de1.bengleFeatureSurfaceSupported) {
+      return;
+    }
+    final timeout = _settingsController.sleepTimeoutMinutes;
+    final schedulesJson = _settingsController.wakeSchedules;
+    if (timeout == _lastPushedSleepTimeout &&
+        schedulesJson == _lastPushedSchedulesJson) {
+      return;
+    }
+    _lastPushedSleepTimeout = timeout;
+    _lastPushedSchedulesJson = schedulesJson;
+
+    final windows = translateWakeSchedules(
+      keepAwakeSchedulesFromJson(schedulesJson),
+    );
+    final secondsSinceSunday = localSecondsSinceSunday(_clock());
+    unawaited(() async {
+      try {
+        await de1.setInactivitySleepTimeout(timeout);
+        await de1.pushFirmwareWakeSchedule(
+          secondsSinceSundayLocal: secondsSinceSunday,
+          windows: windows,
+        );
+        _log.fine(
+          'Pushed Bengle firmware state: sleep timeout $timeout min, '
+          '${windows.length} wake windows',
+        );
+      } catch (e) {
+        _log.warning('Failed to push Bengle firmware state: $e');
+      }
+    }());
   }
 
   static const int _kSleepOnRefillMinFwBuild = 1357;

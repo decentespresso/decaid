@@ -17,7 +17,8 @@ class Bengle extends UnifiedDe1
         LedStripCapability,
         BengleFirmwareProbe,
         ScaleCalibrationCapability,
-        CupWarmerCapability
+        CupWarmerCapability,
+        WakeScheduleCapability
     implements BengleInterface {
   Bengle({required super.transport});
 

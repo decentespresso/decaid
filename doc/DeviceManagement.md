@@ -112,6 +112,34 @@ Discovery services are responsible for scanning and creating device instances. E
     `ConnectionManager` reconnect lifecycle. Serial has no separate keepalive
     or reconnect loop.
 
+### Bengle firmware-synced state (post-connect, current firmware only)
+
+On every Bengle connect (after the one-probe-per-connection firmware-surface
+check) `PresenceController` mirrors two app-owned settings into the machine:
+
+- **Inactivity sleep timeout** — the app's `sleepTimeoutMinutes`
+  (0..240, 0 = disabled) is written 1:1 to `InactivitySleepTimeout`
+  (0x008038BC). The register is persisted in firmware, so it is pushed on
+  connect and when the setting changes, never continuously. The firmware
+  only acts on it while no tablet is connected (tablet owns sleep); an
+  expired timer fires within ~4 s of the tablet dropping.
+- **Local wall-clock + weekly wake table** — `SetLocalTimeOfWeek`
+  (seconds since Sunday 00:00:00 local, computed from calendar fields so
+  DST cannot skew it) and the wake table (`ScheduleControl=0` -> entries ->
+  `ScheduleControl=1`) are RAM-only, so they are re-pushed on every connect
+  and whenever the schedules setting changes. Empty schedules push
+  `ScheduleControl=0` (clear + disable). Windows are translated app-side:
+  `keepAwakeFor=N` -> `[start, start+N)`, otherwise `[start, start+240)`
+  (firmware maximum); Dart weekday (Mon=1..Sun=7) -> firmware dow
+  (`weekday % 7`, 0=Sunday); midnight-crossing windows split into two
+  entries; 32-entry firmware cap. While a tablet is connected the firmware
+  keeps the machine awake inside windows and wakes it on window entry;
+  unattended windows end at window close.
+
+Machine replacement/disconnect resets the push state so the new machine gets
+a full re-push. Plain DE1 machines and Bengle firmware predating the
+0x00803880 MMR surface (detected by the probe) receive no such writes.
+
 #### 3. SimulatedDeviceService
 - **Platform:** All
 - **File:** `lib/src/services/simulated_device_service.dart`

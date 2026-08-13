@@ -18,6 +18,7 @@ import 'package:reaprime/src/models/device/led_strip.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/cup_warmer.dart';
+import 'package:reaprime/src/models/firmware_wake_window.dart';
 import 'package:reaprime/src/models/device/scale_calibration.dart';
 import 'package:reaprime/src/models/device/scan_filter.dart';
 import 'package:reaprime/src/services/storage/storage_service.dart';
@@ -62,6 +63,13 @@ class _TestBengle extends TestDe1 implements BengleInterface {
         leadMinutes: 0,
         active: false,
       );
+  @override
+  Future<void> setInactivitySleepTimeout(int minutes) async {}
+  @override
+  Future<void> pushFirmwareWakeSchedule({
+    required int secondsSinceSundayLocal,
+    required List<FirmwareWakeWindow> windows,
+  }) async {}
   @override
   Stream<ScaleSnapshot> get weightSnapshot => const Stream.empty();
   @override

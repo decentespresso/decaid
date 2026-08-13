@@ -1,5 +1,6 @@
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/cup_warmer.dart';
+import 'package:reaprime/src/models/firmware_wake_window.dart';
 import 'package:reaprime/src/models/device/led_strip.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/scale_calibration.dart';
@@ -40,6 +41,19 @@ abstract class BengleInterface extends De1Interface {
   });
 
   Future<CupWarmerPreheatState> getCupWarmerPreheatState();
+
+  /// Persisted autonomous inactivity sleep timeout, minutes, 0 = disabled
+  /// (max 240). Mirrors the app's `sleepTimeoutMinutes` 1:1.
+  Future<void> setInactivitySleepTimeout(int minutes);
+
+  /// Push the local wall-clock (seconds since Sunday 00:00:00 local) and
+  /// replace the firmware wake table. The clock and table are RAM-only:
+  /// pushed on every connect and whenever the authoritative schedules
+  /// change. An empty [windows] list clears and disables the table.
+  Future<void> pushFirmwareWakeSchedule({
+    required int secondsSinceSundayLocal,
+    required List<FirmwareWakeWindow> windows,
+  });
 
   Stream<ScaleSnapshot> get weightSnapshot;
 

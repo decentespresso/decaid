@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/cup_warmer.dart';
+import 'package:reaprime/src/models/firmware_wake_window.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/models/device/impl/simulated_shot_weight_model.dart';
 import 'package:reaprime/src/models/device/led_strip.dart';
@@ -114,6 +115,33 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
         leadMinutes: _preheatLeadMinutes,
         active: _preheatEnabled && _cupWarmerTemp > 0,
       );
+
+  int _inactivitySleepTimeout = 0;
+  int? _pushedClockSeconds;
+  List<FirmwareWakeWindow> _pushedWindows = const [];
+
+  @override
+  Future<void> setInactivitySleepTimeout(int minutes) async {
+    _inactivitySleepTimeout = minutes.clamp(0, 240);
+  }
+
+  /// Last value written via [setInactivitySleepTimeout].
+  int get inactivitySleepTimeout => _inactivitySleepTimeout;
+
+  @override
+  Future<void> pushFirmwareWakeSchedule({
+    required int secondsSinceSundayLocal,
+    required List<FirmwareWakeWindow> windows,
+  }) async {
+    _pushedClockSeconds = secondsSinceSundayLocal;
+    _pushedWindows = windows;
+  }
+
+  /// Clock value recorded by [pushFirmwareWakeSchedule].
+  int? get pushedClockSeconds => _pushedClockSeconds;
+
+  /// Recorded by [pushFirmwareWakeSchedule] for scenario assertions.
+  List<FirmwareWakeWindow> get pushedWakeWindows => _pushedWindows;
 
   final BehaviorSubject<LedStripState?> _ledState =
       BehaviorSubject<LedStripState?>.seeded(null);
