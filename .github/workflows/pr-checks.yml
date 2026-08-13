@@ -186,6 +186,13 @@ jobs:
           cache: true
           pub-cache: true
 
+      - name: Flutter pub get
+        run: flutter pub get
+
+      # dart format reads the formatter: section of analysis_options.yaml
+      # (page_width: 80). That include references package:flutter_lints, so
+      # pub get must run first or the formatter config is silently dropped
+      # and the check disagrees with locally formatted files.
       - name: Dart format check
         shell: bash
         env:
@@ -196,9 +203,6 @@ jobs:
           git diff --name-only --diff-filter=ACMR -z \
             "$BASE_SHA...$HEAD_SHA" -- '*.dart' | \
             xargs -0 -r dart format --output=none --set-exit-if-changed --
-
-      - name: Flutter pub get
-        run: flutter pub get
 
       # pubspec references assets/plugins/dye2.reaplugin/ and
       # assets/bundled_skins/. Both are build outputs, not checked in,
