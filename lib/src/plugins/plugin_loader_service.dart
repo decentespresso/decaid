@@ -137,7 +137,11 @@ class PluginLoaderService {
 
     final pluginDir = Directory('${_pluginsDir.path}/${manifest.id}');
     if (pluginDir.existsSync()) {
-      throw Exception('Plugin already installed: ${manifest.id}');
+      if (isPluginLoaded(manifest.id)) {
+        await unloadPlugin(manifest.id);
+      }
+      await pluginDir.delete(recursive: true);
+      _log.info('Replacing existing plugin: ${manifest.id}');
     }
 
     pluginDir.createSync(recursive: true);

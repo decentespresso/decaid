@@ -176,6 +176,20 @@ function createPlugin() {
       expect(service.availablePlugins.any((m) => m.id == id), isTrue);
     });
 
+    test('addPlugin replaces an already-installed plugin', () async {
+      const id = 'replaced.reaplugin';
+      await service.addPlugin(makePluginSource(id).path);
+
+      final updatedSource = makePluginSource(id);
+      File('${updatedSource.path}/v2.txt').writeAsStringSync('v2');
+
+      await service.addPlugin(updatedSource.path);
+
+      final pluginDir = Directory('${tempDir.path}/plugins/$id');
+      expect(pluginDir.existsSync(), isTrue);
+      expect(File('${pluginDir.path}/v2.txt').existsSync(), isTrue);
+    });
+
     test('removePlugin deletes the installed plugin directory', () async {
       const id = 'removable.reaplugin';
       await service.addPlugin(makePluginSource(id).path);

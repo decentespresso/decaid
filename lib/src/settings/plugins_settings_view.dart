@@ -7,6 +7,7 @@ import 'package:saf_util/saf_util.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
+import 'package:reaprime/src/services/security_scoped_file.dart';
 
 const _maxPluginSafDepth = 32;
 const _maxPluginSafEntries = 10000;
@@ -452,7 +453,23 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
         if (!selected.endsWith('.reaplugin')) {
           throw Exception('selection is not a .reaplugin');
         }
-        await _copyDirectoryRecursively(Directory(selected), tempDir);
+        if (Platform.isIOS) {
+          final accessed = await SecurityScopedFileService.startAccessing(
+            selected,
+          );
+          if (!accessed) {
+            throw Exception(
+              'iOS denied read access to picked folder: $selected',
+            );
+          }
+        }
+        try {
+          await _copyDirectoryRecursively(Directory(selected), tempDir);
+        } finally {
+          if (Platform.isIOS) {
+            await SecurityScopedFileService.stopAccessing(selected);
+          }
+        }
       }
 
       await widget.pluginLoaderService.addPlugin(tempDir.path);
