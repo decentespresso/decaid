@@ -88,17 +88,17 @@ void main() {
   });
 
   group('GET /api/v1/machine/ledStrip', () {
-    test('200 + initial all-off on MockBengle', () async {
+    test('200 + hydrated palette on MockBengle', () async {
       await wireWith(MockBengle());
       final res = await get('/api/v1/machine/ledStrip');
       expect(res.statusCode, 200);
       final body = jsonDecode(await res.readAsString());
-      expect(body['frontStrip']['sleeping'], '000000000000');
-      expect(body['frontStrip']['awake'], '000000000000');
-      expect(body['backStrip']['sleeping'], '000000000000');
-      expect(body['backStrip']['awake'], '000000000000');
-      expect(body['frontSwitch']['sleeping'], '000000000000');
-      expect(body['frontSwitch']['awake'], '000000000000');
+      expect(body['frontStrip']['sleeping'], '300020001000');
+      expect(body['frontStrip']['awake'], 'FF00F0008000');
+      expect(body['backStrip']['sleeping'], '300020001000');
+      expect(body['backStrip']['awake'], 'FF00F0008000');
+      // frontSwitch is derived from the front strip (non-black here).
+      expect(body['frontSwitch']['awake'], 'FF00F0008000');
     });
 
     test('404 on plain DE1', () async {
@@ -121,7 +121,7 @@ void main() {
       expect(res.statusCode, 200);
 
       final state = await bengle.getLedStripState();
-      expect(state.frontStrip.sleeping, const Color16(65535, 32768, 0));
+      expect(state!.frontStrip.sleeping, const Color16(65535, 32768, 0));
       expect(state.frontStrip.awake, Color16.off);
       expect(state.backStrip.awake, const Color16(65535, 65535, 65535));
     });
@@ -144,7 +144,7 @@ void main() {
       expect(res.statusCode, 200);
 
       final state = await bengle.getLedStripState();
-      expect(state.frontStrip.sleeping, Color16.off);
+      expect(state!.frontStrip.sleeping, Color16.off);
     });
 
     test('404 on plain DE1', () async {
@@ -173,7 +173,7 @@ void main() {
   });
 
   group('POST /api/v1/machine/ledStrip/reset', () {
-    test('200 + returns state on Bengle', () async {
+    test('200 + returns current state on Bengle (truthful reload)', () async {
       final bengle = MockBengle();
       await wireWith(bengle);
 
@@ -184,8 +184,6 @@ void main() {
         ),
       );
       await bengle.setLedStrip(written);
-      await bengle.commitLedStrip();
-      await bengle.setLedStrip(const LedStripState());
 
       final res = await post('/api/v1/machine/ledStrip/reset');
       expect(res.statusCode, 200);

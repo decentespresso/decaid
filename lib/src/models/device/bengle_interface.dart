@@ -31,15 +31,17 @@ abstract class BengleInterface extends De1Interface {
 
   Stream<double> get stopAtWeightTarget;
 
-  Stream<LedStripState> get ledStripState;
+  Stream<LedStripState?> get ledStripState;
 
-  Future<LedStripState> getLedStripState();
+  /// The last successfully hydrated LED state, or null when hydration has
+  /// not succeeded (never fabricated black).
+  Future<LedStripState?> getLedStripState();
 
   Future<void> setLedStrip(LedStripState state);
 
   Future<void> commitLedStrip();
 
-  Future<void> resetLedStrip();
+  Future<LedStripState?> resetLedStrip();
 
   Future<void> setStopAtTemperatureTarget(double celsius);
 

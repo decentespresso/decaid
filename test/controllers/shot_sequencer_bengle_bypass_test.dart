@@ -56,7 +56,7 @@ class _TestBengle extends TestDe1 implements BengleInterface {
   @override
   Future<void> commitLedStrip() async {}
   @override
-  Future<void> resetLedStrip() async {}
+  Future<LedStripState?> resetLedStrip() async => const LedStripState();
 
   @override
   Future<void> setStopAtTemperatureTarget(double celsius) async {}

@@ -110,7 +110,21 @@ class De1Handler {
         if (de1 is! BengleInterface) {
           return jsonNotFound({'error': 'ledStrip not supported'});
         }
+        if (!de1.bengleFeatureSurfaceSupported) {
+          return jsonNotFound({
+            'error':
+                'ledStrip requires Bengle firmware with the '
+                'post-0x00803880 MMR surface',
+          });
+        }
         final state = await de1.getLedStripState();
+        if (state == null) {
+          return jsonServiceUnavailable({
+            'error':
+                'ledStrip state unavailable (hydration failed or not '
+                'yet complete)',
+          });
+        }
         return jsonOk(state.toJson());
       });
     });
@@ -130,6 +144,13 @@ class De1Handler {
         if (de1 is! BengleInterface) {
           return jsonNotFound({'error': 'ledStrip not supported'});
         }
+        if (!de1.bengleFeatureSurfaceSupported) {
+          return jsonNotFound({
+            'error':
+                'ledStrip requires Bengle firmware with the '
+                'post-0x00803880 MMR surface',
+          });
+        }
         await de1.setLedStrip(state);
         return jsonOk({'status': 'accepted'});
       }, retryOnReplacement: true);
@@ -140,6 +161,15 @@ class De1Handler {
         if (de1 is! BengleInterface) {
           return jsonNotFound({'error': 'ledStrip not supported'});
         }
+        if (!de1.bengleFeatureSurfaceSupported) {
+          return jsonNotFound({
+            'error':
+                'ledStrip requires Bengle firmware with the '
+                'post-0x00803880 MMR surface',
+          });
+        }
+        // Compatibility no-op: palette writes are write-through and
+        // persisted by the firmware; there is no separate commit latch.
         await de1.commitLedStrip();
         return jsonAccepted();
       }, retryOnReplacement: true);
@@ -150,8 +180,22 @@ class De1Handler {
         if (de1 is! BengleInterface) {
           return jsonNotFound({'error': 'ledStrip not supported'});
         }
-        await de1.resetLedStrip();
-        final state = await de1.getLedStripState();
+        if (!de1.bengleFeatureSurfaceSupported) {
+          return jsonNotFound({
+            'error':
+                'ledStrip requires Bengle firmware with the '
+                'post-0x00803880 MMR surface',
+          });
+        }
+        // Re-read the persisted palette from the firmware. This is a
+        // truthful reload, not a rollback: the firmware cannot undo a
+        // persisted write.
+        final state = await de1.resetLedStrip();
+        if (state == null) {
+          return jsonServiceUnavailable({
+            'error': 'ledStrip state unavailable (firmware read failed)',
+          });
+        }
         return jsonOk(state.toJson());
       }, retryOnReplacement: true);
     });

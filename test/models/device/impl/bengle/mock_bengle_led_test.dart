@@ -4,21 +4,25 @@ import 'package:reaprime/src/models/device/led_strip.dart';
 
 void main() {
   group('MockBengle LED strip', () {
-    test('initial state is all-off', () async {
+    test('state is null before connection (no fabricated black)', () async {
       final bengle = MockBengle();
+      expect(await bengle.getLedStripState(), isNull);
+    });
+
+    test('onConnect hydrates a deterministic non-black palette', () async {
+      final bengle = MockBengle();
+      await bengle.onConnect();
       final state = await bengle.getLedStripState();
-      expect(state.frontStrip.sleeping, Color16.off);
-      expect(state.frontStrip.awake, Color16.off);
-      expect(state.backStrip.sleeping, Color16.off);
-      expect(state.backStrip.awake, Color16.off);
-      expect(state.frontSwitch.sleeping, Color16.off);
-      expect(state.frontSwitch.awake, Color16.off);
+      expect(state, isNotNull);
+      expect(state!.frontStrip.awake, const Color16(0xFF00, 0xF000, 0x8000));
+      expect(state.frontStrip.sleeping, const Color16(0x3000, 0x2000, 0x1000));
     });
 
     test(
       'setLedStrip stores and getLedStripState returns the same state',
       () async {
         final bengle = MockBengle();
+        await bengle.onConnect();
         final state = LedStripState(
           frontStrip: ZoneLedState(
             sleeping: const Color16(65535, 32768, 0),
@@ -37,13 +41,14 @@ void main() {
 
     test('ledStripState stream emits set values', () async {
       final bengle = MockBengle();
-      final emitted = <LedStripState>[];
+      final emitted = <LedStripState?>[];
       final sub = bengle.ledStripState.listen(emitted.add);
       addTearDown(sub.cancel);
 
-      await Future(() {});
-      expect(emitted, hasLength(1));
-      expect(emitted[0].frontStrip.sleeping, Color16.off);
+      await bengle.onConnect();
+      expect(emitted, isNotEmpty);
+      final hydrated = emitted.last;
+      expect(hydrated!.frontStrip.awake, isNot(Color16.off));
 
       await bengle.setLedStrip(
         const LedStripState(
@@ -57,46 +62,29 @@ void main() {
           ),
         ),
       );
-      expect(emitted, hasLength(2));
-      expect(emitted[1].frontStrip.sleeping, const Color16(128, 0, 0));
-      expect(emitted[1].backStrip.awake, const Color16(0, 255, 0));
-    });
-
-    test('commitLedStrip snapshots cache, resetLedStrip restores it', () async {
-      final bengle = MockBengle();
-      expect(await bengle.getLedStripState(), const LedStripState());
-
-      final state1 = LedStripState(
-        frontStrip: ZoneLedState(
-          sleeping: const Color16(65535, 0, 0),
-          awake: Color16.off,
-        ),
-      );
-      await bengle.setLedStrip(state1);
-      await bengle.commitLedStrip();
-
-      await bengle.setLedStrip(const LedStripState());
-
-      await bengle.resetLedStrip();
-      final after = await bengle.getLedStripState();
-      expect(after, state1);
+      expect(emitted.last!.frontStrip.sleeping, const Color16(128, 0, 0));
+      expect(emitted.last!.backStrip.awake, const Color16(0, 255, 0));
     });
 
     test(
-      'resetLedStrip without commit is a no-op (restores all-off)',
+      'commitLedStrip is a no-op and resetLedStrip keeps the state',
       () async {
         final bengle = MockBengle();
-        await bengle.setLedStrip(
-          LedStripState(
-            frontStrip: ZoneLedState(
-              sleeping: const Color16(65535, 0, 0),
-              awake: Color16.off,
-            ),
+        await bengle.onConnect();
+
+        final state1 = LedStripState(
+          frontStrip: ZoneLedState(
+            sleeping: const Color16(65535, 0, 0),
+            awake: Color16.off,
           ),
         );
-        await bengle.resetLedStrip();
-        final after = await bengle.getLedStripState();
-        expect(after, const LedStripState());
+        await bengle.setLedStrip(state1);
+        await bengle.commitLedStrip();
+
+        // The mock has no separate firmware copy: reset re-reads and returns
+        // the current state (write-through semantics).
+        final after = await bengle.resetLedStrip();
+        expect(after, state1);
       },
     );
   });

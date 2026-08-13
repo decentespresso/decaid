@@ -80,16 +80,14 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
   @override
   Future<double> getCupWarmerTemperature() async => _cupWarmerTemp;
 
-  final BehaviorSubject<LedStripState> _ledState =
-      BehaviorSubject<LedStripState>.seeded(const LedStripState());
-
-  LedStripState _committedLedState = const LedStripState();
+  final BehaviorSubject<LedStripState?> _ledState =
+      BehaviorSubject<LedStripState?>.seeded(null);
 
   @override
-  Stream<LedStripState> get ledStripState => _ledState.stream;
+  Stream<LedStripState?> get ledStripState => _ledState.stream;
 
   @override
-  Future<LedStripState> getLedStripState() async => _ledState.value;
+  Future<LedStripState?> getLedStripState() async => _ledState.value;
 
   @override
   Future<void> setLedStrip(LedStripState state) async {
@@ -97,14 +95,10 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
   }
 
   @override
-  Future<void> commitLedStrip() async {
-    _committedLedState = _ledState.value;
-  }
+  Future<void> commitLedStrip() async {}
 
   @override
-  Future<void> resetLedStrip() async {
-    _ledState.add(_committedLedState);
-  }
+  Future<LedStripState?> resetLedStrip() async => _ledState.value;
 
   final SimulatedShotWeightModel _weightModel = SimulatedShotWeightModel();
   final BehaviorSubject<ScaleSnapshot> _weight = BehaviorSubject();
@@ -189,8 +183,25 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
   @override
   Future<void> onConnect() async {
     if (_ledState.isClosed) {
-      _ledState.add(const LedStripState());
+      _ledState.add(null);
     }
+    // Simulate firmware hydration with a deterministic non-black palette.
+    _ledState.add(
+      const LedStripState(
+        frontStrip: ZoneLedState(
+          awake: Color16(0xFF00, 0xF000, 0x8000),
+          sleeping: Color16(0x3000, 0x2000, 0x1000),
+        ),
+        backStrip: ZoneLedState(
+          awake: Color16(0xFF00, 0xF000, 0x8000),
+          sleeping: Color16(0x3000, 0x2000, 0x1000),
+        ),
+        frontSwitch: ZoneLedState(
+          awake: Color16(0xFF00, 0xF000, 0x8000),
+          sleeping: Color16(0x3000, 0x2000, 0x1000),
+        ),
+      ),
+    );
     await super.onConnect();
     _weightModel.reset();
     _emit();

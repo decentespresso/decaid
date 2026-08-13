@@ -21,6 +21,7 @@ mixin BengleFirmwareProbe on UnifiedDe1 {
   /// True when the connected machine implements the post-0x00803880 Bengle
   /// MMR surface. False on old firmware (and, by default, on non-Bengle
   /// machines, which never call [probeBengleFirmwareSurface]).
+  @override
   bool get bengleFeatureSurfaceSupported => _bengleFeatureSurfaceSupported;
 
   /// Single bounded probe: one read of `ScaleCalWeight`, no retries. Any

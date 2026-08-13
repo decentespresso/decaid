@@ -275,7 +275,7 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   @override
   Future<void> commitLedStrip() async {}
   @override
-  Future<void> resetLedStrip() async {}
+  Future<LedStripState?> resetLedStrip() async => _led.value;
 
   @override
   bool get bengleFeatureSurfaceSupported => true;

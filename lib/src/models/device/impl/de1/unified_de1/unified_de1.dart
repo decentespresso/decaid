@@ -577,6 +577,12 @@ class UnifiedDe1 implements De1Interface {
   @protected
   Logger get log => _log;
 
+  /// True when the connected machine implements the post-0x00803880 Bengle
+  /// MMR surface; only meaningful for Bengle hardware (see
+  /// [BengleFirmwareProbe]).
+  @protected
+  bool get bengleFeatureSurfaceSupported => false;
+
   @protected
   Future<void> beforeFirmwareUpload() async {}
 

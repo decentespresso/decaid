@@ -450,8 +450,15 @@ paths:
       summary: Get LED strip configuration
       description: |
         Read the current LED strip configuration (all 3 zones × 2 modes)
-        from the in-memory cache. Returns 404 when the connected
-        machine is not a Bengle.
+        from the firmware-persisted palette registers. The state is
+        hydrated from the machine once per connection; if hydration has
+        not succeeded (no black is ever fabricated as authoritative
+        state), the endpoint answers 503. `frontSwitch` is not an
+        independent hardware control — it is derived from the front
+        strip palette exactly as the firmware derives the HV switch
+        colours (black falls back to the product defaults). Returns 404
+        when the connected machine is not a Bengle or its firmware
+        predates the post-0x00803880 MMR surface.
       tags: [Machine]
       responses:
         "200":
@@ -462,13 +469,18 @@ paths:
                 $ref: "#/components/schemas/LedStripState"
         "404":
           description: Machine connected but does not support LED strip
+        "503":
+          description: LED state unavailable (hydration failed or not yet complete)
     put:
       summary: Set LED strip configuration
       description: |
         Write a full LED strip configuration (all 3 zones × 2 modes).
-        Updates cache and pushes to FW live registers. Does NOT persist
-        to NVM — call `/commit` separately. Returns 404 when the
-        connected machine is not a Bengle.
+        `frontStrip` and `backStrip` are written write-through to the
+        firmware palette registers and persisted there immediately;
+        `frontSwitch` is ignored on write (derived hardware behavior, not
+        an independent control). There is no separate commit latch.
+        Returns 404 when the connected machine is not a Bengle or its
+        firmware predates the post-0x00803880 MMR surface.
       tags: [Machine]
       requestBody:
         required: true
@@ -478,7 +490,7 @@ paths:
               $ref: "#/components/schemas/LedStripState"
       responses:
         "200":
-          description: Configuration accepted
+          description: Configuration accepted and persisted
         "400":
           description: Invalid request body or malformed JSON
         "404":
@@ -490,11 +502,13 @@ paths:
 
   /api/v1/machine/ledStrip/commit:
     post:
-      summary: Commit LED strip config to NVM
+      summary: Commit LED strip config to NVM (compatibility no-op)
       description: |
-        Persist the current in-memory LED strip configuration to FW
-        non-volatile memory. The machine retains settings across power
-        cycles. Returns 404 when the connected machine is not a Bengle.
+        Palette writes are write-through and persisted by the firmware;
+        there is no separate commit latch. This endpoint is kept for API
+        compatibility and always answers 202 without side effects.
+        Returns 404 when the connected machine is not a Bengle or its
+        firmware predates the post-0x00803880 MMR surface.
       tags: [Machine]
       requestBody:
         required: true
@@ -505,7 +519,7 @@ paths:
               example: {}
       responses:
         "202":
-          description: Commit accepted
+          description: Commit accepted (no-op)
         "404":
           description: Machine connected but does not support LED strip
         "503":
@@ -515,12 +529,14 @@ paths:
 
   /api/v1/machine/ledStrip/reset:
     post:
-      summary: Reset LED strip cache from NVM
+      summary: Reload LED strip config from the firmware
       description: |
-        Reload the LED strip cache from FW non-volatile memory,
-        dropping any uncommitted changes. Returns the refreshed
-        configuration. Returns 404 when the connected machine is not
-        a Bengle.
+        Re-read the palette registers from the firmware and return the
+        refreshed configuration. This is a truthful reload, not a
+        rollback: the firmware cannot undo a persisted write. Returns
+        404 when the connected machine is not a Bengle or its firmware
+        predates the post-0x00803880 MMR surface; 503 when the firmware
+        read fails.
       tags: [Machine]
       requestBody:
         required: true
@@ -538,6 +554,8 @@ paths:
                 $ref: "#/components/schemas/LedStripState"
         "404":
           description: Machine connected but does not support LED strip
+        "503":
+          description: Machine disconnected mid-write and no replacement appeared within the bounded wait, or firmware read failed
         "503":
           description: Machine disconnected mid-write and no replacement appeared within the bounded wait
         "500":
@@ -5103,13 +5121,17 @@ components:
       properties:
         frontStrip:
           $ref: "#/components/schemas/ZoneLedState"
-          description: Front LED strip (both sleeping and awake colours)
+          description: Front LED strip palette (persisted in firmware; applied on awake/sleep)
         backStrip:
           $ref: "#/components/schemas/ZoneLedState"
-          description: Back LED strip (both sleeping and awake colours)
+          description: Back LED strip palette (persisted in firmware; applied on awake/sleep)
         frontSwitch:
           $ref: "#/components/schemas/ZoneLedState"
-          description: Front switch LED (both sleeping and awake colours)
+          description: |
+            Derived read-only palette for the HV front switch. There is no
+            independent switch register: the firmware derives these from
+            the front strip, substituting product defaults when the strip
+            colour is black. Ignored on write.
 
     ZoneLedState:
       type: object

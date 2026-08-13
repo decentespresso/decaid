@@ -31,6 +31,10 @@ class FakeBleTransport extends BLETransport {
   final Map<String, Queue<Uint8List>> _readQueue = {};
   final Queue<Uint8List> _firmwareMapResponses = Queue<Uint8List>();
 
+  /// MMR addresses whose reads fail fast with an exception (simulates a
+  /// transport error on those registers).
+  final Set<int> failMmrReadsForAddresses = {};
+
   final List<FakeBleWrite> writes = [];
 
   int dropNextMmrResponses = 0;
@@ -145,6 +149,17 @@ class FakeBleTransport extends BLETransport {
 
     if (characteristicUUID != Endpoint.readFromMMR.uuid) return;
     if (data.length < 4) return;
+    for (final addr in failMmrReadsForAddresses) {
+      final bytes = ByteData(4)..setInt32(0, addr, Endian.big);
+      if (bytes.getUint8(1) == data[1] &&
+          bytes.getUint8(2) == data[2] &&
+          bytes.getUint8(3) == data[3]) {
+        throw StateError(
+          'simulated MMR read failure for 0x'
+          '${addr.toRadixString(16)}',
+        );
+      }
+    }
     if (dropNextMmrResponses > 0) {
       dropNextMmrResponses--;
       return;
