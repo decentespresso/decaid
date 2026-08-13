@@ -238,7 +238,6 @@ class SummarizeFlutterTestsTest(unittest.TestCase):
                     [events, "--max-active-ms", "20000"]
                 )
         self.assertEqual(exit_code, 0)
-        # Gate mode suppresses the markdown summary.
         self.assertFalse(os.path.exists(summary_path))
 
     def test_active_time_limit_fails_when_a_suite_is_over(self):

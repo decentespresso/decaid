@@ -171,6 +171,16 @@ temporary real-hardware tuning builds where debug endpoints must be reachable.
 
 **Note (App Store):** `com.apple.security.temporary-exception.mach-lookup.global-name` is not permitted in Mac App Store builds. Any future `APP_STORE=true` macOS build must drop the Sparkle keys/entitlements and keep self-update disabled.
 
+## Footgun #5: iOS file picker returns unreadable security-scoped folders
+
+**Symptom:** On iOS, installing a plugin (or importing a de1app folder, skin live-edit, data restore) via the file picker fails with `PathAccessException: Directory listing failed ... (OS Error: Operation not permitted, errno = 1)`. The picked path lives under `Mobile Documents/com~apple~CloudDocs/...` (iCloud Drive) or another app's sandbox — outside our container.
+
+**Root cause:** `FilePicker.getDirectoryPath()` uses `UIDocumentPickerModeOpen`, which hands the app a *security-scoped* URL. Reading it requires `startAccessingSecurityScopedResource()`, which file_picker never calls — it only returns `url.path`. The app has no `UIFileSharingEnabled`/iCloud entitlement, so its own Documents folder is not browsable in Files either.
+
+**Fix (PR #609):** `SecurityScopedFilePlugin` (`ios/Runner/AppDelegate.swift`, channel `com.reaprime/security_scoped`) calls `startAccessingSecurityScopedResource` on the reconstructed URL and retains it until Dart releases it. `SecurityScopedFileService` (Dart) wraps every `getDirectoryPath` pick site: plugin install, de1app import, skin live-edit, data restore. The service auto-releases the previously held folder on the next pick, keeping the native registry bounded; `stopAccessing` releases explicitly (plugin install releases after the staged copy). Access is deliberately held for the session for long-lived flows (skin live-edit serves the folder over HTTP on demand).
+
+**Impact:** iOS only; the channel is a no-op elsewhere (`Platform.isIOS` guard). Do not add new `FilePicker.getDirectoryPath()` consumers without routing them through `SecurityScopedFileService`.
+
 ## CLI Parameters
 
 The app supports several command-line flags for headless/calibration-station use. See PR #349 and #352 for full details.

@@ -18,12 +18,6 @@ import UIKit
   }
 }
 
-/// Grants temporary read access to directories picked through the iOS
-/// document picker. file_picker's getDirectoryPath uses
-/// UIDocumentPickerModeOpen, which returns security-scoped URLs: the app
-/// must call startAccessingSecurityScopedResource and keep the URL alive
-/// while it reads the contents. Dart calls startAccessing before copying
-/// the directory and stopAccessing afterwards.
 class SecurityScopedFilePlugin: NSObject, FlutterPlugin {
   private static var active: [String: URL] = [:]
 
