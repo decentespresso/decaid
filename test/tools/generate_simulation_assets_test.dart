@@ -153,9 +153,9 @@ void main() {
   final regenerate = Platform.environment['REGEN_SIM_ASSETS'] == '1';
 
   test('bundled simulation assets parse into ShotRecords', () {
-    final manifest = jsonDecode(
-      File('$outputDir/manifest.json').readAsStringSync(),
-    ) as Map<String, dynamic>;
+    final manifest =
+        jsonDecode(File('$outputDir/manifest.json').readAsStringSync())
+            as Map<String, dynamic>;
     final files = <String>[
       ...(manifest['fallback'] as List).map((e) => e['file'] as String),
       ...(manifest['profiles'] as List).map((e) => e['file'] as String),
@@ -298,8 +298,9 @@ void main() {
     }
 
     File('$outputDir/manifest.json').writeAsStringSync(
-      const JsonEncoder.withIndent('  ')
-          .convert({'fallback': fallback, 'profiles': profiles}),
+      const JsonEncoder.withIndent(
+        '  ',
+      ).convert({'fallback': fallback, 'profiles': profiles}),
     );
   }, skip: regenerate ? false : 'set REGEN_SIM_ASSETS=1 to rebuild assets');
 }

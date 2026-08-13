@@ -6,6 +6,7 @@ import 'package:reaprime/src/models/device/impl/simulated_shot_weight_model.dart
 import 'package:reaprime/src/models/device/led_strip.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/scale.dart';
+import 'package:reaprime/src/models/device/scale_calibration.dart';
 import 'package:reaprime/src/models/device/simulated_device.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:rxdart/rxdart.dart';
@@ -20,6 +21,54 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
 
   @override
   DeviceImplementation get implementation => DeviceImplementation.bengle;
+
+  @override
+  bool get bengleFeatureSurfaceSupported => true;
+
+  ScaleCalibrationState _calState = const ScaleCalibrationState(
+    step: ScaleCalibrationStep.idle,
+    detectedCell: ScaleCalibrationCell.none,
+    subState: ScaleCalibrationSubState.settling,
+    secondsRemaining: 0,
+    status: ScaleCalibrationStatus.none,
+  );
+
+  @override
+  Future<ScaleCalibrationState> getScaleCalibrationState() async => _calState;
+
+  @override
+  Future<bool> startScaleCalibration(
+    ScaleCalibrationCommand command, {
+    double? weightGrams,
+  }) async {
+    switch (command) {
+      case ScaleCalibrationCommand.abort:
+        _calState = const ScaleCalibrationState(
+          step: ScaleCalibrationStep.idle,
+          detectedCell: ScaleCalibrationCell.none,
+          subState: ScaleCalibrationSubState.settling,
+          secondsRemaining: 0,
+          status: ScaleCalibrationStatus.none,
+        );
+      case ScaleCalibrationCommand.zero:
+        _calState = const ScaleCalibrationState(
+          step: ScaleCalibrationStep.zeroing,
+          detectedCell: ScaleCalibrationCell.none,
+          subState: ScaleCalibrationSubState.settling,
+          secondsRemaining: 15,
+          status: ScaleCalibrationStatus.none,
+        );
+      case ScaleCalibrationCommand.latch:
+        _calState = const ScaleCalibrationState(
+          step: ScaleCalibrationStep.calLatch,
+          detectedCell: ScaleCalibrationCell.none,
+          subState: ScaleCalibrationSubState.settling,
+          secondsRemaining: 15,
+          status: ScaleCalibrationStatus.none,
+        );
+    }
+    return true;
+  }
 
   double _cupWarmerTemp = 0.0;
 

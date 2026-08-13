@@ -17,6 +17,7 @@ import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/led_strip.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/scale.dart';
+import 'package:reaprime/src/models/device/scale_calibration.dart';
 import 'package:reaprime/src/models/device/scan_filter.dart';
 import 'package:reaprime/src/services/storage/storage_service.dart';
 import 'package:rxdart/rxdart.dart';
@@ -67,6 +68,25 @@ class _TestBengle extends TestDe1 implements BengleInterface {
   Stream<bool> get probeAttached => const Stream.empty();
   @override
   Stream<double> get probeTemperature => const Stream.empty();
+
+  @override
+  bool get bengleFeatureSurfaceSupported => true;
+
+  @override
+  Future<ScaleCalibrationState> getScaleCalibrationState() async =>
+      const ScaleCalibrationState(
+        step: ScaleCalibrationStep.idle,
+        detectedCell: ScaleCalibrationCell.none,
+        subState: ScaleCalibrationSubState.settling,
+        secondsRemaining: 0,
+        status: ScaleCalibrationStatus.none,
+      );
+
+  @override
+  Future<bool> startScaleCalibration(
+    ScaleCalibrationCommand command, {
+    double? weightGrams,
+  }) async => true;
 }
 
 class _FakeDiscoveryService extends DeviceDiscoveryService {

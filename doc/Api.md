@@ -56,13 +56,15 @@ For browser clients on a different origin, `ETag` is exposed via `Access-Control
 | POST | `/api/v1/machine/firmware/apply` | Managed firmware apply: resolve, validate, upload | `firmware_handler.dart` |
 | — | USB charger | Controlled via `POST /api/v1/machine/settings` with `{"usb": "enable"}` or `{"usb": "disable"}` | |
 | POST | `/api/v1/machine/waterLevels` | Update water level threshold | |
-| GET | `/api/v1/machine/capabilities` | List capability identifiers (`cupWarmer`, `integratedScale`, `ledStrip`, `stopAtWeight`) supported by the connected machine | |
+| GET | `/api/v1/machine/capabilities` | List capability identifiers (`cupWarmer`, `integratedScale`, `ledStrip`, `stopAtWeight`, plus `scaleCalibration`/`preheat`/`wakeSchedule` on current firmware) supported by the connected machine | |
 | GET | `/api/v1/machine/cupWarmer` | Read cup-warmer setpoint in whole °C (1 °C resolution) — Bengle only, 404 elsewhere | |
 | PUT | `/api/v1/machine/cupWarmer` | Set cup-warmer setpoint in whole °C (range 0–80, 1 °C steps, `0` = off) — Bengle only | |
 | GET | `/api/v1/machine/ledStrip` | Read full LED strip config (3 zones × 2 modes, 16-bit RGB) — Bengle only | |
 | PUT | `/api/v1/machine/ledStrip` | Write full LED strip config (cache + FW live registers) — Bengle only | |
 | POST | `/api/v1/machine/ledStrip/commit` | Persist LED config to FW NVM — Bengle only | |
 | POST | `/api/v1/machine/ledStrip/reset` | Reload LED config from FW NVM, return refreshed state — Bengle only | |
+| GET | `/api/v1/machine/scaleCalibration` | Read decoded scale-calibration state (step, cell, sub-state, seconds remaining, status) — Bengle only, 404 elsewhere | |
+| PUT | `/api/v1/machine/scaleCalibration` | Start `zero`/`latch`/`abort` calibration step (`weightGrams` 1–10000 required for `latch`); 202 accepted / 409 rejected (busy or shot in progress) — Bengle only | |
 
 #### Firmware updates
 

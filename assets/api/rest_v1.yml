@@ -542,6 +542,71 @@ paths:
           description: Machine disconnected mid-write and no replacement appeared within the bounded wait
         "500":
           description: No machine was ever connected
+  /api/v1/machine/scaleCalibration:
+    get:
+      summary: Get scale-calibration state
+      description: |
+        Read the current load-cell calibration procedure state for the
+        integrated scale (Bengle only, firmware MMR rows 39-41). The
+        firmware packs step, detected cell, sub-state, seconds remaining
+        and calibration status into one register; this endpoint decodes
+        it. Returns 404 when the connected machine is not a Bengle or
+        its firmware predates the post-0x00803880 MMR surface.
+      tags: [Machine]
+      responses:
+        "200":
+          description: Current calibration state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScaleCalibrationState"
+        "404":
+          description: Machine connected but does not support scale calibration
+        "500":
+          description: No machine was ever connected
+    put:
+      summary: Start a scale-calibration step
+      description: |
+        Start one firmware calibration step. `command` is `zero`
+        (precision zero), `latch` (isolated-cell gain latch with the
+        platform removed and a known mass on either load cell; the
+        firmware auto-detects the cell, run once per cell) or `abort`.
+        `weightGrams` is required for `latch` (1..10000 g, fractional
+        grams allowed). The firmware stages commands asynchronously and
+        rejects them while the cal machine is busy or a shot is in
+        progress; a rejected command leaves the step unchanged and
+        answers 409. Quick tare is deliberately not exposed here — use
+        the integrated-scale tare path. Returns 404 when the connected
+        machine is not a Bengle or its firmware predates the
+        post-0x00803880 MMR surface.
+      tags: [Machine]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScaleCalibrationCommandRequest"
+      responses:
+        "202":
+          description: Command accepted, returns the new state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScaleCalibrationAccepted"
+        "400":
+          description: Malformed JSON, unknown command, or invalid weightGrams
+        "404":
+          description: Machine connected but does not support scale calibration
+        "409":
+          description: Command rejected (machine busy or shot in progress), returns the current state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScaleCalibrationRejected"
+        "503":
+          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+        "500":
+          description: No machine was ever connected
   /api/v1/machine/settings:
     get:
       summary: Get machine settings
@@ -4993,14 +5058,31 @@ components:
             `cupWarmer`, `integratedScale`, `ledStrip`, and
             `stopAtWeight` (autonomous in-FW stop-at-weight driven by
             the integrated scale; the app reflects
-            `WorkflowContext.targetYield` into the SAW MMR). Future
-            Bengle peripherals will append their identifiers as they
-            ship. Note: the milk-probe scaffolding lives in `/sensors`,
-            not here.
+            `WorkflowContext.targetYield` into the SAW MMR). When the
+            connected firmware implements the post-0x00803880 MMR surface
+            (probed once per connection), `scaleCalibration`, `preheat`
+            and `wakeSchedule` are appended. Note: the milk-probe
+            scaffolding lives in `/sensors`, not here.
           items:
             type: string
-            enum: [cupWarmer, integratedScale, ledStrip, stopAtWeight]
-          example: [cupWarmer, integratedScale, ledStrip, stopAtWeight]
+            enum: [
+              cupWarmer,
+              integratedScale,
+              ledStrip,
+              stopAtWeight,
+              scaleCalibration,
+              preheat,
+              wakeSchedule,
+            ]
+          example: [
+            cupWarmer,
+            integratedScale,
+            ledStrip,
+            stopAtWeight,
+            scaleCalibration,
+            preheat,
+            wakeSchedule,
+          ]
 
     CupWarmerState:
       type: object
@@ -5051,6 +5133,77 @@ components:
         preferred, case-insensitive). Missing / non-hex / wrong length
         → treated as black (`000000000000`).
       example: FFFF80000000
+
+    ScaleCalibrationState:
+      type: object
+      required: [step, detectedCell, subState, secondsRemaining, status]
+      properties:
+        step:
+          type: string
+          enum: [idle, zeroing, calLatch, taring, complete, error]
+          description: Firmware procedure step
+        detectedCell:
+          type: string
+          enum: [none, a, b]
+          description: Load cell detected by the last successful latch
+        subState:
+          type: string
+          enum: [settling, averaging, done, error]
+          description: Phase within the current step
+        secondsRemaining:
+          type: integer
+          description: Seconds left in the current settle/average phase
+        status:
+          type: string
+          enum: [
+            ok,
+            incomplete,
+            noZero,
+            notSettled,
+            badWeight,
+            badDelta,
+            illConditioned,
+            outOfRange,
+            notIsolated,
+            none,
+          ]
+          description: Result of the last latch attempt (`none` = in progress / not attempted)
+
+    ScaleCalibrationCommandRequest:
+      type: object
+      required: [command]
+      properties:
+        command:
+          type: string
+          enum: [abort, zero, latch]
+        weightGrams:
+          type: number
+          minimum: 1
+          maximum: 10000
+          description: Known calibration mass (grams), required for `latch`; fractional grams are preserved
+
+    ScaleCalibrationAccepted:
+      type: object
+      required: [status, state]
+      properties:
+        status:
+          type: string
+          enum: [accepted]
+        state:
+          $ref: "#/components/schemas/ScaleCalibrationState"
+
+    ScaleCalibrationRejected:
+      type: object
+      required: [status, reason, state]
+      properties:
+        status:
+          type: string
+          enum: [rejected]
+        reason:
+          type: string
+          description: machine busy or shot in progress
+        state:
+          $ref: "#/components/schemas/ScaleCalibrationState"
 
     MachineStateError:
       type: object

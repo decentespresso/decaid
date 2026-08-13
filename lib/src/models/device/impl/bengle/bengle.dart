@@ -12,7 +12,11 @@ import 'package:reaprime/src/models/errors.dart';
 import 'package:rxdart/rxdart.dart';
 
 class Bengle extends UnifiedDe1
-    with IntegratedScaleCapability, LedStripCapability, BengleFirmwareProbe
+    with
+        IntegratedScaleCapability,
+        LedStripCapability,
+        BengleFirmwareProbe,
+        ScaleCalibrationCapability
     implements BengleInterface {
   Bengle({required super.transport});
 

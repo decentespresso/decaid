@@ -45,6 +45,9 @@ class De1Handler {
             'ledStrip',
             'stopAtWeight',
           ]);
+          if (de1.bengleFeatureSurfaceSupported) {
+            caps.addAll(['scaleCalibration', 'preheat', 'wakeSchedule']);
+          }
         }
         return jsonOk({'capabilities': caps});
       });
@@ -150,6 +153,71 @@ class De1Handler {
         await de1.resetLedStrip();
         final state = await de1.getLedStripState();
         return jsonOk(state.toJson());
+      }, retryOnReplacement: true);
+    });
+
+    app.get('/api/v1/machine/scaleCalibration', (Request _) async {
+      return withDe1((de1) async {
+        final gate = _bengleSurfaceGate(de1);
+        if (gate != null) return gate;
+        final state = await (de1 as BengleInterface).getScaleCalibrationState();
+        return jsonOk(state.toJson());
+      });
+    });
+
+    app.put('/api/v1/machine/scaleCalibration', (Request r) async {
+      final dynamic json;
+      try {
+        json = jsonDecode(await r.readAsString());
+      } catch (e) {
+        return jsonBadRequest({'error': 'Invalid JSON body'});
+      }
+      if (json is! Map || json['command'] == null) {
+        return jsonBadRequest({'error': 'command required'});
+      }
+      final ScaleCalibrationCommand command;
+      switch (json['command']) {
+        case 'abort':
+          command = ScaleCalibrationCommand.abort;
+        case 'zero':
+          command = ScaleCalibrationCommand.zero;
+        case 'latch':
+          command = ScaleCalibrationCommand.latch;
+        default:
+          return jsonBadRequest({
+            'error': 'command must be one of abort, zero, latch',
+          });
+      }
+      double? weightGrams;
+      if (command == ScaleCalibrationCommand.latch) {
+        final weight = json['weightGrams'];
+        if (weight is! num || !weight.isFinite) {
+          return jsonBadRequest({'error': 'weightGrams required for latch'});
+        }
+        weightGrams = weight.toDouble();
+        if (weightGrams < 1 || weightGrams > 10000) {
+          return jsonBadRequest({
+            'error': 'weightGrams must be 1..10000 grams',
+          });
+        }
+      }
+      return withQueuedDe1((de1) async {
+        final gate = _bengleSurfaceGate(de1);
+        if (gate != null) return gate;
+        final bengle = de1 as BengleInterface;
+        final accepted = await bengle.startScaleCalibration(
+          command,
+          weightGrams: weightGrams,
+        );
+        final state = await bengle.getScaleCalibrationState();
+        if (accepted) {
+          return jsonAccepted({'status': 'accepted', 'state': state.toJson()});
+        }
+        return jsonConflict({
+          'status': 'rejected',
+          'reason': 'machine busy or shot in progress',
+          'state': state.toJson(),
+        });
       }, retryOnReplacement: true);
     });
 
@@ -375,6 +443,23 @@ class De1Handler {
     } catch (e, st) {
       return jsonError({'error': e.toString(), 'st': st.toString()});
     }
+  }
+
+  /// Returns an error response when the connected machine is not a Bengle
+  /// or its firmware predates the rows-39+ MMR surface; null when the
+  /// surface is usable.
+  Response? _bengleSurfaceGate(De1Interface de1) {
+    if (de1 is! BengleInterface) {
+      return jsonNotFound({'error': 'scaleCalibration not supported'});
+    }
+    if (!de1.bengleFeatureSurfaceSupported) {
+      return jsonNotFound({
+        'error':
+            'scaleCalibration requires Bengle firmware with the '
+            'post-0x00803880 MMR surface',
+      });
+    }
+    return null;
   }
 
   Future<Response> withQueuedDe1(

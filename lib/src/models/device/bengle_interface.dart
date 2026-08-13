@@ -1,8 +1,22 @@
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/led_strip.dart';
 import 'package:reaprime/src/models/device/scale.dart';
+import 'package:reaprime/src/models/device/scale_calibration.dart';
 
 abstract class BengleInterface extends De1Interface {
+  /// True when the connected firmware implements the post-0x00803880 MMR
+  /// surface (scale calibration, LED palette, cup-warmer mode/temperature,
+  /// preheat, wake schedule). Detected once per connection; old firmware
+  /// reports false and all surface endpoints answer "not supported".
+  bool get bengleFeatureSurfaceSupported;
+
+  Future<ScaleCalibrationState> getScaleCalibrationState();
+
+  Future<bool> startScaleCalibration(
+    ScaleCalibrationCommand command, {
+    double? weightGrams,
+  });
+
   Future<void> setCupWarmerTemperature(double celsius);
 
   Future<double> getCupWarmerTemperature();

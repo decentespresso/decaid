@@ -24,6 +24,8 @@ class FakeBleTransport extends BLETransport {
 
   final Map<int, int> _intResponses = {};
 
+  final Map<int, Queue<int>> _intResponseQueues = {};
+
   final Map<int, List<int>> _rawResponses = {};
 
   final Map<String, Queue<Uint8List>> _readQueue = {};
@@ -35,6 +37,12 @@ class FakeBleTransport extends BLETransport {
 
   void queueMmrResponseInt(MmrAddress item, int value) {
     _intResponses[item.address] = value;
+  }
+
+  /// Queue multiple responses for repeated reads of the same address, in
+  /// FIFO order (the one-shot [_intResponses] map can only serve one).
+  void queueMmrResponseIntSequence(MmrAddress item, List<int> values) {
+    _intResponseQueues.putIfAbsent(item.address, Queue.new).addAll(values);
   }
 
   void queueMmrResponseRaw(MmrAddress item, List<int> payload) {
@@ -170,6 +178,33 @@ class FakeBleTransport extends BLETransport {
         scheduleMicrotask(() => cb(resp));
       }
       return;
+    }
+
+    // Serve queued sequences first (FIFO per address) so repeated reads of
+    // the same register can return different values.
+    for (final addr in _intResponseQueues.keys) {
+      final bytes = ByteData(4)..setInt32(0, addr, Endian.big);
+      if (bytes.getUint8(1) == addrMid1 &&
+          bytes.getUint8(2) == addrMid2 &&
+          bytes.getUint8(3) == addrLow) {
+        final queue = _intResponseQueues[addr]!;
+        if (queue.isNotEmpty) {
+          final value = queue.removeFirst();
+          if (queue.isEmpty) _intResponseQueues.remove(addr);
+          final resp = Uint8List(20);
+          final view = ByteData.sublistView(resp);
+          view.setUint8(0, data[0]);
+          view.setUint8(1, addrMid1);
+          view.setUint8(2, addrMid2);
+          view.setUint8(3, addrLow);
+          view.setInt32(4, value, Endian.little);
+          final cb = subscribers[Endpoint.readFromMMR.uuid];
+          if (cb != null) {
+            scheduleMicrotask(() => cb(resp));
+          }
+          return;
+        }
+      }
     }
 
     int? matchedAddr;

@@ -16,6 +16,7 @@ import 'package:reaprime/src/models/device/impl/simulated_shot_weight_model.dart
 import 'package:reaprime/src/models/device/led_strip.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/scale.dart';
+import 'package:reaprime/src/models/device/scale_calibration.dart';
 import 'package:reaprime/src/models/device/simulated_device.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/services/simulated_shot_library.dart';
@@ -275,6 +276,25 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   Future<void> commitLedStrip() async {}
   @override
   Future<void> resetLedStrip() async {}
+
+  @override
+  bool get bengleFeatureSurfaceSupported => true;
+
+  @override
+  Future<ScaleCalibrationState> getScaleCalibrationState() async =>
+      const ScaleCalibrationState(
+        step: ScaleCalibrationStep.idle,
+        detectedCell: ScaleCalibrationCell.none,
+        subState: ScaleCalibrationSubState.settling,
+        secondsRemaining: 0,
+        status: ScaleCalibrationStatus.none,
+      );
+
+  @override
+  Future<bool> startScaleCalibration(
+    ScaleCalibrationCommand command, {
+    double? weightGrams,
+  }) async => true;
 
   double _stopAtTemp = 0.0;
   final BehaviorSubject<double> _stopAtTempSubject = BehaviorSubject.seeded(
