@@ -45,7 +45,7 @@ void main() {
   Matcher permissionError(String permission) => throwsA(
     predicate(
       (error) =>
-          error.toString().contains('PluginPermissionError') &&
+          error.toString().contains('requires manifest permission') &&
           error.toString().contains(permission),
     ),
   );
@@ -61,6 +61,9 @@ void main() {
     });
 
     await load({PluginPermissions.log}, 'host.log("allowed");');
+
+    // The log record is delivered through an async bridge channel.
+    await Future<void>.delayed(const Duration(milliseconds: 50));
 
     expect(
       records.any(
