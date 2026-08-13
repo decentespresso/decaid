@@ -56,7 +56,7 @@ class De1Handler {
           return jsonNotFound({'error': 'cupWarmer not supported'});
         }
         final t = await de1.getCupWarmerTemperature();
-        return jsonOk({'temperature': t});
+        return jsonOk({'temperature': t.toInt()});
       });
     });
 
@@ -70,10 +70,17 @@ class De1Handler {
       if (json is! Map || json['temperature'] == null) {
         return jsonBadRequest({'error': 'temperature required'});
       }
-      final t = parseDouble(json['temperature']);
-      if (t < 0.0 || t > 80.0) {
-        return jsonBadRequest({'error': 'temperature out of range 0.0-80.0'});
+      final temperature = json['temperature'];
+      if (temperature is! num ||
+          !temperature.isFinite ||
+          temperature < 0 ||
+          temperature > 80 ||
+          temperature != temperature.truncate()) {
+        return jsonBadRequest({
+          'error': 'temperature must be a whole degree from 0 to 80',
+        });
       }
+      final t = temperature.toDouble();
       return withQueuedDe1((de1) async {
         if (de1 is! BengleInterface) {
           return jsonNotFound({'error': 'cupWarmer not supported'});

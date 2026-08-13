@@ -57,8 +57,8 @@ For browser clients on a different origin, `ETag` is exposed via `Access-Control
 | — | USB charger | Controlled via `POST /api/v1/machine/settings` with `{"usb": "enable"}` or `{"usb": "disable"}` | |
 | POST | `/api/v1/machine/waterLevels` | Update water level threshold | |
 | GET | `/api/v1/machine/capabilities` | List capability identifiers (`cupWarmer`, `integratedScale`, `ledStrip`, `stopAtWeight`) supported by the connected machine | |
-| GET | `/api/v1/machine/cupWarmer` | Read cup-warmer setpoint °C — Bengle only, 404 elsewhere | |
-| PUT | `/api/v1/machine/cupWarmer` | Set cup-warmer setpoint °C (range 0.0–80.0, `0.0` = off) — Bengle only | |
+| GET | `/api/v1/machine/cupWarmer` | Read cup-warmer setpoint in whole °C (1 °C resolution) — Bengle only, 404 elsewhere | |
+| PUT | `/api/v1/machine/cupWarmer` | Set cup-warmer setpoint in whole °C (range 0–80, 1 °C steps, `0` = off) — Bengle only | |
 | GET | `/api/v1/machine/ledStrip` | Read full LED strip config (3 zones × 2 modes, 16-bit RGB) — Bengle only | |
 | PUT | `/api/v1/machine/ledStrip` | Write full LED strip config (cache + FW live registers) — Bengle only | |
 | POST | `/api/v1/machine/ledStrip/commit` | Persist LED config to FW NVM — Bengle only | |

@@ -407,7 +407,8 @@ paths:
     get:
       summary: Get cup-warmer setpoint
       description: |
-        Read the current cup-warmer mat target temperature in °C.
+        Read the current cup-warmer mat target temperature in whole °C,
+        with 1 °C resolution.
         Returns 404 when the connected machine is not a Bengle.
       tags: [Machine]
       responses:
@@ -422,10 +423,9 @@ paths:
     put:
       summary: Set cup-warmer setpoint
       description: |
-        Set the cup-warmer mat target temperature in °C. Range
-        `0.0`–`80.0`; `0.0` turns the mat off (there is no separate
-        enable flag). Out-of-range values return 400; the app does not
-        rely on FW-side clamping so callers see immediate feedback.
+        Set the cup-warmer mat target temperature in whole °C. Range
+        `0`–`80` in 1 °C steps; `0` turns the mat off (there is no separate
+        enable flag). Fractional or out-of-range values return 400.
         Returns 404 when the connected machine is not a Bengle.
       tags: [Machine]
       requestBody:
@@ -438,7 +438,7 @@ paths:
         "200":
           description: Setpoint accepted
         "400":
-          description: Temperature missing or out of range 0.0–80.0, or malformed JSON
+          description: Temperature missing, fractional, out of range 0–80, or malformed JSON
         "404":
           description: Machine connected but does not support cup warmer
         "503":
@@ -4897,14 +4897,14 @@ components:
       required: [temperature]
       properties:
         temperature:
-          type: number
-          format: float
-          minimum: 0.0
-          maximum: 80.0
+          type: integer
+          minimum: 0
+          maximum: 80
           description: |
-            Cup-warmer mat target temperature in °C. `0.0` turns the
-            mat off — there is no separate enable flag.
-          example: 60.0
+            Cup-warmer mat target temperature in whole °C, with 1 °C
+            resolution. `0` turns the mat off — there is no separate
+            enable flag.
+          example: 60
 
     LedStripState:
       type: object

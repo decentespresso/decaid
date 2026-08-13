@@ -98,7 +98,8 @@ void main() {
       final res = await get('/api/v1/machine/cupWarmer');
       expect(res.statusCode, 200);
       final body = jsonDecode(await res.readAsString());
-      expect(body['temperature'], 0.0);
+      expect(body['temperature'], isA<int>());
+      expect(body['temperature'], 0);
     });
 
     test(
@@ -130,6 +131,12 @@ void main() {
     test('400 on negative temperature', () async {
       await wireWith(MockBengle());
       final res = await put('/api/v1/machine/cupWarmer', {'temperature': -5});
+      expect(res.statusCode, 400);
+    });
+
+    test('400 on fractional temperature', () async {
+      await wireWith(MockBengle());
+      final res = await put('/api/v1/machine/cupWarmer', {'temperature': 60.5});
       expect(res.statusCode, 400);
     });
 
