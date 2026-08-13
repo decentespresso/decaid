@@ -126,12 +126,12 @@ minimum 1 g). Old firmware never responds → `MmrTimeoutException` →
 1. **Schedule translation** (documented in `wake_schedule_sync`):
    - Enabled schedule with `keepAwakeFor=N` → window `[start, start+N)`.
    - Enabled schedule without `keepAwakeFor` → window
-     `[start, start + sleepTimeoutMinutes)` when sleep timeout > 0 (matches
-     app post-wake sleep-timer behavior; firmware wakes + sleeps at close
-     when unattended). When sleep timeout is 0 (disabled) such schedules are
-     NOT pushed to firmware (a firmware window would end and auto-sleep a
-     machine the user configured to never auto-sleep); the app still wakes on
-     them while connected.
+     `[start, start + 240)` — 240 min is the firmware's maximum
+     `InactivitySleepTimeout` value, i.e. the longest awake stretch the
+     firmware can represent. Product decision (confirmed 2026-02-14): a
+     schedule without an explicit keep-awake means "wake for the day", so
+     the firmware keeps the machine awake the maximum supported time.
+     Midnight crossing still splits app-side.
    - Midnight-crossing windows are split app-side into `[start, 1440)` on day
      D + `[0, end)` on day D+1 (firmware rejects `start >= end`).
    - Dart weekday (Mon=1..Sun=7) → firmware dow (`weekday % 7`).
