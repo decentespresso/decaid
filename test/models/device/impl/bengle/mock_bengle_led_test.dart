@@ -35,7 +35,11 @@ void main() {
         );
         await bengle.setLedStrip(state);
         final read = await bengle.getLedStripState();
-        expect(read, state);
+        expect(read!.frontStrip, state.frontStrip);
+        expect(read.backStrip, state.backStrip);
+        // The switch palette is derived from the front strip, never
+        // independent (mirrors the firmware).
+        expect(read.frontSwitch, state.frontStrip);
       },
     );
 
@@ -84,7 +88,9 @@ void main() {
         // The mock has no separate firmware copy: reset re-reads and returns
         // the current state (write-through semantics).
         final after = await bengle.resetLedStrip();
-        expect(after, state1);
+        expect(after!.frontStrip, state1.frontStrip);
+        // Black front awake derives the default warm-white switch colour.
+        expect(after.frontSwitch.awake, const Color16(0xFF00, 0xF000, 0xC800));
       },
     );
   });

@@ -154,7 +154,30 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
 
   @override
   Future<void> setLedStrip(LedStripState state) async {
-    _ledState.add(state);
+    // Mirror the firmware: the switch palette is derived from the front
+    // strip (black falls back to the product defaults), never independent.
+    ZoneLedState derive(ZoneLedState strip, int defaultRgb) {
+      Color16 fallback(int rgb) => Color16(
+        ((rgb >> 16) & 0xFF) << 8,
+        ((rgb >> 8) & 0xFF) << 8,
+        (rgb & 0xFF) << 8,
+      );
+
+      return ZoneLedState(
+        awake: strip.awake == Color16.off ? fallback(0xFFF0C8) : strip.awake,
+        sleeping: strip.sleeping == Color16.off
+            ? fallback(0x555043)
+            : strip.sleeping,
+      );
+    }
+
+    _ledState.add(
+      LedStripState(
+        frontStrip: state.frontStrip,
+        backStrip: state.backStrip,
+        frontSwitch: derive(state.frontStrip, 0),
+      ),
+    );
   }
 
   @override
