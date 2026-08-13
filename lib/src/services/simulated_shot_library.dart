@@ -65,9 +65,9 @@ class SimulatedShotLibrary {
   Future<void> ensureLoaded() async {
     if (_loaded) return;
     try {
-      final manifest = jsonDecode(
-        await _bundle.loadString(manifestPath),
-      ) as Map<String, dynamic>;
+      final manifest =
+          jsonDecode(await _bundle.loadString(manifestPath))
+              as Map<String, dynamic>;
       final dir = manifestPath.substring(0, manifestPath.lastIndexOf('/') + 1);
 
       for (final entry in (manifest['fallback'] as List? ?? [])) {

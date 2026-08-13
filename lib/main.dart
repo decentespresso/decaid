@@ -177,8 +177,9 @@ void main(List<String> args) async {
 
   final appDocsPath = (await getApplicationDocumentsDirectory()).path;
 
-  RotatingFileAppender(baseFilePath: '$appDocsPath/log.txt')
-      .attachToLogger(Logger.root);
+  RotatingFileAppender(
+    baseFilePath: '$appDocsPath/log.txt',
+  ).attachToLogger(Logger.root);
 
   final webViewLogDir = appDocsPath;
   final webViewLogService = WebViewLogService(logDirectoryPath: webViewLogDir);
