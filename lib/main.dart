@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse, AppExitType;
+
 import 'package:collection/collection.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:path_provider/path_provider.dart';
@@ -82,7 +83,9 @@ import 'src/settings/update_dialog.dart';
 import 'src/services/serial/serial_service.dart';
 
 import 'package:firebase_core/firebase_core.dart';
+
 import 'firebase_options.dart';
+
 import 'package:reaprime/src/services/telemetry/telemetry_service.dart';
 import 'package:reaprime/src/services/telemetry/boot_timing.dart';
 import 'package:reaprime/src/services/telemetry/log_buffer.dart';
@@ -174,9 +177,8 @@ void main(List<String> args) async {
 
   final appDocsPath = (await getApplicationDocumentsDirectory()).path;
 
-  RotatingFileAppender(
-    baseFilePath: '$appDocsPath/log.txt',
-  ).attachToLogger(Logger.root);
+  RotatingFileAppender(baseFilePath: '$appDocsPath/log.txt')
+      .attachToLogger(Logger.root);
 
   final webViewLogDir = appDocsPath;
   final webViewLogService = WebViewLogService(logDirectoryPath: webViewLogDir);

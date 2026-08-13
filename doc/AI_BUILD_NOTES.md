@@ -77,6 +77,16 @@ falls back to it for steam / hot water / flush (running a
 `skipStep` seeks the replay to the next recorded frame; without a positive
 target the shot ends at the recording's real endpoint.
 
+### Replay profile matching
+
+`SimulatedShotLibrary.forProfileTitle` matches on a normalized key, most
+specific first: the whole title, then its last path segment (bundled titles are
+`prefix/name` — community shots `author/name`, Decent titles `category/name`, so
+the trailing segment is the profile's real name). Canonical (full-title) matches
+always win. A last-segment alias is only registered when it is unambiguous (one
+recording claims it) and does not collide with a canonical title — this is what
+keeps a generic segment like `default` from hijacking a distinct profile.
+
 ### Replay corpus generation
 
 `test/tools/generate_simulation_assets_test.dart` (run with

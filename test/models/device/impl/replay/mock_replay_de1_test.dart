@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/device/impl/replay/mock_replay_de1.dart';
@@ -224,6 +226,42 @@ void main() {
         weights.any((w) => w > 0.5),
         isTrue,
         reason: 'hot water should accumulate integrated-scale weight',
+      );
+    });
+
+    test('autonomous stop-at-weight terminates hot water at target', () async {
+      final machine = MockReplayDe1(library: library);
+      await machine.onConnect();
+      await machine.setStopAtWeightTarget(2);
+
+      var poured = false;
+      double lastWeight = 0;
+      final stopped = Completer<double>();
+      final weightSub = machine.weightSnapshot.listen(
+        (s) => lastWeight = s.weight,
+      );
+      final stateSub = machine.currentSnapshot.listen((s) {
+        if (s.state.substate == MachineSubstate.pouring) poured = true;
+        if (poured &&
+            s.state.state == MachineState.idle &&
+            !stopped.isCompleted) {
+          stopped.complete(lastWeight);
+        }
+      });
+
+      await machine.requestState(MachineState.hotWater);
+      final stopWeight = await stopped.future.timeout(
+        const Duration(seconds: 20),
+      );
+
+      await weightSub.cancel();
+      await stateSub.cancel();
+      await machine.disconnect();
+
+      expect(
+        stopWeight,
+        greaterThanOrEqualTo(2),
+        reason: 'hot water must run until the integrated scale reaches target',
       );
     });
 

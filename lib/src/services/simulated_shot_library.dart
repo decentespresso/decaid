@@ -5,9 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
 
-/// A bundled recording and the profile it was recorded with (null for
-/// fallback shots). [originalDurationSeconds] is the recording's real endpoint
-/// before the stop-at-weight tail extension.
+/// [originalDurationSeconds] is the recording's real endpoint, before the
+/// stop-at-weight tail extension.
 class SimulatedShot {
   const SimulatedShot(
     this.record,
@@ -22,7 +21,6 @@ class SimulatedShot {
   String get id => record.id;
 }
 
-/// Bundled corpus of recorded shots the replay simulator plays back.
 class SimulatedShotLibrary {
   SimulatedShotLibrary({
     AssetBundle? bundle,
@@ -54,8 +52,6 @@ class SimulatedShotLibrary {
     return null;
   }
 
-  /// The recording's real endpoint (before the tail extension) for the shot
-  /// with this id, or null.
   double? originalDurationOf(String id) {
     for (final entry in _catalog) {
       if (entry.id == id) return entry.originalDurationSeconds;
@@ -69,9 +65,9 @@ class SimulatedShotLibrary {
   Future<void> ensureLoaded() async {
     if (_loaded) return;
     try {
-      final manifest =
-          jsonDecode(await _bundle.loadString(manifestPath))
-              as Map<String, dynamic>;
+      final manifest = jsonDecode(
+        await _bundle.loadString(manifestPath),
+      ) as Map<String, dynamic>;
       final dir = manifestPath.substring(0, manifestPath.lastIndexOf('/') + 1);
 
       for (final entry in (manifest['fallback'] as List? ?? [])) {
@@ -95,8 +91,7 @@ class SimulatedShotLibrary {
           }
         }
       }
-      // An alias is only usable when it is unambiguous (one recording) and does
-      // not shadow a canonical title; canonical titles always win.
+      // Alias usable only when unambiguous and not shadowing a canonical title.
       _aliasCandidates.forEach((alias, shots) {
         if (shots.length == 1 && !_byCanonical.containsKey(alias)) {
           _byAlias[alias] = shots.single;
@@ -129,8 +124,6 @@ class SimulatedShotLibrary {
     return pool[(random ?? Random()).nextInt(pool.length)];
   }
 
-  /// The profile-matched shot for [profileTitle] when available, otherwise a
-  /// random fallback.
   ShotRecord? pickForProfile(String? profileTitle, [Random? random]) =>
       forProfileTitle(profileTitle) ?? pickRandom(random);
 
@@ -145,9 +138,6 @@ class SimulatedShotLibrary {
     }
   }
 
-  /// Normalized match keys for a profile title, most specific first: the whole
-  /// title, then (for `prefix/name` titles — community shots are `author/name`,
-  /// Decent titles `category/name`) the last segment.
   static List<String> _matchKeys(String title) {
     final full = _normalize(title);
     final alias = _lastSegment(title);

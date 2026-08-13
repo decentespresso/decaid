@@ -20,8 +20,6 @@ import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/services/simulated_shot_library.dart';
 import 'package:rxdart/subjects.dart';
 
-/// A simulated device that replays a real recorded shot, matched to the
-/// selected profile when possible. See `doc/AI_BUILD_NOTES.md`.
 class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   MockReplayDe1({required SimulatedShotLibrary library, Random? random})
     : _library = library,
@@ -46,8 +44,6 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   double _replayWeightGrams = 0.0;
   double _originalDurationSeconds = 0.0;
 
-  /// Integrated-scale weight model used whenever espresso replay is inactive
-  /// (idle / hot water / flush), mirroring MockBengle's integrated scale.
   final SimulatedShotWeightModel _weightModel = SimulatedShotWeightModel();
 
   double _sawTarget = 0.0;
@@ -79,7 +75,13 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
       _weightModel
         ..targetVolumeCountStart = _synthetic.targetVolumeCountStart
         ..ingest(s);
-      _emitWeight(_weightModel.weight);
+      final weight = _weightModel.weight;
+      _emitWeight(weight);
+      if (_sawTarget > 0.0 &&
+          _state == MachineState.hotWater &&
+          weight >= _sawTarget) {
+        unawaited(requestState(MachineState.idle));
+      }
     });
     _timer ??= Timer.periodic(
       const Duration(milliseconds: 100),
@@ -115,8 +117,6 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
 
   @override
   Future<void> requestState(MachineState newState) async {
-    // skipStep during replay seeks to the next recorded frame; the shot stays
-    // in espresso rather than ending.
     if (newState == MachineState.skipStep && _replayer != null) {
       _seekToNextFrame();
       return;
