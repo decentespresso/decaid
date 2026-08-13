@@ -218,6 +218,68 @@ class SummarizeFlutterTestsTest(unittest.TestCase):
         self.assertEqual(report["tests"], [])
         self.assertIn("Unavailable", markdown)
 
+    def test_active_time_limit_passes_when_all_suites_are_under(self):
+        lines = [
+            _event("start"),
+            _suite(0, "test/quick_test.dart"),
+            _test_start(1, 0, "first", 100),
+            _test_done(1, 2000),
+            _event("done", success=True),
+        ]
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            events = os.path.join(temporary_directory, "events.json")
+            with open(events, "w", encoding="utf-8") as events_file:
+                events_file.write("\n".join(lines))
+            summary_path = os.path.join(temporary_directory, "summary.md")
+            with mock.patch.dict(
+                os.environ, {"GITHUB_STEP_SUMMARY": summary_path}, clear=False
+            ):
+                exit_code = summarize_flutter_tests.main(
+                    [events, "--max-active-ms", "20000"]
+                )
+        self.assertEqual(exit_code, 0)
+        # Gate mode suppresses the markdown summary.
+        self.assertFalse(os.path.exists(summary_path))
+
+    def test_active_time_limit_fails_when_a_suite_is_over(self):
+        lines = [
+            _event("start"),
+            _suite(0, "test/slow_test.dart"),
+            _test_start(1, 0, "first", 100),
+            _test_done(1, 21000),
+            _event("done", success=True),
+        ]
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            events = os.path.join(temporary_directory, "events.json")
+            with open(events, "w", encoding="utf-8") as events_file:
+                events_file.write("\n".join(lines))
+            with mock.patch.dict(
+                os.environ, {"GITHUB_STEP_SUMMARY": ""}, clear=False
+            ):
+                exit_code = summarize_flutter_tests.main(
+                    [events, "--max-active-ms", "20000"]
+                )
+        self.assertEqual(exit_code, 1)
+
+    def test_active_time_limit_ignores_timing_unavailable_files(self):
+        lines = [
+            _event("start"),
+            _suite(0, "test/no_timing_test.dart"),
+            _test_start(1, 0, "passes", 100),
+            _event("done", success=True),
+        ]
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            events = os.path.join(temporary_directory, "events.json")
+            with open(events, "w", encoding="utf-8") as events_file:
+                events_file.write("\n".join(lines))
+            with mock.patch.dict(
+                os.environ, {"GITHUB_STEP_SUMMARY": ""}, clear=False
+            ):
+                exit_code = summarize_flutter_tests.main(
+                    [events, "--max-active-ms", "20000"]
+                )
+        self.assertEqual(exit_code, 0)
+
     def test_reporting_error_does_not_replace_the_flutter_exit_status(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             summary_path = os.path.join(temporary_directory, "summary.md")

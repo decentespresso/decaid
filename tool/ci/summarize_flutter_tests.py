@@ -174,6 +174,14 @@ def _escape(value):
     )
 
 
+def suites_over_limit(report, max_active_ms):
+    return [
+        item
+        for item in report["files"]
+        if (item["active_ms"] or 0) > max_active_ms
+    ]
+
+
 def render_summary(report):
     result = {True: "Passed", False: "Failed"}.get(report["run_success"], "Unknown")
     lines = [
@@ -260,10 +268,20 @@ def _write_summary(markdown):
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("events", type=Path)
+    parser.add_argument(
+        "--max-active-ms",
+        type=int,
+        default=None,
+        help=(
+            "Gate mode: exit 1 when any test file's active time exceeds "
+            "this many ms. Suppresses the markdown summary."
+        ),
+    )
     args = parser.parse_args(argv)
     try:
         with args.events.open(encoding="utf-8", errors="replace") as events:
-            markdown = render_summary(parse_events(events))
+            report = parse_events(events)
+        markdown = render_summary(report)
     except Exception as error:
         message = _escape(error)
         markdown = (
@@ -272,6 +290,26 @@ def main(argv=None):
             "The Flutter test step exit status remains authoritative.\n"
         )
         print(f"Flutter timing summary unavailable: {error}", file=sys.stderr)
+        report = None
+
+    if args.max_active_ms is not None:
+        if report is None:
+            return 0
+        offenders = suites_over_limit(report, args.max_active_ms)
+        if offenders:
+            print(
+                f"{len(offenders)} test suite(s) exceed the "
+                f"{args.max_active_ms} ms active-time limit:",
+                file=sys.stderr,
+            )
+            for item in offenders:
+                print(
+                    f"  {item['path']}: {_format_duration(item['active_ms'])}",
+                    file=sys.stderr,
+                )
+            return 1
+        return 0
+
     try:
         _write_summary(markdown)
     except OSError as error:

@@ -243,6 +243,14 @@ jobs:
             flutter test --no-pub --machine | \
             tee build/test-results/flutter-events.json
 
+      - name: Gate slow test suites
+        if: ${{ success() && hashFiles('build/test-results/flutter-events.json') != '' }}
+        shell: bash
+        run: |
+          python3 tool/ci/summarize_flutter_tests.py \
+            build/test-results/flutter-events.json \
+            --max-active-ms 20000
+
       - name: Summarize Flutter tests
         if: ${{ always() && hashFiles('build/test-results/flutter-events.json') != '' }}
         continue-on-error: true
