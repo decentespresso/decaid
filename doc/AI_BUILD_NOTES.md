@@ -59,11 +59,43 @@ target the `BengleSawBridge` pushes). It does NOT extend `MockDe1`: it
 *composes* one, delegating the De1Interface surface to it and falling back to it
 for steam / hot water / flush. `MockDe1`/`MockScale` are untouched.
 
-Replay is **opt-in**: `simulate=1` expands to the default set only and never
-enables it. To force a specific recording (instead of profile match) use the
-debug API: `GET /api/v1/debug/replay/shots` to list stable ids,
+Replay is **opt-in**: `simulate=1` expands to the default set only (see
+`_defaultSimulatedDevices` in `main.dart`) and never enables it. To force a
+specific recording (instead of profile match) use the debug API:
+`GET /api/v1/debug/replay/shots` to list stable ids,
 `POST /api/v1/debug/replay/shot/{id}` to force one, `DELETE
 /api/v1/debug/replay/shot` to clear (session-only).
+
+`MockReplayDe1` implements `BengleInterface`, so it is one device that is both
+machine and integrated scale (the connection manager wraps its `weightSnapshot`
+as a `BengleVirtualScale`). Target weight uses the autonomous stop-at-weight
+path (the `ShotSequencer` bypasses its SAW for `BengleInterface`; the
+`BengleSawBridge` pushes the target; the device stops itself). It does NOT
+extend `MockDe1`: it composes one, delegates the De1Interface surface to it, and
+falls back to it for steam / hot water / flush (running a
+`SimulatedShotWeightModel` for the integrated scale when replay is inactive).
+`skipStep` seeks the replay to the next recorded frame; without a positive
+target the shot ends at the recording's real endpoint.
+
+### Replay corpus generation
+
+`test/tools/generate_simulation_assets_test.dart` (run with
+`REGEN_SIM_ASSETS=1`) converts `tool/simulation_sources/**.shot` into the
+`assets/simulations/` corpus:
+
+- **10 Hz resample** — de1app records at ~5 Hz; MockDe1 streams at 100 ms, so the
+  recorded head is resampled to a uniform 10 Hz grid (continuous channels
+  interpolated; discrete state/frame carried from the sample at or before each
+  grid point).
+- **Frame reconstruction** — `TclShotParser` yields empty-step profiles, so
+  `profileFrame` is rebuilt from the recorded `espresso_state_change` markers
+  (frame advances each time the marker changes).
+- **Tail extension** — each recording is extended to ~2.5 min with a steady-state
+  1 Hz tail (held pressure/flow/temperature, weight rising at the final pour
+  rate) so stop-at-weight has data for any target past the recorded final
+  weight. `manifest.json` records each recording's original (pre-tail) duration.
+- A placeholder `Replay` profile step is injected so `ShotRecord.fromJson`
+  round-trips; replay drives telemetry from samples, not the profile.
 
 The corpus lives in `assets/simulations/` (`manifest.json` maps profile titles
 to shot files). Profile-matched shots were pulled from visualizer.coffee, one

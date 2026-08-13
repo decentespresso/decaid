@@ -40,6 +40,22 @@ void main() {
       expect(library.forProfileTitle('ADAPTIVE-V2')?.id, a?.id);
     });
 
+    test(
+      'canonical titles are not shadowed by slash-segment aliases',
+      () async {
+        final library = SimulatedShotLibrary();
+        await library.ensureLoaded();
+
+        // "D-Flow / default" registers the alias "default"; it must not shadow
+        // the canonical "Default" profile.
+        expect(library.forProfileTitle('Default')?.id, 'sim-Default1');
+        expect(
+          library.forProfileTitle('D-Flow / default')?.id,
+          'sim-D-Flow____default',
+        );
+      },
+    );
+
     test('forProfileTitle is null for an unmatched profile', () async {
       final library = SimulatedShotLibrary();
       await library.ensureLoaded();

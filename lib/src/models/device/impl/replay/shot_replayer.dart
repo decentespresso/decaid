@@ -38,6 +38,21 @@ class ShotReplayer {
   WeightSnapshot? scaleAt(double elapsedSeconds) =>
       _measurements[_indexAt(elapsedSeconds)].scale;
 
+  /// Elapsed time of the first sample whose profile frame is greater than the
+  /// frame active at [elapsedSeconds], or null if none remains. Used to seek a
+  /// replayed shot forward on `skipStep`.
+  double? nextFrameBoundaryAfter(double elapsedSeconds) {
+    final currentFrame =
+        _measurements[_indexAt(elapsedSeconds)].machine.profileFrame;
+    for (var i = 0; i < _measurements.length; i++) {
+      if (_elapsedSeconds[i] > elapsedSeconds &&
+          _measurements[i].machine.profileFrame > currentFrame) {
+        return _elapsedSeconds[i];
+      }
+    }
+    return null;
+  }
+
   int _indexAt(double elapsedSeconds) {
     var index = 0;
     for (var i = 0; i < _elapsedSeconds.length; i++) {

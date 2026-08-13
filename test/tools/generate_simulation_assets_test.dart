@@ -1,31 +1,41 @@
 import 'dart:convert';
+import 'dart:math';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
+import 'package:reaprime/src/import/parsers/tcl_parser.dart';
 import 'package:reaprime/src/import/parsers/tcl_shot_parser.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
 import 'package:reaprime/src/models/data/shot_snapshot.dart';
 
-/// The DE1 reports at ~5 Hz through de1app and the source shots inherit that
-/// irregular cadence. MockDe1 streams at 100 ms, so the recordings are
-/// resampled onto a uniform 10 Hz grid here (linear interpolation of the
-/// continuous channels; the discrete state/frame carried from the sample at or
-/// before each grid point) so replay draws smoothly.
+List<ShotSnapshot> _withFrames(List<ShotSnapshot> m, dynamic stateChange) {
+  if (stateChange is! List || stateChange.length < 2) return m;
+  final markers = stateChange
+      .map((e) => double.tryParse(e.toString()) ?? 0.0)
+      .toList();
+  var frame = 0;
+  final out = <ShotSnapshot>[];
+  for (var i = 0; i < m.length; i++) {
+    if (i > 0 && i < markers.length && markers[i] != markers[i - 1]) frame++;
+    out.add(m[i].copyWith(machine: m[i].machine.copyWith(profileFrame: frame)));
+  }
+  return out;
+}
+
+double _durationSeconds(List<ShotSnapshot> m) =>
+    m.last.machine.timestamp
+        .difference(m.first.machine.timestamp)
+        .inMilliseconds /
+    1000.0;
+
 const _resampleMs = 100;
 
-/// Each recording is extrapolated to this length so there is always enough
-/// tail for stop-at-weight to reach any realistic target yield, even one past
-/// the recorded shot's final weight.
 const _targetDurationSeconds = 150.0;
 
 double _lerp(double a, double b, double f) => a + (b - a) * f;
 
-/// Continue a recording to [seconds] by holding its end-state pressure/flow/
-/// temperature and keeping weight rising at the final pour rate, so a replayed
-/// shot has data for any target weight. Shots already at least this long
-/// (e.g. long filter pours) are returned unchanged.
 List<ShotSnapshot> _extendTo(List<ShotSnapshot> src, double seconds) {
   if (src.length < 2) return src;
   final origin = src.first.machine.timestamp;
@@ -45,9 +55,6 @@ List<ShotSnapshot> _extendTo(List<ShotSnapshot> src, double seconds) {
   final end = src.last.machine;
   var weight = src.last.scale?.weight ?? 0.0;
   final out = <ShotSnapshot>[...src];
-  // The tail is steady-state (constant pressure/flow, linearly rising weight),
-  // so 1 Hz keeps the asset small while giving per-second weight resolution —
-  // ample for stop-at-weight. The recorded head stays 10 Hz for smooth replay.
   const dt = 1.0;
   for (var t = lastElapsed + dt; t <= seconds + 1e-9; t += dt) {
     weight += rate * dt;
@@ -139,24 +146,6 @@ List<ShotSnapshot> _resampleTo10Hz(List<ShotSnapshot> src) {
   return out;
 }
 
-/// Guards — and, on demand, regenerates — the bundled simulator replay corpus.
-///
-/// Two sources feed `assets/simulations/`, both converted through decaid's own
-/// [TclShotParser] and resampled to 10 Hz:
-///   - `tool/simulation_sources/*.shot` — de1app sample shots, the generic
-///     fallback pool.
-///   - `tool/simulation_sources/profiles/*.shot` — real shots pulled from
-///     visualizer.coffee, one per bundled profile (filename == the bundled
-///     profile's filename stem). These let replay pick a recording made with
-///     the currently selected profile. Each carries its `profile_title`.
-///
-/// The `manifest.json` records the fallback files and the profile-matched
-/// files with their profile titles, so [SimulatedShotLibrary] can pick by
-/// profile with a random fallback.
-///
-/// By default this only asserts the committed assets still parse (safe in CI).
-/// To rebuild the assets after changing the sources, run:
-///   REGEN_SIM_ASSETS=1 flutter test test/tools/generate_simulation_assets_test.dart
 void main() {
   const sourceDir = 'tool/simulation_sources';
   const profileDir = 'tool/simulation_sources/profiles';
@@ -168,7 +157,7 @@ void main() {
         jsonDecode(File('$outputDir/manifest.json').readAsStringSync())
             as Map<String, dynamic>;
     final files = <String>[
-      ...(manifest['fallback'] as List).cast<String>(),
+      ...(manifest['fallback'] as List).map((e) => e['file'] as String),
       ...(manifest['profiles'] as List).map((e) => e['file'] as String),
     ];
     expect(files, isNotEmpty);
@@ -177,14 +166,8 @@ void main() {
         jsonDecode(File('$outputDir/$file').readAsStringSync())
             as Map<String, dynamic>,
       );
-      expect(
-        shot.measurements,
-        isNotEmpty,
-        reason: '$file has no measurements',
-      );
-      // Extended to ~2.5 min with a rising weight tail, so stop-at-weight has
-      // enough data for any realistic target yield.
       final m = shot.measurements;
+      expect(m, isNotEmpty, reason: '$file has no measurements');
       final duration = m.last.machine.timestamp
           .difference(m.first.machine.timestamp)
           .inSeconds;
@@ -198,10 +181,29 @@ void main() {
         greaterThanOrEqualTo(60),
         reason: '$file final weight too low for large targets',
       );
+      // Profile frames must progress monotonically (never regress).
+      for (var i = 1; i < m.length; i++) {
+        expect(
+          m[i].machine.profileFrame,
+          greaterThanOrEqualTo(m[i - 1].machine.profileFrame),
+          reason: '$file frame regressed at $i',
+        );
+      }
     }
     for (final entry in (manifest['profiles'] as List)) {
       expect((entry['profileTitle'] as String).isNotEmpty, isTrue);
+      expect(entry['originalDurationSeconds'], isA<num>());
     }
+    // The multi-step D-Flow recording must have reconstructed non-zero frames.
+    final dflow = ShotRecord.fromJson(
+      jsonDecode(File('$outputDir/D-Flow____default.json').readAsStringSync())
+          as Map<String, dynamic>,
+    );
+    expect(
+      dflow.measurements.map((m) => m.machine.profileFrame).reduce(max),
+      greaterThan(0),
+      reason: 'D-Flow frames were not reconstructed',
+    );
   });
 
   test(
@@ -209,14 +211,19 @@ void main() {
     () {
       Directory(outputDir).createSync(recursive: true);
 
-      String convert(File source) {
+      (String, double) convert(File source) {
         final stem = source.uri.pathSegments.last.replaceAll('.shot', '');
-        final parsed = TclShotParser.parse(source.readAsStringSync());
+        final content = source.readAsStringSync();
+        final map = TclParser.parse(content);
+        final parsed = TclShotParser.parse(content);
+        final framed = _withFrames(
+          parsed.shot.measurements,
+          map['espresso_state_change'],
+        );
+        final resampled = _resampleTo10Hz(framed);
+        final originalDuration = _durationSeconds(resampled);
         final shot = parsed.shot.copyWith(
-          measurements: _extendTo(
-            _resampleTo10Hz(parsed.shot.measurements),
-            _targetDurationSeconds,
-          ),
+          measurements: _extendTo(resampled, _targetDurationSeconds),
         );
 
         final json = shot.toJson();
@@ -224,11 +231,6 @@ void main() {
         final workflow = json['workflow'];
         if (workflow is Map) {
           workflow['id'] = 'sim-$stem-workflow';
-          // TclShotParser leaves the profile step list empty (it does not
-          // reconstruct the advanced_shot frames). Replay drives telemetry from
-          // the recorded samples, not the profile, but ShotRecord.fromJson
-          // requires a non-empty step list. Inject one representative step built
-          // from the recorded frame-0 targets so the asset round-trips.
           final first = shot.measurements.first.machine;
           final durationSeconds =
               shot.measurements.last.machine.timestamp
@@ -260,7 +262,7 @@ void main() {
         // Compact (unindented) — these are generated, machine-read data files;
         // indentation would roughly double the bundled size.
         File('$outputDir/$stem.json').writeAsStringSync(jsonEncode(json));
-        return '$stem.json';
+        return ('$stem.json', originalDuration);
       }
 
       List<File> shotsIn(String dir) => Directory(dir).existsSync()
@@ -274,12 +276,12 @@ void main() {
 
       final fallbackSources = shotsIn(sourceDir);
       expect(fallbackSources, isNotEmpty, reason: 'no fallback .shot sources');
-      final fallback = fallbackSources.map(convert).toList();
+      final fallback = fallbackSources.map((s) {
+        final (file, original) = convert(s);
+        return {'file': file, 'originalDurationSeconds': original};
+      }).toList();
 
-      // The profile source filename stem matches the bundled profile's
-      // filename stem; use that bundled profile's canonical title (not the
-      // recorded shot's raw, possibly author-prefixed title) as the match key.
-      final profiles = <Map<String, String>>[];
+      final profiles = <Map<String, dynamic>>[];
       for (final source in shotsIn(profileDir)) {
         final stem = source.uri.pathSegments.last.replaceAll('.shot', '');
         final bundledProfile = File('assets/defaultProfiles/$stem.json');
@@ -288,10 +290,12 @@ void main() {
                       as Map<String, dynamic>)['title']
                   as String
             : TclShotParser.parse(source.readAsStringSync()).shot.workflow.name;
+        final (file, original) = convert(source);
         profiles.add({
-          'file': convert(source),
+          'file': file,
           'profileTitle': title,
           'profileFile': '$stem.json',
+          'originalDurationSeconds': original,
         });
       }
 

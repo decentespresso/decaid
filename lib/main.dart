@@ -119,7 +119,6 @@ Future<void> _setSystemInfoKeys(TelemetryService telemetryService) async {
   }
 }
 
-/// `simulate=1` set. Replay is opt-in (`simulate=replay`), so it is excluded.
 const _defaultSimulatedDevices = <SimulatedDevicesTypes>{
   SimulatedDevicesTypes.machine,
   SimulatedDevicesTypes.scale,

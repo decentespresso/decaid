@@ -1,79 +1,102 @@
 {
   "fallback": [
-    "simulated_1.json",
-    "simulated_2.json",
-    "simulated_3.json"
+    {
+      "file": "simulated_1.json",
+      "originalDurationSeconds": 29.8
+    },
+    {
+      "file": "simulated_2.json",
+      "originalDurationSeconds": 33.3
+    },
+    {
+      "file": "simulated_3.json",
+      "originalDurationSeconds": 29.7
+    }
   ],
   "profiles": [
     {
       "file": "Classic_Italian_espresso.json",
       "profileTitle": "Classic Italian espresso",
-      "profileFile": "Classic_Italian_espresso.json"
+      "profileFile": "Classic_Italian_espresso.json",
+      "originalDurationSeconds": 27.5
     },
     {
       "file": "D-Flow____default.json",
       "profileTitle": "D-Flow / default",
-      "profileFile": "D-Flow____default.json"
+      "profileFile": "D-Flow____default.json",
+      "originalDurationSeconds": 29.4
     },
     {
       "file": "Damian_s_LM_Leva.json",
       "profileTitle": "Damian's LM Leva",
-      "profileFile": "Damian_s_LM_Leva.json"
+      "profileFile": "Damian_s_LM_Leva.json",
+      "originalDurationSeconds": 39.1
     },
     {
       "file": "Damian_s_LRv2.json",
       "profileTitle": "Damian's LRv2",
-      "profileFile": "Damian_s_LRv2.json"
+      "profileFile": "Damian_s_LRv2.json",
+      "originalDurationSeconds": 31.0
     },
     {
       "file": "Damian_s_LRv3.json",
       "profileTitle": "Damian's LRv3",
-      "profileFile": "Damian_s_LRv3.json"
+      "profileFile": "Damian_s_LRv3.json",
+      "originalDurationSeconds": 27.9
     },
     {
       "file": "Default1.json",
       "profileTitle": "Default",
-      "profileFile": "Default1.json"
+      "profileFile": "Default1.json",
+      "originalDurationSeconds": 36.8
     },
     {
       "file": "Extractamundo_Dos.json",
       "profileTitle": "Extractamundo Dos!",
-      "profileFile": "Extractamundo_Dos.json"
+      "profileFile": "Extractamundo_Dos.json",
+      "originalDurationSeconds": 23.2
     },
     {
       "file": "Flow_profile_for_milky_drinks.json",
       "profileTitle": "Flow profile for milky drinks",
-      "profileFile": "Flow_profile_for_milky_drinks.json"
+      "profileFile": "Flow_profile_for_milky_drinks.json",
+      "originalDurationSeconds": 24.7
     },
     {
       "file": "Gentle_and_sweet1.json",
       "profileTitle": "Gentle and sweet",
-      "profileFile": "Gentle_and_sweet1.json"
+      "profileFile": "Gentle_and_sweet1.json",
+      "originalDurationSeconds": 24.3
     },
     {
       "file": "Londonium.json",
       "profileTitle": "Londonium",
-      "profileFile": "Londonium.json"
+      "profileFile": "Londonium.json",
+      "originalDurationSeconds": 33.5
     },
     {
       "file": "Two_spring_lever_machine_to_9_bar.json",
       "profileTitle": "Two spring lever machine to 9 bar",
-      "profileFile": "Two_spring_lever_machine_to_9_bar.json"
+      "profileFile": "Two_spring_lever_machine_to_9_bar.json",
+      "originalDurationSeconds": 33.2
     },
     {
       "file": "best_practice.json",
       "profileTitle": "Adaptive v2",
-      "profileFile": "best_practice.json"
+      "profileFile": "best_practice.json",
+      "originalDurationSeconds": 23.5
     },
     {
       "file": "cremina.json",
       "profileTitle": "Cremina lever machine",
-      "profileFile": "cremina.json"
+      "profileFile": "cremina.json",
+      "originalDurationSeconds": 25.6
     },
     {
       "file": "filter3.json",
       "profileTitle": "Filter3",
-      "profileFile": "filter3.json"
+      "profileFile": "filter3.json",
+      "originalDurationSeconds": 274.9
     }
   ]
 }

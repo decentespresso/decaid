@@ -179,6 +179,78 @@ void main() {
       expect(machine.selectedShotId, isNull);
     });
 
+    test(
+      'skipStep advances the replay frame instead of ending the shot',
+      () async {
+        final machine = MockReplayDe1(library: library);
+        await machine.setProfile(_profile('D-Flow / default'));
+        await machine.onConnect();
+        await machine.requestState(MachineState.espresso);
+
+        await machine.currentSnapshot
+            .firstWhere(
+              (s) =>
+                  s.state.substate == MachineSubstate.pouring &&
+                  s.profileFrame == 0,
+            )
+            .timeout(const Duration(seconds: 5));
+        await machine.requestState(MachineState.skipStep);
+
+        final advanced = await machine.currentSnapshot
+            .firstWhere(
+              (s) =>
+                  s.state.state == MachineState.espresso && s.profileFrame >= 1,
+            )
+            .timeout(const Duration(seconds: 5));
+        await machine.disconnect();
+
+        expect(advanced.profileFrame, greaterThanOrEqualTo(1));
+      },
+    );
+
+    test('the integrated scale produces weight during hot water', () async {
+      final machine = MockReplayDe1(library: library);
+      await machine.onConnect();
+      await machine.requestState(MachineState.hotWater);
+
+      final weights = await machine.weightSnapshot
+          .map((s) => s.weight)
+          .take(50)
+          .toList()
+          .timeout(const Duration(seconds: 8));
+      await machine.disconnect();
+
+      expect(
+        weights.any((w) => w > 0.5),
+        isTrue,
+        reason: 'hot water should accumulate integrated-scale weight',
+      );
+    });
+
+    test(
+      'without a target, replay ends at the recording, not the tail',
+      () async {
+        final machine = MockReplayDe1(library: library);
+        await machine.setProfile(_profile('Extractamundo Dos!'));
+        await machine.onConnect();
+        await machine.requestState(MachineState.espresso);
+
+        final start = DateTime.now();
+        await machine.currentSnapshot
+            .firstWhere((s) => s.state.state == MachineState.idle)
+            .timeout(const Duration(seconds: 50));
+        final elapsed = DateTime.now().difference(start).inSeconds;
+        await machine.disconnect();
+
+        expect(
+          elapsed,
+          lessThan(60),
+          reason: 'should end near the ~23s recording, not the ~150s tail',
+        );
+        expect(elapsed, greaterThan(15), reason: 'should play the recording');
+      },
+    );
+
     test('steam falls back to synthetic device telemetry', () async {
       final machine = MockReplayDe1(library: library);
       await machine.onConnect();

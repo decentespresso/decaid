@@ -11,6 +11,7 @@ import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/firmware_update_state.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/models/device/impl/replay/shot_replayer.dart';
+import 'package:reaprime/src/models/device/impl/simulated_shot_weight_model.dart';
 import 'package:reaprime/src/models/device/led_strip.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/scale.dart';
@@ -20,9 +21,7 @@ import 'package:reaprime/src/services/simulated_shot_library.dart';
 import 'package:rxdart/subjects.dart';
 
 /// A simulated device that replays a real recorded shot, matched to the
-/// selected profile when possible. See the archived design doc for how it is
-/// wired (single `BengleInterface` machine + integrated scale, composing a
-/// [MockDe1] for non-espresso behaviour).
+/// selected profile when possible. See `doc/AI_BUILD_NOTES.md`.
 class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   MockReplayDe1({required SimulatedShotLibrary library, Random? random})
     : _library = library,
@@ -45,6 +44,11 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   ShotReplayer? _replayer;
   DateTime _replayStartedAt = DateTime.now();
   double _replayWeightGrams = 0.0;
+  double _originalDurationSeconds = 0.0;
+
+  /// Integrated-scale weight model used whenever espresso replay is inactive
+  /// (idle / hot water / flush), mirroring MockBengle's integrated scale.
+  final SimulatedShotWeightModel _weightModel = SimulatedShotWeightModel();
 
   double _sawTarget = 0.0;
   final BehaviorSubject<double> _sawTargetSubject = BehaviorSubject.seeded(0.0);
@@ -70,7 +74,12 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   Future<void> onConnect() async {
     await _synthetic.onConnect();
     _syntheticSub = _synthetic.currentSnapshot.listen((s) {
-      if (_replayer == null) _snapshots.add(s);
+      if (_replayer != null) return;
+      _snapshots.add(s);
+      _weightModel
+        ..targetVolumeCountStart = _synthetic.targetVolumeCountStart
+        ..ingest(s);
+      _emitWeight(_weightModel.weight);
     });
     _timer ??= Timer.periodic(
       const Duration(milliseconds: 100),
@@ -96,6 +105,8 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
     await _snapshots.close();
     await _weight.close();
     await _sawTargetSubject.close();
+    await _led.close();
+    await _stopAtTempSubject.close();
     await _synthetic.dispose();
   }
 
@@ -104,6 +115,12 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
 
   @override
   Future<void> requestState(MachineState newState) async {
+    // skipStep during replay seeks to the next recorded frame; the shot stays
+    // in espresso rather than ending.
+    if (newState == MachineState.skipStep && _replayer != null) {
+      _seekToNextFrame();
+      return;
+    }
     _state = newState;
     if (newState == MachineState.espresso) {
       _startReplay();
@@ -111,6 +128,18 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
       _replayer = null;
       await _synthetic.requestState(newState);
     }
+  }
+
+  void _seekToNextFrame() {
+    final replayer = _replayer!;
+    final now = DateTime.now();
+    final replayElapsed =
+        now.difference(_replayStartedAt).inMilliseconds / 1000.0 - _prepSeconds;
+    final boundary = replayer.nextFrameBoundaryAfter(replayElapsed);
+    if (boundary == null) return;
+    _replayStartedAt = now.subtract(
+      Duration(microseconds: ((boundary + _prepSeconds) * 1e6).round()),
+    );
   }
 
   @override
@@ -129,6 +158,8 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
       return;
     }
     _replayer = ShotReplayer(shot.measurements);
+    _originalDurationSeconds =
+        _library.originalDurationOf(shot.id) ?? _replayer!.durationSeconds;
     _replayStartedAt = DateTime.now();
   }
 
@@ -181,7 +212,12 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
       unawaited(requestState(MachineState.idle));
       return;
     }
-    if (replayer.isFinished(replayElapsed)) {
+    // Without a positive target, end at the recording's real endpoint; only a
+    // target beyond the recorded final weight plays into the extrapolated tail.
+    final endTime = _sawTarget > 0.0
+        ? replayer.durationSeconds
+        : _originalDurationSeconds;
+    if (replayElapsed >= endTime) {
       _replayer = null;
       unawaited(requestState(MachineState.idle));
     }
@@ -203,8 +239,11 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
 
   @override
   Future<void> tareIntegratedScale() async {
-    // Swallowed: the recording already starts from zero, so taring would only
-    // corrupt its samples. Pre-shot weight is already 0.
+    // While replaying espresso the recording is immutable and already starts
+    // from zero, so a tare is swallowed; otherwise reset the synthetic model.
+    if (_replayer != null) return;
+    _weightModel.tare();
+    _emitWeight(0);
   }
 
   @override

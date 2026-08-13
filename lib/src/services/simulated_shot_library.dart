@@ -6,12 +6,18 @@ import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
 
 /// A bundled recording and the profile it was recorded with (null for
-/// fallback shots).
+/// fallback shots). [originalDurationSeconds] is the recording's real endpoint
+/// before the stop-at-weight tail extension.
 class SimulatedShot {
-  const SimulatedShot(this.record, this.profileTitle);
+  const SimulatedShot(
+    this.record,
+    this.profileTitle,
+    this.originalDurationSeconds,
+  );
 
   final ShotRecord record;
   final String? profileTitle;
+  final double originalDurationSeconds;
 
   String get id => record.id;
 }
@@ -28,14 +34,16 @@ class SimulatedShotLibrary {
   final _log = Logger('SimulatedShotLibrary');
 
   final List<ShotRecord> _fallback = [];
-  final Map<String, ShotRecord> _byProfile = {};
+  final Map<String, ShotRecord> _byCanonical = {};
+  final Map<String, Set<ShotRecord>> _aliasCandidates = {};
+  final Map<String, ShotRecord> _byAlias = {};
   final List<SimulatedShot> _catalog = [];
   bool _loaded = false;
 
   bool get isLoaded => _loaded;
-  bool get isEmpty => _fallback.isEmpty && _byProfile.isEmpty;
+  bool get isEmpty => _fallback.isEmpty && _byCanonical.isEmpty;
   int get fallbackCount => _fallback.length;
-  int get profileCount => _byProfile.length;
+  int get profileCount => _byCanonical.length;
 
   List<SimulatedShot> get catalog => List.unmodifiable(_catalog);
 
@@ -46,6 +54,18 @@ class SimulatedShotLibrary {
     return null;
   }
 
+  /// The recording's real endpoint (before the tail extension) for the shot
+  /// with this id, or null.
+  double? originalDurationOf(String id) {
+    for (final entry in _catalog) {
+      if (entry.id == id) return entry.originalDurationSeconds;
+    }
+    return null;
+  }
+
+  static double _duration(Map<String, dynamic> entry) =>
+      (entry['originalDurationSeconds'] as num?)?.toDouble() ?? 0.0;
+
   Future<void> ensureLoaded() async {
     if (_loaded) return;
     try {
@@ -54,11 +74,12 @@ class SimulatedShotLibrary {
               as Map<String, dynamic>;
       final dir = manifestPath.substring(0, manifestPath.lastIndexOf('/') + 1);
 
-      for (final file in (manifest['fallback'] as List? ?? []).cast<String>()) {
-        final shot = await _load('$dir$file');
+      for (final entry in (manifest['fallback'] as List? ?? [])) {
+        final map = entry as Map<String, dynamic>;
+        final shot = await _load('$dir${map['file']}');
         if (shot != null) {
           _fallback.add(shot);
-          _catalog.add(SimulatedShot(shot, null));
+          _catalog.add(SimulatedShot(shot, null, _duration(map)));
         }
       }
       for (final entry in (manifest['profiles'] as List? ?? [])) {
@@ -66,12 +87,21 @@ class SimulatedShotLibrary {
         final shot = await _load('$dir${map['file']}');
         final title = map['profileTitle'] as String?;
         if (shot != null && title != null) {
-          _catalog.add(SimulatedShot(shot, title));
-          for (final key in _matchKeys(title)) {
-            _byProfile.putIfAbsent(key, () => shot);
+          _catalog.add(SimulatedShot(shot, title, _duration(map)));
+          _byCanonical.putIfAbsent(_normalize(title), () => shot);
+          final alias = _lastSegment(title);
+          if (alias != null) {
+            _aliasCandidates.putIfAbsent(alias, () => {}).add(shot);
           }
         }
       }
+      // An alias is only usable when it is unambiguous (one recording) and does
+      // not shadow a canonical title; canonical titles always win.
+      _aliasCandidates.forEach((alias, shots) {
+        if (shots.length == 1 && !_byCanonical.containsKey(alias)) {
+          _byAlias[alias] = shots.single;
+        }
+      });
     } catch (e) {
       _log.warning('no simulation manifest at $manifestPath: $e');
     }
@@ -81,14 +111,20 @@ class SimulatedShotLibrary {
   ShotRecord? forProfileTitle(String? profileTitle) {
     if (profileTitle == null) return null;
     for (final key in _matchKeys(profileTitle)) {
-      final hit = _byProfile[key];
+      final hit = _byCanonical[key];
+      if (hit != null) return hit;
+    }
+    for (final key in _matchKeys(profileTitle)) {
+      final hit = _byAlias[key];
       if (hit != null) return hit;
     }
     return null;
   }
 
   ShotRecord? pickRandom([Random? random]) {
-    final pool = _fallback.isNotEmpty ? _fallback : _byProfile.values.toList();
+    final pool = _fallback.isNotEmpty
+        ? _fallback
+        : _byCanonical.values.toList();
     if (pool.isEmpty) return null;
     return pool[(random ?? Random()).nextInt(pool.length)];
   }
@@ -109,15 +145,23 @@ class SimulatedShotLibrary {
     }
   }
 
-  /// Normalized match keys for a profile title: the whole title and, when the
-  /// title is `prefix/name` (community shots are `author/name`, Decent titles
-  /// are `category/name`), the last segment too.
-  static Iterable<String> _matchKeys(String title) {
-    final keys = <String>{_normalize(title)};
+  /// Normalized match keys for a profile title, most specific first: the whole
+  /// title, then (for `prefix/name` titles — community shots are `author/name`,
+  /// Decent titles `category/name`) the last segment.
+  static List<String> _matchKeys(String title) {
+    final full = _normalize(title);
+    final alias = _lastSegment(title);
+    return [
+      if (full.isNotEmpty) full,
+      if (alias != null && alias != full) alias,
+    ];
+  }
+
+  static String? _lastSegment(String title) {
     final slash = title.lastIndexOf('/');
-    if (slash >= 0) keys.add(_normalize(title.substring(slash + 1)));
-    keys.remove('');
-    return keys;
+    if (slash < 0) return null;
+    final seg = _normalize(title.substring(slash + 1));
+    return seg.isEmpty ? null : seg;
   }
 
   static String _normalize(String s) {
