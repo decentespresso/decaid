@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:saf_util/saf_util.dart';
+import 'package:reaprime/src/services/security_scoped_file.dart';
 import 'package:reaprime/src/widgets/accessible_button.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
@@ -31,8 +32,13 @@ class ImportSourcePicker extends StatelessWidget {
       final path = await FilePicker.getDirectoryPath(
         dialogTitle: 'Select your de1plus folder',
       );
-      if (path != null && context.mounted) {
-        onDe1appFolderSelected(path);
+      if (path != null) {
+        if (Platform.isIOS) {
+          await SecurityScopedFileService.startAccessing(path);
+        }
+        if (context.mounted) {
+          onDe1appFolderSelected(path);
+        }
       }
     }
   }

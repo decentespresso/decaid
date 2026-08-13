@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
+import 'package:reaprime/src/services/security_scoped_file.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/skin_feature/skin_view.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
@@ -561,6 +562,9 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
     final selectedDirectory = await FilePicker.getDirectoryPath();
 
     if (selectedDirectory != null) {
+      if (Platform.isIOS) {
+        await SecurityScopedFileService.startAccessing(selectedDirectory);
+      }
       final indexFile = File('$selectedDirectory/index.html');
       final itExists = await indexFile.exists();
 
