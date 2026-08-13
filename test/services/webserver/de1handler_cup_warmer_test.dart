@@ -152,4 +152,147 @@ void main() {
       expect(res.statusCode, 404);
     });
   });
+
+  group('GET /api/v1/machine/cupWarmer — mode + current temperature', () {
+    test('returns enabled=false and null temperature when off', () async {
+      await wireWith(MockBengle());
+      final res = await get('/api/v1/machine/cupWarmer');
+      final body = jsonDecode(await res.readAsString());
+      expect(body['enabled'], isFalse);
+      expect(body['currentTemperature'], isNull);
+    });
+
+    test('returns enabled=true and a temperature once enabled', () async {
+      final bengle = MockBengle();
+      await wireWith(bengle);
+      await bengle.setCupWarmerEnabled(true);
+      final res = await get('/api/v1/machine/cupWarmer');
+      final body = jsonDecode(await res.readAsString());
+      expect(body['enabled'], isTrue);
+      expect(body['currentTemperature'], 42.0);
+    });
+  });
+
+  group('PUT /api/v1/machine/cupWarmer — enabled', () {
+    test(
+      'temperature-only request also enables manual heating (back-compat)',
+      () async {
+        final bengle = MockBengle();
+        await wireWith(bengle);
+
+        final res = await put('/api/v1/machine/cupWarmer', {'temperature': 45});
+        expect(res.statusCode, 200);
+        expect(await bengle.getCupWarmerTemperature(), 45.0);
+        expect(await bengle.getCupWarmerEnabled(), isTrue);
+      },
+    );
+
+    test('enabled=false disables without destroying the setpoint', () async {
+      final bengle = MockBengle();
+      await wireWith(bengle);
+      await bengle.setCupWarmerTemperature(55.0);
+      await bengle.setCupWarmerEnabled(true);
+
+      final res = await put('/api/v1/machine/cupWarmer', {'enabled': false});
+      expect(res.statusCode, 200);
+      expect(await bengle.getCupWarmerEnabled(), isFalse);
+      expect(
+        await bengle.getCupWarmerTemperature(),
+        55.0,
+        reason:
+            'setpoint must survive a manual disable (scheduled pre-warm '
+            'needs a non-zero setpoint while the mode is off)',
+      );
+    });
+
+    test(
+      'temperature + enabled=false sets the setpoint but stays off',
+      () async {
+        final bengle = MockBengle();
+        await wireWith(bengle);
+
+        final res = await put('/api/v1/machine/cupWarmer', {
+          'temperature': 55,
+          'enabled': false,
+        });
+        expect(res.statusCode, 200);
+        expect(await bengle.getCupWarmerTemperature(), 55.0);
+        expect(await bengle.getCupWarmerEnabled(), isFalse);
+      },
+    );
+
+    test('400 on non-boolean enabled', () async {
+      await wireWith(MockBengle());
+      final res = await put('/api/v1/machine/cupWarmer', {'enabled': 'yes'});
+      expect(res.statusCode, 400);
+    });
+
+    test('400 when neither temperature nor enabled is present', () async {
+      await wireWith(MockBengle());
+      final res = await put('/api/v1/machine/cupWarmer', {});
+      expect(res.statusCode, 400);
+    });
+  });
+
+  group('/api/v1/machine/cupWarmer/preheat', () {
+    test('GET returns the persisted preheat state', () async {
+      await wireWith(MockBengle());
+      final res = await get('/api/v1/machine/cupWarmer/preheat');
+      expect(res.statusCode, 200);
+      final body = jsonDecode(await res.readAsString());
+      expect(body['enabled'], isFalse);
+      expect(body['leadMinutes'], 30);
+      expect(body['active'], isFalse);
+    });
+
+    test('PUT sets enable and lead minutes', () async {
+      final bengle = MockBengle();
+      await wireWith(bengle);
+
+      final res = await put('/api/v1/machine/cupWarmer/preheat', {
+        'enabled': true,
+        'leadMinutes': 45,
+      });
+      expect(res.statusCode, 200);
+      final state = await bengle.getCupWarmerPreheatState();
+      expect(state.enabled, isTrue);
+      expect(state.leadMinutes, 45);
+    });
+
+    test('PUT with only leadMinutes keeps the current enable', () async {
+      final bengle = MockBengle();
+      await wireWith(bengle);
+      await bengle.setCupWarmerPreheat(enabled: true, leadMinutes: 30);
+
+      final res = await put('/api/v1/machine/cupWarmer/preheat', {
+        'leadMinutes': 60,
+      });
+      expect(res.statusCode, 200);
+      final state = await bengle.getCupWarmerPreheatState();
+      expect(state.enabled, isTrue);
+      expect(state.leadMinutes, 60);
+    });
+
+    test('PUT rejects out-of-range leadMinutes at 400', () async {
+      await wireWith(MockBengle());
+      final res = await put('/api/v1/machine/cupWarmer/preheat', {
+        'leadMinutes': 121,
+      });
+      expect(res.statusCode, 400);
+    });
+
+    test('PUT rejects fractional leadMinutes at 400', () async {
+      await wireWith(MockBengle());
+      final res = await put('/api/v1/machine/cupWarmer/preheat', {
+        'leadMinutes': 30.5,
+      });
+      expect(res.statusCode, 400);
+    });
+
+    test('404 on plain DE1', () async {
+      await wireWith(MockDe1());
+      final res = await get('/api/v1/machine/cupWarmer/preheat');
+      expect(res.statusCode, 404);
+    });
+  });
 }

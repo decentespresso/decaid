@@ -1,4 +1,5 @@
 import 'package:reaprime/src/models/device/de1_interface.dart';
+import 'package:reaprime/src/models/device/cup_warmer.dart';
 import 'package:reaprime/src/models/device/led_strip.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/scale_calibration.dart';
@@ -20,6 +21,25 @@ abstract class BengleInterface extends De1Interface {
   Future<void> setCupWarmerTemperature(double celsius);
 
   Future<double> getCupWarmerTemperature();
+
+  /// Manual cup-warmer enable (CupWarmerMode). RAM-only in firmware: boots
+  /// off after every power cycle and is never re-enabled by the app on
+  /// reconnect.
+  Future<void> setCupWarmerEnabled(bool enabled);
+
+  Future<bool> getCupWarmerEnabled();
+
+  /// Live mat temperature in deg C, or null when the firmware has no valid
+  /// reading.
+  Future<double?> getCupWarmerCurrentTemperature();
+
+  /// Persisted firmware pre-warm configuration.
+  Future<void> setCupWarmerPreheat({
+    required bool enabled,
+    required int leadMinutes,
+  });
+
+  Future<CupWarmerPreheatState> getCupWarmerPreheatState();
 
   Stream<ScaleSnapshot> get weightSnapshot;
 

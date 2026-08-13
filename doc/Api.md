@@ -57,8 +57,10 @@ For browser clients on a different origin, `ETag` is exposed via `Access-Control
 | — | USB charger | Controlled via `POST /api/v1/machine/settings` with `{"usb": "enable"}` or `{"usb": "disable"}` | |
 | POST | `/api/v1/machine/waterLevels` | Update water level threshold | |
 | GET | `/api/v1/machine/capabilities` | List capability identifiers (`cupWarmer`, `integratedScale`, `ledStrip`, `stopAtWeight`, plus `scaleCalibration`/`preheat`/`wakeSchedule` on current firmware) supported by the connected machine | |
-| GET | `/api/v1/machine/cupWarmer` | Read cup-warmer setpoint in whole °C (1 °C resolution) — Bengle only, 404 elsewhere | |
-| PUT | `/api/v1/machine/cupWarmer` | Set cup-warmer setpoint in whole °C (range 0–80, 1 °C steps, `0` = off) — Bengle only | |
+| GET | `/api/v1/machine/cupWarmer` | Read cup-warmer state: setpoint (whole °C), manual `enabled`, live `currentTemperature` (both null on old firmware) — Bengle only, 404 elsewhere | |
+| PUT | `/api/v1/machine/cupWarmer` | Set setpoint (whole °C, 0–80) and/or `enabled`; temperature-only requests also enable manual heating (back-compat), `enabled:false` keeps the setpoint — Bengle only | |
+| GET | `/api/v1/machine/cupWarmer/preheat` | Read scheduled pre-warm `enabled`/`leadMinutes`/`active` (firmware-owned timing) — Bengle only, 404 elsewhere | |
+| PUT | `/api/v1/machine/cupWarmer/preheat` | Set pre-warm `enabled` and/or `leadMinutes` (0–120, persisted in firmware) — Bengle only | |
 | GET | `/api/v1/machine/ledStrip` | Read LED strip palette (3 zones × 2 modes, 16-bit RGB; `frontSwitch` derived, not a hardware control); 503 until firmware hydration succeeds — Bengle only | |
 | PUT | `/api/v1/machine/ledStrip` | Write palette write-through to FW registers (persisted immediately; `frontSwitch` ignored) — Bengle only | |
 | POST | `/api/v1/machine/ledStrip/commit` | Compatibility no-op (palette writes are already persisted) — Bengle only | |

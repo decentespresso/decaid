@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:reaprime/src/models/device/bengle_interface.dart';
+import 'package:reaprime/src/models/device/cup_warmer.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/models/device/impl/simulated_shot_weight_model.dart';
 import 'package:reaprime/src/models/device/led_strip.dart';
@@ -71,6 +72,9 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
   }
 
   double _cupWarmerTemp = 0.0;
+  bool _cupWarmerEnabled = false;
+  bool _preheatEnabled = false;
+  int _preheatLeadMinutes = 30;
 
   @override
   Future<void> setCupWarmerTemperature(double celsius) async {
@@ -79,6 +83,37 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
 
   @override
   Future<double> getCupWarmerTemperature() async => _cupWarmerTemp;
+
+  @override
+  Future<void> setCupWarmerEnabled(bool enabled) async {
+    _cupWarmerEnabled = enabled;
+  }
+
+  @override
+  Future<bool> getCupWarmerEnabled() async => _cupWarmerEnabled;
+
+  @override
+  Future<double?> getCupWarmerCurrentTemperature() async {
+    // Mock: the NTC reads a temperature once the warmer has been enabled.
+    return _cupWarmerEnabled ? 42.0 : null;
+  }
+
+  @override
+  Future<void> setCupWarmerPreheat({
+    required bool enabled,
+    required int leadMinutes,
+  }) async {
+    _preheatEnabled = enabled;
+    _preheatLeadMinutes = leadMinutes.clamp(0, 120);
+  }
+
+  @override
+  Future<CupWarmerPreheatState> getCupWarmerPreheatState() async =>
+      CupWarmerPreheatState(
+        enabled: _preheatEnabled,
+        leadMinutes: _preheatLeadMinutes,
+        active: _preheatEnabled && _cupWarmerTemp > 0,
+      );
 
   final BehaviorSubject<LedStripState?> _ledState =
       BehaviorSubject<LedStripState?>.seeded(null);

@@ -16,6 +16,7 @@ import 'package:reaprime/src/models/device/impl/simulated_shot_weight_model.dart
 import 'package:reaprime/src/models/device/led_strip.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/scale.dart';
+import 'package:reaprime/src/models/device/cup_warmer.dart';
 import 'package:reaprime/src/models/device/scale_calibration.dart';
 import 'package:reaprime/src/models/device/simulated_device.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
@@ -262,6 +263,24 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
       _cupWarmer = celsius.clamp(0.0, 80.0);
   @override
   Future<double> getCupWarmerTemperature() async => _cupWarmer;
+  @override
+  Future<void> setCupWarmerEnabled(bool enabled) async {}
+  @override
+  Future<bool> getCupWarmerEnabled() async => false;
+  @override
+  Future<double?> getCupWarmerCurrentTemperature() async => null;
+  @override
+  Future<void> setCupWarmerPreheat({
+    required bool enabled,
+    required int leadMinutes,
+  }) async {}
+  @override
+  Future<CupWarmerPreheatState> getCupWarmerPreheatState() async =>
+      const CupWarmerPreheatState(
+        enabled: false,
+        leadMinutes: 0,
+        active: false,
+      );
 
   final BehaviorSubject<LedStripState> _led = BehaviorSubject.seeded(
     const LedStripState(),

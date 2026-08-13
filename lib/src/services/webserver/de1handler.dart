@@ -59,7 +59,16 @@ class De1Handler {
           return jsonNotFound({'error': 'cupWarmer not supported'});
         }
         final t = await de1.getCupWarmerTemperature();
-        return jsonOk({'temperature': t.toInt()});
+        final surface = de1.bengleFeatureSurfaceSupported;
+        return jsonOk({
+          'temperature': t.toInt(),
+          // Null when the connected firmware predates CupWarmerMode/
+          // MatCurrentTemp (rows 39+): unknown, not fabricated.
+          'enabled': surface ? await de1.getCupWarmerEnabled() : null,
+          'currentTemperature': surface
+              ? await de1.getCupWarmerCurrentTemperature()
+              : null,
+        });
       });
     });
 
@@ -70,25 +79,109 @@ class De1Handler {
       } catch (e) {
         return jsonBadRequest({'error': 'Invalid JSON body'});
       }
-      if (json is! Map || json['temperature'] == null) {
-        return jsonBadRequest({'error': 'temperature required'});
+      if (json is! Map) {
+        return jsonBadRequest({'error': 'invalid JSON body'});
       }
-      final temperature = json['temperature'];
-      if (temperature is! num ||
-          !temperature.isFinite ||
-          temperature < 0 ||
-          temperature > 80 ||
-          temperature != temperature.truncate()) {
-        return jsonBadRequest({
-          'error': 'temperature must be a whole degree from 0 to 80',
-        });
+      final hasTemperature = json.containsKey('temperature');
+      final hasEnabled = json.containsKey('enabled');
+      if (!hasTemperature && !hasEnabled) {
+        return jsonBadRequest({'error': 'temperature and/or enabled required'});
       }
-      final t = temperature.toDouble();
+      if (hasTemperature) {
+        final temperature = json['temperature'];
+        if (temperature is! num ||
+            !temperature.isFinite ||
+            temperature < 0 ||
+            temperature > 80 ||
+            temperature != temperature.truncate()) {
+          return jsonBadRequest({
+            'error': 'temperature must be a whole degree from 0 to 80',
+          });
+        }
+      }
+      if (hasEnabled && json['enabled'] is! bool) {
+        return jsonBadRequest({'error': 'enabled must be a boolean'});
+      }
+      final temperature = hasTemperature
+          ? (json['temperature'] as num).toDouble()
+          : null;
+      final enabled = hasEnabled ? json['enabled'] as bool : null;
       return withQueuedDe1((de1) async {
         if (de1 is! BengleInterface) {
           return jsonNotFound({'error': 'cupWarmer not supported'});
         }
-        await de1.setCupWarmerTemperature(t);
+        if (enabled != null && !de1.bengleFeatureSurfaceSupported) {
+          return jsonNotFound({
+            'error':
+                'cupWarmer enabled requires Bengle firmware with the '
+                'post-0x00803880 MMR surface',
+          });
+        }
+        if (temperature != null) {
+          await de1.setCupWarmerTemperature(temperature);
+          if (de1.bengleFeatureSurfaceSupported) {
+            // Back-compat: "set 45 C" also means "make the manual cup
+            // warmer operate".
+            await de1.setCupWarmerEnabled(true);
+          }
+        }
+        if (enabled != null) {
+          await de1.setCupWarmerEnabled(enabled);
+        }
+        return jsonOk({'status': 'accepted'});
+      }, retryOnReplacement: true);
+    });
+
+    app.get('/api/v1/machine/cupWarmer/preheat', (Request _) async {
+      return withDe1((de1) async {
+        final gate = _bengleSurfaceGate(de1, 'scaleCalibration');
+        if (gate != null) return gate;
+        final state = await (de1 as BengleInterface).getCupWarmerPreheatState();
+        return jsonOk(state.toJson());
+      });
+    });
+
+    app.put('/api/v1/machine/cupWarmer/preheat', (Request r) async {
+      final dynamic json;
+      try {
+        json = jsonDecode(await r.readAsString());
+      } catch (e) {
+        return jsonBadRequest({'error': 'Invalid JSON body'});
+      }
+      if (json is! Map) {
+        return jsonBadRequest({'error': 'invalid JSON body'});
+      }
+      final hasEnabled = json.containsKey('enabled');
+      final hasLead = json.containsKey('leadMinutes');
+      if (!hasEnabled && !hasLead) {
+        return jsonBadRequest({'error': 'enabled and/or leadMinutes required'});
+      }
+      if (hasEnabled && json['enabled'] is! bool) {
+        return jsonBadRequest({'error': 'enabled must be a boolean'});
+      }
+      if (hasLead) {
+        final lead = json['leadMinutes'];
+        if (lead is! num ||
+            !lead.isFinite ||
+            lead != lead.truncate() ||
+            lead < 0 ||
+            lead > 120) {
+          return jsonBadRequest({
+            'error': 'leadMinutes must be a whole minute from 0 to 120',
+          });
+        }
+      }
+      final enabled = hasEnabled ? json['enabled'] as bool : null;
+      final lead = hasLead ? (json['leadMinutes'] as num).toInt() : null;
+      return withQueuedDe1((de1) async {
+        final gate = _bengleSurfaceGate(de1, 'scaleCalibration');
+        if (gate != null) return gate;
+        final bengle = de1 as BengleInterface;
+        final current = await bengle.getCupWarmerPreheatState();
+        await bengle.setCupWarmerPreheat(
+          enabled: enabled ?? current.enabled,
+          leadMinutes: lead ?? current.leadMinutes,
+        );
         return jsonOk({'status': 'accepted'});
       }, retryOnReplacement: true);
     });
@@ -202,7 +295,7 @@ class De1Handler {
 
     app.get('/api/v1/machine/scaleCalibration', (Request _) async {
       return withDe1((de1) async {
-        final gate = _bengleSurfaceGate(de1);
+        final gate = _bengleSurfaceGate(de1, 'cupWarmer/preheat');
         if (gate != null) return gate;
         final state = await (de1 as BengleInterface).getScaleCalibrationState();
         return jsonOk(state.toJson());
@@ -246,7 +339,7 @@ class De1Handler {
         }
       }
       return withQueuedDe1((de1) async {
-        final gate = _bengleSurfaceGate(de1);
+        final gate = _bengleSurfaceGate(de1, 'cupWarmer/preheat');
         if (gate != null) return gate;
         final bengle = de1 as BengleInterface;
         final accepted = await bengle.startScaleCalibration(
@@ -492,14 +585,14 @@ class De1Handler {
   /// Returns an error response when the connected machine is not a Bengle
   /// or its firmware predates the rows-39+ MMR surface; null when the
   /// surface is usable.
-  Response? _bengleSurfaceGate(De1Interface de1) {
+  Response? _bengleSurfaceGate(De1Interface de1, String feature) {
     if (de1 is! BengleInterface) {
-      return jsonNotFound({'error': 'scaleCalibration not supported'});
+      return jsonNotFound({'error': '$feature not supported'});
     }
     if (!de1.bengleFeatureSurfaceSupported) {
       return jsonNotFound({
         'error':
-            'scaleCalibration requires Bengle firmware with the '
+            '$feature requires Bengle firmware with the '
             'post-0x00803880 MMR surface',
       });
     }

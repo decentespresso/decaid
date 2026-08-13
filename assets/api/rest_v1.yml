@@ -405,15 +405,21 @@ paths:
                 $ref: "#/components/schemas/MachineCapabilities"
   /api/v1/machine/cupWarmer:
     get:
-      summary: Get cup-warmer setpoint
+      summary: Get cup-warmer state
       description: |
-        Read the current cup-warmer mat target temperature in whole °C,
-        with 1 °C resolution.
+        Read the cup-warmer mat target temperature in whole °C, the
+        manual enable state (CupWarmerMode) and the current mat
+        temperature. `enabled` and `currentTemperature` are null when
+        the connected firmware predates the post-0x00803880 MMR surface
+        (the setpoint itself works on all firmware). `currentTemperature`
+        is null whenever the firmware has no valid NTC reading. The
+        manual enable is RAM-only in firmware: it boots off after every
+        power cycle and the app never re-enables it on reconnect.
         Returns 404 when the connected machine is not a Bengle.
       tags: [Machine]
       responses:
         "200":
-          description: Current cup-warmer setpoint
+          description: Current cup-warmer state
           content:
             application/json:
               schema:
@@ -421,26 +427,82 @@ paths:
         "404":
           description: Machine connected but does not support cup warmer
     put:
-      summary: Set cup-warmer setpoint
+      summary: Set cup-warmer setpoint and/or manual enable
       description: |
-        Set the cup-warmer mat target temperature in whole °C. Range
-        `0`–`80` in 1 °C steps; `0` turns the mat off (there is no separate
-        enable flag). Fractional or out-of-range values return 400.
-        Returns 404 when the connected machine is not a Bengle.
+        Set the cup-warmer mat target temperature (whole °C, range
+        `0`–`80`; `0` turns the mat off) and/or the manual enable
+        (`enabled`, current firmware only). Backwards compatibility: a
+        request with only `temperature` sets the setpoint AND enables
+        manual heating, exactly like the original endpoint; an explicit
+        `enabled` field can disable manual heating without destroying
+        the persisted setpoint (required for scheduled pre-warm, which
+        needs a non-zero setpoint while manual mode is off). Fractional
+        or out-of-range temperatures return 400. Returns 404 when the
+        connected machine is not a Bengle.
       tags: [Machine]
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/CupWarmerState"
+              $ref: "#/components/schemas/CupWarmerUpdateRequest"
       responses:
         "200":
-          description: Setpoint accepted
+          description: Accepted
         "400":
-          description: Temperature missing, fractional, out of range 0–80, or malformed JSON
+          description: Missing fields, fractional/out-of-range temperature, non-boolean enabled, or malformed JSON
         "404":
-          description: Machine connected but does not support cup warmer
+          description: Machine connected but does not support cup warmer (or `enabled` requires newer firmware)
+        "503":
+          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+        "500":
+          description: No machine was ever connected
+  /api/v1/machine/cupWarmer/preheat:
+    get:
+      summary: Get scheduled pre-warm state
+      description: |
+        Read the persisted scheduled pre-warm configuration
+        (`enabled`, `leadMinutes` 0-120) and whether the wake schedule
+        is currently driving the mat (`active`). The firmware owns all
+        pre-warm timing: with pre-warm enabled it starts the mat
+        `leadMinutes` before a scheduled wake window and holds it until
+        the window closes, with the machine still asleep (only the 24 V
+        rail runs; the boilers stay cold). Returns 404 when the
+        connected machine is not a Bengle or its firmware predates the
+        post-0x00803880 MMR surface.
+      tags: [Machine]
+      responses:
+        "200":
+          description: Current pre-warm state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CupWarmerPreheatState"
+        "404":
+          description: Machine connected but does not support pre-warm
+    put:
+      summary: Set scheduled pre-warm configuration
+      description: |
+        Set `enabled` and/or `leadMinutes` (whole minutes, 0-120). Both
+        are persisted firmware configuration; the app stores nothing and
+        never reasserts them on connect. Omitted fields keep their
+        current firmware values. Returns 404 when the connected machine
+        is not a Bengle or its firmware predates the post-0x00803880
+        MMR surface.
+      tags: [Machine]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CupWarmerPreheatUpdateRequest"
+      responses:
+        "200":
+          description: Accepted
+        "400":
+          description: Missing fields, out-of-range or fractional leadMinutes, non-boolean enabled, or malformed JSON
+        "404":
+          description: Machine connected but does not support pre-warm
         "503":
           description: Machine disconnected mid-write and no replacement appeared within the bounded wait
         "500":
@@ -5112,9 +5174,66 @@ components:
           maximum: 80
           description: |
             Cup-warmer mat target temperature in whole °C, with 1 °C
-            resolution. `0` turns the mat off — there is no separate
-            enable flag.
+            resolution. `0` turns the mat off.
           example: 60
+        enabled:
+          type: boolean
+          nullable: true
+          description: |
+            Manual enable state (CupWarmerMode). RAM-only in firmware:
+            boots off after a power cycle. Null on firmware that
+            predates the mode register.
+        currentTemperature:
+          type: number
+          nullable: true
+          description: |
+            Live mat temperature in °C, or null when the firmware has no
+            valid NTC reading (raw 0). Null on firmware that predates
+            the register.
+
+    CupWarmerUpdateRequest:
+      type: object
+      properties:
+        temperature:
+          type: integer
+          minimum: 0
+          maximum: 80
+          description: |
+            Whole °C setpoint. When present without `enabled`, manual
+            heating is also enabled (backwards compatibility).
+        enabled:
+          type: boolean
+          description: |
+            Manual enable. Disabling does not destroy the persisted
+            setpoint (scheduled pre-warm needs a non-zero setpoint while
+            manual mode is off). Requires current firmware.
+
+    CupWarmerPreheatState:
+      type: object
+      required: [enabled, leadMinutes, active]
+      properties:
+        enabled:
+          type: boolean
+          description: MatPreheatEnable — persisted firmware configuration
+        leadMinutes:
+          type: integer
+          minimum: 0
+          maximum: 120
+          description: MatPreheatLeadMin — minutes before a scheduled wake to start the mat
+        active:
+          type: boolean
+          description: MatPreheatActive — 1 when the wake schedule (not manual mode) is currently driving the mat
+
+    CupWarmerPreheatUpdateRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        leadMinutes:
+          type: integer
+          minimum: 0
+          maximum: 120
+          description: Whole minutes; omitted fields keep their firmware values
 
     LedStripState:
       type: object

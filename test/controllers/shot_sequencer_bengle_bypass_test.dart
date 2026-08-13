@@ -17,6 +17,7 @@ import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/led_strip.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/scale.dart';
+import 'package:reaprime/src/models/device/cup_warmer.dart';
 import 'package:reaprime/src/models/device/scale_calibration.dart';
 import 'package:reaprime/src/models/device/scan_filter.dart';
 import 'package:reaprime/src/services/storage/storage_service.dart';
@@ -43,6 +44,24 @@ class _TestBengle extends TestDe1 implements BengleInterface {
   Future<void> setCupWarmerTemperature(double celsius) async {}
   @override
   Future<double> getCupWarmerTemperature() async => 0.0;
+  @override
+  Future<void> setCupWarmerEnabled(bool enabled) async {}
+  @override
+  Future<bool> getCupWarmerEnabled() async => false;
+  @override
+  Future<double?> getCupWarmerCurrentTemperature() async => null;
+  @override
+  Future<void> setCupWarmerPreheat({
+    required bool enabled,
+    required int leadMinutes,
+  }) async {}
+  @override
+  Future<CupWarmerPreheatState> getCupWarmerPreheatState() async =>
+      const CupWarmerPreheatState(
+        enabled: false,
+        leadMinutes: 0,
+        active: false,
+      );
   @override
   Stream<ScaleSnapshot> get weightSnapshot => const Stream.empty();
   @override

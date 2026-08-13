@@ -18,6 +18,7 @@ import 'package:reaprime/src/models/device/impl/de1/mmr_address.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/bengle_shot_sample.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1_transport.dart';
 import 'package:reaprime/src/models/device/impl/bengle/bengle_mmr.dart';
+import 'package:reaprime/src/models/device/cup_warmer.dart';
 import 'package:reaprime/src/models/device/scale_calibration.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/led_strip.dart';
@@ -38,6 +39,7 @@ part 'bengle_feature_probe.dart';
 part 'integrated_scale_capability.dart';
 part 'led_strip_capability.dart';
 part 'scale_calibration_capability.dart';
+part 'cup_warmer_capability.dart';
 
 final class _FirmwareCancellationToken {
   final Completer<void> _cancelled = Completer<void>();
