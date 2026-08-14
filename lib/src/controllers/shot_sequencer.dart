@@ -72,8 +72,10 @@ class ShotSequencer {
        _weightFlowMultiplier = weightFlowMultiplier,
        _volumeFlowMultiplier = volumeFlowMultiplier,
        _stepExitArbiterEnabled = stepExitArbiterEnabled,
-       _machineHasAutonomousSAW =
-           de1controller.connectedDe1() is BengleInterface {
+       _machineHasAutonomousSAW = switch (de1controller.connectedDe1()) {
+         BengleInterface bengle => bengle.supportsCurrentBengleFirmwareSurface,
+         _ => false,
+       } {
     _log.info(
       "Initializing ShotSequencer (weightFlowMultiplier: $_weightFlowMultiplier, volumeFlowMultiplier: $_volumeFlowMultiplier, machineHasAutonomousSAW: $_machineHasAutonomousSAW, stepExitArbiterEnabled: $_stepExitArbiterEnabled)",
     );

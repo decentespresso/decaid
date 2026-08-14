@@ -18,7 +18,13 @@ import '../helpers/mock_device_discovery_service.dart';
 import '../helpers/test_de1.dart';
 
 class _RecordingBengle implements BengleInterface {
-  _RecordingBengle();
+  _RecordingBengle({this.supportsCurrentFirmwareSurface = true});
+
+  final bool supportsCurrentFirmwareSurface;
+
+  @override
+  bool get supportsCurrentBengleFirmwareSurface =>
+      supportsCurrentFirmwareSurface;
 
   @override
   String get deviceId => 'rec-bengle';
@@ -161,6 +167,29 @@ void main() {
       await pumpDebounce();
 
       expect(bengle.sawWrites, [30.0]);
+      await bridge.dispose();
+    },
+  );
+
+  test(
+    'no SAW write when the machine lacks the current firmware surface',
+    () async {
+      final bengle = _RecordingBengle(supportsCurrentFirmwareSurface: false);
+      await connectBengle(bengle);
+
+      final bridge = BengleSawBridge(
+        workflowController: workflow,
+        de1Controller: de1Controller,
+        debounce: _debounce,
+      );
+      await Future<void>.delayed(Duration.zero);
+      bengle.sawWrites.clear();
+
+      final ctx = workflow.currentWorkflow.context ?? const WorkflowContext();
+      workflow.updateWorkflow(context: ctx.copyWith(targetYield: 30.0));
+      await pumpDebounce();
+
+      expect(bengle.sawWrites, isEmpty);
       await bridge.dispose();
     },
   );

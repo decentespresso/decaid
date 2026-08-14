@@ -96,8 +96,11 @@ class _TestBengle extends TestDe1 implements BengleInterface {
   @override
   Stream<double> get probeTemperature => const Stream.empty();
 
+  bool supportsCurrentFirmwareSurface = true;
+
   @override
-  bool get supportsCurrentBengleFirmwareSurface => true;
+  bool get supportsCurrentBengleFirmwareSurface =>
+      supportsCurrentFirmwareSurface;
 
   @override
   Future<ScaleCalibrationState> getScaleCalibrationState() async =>
@@ -341,6 +344,51 @@ void main() {
                   'must not double-stop the shot',
             );
 
+            shot.dispose();
+          });
+        },
+      );
+
+      test(
+        'requests idle when the Bengle lacks the current firmware surface',
+        () {
+          fakeAsync((async) {
+            bengle.supportsCurrentFirmwareSurface = false;
+            scaleController.emitWeight(0.0);
+
+            final shot = ShotSequencer(
+              scaleController: scaleController,
+              de1controller: de1Controller,
+              persistenceController: persistence,
+              targetProfile: profile,
+              targetYield: 30.0,
+              bypassSAW: false,
+              blockOnNoScale: false,
+              weightFlowMultiplier: 0.0,
+              volumeFlowMultiplier: 0.0,
+              stepExitArbiterEnabled: true,
+            );
+
+            async.elapse(const Duration(milliseconds: 10));
+
+            bengle.emitStateAndSubstate(
+              MachineState.espresso,
+              MachineSubstate.preparingForShot,
+            );
+            bengle.emitStateAndSubstate(
+              MachineState.espresso,
+              MachineSubstate.pouring,
+            );
+            async.elapse(const Duration(milliseconds: 10));
+
+            scaleController.emitWeight(40.0);
+            bengle.emitStateAndSubstate(
+              MachineState.espresso,
+              MachineSubstate.pouring,
+            );
+            async.elapse(const Duration(milliseconds: 10));
+
+            expect(bengle.requestedStates, isNotEmpty);
             shot.dispose();
           });
         },
