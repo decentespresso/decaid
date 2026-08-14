@@ -6,6 +6,28 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Decaid</title>
         <item>
+            <title>0.8.0</title>
+            <pubDate>Fri, 14 Aug 2026 13:47:42 +0000</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>2326</sparkle:version>
+            <sparkle:shortVersionString>0.8.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* chore: require accepted issues for external PRs by @tadelv in https://github.com/decentespresso/decaid/pull/600
+* test: cut wall-clock waits from slowest test files (protected_surface, led_strip, ble recovery) by @tadelv in https://github.com/decentespresso/decaid/pull/602
+* fix: round Bengle scaled MMR writes by @ODevStudio in https://github.com/decentespresso/decaid/pull/604
+* Optional replay simulator (simulate=replay) — profile-matched, honors target weight by @johnbuckman in https://github.com/decentespresso/decaid/pull/599
+* fix: iOS security-scoped folder access for plugin install and folder-based imports by @tadelv in https://github.com/decentespresso/decaid/pull/609
+* fix: align Bengle MMR units with firmware by @ODevStudio in https://github.com/decentespresso/decaid/pull/605
+* feat: complete Bengle support for the current firmware (scale cal, LEDs, cup warmer + preheat, wake schedule) by @tadelv in https://github.com/decentespresso/decaid/pull/612
+
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.7.17...v0.8.0-beta.1
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.8.0-beta.1/decaid-macos-0.8.0-beta.1.zip" length="72599108" type="application/octet-stream" sparkle:edSignature="w5Mi+sZRXJjdRq7yZC/Z+kcO35onyeljcCrBE7Gfj79kcAqGPbUrs5YbH4K5FgvMZB3o2ILMa1csCMgjqbM4Bw=="/>
+        </item>
+        <item>
             <title>0.7.17</title>
             <pubDate>Wed, 12 Aug 2026 09:37:14 +0000</pubDate>
             <sparkle:version>2269</sparkle:version>
@@ -126,6 +148,6 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: Go0603qXm78cdJb4rli4PfSZuF6tyMi2WuMbEERpo2gA3NjE0Tt7v7eSAtmYuVX2i4iRHGuqwMXCRIm63nA2DQ==
-length: 10656
+edSignature: 7HrLtAoD6NmB0bPU/WbtuTM2w5P8Z6Gmg9N3mV0ZjPF9l+Z/9CIoTigW30QTHqo9ImWH1mdJjoFNPXwhU+HaBA==
+length: 12503
 -->
