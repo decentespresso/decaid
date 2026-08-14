@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/presence_controller.dart';
+import 'package:reaprime/src/models/wake_schedule.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
 import 'package:shelf_plus/shelf_plus.dart';
@@ -198,6 +199,75 @@ void main() {
       final settings = await getSettings();
       expect(settings['userPresenceEnabled'], false);
       expect(settings['sleepTimeoutMinutes'], 120);
+    });
+  });
+
+  group('POST /api/v1/presence/schedules', () {
+    setUp(() async {
+      wire();
+      await settingsController.loadSettings();
+    });
+
+    Future<Response> put(String path, Object? body) async => await handler(
+      Request(
+        'PUT',
+        Uri.parse('http://localhost$path'),
+        body: body != null ? jsonEncode(body) : null,
+        headers: body != null
+            ? {HttpHeaders.contentTypeHeader: 'application/json'}
+            : null,
+      ),
+    );
+
+    test('accepts a valid schedule', () async {
+      final res = await post('/api/v1/presence/schedules', {
+        'time': '07:30',
+        'daysOfWeek': [1, 7],
+        'enabled': true,
+        'keepAwakeFor': 45,
+      });
+      expect(res.statusCode, 201);
+    });
+
+    test('rejects an hour above 23 with 400', () async {
+      final res = await post('/api/v1/presence/schedules', {'time': '25:00'});
+      expect(res.statusCode, 400);
+    });
+
+    test('rejects a minute above 59 with 400', () async {
+      final res = await post('/api/v1/presence/schedules', {'time': '07:60'});
+      expect(res.statusCode, 400);
+    });
+
+    test('rejects out-of-range weekdays with 400', () async {
+      final res = await post('/api/v1/presence/schedules', {
+        'time': '07:30',
+        'daysOfWeek': [0, 8],
+      });
+      expect(res.statusCode, 400);
+    });
+
+    test('a rejected schedule changes nothing', () async {
+      await settingsController.setWakeSchedules('[]');
+      final res = await post('/api/v1/presence/schedules', {'time': '25:00'});
+      expect(res.statusCode, 400);
+      expect(settingsController.wakeSchedules, '[]');
+    });
+
+    test('update rejects an out-of-range weekday with 400', () async {
+      await post('/api/v1/presence/schedules', {
+        'time': '07:30',
+        'daysOfWeek': [1],
+      });
+      final schedules = WakeSchedule.deserializeList(
+        settingsController.wakeSchedules,
+      );
+      final id = schedules.single.id;
+
+      final res = await put('/api/v1/presence/schedules/$id', {
+        'daysOfWeek': [9],
+      });
+      expect(res.statusCode, 400);
     });
   });
 }

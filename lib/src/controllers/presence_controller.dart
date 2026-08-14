@@ -297,8 +297,13 @@ class PresenceController {
   Future<void> _drainFirmwareSync() async {
     try {
       var attempts = 0;
+      var generation = 0;
       while (true) {
-        final generation = _firmwareSyncGeneration;
+        final currentGeneration = _firmwareSyncGeneration;
+        if (currentGeneration != generation) {
+          generation = currentGeneration;
+          attempts = 0;
+        }
         try {
           await _pushFirmwareDesiredState();
           attempts = 0;

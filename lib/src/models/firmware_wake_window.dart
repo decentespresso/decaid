@@ -1,8 +1,5 @@
-library;
-
 import 'package:reaprime/src/models/wake_schedule.dart';
 
-// Firmware wake-table translation; see doc/AI_BENGLE_NOTES.md.
 const int kFirmwareMaxWakeWindows = 32;
 
 const int kFirmwareMaxSleepTimeoutMinutes = 240;
@@ -50,12 +47,19 @@ List<FirmwareWakeWindow> translateWakeSchedules(List<WakeSchedule> schedules) {
         (schedule.keepAwakeFor != null && schedule.keepAwakeFor! > 0)
         ? schedule.keepAwakeFor!
         : kFirmwareMaxSleepTimeoutMinutes;
+    if (schedule.hour < 0 ||
+        schedule.hour > 23 ||
+        schedule.minute < 0 ||
+        schedule.minute > 59) {
+      continue;
+    }
     final start = schedule.hour * 60 + schedule.minute;
     final days = schedule.daysOfWeek.isEmpty
         ? const {1, 2, 3, 4, 5, 6, 7}
         : schedule.daysOfWeek;
 
     for (final dartDay in days) {
+      if (dartDay < 1 || dartDay > 7) continue;
       var fwDow = dartDay % 7;
       var dayStart = start;
       var remaining = duration;

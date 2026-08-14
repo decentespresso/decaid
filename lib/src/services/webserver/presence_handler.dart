@@ -130,16 +130,30 @@ class PresenceHandler {
         });
       }
 
+      final hour =
+          json['hour'] as int? ??
+          int.parse((json['time'] as String).split(':')[0]);
+      final minute =
+          json['minute'] as int? ??
+          int.parse((json['time'] as String).split(':')[1]);
+      if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+        return jsonBadRequest({
+          'error': 'time must be hour 0-23 and minute 0-59',
+        });
+      }
+      final daysOfWeek = json.containsKey('daysOfWeek')
+          ? (json['daysOfWeek'] as List).cast<int>().toSet()
+          : <int>{};
+      if (daysOfWeek.any((day) => day < 1 || day > 7)) {
+        return jsonBadRequest({
+          'error': 'daysOfWeek must contain weekdays 1 to 7',
+        });
+      }
+
       final schedule = WakeSchedule.create(
-        hour:
-            json['hour'] as int? ??
-            int.parse((json['time'] as String).split(':')[0]),
-        minute:
-            json['minute'] as int? ??
-            int.parse((json['time'] as String).split(':')[1]),
-        daysOfWeek: json.containsKey('daysOfWeek')
-            ? (json['daysOfWeek'] as List).cast<int>().toSet()
-            : {},
+        hour: hour,
+        minute: minute,
+        daysOfWeek: daysOfWeek,
         enabled: json['enabled'] as bool? ?? true,
         keepAwakeFor: keepAwakeFor,
       );
@@ -188,6 +202,20 @@ class PresenceHandler {
       }
       if (json.containsKey('hour')) hour = json['hour'] as int;
       if (json.containsKey('minute')) minute = json['minute'] as int;
+      if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+        return jsonBadRequest({
+          'error': 'time must be hour 0-23 and minute 0-59',
+        });
+      }
+      Set<int>? daysOfWeek;
+      if (json.containsKey('daysOfWeek')) {
+        daysOfWeek = (json['daysOfWeek'] as List).cast<int>().toSet();
+        if (daysOfWeek.any((day) => day < 1 || day > 7)) {
+          return jsonBadRequest({
+            'error': 'daysOfWeek must contain weekdays 1 to 7',
+          });
+        }
+      }
 
       int? keepAwakeFor = existing.keepAwakeFor;
       bool clearKeepAwakeFor = false;
@@ -209,9 +237,7 @@ class PresenceHandler {
       final updated = existing.copyWith(
         hour: hour,
         minute: minute,
-        daysOfWeek: json.containsKey('daysOfWeek')
-            ? (json['daysOfWeek'] as List).cast<int>().toSet()
-            : null,
+        daysOfWeek: daysOfWeek,
         enabled: json.containsKey('enabled') ? json['enabled'] as bool : null,
         keepAwakeFor: keepAwakeFor,
         clearKeepAwakeFor: clearKeepAwakeFor,

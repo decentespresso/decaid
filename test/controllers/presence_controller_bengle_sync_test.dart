@@ -181,7 +181,7 @@ void main() {
         WakeSchedule.create(
           hour: 7,
           minute: 30,
-          daysOfWeek: {1, 7}, // Monday, Sunday
+          daysOfWeek: {1, 7},
           keepAwakeFor: 45,
         ),
       ]);
@@ -199,7 +199,6 @@ void main() {
       expect(bengle.pushedTimeouts, [90]);
       expect(bengle.pushedClockSeconds, [localSecondsSinceSunday(clock.now())]);
       expect(bengle.pushedWindows, hasLength(1));
-      // Monday (Dart 1) -> firmware dow 1; Sunday (Dart 7) -> firmware dow 0.
       expect(bengle.pushedWindows.single, [
         const FirmwareWakeWindow(dow: 1, startMin: 450, endMin: 495),
         const FirmwareWakeWindow(dow: 0, startMin: 450, endMin: 495),
@@ -219,7 +218,7 @@ void main() {
       controller.initialize();
       de1Controller.setDe1(bengle);
       async.flushMicrotasks();
-      expect(bengle.pushedTimeouts, [30]); // default 30
+      expect(bengle.pushedTimeouts, [30]);
 
       settingsController.setUserPresenceEnabled(false);
       async.flushMicrotasks();
@@ -280,7 +279,6 @@ void main() {
       ]);
       async.flushMicrotasks();
       expect(bengle.pushedWindows, hasLength(2));
-      // No keepAwakeFor -> firmware max (240 min) window, Tue (dow 2).
       expect(bengle.pushedWindows.last, [
         const FirmwareWakeWindow(dow: 2, startMin: 360, endMin: 600),
       ]);
@@ -299,7 +297,7 @@ void main() {
       controller.initialize();
       de1Controller.setDe1(bengle);
       async.flushMicrotasks();
-      expect(bengle.pushedWindows, hasLength(1)); // connect push
+      expect(bengle.pushedWindows, hasLength(1));
 
       setSchedules([
         WakeSchedule.create(hour: 6, minute: 0, daysOfWeek: {2}),
@@ -430,6 +428,43 @@ void main() {
       });
     },
   );
+
+  test('a newer generation after failures gets a fresh retry budget', () {
+    fakeAsync((async) {
+      final controller = PresenceController(
+        de1Controller: de1Controller,
+        settingsController: settingsController,
+        clock: () => clock.now(),
+      );
+      controller.initialize();
+      de1Controller.setDe1(bengle);
+      async.flushMicrotasks();
+      expect(bengle.pushedWindows, hasLength(1));
+
+      setSchedules([
+        WakeSchedule.create(hour: 6, minute: 0, daysOfWeek: {2}),
+      ]);
+      bengle.failNextPushes = 1;
+      async.flushMicrotasks();
+
+      setSchedules([
+        WakeSchedule.create(hour: 8, minute: 0, daysOfWeek: {3}),
+      ]);
+      bengle.failNextPushes = 2;
+      async.elapse(const Duration(seconds: 4));
+      async.flushMicrotasks();
+      expect(bengle.pushedWindows, hasLength(1));
+
+      async.elapse(const Duration(seconds: 2));
+      async.flushMicrotasks();
+      expect(bengle.pushedWindows, hasLength(2));
+      expect(bengle.pushedWindows.last, [
+        const FirmwareWakeWindow(dow: 3, startMin: 480, endMin: 720),
+      ]);
+
+      controller.dispose();
+    });
+  });
 
   test('a mid-flight replacement gets its own full push', () {
     fakeAsync((async) {

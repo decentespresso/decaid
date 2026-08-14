@@ -5,7 +5,6 @@ import 'package:reaprime/src/models/wake_schedule.dart';
 void main() {
   group('localSecondsSinceSunday', () {
     test('computes wall-clock seconds since Sunday 00:00:00', () {
-      // Wednesday 2026-01-14 08:30:15 local. Dart weekday: Wed = 3.
       final now = DateTime(2026, 1, 14, 8, 30, 15);
       expect(localSecondsSinceSunday(now), 3 * 86400 + 8 * 3600 + 30 * 60 + 15);
     });
@@ -77,9 +76,9 @@ void main() {
 
     test('Dart weekday maps to firmware dow (Mon=1..Sun=7 -> 1..6,0)', () {
       final windows = translateWakeSchedules([
-        schedule(daysOfWeek: {7}), // Sunday
-        schedule(hour: 7, daysOfWeek: {1}), // Monday
-        schedule(hour: 8, daysOfWeek: {6}), // Saturday
+        schedule(daysOfWeek: {7}),
+        schedule(hour: 7, daysOfWeek: {1}),
+        schedule(hour: 8, daysOfWeek: {6}),
       ]);
       expect(windows.map((w) => w.dow), [0, 1, 6]);
     });
@@ -99,6 +98,20 @@ void main() {
       ]);
     });
 
+    test('out-of-range schedule times are dropped', () {
+      expect(translateWakeSchedules([schedule(hour: 25)]), isEmpty);
+      expect(translateWakeSchedules([schedule(minute: 60)]), isEmpty);
+    });
+
+    test('out-of-range weekdays are dropped', () {
+      expect(
+        translateWakeSchedules([
+          schedule(daysOfWeek: {0, 8}),
+        ]),
+        isEmpty,
+      );
+    });
+
     test('packing matches (dow<<22)|(startMin<<11)|endMin', () {
       const window = FirmwareWakeWindow(dow: 3, startMin: 360, endMin: 390);
       expect(window.pack(), (3 << 22) | (360 << 11) | 390);
@@ -106,7 +119,7 @@ void main() {
 
     test('result is capped at 32 entries', () {
       final windows = translateWakeSchedules([
-        schedule(daysOfWeek: const {}), // 7 days x 5 windows each
+        schedule(daysOfWeek: const {}),
         schedule(hour: 1, daysOfWeek: const {}),
         schedule(hour: 2, daysOfWeek: const {}),
         schedule(hour: 3, daysOfWeek: const {}),
