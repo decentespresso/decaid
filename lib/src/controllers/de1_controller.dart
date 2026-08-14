@@ -424,7 +424,7 @@ class De1Controller {
     double flowRate = await connectedDe1().getSteamFlow();
 
     return SteamFormSettings(
-      steamEnabled: shotSettings.targetSteamTemp >= 130,
+      steamEnabled: shotSettings.targetSteamTemp >= 135,
       targetTemp: shotSettings.targetSteamTemp,
       targetDuration: shotSettings.targetSteamDuration,
       targetFlow: flowRate,
@@ -542,7 +542,7 @@ class De1Controller {
     if (!rinseChanged && !steamChanged && !hotWaterChanged) return;
 
     final steam = SteamFormSettings(
-      steamEnabled: updated.steamSettings.duration > 0,
+      steamEnabled: updated.steamSettings.targetTemperature >= 135,
       targetTemp: updated.steamSettings.targetTemperature,
       targetDuration: updated.steamSettings.duration,
       targetFlow: updated.steamSettings.flow,

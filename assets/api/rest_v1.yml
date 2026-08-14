@@ -6136,7 +6136,10 @@ components:
       properties:
         targetTemperature:
           type: integer
-          description: Target steam temperature in Celsius
+          description: >
+            Target steam temperature in Celsius. Values below 135 disable steam;
+            values of 135 or greater enable it. Duration does not control whether
+            steam is enabled.
           example: 150
         duration:
           type: integer

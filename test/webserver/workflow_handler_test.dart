@@ -450,6 +450,26 @@ void main() {
       );
     });
 
+    test('steam enablement follows target temperature, not duration', () async {
+      await _settleHandler(spy);
+      spy.updateShotSettingsCalls.clear();
+
+      final hotTargetResponse = await put({
+        'steamSettings': {'targetTemperature': 135, 'duration': 0},
+      });
+
+      expect(hotTargetResponse.statusCode, 200);
+      expect(spy.updateShotSettingsCalls.single.targetSteamTemp, 135);
+
+      spy.updateShotSettingsCalls.clear();
+      final disabledResponse = await put({
+        'steamSettings': {'targetTemperature': 134, 'duration': 30},
+      });
+
+      expect(disabledResponse.statusCode, 200);
+      expect(spy.updateShotSettingsCalls.single.targetSteamTemp, 0);
+    });
+
     test('no-op PUT (same values) issues no DE1 writes', () async {
       await _settleHandler(spy);
       final snapshot = workflowController.currentWorkflow;

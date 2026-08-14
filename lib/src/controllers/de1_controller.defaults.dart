@@ -15,7 +15,7 @@ extension Defaults on De1Controller {
     await _updateSteamSettingsFor(
       device,
       SteamFormSettings(
-        steamEnabled: steamSettings.targetTemperature >= 130,
+        steamEnabled: steamSettings.targetTemperature >= 135,
         targetTemp: steamSettings.targetTemperature,
         targetDuration: steamSettings.duration,
         targetFlow: steamSettings.flow,

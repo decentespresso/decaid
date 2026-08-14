@@ -570,6 +570,8 @@ Update just the profile:
 - `duration` (integer): Steam duration in seconds
 - `flow` (number): Steam flow rate
 
+Steam is enabled when `targetTemperature` is 135 °C or higher. Set it below 135 °C to disable steam; `duration` does not control whether steam is enabled.
+
 **HotWaterData:**
 - `targetTemperature` (integer): Target hot water temperature in Celsius
 - `duration` (integer): Hot water dispensing duration in seconds
