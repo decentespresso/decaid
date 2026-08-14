@@ -116,8 +116,9 @@ void main() {
   late MockExportSection profileSection;
   late MockExportSection shotsSection;
   late Handler httpHandler;
+  late Directory scratchDir;
 
-  setUp(() {
+  setUp(() async {
     profileSection = MockExportSection(
       filename: 'profiles.json',
       exportData: [
@@ -134,11 +135,21 @@ void main() {
       importResult: const SectionImportResult(imported: 2, skipped: 1),
     );
 
-    handler = DataExportHandler(sections: [profileSection, shotsSection]);
+    scratchDir = await Directory.systemTemp.createTemp('export-handler-test-');
+    handler = DataExportHandler(
+      sections: [profileSection, shotsSection],
+      tempDirParent: scratchDir,
+    );
 
     final app = Router().plus;
     handler.addRoutes(app);
     httpHandler = app.call;
+  });
+
+  tearDown(() async {
+    if (await scratchDir.exists()) {
+      await scratchDir.delete(recursive: true);
+    }
   });
 
   Future<Response> sendGet(String path) async {
@@ -779,10 +790,9 @@ void main() {
         for (final response in responses) {
           expect(response.statusCode, 200);
         }
-        final leftovers = Directory.systemTemp
-            .listSync()
-            .whereType<Directory>()
-            .where((d) => d.path.contains('reaprime-import-'));
+        final leftovers = scratchDir.listSync().whereType<Directory>().where(
+          (d) => d.path.contains('reaprime-import-'),
+        );
         expect(leftovers, isEmpty);
       });
     });

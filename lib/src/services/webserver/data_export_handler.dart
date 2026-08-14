@@ -74,13 +74,16 @@ class DataExportHandler {
 
   final List<DataExportSection> _sections;
   final DataTransferLimits _limits;
+  final Directory? _tempDirParent;
   final Logger _log = Logger('DataExportHandler');
 
   DataExportHandler({
     required List<DataExportSection> sections,
     DataTransferLimits limits = const DataTransferLimits(),
+    Directory? tempDirParent,
   }) : _sections = sections,
-       _limits = limits;
+       _limits = limits,
+       _tempDirParent = tempDirParent;
 
   List<String> get sectionKeys => List.unmodifiable(_sections.map(_sectionKey));
 
@@ -211,7 +214,10 @@ class DataExportHandler {
 
     TempArchiveDir? jsonTempDir;
     try {
-      jsonTempDir = await TempArchiveDir.create('reaprime-import-json-');
+      jsonTempDir = await TempArchiveDir.create(
+        'reaprime-import-json-',
+        parent: _tempDirParent,
+      );
       final jsonFile = File(jsonTempDir.filePath('section.json'));
       final selectedSectionKeys = _resolveImportSectionKeys(sections);
       final sectionsByKey = {
@@ -392,7 +398,10 @@ class DataExportHandler {
         });
     }
 
-    final tempDir = await TempArchiveDir.create('reaprime-import-');
+    final tempDir = await TempArchiveDir.create(
+      'reaprime-import-',
+      parent: _tempDirParent,
+    );
     try {
       final zipFile = File(tempDir.filePath('import.zip'));
       final raf = await zipFile.open(mode: FileMode.write);

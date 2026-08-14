@@ -4,9 +4,12 @@ import 'dart:io';
 class TempArchiveDir {
   late final Directory _dir;
 
-  static Future<TempArchiveDir> create([String prefix = 'reaprime-']) async {
+  static Future<TempArchiveDir> create(
+    String prefix, {
+    Directory? parent,
+  }) async {
     final result = TempArchiveDir._();
-    result._dir = await Directory.systemTemp.createTemp(prefix);
+    result._dir = await (parent ?? Directory.systemTemp).createTemp(prefix);
     return result;
   }
 
