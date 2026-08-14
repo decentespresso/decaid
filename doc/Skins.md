@@ -570,7 +570,7 @@ Update just the profile:
 - `duration` (integer): Steam duration in seconds
 - `flow` (number): Steam flow rate
 
-Steam is enabled when `targetTemperature` is 135 °C or higher. Set it below 135 °C to disable steam; `duration` does not control whether steam is enabled.
+Steam-heater enablement is encoded through `targetTemperature` alone. Set it to `0` to disable steam-heater preheating; Decaid writes `0` °C to the machine when steam is disabled and treats temperatures below the supported range as disabled. Supported enabled ranges are 135–160 °C for DE1 and 135–165 °C for Bengle. `duration` controls the maximum duration of a steaming operation and does not control steam-heater preheating.
 
 **HotWaterData:**
 - `targetTemperature` (integer): Target hot water temperature in Celsius

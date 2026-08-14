@@ -6137,13 +6137,16 @@ components:
         targetTemperature:
           type: integer
           description: >
-            Target steam temperature in Celsius. Values below 135 disable steam;
-            values of 135 or greater enable it. Duration does not control whether
-            steam is enabled.
+            Target steam temperature in Celsius. Set to 0 to disable steam-heater
+            preheating. Decaid writes 0 to the machine when steam is disabled and
+            treats temperatures below the supported range as disabled. Supported
+            enabled ranges are 135–160 °C for DE1 and 135–165 °C for Bengle.
           example: 150
         duration:
           type: integer
-          description: Steam duration in seconds
+          description: >
+            Maximum steam operation duration in seconds. This does not control
+            steam-heater preheating.
           example: 50
         flow:
           type: number
