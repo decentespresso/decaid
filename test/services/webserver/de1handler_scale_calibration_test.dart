@@ -96,6 +96,16 @@ void main() {
       final res = await get('/api/v1/machine/scaleCalibration');
       expect(res.statusCode, 404);
     });
+
+    test('404 on old Bengle firmware names scaleCalibration in the body',
+        () async {
+      await wireWith(MockBengle(surfaceSupported: false));
+      final res = await get('/api/v1/machine/scaleCalibration');
+      expect(res.statusCode, 404);
+      final body = jsonDecode(await res.readAsString());
+      expect(body['error'], contains('scaleCalibration'));
+      expect(body['error'], isNot(contains('cupWarmer')));
+    });
   });
 
   group('PUT /api/v1/machine/scaleCalibration', () {
@@ -160,6 +170,18 @@ void main() {
         'command': 'zero',
       });
       expect(res.statusCode, 404);
+    });
+
+    test('404 on old Bengle firmware names scaleCalibration in the body',
+        () async {
+      await wireWith(MockBengle(surfaceSupported: false));
+      final res = await put('/api/v1/machine/scaleCalibration', {
+        'command': 'zero',
+      });
+      expect(res.statusCode, 404);
+      final body = jsonDecode(await res.readAsString());
+      expect(body['error'], contains('scaleCalibration'));
+      expect(body['error'], isNot(contains('cupWarmer')));
     });
   });
 }

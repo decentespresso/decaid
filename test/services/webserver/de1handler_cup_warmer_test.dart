@@ -393,5 +393,15 @@ void main() {
       final res = await get('/api/v1/machine/cupWarmer/preheat');
       expect(res.statusCode, 404);
     });
+
+    test('404 on old Bengle firmware names cupWarmer/preheat in the body',
+        () async {
+      await wireWith(MockBengle(surfaceSupported: false));
+      final res = await get('/api/v1/machine/cupWarmer/preheat');
+      expect(res.statusCode, 404);
+      final body = jsonDecode(await res.readAsString());
+      expect(body['error'], contains('cupWarmer/preheat'));
+      expect(body['error'], isNot(contains('scaleCalibration')));
+    });
   });
 }

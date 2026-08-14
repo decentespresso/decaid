@@ -133,7 +133,7 @@ class De1Handler {
 
     app.get('/api/v1/machine/cupWarmer/preheat', (Request _) async {
       return withDe1((de1) async {
-        final gate = _bengleSurfaceGate(de1, 'scaleCalibration');
+        final gate = _bengleSurfaceGate(de1, 'cupWarmer/preheat');
         if (gate != null) return gate;
         final state = await (de1 as BengleInterface).getCupWarmerPreheatState();
         return jsonOk(state.toJson());
@@ -173,7 +173,7 @@ class De1Handler {
       final enabled = hasEnabled ? json['enabled'] as bool : null;
       final lead = hasLead ? (json['leadMinutes'] as num).toInt() : null;
       return withQueuedDe1((de1) async {
-        final gate = _bengleSurfaceGate(de1, 'scaleCalibration');
+        final gate = _bengleSurfaceGate(de1, 'cupWarmer/preheat');
         if (gate != null) return gate;
         final bengle = de1 as BengleInterface;
         final current = await bengle.getCupWarmerPreheatState();
@@ -294,7 +294,7 @@ class De1Handler {
 
     app.get('/api/v1/machine/scaleCalibration', (Request _) async {
       return withDe1((de1) async {
-        final gate = _bengleSurfaceGate(de1, 'cupWarmer/preheat');
+        final gate = _bengleSurfaceGate(de1, 'scaleCalibration');
         if (gate != null) return gate;
         final state = await (de1 as BengleInterface).getScaleCalibrationState();
         return jsonOk(state.toJson());
@@ -338,7 +338,7 @@ class De1Handler {
         }
       }
       return withQueuedDe1((de1) async {
-        final gate = _bengleSurfaceGate(de1, 'cupWarmer/preheat');
+        final gate = _bengleSurfaceGate(de1, 'scaleCalibration');
         if (gate != null) return gate;
         final bengle = de1 as BengleInterface;
         final accepted = await bengle.startScaleCalibration(
