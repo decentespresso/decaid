@@ -5133,14 +5133,14 @@ components:
           description: |
             Capability identifiers supported by the currently connected
             machine. Plain DE1 returns an empty array. Bengle returns
-            `cupWarmer`, `integratedScale`, `ledStrip`, and
-            `stopAtWeight` (autonomous in-FW stop-at-weight driven by
-            the integrated scale; the app reflects
-            `WorkflowContext.targetYield` into the SAW MMR). When the
-            connected firmware implements the post-0x00803880 MMR surface
-            (probed once per connection), `scaleCalibration`, `preheat`
-            and `wakeSchedule` are appended. Note: the milk-probe
-            scaffolding lives in `/sensors`, not here.
+            `cupWarmer`, `integratedScale`, and `stopAtWeight`
+            (autonomous in-FW stop-at-weight driven by the integrated
+            scale; the app reflects `WorkflowContext.targetYield` into
+            the SAW MMR). When the connected firmware implements the
+            post-0x00803880 MMR surface (probed once per connection),
+            `ledStrip`, `scaleCalibration`, `preheat` and `wakeSchedule`
+            are appended. Note: the milk-probe scaffolding lives in
+            `/sensors`, not here.
           items:
             type: string
             enum: [

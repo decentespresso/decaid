@@ -56,7 +56,7 @@ For browser clients on a different origin, `ETag` is exposed via `Access-Control
 | POST | `/api/v1/machine/firmware/apply` | Managed firmware apply: resolve, validate, upload | `firmware_handler.dart` |
 | — | USB charger | Controlled via `POST /api/v1/machine/settings` with `{"usb": "enable"}` or `{"usb": "disable"}` | |
 | POST | `/api/v1/machine/waterLevels` | Update water level threshold | |
-| GET | `/api/v1/machine/capabilities` | List capability identifiers (`cupWarmer`, `integratedScale`, `ledStrip`, `stopAtWeight`, plus `scaleCalibration`/`preheat`/`wakeSchedule` on current firmware) supported by the connected machine | |
+| GET | `/api/v1/machine/capabilities` | List capability identifiers (`cupWarmer`, `integratedScale`, `stopAtWeight`, plus `ledStrip`/`scaleCalibration`/`preheat`/`wakeSchedule` on current firmware) supported by the connected machine | |
 | GET | `/api/v1/machine/cupWarmer` | Read cup-warmer state: setpoint (whole °C), manual `enabled`, live `currentTemperature` (both null on old firmware) — Bengle only, 404 elsewhere | |
 | PUT | `/api/v1/machine/cupWarmer` | Set setpoint (whole °C, 0–80) and/or `enabled`; temperature-only requests also enable manual heating (back-compat), `enabled:false` keeps the setpoint — Bengle only | |
 | GET | `/api/v1/machine/cupWarmer/preheat` | Read scheduled pre-warm `enabled`/`leadMinutes`/`active` (firmware-owned timing) — Bengle only, 404 elsewhere | |

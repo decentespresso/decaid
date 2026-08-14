@@ -290,8 +290,8 @@ class PresenceController {
   /// connect via the reset above). Pushes are serialized and coalescing:
   /// every trigger bumps a generation and a single drain applies the newest
   /// desired state; the "pushed" cache is committed only after a complete
-  /// successful transaction, so a failure leaves the state dirty and the
-  /// next trigger retries it. Stock DE1s and old firmware are skipped.
+  /// successful transaction, so a failure leaves the state dirty. Stock
+  /// DE1s and old firmware are skipped.
   void _syncFirmwareScheduleAndTimeout() {
     final de1 = _de1;
     if (de1 is! BengleInterface || !de1.bengleFeatureSurfaceSupported) {
@@ -301,20 +301,39 @@ class PresenceController {
     _firmwareSyncInFlight ??= _drainFirmwareSync();
   }
 
+  /// Bounded automatic retries for a failed push. After the bound the
+  /// state stays dirty until the next trigger (settings change or
+  /// reconnect).
+  static const int _maxFirmwareSyncAttempts = 3;
+
+  /// Backoff between automatic retries of a failed push.
+  static const Duration _firmwareSyncRetryDelay = Duration(seconds: 2);
+
   /// Serialized drain: applies the newest desired firmware state, then
   /// re-applies while newer triggers arrived mid-flight. Intermediate
   /// updates coalesce into the next iteration, so overlapping triggers can
-  /// never interleave two partial table rewrites.
+  /// never interleave two partial table rewrites. A failed push is retried
+  /// automatically (bounded, with backoff); a newer generation arriving
+  /// during the backoff supersedes the failed attempt and is applied next
+  /// without pushing the stale state on its own.
   Future<void> _drainFirmwareSync() async {
     try {
+      var attempts = 0;
       while (true) {
         final generation = _firmwareSyncGeneration;
         try {
           await _pushFirmwareDesiredState();
+          attempts = 0;
         } catch (e) {
-          _log.warning('Failed to push Bengle firmware state: $e');
+          attempts++;
+          _log.warning(
+            'Failed to push Bengle firmware state '
+            '(attempt $attempts/$_maxFirmwareSyncAttempts): $e',
+          );
+          if (attempts >= _maxFirmwareSyncAttempts) break;
+          await Future<void>.delayed(_firmwareSyncRetryDelay);
         }
-        if (generation == _firmwareSyncGeneration) break;
+        if (generation == _firmwareSyncGeneration && attempts == 0) break;
       }
     } finally {
       _firmwareSyncInFlight = null;

@@ -345,7 +345,37 @@ void main() {
     });
   });
 
-  test('a failed push is not committed; the next trigger retries', () {
+  test(
+    'a failed push retries automatically and converges without new triggers',
+    () {
+      fakeAsync((async) {
+        final controller = PresenceController(
+          de1Controller: de1Controller,
+          settingsController: settingsController,
+          clock: () => clock.now(),
+        );
+        controller.initialize();
+        de1Controller.setDe1(bengle);
+        bengle.failNextPushes = 1;
+        async.flushMicrotasks();
+
+        // The failed attempt recorded nothing, so the state stays dirty.
+        expect(bengle.pushedWindows, isEmpty);
+
+        // No further settings changes: the controller retries on its own.
+        async.elapse(const Duration(seconds: 2));
+        async.flushMicrotasks();
+        expect(bengle.pushedWindows, hasLength(1));
+        expect(bengle.pushedWindows.single, isEmpty);
+        expect(bengle.pushedTimeouts, [30, 30]);
+
+        controller.dispose();
+      });
+    },
+  );
+
+  test('a failed master-disable push retries until firmware owns no timeout '
+      'or table', () {
     fakeAsync((async) {
       final controller = PresenceController(
         de1Controller: de1Controller,
@@ -354,25 +384,77 @@ void main() {
       );
       controller.initialize();
       de1Controller.setDe1(bengle);
+      async.flushMicrotasks();
+      expect(bengle.pushedTimeouts, [30]);
+
+      // Disable Auto sleep & wake: firmware must not keep any timeout or
+      // table once the tablet is gone, so the disable push must converge
+      // even if the first attempt fails partway.
+      settingsController.setUserPresenceEnabled(false);
       bengle.failNextPushes = 1;
       async.flushMicrotasks();
+      expect(bengle.pushedTimeouts.last, 0);
+      // Only the connect push's empty table is recorded: the disable
+      // attempt failed before recording anything.
+      expect(bengle.pushedWindows, [[]]);
 
-      // The failed attempt recorded nothing, so the state stays dirty.
-      expect(bengle.pushedWindows, isEmpty);
-
-      // The next trigger converges to the full desired state.
-      setSchedules([
-        WakeSchedule.create(hour: 6, minute: 0, daysOfWeek: {2}),
-      ]);
+      async.elapse(const Duration(seconds: 2));
       async.flushMicrotasks();
-      expect(bengle.pushedWindows, hasLength(1));
-      expect(bengle.pushedWindows.single, [
-        const FirmwareWakeWindow(dow: 2, startMin: 360, endMin: 600),
-      ]);
+      expect(bengle.pushedTimeouts, [30, 0, 0]);
+      expect(bengle.pushedWindows, [[], []]);
 
       controller.dispose();
     });
   });
+
+  test(
+    'a newer trigger during the retry backoff supersedes the failed attempt',
+    () {
+      fakeAsync((async) {
+        final controller = PresenceController(
+          de1Controller: de1Controller,
+          settingsController: settingsController,
+          clock: () => clock.now(),
+        );
+        controller.initialize();
+        de1Controller.setDe1(bengle);
+        async.flushMicrotasks();
+
+        setSchedules([
+          WakeSchedule.create(hour: 6, minute: 0, daysOfWeek: {2}),
+        ]);
+        bengle.failNextPushes = 1;
+        async.flushMicrotasks();
+        // Only the connect push's empty table is recorded: the 6:00 push
+        // failed before recording anything.
+        expect(bengle.pushedWindows, [[]]);
+
+        // A newer trigger arrives while the backoff is pending: the stale
+        // failed state must never be pushed on its own.
+        setSchedules([
+          WakeSchedule.create(hour: 8, minute: 0, daysOfWeek: {3}),
+        ]);
+        async.elapse(const Duration(seconds: 2));
+        async.flushMicrotasks();
+
+        expect(bengle.pushedWindows, hasLength(2));
+        expect(bengle.pushedWindows.last, [
+          const FirmwareWakeWindow(dow: 3, startMin: 480, endMin: 720),
+        ]);
+        expect(
+          bengle.pushedWindows,
+          isNot(
+            contains([
+              const FirmwareWakeWindow(dow: 2, startMin: 360, endMin: 600),
+            ]),
+          ),
+          reason: 'the failed 6:00 state must be superseded, not retried',
+        );
+
+        controller.dispose();
+      });
+    },
+  );
 
   test('a mid-flight replacement gets its own full push', () {
     fakeAsync((async) {
