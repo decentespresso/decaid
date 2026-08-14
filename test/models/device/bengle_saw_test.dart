@@ -8,7 +8,8 @@ import '../../helpers/fake_ble_transport.dart';
 void main() {
   test('uses the firmware EndOfShotWeight MMR with x100 scaling', () async {
     final transport = FakeBleTransport()
-      ..queueOnConnectResponses(v13Model: 128);
+      ..queueOnConnectResponses(v13Model: 128)
+      ..queuePaletteHydrationResponses();
     final bengle = Bengle(transport: transport);
     await bengle.onConnect();
     addTearDown(bengle.dispose);
@@ -37,7 +38,8 @@ void main() {
 
   test('clamps to the firmware EndOfShotWeight range 0..10000 g', () async {
     final transport = FakeBleTransport()
-      ..queueOnConnectResponses(v13Model: 128);
+      ..queueOnConnectResponses(v13Model: 128)
+      ..queuePaletteHydrationResponses();
     final bengle = Bengle(transport: transport);
     await bengle.onConnect();
     addTearDown(bengle.dispose);
@@ -49,7 +51,6 @@ void main() {
     final upperWrite = transport.writes.singleWhere(
       (entry) => entry.characteristicUUID == Endpoint.writeToMMR.uuid,
     );
-    // 10000 g at x100 = 1,000,000 raw (0x0F4240), little-endian.
     expect(upperWrite.data.sublist(0, 8), [
       0x04,
       0x80,

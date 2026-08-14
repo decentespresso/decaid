@@ -42,9 +42,9 @@ final _goldenFrame = Uint8List.fromList(const [
   0x01,
 ]);
 
-FakeBleTransport _transport({required int model}) =>
-    FakeBleTransport()
-      ..queueOnConnectResponses(v13Model: model, calFlowEst: 100);
+FakeBleTransport _transport({required int model}) => FakeBleTransport()
+  ..queueOnConnectResponses(v13Model: model, calFlowEst: 100)
+  ..queuePaletteHydrationResponses();
 
 void main() {
   test('decodes the current 28-byte Bengle shot sample', () {
@@ -221,6 +221,7 @@ void main() {
     expect((await bengle.weightSnapshot.first).weight, 36.5);
 
     await bengle.disconnect();
+    transport.queuePaletteHydrationResponses();
     await bengle.onConnect();
     final snapshot = bengle.weightSnapshot.first;
     transport.subscribers[Endpoint.bengleShotSample.uuid]!(_goldenFrame);

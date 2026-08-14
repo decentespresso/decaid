@@ -66,7 +66,8 @@ void main() {
 
   test('Bengle initializes normally for the Bengle model family', () async {
     final transport = FakeBleTransport()
-      ..queueOnConnectResponses(v13Model: 129);
+      ..queueOnConnectResponses(v13Model: 129)
+      ..queuePaletteHydrationResponses();
     final bengle = Bengle(transport: transport);
 
     await bengle.onConnect();

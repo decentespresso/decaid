@@ -14,6 +14,7 @@ void main() {
       transport = FakeBleTransport();
       bengle = Bengle(transport: transport);
       transport.queueOnConnectResponses(v13Model: 128);
+      transport.queuePaletteHydrationResponses();
       await bengle.onConnect();
     });
 

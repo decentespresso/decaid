@@ -32,6 +32,7 @@ void main() {
         final transport = FakeBleTransport();
         addTearDown(transport.dispose);
         transport.queueOnConnectResponses(v13Model: 128);
+        transport.queuePaletteHydrationResponses();
 
         final bengle = Bengle(transport: transport);
         await bengle.onConnect();
