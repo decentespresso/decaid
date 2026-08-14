@@ -130,6 +130,7 @@ class PresenceController {
       // app values changed since the last machine.
       _lastPushedSleepTimeout = null;
       _lastPushedSchedulesJson = null;
+      _lastPushedDevice = null;
       _syncFirmwareScheduleAndTimeout();
     } else {
       _log.fine('DE1 disconnected, cancelling sleep timer');
@@ -275,45 +276,80 @@ class PresenceController {
 
   int? _lastPushedSleepTimeout;
   String? _lastPushedSchedulesJson;
+  De1Interface? _lastPushedDevice;
+  int _firmwareSyncGeneration = 0;
+  Future<void>? _firmwareSyncInFlight;
 
   /// Mirror the app's sleep timeout and wake schedules into the Bengle
   /// firmware (InactivitySleepTimeout is persisted, so only pushes on
   /// change; the clock + wake table are RAM-only and are re-pushed on every
-  /// connect via the reset above). Pushes are fire-and-forget with error
-  /// logging; stock DE1s and old firmware are skipped.
+  /// connect via the reset above). Pushes are serialized and coalescing:
+  /// every trigger bumps a generation and a single drain applies the newest
+  /// desired state; the "pushed" cache is committed only after a complete
+  /// successful transaction, so a failure leaves the state dirty and the
+  /// next trigger retries it. Stock DE1s and old firmware are skipped.
   void _syncFirmwareScheduleAndTimeout() {
+    final de1 = _de1;
+    if (de1 is! BengleInterface || !de1.bengleFeatureSurfaceSupported) {
+      return;
+    }
+    _firmwareSyncGeneration++;
+    _firmwareSyncInFlight ??= _drainFirmwareSync();
+  }
+
+  /// Serialized drain: applies the newest desired firmware state, then
+  /// re-applies while newer triggers arrived mid-flight. Intermediate
+  /// updates coalesce into the next iteration, so overlapping triggers can
+  /// never interleave two partial table rewrites.
+  Future<void> _drainFirmwareSync() async {
+    try {
+      while (true) {
+        final generation = _firmwareSyncGeneration;
+        try {
+          await _pushFirmwareDesiredState();
+        } catch (e) {
+          _log.warning('Failed to push Bengle firmware state: $e');
+        }
+        if (generation == _firmwareSyncGeneration) break;
+      }
+    } finally {
+      _firmwareSyncInFlight = null;
+    }
+  }
+
+  Future<void> _pushFirmwareDesiredState() async {
     final de1 = _de1;
     if (de1 is! BengleInterface || !de1.bengleFeatureSurfaceSupported) {
       return;
     }
     final timeout = _settingsController.sleepTimeoutMinutes;
     final schedulesJson = _settingsController.wakeSchedules;
-    if (timeout == _lastPushedSleepTimeout &&
+    if (de1 == _lastPushedDevice &&
+        timeout == _lastPushedSleepTimeout &&
         schedulesJson == _lastPushedSchedulesJson) {
       return;
     }
-    _lastPushedSleepTimeout = timeout;
-    _lastPushedSchedulesJson = schedulesJson;
 
     final windows = translateWakeSchedules(
       keepAwakeSchedulesFromJson(schedulesJson),
     );
     final secondsSinceSunday = localSecondsSinceSunday(_clock());
-    unawaited(() async {
-      try {
-        await de1.setInactivitySleepTimeout(timeout);
-        await de1.pushFirmwareWakeSchedule(
-          secondsSinceSundayLocal: secondsSinceSunday,
-          windows: windows,
-        );
-        _log.fine(
-          'Pushed Bengle firmware state: sleep timeout $timeout min, '
-          '${windows.length} wake windows',
-        );
-      } catch (e) {
-        _log.warning('Failed to push Bengle firmware state: $e');
-      }
-    }());
+    await de1.setInactivitySleepTimeout(timeout);
+    await de1.pushFirmwareWakeSchedule(
+      secondsSinceSundayLocal: secondsSinceSunday,
+      windows: windows,
+    );
+    // Commit only when the device is still the one we pushed to: a
+    // mid-flight replacement must not mark the new machine synchronized.
+    if (_de1 == de1) {
+      _lastPushedDevice = de1;
+      _lastPushedSleepTimeout = timeout;
+      _lastPushedSchedulesJson = schedulesJson;
+      _log.fine(
+        'Pushed Bengle firmware state: sleep timeout $timeout min, '
+        '${windows.length} wake windows',
+      );
+    }
   }
 
   static const int _kSleepOnRefillMinFwBuild = 1357;

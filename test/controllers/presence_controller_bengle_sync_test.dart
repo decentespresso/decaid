@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:clock/clock.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -34,6 +36,18 @@ class _FakeBengle extends MockDe1 implements BengleInterface {
   final List<int> pushedClockSeconds = [];
   final List<List<FirmwareWakeWindow>> pushedWindows = [];
 
+  /// When set, pushFirmwareWakeSchedule awaits this before recording, so
+  /// tests can hold a push in flight while more triggers arrive.
+  Completer<void>? pushGate;
+
+  /// When > 0, the next pushFirmwareWakeSchedule throws instead of
+  /// recording (simulates a failed transaction).
+  int failNextPushes = 0;
+
+  /// Number of pushes currently in flight (for single-flight assertions).
+  int activePushes = 0;
+  int maxConcurrentPushes = 0;
+
   @override
   Future<void> setInactivitySleepTimeout(int minutes) async {
     pushedTimeouts.add(minutes);
@@ -44,8 +58,24 @@ class _FakeBengle extends MockDe1 implements BengleInterface {
     required int secondsSinceSundayLocal,
     required List<FirmwareWakeWindow> windows,
   }) async {
-    pushedClockSeconds.add(secondsSinceSundayLocal);
-    pushedWindows.add(List.of(windows));
+    activePushes++;
+    if (activePushes > maxConcurrentPushes) {
+      maxConcurrentPushes = activePushes;
+    }
+    try {
+      final gate = pushGate;
+      if (gate != null) {
+        await gate.future;
+      }
+      if (failNextPushes > 0) {
+        failNextPushes--;
+        throw StateError('simulated push failure');
+      }
+      pushedClockSeconds.add(secondsSinceSundayLocal);
+      pushedWindows.add(List.of(windows));
+    } finally {
+      activePushes--;
+    }
   }
 
   @override
@@ -229,6 +259,119 @@ void main() {
       expect(bengle.pushedWindows, hasLength(2));
       // No keepAwakeFor -> firmware max (240 min) window, Tue (dow 2).
       expect(bengle.pushedWindows.last, [
+        const FirmwareWakeWindow(dow: 2, startMin: 360, endMin: 600),
+      ]);
+
+      controller.dispose();
+    });
+  });
+
+  test('overlapping triggers coalesce and never interleave', () {
+    fakeAsync((async) {
+      final controller = PresenceController(
+        de1Controller: de1Controller,
+        settingsController: settingsController,
+        clock: () => clock.now(),
+      );
+      controller.initialize();
+      de1Controller.setDe1(bengle);
+      async.flushMicrotasks();
+      expect(bengle.pushedWindows, hasLength(1)); // connect push
+
+      // Push A starts and is held in flight by the gate.
+      setSchedules([
+        WakeSchedule.create(hour: 6, minute: 0, daysOfWeek: {2}),
+      ]);
+      bengle.pushGate = Completer<void>();
+      async.flushMicrotasks();
+      expect(bengle.activePushes, 1);
+
+      // A second change lands while the first push is still in flight.
+      setSchedules([
+        WakeSchedule.create(hour: 8, minute: 0, daysOfWeek: {3}),
+      ]);
+      async.flushMicrotasks();
+      expect(
+        bengle.activePushes,
+        1,
+        reason: 'a second push must not start while one is in flight',
+      );
+
+      bengle.pushGate!.complete();
+      bengle.pushGate = null;
+      async.flushMicrotasks();
+
+      expect(bengle.maxConcurrentPushes, 1);
+      // The final table is exactly the newest schedule, never a mixture.
+      expect(bengle.pushedWindows.last, [
+        const FirmwareWakeWindow(dow: 3, startMin: 480, endMin: 720),
+      ]);
+
+      controller.dispose();
+    });
+  });
+
+  test('a failed push is not committed; the next trigger retries', () {
+    fakeAsync((async) {
+      final controller = PresenceController(
+        de1Controller: de1Controller,
+        settingsController: settingsController,
+        clock: () => clock.now(),
+      );
+      controller.initialize();
+      de1Controller.setDe1(bengle);
+      bengle.failNextPushes = 1;
+      async.flushMicrotasks();
+
+      // The failed attempt recorded nothing, so the state stays dirty.
+      expect(bengle.pushedWindows, isEmpty);
+
+      // The next trigger converges to the full desired state.
+      setSchedules([
+        WakeSchedule.create(hour: 6, minute: 0, daysOfWeek: {2}),
+      ]);
+      async.flushMicrotasks();
+      expect(bengle.pushedWindows, hasLength(1));
+      expect(bengle.pushedWindows.single, [
+        const FirmwareWakeWindow(dow: 2, startMin: 360, endMin: 600),
+      ]);
+
+      controller.dispose();
+    });
+  });
+
+  test('a mid-flight replacement gets its own full push', () {
+    fakeAsync((async) {
+      final controller = PresenceController(
+        de1Controller: de1Controller,
+        settingsController: settingsController,
+        clock: () => clock.now(),
+      );
+      controller.initialize();
+      de1Controller.setDe1(bengle);
+      async.flushMicrotasks();
+      expect(bengle.pushedTimeouts, [30]);
+
+      // Push is in flight on the old machine when it is replaced.
+      setSchedules([
+        WakeSchedule.create(hour: 6, minute: 0, daysOfWeek: {2}),
+      ]);
+      bengle.pushGate = Completer<void>();
+      async.flushMicrotasks();
+
+      final replacement = _FakeBengle();
+      de1Controller.setDe1(replacement);
+      async.flushMicrotasks();
+
+      bengle.pushGate!.complete();
+      bengle.pushGate = null;
+      async.flushMicrotasks();
+
+      // The stale in-flight push must not mark the new machine
+      // synchronized: the new machine receives the full state.
+      expect(replacement.pushedTimeouts, [30]);
+      expect(replacement.pushedWindows, hasLength(1));
+      expect(replacement.pushedWindows.single, [
         const FirmwareWakeWindow(dow: 2, startMin: 360, endMin: 600),
       ]);
 

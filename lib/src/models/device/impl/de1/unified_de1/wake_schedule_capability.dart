@@ -17,7 +17,9 @@ part of 'unified_de1.dart';
 ///   table (32 max).
 /// - ScheduleControl (0x008038C8): 0 = clear table + disable; 1 = enable.
 ///
-/// The rewrite sequence (control 0 -> entries -> control 1) is edge-safe:
+/// The rewrite sequence (control 0 -> clock -> entries -> control 1)
+/// disables the old table BEFORE moving the firmware clock, so a clock
+/// correction can never land inside a window from the table being replaced;
 /// currentAwakeWindowKey() reports NOT_READY mid-rewrite and preserves
 /// LastWokenWindowKey, so a manual mid-window sleep is never re-woken by the
 /// re-push (see ShotMachine.cpp checkSchedule).
@@ -35,11 +37,13 @@ mixin WakeScheduleCapability on UnifiedDe1 {
     required int secondsSinceSundayLocal,
     required List<FirmwareWakeWindow> windows,
   }) async {
+    // Disable/clear first: while the table is being rewritten the firmware
+    // must not match any window, including windows from the old table.
+    await writeMmrInt(BengleMmr.scheduleControl, 0);
     await writeMmrInt(
       BengleMmr.setLocalTimeOfWeek,
       secondsSinceSundayLocal.clamp(0, 604800),
     );
-    await writeMmrInt(BengleMmr.scheduleControl, 0);
     for (final window in windows.take(kFirmwareMaxWakeWindows)) {
       await writeMmrInt(BengleMmr.scheduleEntry, window.pack());
     }

@@ -55,7 +55,7 @@ void main() {
     );
 
     test(
-      'pushFirmwareWakeSchedule writes clock, clear, entries, enable',
+      'pushFirmwareWakeSchedule writes clear, clock, entries, enable',
       () async {
         transport.writes.clear();
         await bengle.pushFirmwareWakeSchedule(
@@ -81,8 +81,10 @@ void main() {
           expect(payload.getUint32(0, Endian.little), value);
         }
 
-        expectFrame(0, BengleMmr.setLocalTimeOfWeek, 123456);
-        expectFrame(1, BengleMmr.scheduleControl, 0); // clear + disable
+        // The old table is disabled BEFORE the clock moves, so a clock
+        // correction can never land inside a window from the old table.
+        expectFrame(0, BengleMmr.scheduleControl, 0); // clear + disable
+        expectFrame(1, BengleMmr.setLocalTimeOfWeek, 123456);
         expectFrame(2, BengleMmr.scheduleEntry, (1 << 22) | (360 << 11) | 390);
         expectFrame(3, BengleMmr.scheduleEntry, (3 << 22) | (720 << 11) | 780);
         expectFrame(4, BengleMmr.scheduleControl, 1); // enable
@@ -102,8 +104,77 @@ void main() {
             .where((w) => w.characteristicUUID == Endpoint.writeToMMR.uuid)
             .toList();
         expect(frames.length, 2);
-        final control = ByteData.sublistView(frames[1].data, 4, 8);
+        final control = ByteData.sublistView(frames[0].data, 4, 8);
         expect(control.getUint32(0, Endian.little), 0);
+      },
+    );
+
+    test(
+      'failure at any point of the sequence aborts and propagates',
+      () async {
+        // Sequence: control 0 (1), clock (2), entry (3), entry (4),
+        // control 1 (5). Break each point in turn.
+        for (final (mmr, ordinal) in [
+          (BengleMmr.scheduleControl, 1), // the clear itself
+          (BengleMmr.setLocalTimeOfWeek, 1), // after clear
+          (BengleMmr.scheduleEntry, 1), // after clear + clock
+          (BengleMmr.scheduleEntry, 2), // after the first append
+          (BengleMmr.scheduleControl, 2), // the final enable
+        ]) {
+          transport.failMmrWriteOrdinalForAddresses[mmr.address] = ordinal;
+          await expectLater(
+            bengle.pushFirmwareWakeSchedule(
+              secondsSinceSundayLocal: 123456,
+              windows: const [
+                FirmwareWakeWindow(dow: 1, startMin: 360, endMin: 390),
+                FirmwareWakeWindow(dow: 3, startMin: 720, endMin: 780),
+              ],
+            ),
+            throwsA(isA<StateError>()),
+          );
+          transport.failMmrWriteOrdinalForAddresses.clear();
+          transport.writes.clear();
+        }
+      },
+    );
+
+    test(
+      'a retry after a mid-sequence failure converges to the full rewrite',
+      () async {
+        // Fail the second entry write; then retry without the fault.
+        transport.failMmrWriteOrdinalForAddresses[BengleMmr
+                .scheduleEntry
+                .address] =
+            2;
+        await expectLater(
+          bengle.pushFirmwareWakeSchedule(
+            secondsSinceSundayLocal: 123456,
+            windows: const [
+              FirmwareWakeWindow(dow: 1, startMin: 360, endMin: 390),
+              FirmwareWakeWindow(dow: 3, startMin: 720, endMin: 780),
+            ],
+          ),
+          throwsA(isA<StateError>()),
+        );
+        transport.failMmrWriteOrdinalForAddresses.clear();
+        transport.writes.clear();
+
+        await bengle.pushFirmwareWakeSchedule(
+          secondsSinceSundayLocal: 123456,
+          windows: const [
+            FirmwareWakeWindow(dow: 1, startMin: 360, endMin: 390),
+            FirmwareWakeWindow(dow: 3, startMin: 720, endMin: 780),
+          ],
+        );
+
+        final frames = transport.writes
+            .where((w) => w.characteristicUUID == Endpoint.writeToMMR.uuid)
+            .toList();
+        expect(frames.length, 5, reason: 'retry must rewrite the whole table');
+        final control0 = ByteData.sublistView(frames[0].data, 4, 8);
+        final control1 = ByteData.sublistView(frames[4].data, 4, 8);
+        expect(control0.getUint32(0, Endian.little), 0);
+        expect(control1.getUint32(0, Endian.little), 1);
       },
     );
   });

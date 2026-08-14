@@ -35,6 +35,17 @@ class FakeBleTransport extends BLETransport {
   /// transport error on those registers).
   final Set<int> failMmrReadsForAddresses = {};
 
+  /// MMR addresses whose writes fail fast with an exception (simulates a
+  /// transport error on those registers).
+  final Set<int> failMmrWritesForAddresses = {};
+
+  /// MMR addresses whose Nth write (1-based) fails: key is the address,
+  /// value is the write ordinal that throws. Lets tests break a
+  /// multi-write transaction at a specific point.
+  final Map<int, int> failMmrWriteOrdinalForAddresses = {};
+
+  final Map<int, int> _mmrWriteCounts = {};
+
   final List<FakeBleWrite> writes = [];
 
   int dropNextMmrResponses = 0;
@@ -157,7 +168,37 @@ class FakeBleTransport extends BLETransport {
       if (callback != null) scheduleMicrotask(() => callback(response));
     }
 
-    if (characteristicUUID != Endpoint.readFromMMR.uuid) return;
+    if (characteristicUUID != Endpoint.readFromMMR.uuid) {
+      if (characteristicUUID == Endpoint.writeToMMR.uuid && data.length >= 4) {
+        for (final addr in failMmrWritesForAddresses) {
+          final bytes = ByteData(4)..setInt32(0, addr, Endian.big);
+          if (bytes.getUint8(1) == data[1] &&
+              bytes.getUint8(2) == data[2] &&
+              bytes.getUint8(3) == data[3]) {
+            throw StateError(
+              'simulated MMR write failure for 0x'
+              '${addr.toRadixString(16)}',            );
+          }
+        }
+        for (final entry in failMmrWriteOrdinalForAddresses.entries) {
+          final addr = entry.key;
+          final bytes = ByteData(4)..setInt32(0, addr, Endian.big);
+          if (bytes.getUint8(1) == data[1] &&
+              bytes.getUint8(2) == data[2] &&
+              bytes.getUint8(3) == data[3]) {
+            final count = (_mmrWriteCounts[addr] ?? 0) + 1;
+            _mmrWriteCounts[addr] = count;
+            if (count == entry.value) {
+              throw StateError(
+                'simulated MMR write $count failure for 0x'
+                '${addr.toRadixString(16)}',
+              );
+            }
+          }
+        }
+      }
+      return;
+    }
     if (data.length < 4) return;
     for (final addr in failMmrReadsForAddresses) {
       final bytes = ByteData(4)..setInt32(0, addr, Endian.big);
