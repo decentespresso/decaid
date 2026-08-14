@@ -44,11 +44,8 @@ bool _isBlack(Color16 color) =>
 /// The firmware stores 8 bits per RGB channel; the cache must publish
 /// exactly the quantized representation that was written (a PUT followed
 /// by GET never reports values the firmware does not hold).
-Color16 _quantize(Color16 color) => Color16(
-  color.red & 0xFF00,
-  color.green & 0xFF00,
-  color.blue & 0xFF00,
-);
+Color16 _quantize(Color16 color) =>
+    Color16(color.red & 0xFF00, color.green & 0xFF00, color.blue & 0xFF00);
 
 ZoneLedState _quantizeZone(ZoneLedState zone) => ZoneLedState(
   awake: _quantize(zone.awake),

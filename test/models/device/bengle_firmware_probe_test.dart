@@ -106,10 +106,12 @@ void main() {
         transport = FakeBleTransport();
         bengle = Bengle(transport: transport);
         transport.queueOnConnectResponses(v13Model: 128);
-        transport.queueMmrResponseRaw(
-          BengleMmr.scaleCalWeight,
-          [0xD0, 0x07, 0x00, 0x00],
-        );
+        transport.queueMmrResponseRaw(BengleMmr.scaleCalWeight, [
+          0xD0,
+          0x07,
+          0x00,
+          0x00,
+        ]);
         transport.queuePaletteHydrationResponses();
         // First attempt's response is dropped on the wire; the bounded
         // retry must still detect the surface.
@@ -121,7 +123,8 @@ void main() {
         expect(
           bengle.bengleFeatureSurfaceSupported,
           isTrue,
-          reason: 'one dropped BLE response must not latch the surface as '
+          reason:
+              'one dropped BLE response must not latch the surface as '
               'unsupported for the whole connection',
         );
 

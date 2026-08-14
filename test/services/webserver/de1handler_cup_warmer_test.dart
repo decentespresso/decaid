@@ -263,7 +263,8 @@ void main() {
         expect(
           cupWarmerModeEnableWrites,
           isEmpty,
-          reason: 'an explicit false must never cause an enable (mode 1) '
+          reason:
+              'an explicit false must never cause an enable (mode 1) '
               'write, including the back-compat auto-enable',
         );
         final setpointWrites = mmrWrites.where((w) {
@@ -314,7 +315,8 @@ void main() {
         expect(
           cupWarmerModeEnableWrites,
           isEmpty,
-          reason: 'a failed setpoint write must not leave manual heating '
+          reason:
+              'a failed setpoint write must not leave manual heating '
               'enabled behind',
         );
       },
@@ -394,14 +396,16 @@ void main() {
       expect(res.statusCode, 404);
     });
 
-    test('404 on old Bengle firmware names cupWarmer/preheat in the body',
-        () async {
-      await wireWith(MockBengle(surfaceSupported: false));
-      final res = await get('/api/v1/machine/cupWarmer/preheat');
-      expect(res.statusCode, 404);
-      final body = jsonDecode(await res.readAsString());
-      expect(body['error'], contains('cupWarmer/preheat'));
-      expect(body['error'], isNot(contains('scaleCalibration')));
-    });
+    test(
+      '404 on old Bengle firmware names cupWarmer/preheat in the body',
+      () async {
+        await wireWith(MockBengle(surfaceSupported: false));
+        final res = await get('/api/v1/machine/cupWarmer/preheat');
+        expect(res.statusCode, 404);
+        final body = jsonDecode(await res.readAsString());
+        expect(body['error'], contains('cupWarmer/preheat'));
+        expect(body['error'], isNot(contains('scaleCalibration')));
+      },
+    );
   });
 }

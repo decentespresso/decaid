@@ -181,7 +181,8 @@ class FakeBleTransport extends BLETransport {
               bytes.getUint8(3) == data[3]) {
             throw StateError(
               'simulated MMR write failure for 0x'
-              '${addr.toRadixString(16)}',            );
+              '${addr.toRadixString(16)}',
+            );
           }
         }
         for (final entry in failMmrWriteOrdinalForAddresses.entries) {

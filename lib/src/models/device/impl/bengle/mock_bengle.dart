@@ -165,11 +165,8 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
     // Mirror the firmware: 8 bits per RGB channel are stored, and the
     // switch palette is derived from the front strip (black falls back to
     // the product defaults), never independent.
-    Color16 quantize(Color16 color) => Color16(
-      color.red & 0xFF00,
-      color.green & 0xFF00,
-      color.blue & 0xFF00,
-    );
+    Color16 quantize(Color16 color) =>
+        Color16(color.red & 0xFF00, color.green & 0xFF00, color.blue & 0xFF00);
 
     ZoneLedState quantizeZone(ZoneLedState zone) => ZoneLedState(
       awake: quantize(zone.awake),

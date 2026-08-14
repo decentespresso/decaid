@@ -186,10 +186,7 @@ void main() {
             awake: const Color16(0x12FF, 0x3456, 0x78AB),
             sleeping: Color16.off,
           ),
-          backStrip: ZoneLedState(
-            awake: Color16.off,
-            sleeping: Color16.off,
-          ),
+          backStrip: ZoneLedState(awake: Color16.off, sleeping: Color16.off),
         ),
       );
 
@@ -226,7 +223,8 @@ void main() {
         expect(
           await bengle.getLedStripState(),
           isNull,
-          reason: 'a partial palette write must not leave stale state '
+          reason:
+              'a partial palette write must not leave stale state '
               'served as authoritative',
         );
       }
@@ -248,7 +246,8 @@ void main() {
         expect(
           state,
           isNull,
-          reason: 'a failed reload must be distinguishable from success '
+          reason:
+              'a failed reload must be distinguishable from success '
               'even when an older cached value exists',
         );
         expect(await bengle.getLedStripState(), isNull);

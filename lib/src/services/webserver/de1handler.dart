@@ -45,7 +45,12 @@ class De1Handler {
             // registers are part of the post-0x00803880 surface, so an
             // older Bengle must not see a capability whose endpoints all
             // 404.
-            caps.addAll(['ledStrip', 'scaleCalibration', 'preheat', 'wakeSchedule']);
+            caps.addAll([
+              'ledStrip',
+              'scaleCalibration',
+              'preheat',
+              'wakeSchedule',
+            ]);
           }
         }
         return jsonOk({'capabilities': caps});
