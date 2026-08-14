@@ -5175,7 +5175,7 @@ components:
 
     CupWarmerState:
       type: object
-      required: [temperature]
+      required: [temperature, enabled, currentTemperature]
       properties:
         temperature:
           type: integer
@@ -5187,18 +5187,15 @@ components:
           example: 60
         enabled:
           type: boolean
-          nullable: true
           description: |
             Manual enable state (CupWarmerMode). RAM-only in firmware:
-            boots off after a power cycle. Null on firmware that
-            predates the mode register.
+            boots off after a power cycle.
         currentTemperature:
           type: number
           nullable: true
           description: |
             Live mat temperature in °C, or null when the firmware has no
-            valid NTC reading (raw 0). Null on firmware that predates
-            the register.
+            valid NTC reading (raw 0).
 
     CupWarmerUpdateRequest:
       type: object

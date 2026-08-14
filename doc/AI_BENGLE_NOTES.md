@@ -174,10 +174,12 @@ unsuccessful = outdated firmware.
   coalescing — every trigger bumps a generation, a single drain applies the
   newest desired state, and the pushed cache commits only after a complete
   successful transaction. A failed push is retried automatically up to 3
-  attempts with 2 s backoff; a newer generation arriving during the backoff
-  supersedes the failed attempt (the stale state is never pushed on its
-  own); after the bound the state stays dirty until the next trigger
-  (settings change or reconnect). A mid-flight machine replacement must not
+  attempts with 2 s backoff, and each desired generation receives its own
+  retry budget (the attempt counter resets when the generation changes); a
+  newer generation arriving during the backoff supersedes the failed
+  attempt (the stale state is never pushed on its own); after the bound
+  the state stays dirty until the next trigger (settings change or
+  reconnect). A mid-flight machine replacement must not
   mark the new machine synchronized, so the cache commits only when the
   device is still the one pushed to.
 - Master toggle (userPresenceEnabled): when off, firmware must not own any
