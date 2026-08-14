@@ -8,9 +8,11 @@ import 'package:reaprime/src/models/device/scale_calibration.dart';
 abstract class BengleInterface extends De1Interface {
   /// True when the connected firmware implements the post-0x00803880 MMR
   /// surface (scale calibration, LED palette, cup-warmer mode/temperature,
-  /// preheat, wake schedule). Detected once per connection; old firmware
-  /// reports false and all surface endpoints answer "not supported".
-  bool get bengleFeatureSurfaceSupported;
+  /// preheat, wake schedule). Detected once per connection; outdated
+  /// firmware reports false, meaning the machine is treated as
+  /// firmware-incompatible rather than a Bengle with a reduced capability
+  /// set.
+  bool get supportsCurrentBengleFirmwareSurface;
 
   Future<ScaleCalibrationState> getScaleCalibrationState();
 

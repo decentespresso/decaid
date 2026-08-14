@@ -97,7 +97,7 @@ class _TestBengle extends TestDe1 implements BengleInterface {
   Stream<double> get probeTemperature => const Stream.empty();
 
   @override
-  bool get bengleFeatureSurfaceSupported => true;
+  bool get supportsCurrentBengleFirmwareSurface => true;
 
   @override
   Future<ScaleCalibrationState> getScaleCalibrationState() async =>

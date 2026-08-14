@@ -17,14 +17,15 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
   MockBengle({
     super.deviceId = 'MockBengle',
     bool probeAttached = true,
-    this.surfaceSupported = true,
+    this.supportsCurrentFirmwareSurface = true,
   }) {
     _probeAttachedSubject = BehaviorSubject<bool>.seeded(probeAttached);
   }
 
   /// False simulates Bengle firmware predating the post-0x00803880 MMR
-  /// surface (scale cal, LED palette, cup-warmer mode, schedule, pre-warm).
-  final bool surfaceSupported;
+  /// surface (scale cal, LED palette, cup-warmer mode, schedule, pre-warm):
+  /// the machine is then firmware-incompatible, not feature-reduced.
+  final bool supportsCurrentFirmwareSurface;
 
   @override
   String get name => 'MockBengle';
@@ -33,7 +34,8 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
   DeviceImplementation get implementation => DeviceImplementation.bengle;
 
   @override
-  bool get bengleFeatureSurfaceSupported => surfaceSupported;
+  bool get supportsCurrentBengleFirmwareSurface =>
+      supportsCurrentFirmwareSurface;
 
   ScaleCalibrationState _calState = const ScaleCalibrationState(
     step: ScaleCalibrationStep.idle,
@@ -392,6 +394,12 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
     model: 'Bengle',
     serialNumber: 'mock-bengle',
     groupHeadControllerPresent: true,
-    extra: {'voltage': 220, 'refillKit': false},
+    extra: {
+      'voltage': 220,
+      'refillKit': false,
+      'bengleFirmwareSurface': supportsCurrentBengleFirmwareSurface
+          ? 'current'
+          : 'outdated',
+    },
   );
 }

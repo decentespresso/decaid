@@ -78,6 +78,13 @@ void main() {
       final body = jsonDecode(await res.readAsString());
       expect(body['capabilities'], isNot(contains('scaleCalibration')));
     });
+
+    test('outdated Bengle firmware gets no partial capability set', () async {
+      await wireWith(MockBengle(supportsCurrentFirmwareSurface: false));
+      final res = await get('/api/v1/machine/capabilities');
+      final body = jsonDecode(await res.readAsString());
+      expect(body['capabilities'], isEmpty);
+    });
   });
 
   group('GET /api/v1/machine/scaleCalibration', () {
@@ -98,9 +105,9 @@ void main() {
     });
 
     test(
-      '404 on old Bengle firmware names scaleCalibration in the body',
+      '404 on outdated Bengle firmware names scaleCalibration in the body',
       () async {
-        await wireWith(MockBengle(surfaceSupported: false));
+        await wireWith(MockBengle(supportsCurrentFirmwareSurface: false));
         final res = await get('/api/v1/machine/scaleCalibration');
         expect(res.statusCode, 404);
         final body = jsonDecode(await res.readAsString());
@@ -175,9 +182,9 @@ void main() {
     });
 
     test(
-      '404 on old Bengle firmware names scaleCalibration in the body',
+      '404 on outdated Bengle firmware names scaleCalibration in the body',
       () async {
-        await wireWith(MockBengle(surfaceSupported: false));
+        await wireWith(MockBengle(supportsCurrentFirmwareSurface: false));
         final res = await put('/api/v1/machine/scaleCalibration', {
           'command': 'zero',
         });

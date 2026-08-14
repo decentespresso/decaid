@@ -39,13 +39,15 @@ class De1Handler {
       return withDe1((de1) async {
         final caps = <String>[];
         if (de1 is BengleInterface) {
-          caps.addAll(['cupWarmer', 'integratedScale', 'stopAtWeight']);
-          if (de1.bengleFeatureSurfaceSupported) {
-            // ledStrip stays inside the surface gate: the palette
-            // registers are part of the post-0x00803880 surface, so an
-            // older Bengle must not see a capability whose endpoints all
-            // 404.
+          // One supported firmware surface: a Bengle that passes the
+          // compatibility probe exposes the complete capability set;
+          // outdated firmware gets none (firmware-incompatible, not
+          // feature-reduced).
+          if (de1.supportsCurrentBengleFirmwareSurface) {
             caps.addAll([
+              'cupWarmer',
+              'integratedScale',
+              'stopAtWeight',
               'ledStrip',
               'scaleCalibration',
               'preheat',
@@ -59,19 +61,14 @@ class De1Handler {
 
     app.get('/api/v1/machine/cupWarmer', (Request _) async {
       return withDe1((de1) async {
-        if (de1 is! BengleInterface) {
-          return jsonNotFound({'error': 'cupWarmer not supported'});
-        }
-        final t = await de1.getCupWarmerTemperature();
-        final surface = de1.bengleFeatureSurfaceSupported;
+        final gate = _bengleFirmwareGate(de1, 'cupWarmer');
+        if (gate != null) return gate;
+        final bengle = de1 as BengleInterface;
+        final t = await bengle.getCupWarmerTemperature();
         return jsonOk({
           'temperature': t.toInt(),
-          // Null when the connected firmware predates CupWarmerMode/
-          // MatCurrentTemp (rows 39+): unknown, not fabricated.
-          'enabled': surface ? await de1.getCupWarmerEnabled() : null,
-          'currentTemperature': surface
-              ? await de1.getCupWarmerCurrentTemperature()
-              : null,
+          'enabled': await bengle.getCupWarmerEnabled(),
+          'currentTemperature': await bengle.getCupWarmerCurrentTemperature(),
         });
       });
     });
@@ -111,26 +108,19 @@ class De1Handler {
           : null;
       final enabled = hasEnabled ? json['enabled'] as bool : null;
       return withQueuedDe1((de1) async {
-        if (de1 is! BengleInterface) {
-          return jsonNotFound({'error': 'cupWarmer not supported'});
-        }
-        if (enabled != null && !de1.bengleFeatureSurfaceSupported) {
-          return jsonNotFound({
-            'error':
-                'cupWarmer enabled requires Bengle firmware with the '
-                'post-0x00803880 MMR surface',
-          });
-        }
+        final gate = _bengleFirmwareGate(de1, 'cupWarmer');
+        if (gate != null) return gate;
+        final bengle = de1 as BengleInterface;
         if (temperature != null) {
-          await de1.setCupWarmerTemperature(temperature);
+          await bengle.setCupWarmerTemperature(temperature);
         }
         if (enabled != null) {
-          await de1.setCupWarmerEnabled(enabled);
-        } else if (temperature != null && de1.bengleFeatureSurfaceSupported) {
+          await bengle.setCupWarmerEnabled(enabled);
+        } else if (temperature != null) {
           // Back-compat: "set 45 C" also means "make the manual cup
           // warmer operate". An explicit enabled: false must never pass
           // through an intermediate enable write.
-          await de1.setCupWarmerEnabled(true);
+          await bengle.setCupWarmerEnabled(true);
         }
         return jsonOk({'status': 'accepted'});
       }, retryOnReplacement: true);
@@ -138,7 +128,7 @@ class De1Handler {
 
     app.get('/api/v1/machine/cupWarmer/preheat', (Request _) async {
       return withDe1((de1) async {
-        final gate = _bengleSurfaceGate(de1, 'cupWarmer/preheat');
+        final gate = _bengleFirmwareGate(de1, 'cupWarmer/preheat');
         if (gate != null) return gate;
         final state = await (de1 as BengleInterface).getCupWarmerPreheatState();
         return jsonOk(state.toJson());
@@ -178,7 +168,7 @@ class De1Handler {
       final enabled = hasEnabled ? json['enabled'] as bool : null;
       final lead = hasLead ? (json['leadMinutes'] as num).toInt() : null;
       return withQueuedDe1((de1) async {
-        final gate = _bengleSurfaceGate(de1, 'cupWarmer/preheat');
+        final gate = _bengleFirmwareGate(de1, 'cupWarmer/preheat');
         if (gate != null) return gate;
         final bengle = de1 as BengleInterface;
         final current = await bengle.getCupWarmerPreheatState();
@@ -204,17 +194,9 @@ class De1Handler {
 
     app.get('/api/v1/machine/ledStrip', (Request _) async {
       return withDe1((de1) async {
-        if (de1 is! BengleInterface) {
-          return jsonNotFound({'error': 'ledStrip not supported'});
-        }
-        if (!de1.bengleFeatureSurfaceSupported) {
-          return jsonNotFound({
-            'error':
-                'ledStrip requires Bengle firmware with the '
-                'post-0x00803880 MMR surface',
-          });
-        }
-        final state = await de1.getLedStripState();
+        final gate = _bengleFirmwareGate(de1, 'ledStrip');
+        if (gate != null) return gate;
+        final state = await (de1 as BengleInterface).getLedStripState();
         if (state == null) {
           return jsonServiceUnavailable({
             'error':
@@ -238,56 +220,32 @@ class De1Handler {
       }
       final state = LedStripState.fromJson(json as Map<String, dynamic>);
       return withQueuedDe1((de1) async {
-        if (de1 is! BengleInterface) {
-          return jsonNotFound({'error': 'ledStrip not supported'});
-        }
-        if (!de1.bengleFeatureSurfaceSupported) {
-          return jsonNotFound({
-            'error':
-                'ledStrip requires Bengle firmware with the '
-                'post-0x00803880 MMR surface',
-          });
-        }
-        await de1.setLedStrip(state);
+        final gate = _bengleFirmwareGate(de1, 'ledStrip');
+        if (gate != null) return gate;
+        await (de1 as BengleInterface).setLedStrip(state);
         return jsonOk({'status': 'accepted'});
       }, retryOnReplacement: true);
     });
 
     app.post('/api/v1/machine/ledStrip/commit', (Request _) async {
       return withQueuedDe1((de1) async {
-        if (de1 is! BengleInterface) {
-          return jsonNotFound({'error': 'ledStrip not supported'});
-        }
-        if (!de1.bengleFeatureSurfaceSupported) {
-          return jsonNotFound({
-            'error':
-                'ledStrip requires Bengle firmware with the '
-                'post-0x00803880 MMR surface',
-          });
-        }
+        final gate = _bengleFirmwareGate(de1, 'ledStrip');
+        if (gate != null) return gate;
         // Compatibility no-op: palette writes are write-through and
         // persisted by the firmware; there is no separate commit latch.
-        await de1.commitLedStrip();
+        await (de1 as BengleInterface).commitLedStrip();
         return jsonAccepted();
       }, retryOnReplacement: true);
     });
 
     app.post('/api/v1/machine/ledStrip/reset', (Request _) async {
       return withQueuedDe1((de1) async {
-        if (de1 is! BengleInterface) {
-          return jsonNotFound({'error': 'ledStrip not supported'});
-        }
-        if (!de1.bengleFeatureSurfaceSupported) {
-          return jsonNotFound({
-            'error':
-                'ledStrip requires Bengle firmware with the '
-                'post-0x00803880 MMR surface',
-          });
-        }
+        final gate = _bengleFirmwareGate(de1, 'ledStrip');
+        if (gate != null) return gate;
         // Re-read the persisted palette from the firmware. This is a
         // truthful reload, not a rollback: the firmware cannot undo a
         // persisted write.
-        final state = await de1.resetLedStrip();
+        final state = await (de1 as BengleInterface).resetLedStrip();
         if (state == null) {
           return jsonServiceUnavailable({
             'error': 'ledStrip state unavailable (firmware read failed)',
@@ -299,7 +257,7 @@ class De1Handler {
 
     app.get('/api/v1/machine/scaleCalibration', (Request _) async {
       return withDe1((de1) async {
-        final gate = _bengleSurfaceGate(de1, 'scaleCalibration');
+        final gate = _bengleFirmwareGate(de1, 'scaleCalibration');
         if (gate != null) return gate;
         final state = await (de1 as BengleInterface).getScaleCalibrationState();
         return jsonOk(state.toJson());
@@ -343,7 +301,7 @@ class De1Handler {
         }
       }
       return withQueuedDe1((de1) async {
-        final gate = _bengleSurfaceGate(de1, 'scaleCalibration');
+        final gate = _bengleFirmwareGate(de1, 'scaleCalibration');
         if (gate != null) return gate;
         final bengle = de1 as BengleInterface;
         final accepted = await bengle.startScaleCalibration(
@@ -587,17 +545,17 @@ class De1Handler {
   }
 
   /// Returns an error response when the connected machine is not a Bengle
-  /// or its firmware predates the rows-39+ MMR surface; null when the
-  /// surface is usable.
-  Response? _bengleSurfaceGate(De1Interface de1, String feature) {
+  /// or its firmware predates the supported (rows-39+) MMR surface; null
+  /// when the surface is usable.
+  Response? _bengleFirmwareGate(De1Interface de1, String feature) {
     if (de1 is! BengleInterface) {
       return jsonNotFound({'error': '$feature not supported'});
     }
-    if (!de1.bengleFeatureSurfaceSupported) {
+    if (!de1.supportsCurrentBengleFirmwareSurface) {
       return jsonNotFound({
         'error':
-            '$feature requires Bengle firmware with the '
-            'post-0x00803880 MMR surface',
+            '$feature requires current Bengle firmware (the connected '
+            'firmware predates the supported MMR surface)',
       });
     }
     return null;

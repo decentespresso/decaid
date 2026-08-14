@@ -22,15 +22,16 @@ import 'package:rxdart/subjects.dart';
 import '../helpers/mock_settings_service.dart';
 
 class _FakeBengle extends MockDe1 implements BengleInterface {
-  _FakeBengle({this.surfaceSupported = true});
+  _FakeBengle({this.supportsCurrentFirmwareSurface = true});
 
-  final bool surfaceSupported;
+  final bool supportsCurrentFirmwareSurface;
 
   @override
   DeviceImplementation get implementation => DeviceImplementation.bengle;
 
   @override
-  bool get bengleFeatureSurfaceSupported => surfaceSupported;
+  bool get supportsCurrentBengleFirmwareSurface =>
+      supportsCurrentFirmwareSurface;
 
   final List<int> pushedTimeouts = [];
   final List<int> pushedClockSeconds = [];
@@ -517,7 +518,7 @@ void main() {
     });
   });
 
-  test('old firmware and plain DE1 get no firmware pushes', () {
+  test('outdated firmware and plain DE1 get no firmware pushes', () {
     fakeAsync((async) {
       final controller = PresenceController(
         de1Controller: de1Controller,
@@ -526,12 +527,15 @@ void main() {
       );
       controller.initialize();
 
-      // Bengle hardware without the rows-39+ surface.
-      final oldFirmware = _FakeBengle(surfaceSupported: false);
-      de1Controller.setDe1(oldFirmware);
+      // Bengle hardware without the rows-39+ surface: outdated firmware,
+      // treated as firmware-incompatible, so no pushes.
+      final outdatedFirmware = _FakeBengle(
+        supportsCurrentFirmwareSurface: false,
+      );
+      de1Controller.setDe1(outdatedFirmware);
       async.flushMicrotasks();
-      expect(oldFirmware.pushedTimeouts, isEmpty);
-      expect(oldFirmware.pushedWindows, isEmpty);
+      expect(outdatedFirmware.pushedTimeouts, isEmpty);
+      expect(outdatedFirmware.pushedWindows, isEmpty);
 
       // Plain DE1: not a Bengle at all.
       de1Controller.setDe1(MockDe1());

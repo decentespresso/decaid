@@ -38,7 +38,7 @@ For browser clients on a different origin, `ETag` is exposed via `Access-Control
 
 | Method | Path | Description | Handler |
 |--------|------|-------------|---------|
-| GET | `/api/v1/machine/info` | Machine model, firmware, features | `de1handler.dart` |
+| GET | `/api/v1/machine/info` | Machine model, firmware, features; Bengle adds `extra.bengleFirmwareSurface` = `current`/`outdated` | `de1handler.dart` |
 | GET | `/api/v1/machine/state` | Current machine state + substate | |
 | PUT | `/api/v1/machine/state/{newState}` | Request state change (`idle`, `sleep`, `espresso`, …) | |
 | GET | `/api/v1/machine/settings` | DE1 machine settings (temps, flows) | |
@@ -56,8 +56,8 @@ For browser clients on a different origin, `ETag` is exposed via `Access-Control
 | POST | `/api/v1/machine/firmware/apply` | Managed firmware apply: resolve, validate, upload | `firmware_handler.dart` |
 | — | USB charger | Controlled via `POST /api/v1/machine/settings` with `{"usb": "enable"}` or `{"usb": "disable"}` | |
 | POST | `/api/v1/machine/waterLevels` | Update water level threshold | |
-| GET | `/api/v1/machine/capabilities` | List capability identifiers (`cupWarmer`, `integratedScale`, `stopAtWeight`, plus `ledStrip`/`scaleCalibration`/`preheat`/`wakeSchedule` on current firmware) supported by the connected machine | |
-| GET | `/api/v1/machine/cupWarmer` | Read cup-warmer state: setpoint (whole °C), manual `enabled`, live `currentTemperature` (both null on old firmware) — Bengle only, 404 elsewhere | |
+| GET | `/api/v1/machine/capabilities` | List capability identifiers supported by the connected machine. Compatible Bengle (current firmware surface, one MMR probe per connection) returns the full set: `cupWarmer`, `integratedScale`, `stopAtWeight`, `ledStrip`, `scaleCalibration`, `preheat`, `wakeSchedule`; plain DE1 and outdated Bengle firmware return an empty list | |
+| GET | `/api/v1/machine/cupWarmer` | Read cup-warmer state: setpoint (whole °C), manual `enabled`, live `currentTemperature` — Bengle with current firmware only, 404 elsewhere | |
 | PUT | `/api/v1/machine/cupWarmer` | Set setpoint (whole °C, 0–80) and/or `enabled`; temperature-only requests also enable manual heating (back-compat), `enabled:false` keeps the setpoint — Bengle only | |
 | GET | `/api/v1/machine/cupWarmer/preheat` | Read scheduled pre-warm `enabled`/`leadMinutes`/`active` (firmware-owned timing) — Bengle only, 404 elsewhere | |
 | PUT | `/api/v1/machine/cupWarmer/preheat` | Set pre-warm `enabled` and/or `leadMinutes` (0–120, persisted in firmware) — Bengle only | |

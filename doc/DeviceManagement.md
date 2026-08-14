@@ -142,8 +142,11 @@ check) `PresenceController` mirrors two app-owned settings into the machine:
   unattended windows end at window close.
 
 Machine replacement/disconnect resets the push state so the new machine gets
-a full re-push. Plain DE1 machines and Bengle firmware predating the
-0x00803880 MMR surface (detected by the probe) receive no such writes.
+ a full re-push. Plain DE1 machines and Bengle firmware that fails the
+ compatibility probe (predates the 0x00803880 MMR surface) receive no such
+ writes; outdated Bengle firmware is treated as firmware-incompatible, not
+ as a Bengle with a reduced feature set (`/machine/info` reports
+ `extra.bengleFirmwareSurface: outdated`).
 
 #### 3. SimulatedDeviceService
 - **Platform:** All
@@ -753,9 +756,11 @@ The normal scale tare command writes Bengle's `ScaleTare` MMR trigger.
 Autonomous stop-at-weight uses the firmware `EndOfShotWeight` register;
 autonomous stop-at-temperature uses the firmware `TargetMilkTemp` register.
 
-Capability discovery: `GET /api/v1/machine/capabilities` includes
-`"integratedScale"` when a Bengle is connected. Skins should use this flag
-to gate "internal scale" UX hints.
+Capability discovery: `GET /api/v1/machine/capabilities` returns the
+complete Bengle capability set (including `"integratedScale"`) when the
+connected Bengle passes the firmware compatibility probe, and an empty
+list for plain DE1s or outdated Bengle firmware. Skins should use this
+flag to gate "internal scale" UX hints.
 
 ---
 

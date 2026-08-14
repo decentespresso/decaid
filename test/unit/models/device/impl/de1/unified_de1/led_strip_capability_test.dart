@@ -276,26 +276,29 @@ void main() {
       expect(state.frontSwitch.sleeping, const Color16(0x5500, 0x5000, 0x4300));
     });
 
-    test('old firmware (probe unsupported) never hydrates LED state', () async {
-      transport = FakeBleTransport();
-      bengle = Bengle(transport: transport);
-      transport.queueOnConnectResponses(v13Model: 128);
-      // No ScaleCalWeight response: probe times out, surface unsupported.
-      await bengle.onConnect();
+    test(
+      'outdated firmware (probe unsupported) never hydrates LED state',
+      () async {
+        transport = FakeBleTransport();
+        bengle = Bengle(transport: transport);
+        transport.queueOnConnectResponses(v13Model: 128);
+        // No ScaleCalWeight response: probe times out, firmware outdated.
+        await bengle.onConnect();
 
-      expect(bengle.bengleFeatureSurfaceSupported, isFalse);
-      expect(await bengle.getLedStripState(), isNull);
-      final reads = transport.writes.where(
-        (w) => w.characteristicUUID == Endpoint.readFromMMR.uuid,
-      );
-      expect(
-        reads.any(
-          (w) => w.data[1] == 0x80 && w.data[2] == 0x38 && w.data[3] >= 0x90,
-        ),
-        isFalse,
-        reason: 'no LED palette reads on unsupported firmware',
-      );
-    });
+        expect(bengle.supportsCurrentBengleFirmwareSurface, isFalse);
+        expect(await bengle.getLedStripState(), isNull);
+        final reads = transport.writes.where(
+          (w) => w.characteristicUUID == Endpoint.readFromMMR.uuid,
+        );
+        expect(
+          reads.any(
+            (w) => w.data[1] == 0x80 && w.data[2] == 0x38 && w.data[3] >= 0x90,
+          ),
+          isFalse,
+          reason: 'no LED palette reads on outdated firmware',
+        );
+      },
+    );
 
     test('disposeLedStrip closes the subject', () async {
       await connect();

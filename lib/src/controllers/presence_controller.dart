@@ -291,10 +291,10 @@ class PresenceController {
   /// every trigger bumps a generation and a single drain applies the newest
   /// desired state; the "pushed" cache is committed only after a complete
   /// successful transaction, so a failure leaves the state dirty. Stock
-  /// DE1s and old firmware are skipped.
+  /// DE1s and outdated firmware are skipped.
   void _syncFirmwareScheduleAndTimeout() {
     final de1 = _de1;
-    if (de1 is! BengleInterface || !de1.bengleFeatureSurfaceSupported) {
+    if (de1 is! BengleInterface || !de1.supportsCurrentBengleFirmwareSurface) {
       return;
     }
     _firmwareSyncGeneration++;
@@ -342,7 +342,7 @@ class PresenceController {
 
   Future<void> _pushFirmwareDesiredState() async {
     final de1 = _de1;
-    if (de1 is! BengleInterface || !de1.bengleFeatureSurfaceSupported) {
+    if (de1 is! BengleInterface || !de1.supportsCurrentBengleFirmwareSurface) {
       return;
     }
     // The master toggle is part of the desired firmware state: when it is

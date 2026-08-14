@@ -79,25 +79,39 @@ void main() {
   );
 
   group('GET /api/v1/machine/capabilities — ledStrip', () {
-    test('returns ledStrip when a Bengle is connected', () async {
-      await wireWith(MockBengle());
-      final res = await get('/api/v1/machine/capabilities');
-      final body = jsonDecode(await res.readAsString());
-      expect(body['capabilities'], contains('ledStrip'));
-    });
+    test(
+      'a current-firmware Bengle exposes the entire capability set',
+      () async {
+        await wireWith(MockBengle());
+        final res = await get('/api/v1/machine/capabilities');
+        final body = jsonDecode(await res.readAsString());
+        // One supported firmware surface: no feature can be independently
+        // available, so a compatible Bengle advertises all of them.
+        expect(body['capabilities'], [
+          'cupWarmer',
+          'integratedScale',
+          'stopAtWeight',
+          'ledStrip',
+          'scaleCalibration',
+          'preheat',
+          'wakeSchedule',
+        ]);
+      },
+    );
 
-    test('does not advertise ledStrip on old Bengle firmware', () async {
-      // The palette registers are part of the post-0x00803880 surface; an
-      // older Bengle must not see a capability whose endpoints all 404.
-      await wireWith(MockBengle(surfaceSupported: false));
-      final res = await get('/api/v1/machine/capabilities');
-      expect(res.statusCode, 200);
-      final body = jsonDecode(await res.readAsString());
-      expect(body['capabilities'], isNot(contains('ledStrip')));
-      expect(body['capabilities'], isNot(contains('scaleCalibration')));
-      expect(body['capabilities'], isNot(contains('preheat')));
-      expect(body['capabilities'], isNot(contains('wakeSchedule')));
-    });
+    test(
+      'outdated Bengle firmware advertises no capabilities at all',
+      () async {
+        // The palette registers are part of the post-0x00803880 surface.
+        // Outdated firmware is firmware-incompatible: it must not see a
+        // misleading partial set (e.g. cupWarmer without ledStrip).
+        await wireWith(MockBengle(supportsCurrentFirmwareSurface: false));
+        final res = await get('/api/v1/machine/capabilities');
+        expect(res.statusCode, 200);
+        final body = jsonDecode(await res.readAsString());
+        expect(body['capabilities'], isEmpty);
+      },
+    );
 
     test('does not return ledStrip on plain DE1', () async {
       await wireWith(MockDe1());

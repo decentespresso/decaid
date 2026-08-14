@@ -36,7 +36,7 @@ part 'unified_de1.parsing.dart';
 part 'unified_de1.profile.dart';
 part 'unified_de1.firmware.dart';
 part 'unified_de1.raw.dart';
-part 'bengle_feature_probe.dart';
+part 'bengle_firmware_probe.dart';
 part 'integrated_scale_capability.dart';
 part 'led_strip_capability.dart';
 part 'scale_calibration_capability.dart';
@@ -585,7 +585,7 @@ class UnifiedDe1 implements De1Interface {
   /// MMR surface; only meaningful for Bengle hardware (see
   /// [BengleFirmwareProbe]).
   @protected
-  bool get bengleFeatureSurfaceSupported => false;
+  bool get supportsCurrentBengleFirmwareSurface => false;
 
   @protected
   Future<void> beforeFirmwareUpload() async {}

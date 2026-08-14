@@ -389,12 +389,16 @@ paths:
     get:
       summary: List machine capabilities
       description: |
-        Returns the optional capability surfaces the currently connected
-        machine exposes. Plain DE1s return an empty list; Bengle returns
-        `["cupWarmer", "integratedScale", "ledStrip", "stopAtWeight"]`
-        plus any future capabilities as they ship. Skins should query this
-        endpoint once after connect to decide which UI to render and which
-        `/api/v1/machine/...` capability endpoints to call.
+        Returns the capability surface the currently connected machine
+        exposes. Plain DE1s return an empty list. A Bengle whose firmware
+        passes the one-per-connection compatibility probe (MMR read)
+        returns the complete Bengle capability set; a Bengle with older
+        firmware returns an empty list — the machine is then
+        firmware-incompatible (see `/machine/info` `extra.bengleFirmwareSurface`
+        = `outdated`), not a Bengle with a reduced capability set. Skins
+        should query this endpoint once after connect to decide which UI to
+        render and which `/api/v1/machine/...` capability endpoints to
+        call.
       tags: [Machine]
       responses:
         "200":
@@ -409,13 +413,12 @@ paths:
       description: |
         Read the cup-warmer mat target temperature in whole °C, the
         manual enable state (CupWarmerMode) and the current mat
-        temperature. `enabled` and `currentTemperature` are null when
-        the connected firmware predates the post-0x00803880 MMR surface
-        (the setpoint itself works on all firmware). `currentTemperature`
-        is null whenever the firmware has no valid NTC reading. The
-        manual enable is RAM-only in firmware: it boots off after every
-        power cycle and the app never re-enables it on reconnect.
-        Returns 404 when the connected machine is not a Bengle.
+        temperature. `currentTemperature` is null whenever the firmware
+        has no valid NTC reading. The manual enable is RAM-only in
+        firmware: it boots off after every power cycle and the app never
+        re-enables it on reconnect. Returns 404 when the connected
+        machine is not a Bengle or its firmware predates the supported
+        MMR surface (outdated firmware).
       tags: [Machine]
       responses:
         "200":
@@ -452,7 +455,7 @@ paths:
         "400":
           description: Missing fields, fractional/out-of-range temperature, non-boolean enabled, or malformed JSON
         "404":
-          description: Machine connected but does not support cup warmer (or `enabled` requires newer firmware)
+          description: Machine connected but does not support cup warmer (not a Bengle, or outdated firmware predating the supported MMR surface)
         "503":
           description: Machine disconnected mid-write and no replacement appeared within the bounded wait
         "500":
@@ -468,8 +471,8 @@ paths:
         `leadMinutes` before a scheduled wake window and holds it until
         the window closes, with the machine still asleep (only the 24 V
         rail runs; the boilers stay cold). Returns 404 when the
-        connected machine is not a Bengle or its firmware predates the
-        post-0x00803880 MMR surface.
+        connected machine is not a Bengle, or its firmware predates
+        the supported MMR surface (outdated).
       tags: [Machine]
       responses:
         "200":
@@ -487,8 +490,8 @@ paths:
         are persisted firmware configuration; the app stores nothing and
         never reasserts them on connect. Omitted fields keep their
         current firmware values. Returns 404 when the connected machine
-        is not a Bengle or its firmware predates the post-0x00803880
-        MMR surface.
+        is not a Bengle, or its firmware predates the
+        supported MMR surface (outdated).
       tags: [Machine]
       requestBody:
         required: true
@@ -519,8 +522,8 @@ paths:
         independent hardware control — it is derived from the front
         strip palette exactly as the firmware derives the HV switch
         colours (black falls back to the product defaults). Returns 404
-        when the connected machine is not a Bengle or its firmware
-        predates the post-0x00803880 MMR surface.
+        when the connected machine is not a Bengle, or its firmware
+        predates the supported MMR surface (outdated).
       tags: [Machine]
       responses:
         "200":
@@ -542,7 +545,7 @@ paths:
         `frontSwitch` is ignored on write (derived hardware behavior, not
         an independent control). There is no separate commit latch.
         Returns 404 when the connected machine is not a Bengle or its
-        firmware predates the post-0x00803880 MMR surface.
+        firmware predates the supported MMR surface (outdated).
       tags: [Machine]
       requestBody:
         required: true
@@ -570,7 +573,7 @@ paths:
         there is no separate commit latch. This endpoint is kept for API
         compatibility and always answers 202 without side effects.
         Returns 404 when the connected machine is not a Bengle or its
-        firmware predates the post-0x00803880 MMR surface.
+        firmware predates the supported MMR surface (outdated).
       tags: [Machine]
       requestBody:
         required: true
@@ -596,8 +599,8 @@ paths:
         Re-read the palette registers from the firmware and return the
         refreshed configuration. This is a truthful reload, not a
         rollback: the firmware cannot undo a persisted write. Returns
-        404 when the connected machine is not a Bengle or its firmware
-        predates the post-0x00803880 MMR surface; 503 when the firmware
+        404 when the connected machine is not a Bengle, or its firmware
+        predates the supported MMR surface (outdated); 503 when the firmware
         read fails.
       tags: [Machine]
       requestBody:
@@ -629,7 +632,7 @@ paths:
         firmware packs step, detected cell, sub-state, seconds remaining
         and calibration status into one register; this endpoint decodes
         it. Returns 404 when the connected machine is not a Bengle or
-        its firmware predates the post-0x00803880 MMR surface.
+        its firmware predates the supported MMR surface (outdated).
       tags: [Machine]
       responses:
         "200":
@@ -655,8 +658,8 @@ paths:
         progress; a rejected command leaves the step unchanged and
         answers 409. Quick tare is deliberately not exposed here — use
         the integrated-scale tare path. Returns 404 when the connected
-        machine is not a Bengle or its firmware predates the
-        post-0x00803880 MMR surface.
+        machine is not a Bengle, or its firmware predates the supported
+        MMR surface (outdated).
       tags: [Machine]
       requestBody:
         required: true
@@ -5122,7 +5125,13 @@ components:
           description: Whether GroupHeadController is present and active
         extra:
           type: object
-          description: various extra information
+          description: |
+            various extra information. Bengle adds
+            `bengleFirmwareSurface`: `current` when the compatibility
+            probe passed (full capability set available) or `outdated`
+            when the connected firmware predates the supported MMR
+            surface (machine is firmware-incompatible; the capability
+            list is empty).
 
     MachineCapabilities:
       type: object
@@ -5132,14 +5141,16 @@ components:
           type: array
           description: |
             Capability identifiers supported by the currently connected
-            machine. Plain DE1 returns an empty array. Bengle returns
-            `cupWarmer`, `integratedScale`, and `stopAtWeight`
-            (autonomous in-FW stop-at-weight driven by the integrated
-            scale; the app reflects `WorkflowContext.targetYield` into
-            the SAW MMR). When the connected firmware implements the
-            post-0x00803880 MMR surface (probed once per connection),
-            `ledStrip`, `scaleCalibration`, `preheat` and `wakeSchedule`
-            are appended. Note: the milk-probe scaffolding lives in
+            machine. Plain DE1 returns an empty array. A compatible
+            Bengle (firmware passes the one-per-connection MMR probe)
+            returns the complete current surface: `cupWarmer`,
+            `integratedScale`, `stopAtWeight` (autonomous in-FW
+            stop-at-weight driven by the integrated scale; the app
+            reflects `WorkflowContext.targetYield` into the SAW MMR),
+            `ledStrip`, `scaleCalibration`, `preheat` and
+            `wakeSchedule`. Outdated Bengle firmware returns an empty
+            array: there is no supported intermediate combination of
+            these features. Note: the milk-probe scaffolding lives in
             `/sensors`, not here.
           items:
             type: string

@@ -27,7 +27,7 @@ void main() {
       transport.queuePaletteHydrationResponses();
       await bengle.onConnect();
 
-      expect(bengle.bengleFeatureSurfaceSupported, isTrue);
+      expect(bengle.supportsCurrentBengleFirmwareSurface, isTrue);
       final addr = ByteData(4)
         ..setInt32(0, BengleMmr.scaleCalWeight.address, Endian.big);
       final reads = transport.writes.where(
@@ -46,7 +46,7 @@ void main() {
       // The latch must prevent any further reads on repeat calls.
       transport.writes.clear();
       await bengle.probeBengleFirmwareSurface();
-      expect(bengle.bengleFeatureSurfaceSupported, isTrue);
+      expect(bengle.supportsCurrentBengleFirmwareSurface, isTrue);
       expect(
         transport.writes.where(
           (w) =>
@@ -74,7 +74,7 @@ void main() {
         transport.queuePaletteHydrationResponses();
         await bengle.onConnect();
 
-        expect(bengle.bengleFeatureSurfaceSupported, isTrue);
+        expect(bengle.supportsCurrentBengleFirmwareSurface, isTrue);
       },
     );
 
@@ -84,7 +84,7 @@ void main() {
       transport.queueOnConnectResponses(v13Model: 128);
       await bengle.onConnect();
 
-      expect(bengle.bengleFeatureSurfaceSupported, isFalse);
+      expect(bengle.supportsCurrentBengleFirmwareSurface, isFalse);
 
       // Both bounded attempts were made, then the probe stopped: old
       // firmware is never probed endlessly.
@@ -121,7 +121,7 @@ void main() {
         await bengle.onConnect();
 
         expect(
-          bengle.bengleFeatureSurfaceSupported,
+          bengle.supportsCurrentBengleFirmwareSurface,
           isTrue,
           reason:
               'one dropped BLE response must not latch the surface as '

@@ -132,7 +132,7 @@ mixin LedStripCapability on UnifiedDe1 {
     if (_ledStripState.isClosed) {
       _ledStripState = BehaviorSubject<LedStripState?>.seeded(null);
     }
-    if (!bengleFeatureSurfaceSupported) {
+    if (!supportsCurrentBengleFirmwareSurface) {
       this.log.info(
         'LedStripCapability: firmware predates the LED palette MMR '
         'surface; LED state unavailable',
