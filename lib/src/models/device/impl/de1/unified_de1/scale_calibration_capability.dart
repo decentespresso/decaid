@@ -1,6 +1,5 @@
 part of 'unified_de1.dart';
 
-/// Bengle scale-calibration surface; see doc/AI_BENGLE_NOTES.md.
 mixin ScaleCalibrationCapability on UnifiedDe1 {
   static const double _minCalibrationWeightGrams = 1.0;
   static const double _maxCalibrationWeightGrams = 10000.0;
@@ -10,10 +9,6 @@ mixin ScaleCalibrationCapability on UnifiedDe1 {
   Future<ScaleCalibrationState> getScaleCalibrationState() async {
     final raw = await readMmrInt(BengleMmr.scaleCalState);
     return ScaleCalibrationState.decode(raw);
-  }
-
-  Future<double> getScaleCalibrationWeight() async {
-    return readMmrScaled(BengleMmr.scaleCalWeight);
   }
 
   Future<bool> startScaleCalibration(

@@ -200,8 +200,6 @@ void main() {
     });
 
     test('404 on outdated Bengle firmware (no partial response)', () async {
-      // Outdated firmware is firmware-incompatible: cupWarmer must not
-      // answer with a partial read (setpoint but no mode/current temp).
       await wireWith(MockBengle(supportsCurrentFirmwareSurface: false));
       final res = await get('/api/v1/machine/cupWarmer');
       expect(res.statusCode, 404);

@@ -18,8 +18,6 @@ import '../../helpers/mock_settings_service.dart';
 import '../../helpers/test_scale.dart';
 import '../../helpers/test_scale_controller.dart';
 
-/// MockBengle whose reset always fails (simulates a firmware read failure
-/// after a successful hydration).
 class _FailingResetBengle extends MockBengle {
   @override
   Future<LedStripState?> resetLedStrip() async => null;
@@ -85,8 +83,6 @@ void main() {
         await wireWith(MockBengle());
         final res = await get('/api/v1/machine/capabilities');
         final body = jsonDecode(await res.readAsString());
-        // One supported firmware surface: no feature can be independently
-        // available, so a compatible Bengle advertises all of them.
         expect(body['capabilities'], [
           'cupWarmer',
           'integratedScale',
@@ -103,8 +99,6 @@ void main() {
       'outdated Bengle firmware advertises no capabilities at all',
       () async {
         // The palette registers are part of the post-0x00803880 surface.
-        // Outdated firmware is firmware-incompatible: it must not see a
-        // misleading partial set (e.g. cupWarmer without ledStrip).
         await wireWith(MockBengle(supportsCurrentFirmwareSurface: false));
         final res = await get('/api/v1/machine/capabilities');
         expect(res.statusCode, 200);
@@ -131,7 +125,6 @@ void main() {
       expect(body['frontStrip']['awake'], 'FF00F0008000');
       expect(body['backStrip']['sleeping'], '300020001000');
       expect(body['backStrip']['awake'], 'FF00F0008000');
-      // frontSwitch is derived from the front strip (non-black here).
       expect(body['frontSwitch']['awake'], 'FF00F0008000');
     });
 
@@ -155,7 +148,6 @@ void main() {
       expect(res.statusCode, 200);
 
       final state = await bengle.getLedStripState();
-      // The firmware stores 8-bit channels: 65535 -> 65280.
       expect(state!.frontStrip.sleeping, const Color16(65280, 32768, 0));
       expect(state.frontStrip.awake, Color16.off);
       expect(state.backStrip.awake, const Color16(65280, 65280, 65280));

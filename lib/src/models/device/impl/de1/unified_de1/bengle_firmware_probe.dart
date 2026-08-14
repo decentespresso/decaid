@@ -1,7 +1,5 @@
 part of 'unified_de1.dart';
 
-// One-shot, per-connection firmware compatibility check; see
-// doc/AI_BENGLE_NOTES.md.
 mixin BengleFirmwareProbe on UnifiedDe1 {
   static const _defaultProbeTimeout = Duration(seconds: 2);
   static const _probeAttempts = 2;

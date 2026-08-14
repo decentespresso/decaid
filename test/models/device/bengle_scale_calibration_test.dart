@@ -123,7 +123,6 @@ void main() {
           );
           expect(mmrWrites.length, 2);
 
-          // Weight first: address 0x00803888, payload 455 (45.5 g x 10) LE.
           final weightAddr = ByteData(4)
             ..setInt32(0, BengleMmr.scaleCalWeight.address, Endian.big);
           final weightFrame = mmrWrites.first;
@@ -133,7 +132,6 @@ void main() {
           final weightPayload = ByteData.sublistView(weightFrame.data, 4, 8);
           expect(weightPayload.getUint32(0, Endian.little), 455);
 
-          // Then the command: address 0x00803880, payload 2 (latch) LE.
           final cmdAddr = ByteData(4)
             ..setInt32(0, BengleMmr.scaleCalCmd.address, Endian.big);
           final cmdFrame = mmrWrites.last;
@@ -153,10 +151,10 @@ void main() {
             subState: ScaleCalibrationSubState.done,
             status: ScaleCalibrationStatus.ok,
           );
-          transport.queueMmrResponseIntSequence(
-            BengleMmr.scaleCalState,
-            [terminal, terminal], // busy: firmware ignores the command
-          );
+          transport.queueMmrResponseIntSequence(BengleMmr.scaleCalState, [
+            terminal,
+            terminal,
+          ]);
 
           final accepted = await bengle.startScaleCalibration(
             ScaleCalibrationCommand.zero,
@@ -187,15 +185,15 @@ void main() {
           (w) => w.characteristicUUID == Endpoint.writeToMMR.uuid,
         );
         final payload = ByteData.sublistView(weightFrame.data, 4, 8);
-        expect(payload.getUint32(0, Endian.little), 10); // 1.0 g x 10
+        expect(payload.getUint32(0, Endian.little), 10);
       });
 
       test('serializes concurrent submissions (single flight)', () async {
         transport.queueMmrResponseIntSequence(BengleMmr.scaleCalState, [
           0, // zero before
-          1 << 24, // zero after (Zeroing)
+          1 << 24, // zero after
           1 << 24, // latch before
-          2 << 24, // latch after (CalLatch)
+          2 << 24, // latch after
         ]);
 
         final results = await Future.wait([

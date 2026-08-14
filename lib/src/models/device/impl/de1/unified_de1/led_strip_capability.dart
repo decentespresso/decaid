@@ -1,6 +1,5 @@
 part of 'unified_de1.dart';
 
-/// Persistent Bengle LED palette; see doc/AI_BENGLE_NOTES.md.
 const int kSwitchDefaultAwakeRgb = 0xFFF0C8;
 const int kSwitchDefaultAsleepRgb = 0x555043;
 

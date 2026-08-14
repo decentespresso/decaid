@@ -1,6 +1,5 @@
 part of 'unified_de1.dart';
 
-/// Bengle cup-warmer surface; see doc/AI_BENGLE_NOTES.md.
 mixin CupWarmerCapability on UnifiedDe1 {
   Future<void> setCupWarmerEnabled(bool enabled) async {
     await writeMmrInt(BengleMmr.cupWarmerMode, enabled ? 1 : 0);

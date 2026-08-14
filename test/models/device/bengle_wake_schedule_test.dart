@@ -81,11 +81,11 @@ void main() {
           expect(payload.getUint32(0, Endian.little), value);
         }
 
-        expectFrame(0, BengleMmr.scheduleControl, 0); // clear + disable
+        expectFrame(0, BengleMmr.scheduleControl, 0);
         expectFrame(1, BengleMmr.setLocalTimeOfWeek, 123456);
         expectFrame(2, BengleMmr.scheduleEntry, (1 << 22) | (360 << 11) | 390);
         expectFrame(3, BengleMmr.scheduleEntry, (3 << 22) | (720 << 11) | 780);
-        expectFrame(4, BengleMmr.scheduleControl, 1); // enable
+        expectFrame(4, BengleMmr.scheduleControl, 1);
       },
     );
 
@@ -111,11 +111,11 @@ void main() {
       'failure at any point of the sequence aborts and propagates',
       () async {
         for (final (mmr, ordinal) in [
-          (BengleMmr.scheduleControl, 1), // the clear itself
+          (BengleMmr.scheduleControl, 1),
           (BengleMmr.setLocalTimeOfWeek, 1), // after clear
-          (BengleMmr.scheduleEntry, 1), // after clear + clock
-          (BengleMmr.scheduleEntry, 2), // after the first append
-          (BengleMmr.scheduleControl, 2), // the final enable
+          (BengleMmr.scheduleEntry, 1),
+          (BengleMmr.scheduleEntry, 2),
+          (BengleMmr.scheduleControl, 2),
         ]) {
           transport.failMmrWriteOrdinalForAddresses[mmr.address] = ordinal;
           await expectLater(
@@ -137,7 +137,6 @@ void main() {
     test(
       'a retry after a mid-sequence failure converges to the full rewrite',
       () async {
-        // Fail the second entry write; then retry without the fault.
         transport.failMmrWriteOrdinalForAddresses[BengleMmr
                 .scheduleEntry
                 .address] =

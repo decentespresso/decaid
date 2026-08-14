@@ -1,6 +1,5 @@
 part of 'unified_de1.dart';
 
-/// Bengle wake-schedule surface; see doc/AI_BENGLE_NOTES.md.
 mixin WakeScheduleCapability on UnifiedDe1 {
   Future<void> setInactivitySleepTimeout(int minutes) async {
     await writeMmrInt(

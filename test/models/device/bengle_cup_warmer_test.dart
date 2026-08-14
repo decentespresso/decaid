@@ -154,10 +154,8 @@ void main() {
           expect(payload.getUint32(0, Endian.little), value);
         }
 
-        // Enabling: lead first, then the enable bit.
         expectFrame(0, BengleMmr.matPreheatLeadMin, 45);
         expectFrame(1, BengleMmr.matPreheatEnable, 1);
-        // Disabling: the enable bit first, then the lead.
         expectFrame(2, BengleMmr.matPreheatEnable, 0);
         expectFrame(3, BengleMmr.matPreheatLeadMin, 120);
       },

@@ -22,7 +22,6 @@ void main() {
         [0xD0, 0x07, 0x00, 0x00], // probe
       );
       if (queuePalette) {
-        // Palette registers, wire values 0x00RRGGBB.
         transport.queueMmrResponseInt(BengleMmr.frontLedAwake, 0xFF8000);
         transport.queueMmrResponseInt(BengleMmr.frontLedSleep, 0x302010);
         transport.queueMmrResponseInt(BengleMmr.rearLedAwake, 0x00FF00);
@@ -80,13 +79,10 @@ void main() {
         await bengle.onConnect();
 
         final state = (await bengle.getLedStripState())!;
-        expect(
-          state.frontSwitch.awake,
-          const Color16(0xFF00, 0xF000, 0xC800), // kSwitchDefaultAwake
-        );
+        expect(state.frontSwitch.awake, const Color16(0xFF00, 0xF000, 0xC800));
         expect(
           state.frontSwitch.sleeping,
-          const Color16(0x5500, 0x5000, 0x4300), // kSwitchDefaultAsleep
+          const Color16(0x5500, 0x5000, 0x4300),
         );
       },
     );
@@ -130,7 +126,6 @@ void main() {
               awake: const Color16(0x0000, 0xFF00, 0x0000),
               sleeping: Color16.off,
             ),
-            // frontSwitch is not a hardware control; must be ignored.
             frontSwitch: const ZoneLedState(
               awake: Color16(0xFFFF, 0xFFFF, 0xFFFF),
               sleeping: Color16(0xFFFF, 0xFFFF, 0xFFFF),
@@ -168,9 +163,6 @@ void main() {
         expectWrite(BengleMmr.rearLedAwake, 0x00FF00);
         expectWrite(BengleMmr.rearLedSleep, 0x000000);
 
-        // The local cache publishes the quantized representation that was
-        // actually written (8-bit channels): a GET after this PUT never
-        // reports values the firmware does not hold.
         final state = (await bengle.getLedStripState())!;
         expect(state.frontStrip.awake, const Color16(0xFF00, 0x8000, 0x0000));
         expect(state.frontSwitch.awake, const Color16(0xFF00, 0x8000, 0x0000));
@@ -263,7 +255,6 @@ void main() {
 
     test('resetLedStrip re-reads the palette from the firmware', () async {
       await connect();
-      // Firmware palette changed since hydration (e.g. another client).
       transport.queueMmrResponseInt(BengleMmr.frontLedAwake, 0x0000FF);
       transport.queueMmrResponseInt(BengleMmr.frontLedSleep, 0x000000);
       transport.queueMmrResponseInt(BengleMmr.rearLedAwake, 0xFF0000);
@@ -272,7 +263,6 @@ void main() {
       final state = (await bengle.resetLedStrip())!;
       expect(state.frontStrip.awake, const Color16(0x0000, 0x0000, 0xFF00));
       expect(state.backStrip.awake, const Color16(0xFF00, 0x0000, 0x0000));
-      // Black front sleep derives the default switch colour again.
       expect(state.frontSwitch.sleeping, const Color16(0x5500, 0x5000, 0x4300));
     });
 
@@ -282,7 +272,6 @@ void main() {
         transport = FakeBleTransport();
         bengle = Bengle(transport: transport);
         transport.queueOnConnectResponses(v13Model: 128);
-        // No ScaleCalWeight response: probe times out, firmware outdated.
         await bengle.onConnect();
 
         expect(bengle.supportsCurrentBengleFirmwareSurface, isFalse);

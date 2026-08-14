@@ -1,5 +1,3 @@
-library;
-
 enum ScaleCalibrationStep {
   idle(0),
   zeroing(1),

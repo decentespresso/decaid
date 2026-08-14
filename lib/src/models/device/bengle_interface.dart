@@ -5,7 +5,6 @@ import 'package:reaprime/src/models/device/led_strip.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/scale_calibration.dart';
 
-// See doc/AI_BENGLE_NOTES.md for the supported firmware surface.
 abstract class BengleInterface extends De1Interface {
   bool get supportsCurrentBengleFirmwareSurface;
 

@@ -35,15 +35,10 @@ void main() {
         );
         await bengle.setLedStrip(state);
         final read = await bengle.getLedStripState();
-        // The firmware stores 8-bit channels: 65535 -> 65280 and
-        // sub-256 channels truncate to zero, so the mock mirrors the
-        // quantization instead of pretending precision the wire lacks.
         expect(read!.frontStrip.sleeping, const Color16(65280, 32768, 0));
         expect(read.frontStrip.awake, const Color16(0, 65280, 32768));
         expect(read.backStrip.sleeping, Color16.off);
         expect(read.backStrip.awake, Color16.off);
-        // The switch palette is derived from the front strip, never
-        // independent (mirrors the firmware).
         expect(read.frontSwitch, read.frontStrip);
       },
     );
@@ -71,7 +66,6 @@ void main() {
           ),
         ),
       );
-      // Sub-256 channels truncate to zero on the 8-bit wire.
       expect(emitted.last!.frontStrip.sleeping, Color16.off);
       expect(emitted.last!.backStrip.awake, Color16.off);
     });
@@ -91,8 +85,6 @@ void main() {
         await bengle.setLedStrip(state1);
         await bengle.commitLedStrip();
 
-        // The mock has no separate firmware copy: reset re-reads and returns
-        // the current state (write-through semantics, 8-bit quantized).
         final after = await bengle.resetLedStrip();
         expect(
           after!.frontStrip,
@@ -101,7 +93,6 @@ void main() {
             awake: Color16.off,
           ),
         );
-        // Black front awake derives the default warm-white switch colour.
         expect(after.frontSwitch.awake, const Color16(0xFF00, 0xF000, 0xC800));
       },
     );

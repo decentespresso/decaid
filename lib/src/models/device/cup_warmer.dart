@@ -1,6 +1,3 @@
-// See doc/AI_BENGLE_NOTES.md.
-library;
-
 class CupWarmerPreheatState {
   const CupWarmerPreheatState({
     required this.enabled,
