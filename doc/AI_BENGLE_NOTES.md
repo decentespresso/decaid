@@ -14,35 +14,16 @@ All Bengle MMR knowledge below was verified against
 `System.cpp`/`System.hpp`, `APIView.cpp`, `ShotMachine.cpp`,
 `CLoadCellCal.hpp`).
 
-## Supported firmware surface (single-surface contract)
+## Supported firmware surface
 
 Decaid supports exactly ONE Bengle firmware surface: the current one (MMR
 rows 39+): scale calibration, LED palette, cup-warmer mode/current
-temperature, preheat, inactivity timeout, wake scheduling. No intermediate
-combination of those features is supported. Older Bengle firmware is
-outdated/unsupported — the machine is firmware-incompatible, never a Bengle
-with a reduced capability set. The probe is a compatibility check, not
-feature detection: successful probe = full current surface available;
-unsuccessful = outdated firmware.
-
-- **Probe**: one read of `ScaleCalWeight` (row 41) per connection, 2
-  attempts x 2 s. Any response (even zero) proves the register exists ->
-  current surface; a timeout on every attempt -> outdated.
-- **Why no build gate**: `CPUFirmwareBuild` is stamped into the image at
-  flash time (makeheaderedbinfile.py reads it back from offset 0xD0), so no
-  reliable build-to-feature mapping exists.
-- **Why the read discriminates**: firmware without rows 39+ flushes reads of
-  those addresses with NO response.
-- **Why the bounded retry**: a dropped BLE response is
-  protocol-indistinguishable from old-firmware silence, so one timeout must
-  not latch the whole surface unsupported for the connection; worst case
-  +2 s on genuinely outdated firmware at connect. Latched per connection,
-  never repeated by polled endpoints.
-- **API contract**: the capability list is all-or-nothing (full 7-item set
-  or empty); every Bengle endpoint 404s on outdated firmware;
-  `/machine/info` reports `extra.bengleFirmwareSurface` = `current` |
-  `outdated` so callers can distinguish outdated firmware from a plain DE1
-  (both advertise no capabilities).
+temperature, preheat, inactivity timeout, wake scheduling. Every Bengle is
+assumed to run it — there is no firmware probe, no per-endpoint gating and
+no reduced capability set (old-firmware support was removed 2026-08-15: no
+pre-`2377c7e0` Bengles exist in the field). The capability list is the
+full 7-item set for every Bengle and empty for plain DE1s; Bengle
+endpoints 404 only on non-Bengle machines.
 
 ## MMR surface map (rows 39+)
 

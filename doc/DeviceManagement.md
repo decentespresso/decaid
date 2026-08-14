@@ -112,10 +112,10 @@ Discovery services are responsible for scanning and creating device instances. E
     `ConnectionManager` reconnect lifecycle. Serial has no separate keepalive
     or reconnect loop.
 
-### Bengle firmware-synced state (post-connect, current firmware only)
+### Bengle firmware-synced state (post-connect)
 
-On every Bengle connect (after the one-probe-per-connection firmware-surface
-check) `PresenceController` mirrors two app-owned settings into the machine:
+On every Bengle connect `PresenceController` mirrors two app-owned
+settings into the machine:
 
 - **Inactivity sleep timeout** — the app's `sleepTimeoutMinutes`
   (0..240, 0 = disabled) is written 1:1 to `InactivitySleepTimeout`
@@ -142,11 +142,7 @@ check) `PresenceController` mirrors two app-owned settings into the machine:
   unattended windows end at window close.
 
 Machine replacement/disconnect resets the push state so the new machine gets
- a full re-push. Plain DE1 machines and Bengle firmware that fails the
- compatibility probe (predates the 0x00803880 MMR surface) receive no such
- writes; outdated Bengle firmware is treated as firmware-incompatible, not
- as a Bengle with a reduced feature set (`/machine/info` reports
- `extra.bengleFirmwareSurface: outdated`).
+ a full re-push. Plain DE1 machines receive no such writes.
 
 #### 3. SimulatedDeviceService
 - **Platform:** All
@@ -757,9 +753,8 @@ Autonomous stop-at-weight uses the firmware `EndOfShotWeight` register;
 autonomous stop-at-temperature uses the firmware `TargetMilkTemp` register.
 
 Capability discovery: `GET /api/v1/machine/capabilities` returns the
-complete Bengle capability set (including `"integratedScale"`) when the
-connected Bengle passes the firmware compatibility probe, and an empty
-list for plain DE1s or outdated Bengle firmware. Skins should use this
+complete Bengle capability set (including `"integratedScale"`) for every
+Bengle, and an empty list for plain DE1s. Skins should use this
 flag to gate "internal scale" UX hints.
 
 ---
