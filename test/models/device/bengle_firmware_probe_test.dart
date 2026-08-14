@@ -78,13 +78,64 @@ void main() {
       },
     );
 
-    test('probe reports unsupported when the read times out', () async {
+    test('probe reports unsupported when every attempt times out', () async {
       transport = FakeBleTransport();
       bengle = Bengle(transport: transport);
       transport.queueOnConnectResponses(v13Model: 128);
       await bengle.onConnect();
 
       expect(bengle.bengleFeatureSurfaceSupported, isFalse);
+
+      // Both bounded attempts were made, then the probe stopped: old
+      // firmware is never probed endlessly.
+      final addr = ByteData(4)
+        ..setInt32(0, BengleMmr.scaleCalWeight.address, Endian.big);
+      final reads = transport.writes.where(
+        (w) =>
+            w.characteristicUUID == Endpoint.readFromMMR.uuid &&
+            w.data[1] == addr.getUint8(1) &&
+            w.data[2] == addr.getUint8(2) &&
+            w.data[3] == addr.getUint8(3),
+      );
+      expect(reads.length, 2);
     });
+
+    test(
+      'a single dropped response does not disable the surface; retry reads',
+      () async {
+        transport = FakeBleTransport();
+        bengle = Bengle(transport: transport);
+        transport.queueOnConnectResponses(v13Model: 128);
+        transport.queueMmrResponseRaw(
+          BengleMmr.scaleCalWeight,
+          [0xD0, 0x07, 0x00, 0x00],
+        );
+        transport.queuePaletteHydrationResponses();
+        // First attempt's response is dropped on the wire; the bounded
+        // retry must still detect the surface.
+        transport.dropNextMmrResponseForAddresses.add(
+          BengleMmr.scaleCalWeight.address,
+        );
+        await bengle.onConnect();
+
+        expect(
+          bengle.bengleFeatureSurfaceSupported,
+          isTrue,
+          reason: 'one dropped BLE response must not latch the surface as '
+              'unsupported for the whole connection',
+        );
+
+        final addr = ByteData(4)
+          ..setInt32(0, BengleMmr.scaleCalWeight.address, Endian.big);
+        final reads = transport.writes.where(
+          (w) =>
+              w.characteristicUUID == Endpoint.readFromMMR.uuid &&
+              w.data[1] == addr.getUint8(1) &&
+              w.data[2] == addr.getUint8(2) &&
+              w.data[3] == addr.getUint8(3),
+        );
+        expect(reads.length, 2);
+      },
+    );
   });
 }
