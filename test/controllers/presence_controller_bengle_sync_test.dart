@@ -37,15 +37,10 @@ class _FakeBengle extends MockDe1 implements BengleInterface {
   final List<int> pushedClockSeconds = [];
   final List<List<FirmwareWakeWindow>> pushedWindows = [];
 
-  /// When set, pushFirmwareWakeSchedule awaits this before recording, so
-  /// tests can hold a push in flight while more triggers arrive.
   Completer<void>? pushGate;
 
-  /// When > 0, the next pushFirmwareWakeSchedule throws instead of
-  /// recording (simulates a failed transaction).
   int failNextPushes = 0;
 
-  /// Number of pushes currently in flight (for single-flight assertions).
   int activePushes = 0;
   int maxConcurrentPushes = 0;
 

@@ -43,7 +43,6 @@ void main() {
       expect(frame.data[2], addr.getUint8(2));
       expect(frame.data[3], addr.getUint8(3));
 
-      // The latch must prevent any further reads on repeat calls.
       transport.writes.clear();
       await bengle.probeBengleFirmwareSurface();
       expect(bengle.supportsCurrentBengleFirmwareSurface, isTrue);
@@ -86,8 +85,6 @@ void main() {
 
       expect(bengle.supportsCurrentBengleFirmwareSurface, isFalse);
 
-      // Both bounded attempts were made, then the probe stopped: old
-      // firmware is never probed endlessly.
       final addr = ByteData(4)
         ..setInt32(0, BengleMmr.scaleCalWeight.address, Endian.big);
       final reads = transport.writes.where(
@@ -113,8 +110,6 @@ void main() {
           0x00,
         ]);
         transport.queuePaletteHydrationResponses();
-        // First attempt's response is dropped on the wire; the bounded
-        // retry must still detect the surface.
         transport.dropNextMmrResponseForAddresses.add(
           BengleMmr.scaleCalWeight.address,
         );
