@@ -81,8 +81,6 @@ void main() {
           expect(payload.getUint32(0, Endian.little), value);
         }
 
-        // The old table is disabled BEFORE the clock moves, so a clock
-        // correction can never land inside a window from the old table.
         expectFrame(0, BengleMmr.scheduleControl, 0); // clear + disable
         expectFrame(1, BengleMmr.setLocalTimeOfWeek, 123456);
         expectFrame(2, BengleMmr.scheduleEntry, (1 << 22) | (360 << 11) | 390);
@@ -112,8 +110,6 @@ void main() {
     test(
       'failure at any point of the sequence aborts and propagates',
       () async {
-        // Sequence: control 0 (1), clock (2), entry (3), entry (4),
-        // control 1 (5). Break each point in turn.
         for (final (mmr, ordinal) in [
           (BengleMmr.scheduleControl, 1), // the clear itself
           (BengleMmr.setLocalTimeOfWeek, 1), // after clear

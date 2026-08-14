@@ -226,20 +226,15 @@ void main() {
       async.flushMicrotasks();
       expect(bengle.pushedTimeouts, [30]); // default 30
 
-      // True -> false must push timeout 0 and a cleared, disabled table
-      // even though the timeout and schedule JSON did not change.
       settingsController.setUserPresenceEnabled(false);
       async.flushMicrotasks();
       expect(bengle.pushedTimeouts, [30, 0]);
       expect(bengle.pushedWindows.last, isEmpty);
 
-      // While disabled, timeout edits cannot change the effective state
-      // (stays 0), so nothing re-pushes.
       settingsController.setSleepTimeoutMinutes(45);
       async.flushMicrotasks();
       expect(bengle.pushedTimeouts, [30, 0]);
 
-      // False -> true restores the configured values.
       settingsController.setUserPresenceEnabled(true);
       async.flushMicrotasks();
       expect(bengle.pushedTimeouts, [30, 0, 45]);
@@ -266,8 +261,6 @@ void main() {
       de1Controller.setDe1(bengle);
       async.flushMicrotasks();
 
-      // Configured timeout and schedules exist, but the master flag is
-      // off: firmware must not own sleep/wake.
       expect(bengle.pushedTimeouts, [0]);
       expect(bengle.pushedWindows.single, isEmpty);
 
@@ -313,7 +306,6 @@ void main() {
       async.flushMicrotasks();
       expect(bengle.pushedWindows, hasLength(1)); // connect push
 
-      // Push A starts and is held in flight by the gate.
       setSchedules([
         WakeSchedule.create(hour: 6, minute: 0, daysOfWeek: {2}),
       ]);
@@ -321,7 +313,6 @@ void main() {
       async.flushMicrotasks();
       expect(bengle.activePushes, 1);
 
-      // A second change lands while the first push is still in flight.
       setSchedules([
         WakeSchedule.create(hour: 8, minute: 0, daysOfWeek: {3}),
       ]);
@@ -337,7 +328,6 @@ void main() {
       async.flushMicrotasks();
 
       expect(bengle.maxConcurrentPushes, 1);
-      // The final table is exactly the newest schedule, never a mixture.
       expect(bengle.pushedWindows.last, [
         const FirmwareWakeWindow(dow: 3, startMin: 480, endMin: 720),
       ]);
@@ -360,10 +350,8 @@ void main() {
         bengle.failNextPushes = 1;
         async.flushMicrotasks();
 
-        // The failed attempt recorded nothing, so the state stays dirty.
         expect(bengle.pushedWindows, isEmpty);
 
-        // No further settings changes: the controller retries on its own.
         async.elapse(const Duration(seconds: 2));
         async.flushMicrotasks();
         expect(bengle.pushedWindows, hasLength(1));
@@ -388,15 +376,10 @@ void main() {
       async.flushMicrotasks();
       expect(bengle.pushedTimeouts, [30]);
 
-      // Disable Auto sleep & wake: firmware must not keep any timeout or
-      // table once the tablet is gone, so the disable push must converge
-      // even if the first attempt fails partway.
       settingsController.setUserPresenceEnabled(false);
       bengle.failNextPushes = 1;
       async.flushMicrotasks();
       expect(bengle.pushedTimeouts.last, 0);
-      // Only the connect push's empty table is recorded: the disable
-      // attempt failed before recording anything.
       expect(bengle.pushedWindows, [[]]);
 
       async.elapse(const Duration(seconds: 2));
@@ -426,12 +409,8 @@ void main() {
         ]);
         bengle.failNextPushes = 1;
         async.flushMicrotasks();
-        // Only the connect push's empty table is recorded: the 6:00 push
-        // failed before recording anything.
         expect(bengle.pushedWindows, [[]]);
 
-        // A newer trigger arrives while the backoff is pending: the stale
-        // failed state must never be pushed on its own.
         setSchedules([
           WakeSchedule.create(hour: 8, minute: 0, daysOfWeek: {3}),
         ]);
@@ -469,7 +448,6 @@ void main() {
       async.flushMicrotasks();
       expect(bengle.pushedTimeouts, [30]);
 
-      // Push is in flight on the old machine when it is replaced.
       setSchedules([
         WakeSchedule.create(hour: 6, minute: 0, daysOfWeek: {2}),
       ]);
@@ -484,8 +462,6 @@ void main() {
       bengle.pushGate = null;
       async.flushMicrotasks();
 
-      // The stale in-flight push must not mark the new machine
-      // synchronized: the new machine receives the full state.
       expect(replacement.pushedTimeouts, [30]);
       expect(replacement.pushedWindows, hasLength(1));
       expect(replacement.pushedWindows.single, [
@@ -508,7 +484,6 @@ void main() {
       async.flushMicrotasks();
       expect(bengle.pushedTimeouts, [30]);
 
-      // New machine instance (reconnect): RAM-only table must be restored.
       final replacement = _FakeBengle();
       de1Controller.setDe1(replacement);
       async.flushMicrotasks();
@@ -527,8 +502,6 @@ void main() {
       );
       controller.initialize();
 
-      // Bengle hardware without the rows-39+ surface: outdated firmware,
-      // treated as firmware-incompatible, so no pushes.
       final outdatedFirmware = _FakeBengle(
         supportsCurrentFirmwareSurface: false,
       );
@@ -537,7 +510,6 @@ void main() {
       expect(outdatedFirmware.pushedTimeouts, isEmpty);
       expect(outdatedFirmware.pushedWindows, isEmpty);
 
-      // Plain DE1: not a Bengle at all.
       de1Controller.setDe1(MockDe1());
       async.flushMicrotasks();
 

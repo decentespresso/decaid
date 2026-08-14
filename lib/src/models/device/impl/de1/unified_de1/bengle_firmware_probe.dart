@@ -1,24 +1,7 @@
 part of 'unified_de1.dart';
 
-/// One-shot, per-connection firmware-compatibility check for the Bengle
-/// MMR surface added after MMR.def rows 0-38 (the original shipped map).
-///
-/// Decaid supports exactly one Bengle firmware surface: the current one
-/// (rows 39+: scale cal, LED palette, cup warmer mode/current temperature,
-/// preheat, inactivity timeout, wake scheduling). There is no supported
-/// intermediate combination of those features, so the probe is not feature
-/// detection: a successful probe means the full current surface is
-/// available, an unsuccessful one means the firmware is outdated and the
-/// machine is treated as firmware-incompatible.
-///
-/// There is no reliable build-number mapping in the Bengle repo:
-/// `CPUFirmwareBuild` is stamped into the image at flash time
-/// (makeheaderedbinfile.py reads it back from offset 0xD0), so the plan's
-/// preferred build gate is not constructible. On firmware without rows 39+,
-/// reads of those addresses are flushed by APIView with NO response, so a
-/// read of `ScaleCalWeight` (row 41) either answers (current firmware) or
-/// times out (outdated firmware). One bounded attempt per connection,
-/// latched; never repeated by polled endpoints.
+// One-shot, per-connection firmware compatibility check; see
+// doc/AI_BENGLE_NOTES.md.
 mixin BengleFirmwareProbe on UnifiedDe1 {
   static const _defaultProbeTimeout = Duration(seconds: 2);
   static const _probeAttempts = 2;
@@ -27,22 +10,10 @@ mixin BengleFirmwareProbe on UnifiedDe1 {
   bool _supportsCurrentBengleFirmwareSurface = false;
   Future<bool>? _probeInFlight;
 
-  /// True when the connected machine implements the post-0x00803880 Bengle
-  /// MMR surface (the only supported surface). False on outdated firmware
-  /// (and, by default, on non-Bengle machines, which never call
-  /// [probeBengleFirmwareSurface]).
   @override
   bool get supportsCurrentBengleFirmwareSurface =>
       _supportsCurrentBengleFirmwareSurface;
 
-  /// Bounded probe: up to [_probeAttempts] reads of `ScaleCalWeight`, with
-  /// a two-second window each. Any response (even zero) proves the register
-  /// exists; a timeout on every attempt proves it does not (outdated
-  /// firmware flushes unknown-range reads with no response). The bounded
-  /// retry keeps a single dropped BLE response from latching the whole
-  /// surface as unsupported for the connection, while never probing
-  /// outdated firmware endlessly. Safe to call repeatedly; only the first
-  /// call reads.
   Future<bool> probeBengleFirmwareSurface() {
     if (_bengleProbeDone) {
       return Future.value(_supportsCurrentBengleFirmwareSurface);

@@ -1,14 +1,6 @@
-/// Cup-warmer surfaces for Bengle firmware MMR rows 50/58-61, verified
-/// against BengleMainCPUFirmware at tadelv/Bengle master 2377c7e0
-/// (src/Classes/System.cpp controlMatTemp, MMR.def rows 50, 58-61).
+// See doc/AI_BENGLE_NOTES.md.
 library;
 
-/// Scheduled pre-warm configuration and status.
-///
-/// `enabled` (MatPreheatEnable) and `leadMinutes` (MatPreheatLeadMin) are
-/// persisted firmware configuration; `active` (MatPreheatActive) is
-/// read-only and true when the wake schedule — not the manual
-/// CupWarmerMode — is currently driving the mat.
 class CupWarmerPreheatState {
   const CupWarmerPreheatState({
     required this.enabled,

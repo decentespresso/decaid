@@ -8,6 +8,7 @@ Use this for unfamiliar or multi-subsystem tasks. For known files or exact symbo
 |------|-----------|------|
 | Any Dart code or test change | `doc/AI_TESTING_NOTES.md` | Domain-specific file below |
 | BLE transport, connection, GATT errors | `doc/AI_BLE_NOTES.md` | `lib/src/services/ble/`, `lib/src/controllers/connection/` |
+| Bengle machine (MMR surface, capability mixins, wake sync) | `doc/AI_BENGLE_NOTES.md` | `lib/src/models/device/impl/bengle/`, `lib/src/models/device/impl/de1/unified_de1/*_capability.dart` |
 | REST/WS endpoint changes | `doc/AI_API_NOTES.md`, read spec first | `lib/src/services/webserver/` |
 | DE1 machine state, shot state | — | `lib/src/controllers/de1_state_manager.dart`, `de1_controller.dart`, `shot_sequencer.dart` |
 | Profile/workflow serialization | `doc/Profiles.md` | `lib/src/models/data/`, `lib/src/daos/` |

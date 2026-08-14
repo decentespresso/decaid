@@ -39,10 +39,6 @@ class De1Handler {
       return withDe1((de1) async {
         final caps = <String>[];
         if (de1 is BengleInterface) {
-          // One supported firmware surface: a Bengle that passes the
-          // compatibility probe exposes the complete capability set;
-          // outdated firmware gets none (firmware-incompatible, not
-          // feature-reduced).
           if (de1.supportsCurrentBengleFirmwareSurface) {
             caps.addAll([
               'cupWarmer',
@@ -117,9 +113,6 @@ class De1Handler {
         if (enabled != null) {
           await bengle.setCupWarmerEnabled(enabled);
         } else if (temperature != null) {
-          // Back-compat: "set 45 C" also means "make the manual cup
-          // warmer operate". An explicit enabled: false must never pass
-          // through an intermediate enable write.
           await bengle.setCupWarmerEnabled(true);
         }
         return jsonOk({'status': 'accepted'});
@@ -231,8 +224,6 @@ class De1Handler {
       return withQueuedDe1((de1) async {
         final gate = _bengleFirmwareGate(de1, 'ledStrip');
         if (gate != null) return gate;
-        // Compatibility no-op: palette writes are write-through and
-        // persisted by the firmware; there is no separate commit latch.
         await (de1 as BengleInterface).commitLedStrip();
         return jsonAccepted();
       }, retryOnReplacement: true);
@@ -242,9 +233,6 @@ class De1Handler {
       return withQueuedDe1((de1) async {
         final gate = _bengleFirmwareGate(de1, 'ledStrip');
         if (gate != null) return gate;
-        // Re-read the persisted palette from the firmware. This is a
-        // truthful reload, not a rollback: the firmware cannot undo a
-        // persisted write.
         final state = await (de1 as BengleInterface).resetLedStrip();
         if (state == null) {
           return jsonServiceUnavailable({
@@ -544,9 +532,6 @@ class De1Handler {
     }
   }
 
-  /// Returns an error response when the connected machine is not a Bengle
-  /// or its firmware predates the supported (rows-39+) MMR surface; null
-  /// when the surface is usable.
   Response? _bengleFirmwareGate(De1Interface de1, String feature) {
     if (de1 is! BengleInterface) {
       return jsonNotFound({'error': '$feature not supported'});

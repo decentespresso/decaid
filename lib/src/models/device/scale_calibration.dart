@@ -1,11 +1,5 @@
-/// Scale-calibration surface for Bengle firmware MMR rows 39-41
-/// (ScaleCalCmd 0x00803880 / ScaleCalState 0x00803884 / ScaleCalWeight
-/// 0x00803888), verified against BengleMainCPUFirmware at tadelv/Bengle
-/// master 2377c7e0 (src/Classes/System.cpp startScaleCalStep +
-/// getScaleCalStatePackedU32, src/Classes/CLoadCellCal.hpp).
 library;
 
-/// Firmware procedure step, serialized in ScaleCalState bits 31-24.
 enum ScaleCalibrationStep {
   idle(0),
   zeroing(1),
@@ -18,8 +12,6 @@ enum ScaleCalibrationStep {
 
   final int wireValue;
 
-  /// Wire value 3 was the old explicit point-2 step and is never emitted by
-  /// current firmware; unknown values decode as [idle].
   static ScaleCalibrationStep fromWire(int value) {
     for (final step in values) {
       if (step.wireValue == value) return step;
@@ -28,7 +20,6 @@ enum ScaleCalibrationStep {
   }
 }
 
-/// Phase within a running step, serialized in ScaleCalState bits 19-16.
 enum ScaleCalibrationSubState {
   settling(0),
   averaging(1),
@@ -47,8 +38,6 @@ enum ScaleCalibrationSubState {
   }
 }
 
-/// Result code of the last latch attempt, serialized in ScaleCalState bits
-/// 7-0. 0xFF means none/in-progress. Mirrors C_LoadCellCal::E_CalStatus.
 enum ScaleCalibrationStatus {
   ok(0),
   incomplete(1),
@@ -73,8 +62,6 @@ enum ScaleCalibrationStatus {
   }
 }
 
-/// Firmware-detected load cell of the last successful latch, serialized in
-/// ScaleCalState bits 23-20 (0 = none, 1 = cell A, 2 = cell B).
 enum ScaleCalibrationCell {
   none(0),
   a(1),
@@ -92,10 +79,6 @@ enum ScaleCalibrationCell {
   }
 }
 
-/// Commands accepted by ScaleCalCmd. Quick tare (3) is deliberately not
-/// exposed here: Decaid already has the integrated-scale tare path
-/// (ScaleTare 0x0080388C), and commands 4/5 (explicit left/right latches)
-/// are retired in current firmware.
 enum ScaleCalibrationCommand {
   abort(0),
   zero(1),
@@ -106,8 +89,6 @@ enum ScaleCalibrationCommand {
   final int wireValue;
 }
 
-/// Fully decoded ScaleCalState. All fields are populated from the packed
-/// u32 exactly as the firmware builds it.
 class ScaleCalibrationState {
   const ScaleCalibrationState({
     required this.step,

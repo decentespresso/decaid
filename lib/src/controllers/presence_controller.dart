@@ -125,9 +125,6 @@ class PresenceController {
     if (de1 != null) {
       _log.fine('DE1 connected, subscribing to snapshots');
       _snapshotSubscription = de1.currentSnapshot.listen(_onSnapshot);
-      // The firmware clock and wake table are RAM-only: re-push on every
-      // connect (and after a machine replacement) regardless of whether the
-      // app values changed since the last machine.
       _lastPushedSleepTimeout = null;
       _lastPushedSchedulesJson = null;
       _lastPushedMasterEnabled = null;
@@ -284,14 +281,6 @@ class PresenceController {
 
   static const String _disabledSchedulesJson = '[]';
 
-  /// Mirror the app's sleep timeout and wake schedules into the Bengle
-  /// firmware (InactivitySleepTimeout is persisted, so only pushes on
-  /// change; the clock + wake table are RAM-only and are re-pushed on every
-  /// connect via the reset above). Pushes are serialized and coalescing:
-  /// every trigger bumps a generation and a single drain applies the newest
-  /// desired state; the "pushed" cache is committed only after a complete
-  /// successful transaction, so a failure leaves the state dirty. Stock
-  /// DE1s and outdated firmware are skipped.
   void _syncFirmwareScheduleAndTimeout() {
     final de1 = _de1;
     if (de1 is! BengleInterface || !de1.supportsCurrentBengleFirmwareSurface) {
@@ -301,21 +290,10 @@ class PresenceController {
     _firmwareSyncInFlight ??= _drainFirmwareSync();
   }
 
-  /// Bounded automatic retries for a failed push. After the bound the
-  /// state stays dirty until the next trigger (settings change or
-  /// reconnect).
   static const int _maxFirmwareSyncAttempts = 3;
 
-  /// Backoff between automatic retries of a failed push.
   static const Duration _firmwareSyncRetryDelay = Duration(seconds: 2);
 
-  /// Serialized drain: applies the newest desired firmware state, then
-  /// re-applies while newer triggers arrived mid-flight. Intermediate
-  /// updates coalesce into the next iteration, so overlapping triggers can
-  /// never interleave two partial table rewrites. A failed push is retried
-  /// automatically (bounded, with backoff); a newer generation arriving
-  /// during the backoff supersedes the failed attempt and is applied next
-  /// without pushing the stale state on its own.
   Future<void> _drainFirmwareSync() async {
     try {
       var attempts = 0;
@@ -345,10 +323,6 @@ class PresenceController {
     if (de1 is! BengleInterface || !de1.supportsCurrentBengleFirmwareSurface) {
       return;
     }
-    // The master toggle is part of the desired firmware state: when it is
-    // off, firmware must not own any timeout or wake table, so it receives
-    // timeout 0 and a cleared, disabled table (InactivitySleepTimeout is
-    // persisted and the wake table runs without the tablet).
     final enabled = _settingsController.userPresenceEnabled;
     final timeout = enabled ? _settingsController.sleepTimeoutMinutes : 0;
     final schedulesJson = enabled
@@ -370,8 +344,6 @@ class PresenceController {
       secondsSinceSundayLocal: secondsSinceSunday,
       windows: windows,
     );
-    // Commit only when the device is still the one we pushed to: a
-    // mid-flight replacement must not mark the new machine synchronized.
     if (_de1 == de1) {
       _lastPushedDevice = de1;
       _lastPushedMasterEnabled = enabled;

@@ -31,17 +31,10 @@ class FakeBleTransport extends BLETransport {
   final Map<String, Queue<Uint8List>> _readQueue = {};
   final Queue<Uint8List> _firmwareMapResponses = Queue<Uint8List>();
 
-  /// MMR addresses whose reads fail fast with an exception (simulates a
-  /// transport error on those registers).
   final Set<int> failMmrReadsForAddresses = {};
 
-  /// MMR addresses whose writes fail fast with an exception (simulates a
-  /// transport error on those registers).
   final Set<int> failMmrWritesForAddresses = {};
 
-  /// MMR addresses whose Nth write (1-based) fails: key is the address,
-  /// value is the write ordinal that throws. Lets tests break a
-  /// multi-write transaction at a specific point.
   final Map<int, int> failMmrWriteOrdinalForAddresses = {};
 
   final Map<int, int> _mmrWriteCounts = {};
@@ -50,26 +43,18 @@ class FakeBleTransport extends BLETransport {
 
   int dropNextMmrResponses = 0;
 
-  /// MMR addresses whose next single response is dropped (the read gets no
-  /// reply at all, like a lost BLE frame). One-shot per address.
   final Set<int> dropNextMmrResponseForAddresses = {};
 
   void queueMmrResponseInt(MmrAddress item, int value) {
     _intResponses[item.address] = value;
   }
 
-  /// Queue a zero response for every LED palette register (rows 45-48,
-  /// 0x00803898-0x008038A4) so the LED hydration in `Bengle.onConnect`
-  /// completes quickly in tests that do not care about LEDs. Without this,
-  /// each unqueued read burns the full MMR timeout path (~4s x 3 attempts).
   void queuePaletteHydrationResponses() {
     for (final addr in [0x00803898, 0x0080389C, 0x008038A0, 0x008038A4]) {
       _intResponses[addr] = 0;
     }
   }
 
-  /// Queue multiple responses for repeated reads of the same address, in
-  /// FIFO order (the one-shot [_intResponses] map can only serve one).
   void queueMmrResponseIntSequence(MmrAddress item, List<int> values) {
     _intResponseQueues.putIfAbsent(item.address, Queue.new).addAll(values);
   }
@@ -260,8 +245,6 @@ class FakeBleTransport extends BLETransport {
       return;
     }
 
-    // Serve queued sequences first (FIFO per address) so repeated reads of
-    // the same register can return different values.
     for (final addr in _intResponseQueues.keys) {
       final bytes = ByteData(4)..setInt32(0, addr, Endian.big);
       if (bytes.getUint8(1) == addrMid1 &&

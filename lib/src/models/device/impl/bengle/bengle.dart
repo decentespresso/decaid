@@ -28,11 +28,6 @@ class Bengle extends UnifiedDe1
   @override
   String get name => "Bengle";
 
-  /// Surfaces the firmware-surface verdict in the free-form `extra` bag of
-  /// `/api/v1/machine/info`: `bengleFirmwareSurface` is `current` when the
-  /// compatibility probe succeeded (full capability set available) and
-  /// `outdated` when the connected firmware predates the supported surface
-  /// (machine is firmware-incompatible, no Bengle capabilities).
   @override
   MachineInfo get machineInfo {
     final info = super.machineInfo;

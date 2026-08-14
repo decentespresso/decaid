@@ -22,9 +22,6 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
     _probeAttachedSubject = BehaviorSubject<bool>.seeded(probeAttached);
   }
 
-  /// False simulates Bengle firmware predating the post-0x00803880 MMR
-  /// surface (scale cal, LED palette, cup-warmer mode, schedule, pre-warm):
-  /// the machine is then firmware-incompatible, not feature-reduced.
   final bool supportsCurrentFirmwareSurface;
 
   @override
@@ -105,7 +102,6 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
 
   @override
   Future<double?> getCupWarmerCurrentTemperature() async {
-    // Mock: the NTC reads a temperature once the warmer has been enabled.
     return _cupWarmerEnabled ? 42.0 : null;
   }
 
@@ -135,7 +131,6 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
     _inactivitySleepTimeout = minutes.clamp(0, 240);
   }
 
-  /// Last value written via [setInactivitySleepTimeout].
   int get inactivitySleepTimeout => _inactivitySleepTimeout;
 
   @override
@@ -147,10 +142,8 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
     _pushedWindows = windows;
   }
 
-  /// Clock value recorded by [pushFirmwareWakeSchedule].
   int? get pushedClockSeconds => _pushedClockSeconds;
 
-  /// Recorded by [pushFirmwareWakeSchedule] for scenario assertions.
   List<FirmwareWakeWindow> get pushedWakeWindows => _pushedWindows;
 
   final BehaviorSubject<LedStripState?> _ledState =
@@ -164,9 +157,6 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
 
   @override
   Future<void> setLedStrip(LedStripState state) async {
-    // Mirror the firmware: 8 bits per RGB channel are stored, and the
-    // switch palette is derived from the front strip (black falls back to
-    // the product defaults), never independent.
     Color16 quantize(Color16 color) =>
         Color16(color.red & 0xFF00, color.green & 0xFF00, color.blue & 0xFF00);
 
@@ -292,7 +282,6 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
     if (_ledState.isClosed) {
       _ledState.add(null);
     }
-    // Simulate firmware hydration with a deterministic non-black palette.
     _ledState.add(
       const LedStripState(
         frontStrip: ZoneLedState(
