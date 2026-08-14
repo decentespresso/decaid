@@ -1288,8 +1288,7 @@ class ConnectionManager {
     String? preferredScaleId,
     ScanReportBuilder scanReport,
   ) async {
-    if (machine is BengleInterface &&
-        machine.supportsCurrentBengleFirmwareSurface) {
+    if (machine is BengleInterface) {
       await _attachBengleVirtualScale(machine);
       return;
     }

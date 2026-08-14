@@ -43,8 +43,6 @@ class FakeBleTransport extends BLETransport {
 
   int dropNextMmrResponses = 0;
 
-  final Set<int> dropNextMmrResponseForAddresses = {};
-
   void queueMmrResponseInt(MmrAddress item, int value) {
     _intResponses[item.address] = value;
   }
@@ -204,15 +202,6 @@ class FakeBleTransport extends BLETransport {
     if (dropNextMmrResponses > 0) {
       dropNextMmrResponses--;
       return;
-    }
-    for (final addr in dropNextMmrResponseForAddresses) {
-      final bytes = ByteData(4)..setInt32(0, addr, Endian.big);
-      if (bytes.getUint8(1) == data[1] &&
-          bytes.getUint8(2) == data[2] &&
-          bytes.getUint8(3) == data[3]) {
-        dropNextMmrResponseForAddresses.remove(addr);
-        return;
-      }
     }
     final addrMid1 = data[1];
     final addrMid2 = data[2];

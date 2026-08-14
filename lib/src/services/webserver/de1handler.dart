@@ -39,17 +39,15 @@ class De1Handler {
       return withDe1((de1) async {
         final caps = <String>[];
         if (de1 is BengleInterface) {
-          if (de1.supportsCurrentBengleFirmwareSurface) {
-            caps.addAll([
-              'cupWarmer',
-              'integratedScale',
-              'stopAtWeight',
-              'ledStrip',
-              'scaleCalibration',
-              'preheat',
-              'wakeSchedule',
-            ]);
-          }
+          caps.addAll([
+            'cupWarmer',
+            'integratedScale',
+            'stopAtWeight',
+            'ledStrip',
+            'scaleCalibration',
+            'preheat',
+            'wakeSchedule',
+          ]);
         }
         return jsonOk({'capabilities': caps});
       });
@@ -535,13 +533,6 @@ class De1Handler {
   Response? _bengleFirmwareGate(De1Interface de1, String feature) {
     if (de1 is! BengleInterface) {
       return jsonNotFound({'error': '$feature not supported'});
-    }
-    if (!de1.supportsCurrentBengleFirmwareSurface) {
-      return jsonNotFound({
-        'error':
-            '$feature requires current Bengle firmware (the connected '
-            'firmware predates the supported MMR surface)',
-      });
     }
     return null;
   }

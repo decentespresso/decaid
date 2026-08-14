@@ -283,7 +283,7 @@ class PresenceController {
 
   void _syncFirmwareScheduleAndTimeout() {
     final de1 = _de1;
-    if (de1 is! BengleInterface || !de1.supportsCurrentBengleFirmwareSurface) {
+    if (de1 is! BengleInterface) {
       return;
     }
     _firmwareSyncGeneration++;
@@ -325,7 +325,7 @@ class PresenceController {
 
   Future<void> _pushFirmwareDesiredState() async {
     final de1 = _de1;
-    if (de1 is! BengleInterface || !de1.supportsCurrentBengleFirmwareSurface) {
+    if (de1 is! BengleInterface) {
       return;
     }
     final enabled = _settingsController.userPresenceEnabled;

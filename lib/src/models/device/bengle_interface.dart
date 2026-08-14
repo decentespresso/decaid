@@ -6,8 +6,6 @@ import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/scale_calibration.dart';
 
 abstract class BengleInterface extends De1Interface {
-  bool get supportsCurrentBengleFirmwareSurface;
-
   Future<ScaleCalibrationState> getScaleCalibrationState();
 
   Future<bool> startScaleCalibration(

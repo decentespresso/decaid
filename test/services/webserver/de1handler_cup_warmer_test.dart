@@ -95,28 +95,6 @@ void main() {
       final body = jsonDecode(await res.readAsString());
       expect(body['capabilities'], isNot(contains('integratedScale')));
     });
-
-    test('outdated Bengle firmware gets an empty capability list', () async {
-      await wireWith(MockBengle(supportsCurrentFirmwareSurface: false));
-      final res = await get('/api/v1/machine/capabilities');
-      expect(res.statusCode, 200);
-      final body = jsonDecode(await res.readAsString());
-      expect(body['capabilities'], isEmpty);
-    });
-
-    test('/machine/info surfaces the firmware-surface verdict', () async {
-      await wireWith(MockBengle(supportsCurrentFirmwareSurface: false));
-      final outdated = jsonDecode(
-        await (await get('/api/v1/machine/info')).readAsString(),
-      );
-      expect(outdated['extra']['bengleFirmwareSurface'], 'outdated');
-
-      await wireWith(MockBengle());
-      final current = jsonDecode(
-        await (await get('/api/v1/machine/info')).readAsString(),
-      );
-      expect(current['extra']['bengleFirmwareSurface'], 'current');
-    });
   });
 
   group('GET /api/v1/machine/cupWarmer', () {
@@ -198,14 +176,6 @@ void main() {
       expect(body['enabled'], isTrue);
       expect(body['currentTemperature'], 42.0);
     });
-
-    test('404 on outdated Bengle firmware (no partial response)', () async {
-      await wireWith(MockBengle(supportsCurrentFirmwareSurface: false));
-      final res = await get('/api/v1/machine/cupWarmer');
-      expect(res.statusCode, 404);
-      final body = jsonDecode(await res.readAsString());
-      expect(body['error'], contains('current Bengle firmware'));
-    });
   });
 
   group('PUT /api/v1/machine/cupWarmer — enabled', () {
@@ -262,10 +232,6 @@ void main() {
         final transport = FakeBleTransport();
         final bengle = Bengle(transport: transport);
         transport.queueOnConnectResponses(v13Model: 128);
-        transport.queueMmrResponseRaw(
-          BengleMmr.scaleCalWeight,
-          [0xD0, 0x07, 0x00, 0x00], // probe
-        );
         transport.queuePaletteHydrationResponses();
         await wireWith(bengle);
         transport.writes.clear();
@@ -314,10 +280,6 @@ void main() {
         final transport = FakeBleTransport();
         final bengle = Bengle(transport: transport);
         transport.queueOnConnectResponses(v13Model: 128);
-        transport.queueMmrResponseRaw(
-          BengleMmr.scaleCalWeight,
-          [0xD0, 0x07, 0x00, 0x00], // probe
-        );
         transport.queuePaletteHydrationResponses();
         await wireWith(bengle);
         transport.writes.clear();
@@ -425,17 +387,5 @@ void main() {
       final res = await get('/api/v1/machine/cupWarmer/preheat');
       expect(res.statusCode, 404);
     });
-
-    test(
-      '404 on outdated Bengle firmware names cupWarmer/preheat in the body',
-      () async {
-        await wireWith(MockBengle(supportsCurrentFirmwareSurface: false));
-        final res = await get('/api/v1/machine/cupWarmer/preheat');
-        expect(res.statusCode, 404);
-        final body = jsonDecode(await res.readAsString());
-        expect(body['error'], contains('cupWarmer/preheat'));
-        expect(body['error'], isNot(contains('scaleCalibration')));
-      },
-    );
   });
 }

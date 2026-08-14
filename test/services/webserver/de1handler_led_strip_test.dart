@@ -95,18 +95,6 @@ void main() {
       },
     );
 
-    test(
-      'outdated Bengle firmware advertises no capabilities at all',
-      () async {
-        // The palette registers are part of the post-0x00803880 surface.
-        await wireWith(MockBengle(supportsCurrentFirmwareSurface: false));
-        final res = await get('/api/v1/machine/capabilities');
-        expect(res.statusCode, 200);
-        final body = jsonDecode(await res.readAsString());
-        expect(body['capabilities'], isEmpty);
-      },
-    );
-
     test('does not return ledStrip on plain DE1', () async {
       await wireWith(MockDe1());
       final res = await get('/api/v1/machine/capabilities');

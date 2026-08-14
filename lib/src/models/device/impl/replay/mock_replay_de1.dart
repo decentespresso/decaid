@@ -305,9 +305,6 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   Future<LedStripState?> resetLedStrip() async => _led.value;
 
   @override
-  bool get supportsCurrentBengleFirmwareSurface => true;
-
-  @override
   Future<ScaleCalibrationState> getScaleCalibrationState() async =>
       const ScaleCalibrationState(
         step: ScaleCalibrationStep.idle,

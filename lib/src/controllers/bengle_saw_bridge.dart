@@ -90,11 +90,8 @@ class BengleSawBridge {
           return;
         }
         final machine = _de1.connectedDe1OrNull;
-        if (machine is! BengleInterface ||
-            !machine.supportsCurrentBengleFirmwareSurface) {
-          _log.fine(
-            'SAW write skipped — machine lacks the current Bengle surface',
-          );
+        if (machine is! BengleInterface) {
+          _log.fine('SAW write skipped — connected machine is not Bengle');
           return;
         }
         final generation = _de1.connectionGeneration;
@@ -138,12 +135,10 @@ class BengleSawBridge {
       final restart = _restartAfterDrain;
       _restartAfterDrain = false;
       _pushing = false;
-      final machine = _de1.connectedDe1OrNull;
       if (!_disposed &&
           restart &&
           _desired != null &&
-          machine is BengleInterface &&
-          machine.supportsCurrentBengleFirmwareSurface) {
+          _de1.connectedDe1OrNull is BengleInterface) {
         unawaited(_drain());
       }
     }

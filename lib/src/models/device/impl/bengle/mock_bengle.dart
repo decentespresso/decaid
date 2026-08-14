@@ -14,25 +14,15 @@ import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:rxdart/rxdart.dart';
 
 class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
-  MockBengle({
-    super.deviceId = 'MockBengle',
-    bool probeAttached = true,
-    this.supportsCurrentFirmwareSurface = true,
-  }) {
+  MockBengle({super.deviceId = 'MockBengle', bool probeAttached = true}) {
     _probeAttachedSubject = BehaviorSubject<bool>.seeded(probeAttached);
   }
-
-  final bool supportsCurrentFirmwareSurface;
 
   @override
   String get name => 'MockBengle';
 
   @override
   DeviceImplementation get implementation => DeviceImplementation.bengle;
-
-  @override
-  bool get supportsCurrentBengleFirmwareSurface =>
-      supportsCurrentFirmwareSurface;
 
   ScaleCalibrationState _calState = const ScaleCalibrationState(
     step: ScaleCalibrationStep.idle,
@@ -383,12 +373,6 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
     model: 'Bengle',
     serialNumber: 'mock-bengle',
     groupHeadControllerPresent: true,
-    extra: {
-      'voltage': 220,
-      'refillKit': false,
-      'bengleFirmwareSurface': supportsCurrentBengleFirmwareSurface
-          ? 'current'
-          : 'outdated',
-    },
+    extra: {'voltage': 220, 'refillKit': false},
   );
 }

@@ -41,16 +41,7 @@ class _FakeBengle implements BengleInterface {
   @override
   Stream<ScaleSnapshot> get weightSnapshot => const Stream.empty();
 
-  _FakeBengle({
-    this.deviceId = 'fake-bengle',
-    this.supportsCurrentFirmwareSurface = true,
-  }) : name = 'Bengle-$deviceId';
-
-  final bool supportsCurrentFirmwareSurface;
-
-  @override
-  bool get supportsCurrentBengleFirmwareSurface =>
-      supportsCurrentFirmwareSurface;
+  _FakeBengle({this.deviceId = 'fake-bengle'}) : name = 'Bengle-$deviceId';
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
@@ -134,33 +125,6 @@ void main() {
         expect(
           mockScaleController.connectCalls.first.deviceId,
           startsWith('bengle-internal-'),
-        );
-      },
-    );
-
-    test(
-      'runs the external scale phase when the Bengle firmware is outdated',
-      () async {
-        await settingsController.setPreferredMachineId('bengle-1');
-        await settingsController.setPreferredScaleId('external-scale');
-
-        final bengle = _FakeBengle(
-          deviceId: 'bengle-1',
-          supportsCurrentFirmwareSurface: false,
-        );
-        final externalScale = TestScale(deviceId: 'external-scale');
-        mockScanner.addDevice(bengle);
-        mockScanner.addDevice(externalScale);
-        await Future.delayed(Duration.zero);
-
-        await connectionManager.connect();
-        await Future.delayed(Duration.zero);
-
-        expect(mockDe1Controller.connectCalls, hasLength(1));
-        expect(mockScaleController.connectCalls, hasLength(1));
-        expect(
-          mockScaleController.connectCalls.first.deviceId,
-          'external-scale',
         );
       },
     );

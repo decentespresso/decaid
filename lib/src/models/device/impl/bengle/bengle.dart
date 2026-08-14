@@ -15,7 +15,6 @@ class Bengle extends UnifiedDe1
     with
         IntegratedScaleCapability,
         LedStripCapability,
-        BengleFirmwareProbe,
         ScaleCalibrationCapability,
         CupWarmerCapability,
         WakeScheduleCapability
@@ -27,23 +26,6 @@ class Bengle extends UnifiedDe1
 
   @override
   String get name => "Bengle";
-
-  @override
-  MachineInfo get machineInfo {
-    final info = super.machineInfo;
-    return MachineInfo(
-      version: info.version,
-      model: info.model,
-      serialNumber: info.serialNumber,
-      groupHeadControllerPresent: info.groupHeadControllerPresent,
-      extra: {
-        ...info.extra,
-        'bengleFirmwareSurface': supportsCurrentBengleFirmwareSurface
-            ? 'current'
-            : 'outdated',
-      },
-    );
-  }
 
   @override
   Future<void> setCupWarmerTemperature(double celsius) =>
@@ -122,7 +104,6 @@ class Bengle extends UnifiedDe1
         actualModelValue: connectedModelValue,
       );
     }
-    await probeBengleFirmwareSurface();
     await enableBengleShotSample();
     _probeSub = notificationsFor(
       Endpoint.bengleShotSample,

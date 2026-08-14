@@ -17,10 +17,6 @@ void main() {
       transport = FakeBleTransport();
       bengle = Bengle(transport: transport);
       transport.queueOnConnectResponses(v13Model: 128);
-      transport.queueMmrResponseRaw(
-        BengleMmr.scaleCalWeight,
-        [0xD0, 0x07, 0x00, 0x00], // probe
-      );
       if (queuePalette) {
         transport.queueMmrResponseInt(BengleMmr.frontLedAwake, 0xFF8000);
         transport.queueMmrResponseInt(BengleMmr.frontLedSleep, 0x302010);
@@ -65,13 +61,6 @@ void main() {
         transport = FakeBleTransport();
         bengle = Bengle(transport: transport);
         transport.queueOnConnectResponses(v13Model: 128);
-        transport.queueMmrResponseRaw(BengleMmr.scaleCalWeight, [
-          0xD0,
-          0x07,
-          0x00,
-          0x00,
-        ]);
-        // Front strip black, rear non-black.
         transport.queueMmrResponseInt(BengleMmr.frontLedAwake, 0x000000);
         transport.queueMmrResponseInt(BengleMmr.frontLedSleep, 0x000000);
         transport.queueMmrResponseInt(BengleMmr.rearLedAwake, 0xFFFFFF);
@@ -93,12 +82,6 @@ void main() {
         transport = FakeBleTransport();
         bengle = Bengle(transport: transport);
         transport.queueOnConnectResponses(v13Model: 128);
-        transport.queueMmrResponseRaw(BengleMmr.scaleCalWeight, [
-          0xD0,
-          0x07,
-          0x00,
-          0x00,
-        ]);
         transport.failMmrReadsForAddresses.addAll([
           BengleMmr.frontLedAwake.address,
           BengleMmr.frontLedSleep.address,
@@ -265,29 +248,6 @@ void main() {
       expect(state.backStrip.awake, const Color16(0xFF00, 0x0000, 0x0000));
       expect(state.frontSwitch.sleeping, const Color16(0x5500, 0x5000, 0x4300));
     });
-
-    test(
-      'outdated firmware (probe unsupported) never hydrates LED state',
-      () async {
-        transport = FakeBleTransport();
-        bengle = Bengle(transport: transport);
-        transport.queueOnConnectResponses(v13Model: 128);
-        await bengle.onConnect();
-
-        expect(bengle.supportsCurrentBengleFirmwareSurface, isFalse);
-        expect(await bengle.getLedStripState(), isNull);
-        final reads = transport.writes.where(
-          (w) => w.characteristicUUID == Endpoint.readFromMMR.uuid,
-        );
-        expect(
-          reads.any(
-            (w) => w.data[1] == 0x80 && w.data[2] == 0x38 && w.data[3] >= 0x90,
-          ),
-          isFalse,
-          reason: 'no LED palette reads on outdated firmware',
-        );
-      },
-    );
 
     test('disposeLedStrip closes the subject', () async {
       await connect();

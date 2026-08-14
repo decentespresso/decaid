@@ -30,10 +30,6 @@ void main() {
       transport = FakeBleTransport();
       bengle = Bengle(transport: transport);
       transport.queueOnConnectResponses(v13Model: 128);
-      transport.queueMmrResponseRaw(
-        BengleMmr.scaleCalWeight,
-        [0xD0, 0x07, 0x00, 0x00], // probe
-      );
       transport.queuePaletteHydrationResponses();
       await bengle.onConnect();
     });
