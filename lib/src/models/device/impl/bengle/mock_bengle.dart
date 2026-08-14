@@ -14,9 +14,17 @@ import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:rxdart/rxdart.dart';
 
 class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
-  MockBengle({super.deviceId = 'MockBengle', bool probeAttached = true}) {
+  MockBengle({
+    super.deviceId = 'MockBengle',
+    bool probeAttached = true,
+    this.surfaceSupported = true,
+  }) {
     _probeAttachedSubject = BehaviorSubject<bool>.seeded(probeAttached);
   }
+
+  /// False simulates Bengle firmware predating the post-0x00803880 MMR
+  /// surface (scale cal, LED palette, cup-warmer mode, schedule, pre-warm).
+  final bool surfaceSupported;
 
   @override
   String get name => 'MockBengle';
@@ -25,7 +33,7 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
   DeviceImplementation get implementation => DeviceImplementation.bengle;
 
   @override
-  bool get bengleFeatureSurfaceSupported => true;
+  bool get bengleFeatureSurfaceSupported => surfaceSupported;
 
   ScaleCalibrationState _calState = const ScaleCalibrationState(
     step: ScaleCalibrationStep.idle,
@@ -154,8 +162,20 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
 
   @override
   Future<void> setLedStrip(LedStripState state) async {
-    // Mirror the firmware: the switch palette is derived from the front
-    // strip (black falls back to the product defaults), never independent.
+    // Mirror the firmware: 8 bits per RGB channel are stored, and the
+    // switch palette is derived from the front strip (black falls back to
+    // the product defaults), never independent.
+    Color16 quantize(Color16 color) => Color16(
+      color.red & 0xFF00,
+      color.green & 0xFF00,
+      color.blue & 0xFF00,
+    );
+
+    ZoneLedState quantizeZone(ZoneLedState zone) => ZoneLedState(
+      awake: quantize(zone.awake),
+      sleeping: quantize(zone.sleeping),
+    );
+
     ZoneLedState derive(ZoneLedState strip, int defaultRgb) {
       Color16 fallback(int rgb) => Color16(
         ((rgb >> 16) & 0xFF) << 8,
@@ -171,11 +191,13 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
       );
     }
 
+    final frontStrip = quantizeZone(state.frontStrip);
+    final backStrip = quantizeZone(state.backStrip);
     _ledState.add(
       LedStripState(
-        frontStrip: state.frontStrip,
-        backStrip: state.backStrip,
-        frontSwitch: derive(state.frontStrip, 0),
+        frontStrip: frontStrip,
+        backStrip: backStrip,
+        frontSwitch: derive(frontStrip, 0),
       ),
     );
   }

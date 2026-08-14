@@ -18,6 +18,13 @@ import '../../helpers/mock_settings_service.dart';
 import '../../helpers/test_scale.dart';
 import '../../helpers/test_scale_controller.dart';
 
+/// MockBengle whose reset always fails (simulates a firmware read failure
+/// after a successful hydration).
+class _FailingResetBengle extends MockBengle {
+  @override
+  Future<LedStripState?> resetLedStrip() async => null;
+}
+
 void main() {
   late Handler handler;
   late De1Controller controller;
@@ -79,6 +86,19 @@ void main() {
       expect(body['capabilities'], contains('ledStrip'));
     });
 
+    test('does not advertise ledStrip on old Bengle firmware', () async {
+      // The palette registers are part of the post-0x00803880 surface; an
+      // older Bengle must not see a capability whose endpoints all 404.
+      await wireWith(MockBengle(surfaceSupported: false));
+      final res = await get('/api/v1/machine/capabilities');
+      expect(res.statusCode, 200);
+      final body = jsonDecode(await res.readAsString());
+      expect(body['capabilities'], isNot(contains('ledStrip')));
+      expect(body['capabilities'], isNot(contains('scaleCalibration')));
+      expect(body['capabilities'], isNot(contains('preheat')));
+      expect(body['capabilities'], isNot(contains('wakeSchedule')));
+    });
+
     test('does not return ledStrip on plain DE1', () async {
       await wireWith(MockDe1());
       final res = await get('/api/v1/machine/capabilities');
@@ -121,9 +141,10 @@ void main() {
       expect(res.statusCode, 200);
 
       final state = await bengle.getLedStripState();
-      expect(state!.frontStrip.sleeping, const Color16(65535, 32768, 0));
+      // The firmware stores 8-bit channels: 65535 -> 65280.
+      expect(state!.frontStrip.sleeping, const Color16(65280, 32768, 0));
       expect(state.frontStrip.awake, Color16.off);
-      expect(state.backStrip.awake, const Color16(65535, 65535, 65535));
+      expect(state.backStrip.awake, const Color16(65280, 65280, 65280));
     });
 
     test('400 on non-map body', () async {
@@ -188,7 +209,27 @@ void main() {
       final res = await post('/api/v1/machine/ledStrip/reset');
       expect(res.statusCode, 200);
       final body = jsonDecode(await res.readAsString());
-      expect(body['frontStrip']['sleeping'], 'FFFF00000000');
+      expect(body['frontStrip']['sleeping'], 'FF0000000000');
+    });
+
+    test('503 when the reload fails after a successful hydration', () async {
+      final bengle = _FailingResetBengle();
+      await wireWith(bengle);
+      await bengle.setLedStrip(
+        LedStripState(
+          frontStrip: ZoneLedState(
+            sleeping: const Color16(0xFF00, 0x0000, 0x0000),
+            awake: Color16.off,
+          ),
+        ),
+      );
+
+      final res = await post('/api/v1/machine/ledStrip/reset');
+      expect(
+        res.statusCode,
+        503,
+        reason: 'a failed reset must not return stale cached state as 200',
+      );
     });
 
     test('404 on plain DE1', () async {

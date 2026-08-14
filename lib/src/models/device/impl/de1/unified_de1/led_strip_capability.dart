@@ -41,6 +41,20 @@ Color16 _fromFirmwareRgb(int rgb) => Color16(
 bool _isBlack(Color16 color) =>
     color.red == 0 && color.green == 0 && color.blue == 0;
 
+/// The firmware stores 8 bits per RGB channel; the cache must publish
+/// exactly the quantized representation that was written (a PUT followed
+/// by GET never reports values the firmware does not hold).
+Color16 _quantize(Color16 color) => Color16(
+  color.red & 0xFF00,
+  color.green & 0xFF00,
+  color.blue & 0xFF00,
+);
+
+ZoneLedState _quantizeZone(ZoneLedState zone) => ZoneLedState(
+  awake: _quantize(zone.awake),
+  sleeping: _quantize(zone.sleeping),
+);
+
 /// Derive the HV front-switch palette exactly like the firmware does
 /// (syncSwitchColorsFromStrip): front strip awake/sleep colours, with black
 /// substituted by the product defaults.
@@ -66,26 +80,37 @@ mixin LedStripCapability on UnifiedDe1 {
   Future<LedStripState?> getLedStripState() => _ledStripState.first;
 
   Future<void> setLedStrip(LedStripState state) async {
-    await writeMmrInt(
-      BengleMmr.frontLedAwake,
-      _toFirmwareRgb(state.frontStrip.awake),
-    );
-    await writeMmrInt(
-      BengleMmr.frontLedSleep,
-      _toFirmwareRgb(state.frontStrip.sleeping),
-    );
-    await writeMmrInt(
-      BengleMmr.rearLedAwake,
-      _toFirmwareRgb(state.backStrip.awake),
-    );
-    await writeMmrInt(
-      BengleMmr.rearLedSleep,
-      _toFirmwareRgb(state.backStrip.sleeping),
-    );
+    final frontStrip = _quantizeZone(state.frontStrip);
+    final backStrip = _quantizeZone(state.backStrip);
+    try {
+      await writeMmrInt(
+        BengleMmr.frontLedAwake,
+        _toFirmwareRgb(frontStrip.awake),
+      );
+      await writeMmrInt(
+        BengleMmr.frontLedSleep,
+        _toFirmwareRgb(frontStrip.sleeping),
+      );
+      await writeMmrInt(
+        BengleMmr.rearLedAwake,
+        _toFirmwareRgb(backStrip.awake),
+      );
+      await writeMmrInt(
+        BengleMmr.rearLedSleep,
+        _toFirmwareRgb(backStrip.sleeping),
+      );
+    } catch (e) {
+      // Partial write: the firmware palette may be half-updated while the
+      // old cache is stale, so mark the state unknown until a rehydrate.
+      if (!_ledStripState.isClosed) {
+        _ledStripState.add(null);
+      }
+      rethrow;
+    }
     final derived = LedStripState(
-      frontStrip: state.frontStrip,
-      backStrip: state.backStrip,
-      frontSwitch: _deriveSwitchPalette(state.frontStrip),
+      frontStrip: frontStrip,
+      backStrip: backStrip,
+      frontSwitch: _deriveSwitchPalette(frontStrip),
     );
     if (!_ledStripState.isClosed) {
       _ledStripState.add(derived);
@@ -97,10 +122,13 @@ mixin LedStripCapability on UnifiedDe1 {
   Future<void> commitLedStrip() async {}
 
   /// Re-read the palette from the firmware. This is a truthful "reload", not
-  /// a rollback: the firmware cannot undo a persisted write.
+  /// a rollback: the firmware cannot undo a persisted write. Returns null
+  /// when the reload failed, even if an older cached state exists.
   Future<LedStripState?> resetLedStrip() async {
-    await _hydrateLedStrip();
-    return _ledStripState.value;
+    if (await _hydrateLedStrip()) {
+      return _ledStripState.value;
+    }
+    return null;
   }
 
   Future<void> initLedStrip() async {
@@ -117,7 +145,10 @@ mixin LedStripCapability on UnifiedDe1 {
     await _hydrateLedStrip();
   }
 
-  Future<void> _hydrateLedStrip() async {
+  /// Returns true when the palette was read back successfully; on failure
+  /// the state is marked unknown (null) so stale data is never served as
+  /// authoritative.
+  Future<bool> _hydrateLedStrip() async {
     try {
       final frontAwake = await readMmrInt(BengleMmr.frontLedAwake);
       final frontSleep = await readMmrInt(BengleMmr.frontLedSleep);
@@ -138,8 +169,13 @@ mixin LedStripCapability on UnifiedDe1 {
       if (!_ledStripState.isClosed) {
         _ledStripState.add(state);
       }
+      return true;
     } catch (e) {
       this.log.warning('LedStripCapability: palette hydration failed: $e');
+      if (!_ledStripState.isClosed) {
+        _ledStripState.add(null);
+      }
+      return false;
     }
   }
 

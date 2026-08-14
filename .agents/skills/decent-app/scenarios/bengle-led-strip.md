@@ -37,7 +37,7 @@ black: a machine whose hydration failed answers 503.
 curl -s -X PUT http://localhost:8080/api/v1/machine/ledStrip \
   -H 'Content-Type: application/json' \
   -d '{
-    "frontStrip": {"sleeping": "0000FFFF0000", "awake": "FFFF80000000"},
+    "frontStrip": {"sleeping": "0000FF000000", "awake": "FF0080000000"},
     "backStrip":  {"sleeping": "000000000000", "awake": "FFFFFFFFFFFF"},
     "frontSwitch":{"sleeping": "FFFF00000000", "awake": "000000000000"}
   }' | jq
@@ -45,6 +45,9 @@ curl -s -X PUT http://localhost:8080/api/v1/machine/ledStrip \
 
 Expect `{"status": "accepted"}` (status 200). The palette registers are
 persisted by the firmware on write; `frontSwitch` in the body is ignored.
+The wire stores 8 bits per channel, so non-byte-aligned 16-bit values in
+the request are quantized (low bytes dropped); a subsequent GET returns
+what the firmware actually holds.
 
 ### 4. Read back
 
@@ -52,8 +55,8 @@ persisted by the firmware on write; `frontSwitch` in the body is ignored.
 curl -s http://localhost:8080/api/v1/machine/ledStrip | jq
 ```
 
-Expect `frontStrip`/`backStrip` to match step 3; `frontSwitch` echoes the
-front strip (derived).
+Expect `frontStrip`/`backStrip` to match step 3 (quantized); `frontSwitch`
+echoes the front strip (derived).
 
 ### 5. Commit is a compatibility no-op
 

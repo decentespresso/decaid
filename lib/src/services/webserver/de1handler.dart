@@ -39,14 +39,13 @@ class De1Handler {
       return withDe1((de1) async {
         final caps = <String>[];
         if (de1 is BengleInterface) {
-          caps.addAll([
-            'cupWarmer',
-            'integratedScale',
-            'ledStrip',
-            'stopAtWeight',
-          ]);
+          caps.addAll(['cupWarmer', 'integratedScale', 'stopAtWeight']);
           if (de1.bengleFeatureSurfaceSupported) {
-            caps.addAll(['scaleCalibration', 'preheat', 'wakeSchedule']);
+            // ledStrip stays inside the surface gate: the palette
+            // registers are part of the post-0x00803880 surface, so an
+            // older Bengle must not see a capability whose endpoints all
+            // 404.
+            caps.addAll(['ledStrip', 'scaleCalibration', 'preheat', 'wakeSchedule']);
           }
         }
         return jsonOk({'capabilities': caps});

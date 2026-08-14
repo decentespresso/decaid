@@ -168,12 +168,90 @@ void main() {
         expectWrite(BengleMmr.rearLedAwake, 0x00FF00);
         expectWrite(BengleMmr.rearLedSleep, 0x000000);
 
-        // The local cache reflects the write (16-bit precision preserved;
-        // only the wire truncates to 8-bit channels) with a derived switch
-        // palette.
+        // The local cache publishes the quantized representation that was
+        // actually written (8-bit channels): a GET after this PUT never
+        // reports values the firmware does not hold.
         final state = (await bengle.getLedStripState())!;
-        expect(state.frontStrip.awake, const Color16(0xFFFF, 0x8000, 0x0000));
-        expect(state.frontSwitch.awake, const Color16(0xFFFF, 0x8000, 0x0000));
+        expect(state.frontStrip.awake, const Color16(0xFF00, 0x8000, 0x0000));
+        expect(state.frontSwitch.awake, const Color16(0xFF00, 0x8000, 0x0000));
+      },
+    );
+
+    test('non-byte-aligned 16-bit input is quantized in the cache', () async {
+      await connect();
+      transport.writes.clear();
+      await bengle.setLedStrip(
+        LedStripState(
+          frontStrip: ZoneLedState(
+            awake: const Color16(0x12FF, 0x3456, 0x78AB),
+            sleeping: Color16.off,
+          ),
+          backStrip: ZoneLedState(
+            awake: Color16.off,
+            sleeping: Color16.off,
+          ),
+        ),
+      );
+
+      final state = (await bengle.getLedStripState())!;
+      expect(
+        state.frontStrip.awake,
+        const Color16(0x1200, 0x3400, 0x7800),
+        reason: 'low bytes are discarded exactly as the wire truncates them',
+      );
+    });
+
+    test('failure at any palette write marks the state unknown', () async {
+      await connect();
+      expect(await bengle.getLedStripState(), isNotNull);
+
+      const zones = [
+        (BengleMmr.frontLedAwake, Color16(0xFF00, 0x0000, 0x0000)),
+        (BengleMmr.frontLedSleep, Color16(0x0000, 0xFF00, 0x0000)),
+        (BengleMmr.rearLedAwake, Color16(0x0000, 0x0000, 0xFF00)),
+        (BengleMmr.rearLedSleep, Color16(0xFFFF, 0xFFFF, 0xFFFF)),
+      ];
+      for (final (mmr, color) in zones) {
+        transport.failMmrWritesForAddresses.add(mmr.address);
+        await expectLater(
+          bengle.setLedStrip(
+            LedStripState(
+              frontStrip: ZoneLedState(awake: color, sleeping: color),
+              backStrip: ZoneLedState(awake: color, sleeping: color),
+            ),
+          ),
+          throwsA(isA<StateError>()),
+        );
+        transport.failMmrWritesForAddresses.clear();
+        expect(
+          await bengle.getLedStripState(),
+          isNull,
+          reason: 'a partial palette write must not leave stale state '
+              'served as authoritative',
+        );
+      }
+    });
+
+    test(
+      'reset after a failed reload returns null (stale cache is not served)',
+      () async {
+        await connect();
+        expect(await bengle.getLedStripState(), isNotNull);
+
+        transport.failMmrReadsForAddresses.addAll([
+          BengleMmr.frontLedAwake.address,
+          BengleMmr.frontLedSleep.address,
+          BengleMmr.rearLedAwake.address,
+          BengleMmr.rearLedSleep.address,
+        ]);
+        final state = await bengle.resetLedStrip();
+        expect(
+          state,
+          isNull,
+          reason: 'a failed reload must be distinguishable from success '
+              'even when an older cached value exists',
+        );
+        expect(await bengle.getLedStripState(), isNull);
       },
     );
 
