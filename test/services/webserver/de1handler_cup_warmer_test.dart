@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
@@ -7,11 +8,15 @@ import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
+import 'package:reaprime/src/models/device/impl/bengle/bengle.dart';
+import 'package:reaprime/src/models/device/impl/bengle/bengle_mmr.dart';
 import 'package:reaprime/src/models/device/impl/bengle/mock_bengle.dart';
+import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
+import '../../helpers/fake_ble_transport.dart';
 import '../../helpers/mock_device_discovery_service.dart';
 import '../../helpers/mock_settings_service.dart';
 import '../../helpers/test_scale.dart';
@@ -218,6 +223,100 @@ void main() {
         expect(res.statusCode, 200);
         expect(await bengle.getCupWarmerTemperature(), 55.0);
         expect(await bengle.getCupWarmerEnabled(), isFalse);
+      },
+    );
+
+    test(
+      'temperature + enabled=false never writes an intermediate enable',
+      () async {
+        final transport = FakeBleTransport();
+        final bengle = Bengle(transport: transport);
+        transport.queueOnConnectResponses(v13Model: 128);
+        transport.queueMmrResponseRaw(
+          BengleMmr.scaleCalWeight,
+          [0xD0, 0x07, 0x00, 0x00], // probe
+        );
+        transport.queuePaletteHydrationResponses();
+        await wireWith(bengle);
+        transport.writes.clear();
+
+        final res = await put('/api/v1/machine/cupWarmer', {
+          'temperature': 55,
+          'enabled': false,
+        });
+        expect(res.statusCode, 200);
+
+        final mmrWrites = transport.writes
+            .where((w) => w.characteristicUUID == Endpoint.writeToMMR.uuid)
+            .toList();
+        final cupWarmerModeEnableWrites = mmrWrites.where((w) {
+          final addr = ByteData(4)
+            ..setInt32(0, BengleMmr.cupWarmerMode.address, Endian.big);
+          if (w.data[1] != addr.getUint8(1) ||
+              w.data[2] != addr.getUint8(2) ||
+              w.data[3] != addr.getUint8(3)) {
+            return false;
+          }
+          final payload = ByteData.sublistView(w.data, 4, 8);
+          return payload.getUint32(0, Endian.little) == 1;
+        });
+        expect(
+          cupWarmerModeEnableWrites,
+          isEmpty,
+          reason: 'an explicit false must never cause an enable (mode 1) '
+              'write, including the back-compat auto-enable',
+        );
+        final setpointWrites = mmrWrites.where((w) {
+          final addr = ByteData(4)
+            ..setInt32(0, BengleMmr.matSetPoint.address, Endian.big);
+          return w.data[1] == addr.getUint8(1) &&
+              w.data[2] == addr.getUint8(2) &&
+              w.data[3] == addr.getUint8(3);
+        });
+        expect(setpointWrites, hasLength(1));
+      },
+    );
+
+    test(
+      'setpoint-write failure with enabled=false leaves the mode untouched',
+      () async {
+        final transport = FakeBleTransport();
+        final bengle = Bengle(transport: transport);
+        transport.queueOnConnectResponses(v13Model: 128);
+        transport.queueMmrResponseRaw(
+          BengleMmr.scaleCalWeight,
+          [0xD0, 0x07, 0x00, 0x00], // probe
+        );
+        transport.queuePaletteHydrationResponses();
+        await wireWith(bengle);
+        transport.writes.clear();
+        transport.failMmrWritesForAddresses.add(BengleMmr.matSetPoint.address);
+
+        final res = await put('/api/v1/machine/cupWarmer', {
+          'temperature': 55,
+          'enabled': false,
+        });
+        expect(res.statusCode, 500);
+
+        final cupWarmerModeEnableWrites = transport.writes
+            .where((w) => w.characteristicUUID == Endpoint.writeToMMR.uuid)
+            .where((w) {
+              final addr = ByteData(4)
+                ..setInt32(0, BengleMmr.cupWarmerMode.address, Endian.big);
+              if (w.data[1] != addr.getUint8(1) ||
+                  w.data[2] != addr.getUint8(2) ||
+                  w.data[3] != addr.getUint8(3)) {
+                return false;
+              }
+              final payload = ByteData.sublistView(w.data, 4, 8);
+              return payload.getUint32(0, Endian.little) == 1;
+            });
+        expect(
+          cupWarmerModeEnableWrites,
+          isEmpty,
+          reason: 'a failed setpoint write must not leave manual heating '
+              'enabled behind',
+        );
       },
     );
 

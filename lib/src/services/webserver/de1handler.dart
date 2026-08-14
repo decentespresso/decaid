@@ -119,14 +119,14 @@ class De1Handler {
         }
         if (temperature != null) {
           await de1.setCupWarmerTemperature(temperature);
-          if (de1.bengleFeatureSurfaceSupported) {
-            // Back-compat: "set 45 C" also means "make the manual cup
-            // warmer operate".
-            await de1.setCupWarmerEnabled(true);
-          }
         }
         if (enabled != null) {
           await de1.setCupWarmerEnabled(enabled);
+        } else if (temperature != null && de1.bengleFeatureSurfaceSupported) {
+          // Back-compat: "set 45 C" also means "make the manual cup
+          // warmer operate". An explicit enabled: false must never pass
+          // through an intermediate enable write.
+          await de1.setCupWarmerEnabled(true);
         }
         return jsonOk({'status': 'accepted'});
       }, retryOnReplacement: true);

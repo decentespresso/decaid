@@ -133,16 +133,12 @@ void main() {
     );
 
     test(
-      'setCupWarmerPreheat writes enable then lead, clamping lead to 0..120',
+      'setCupWarmerPreheat writes lead before enable, disable before lead',
       () async {
         transport.writes.clear();
         await bengle.setCupWarmerPreheat(enabled: true, leadMinutes: 45);
         await bengle.setCupWarmerPreheat(enabled: false, leadMinutes: 999);
 
-        final enableAddr = ByteData(4)
-          ..setInt32(0, BengleMmr.matPreheatEnable.address, Endian.big);
-        final leadAddr = ByteData(4)
-          ..setInt32(0, BengleMmr.matPreheatLeadMin.address, Endian.big);
         final frames = transport.writes
             .where((w) => w.characteristicUUID == Endpoint.writeToMMR.uuid)
             .toList();
@@ -158,12 +154,12 @@ void main() {
           expect(payload.getUint32(0, Endian.little), value);
         }
 
-        expectFrame(0, BengleMmr.matPreheatEnable, 1);
-        expectFrame(1, BengleMmr.matPreheatLeadMin, 45);
+        // Enabling: lead first, then the enable bit.
+        expectFrame(0, BengleMmr.matPreheatLeadMin, 45);
+        expectFrame(1, BengleMmr.matPreheatEnable, 1);
+        // Disabling: the enable bit first, then the lead.
         expectFrame(2, BengleMmr.matPreheatEnable, 0);
         expectFrame(3, BengleMmr.matPreheatLeadMin, 120);
-        expect(enableAddr, isNotNull);
-        expect(leadAddr, isNotNull);
       },
     );
 

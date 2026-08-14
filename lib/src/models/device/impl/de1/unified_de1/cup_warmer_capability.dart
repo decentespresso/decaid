@@ -40,8 +40,18 @@ mixin CupWarmerCapability on UnifiedDe1 {
     required bool enabled,
     required int leadMinutes,
   }) async {
-    await writeMmrInt(BengleMmr.matPreheatEnable, enabled ? 1 : 0);
-    await writeMmrInt(BengleMmr.matPreheatLeadMin, leadMinutes.clamp(0, 120));
+    final lead = leadMinutes.clamp(0, 120);
+    if (enabled) {
+      // Lead first: scheduled heating must never start with a stale
+      // persisted lead between the two writes.
+      await writeMmrInt(BengleMmr.matPreheatLeadMin, lead);
+      await writeMmrInt(BengleMmr.matPreheatEnable, 1);
+    } else {
+      // Disable first: never leave heating enabled while the lead is
+      // being updated.
+      await writeMmrInt(BengleMmr.matPreheatEnable, 0);
+      await writeMmrInt(BengleMmr.matPreheatLeadMin, lead);
+    }
   }
 
   Future<CupWarmerPreheatState> getCupWarmerPreheatState() async {
