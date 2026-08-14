@@ -130,6 +130,7 @@ class PresenceController {
       // app values changed since the last machine.
       _lastPushedSleepTimeout = null;
       _lastPushedSchedulesJson = null;
+      _lastPushedMasterEnabled = null;
       _lastPushedDevice = null;
       _syncFirmwareScheduleAndTimeout();
     } else {
@@ -276,9 +277,12 @@ class PresenceController {
 
   int? _lastPushedSleepTimeout;
   String? _lastPushedSchedulesJson;
+  bool? _lastPushedMasterEnabled;
   De1Interface? _lastPushedDevice;
   int _firmwareSyncGeneration = 0;
   Future<void>? _firmwareSyncInFlight;
+
+  static const String _disabledSchedulesJson = '[]';
 
   /// Mirror the app's sleep timeout and wake schedules into the Bengle
   /// firmware (InactivitySleepTimeout is persisted, so only pushes on
@@ -322,17 +326,25 @@ class PresenceController {
     if (de1 is! BengleInterface || !de1.bengleFeatureSurfaceSupported) {
       return;
     }
-    final timeout = _settingsController.sleepTimeoutMinutes;
-    final schedulesJson = _settingsController.wakeSchedules;
+    // The master toggle is part of the desired firmware state: when it is
+    // off, firmware must not own any timeout or wake table, so it receives
+    // timeout 0 and a cleared, disabled table (InactivitySleepTimeout is
+    // persisted and the wake table runs without the tablet).
+    final enabled = _settingsController.userPresenceEnabled;
+    final timeout = enabled ? _settingsController.sleepTimeoutMinutes : 0;
+    final schedulesJson = enabled
+        ? _settingsController.wakeSchedules
+        : _disabledSchedulesJson;
     if (de1 == _lastPushedDevice &&
+        enabled == _lastPushedMasterEnabled &&
         timeout == _lastPushedSleepTimeout &&
         schedulesJson == _lastPushedSchedulesJson) {
       return;
     }
 
-    final windows = translateWakeSchedules(
-      keepAwakeSchedulesFromJson(schedulesJson),
-    );
+    final windows = enabled
+        ? translateWakeSchedules(keepAwakeSchedulesFromJson(schedulesJson))
+        : const <FirmwareWakeWindow>[];
     final secondsSinceSunday = localSecondsSinceSunday(_clock());
     await de1.setInactivitySleepTimeout(timeout);
     await de1.pushFirmwareWakeSchedule(
@@ -343,6 +355,7 @@ class PresenceController {
     // mid-flight replacement must not mark the new machine synchronized.
     if (_de1 == de1) {
       _lastPushedDevice = de1;
+      _lastPushedMasterEnabled = enabled;
       _lastPushedSleepTimeout = timeout;
       _lastPushedSchedulesJson = schedulesJson;
       _log.fine(

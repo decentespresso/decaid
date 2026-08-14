@@ -213,7 +213,7 @@ void main() {
     });
   });
 
-  test('settings change re-pushes only when the values changed', () {
+  test('disabling the master toggle pushes timeout 0 and no windows', () {
     fakeAsync((async) {
       final controller = PresenceController(
         de1Controller: de1Controller,
@@ -225,16 +225,50 @@ void main() {
       async.flushMicrotasks();
       expect(bengle.pushedTimeouts, [30]); // default 30
 
-      // Unrelated settings change must not re-push.
+      // True -> false must push timeout 0 and a cleared, disabled table
+      // even though the timeout and schedule JSON did not change.
       settingsController.setUserPresenceEnabled(false);
       async.flushMicrotasks();
-      expect(bengle.pushedTimeouts, [30]);
-      expect(bengle.pushedWindows, hasLength(1));
+      expect(bengle.pushedTimeouts, [30, 0]);
+      expect(bengle.pushedWindows.last, isEmpty);
 
-      // Timeout change re-pushes.
+      // While disabled, timeout edits cannot change the effective state
+      // (stays 0), so nothing re-pushes.
       settingsController.setSleepTimeoutMinutes(45);
       async.flushMicrotasks();
-      expect(bengle.pushedTimeouts, [30, 45]);
+      expect(bengle.pushedTimeouts, [30, 0]);
+
+      // False -> true restores the configured values.
+      settingsController.setUserPresenceEnabled(true);
+      async.flushMicrotasks();
+      expect(bengle.pushedTimeouts, [30, 0, 45]);
+      expect(bengle.pushedWindows, hasLength(3));
+
+      controller.dispose();
+    });
+  });
+
+  test('connect while the master toggle is off pushes disabled state', () {
+    fakeAsync((async) {
+      settingsController.setUserPresenceEnabled(false);
+      setSchedules([
+        WakeSchedule.create(hour: 7, minute: 30, daysOfWeek: {1}),
+      ]);
+      settingsController.setSleepTimeoutMinutes(90);
+
+      final controller = PresenceController(
+        de1Controller: de1Controller,
+        settingsController: settingsController,
+        clock: () => clock.now(),
+      );
+      controller.initialize();
+      de1Controller.setDe1(bengle);
+      async.flushMicrotasks();
+
+      // Configured timeout and schedules exist, but the master flag is
+      // off: firmware must not own sleep/wake.
+      expect(bengle.pushedTimeouts, [0]);
+      expect(bengle.pushedWindows.single, isEmpty);
 
       controller.dispose();
     });
