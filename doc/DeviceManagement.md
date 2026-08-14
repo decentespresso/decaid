@@ -124,10 +124,15 @@ check) `PresenceController` mirrors two app-owned settings into the machine:
   only acts on it while no tablet is connected (tablet owns sleep); an
   expired timer fires within ~4 s of the tablet dropping.
 - **Local wall-clock + weekly wake table** — `SetLocalTimeOfWeek`
-  (seconds since Sunday 00:00:00 local, computed from calendar fields so
-  DST cannot skew it) and the wake table (`ScheduleControl=0` -> entries ->
-  `ScheduleControl=1`) are RAM-only, so they are re-pushed on every connect
-  and whenever the schedules setting changes. Empty schedules push
+  (seconds since Sunday 00:00:00 local, computed from calendar fields so a
+  DST transition cannot skew the value at push time) and the wake table
+  (`ScheduleControl=0` -> clock -> entries -> `ScheduleControl=1`, the
+  old table disabled before the clock moves) are RAM-only, so
+  they are re-pushed on every connect and whenever the schedules setting
+  changes. DST-safe only while synchronized: a DST/timezone change during a
+  long-lived connection is picked up at the next connect or settings change,
+  and unattended wake/preheat can shift by an hour if the tablet drops
+  before that. Empty schedules push
   `ScheduleControl=0` (clear + disable). Windows are translated app-side:
   `keepAwakeFor=N` -> `[start, start+N)`, otherwise `[start, start+240)`
   (firmware maximum); Dart weekday (Mon=1..Sun=7) -> firmware dow

@@ -4,8 +4,11 @@ Verifies that `PresenceController` mirrors the app's sleep timeout and wake
 schedules into the Bengle firmware on connect and on setting change
 (`InactivitySleepTimeout` 0x38BC persisted; local wall-clock + wake table
 0x38C0-0x38C8 RAM-only). The MockBengle records what was pushed; the wire
-sequence (clock, control 0, entries, control 1) is covered by byte-exact
-unit tests (`test/models/device/bengle_wake_schedule_test.dart`).
+sequence (control 0, clock, entries, control 1) is covered by byte-exact
+unit tests (`test/models/device/bengle_wake_schedule_test.dart`). The
+clock is DST-safe only while synchronized: it is re-pushed on connect and
+on settings change, so a DST/timezone change during a long-lived
+connection is picked up at the next sync.
 
 No REST endpoint exists for this surface — the push is automatic. This
 scenario verifies it through the mock's recorded state.

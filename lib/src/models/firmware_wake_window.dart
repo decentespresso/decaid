@@ -50,8 +50,11 @@ class FirmwareWakeWindow {
 }
 
 /// Local wall-clock seconds since Sunday 00:00:00, computed from calendar
-/// fields so DST transitions cannot skew the firmware clock
-/// (setLocalTimeOfWeek expects LOCAL time-of-week).
+/// fields so DST transitions cannot skew the value AT PUSH TIME
+/// (setLocalTimeOfWeek expects LOCAL time-of-week). The firmware clock is
+/// RAM-only and re-pushed on connect and settings changes, so a DST or
+/// timezone change during a long-lived connection is only picked up at the
+/// next sync.
 int localSecondsSinceSunday(DateTime now) {
   final daysSinceSunday = now.weekday % 7; // Dart: Mon=1..Sun=7 -> 0..6
   return daysSinceSunday * 86400 +
