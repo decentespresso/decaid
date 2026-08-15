@@ -2578,6 +2578,120 @@ void main() {
       });
     });
 
+    group('preferred scale fallback reconnect', () {
+      ConnectionManager buildFallbackManager() => ConnectionManager(
+        deviceScanner: mockScanner,
+        de1Controller: mockDe1Controller,
+        scaleController: mockScaleController,
+        settingsController: settingsController,
+      )..snapshotStalenessTimeout = const Duration(hours: 1);
+
+      List<Completer<void>> startFallbackRecovery(
+        FakeAsync async,
+        int expectedScans,
+      ) {
+        connectionManager = buildFallbackManager();
+        final scanCompleters = List.generate(
+          expectedScans,
+          (_) => Completer<void>(),
+        );
+        mockScanner.queuedScanCompleters.addAll(scanCompleters);
+        settingsController.setPreferredScaleId('missing-scale');
+        async.flushMicrotasks();
+        mockDe1Controller.de1Subject.add(_FakeDe1(deviceId: 'connected-de1'));
+        async.flushMicrotasks();
+        return scanCompleters;
+      }
+
+      void expectScanAfter(FakeAsync async, Duration delay, int expectedCalls) {
+        async.elapse(delay - const Duration(milliseconds: 1));
+        async.flushMicrotasks();
+        expect(mockScanner.scanCallCount, expectedCalls - 1);
+        async.elapse(const Duration(milliseconds: 1));
+        async.flushMicrotasks();
+        expect(mockScanner.scanCallCount, expectedCalls);
+      }
+
+      void completeScan(FakeAsync async, Completer<void> scan) {
+        scan.complete();
+        async.flushMicrotasks();
+      }
+
+      setUp(() async {
+        await connectionManager.dispose();
+      });
+
+      test('backs off consecutive failed scans and caps at 60 seconds', () {
+        fakeAsync((async) {
+          final scans = startFallbackRecovery(async, 6);
+          const retryDelays = [
+            Duration(seconds: 5),
+            Duration(seconds: 10),
+            Duration(seconds: 20),
+            Duration(seconds: 40),
+            Duration(seconds: 60),
+            Duration(seconds: 60),
+          ];
+
+          for (var index = 0; index < retryDelays.length; index++) {
+            expectScanAfter(async, retryDelays[index], index + 1);
+            completeScan(async, scans[index]);
+          }
+
+          connectionManager.dispose();
+          async.flushMicrotasks();
+        });
+      });
+
+      test('successful scale connection resets the backoff', () {
+        fakeAsync((async) {
+          final scans = startFallbackRecovery(async, 3);
+          expectScanAfter(async, const Duration(seconds: 5), 1);
+          completeScan(async, scans[0]);
+          expectScanAfter(async, const Duration(seconds: 10), 2);
+          completeScan(async, scans[1]);
+
+          mockScaleController.debugSetLastConnectedId('missing-scale');
+          mockScaleController.mockEmitConnectionState(
+            ConnectionState.connected,
+          );
+          mockScaleController.mockEmitConnectionState(
+            ConnectionState.disconnected,
+          );
+          async.flushMicrotasks();
+
+          expectScanAfter(async, const Duration(seconds: 5), 3);
+          completeScan(async, scans[2]);
+
+          connectionManager.dispose();
+          async.flushMicrotasks();
+        });
+      });
+
+      test('machine disconnect cancels and resets the backoff', () {
+        fakeAsync((async) {
+          final scans = startFallbackRecovery(async, 2);
+          expectScanAfter(async, const Duration(seconds: 5), 1);
+          completeScan(async, scans[0]);
+
+          mockDe1Controller.de1Subject.add(null);
+          async.flushMicrotasks();
+          async.elapse(const Duration(seconds: 10));
+          expect(mockScanner.scanCallCount, 1);
+
+          mockDe1Controller.de1Subject.add(
+            _FakeDe1(deviceId: 'reconnected-de1'),
+          );
+          async.flushMicrotasks();
+          expectScanAfter(async, const Duration(seconds: 5), 2);
+          completeScan(async, scans[1]);
+
+          connectionManager.dispose();
+          async.flushMicrotasks();
+        });
+      });
+    });
+
     group('background scale watch', () {
       const scaleId = 'pref-scale';
 

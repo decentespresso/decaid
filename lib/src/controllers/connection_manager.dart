@@ -791,7 +791,7 @@ class ConnectionManager {
     required bool scaleOnly,
     required ConnectionAttemptPolicy policy,
   }) async {
-    _cancelScaleReacquisition();
+    _cancelScaleReacquisition(resetFailures: !scaleOnly);
     if (scaleOnly && _scaleReconnectBlockedByPowerMode) {
       _log.fine(
         'Skipping scale-only scan while machine is sleeping and scale '
@@ -1072,9 +1072,9 @@ class ConnectionManager {
     }
   }
 
-  void _cancelScaleReacquisition() {
+  void _cancelScaleReacquisition({bool resetFailures = true}) {
     unawaited(_scaleWatch.disarm());
-    _cancelPreferredScaleReconnect();
+    _cancelPreferredScaleReconnect(resetFailures: resetFailures);
   }
 
   Future<void> _connectScaleFromWatch(Scale scale) async {
@@ -1112,10 +1112,10 @@ class ConnectionManager {
         !_scaleReconnectBlockedByPowerMode;
   }
 
-  void _cancelPreferredScaleReconnect() {
+  void _cancelPreferredScaleReconnect({bool resetFailures = true}) {
     _preferredScaleReconnect?.cancel();
     _preferredScaleReconnect = null;
-    _scaleReconnectFailures = 0;
+    if (resetFailures) _scaleReconnectFailures = 0;
   }
 
   void _handleScaleDisconnected() {
