@@ -565,6 +565,90 @@ void main() {
         }
       });
 
+      test(
+        'accepts targets with or without a trailing slash and IPv6 hosts',
+        () async {
+          final targetZip = buildZip({'profiles.json': [], 'shots.json': []});
+          final seen = <String>[];
+          final client = http_testing.MockClient((request) async {
+            seen.add('${request.method} ${request.url}');
+            if (request.method == 'GET') {
+              return http.Response.bytes(targetZip, 200);
+            }
+            return http.Response(
+              '{"profiles":{"imported":1},"shots":{"imported":1}}',
+              200,
+            );
+          });
+          final handler = buildSyncHandler(client);
+
+          for (final target in [
+            'http://192.168.1.50:8080',
+            'http://192.168.1.50:8080/',
+            'http://[::1]:8080',
+          ]) {
+            final response = await sendSync(
+              handler,
+              requestBody(mode: 'pull', target: target),
+            );
+            expect(response.statusCode, 200, reason: target);
+          }
+          // Slash and slash-less targets must hit the identical URL.
+          expect(seen.toSet(), {
+            'GET http://192.168.1.50:8080/api/v1/data/export',
+            'GET http://[::1]:8080/api/v1/data/export',
+          });
+        },
+      );
+
+      test('push appends the import path and conflict query once', () async {
+        final seen = <String>[];
+        final client = http_testing.MockClient((request) async {
+          seen.add('${request.method} ${request.url}');
+          return http.Response(
+            '{"profiles":{"imported":1},"shots":{"imported":1}}',
+            200,
+          );
+        });
+        final handler = buildSyncHandler(client);
+
+        for (final target in [
+          'http://127.0.0.1:8080',
+          'http://127.0.0.1:8080/',
+        ]) {
+          final response = await sendSync(
+            handler,
+            requestBody(mode: 'push', target: target),
+          );
+          expect(response.statusCode, 200, reason: target);
+        }
+        expect(seen.toSet(), {
+          'POST http://127.0.0.1:8080/api/v1/data/import?onConflict=skip',
+        });
+      });
+
+      test('rejects targets with paths, queries, fragments, credentials, '
+          'or missing hosts', () async {
+        final handler = buildSyncHandler(
+          http_testing.MockClient((_) async => http.Response('{}', 500)),
+        );
+        final badTargets = [
+          'http://192.168.1.50:8080/some/path',
+          'http://192.168.1.50:8080?foo=bar',
+          'http://192.168.1.50:8080/#frag',
+          'http://user:pass@192.168.1.50:8080',
+          'http://',
+          'ftp://192.168.1.50:8080',
+        ];
+        for (final target in badTargets) {
+          final response = await sendSync(
+            handler,
+            requestBody(mode: 'pull', target: target),
+          );
+          expect(response.statusCode, 400, reason: target);
+        }
+      });
+
       test('rejects oversized sync request bodies', () async {
         final bigBody = jsonEncode({
           'target': 'http://x',

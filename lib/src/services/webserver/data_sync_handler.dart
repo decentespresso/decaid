@@ -77,14 +77,13 @@ class DataSyncHandler {
         'message': '"target" is required',
       });
     }
-    final targetUri = Uri.tryParse(target);
-    if (targetUri == null ||
-        !targetUri.hasScheme ||
-        (targetUri.scheme != 'http' && targetUri.scheme != 'https')) {
+    final targetUri = _parseTarget(target);
+    if (targetUri == null) {
       return jsonBadRequest({
         'error': 'Invalid target URL',
         'message':
-            '"target" must be a valid HTTP/HTTPS URL (e.g., http://192.168.1.50:8080)',
+            '"target" must be an HTTP/HTTPS origin without a path, '
+            'query, or fragment (e.g., http://192.168.1.50:8080)',
       });
     }
 
@@ -145,7 +144,7 @@ class DataSyncHandler {
 
     if (mode == SyncMode.pull || mode == SyncMode.twoWay) {
       try {
-        pull = await _pull(target, strategy, expectedSections);
+        pull = await _pull(targetUri, strategy, expectedSections);
       } catch (error) {
         pull = _failure(error);
       }
@@ -153,14 +152,14 @@ class DataSyncHandler {
 
     if (mode == SyncMode.push) {
       try {
-        push = await _push(target, strategy, sections, expectedSections);
+        push = await _push(targetUri, strategy, sections, expectedSections);
       } catch (error) {
         push = _failure(error);
       }
     } else if (mode == SyncMode.twoWay) {
       if (pull!.complete || continueOnPullFailure) {
         try {
-          push = await _push(target, strategy, sections, expectedSections);
+          push = await _push(targetUri, strategy, sections, expectedSections);
         } catch (error) {
           push = _failure(error);
         }
@@ -178,12 +177,12 @@ class DataSyncHandler {
   }
 
   Future<DataTransferPhaseOutcome> _pull(
-    String target,
+    Uri targetUri,
     ConflictStrategy strategy,
     List<String> expectedSections,
   ) async {
     final limits = _exportHandler.limits;
-    _log.info('Pulling data from $target');
+    _log.info('Pulling data from $targetUri');
     final tempDir = await TempArchiveDir.create('reaprime-sync-pull-');
     final deadline = DateTime.now().add(limits.syncOverallTimeout);
     final abortCompleter = Completer<void>();
@@ -193,7 +192,7 @@ class DataSyncHandler {
     try {
       final request = http.AbortableRequest(
         'GET',
-        Uri.parse('$target/api/v1/data/export'),
+        targetUri.resolve('/api/v1/data/export'),
         abortTrigger: abortCompleter.future,
       );
       final streamed = await _httpClient
@@ -263,13 +262,13 @@ class DataSyncHandler {
   }
 
   Future<DataTransferPhaseOutcome> _push(
-    String target,
+    Uri targetUri,
     ConflictStrategy strategy,
     List<String>? sections,
     List<String> expectedSections,
   ) async {
     final limits = _exportHandler.limits;
-    _log.info('Pushing data to $target');
+    _log.info('Pushing data to $targetUri');
     final tempDir = await TempArchiveDir.create('reaprime-sync-push-');
     try {
       final File zipFile;
@@ -287,7 +286,9 @@ class DataSyncHandler {
       final abortCompleter = Completer<void>();
       final request = http.AbortableStreamedRequest(
         'POST',
-        Uri.parse('$target/api/v1/data/import?onConflict=${strategy.name}'),
+        targetUri
+            .resolve('/api/v1/data/import')
+            .replace(queryParameters: {'onConflict': strategy.name}),
         abortTrigger: abortCompleter.future,
       );
       request.headers['content-type'] = 'application/octet-stream';
@@ -564,6 +565,20 @@ class DataSyncHandler {
       });
     }
     return _SectionsResult(sections);
+  }
+
+  Uri? _parseTarget(String target) {
+    final uri = Uri.tryParse(target);
+    if (uri == null ||
+        (uri.scheme != 'http' && uri.scheme != 'https') ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty ||
+        (uri.path.isNotEmpty && uri.path != '/') ||
+        uri.hasQuery ||
+        uri.hasFragment) {
+      return null;
+    }
+    return uri;
   }
 
   SyncMode? _parseMode(String value) => switch (value) {

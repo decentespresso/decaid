@@ -917,6 +917,7 @@ function createPlugin(host) {
                             <label class="setting-label" for="syncTarget">Target URL</label>
                             <div class="setting-control">
                                 <input type="text" id="syncTarget" placeholder="http://192.168.1.50:8080" style="width: 200px;">
+                                <div style="font-size: 12px; color: #888; margin-top: 4px;">Host and optional port only, no path, query, or fragment.</div>
                             </div>
                         </div>
                         <div class="setting-item">
