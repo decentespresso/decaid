@@ -757,7 +757,10 @@ paths:
   /api/v1/machine/calibration:
     get:
       summary: Get machine calibration settings
-      description: Returns the current flow estimation calibration multiplier from the DE1
+      description: |
+        Returns the current flow estimation calibration multiplier from the DE1
+        (calFlowEst MMR). For DE1 sensor calibration (flow/pressure/temperature)
+        see GET /api/v1/machine/calibration/{target}.
       tags: [Machine]
       responses:
         "200":
@@ -768,7 +771,10 @@ paths:
                 $ref: "#/components/schemas/De1CalibrationResponse"
     post:
       summary: Set machine calibration settings
-      description: Updates the flow estimation calibration multiplier on the DE1
+      description: |
+        Updates the flow estimation calibration multiplier on the DE1
+        (calFlowEst MMR). For DE1 sensor calibration (flow/pressure/temperature)
+        see PUT /api/v1/machine/calibration/{target}.
       tags: [Machine]
       requestBody:
         required: true
@@ -783,6 +789,73 @@ paths:
           description: Malformed JSON body
         "503":
           description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+        "500":
+          description: No machine was ever connected
+
+  /api/v1/machine/calibration/{target}:
+    get:
+      summary: Read DE1 sensor calibration
+      description: |
+        Reads the DE1 A012 calibration characteristic for one target. `source`
+        selects the current calibration (default) or the factory calibration.
+        This is distinct from the flow estimation multiplier served by
+        GET /api/v1/machine/calibration.
+      tags: [Machine]
+      parameters:
+        - name: target
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/De1SensorCalibrationTarget"
+        - name: source
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/De1SensorCalibrationSource"
+          default: current
+      responses:
+        "200":
+          description: Calibration values
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/De1SensorCalibration"
+        "400":
+          description: Unknown target or source
+        "503":
+          description: Machine disconnected mid-read and no replacement appeared within the bounded wait
+        "504":
+          description: Machine did not answer the calibration request within the response timeout
+        "500":
+          description: No machine was ever connected
+    put:
+      summary: Write DE1 sensor calibration
+      description: |
+        Writes calibration values for one target via the DE1 A012 calibration
+        characteristic. Returns 202 only after the machine acknowledges the
+        write.
+      tags: [Machine]
+      parameters:
+        - name: target
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/De1SensorCalibrationTarget"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/De1SensorCalibrationWriteRequest"
+      responses:
+        "202":
+          description: Calibration write acknowledged by the machine
+        "400":
+          description: Malformed JSON body, unknown target, or invalid values
+        "503":
+          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+        "504":
+          description: Machine did not acknowledge the calibration write within the response timeout
         "500":
           description: No machine was ever connected
 
@@ -5744,6 +5817,46 @@ components:
       properties:
         flowMultiplier:
           description: Flow estimation calibration multiplier (valid range 0.13–2.0)
+          type: number
+          format: double
+          example: 1.0
+    De1SensorCalibrationTarget:
+      type: string
+      enum: [flow, pressure, temperature]
+      description: Calibration target of the DE1 A012 calibration characteristic.
+    De1SensorCalibrationSource:
+      type: string
+      enum: [current, factory]
+      description: Current calibration (default) or factory calibration.
+    De1SensorCalibration:
+      type: object
+      required: [target, source, de1ReportedValue, measuredValue]
+      properties:
+        target:
+          $ref: "#/components/schemas/De1SensorCalibrationTarget"
+        source:
+          $ref: "#/components/schemas/De1SensorCalibrationSource"
+        de1ReportedValue:
+          description: Value the DE1 reports for the calibration (Q16.16 on the wire)
+          type: number
+          format: double
+          example: 1.0
+        measuredValue:
+          description: Value measured by the calibration procedure (signed Q16.16 on the wire)
+          type: number
+          format: double
+          example: 1.0
+    De1SensorCalibrationWriteRequest:
+      type: object
+      required: [de1ReportedValue, measuredValue]
+      properties:
+        de1ReportedValue:
+          description: Value the DE1 reports for the calibration (Q16.16 on the wire)
+          type: number
+          format: double
+          example: 1.0
+        measuredValue:
+          description: Value measured by the calibration procedure (signed Q16.16 on the wire)
           type: number
           format: double
           example: 1.0

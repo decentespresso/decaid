@@ -490,6 +490,78 @@ class De1Handler {
       }, retryOnReplacement: true);
     });
 
+    app.get('/api/v1/machine/calibration/<target>', (
+      Request r,
+      String target,
+    ) async {
+      final calTarget = _parseCalibrationTarget(target);
+      if (calTarget == null) {
+        return jsonBadRequest({'error': 'Unknown calibration target: $target'});
+      }
+      final sourceParam = r.url.queryParameters['source'] ?? 'current';
+      final source = De1CalibrationSource.values
+          .where((s) => s.name == sourceParam)
+          .firstOrNull;
+      if (source == null) {
+        return jsonBadRequest({
+          'error': 'Unknown calibration source: $sourceParam',
+        });
+      }
+      return withDe1((de1) async {
+        final calibration = await de1.readCalibration(
+          calTarget,
+          source: source,
+        );
+        return jsonOk({
+          'target': calibration.target.name,
+          'source': source.name,
+          'de1ReportedValue': calibration.de1ReportedValue,
+          'measuredValue': calibration.measuredValue,
+        });
+      });
+    });
+
+    app.put('/api/v1/machine/calibration/<target>', (
+      Request r,
+      String target,
+    ) async {
+      final calTarget = _parseCalibrationTarget(target);
+      if (calTarget == null) {
+        return jsonBadRequest({'error': 'Unknown calibration target: $target'});
+      }
+      final dynamic json;
+      try {
+        json = jsonDecode(await r.readAsString());
+      } catch (e) {
+        return jsonBadRequest({'error': 'Invalid JSON body'});
+      }
+      if (json is! Map) {
+        return jsonBadRequest({'error': 'Request body must be a JSON object'});
+      }
+      final reported = json['de1ReportedValue'];
+      final measured = json['measuredValue'];
+      if (reported is! num || !reported.isFinite) {
+        return jsonBadRequest({
+          'error': 'de1ReportedValue must be a finite number',
+        });
+      }
+      if (measured is! num || !measured.isFinite) {
+        return jsonBadRequest({
+          'error': 'measuredValue must be a finite number',
+        });
+      }
+      return withQueuedDe1((de1) async {
+        await de1.writeCalibration(
+          De1Calibration(
+            target: calTarget,
+            de1ReportedValue: reported.toDouble(),
+            measuredValue: measured.toDouble(),
+          ),
+        );
+        return jsonAccepted();
+      }, retryOnReplacement: true);
+    });
+
     app.delete('/api/v1/machine/settings/reset', (Request r) async {
       return _mapDe1WriteErrors(() async {
         await _controller.runDeviceWrite(
@@ -501,6 +573,9 @@ class De1Handler {
     });
   }
 
+  De1CalibrationTarget? _parseCalibrationTarget(String target) =>
+      De1CalibrationTarget.values.where((t) => t.name == target).firstOrNull;
+
   Future<Response> withDe1(Future<Response> Function(De1Interface) call) async {
     try {
       var de1 = _controller.connectedDe1();
@@ -510,6 +585,8 @@ class De1Handler {
         'error': 'Machine unavailable',
         'message': '$e',
       });
+    } on EndpointUnavailableException catch (e) {
+      return jsonGatewayTimeout({'error': e.toString()});
     } catch (e, st) {
       return jsonError({'error': e.toString(), 'st': st.toString()});
     }
@@ -523,6 +600,8 @@ class De1Handler {
         'error': 'Machine unavailable',
         'message': '$e',
       });
+    } on EndpointUnavailableException catch (e) {
+      return jsonGatewayTimeout({'error': e.toString()});
     } on DeviceNotConnectedException catch (e) {
       return jsonError({'error': e.toString()});
     } catch (e, st) {
