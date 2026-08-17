@@ -2715,6 +2715,73 @@ paths:
                     type: string
 
   /api/v1/plugins/{id}:
+    put:
+      summary: Create or overwrite a plugin
+      description: >
+        Writes manifest.json and plugin.js for the given plugin id, replacing
+        the installed plugin when one exists. The manifest id must match the
+        path id. A plugin that was loaded is unloaded before the write and
+        reloaded afterwards; an unloaded plugin stays unloaded. Overwriting a
+        bundled plugin is temporary: on the next app start the bundled copy
+        wins whenever its version is higher.
+      tags: [Plugins]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Plugin ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [manifest, plugin]
+              properties:
+                manifest:
+                  type: object
+                  description: Contents of manifest.json, including a matching id
+                plugin:
+                  type: string
+                  description: JavaScript source written to plugin.js
+      responses:
+        "200":
+          description: Plugin written
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  id:
+                    type: string
+                  version:
+                    type: string
+                  loaded:
+                    type: boolean
+        "400":
+          description: >
+            Invalid JSON body, missing manifest or plugin source, invalid
+            manifest, manifest id mismatch, or unsafe plugin id
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+        "500":
+          description: Plugin could not be written, or was written but failed to reload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
     delete:
       summary: Delete a plugin
       description: Removes a plugin from the system

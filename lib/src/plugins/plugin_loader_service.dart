@@ -153,6 +153,23 @@ class PluginLoaderService {
     _log.info('Plugin installed: ${manifest.id}');
   }
 
+  Future<void> writePlugin({
+    required Map<String, dynamic> manifestJson,
+    required String pluginJs,
+  }) async {
+    _ensureActive();
+    final staging = await Directory.systemTemp.createTemp('plugin_write');
+    try {
+      File(
+        '${staging.path}/manifest.json',
+      ).writeAsStringSync(jsonEncode(manifestJson));
+      File('${staging.path}/plugin.js').writeAsStringSync(pluginJs);
+      await addPlugin(staging.path);
+    } finally {
+      await staging.delete(recursive: true);
+    }
+  }
+
   Future<void> removePlugin(String pluginId) async {
     _ensureActive();
     if (!isSafePathComponent(pluginId)) {

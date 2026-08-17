@@ -74,6 +74,8 @@ final class PluginsHandler {
       }
     });
 
+    app.put('/api/v1/plugins/<id>', _handlePluginWrite);
+
     app.delete('/api/v1/plugins/<id>', (Request request, String id) async {
       try {
         if (pluginService.getPluginManifest(id) == null) {
@@ -88,6 +90,70 @@ final class PluginsHandler {
 
     app.get('/ws/v1/plugins/<id>/<endpoint>', _handlePluginSocketEndpoint);
     app.all('/api/v1/plugins/<id>/<endpoint>', _handlePluginApiEndpoint);
+  }
+
+  Future<Response> _handlePluginWrite(Request request, String id) async {
+    final Map<String, dynamic> json;
+    try {
+      json = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+    } catch (e) {
+      return jsonBadRequest({'error': 'Invalid JSON body: $e'});
+    }
+
+    final manifestJson = json['manifest'];
+    final pluginJs = json['plugin'];
+    if (manifestJson is! Map<String, dynamic>) {
+      return jsonBadRequest({'error': 'manifest object is required'});
+    }
+    if (pluginJs is! String || pluginJs.isEmpty) {
+      return jsonBadRequest({'error': 'plugin source is required'});
+    }
+
+    final PluginManifest manifest;
+    try {
+      manifest = PluginManifest.fromJson(manifestJson);
+    } catch (e) {
+      return jsonBadRequest({'error': 'Invalid manifest: $e'});
+    }
+    if (manifest.id != id) {
+      return jsonBadRequest({
+        'error': 'Manifest id ${manifest.id} does not match path id $id',
+      });
+    }
+
+    final wasLoaded = pluginService.isPluginLoaded(id);
+    try {
+      await pluginService.writePlugin(
+        manifestJson: manifestJson,
+        pluginJs: pluginJs,
+      );
+    } on FormatException catch (e) {
+      return jsonBadRequest({'error': e.message});
+    } catch (e) {
+      _log.warning('Failed to write plugin $id', e);
+      return jsonError({'error': 'Failed to write plugin: $e'});
+    }
+
+    if (wasLoaded) {
+      try {
+        await pluginService.loadPlugin(id);
+      } catch (e) {
+        _log.warning('Plugin $id written but failed to reload', e);
+        return jsonError({
+          'error': 'Plugin written but failed to reload: $e',
+          'id': id,
+          'version': manifest.version,
+          'loaded': false,
+        });
+      }
+    }
+
+    return jsonOk({
+      'message': 'Plugin written',
+      'id': id,
+      'version': manifest.version,
+      'loaded': pluginService.isPluginLoaded(id),
+    });
   }
 
   Future<Response> _handlePluginSocketEndpoint(Request req) async {
