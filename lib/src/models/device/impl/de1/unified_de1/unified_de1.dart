@@ -474,7 +474,6 @@ class UnifiedDe1 implements De1Interface {
       De1CalibrationCodec.encodeRead(target, factory: factory),
       command: command,
       target: target,
-      expectReturnedData: true,
     );
     return De1Calibration(
       target: packet.target,
@@ -485,11 +484,12 @@ class UnifiedDe1 implements De1Interface {
 
   @override
   Future<void> writeCalibration(De1Calibration calibration) async {
-    await _calibrationRequest(
+    // DE1app unblocks its command queue on the BLE write event, not on an
+    // A012 notification; mirror that by completing on the transport write
+    // acknowledgement. A012 frames are processed only by read requests.
+    await _transport.writeWithResponse(
+      Endpoint.calibration,
       De1CalibrationCodec.encodeWrite(calibration),
-      command: De1CalibrationCodec.writeCommand,
-      target: calibration.target,
-      expectReturnedData: false,
     );
   }
 

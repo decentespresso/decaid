@@ -5,7 +5,6 @@ extension UnifiedDe1Calibration on UnifiedDe1 {
     Uint8List payload, {
     required int command,
     required De1CalibrationTarget target,
-    required bool expectReturnedData,
   }) {
     final completer = Completer<De1CalibrationPacket>();
     _calibrationQueue = _calibrationQueue.then((_) async {
@@ -16,7 +15,7 @@ extension UnifiedDe1Calibration on UnifiedDe1 {
               (packet) =>
                   packet != null &&
                   packet.matches(command, target) &&
-                  packet.isReturnedData == expectReturnedData,
+                  packet.isReturnedData,
             )
             .first
             .timeout(calibrationTimeout, onTimeout: () => null)

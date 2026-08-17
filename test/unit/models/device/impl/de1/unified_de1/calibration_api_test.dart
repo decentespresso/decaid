@@ -177,42 +177,31 @@ void main() {
     },
   );
 
-  test('writes calibration and waits for the write acknowledgement', () async {
-    const calibration = De1Calibration(
-      target: De1CalibrationTarget.temperature,
-      de1ReportedValue: 93.5,
-      measuredValue: -0.5,
-    );
-    var completed = false;
-    final future = de1.writeCalibration(calibration).then((_) {
-      completed = true;
-    });
-    await pumpEventQueue();
-
-    final write = transport.writes.single;
-    expect(write.characteristicUUID, Endpoint.calibration.uuid);
-    expect(write.data, De1CalibrationCodec.encodeWrite(calibration));
-
-    transport.emitNotification(
-      Endpoint.calibration,
-      _packet(
-        command: De1CalibrationCodec.writeCommand,
+  test(
+    'writes calibration and completes on the transport write acknowledgement',
+    () async {
+      const calibration = De1Calibration(
         target: De1CalibrationTarget.temperature,
-      ),
-    );
-    await pumpEventQueue();
-    expect(completed, isFalse);
+        de1ReportedValue: 93.5,
+        measuredValue: -0.5,
+      );
+      var completed = false;
+      final future = de1.writeCalibration(calibration).then((_) {
+        completed = true;
+      });
+      await pumpEventQueue();
 
-    transport.emitNotification(
-      Endpoint.calibration,
-      _packet(
-        writeKey: 0xCAFEF00D,
-        command: De1CalibrationCodec.writeCommand,
-        target: De1CalibrationTarget.temperature,
-      ),
-    );
-    await future;
-  });
+      final write = transport.writes.single;
+      expect(write.characteristicUUID, Endpoint.calibration.uuid);
+      expect(write.withResponse, isTrue);
+      expect(write.data, De1CalibrationCodec.encodeWrite(calibration));
+
+      // Mirrors de1app: the write completes on the BLE write event; no A012
+      // notification is required or awaited.
+      await future;
+      expect(completed, isTrue);
+    },
+  );
 
   test('ignores frames for unrelated targets', () async {
     var completed = false;
