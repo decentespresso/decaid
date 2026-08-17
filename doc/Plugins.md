@@ -452,27 +452,49 @@ Plugins can be managed via REST API:
 | GET | `/api/v1/plugins` | List all plugins (includes `loaded`, `autoLoad` fields) |
 | POST | `/api/v1/plugins/:id/enable` | Load plugin + enable auto-load on startup |
 | POST | `/api/v1/plugins/:id/disable` | Unload plugin + disable auto-load |
-| PUT | `/api/v1/plugins/:id` | Create or overwrite plugin files (manifest + source) |
+| PUT | `/api/v1/plugins/:id/source` | Create or overwrite `manifest.json` + `plugin.js` |
 | DELETE | `/api/v1/plugins/:id` | Remove plugin (unload + delete files) |
 | POST | `/api/v1/plugins/install` | Install from URL (not yet implemented) |
 | GET | `/api/v1/plugins/:id/settings` | Get plugin settings |
 | POST | `/api/v1/plugins/:id/settings` | Update plugin settings |
 
-`PUT /api/v1/plugins/:id` writes `manifest.json` and `plugin.js` for that id:
+`PUT /api/v1/plugins/:id/source` writes `manifest.json` and `plugin.js` for
+that id, creating the plugin if it is not installed yet:
 
 ```bash
-curl -X PUT http://tablet:8080/api/v1/plugins/my.reaplugin \
+curl -X PUT http://tablet:8080/api/v1/plugins/my.reaplugin/source \
   -H 'content-type: application/json' \
   -d '{"manifest": {"id": "my.reaplugin", "name": "My plugin", "author": "me", "description": "", "version": "1.1.0", "apiVersion": 1, "permissions": ["log"], "settings": {}, "api": []}, "plugin": "function createPlugin() { return { id: \"my.reaplugin\", onLoad() {} }; }"}'
 ```
 
-The manifest id must match the path id. An existing plugin is replaced: if it
-was loaded it is unloaded before the write and reloaded afterwards, and if it
-was not loaded it stays unloaded. Stored settings and the auto-load preference
-survive the write. Overwriting a bundled plugin holds only until the next app
-start, where the bundled copy wins if its version is higher. Only
-`manifest.json` and `plugin.js` are written; plugins needing extra files still
-have to be installed from a directory.
+Rules:
+
+- The manifest id must match the path id (400 otherwise).
+- The update is partial. Only `manifest.json` and `plugin.js` are written; any
+  other file in the plugin directory survives. Plugins that need new extra
+  files still have to be installed from a directory.
+- Downgrades are rejected with 409. The submitted version must be greater than
+  or equal to the installed version; installing an older version requires
+  removing the plugin first. Versions compare as semantic versions, so
+  `1.0.0-rc.1` ranks below `1.0.0`. The same comparison decides whether a
+  bundled plugin replaces an installed copy at startup.
+- The swap is transactional for a loaded plugin: it is unloaded, replaced, and
+  reloaded, and if the new source fails to load the previous manifest, source,
+  and running plugin are restored and the request returns 500.
+- A plugin that was not loaded stays unloaded, and its new source is not
+  executed or validated.
+- Stored settings and the auto-load preference are preserved.
+- Overwriting a bundled plugin holds only until the next app start, where the
+  bundled copy wins if its version is higher.
+- Updates, installs, removals, loads, and unloads for one plugin id are
+  serialized against each other.
+- Like `/settings`, this path shadows a plugin-declared endpoint named
+  `source`.
+
+The endpoint accepts arbitrary JavaScript that Decaid then runs in-process. It
+is not covered by the account-proxy bearer token, so anyone who can reach the
+API server on the LAN can install or replace plugin code. Run the API server
+only on networks you trust.
 
 Settings updates are patches for every field: an omitted field preserves the
 existing value, `null` clears it, and for secure fields a `{ "isSet":

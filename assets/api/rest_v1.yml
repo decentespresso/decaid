@@ -2714,16 +2714,23 @@ paths:
                   id:
                     type: string
 
-  /api/v1/plugins/{id}:
+  /api/v1/plugins/{id}/source:
     put:
-      summary: Create or overwrite a plugin
+      summary: Create or overwrite a plugin's manifest and source
       description: >
-        Writes manifest.json and plugin.js for the given plugin id, replacing
-        the installed plugin when one exists. The manifest id must match the
-        path id. A plugin that was loaded is unloaded before the write and
-        reloaded afterwards; an unloaded plugin stays unloaded. Overwriting a
-        bundled plugin is temporary: on the next app start the bundled copy
-        wins whenever its version is higher.
+        Writes manifest.json and plugin.js for the given plugin id, creating the
+        plugin when it is not installed yet. This is a partial update: every
+        other file in the plugin directory is left untouched. The manifest id
+        must match the path id, and the manifest version may not be lower than
+        the installed version - an older version can only be installed after the
+        plugin has been removed. A plugin that was loaded is unloaded, replaced,
+        and reloaded; if the new source fails to load, the previous manifest,
+        source, and running plugin are restored and the request fails. An
+        unloaded plugin stays unloaded and its source is not validated.
+        Settings and the auto-load preference are preserved. Overwriting a
+        bundled plugin is temporary: on the next app start the bundled copy wins
+        whenever its version is higher. This path shadows a plugin-declared
+        endpoint named "source", the same way /settings does.
       tags: [Plugins]
       parameters:
         - name: id
@@ -2748,7 +2755,7 @@ paths:
                   description: JavaScript source written to plugin.js
       responses:
         "200":
-          description: Plugin written
+          description: Plugin source updated
           content:
             application/json:
               schema:
@@ -2773,8 +2780,10 @@ paths:
                 properties:
                   error:
                     type: string
-        "500":
-          description: Plugin could not be written, or was written but failed to reload
+        "409":
+          description: >
+            The submitted version is lower than the installed version; remove
+            the plugin before installing an older version
           content:
             application/json:
               schema:
@@ -2782,6 +2791,23 @@ paths:
                 properties:
                   error:
                     type: string
+        "500":
+          description: >
+            The plugin could not be written, or the new source failed to load
+            and the previous version was restored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  id:
+                    type: string
+                  loaded:
+                    type: boolean
+
+  /api/v1/plugins/{id}:
     delete:
       summary: Delete a plugin
       description: Removes a plugin from the system

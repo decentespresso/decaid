@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:reaprime/src/plugins/plugin_manager.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'package:reaprime/src/plugins/plugin_runtime.dart';
+import 'package:reaprime/src/plugins/plugin_version.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart'
     show CredentialStore;
 import 'package:reaprime/src/services/account/decent_proxy_service.dart';
@@ -20,6 +21,14 @@ import 'package:reaprime/src/util/safe_path.dart';
 class PluginSettingsValidationException implements Exception {
   final String message;
   PluginSettingsValidationException(this.message);
+
+  @override
+  String toString() => message;
+}
+
+class PluginDowngradeException implements Exception {
+  final String message;
+  PluginDowngradeException(this.message);
 
   @override
   String toString() => message;
@@ -42,6 +51,7 @@ class PluginLoaderService {
   Map<String, Map<String, dynamic>> _volatileSecureSettings = {};
   Future<void> _pluginLoadQueue = Future.value();
   final Map<String, Future<void>> _pluginSettingsLocks = {};
+  final Map<String, Future<void>> _pluginMutationLocks = {};
   Future<void>? _initialization;
   Future<void>? _disposeFuture;
   PluginLoaderLifecycle _lifecycle = PluginLoaderLifecycle.active;
@@ -105,7 +115,6 @@ class PluginLoaderService {
   }
 
   Future<void> addPlugin(String sourcePath) async {
-    _ensureActive();
     final source = File(sourcePath);
     final sourceDir = Directory(sourcePath);
 
@@ -135,53 +144,171 @@ class PluginLoaderService {
       );
     }
 
-    final pluginDir = Directory('${_pluginsDir.path}/${manifest.id}');
-    if (pluginDir.existsSync()) {
-      if (isPluginLoaded(manifest.id)) {
-        await unloadPlugin(manifest.id);
+    return _withPluginMutationLock(manifest.id, () async {
+      _ensureActive();
+      _ensureNotDowngrade(manifest);
+
+      final pluginDir = Directory('${_pluginsDir.path}/${manifest.id}');
+      if (pluginDir.existsSync()) {
+        if (isPluginLoaded(manifest.id)) {
+          await _unloadPlugin(manifest.id);
+        }
+        await pluginDir.delete(recursive: true);
+        _log.info('Replacing existing plugin: ${manifest.id}');
       }
-      await pluginDir.delete(recursive: true);
-      _log.info('Replacing existing plugin: ${manifest.id}');
-    }
 
-    pluginDir.createSync(recursive: true);
+      pluginDir.createSync(recursive: true);
 
-    await _copyDirectory(sourceDirectory, pluginDir);
+      await _copyDirectory(sourceDirectory, pluginDir);
 
-    _availablePluginsCache[manifest.id] = manifest;
+      _availablePluginsCache[manifest.id] = manifest;
 
-    _log.info('Plugin installed: ${manifest.id}');
+      _log.info('Plugin installed: ${manifest.id}');
+    });
   }
 
-  Future<void> writePlugin({
+  Future<PluginManifest> updatePluginSource(
+    String pluginId, {
     required Map<String, dynamic> manifestJson,
     required String pluginJs,
   }) async {
-    _ensureActive();
-    final staging = await Directory.systemTemp.createTemp('plugin_write');
-    try {
-      File(
-        '${staging.path}/manifest.json',
-      ).writeAsStringSync(jsonEncode(manifestJson));
-      File('${staging.path}/plugin.js').writeAsStringSync(pluginJs);
-      await addPlugin(staging.path);
-    } finally {
-      await staging.delete(recursive: true);
-    }
-  }
-
-  Future<void> removePlugin(String pluginId) async {
-    _ensureActive();
     if (!isSafePathComponent(pluginId)) {
       throw FormatException(
         'Unsafe plugin id "$pluginId": must be a single safe path component',
       );
     }
 
-    if (isPluginLoaded(pluginId)) {
-      await unloadPlugin(pluginId);
+    final PluginManifest manifest;
+    try {
+      manifest = PluginManifest.fromJson(manifestJson);
+    } catch (e) {
+      throw FormatException('Invalid manifest: $e');
+    }
+    if (manifest.id != pluginId) {
+      throw FormatException(
+        'Manifest id "${manifest.id}" does not match plugin id "$pluginId"',
+      );
     }
 
+    return _withPluginMutationLock(pluginId, () async {
+      _ensureActive();
+      _ensureNotDowngrade(manifest);
+
+      final previousManifest = _availablePluginsCache[pluginId];
+      final pluginDir = Directory('${_pluginsDir.path}/$pluginId');
+      final manifestFile = File('${pluginDir.path}/manifest.json');
+      final sourceFile = File('${pluginDir.path}/plugin.js');
+      final directoryExisted = pluginDir.existsSync();
+      final previousManifestSource = manifestFile.existsSync()
+          ? manifestFile.readAsStringSync()
+          : null;
+      final previousSource = sourceFile.existsSync()
+          ? sourceFile.readAsStringSync()
+          : null;
+      final wasLoaded = isPluginLoaded(pluginId);
+
+      if (wasLoaded) {
+        await _unloadPlugin(pluginId);
+      }
+
+      pluginDir.createSync(recursive: true);
+      manifestFile.writeAsStringSync(jsonEncode(manifestJson));
+      sourceFile.writeAsStringSync(pluginJs);
+      _availablePluginsCache[pluginId] = manifest;
+
+      if (wasLoaded) {
+        try {
+          await _queuedLoad(pluginId);
+        } catch (e) {
+          _log.warning('Rolling back failed update of plugin $pluginId', e);
+          await _restorePluginSource(
+            pluginId: pluginId,
+            pluginDir: pluginDir,
+            directoryExisted: directoryExisted,
+            previousManifest: previousManifest,
+            previousManifestSource: previousManifestSource,
+            previousSource: previousSource,
+            reload: true,
+          );
+          rethrow;
+        }
+      }
+
+      _log.info('Plugin source updated: $pluginId (${manifest.version})');
+      return manifest;
+    });
+  }
+
+  Future<void> _restorePluginSource({
+    required String pluginId,
+    required Directory pluginDir,
+    required bool directoryExisted,
+    required PluginManifest? previousManifest,
+    required String? previousManifestSource,
+    required String? previousSource,
+    required bool reload,
+  }) async {
+    if (!directoryExisted) {
+      if (pluginDir.existsSync()) pluginDir.deleteSync(recursive: true);
+      _availablePluginsCache.remove(pluginId);
+      return;
+    }
+
+    _writeOrDelete(
+      File('${pluginDir.path}/manifest.json'),
+      previousManifestSource,
+    );
+    _writeOrDelete(File('${pluginDir.path}/plugin.js'), previousSource);
+
+    if (previousManifest == null) {
+      _availablePluginsCache.remove(pluginId);
+    } else {
+      _availablePluginsCache[pluginId] = previousManifest;
+    }
+
+    if (!reload || previousManifest == null || previousSource == null) return;
+    try {
+      await _queuedLoad(pluginId);
+    } catch (e) {
+      _log.warning('Failed to reload previous version of plugin $pluginId', e);
+    }
+  }
+
+  static void _writeOrDelete(File file, String? contents) {
+    if (contents == null) {
+      if (file.existsSync()) file.deleteSync();
+      return;
+    }
+    file.writeAsStringSync(contents);
+  }
+
+  void _ensureNotDowngrade(PluginManifest manifest) {
+    final installed = _availablePluginsCache[manifest.id];
+    if (installed == null) return;
+    if (comparePluginVersions(manifest.version, installed.version) >= 0) return;
+    throw PluginDowngradeException(
+      'Plugin ${manifest.id} ${installed.version} is installed; '
+      'remove it before installing ${manifest.version}',
+    );
+  }
+
+  Future<void> removePlugin(String pluginId) async {
+    if (!isSafePathComponent(pluginId)) {
+      throw FormatException(
+        'Unsafe plugin id "$pluginId": must be a single safe path component',
+      );
+    }
+
+    await _withPluginMutationLock(pluginId, () async {
+      _ensureActive();
+      if (isPluginLoaded(pluginId)) {
+        await _unloadPlugin(pluginId);
+      }
+      await _removePluginState(pluginId);
+    });
+  }
+
+  Future<void> _removePluginState(String pluginId) async {
     await _withPluginSettingsLock(pluginId, () async {
       await _deleteSecureSettings(pluginId);
       await _prefs.remove('plugin.settings.$pluginId');
@@ -201,6 +328,11 @@ class PluginLoaderService {
   }
 
   Future<void> loadPlugin(String pluginId) {
+    _ensureActive();
+    return _withPluginMutationLock(pluginId, () => _queuedLoad(pluginId));
+  }
+
+  Future<void> _queuedLoad(String pluginId) {
     _ensureActive();
     final load = _pluginLoadQueue.then((_) => _loadPlugin(pluginId));
     _pluginLoadQueue = load.then<void>((_) {}, onError: (_, _) {});
@@ -245,7 +377,12 @@ class PluginLoaderService {
     _log.info('Plugin loaded: $pluginId');
   }
 
-  Future<void> unloadPlugin(String pluginId) async {
+  Future<void> unloadPlugin(String pluginId) {
+    _ensureActive();
+    return _withPluginMutationLock(pluginId, () => _unloadPlugin(pluginId));
+  }
+
+  Future<void> _unloadPlugin(String pluginId) async {
     _ensureActive();
     await pluginManager.unloadPlugin(pluginId);
     _log.info('Plugin unloaded: $pluginId');
@@ -253,17 +390,19 @@ class PluginLoaderService {
 
   Future<void> reloadPlugin(String pluginId) async {
     _ensureActive();
-    if (!isPluginLoaded(pluginId)) {
-      throw Exception('Plugin not loaded: $pluginId');
-    }
+    return _withPluginMutationLock(pluginId, () async {
+      if (!isPluginLoaded(pluginId)) {
+        throw Exception('Plugin not loaded: $pluginId');
+      }
 
-    _log.info('Reloading plugin: $pluginId');
+      _log.info('Reloading plugin: $pluginId');
 
-    await unloadPlugin(pluginId);
+      await _unloadPlugin(pluginId);
 
-    await loadPlugin(pluginId);
+      await _queuedLoad(pluginId);
 
-    _log.info('Plugin reloaded: $pluginId');
+      _log.info('Plugin reloaded: $pluginId');
+    });
   }
 
   Future<void> setPluginAutoLoad(String pluginId, bool enabled) async {
@@ -385,14 +524,25 @@ class PluginLoaderService {
   Future<T> _withPluginSettingsLock<T>(
     String pluginId,
     Future<T> Function() action,
+  ) => _withLock(_pluginSettingsLocks, pluginId, action);
+
+  Future<T> _withPluginMutationLock<T>(
+    String pluginId,
+    Future<T> Function() action,
+  ) => _withLock(_pluginMutationLocks, pluginId, action);
+
+  Future<T> _withLock<T>(
+    Map<String, Future<void>> locks,
+    String pluginId,
+    Future<T> Function() action,
   ) {
-    final previous = _pluginSettingsLocks[pluginId] ?? Future<void>.value();
+    final previous = locks[pluginId] ?? Future<void>.value();
     final next = Completer<void>();
-    _pluginSettingsLocks[pluginId] = next.future;
+    locks[pluginId] = next.future;
     return previous.then((_) => action()).whenComplete(() {
       next.complete();
-      if (identical(_pluginSettingsLocks[pluginId], next.future)) {
-        _pluginSettingsLocks.remove(pluginId);
+      if (identical(locks[pluginId], next.future)) {
+        locks.remove(pluginId);
       }
     });
   }
@@ -589,7 +739,10 @@ class PluginLoaderService {
           final existingManifest = PluginManifest.fromJson(
             jsonDecode(await existingManifestFile.readAsString()),
           );
-          if (_compareVersions(newManifest.version, existingManifest.version) <=
+          if (comparePluginVersions(
+                newManifest.version,
+                existingManifest.version,
+              ) <=
               0) {
             _log.fine(
               "not overriding bundled plugin: [bundled: ${newManifest.version}], [existing: ${existingManifest.version}]",
@@ -609,18 +762,6 @@ class PluginLoaderService {
         _log.warning('Failed to copy bundled plugins', e);
       }
     }
-  }
-
-  static int _compareVersions(String a, String b) {
-    final partsA = a.split('.').map((s) => int.tryParse(s) ?? 0).toList();
-    final partsB = b.split('.').map((s) => int.tryParse(s) ?? 0).toList();
-    final len = partsA.length > partsB.length ? partsA.length : partsB.length;
-    for (var i = 0; i < len; i++) {
-      final va = i < partsA.length ? partsA[i] : 0;
-      final vb = i < partsB.length ? partsB[i] : 0;
-      if (va != vb) return va - vb;
-    }
-    return 0;
   }
 
   Future<List<String>> _getBundledPluginPaths() async {

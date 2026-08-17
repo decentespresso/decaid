@@ -41,6 +41,8 @@ final class PluginsHandler {
     app.get('/api/v1/plugins/<id>/settings', _handlePluginSettingsGet);
     app.post('/api/v1/plugins/<id>/settings', _handlePluginSettingsPost);
 
+    app.put('/api/v1/plugins/<id>/source', _handlePluginSourceWrite);
+
     app.post('/api/v1/plugins/<id>/enable', (Request request, String id) async {
       try {
         if (pluginService.getPluginManifest(id) == null) {
@@ -74,8 +76,6 @@ final class PluginsHandler {
       }
     });
 
-    app.put('/api/v1/plugins/<id>', _handlePluginWrite);
-
     app.delete('/api/v1/plugins/<id>', (Request request, String id) async {
       try {
         if (pluginService.getPluginManifest(id) == null) {
@@ -92,7 +92,7 @@ final class PluginsHandler {
     app.all('/api/v1/plugins/<id>/<endpoint>', _handlePluginApiEndpoint);
   }
 
-  Future<Response> _handlePluginWrite(Request request, String id) async {
+  Future<Response> _handlePluginSourceWrite(Request request, String id) async {
     final Map<String, dynamic> json;
     try {
       json = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
@@ -109,51 +109,30 @@ final class PluginsHandler {
       return jsonBadRequest({'error': 'plugin source is required'});
     }
 
-    final PluginManifest manifest;
     try {
-      manifest = PluginManifest.fromJson(manifestJson);
-    } catch (e) {
-      return jsonBadRequest({'error': 'Invalid manifest: $e'});
-    }
-    if (manifest.id != id) {
-      return jsonBadRequest({
-        'error': 'Manifest id ${manifest.id} does not match path id $id',
-      });
-    }
-
-    final wasLoaded = pluginService.isPluginLoaded(id);
-    try {
-      await pluginService.writePlugin(
+      final manifest = await pluginService.updatePluginSource(
+        id,
         manifestJson: manifestJson,
         pluginJs: pluginJs,
       );
+      return jsonOk({
+        'message': 'Plugin source updated',
+        'id': id,
+        'version': manifest.version,
+        'loaded': pluginService.isPluginLoaded(id),
+      });
+    } on PluginDowngradeException catch (e) {
+      return jsonConflict({'error': e.message});
     } on FormatException catch (e) {
       return jsonBadRequest({'error': e.message});
     } catch (e) {
-      _log.warning('Failed to write plugin $id', e);
-      return jsonError({'error': 'Failed to write plugin: $e'});
+      _log.warning('Failed to update source of plugin $id', e);
+      return jsonError({
+        'error': 'Failed to update plugin source: $e',
+        'id': id,
+        'loaded': pluginService.isPluginLoaded(id),
+      });
     }
-
-    if (wasLoaded) {
-      try {
-        await pluginService.loadPlugin(id);
-      } catch (e) {
-        _log.warning('Plugin $id written but failed to reload', e);
-        return jsonError({
-          'error': 'Plugin written but failed to reload: $e',
-          'id': id,
-          'version': manifest.version,
-          'loaded': false,
-        });
-      }
-    }
-
-    return jsonOk({
-      'message': 'Plugin written',
-      'id': id,
-      'version': manifest.version,
-      'loaded': pluginService.isPluginLoaded(id),
-    });
   }
 
   Future<Response> _handlePluginSocketEndpoint(Request req) async {
