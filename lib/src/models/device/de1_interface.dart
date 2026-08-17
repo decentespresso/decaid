@@ -45,6 +45,12 @@ abstract class De1Interface extends Machine {
 
   double? get cachedFlowEstimation;
 
+  Future<De1Calibration> readCalibration(
+    De1CalibrationTarget target, {
+    De1CalibrationSource source = De1CalibrationSource.current,
+  });
+  Future<void> writeCalibration(De1Calibration calibration);
+
   Future<De1HeaterVoltage> getHeaterVoltage();
   Future<void> setHeaterVoltage(De1HeaterVoltage voltage);
 
@@ -219,4 +225,42 @@ final class De1WaterLevels {
   Map<String, dynamic> toJson() {
     return {'currentLevel': currentLevel, 'refillLevel': refillLevel};
   }
+}
+
+enum De1CalibrationTarget {
+  flow(0),
+  pressure(1),
+  temperature(2);
+
+  final int wireValue;
+  const De1CalibrationTarget(this.wireValue);
+
+  static De1CalibrationTarget? fromWireValue(int value) => De1CalibrationTarget
+      .values
+      .where((target) => target.wireValue == value)
+      .firstOrNull;
+}
+
+enum De1CalibrationSource { current, factory }
+
+final class De1Calibration {
+  final De1CalibrationTarget target;
+  final double de1ReportedValue;
+  final double measuredValue;
+
+  const De1Calibration({
+    required this.target,
+    required this.de1ReportedValue,
+    required this.measuredValue,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      other is De1Calibration &&
+      other.target == target &&
+      other.de1ReportedValue == de1ReportedValue &&
+      other.measuredValue == measuredValue;
+
+  @override
+  int get hashCode => Object.hash(target, de1ReportedValue, measuredValue);
 }
