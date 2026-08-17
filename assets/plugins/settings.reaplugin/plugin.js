@@ -1584,7 +1584,7 @@ function createPlugin(host) {
   // Return the plugin object
   return {
     id: "settings.reaplugin",
-    version: "0.1.5",
+    version: "0.1.7",
 
     onLoad(settings) {
       state.refreshInterval = settings.RefreshInterval !== undefined ? settings.RefreshInterval : 5;

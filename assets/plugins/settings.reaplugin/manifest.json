@@ -3,7 +3,7 @@
   "author": "Decent Espresso",
   "name": "Settings Viewer",
   "description": "Displays Decent application and machine settings in an embeddable HTML page. http://localhost:8080/api/v1/plugins/settings.reaplugin/ui",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "apiVersion": 1,
   "permissions": [
     "log",
