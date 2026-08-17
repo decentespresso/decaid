@@ -550,14 +550,31 @@ class De1Handler {
           'error': 'measuredValue must be a finite number',
         });
       }
+      final outOfRange =
+          reported < De1CalibrationCodec.minValue ||
+          reported >= De1CalibrationCodec.maxValueExclusive ||
+          measured < De1CalibrationCodec.minValue ||
+          measured >= De1CalibrationCodec.maxValueExclusive;
+      if (outOfRange) {
+        return jsonBadRequest({
+          'error':
+              'calibration values must be within the signed Q16.16 '
+              'range -32768..32767.9999',
+        });
+      }
       return withQueuedDe1((de1) async {
-        await de1.writeCalibration(
-          De1Calibration(
-            target: calTarget,
-            de1ReportedValue: reported.toDouble(),
-            measuredValue: measured.toDouble(),
-          ),
-        );
+        try {
+          await de1.writeCalibration(
+            De1Calibration(
+              target: calTarget,
+              de1ReportedValue: reported.toDouble(),
+              measuredValue: measured.toDouble(),
+            ),
+          );
+        } on ArgumentError catch (e) {
+          // Out-of-range values (outside signed Q16.16) are client errors.
+          return jsonBadRequest({'error': e.toString()});
+        }
         return jsonAccepted();
       }, retryOnReplacement: true);
     });

@@ -255,6 +255,25 @@ void main() {
       expect(invalidJson.statusCode, 400);
     });
 
+    test('rejects values outside the signed Q16.16 range', () async {
+      await wireWith(MockDe1());
+
+      final reportedTooLarge = await put('/api/v1/machine/calibration/flow', {
+        'de1ReportedValue': 40000,
+        'measuredValue': 1.0,
+      });
+      expect(reportedTooLarge.statusCode, 400);
+
+      final measuredTooNegative = await put(
+        '/api/v1/machine/calibration/flow',
+        {'de1ReportedValue': 1.0, 'measuredValue': -40000},
+      );
+      expect(measuredTooNegative.statusCode, 400);
+
+      final measured = await get('/api/v1/machine/calibration/flow');
+      expect(measured.statusCode, 200);
+    });
+
     test('returns 500 when no DE1 connected', () async {
       await wireWith(null);
       final res = await put('/api/v1/machine/calibration/flow', {

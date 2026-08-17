@@ -23,6 +23,10 @@ final class De1CalibrationCodec {
   static const int _writeWriteKey = 0xCAFEF00D;
   static const double _fixedPointScale = 65536.0;
 
+  /// Signed Q16.16 representable range (S32P16).
+  static const double minValue = -32768.0;
+  static const double maxValueExclusive = 32768.0;
+
   static Uint8List encodeRead(
     De1CalibrationTarget target, {
     required bool factory,
@@ -85,7 +89,7 @@ final class De1CalibrationCodec {
   }
 
   static int _encodeQ16_16Signed(double value) {
-    if (value < -32768 || value >= 32768) {
+    if (value < minValue || value >= maxValueExclusive) {
       throw ArgumentError.value(
         value,
         'value',
