@@ -7,6 +7,7 @@ import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
+import 'package:reaprime/src/models/device/transport/ble_timeout_exception.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
@@ -30,6 +31,32 @@ class _TimeoutDe1 extends TestDe1 {
     );
   }
 }
+
+class _BleTimeoutDe1 extends TestDe1 {
+  @override
+  Future<De1Calibration> readCalibration(
+    De1CalibrationTarget target, {
+    De1CalibrationSource source = De1CalibrationSource.current,
+  }) async {
+    throw BleTimeoutException('read');
+  }
+
+  @override
+  Future<void> writeCalibration(De1Calibration calibration) async {
+    throw BleTimeoutException('write');
+  }
+}
+
+De1ShotSettings _anyShotSettings() => De1ShotSettings(
+  steamSetting: 0,
+  targetSteamTemp: 0,
+  targetSteamDuration: 0,
+  targetHotWaterTemp: 0,
+  targetHotWaterVolume: 0,
+  targetHotWaterDuration: 0,
+  targetShotVolume: 0,
+  groupTemp: 90,
+);
 
 void main() {
   late Handler handler;
@@ -158,6 +185,12 @@ void main() {
       expect(res.statusCode, 504);
     });
 
+    test('maps a transport-level read timeout to 504', () async {
+      await wireWith(_BleTimeoutDe1());
+      final res = await get('/api/v1/machine/calibration/flow');
+      expect(res.statusCode, 504);
+    });
+
     test('returns 500 when no DE1 connected', () async {
       await wireWith(null);
       final res = await get('/api/v1/machine/calibration/flow');
@@ -179,18 +212,21 @@ void main() {
       final read = jsonDecode(
         await (await get('/api/v1/machine/calibration/flow')).readAsString(),
       );
-      expect(read['de1ReportedValue'], 1.05);
-      expect(read['measuredValue'], 1.02);
+      // Writes are corrections: the mock applies measured/reported to the
+      // stored scalar like the real machine, and ratiometric reads always
+      // report 1.0 in the reported field.
+      expect(read['de1ReportedValue'], 1.0);
+      expect(read['measuredValue'], closeTo(1.0 * 1.02 / 1.05, 1e-9));
       expect(read['source'], 'current');
     });
 
-    test('writes every target', () async {
+    test('writes every target with machine correction semantics', () async {
       final de1 = MockDe1();
       await wireWith(de1);
-      for (final (target, reported, measured) in [
-        ('flow', 1.1, 1.05),
-        ('pressure', 9.5, 9.25),
-        ('temperature', 93.5, 93.0),
+      for (final (target, base, reported, measured) in [
+        ('flow', 1.0, 1.1, 1.05),
+        ('pressure', 9.0, 9.5, 9.25),
+        ('temperature', 93.0, 93.5, 93.0),
       ]) {
         final res = await put('/api/v1/machine/calibration/$target', {
           'de1ReportedValue': reported,
@@ -200,8 +236,15 @@ void main() {
         final read = await de1.readCalibration(
           De1CalibrationTarget.values.firstWhere((t) => t.name == target),
         );
-        expect(read.de1ReportedValue, reported);
-        expect(read.measuredValue, measured);
+        final expected = target == 'temperature'
+            ? base + (measured - reported)
+            : base * measured / reported;
+        if (target == 'temperature') {
+          expect(read.de1ReportedValue, 0.0);
+        } else {
+          expect(read.de1ReportedValue, 1.0);
+        }
+        expect(read.measuredValue, closeTo(expected, 1e-9));
       }
     });
 
@@ -272,6 +315,19 @@ void main() {
 
       final measured = await get('/api/v1/machine/calibration/flow');
       expect(measured.statusCode, 200);
+    });
+
+    test('maps a transport-level write timeout to 504', () async {
+      final de1 = _BleTimeoutDe1();
+      await wireWith(de1);
+      // Settle the controller's startup-data initialization; otherwise the
+      // queued write races the controller's 2s init timeout.
+      de1.emitShotSettings(_anyShotSettings());
+      final res = await put('/api/v1/machine/calibration/flow', {
+        'de1ReportedValue': 1.0,
+        'measuredValue': 1.0,
+      });
+      expect(res.statusCode, 504);
     });
 
     test('returns 500 when no DE1 connected', () async {

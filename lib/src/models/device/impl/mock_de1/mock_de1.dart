@@ -572,40 +572,16 @@ class MockDe1 implements De1Interface, SimulatedDevice {
     _flowEstimation = multiplier;
   }
 
-  final Map<De1CalibrationTarget, De1Calibration> _currentCalibration = {
-    De1CalibrationTarget.flow: const De1Calibration(
-      target: De1CalibrationTarget.flow,
-      de1ReportedValue: 1.0,
-      measuredValue: 1.0,
-    ),
-    De1CalibrationTarget.pressure: const De1Calibration(
-      target: De1CalibrationTarget.pressure,
-      de1ReportedValue: 9.0,
-      measuredValue: 9.0,
-    ),
-    De1CalibrationTarget.temperature: const De1Calibration(
-      target: De1CalibrationTarget.temperature,
-      de1ReportedValue: 93.0,
-      measuredValue: 93.0,
-    ),
+  final Map<De1CalibrationTarget, double> _currentCalibration = {
+    De1CalibrationTarget.flow: 1.0,
+    De1CalibrationTarget.pressure: 9.0,
+    De1CalibrationTarget.temperature: 93.0,
   };
 
-  final Map<De1CalibrationTarget, De1Calibration> _factoryCalibration = {
-    De1CalibrationTarget.flow: const De1Calibration(
-      target: De1CalibrationTarget.flow,
-      de1ReportedValue: 1.0,
-      measuredValue: 1.0,
-    ),
-    De1CalibrationTarget.pressure: const De1Calibration(
-      target: De1CalibrationTarget.pressure,
-      de1ReportedValue: 9.0,
-      measuredValue: 9.0,
-    ),
-    De1CalibrationTarget.temperature: const De1Calibration(
-      target: De1CalibrationTarget.temperature,
-      de1ReportedValue: 93.0,
-      measuredValue: 93.0,
-    ),
+  final Map<De1CalibrationTarget, double> _factoryCalibration = {
+    De1CalibrationTarget.flow: 1.0,
+    De1CalibrationTarget.pressure: 9.0,
+    De1CalibrationTarget.temperature: 93.0,
   };
 
   @override
@@ -616,12 +592,31 @@ class MockDe1 implements De1Interface, SimulatedDevice {
     final store = source == De1CalibrationSource.factory
         ? _factoryCalibration
         : _currentCalibration;
-    return store[target]!;
+    return De1Calibration(
+      target: target,
+      // Ratiometric targets (flow, pressure) report 1.0 and offset targets
+      // (temperature) report 0.0; the calibration value is always in
+      // measuredValue, matching the DE1 firmware.
+      de1ReportedValue: target == De1CalibrationTarget.temperature ? 0.0 : 1.0,
+      measuredValue: store[target]!,
+    );
   }
 
   @override
   Future<void> writeCalibration(De1Calibration calibration) async {
-    _currentCalibration[calibration.target] = calibration;
+    // Writes are corrections, not sets, matching the DE1 firmware:
+    // flow/pressure multiply by measured/reported, temperature adds the
+    // difference.
+    final current = _currentCalibration[calibration.target]!;
+    if (calibration.target == De1CalibrationTarget.temperature) {
+      _currentCalibration[calibration.target] =
+          current + (calibration.measuredValue - calibration.de1ReportedValue);
+    } else {
+      final mult = calibration.de1ReportedValue == 0
+          ? 1.0
+          : calibration.measuredValue / calibration.de1ReportedValue;
+      _currentCalibration[calibration.target] = current * mult;
+    }
   }
 
   @override

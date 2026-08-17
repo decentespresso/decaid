@@ -604,6 +604,8 @@ class De1Handler {
       });
     } on EndpointUnavailableException catch (e) {
       return jsonGatewayTimeout({'error': e.toString()});
+    } on BleTimeoutException catch (e) {
+      return jsonGatewayTimeout({'error': e.toString()});
     } catch (e, st) {
       return jsonError({'error': e.toString(), 'st': st.toString()});
     }
@@ -618,6 +620,8 @@ class De1Handler {
         'message': '$e',
       });
     } on EndpointUnavailableException catch (e) {
+      return jsonGatewayTimeout({'error': e.toString()});
+    } on BleTimeoutException catch (e) {
       return jsonGatewayTimeout({'error': e.toString()});
     } on DeviceNotConnectedException catch (e) {
       return jsonError({'error': e.toString()});

@@ -14,8 +14,11 @@
   - `WriteKey`: unsigned 32-bit
   - `CalCommand`: unsigned 8-bit
   - `CalTarget`: unsigned 8-bit (`flow=0`, `pressure=1`, `temperature=2`)
-  - `DE1ReportedVal`: unsigned Q16.16
-  - `MeasuredVal`: signed Q16.16
+  - `DE1ReportedVal` / `MeasuredVal`: Q16.16, **signed** (S32P16) per the
+    firmware `T_Calibration` struct (`BLE/DE1_BLE/src/APIDataTypes.hpp`).
+    de1app's `{unsigned}` marker on DE1ReportedVal is a flag character that
+    Tcl's `binary format` ignores, so the wire bytes are signed big-endian
+    `I` either way.
 - DE1app commands are current read `0`, write `1`, reset `2` (out of scope), and factory read `3`. Reads use `WriteKey=1`; writes use `WriteKey=0xCAFEF00D`.
 - A012 emits returned data (`WriteKey == 0`) for read requests. Writes complete at the GATT write acknowledgement: de1app unblocks its command queue on the BLE write event (`access == "w"`), not on a calibration frame. Read operations need response correlation; writes must not wait for a notification (verified on real hardware: waiting for an A012 write frame times out).
 
