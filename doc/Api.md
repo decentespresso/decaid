@@ -49,8 +49,8 @@ For browser clients on a different origin, `ETag` is exposed via `Access-Control
 | DELETE | `/api/v1/machine/settings/reset` | Reset machine settings to defaults (fan, heater idle/phase flows + ph2 timeout, refill kit auto, flow multiplier 1.0, steam purge 0) — one grouped, serialized device write | |
 | GET | `/api/v1/machine/calibration` | Flow estimation calibration (`flowMultiplier`, calFlowEst MMR) | |
 | POST | `/api/v1/machine/calibration` | Update flow estimation calibration | |
-| GET | `/api/v1/machine/calibration/{target}` | Read DE1 sensor calibration for `flow`/`pressure`/`temperature`, `?source=current\|factory` | |
-| PUT | `/api/v1/machine/calibration/{target}` | Write DE1 sensor calibration for `flow`/`pressure`/`temperature` | |
+| GET | `/api/v1/machine/calibration/{target}` | Read DE1 sensor calibration for `flow`/`pressure`/`temperature`, `?source=current\|factory`. Read responses carry the calibration value in `measuredValue` (`de1ReportedValue` is 1.0 for flow/pressure, 0.0 for temperature) | |
+| PUT | `/api/v1/machine/calibration/{target}` | Write DE1 sensor calibration for `flow`/`pressure`/`temperature`. Writes are corrections, not sets: flow/pressure multiply the stored value by `measuredValue/de1ReportedValue`, temperature adds `measuredValue−de1ReportedValue`. To set an absolute value, read current `C` first, then write `{de1ReportedValue: C, measuredValue: X}` | |
 | POST | `/api/v1/machine/profile` | Upload profile to machine | |
 | GET | `/api/v1/machine/firmware` | Firmware catalog with per-artifact eligibility | `firmware_handler.dart` |
 | POST | `/api/v1/machine/firmware` | Raw firmware upload (NDJSON progress stream) | `firmware_handler.dart` |

@@ -2,15 +2,16 @@ import 'dart:typed_data';
 
 import 'package:reaprime/src/models/device/de1_interface.dart';
 
-/// A012 calibration characteristic packet codec, mirroring de1app's
-/// `calibrate_spec` (`de1plus/binary.tcl`) and its command semantics.
+/// A012 calibration characteristic packet codec, mirroring the DE1
+/// firmware's `T_Calibration` struct (`BLE/DE1_BLE/src/APIDataTypes.hpp`)
+/// and de1app's `calibrate_spec` (`de1plus/binary.tcl`).
 ///
 /// Wire layout (14 bytes, big-endian):
 ///   WriteKey       UInt32  - 1 for reads, 0xCAFEF00D for writes
-///   CalCommand     UInt8   - 0 current read, 1 write, 3 factory read
+///   CalCommand     UInt8   - 0 current read, 1 write, 2 reset, 3 factory read
 ///   CalTarget      UInt8   - 0 flow, 1 pressure, 2 temperature
-///   DE1ReportedVal UInt32  - Q16.16 fixed point
-///   MeasuredVal    Int32   - Q16.16 fixed point, signed
+///   DE1ReportedVal S32P16  - Q16.16 fixed point, signed
+///   MeasuredVal    S32P16  - Q16.16 fixed point, signed
 final class De1CalibrationCodec {
   static const int packetLength = 14;
 
@@ -42,9 +43,9 @@ final class De1CalibrationCodec {
     bytes.setUint32(0, _writeWriteKey, Endian.big);
     bytes.setUint8(4, writeCommand);
     bytes.setUint8(5, calibration.target.wireValue);
-    bytes.setUint32(
+    bytes.setInt32(
       6,
-      _encodeQ16_16Unsigned(calibration.de1ReportedValue),
+      _encodeQ16_16Signed(calibration.de1ReportedValue),
       Endian.big,
     );
     bytes.setInt32(
@@ -70,7 +71,7 @@ final class De1CalibrationCodec {
       writeKey: data.getUint32(0, Endian.big),
       command: data.getUint8(4),
       target: target,
-      de1ReportedValue: _decodeQ16_16Unsigned(data.getUint32(6, Endian.big)),
+      de1ReportedValue: _decodeQ16_16Signed(data.getInt32(6, Endian.big)),
       measuredValue: _decodeQ16_16Signed(data.getInt32(10, Endian.big)),
     );
   }
@@ -83,17 +84,6 @@ final class De1CalibrationCodec {
     }
   }
 
-  static int _encodeQ16_16Unsigned(double value) {
-    if (value < 0 || value >= 65536) {
-      throw ArgumentError.value(
-        value,
-        'value',
-        'outside the unsigned Q16.16 range 0..65535.9999',
-      );
-    }
-    return (value * _fixedPointScale).round();
-  }
-
   static int _encodeQ16_16Signed(double value) {
     if (value < -32768 || value >= 32768) {
       throw ArgumentError.value(
@@ -104,8 +94,6 @@ final class De1CalibrationCodec {
     }
     return (value * _fixedPointScale).round();
   }
-
-  static double _decodeQ16_16Unsigned(int raw) => raw / _fixedPointScale;
 
   static double _decodeQ16_16Signed(int raw) => raw / _fixedPointScale;
 

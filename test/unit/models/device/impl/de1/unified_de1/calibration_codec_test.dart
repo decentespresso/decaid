@@ -101,6 +101,23 @@ void main() {
       );
     });
 
+    test('encodes negative reported values as signed Q16.16', () {
+      final bytes = De1CalibrationCodec.encodeWrite(
+        const De1Calibration(
+          target: De1CalibrationTarget.temperature,
+          de1ReportedValue: -0.5,
+          measuredValue: -1.25,
+        ),
+      );
+      expect(bytes[6], 0xFF);
+      expect(bytes[7], 0xFF);
+      expect(bytes[8], 0x80);
+      expect(bytes[9], 0x00);
+      final packet = De1CalibrationCodec.decode(bytes);
+      expect(packet.de1ReportedValue, -0.5);
+      expect(packet.measuredValue, -1.25);
+    });
+
     test('rounds fixed-point values half away from zero', () {
       final bytes = De1CalibrationCodec.encodeWrite(
         const De1Calibration(
@@ -141,17 +158,7 @@ void main() {
         () => De1CalibrationCodec.encodeWrite(
           const De1Calibration(
             target: De1CalibrationTarget.flow,
-            de1ReportedValue: -0.1,
-            measuredValue: 1.0,
-          ),
-        ),
-        throwsArgumentError,
-      );
-      expect(
-        () => De1CalibrationCodec.encodeWrite(
-          const De1Calibration(
-            target: De1CalibrationTarget.flow,
-            de1ReportedValue: 65536,
+            de1ReportedValue: 32768,
             measuredValue: 1.0,
           ),
         ),

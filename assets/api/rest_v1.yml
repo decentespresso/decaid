@@ -800,6 +800,11 @@ paths:
         selects the current calibration (default) or the factory calibration.
         This is distinct from the flow estimation multiplier served by
         GET /api/v1/machine/calibration.
+
+        Read responses follow the DE1 firmware: ratiometric targets (flow,
+        pressure) always carry 1.0 in `de1ReportedValue` with the calibration
+        value in `measuredValue`; the temperature target carries 0.0 in
+        `de1ReportedValue`.
       tags: [Machine]
       parameters:
         - name: target
@@ -834,6 +839,13 @@ paths:
         Writes calibration values for one target via the DE1 A012 calibration
         characteristic. Returns 202 only after the machine acknowledges the
         write.
+
+        A write is a correction, not an absolute set, per the DE1 firmware:
+        flow and pressure multiply the stored calibration by
+        `measuredValue / de1ReportedValue`, and temperature adds
+        `measuredValue - de1ReportedValue`. To set an absolute value X, first
+        read the current calibration C, then write
+        `de1ReportedValue: C, measuredValue: X`.
       tags: [Machine]
       parameters:
         - name: target
