@@ -25,6 +25,9 @@ class _StubStorage implements ProfileStorageService {
   Future<void> update(ProfileRecord record) async {}
 
   @override
+  Future<void> replace(String oldId, ProfileRecord replacement) async {}
+
+  @override
   Future<void> delete(String id) async {}
 
   @override

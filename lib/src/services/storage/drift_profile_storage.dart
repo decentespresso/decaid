@@ -38,6 +38,23 @@ class DriftProfileStorageService implements ProfileStorageService {
   }
 
   @override
+  Future<void> replace(String oldId, domain.ProfileRecord replacement) {
+    return _db.transaction(() async {
+      if (!await _db.profileDao.profileExists(oldId)) {
+        throw ArgumentError('Profile not found: $oldId');
+      }
+      if (await _db.profileDao.profileExists(replacement.id)) {
+        throw ArgumentError('Profile already exists: ${replacement.id}');
+      }
+
+      await _db.profileDao.insertProfile(
+        ProfileMapper.toCompanion(replacement),
+      );
+      await _db.profileDao.deleteProfile(oldId);
+    });
+  }
+
+  @override
   Future<void> delete(String id) {
     return _db.profileDao.deleteProfile(id);
   }

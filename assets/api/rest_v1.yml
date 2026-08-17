@@ -3021,7 +3021,11 @@ paths:
     
     put:
       summary: Update profile
-      description: Updates an existing profile. Cannot modify default profiles' content, only metadata.
+      description: |
+        Updates an existing profile. Cannot modify default profiles' content,
+        only metadata. Execution changes that produce a new profile ID replace
+        the old record atomically. If the target ID already exists, the update
+        is rejected and both records remain unchanged.
       tags: [Profiles]
       parameters:
         - name: id
@@ -3051,7 +3055,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProfileRecord'
         "400":
-          description: Bad Request (profile not found or cannot modify default profile)
+          description: Bad Request (profile not found, target ID already exists, or cannot modify default profile)
         "500":
           description: Internal Server Error
     

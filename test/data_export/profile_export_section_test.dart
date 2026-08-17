@@ -49,6 +49,12 @@ class MockProfileStorage implements ProfileStorageService {
   }
 
   @override
+  Future<void> replace(String oldId, ProfileRecord replacement) async {
+    records[replacement.id] = replacement;
+    records.remove(oldId);
+  }
+
+  @override
   Future<void> delete(String id) async => records.remove(id);
 
   @override

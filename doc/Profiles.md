@@ -70,7 +70,8 @@ The implementation follows REA's standard layered architecture with clear separa
 **ProfileStorageService** (`lib/src/services/storage/profile_storage_service.dart`)
 - Abstract interface defining all storage operations
 - Allows swapping implementations (Drift/SQLite, or others)
-- Methods: `store`, `get`, `getAll`, `update`, `delete`, `getByParentId`, `storeAll`, `count`
+- Methods: `store`, `get`, `getAll`, `update`, `replace`, `delete`, `getByParentId`, `storeAll`, `count`
+- `replace` atomically stores an ID-changing replacement and removes the old record; an existing target ID rejects the update without changing either record
 
 **DriftProfileStorageService** (`lib/src/services/storage/drift_profile_storage.dart`)
 - Active implementation, backed by the shared Drift `AppDatabase` (SQLite)
@@ -85,7 +86,7 @@ The implementation follows REA's standard layered architecture with clear separa
 - Enforces default profile protection (cannot be deleted, only hidden; cannot modify execution fields)
 - Validates parent profile existence before creating children
 - **Automatic deduplication**: Identical profiles share the same hash-based ID
-- **Smart updates**: When execution fields change, old record is deleted and new one is stored with new hash
+- **Smart updates**: When execution fields change, the new hash record replaces the old record in one Drift transaction. A target-ID collision rejects the update and preserves both existing records
 - Profile lineage tracking via `getLineage()`
 - Import/export with detailed results (imported/skipped/failed counts)
 - Exposes `profileCount` stream for UI updates
@@ -253,7 +254,7 @@ Content-Type: application/json
 }
 ```
 
-Note: Cannot modify the `profile` field of default profiles (only metadata).
+Note: Cannot modify the `profile` field of default profiles (only metadata). If execution changes produce a new ID, replacement is atomic. If that ID already exists, the update is rejected and both profiles remain unchanged.
 
 Response: Updated `ProfileRecord` (200) or error (400/404)
 

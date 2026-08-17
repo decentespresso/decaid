@@ -51,6 +51,7 @@ Content-based hash IDs for deduplication. `ProfileController` manages the profil
 - Hash computed from profile content (`Profile.fromJson` → `computeHash`).
 - Deduplication: two profiles with identical content get the same hash ID.
 - `ProfileStorageService` interface with `DriftProfileStorageService` implementation.
+- ID-changing updates use `ProfileStorageService.replace`, which inserts the replacement and deletes the original in one Drift transaction. Target-ID collisions throw `ArgumentError` and leave both records unchanged.
 
 ### Legacy Profile Corpus Ingestion
 

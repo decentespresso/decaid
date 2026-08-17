@@ -24,6 +24,12 @@ class _StubStorage implements ProfileStorageService {
   Future<void> update(ProfileRecord record) async =>
       _records[record.id] = record;
   @override
+  Future<void> replace(String oldId, ProfileRecord replacement) async {
+    _records[replacement.id] = replacement;
+    _records.remove(oldId);
+  }
+
+  @override
   Future<void> delete(String id) async => _records.remove(id);
   @override
   Future<bool> exists(String id) async => _records.containsKey(id);

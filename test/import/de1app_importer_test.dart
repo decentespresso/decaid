@@ -120,6 +120,12 @@ class FakeProfileStorageService implements ProfileStorageService {
       profiles[record.id] = record;
 
   @override
+  Future<void> replace(String oldId, ProfileRecord replacement) async {
+    profiles[replacement.id] = replacement;
+    profiles.remove(oldId);
+  }
+
+  @override
   Future<void> delete(String id) async => profiles.remove(id);
 
   @override

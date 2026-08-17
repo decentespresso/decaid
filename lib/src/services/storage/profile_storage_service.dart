@@ -11,6 +11,8 @@ abstract class ProfileStorageService {
 
   Future<void> update(ProfileRecord record);
 
+  Future<void> replace(String oldId, ProfileRecord replacement);
+
   Future<void> delete(String id);
 
   Future<bool> exists(String id);

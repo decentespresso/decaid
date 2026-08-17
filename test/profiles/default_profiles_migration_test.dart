@@ -24,6 +24,12 @@ class InMemoryProfileStorage implements ProfileStorageService {
   Future<void> update(ProfileRecord record) async =>
       records[record.id] = record;
   @override
+  Future<void> replace(String oldId, ProfileRecord replacement) async {
+    records[replacement.id] = replacement;
+    records.remove(oldId);
+  }
+
+  @override
   Future<void> delete(String id) async => records.remove(id);
   @override
   Future<bool> exists(String id) async => records.containsKey(id);

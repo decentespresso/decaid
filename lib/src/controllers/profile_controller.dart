@@ -234,8 +234,7 @@ class ProfileController {
         'This creates a new profile. Consider using parentId for versioning.',
       );
 
-      await _storage.delete(existing.id);
-      await _storage.store(updated);
+      await _storage.replace(existing.id, updated);
     } else {
       await _storage.update(updated);
     }
