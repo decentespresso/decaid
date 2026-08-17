@@ -16,6 +16,7 @@ import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.utils.dart';
 import 'package:reaprime/src/models/device/impl/de1/mmr_address.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/bengle_shot_sample.dart';
+import 'package:reaprime/src/models/device/impl/de1/unified_de1/calibration_codec.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1_transport.dart';
 import 'package:reaprime/src/models/device/impl/bengle/bengle_mmr.dart';
 import 'package:reaprime/src/models/device/cup_warmer.dart';
@@ -32,6 +33,7 @@ import 'package:rxdart/rxdart.dart';
 
 part 'firmware_mmr_gate.dart';
 part 'unified_de1.mmr.dart';
+part 'unified_de1.calibration.dart';
 part 'unified_de1.parsing.dart';
 part 'unified_de1.profile.dart';
 part 'unified_de1.firmware.dart';
@@ -60,6 +62,8 @@ class UnifiedDe1 implements De1Interface {
   final _firmwareMmrGate = _FirmwareMmrGate();
   final Duration firmwareEraseTimeout;
   final Duration firmwareVerificationTimeout;
+  final Duration calibrationTimeout;
+  Future<void> _calibrationQueue = Future<void>.value();
 
   final Logger _log = Logger("DE1");
 
@@ -69,6 +73,7 @@ class UnifiedDe1 implements De1Interface {
     required DataTransport transport,
     this.firmwareEraseTimeout = const Duration(seconds: 30),
     this.firmwareVerificationTimeout = const Duration(seconds: 30),
+    this.calibrationTimeout = const Duration(seconds: 4),
   }) : _transport = UnifiedDe1Transport(transport: transport);
 
   @override
@@ -457,6 +462,38 @@ class UnifiedDe1 implements De1Interface {
   }
 
   @override
+  Future<De1Calibration> readCalibration(
+    De1CalibrationTarget target, {
+    De1CalibrationSource source = De1CalibrationSource.current,
+  }) async {
+    final factory = source == De1CalibrationSource.factory;
+    final command = factory
+        ? De1CalibrationCodec.factoryReadCommand
+        : De1CalibrationCodec.readCommand;
+    final packet = await _calibrationRequest(
+      De1CalibrationCodec.encodeRead(target, factory: factory),
+      command: command,
+      target: target,
+      expectReturnedData: true,
+    );
+    return De1Calibration(
+      target: packet.target,
+      de1ReportedValue: packet.de1ReportedValue,
+      measuredValue: packet.measuredValue,
+    );
+  }
+
+  @override
+  Future<void> writeCalibration(De1Calibration calibration) async {
+    await _calibrationRequest(
+      De1CalibrationCodec.encodeWrite(calibration),
+      command: De1CalibrationCodec.writeCommand,
+      target: calibration.target,
+      expectReturnedData: false,
+    );
+  }
+
+  @override
   Future<void> setSteamPurgeMode(int mode) async {
     await _writeMMRInt(MMRItem.steamPurgeMode, mode);
   }
@@ -646,6 +683,8 @@ class UnifiedDe1 implements De1Interface {
           return _transport.fwMapRequest;
         case Endpoint.bengleShotSample:
           return _transport.bengleShotSample;
+        case Endpoint.calibration:
+          return _transport.calibration;
         default:
           throw UnimplementedError(
             'UnifiedDe1.notificationsFor: Endpoint.${endpoint.name} is '

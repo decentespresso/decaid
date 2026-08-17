@@ -572,6 +572,58 @@ class MockDe1 implements De1Interface, SimulatedDevice {
     _flowEstimation = multiplier;
   }
 
+  final Map<De1CalibrationTarget, De1Calibration> _currentCalibration = {
+    De1CalibrationTarget.flow: const De1Calibration(
+      target: De1CalibrationTarget.flow,
+      de1ReportedValue: 1.0,
+      measuredValue: 1.0,
+    ),
+    De1CalibrationTarget.pressure: const De1Calibration(
+      target: De1CalibrationTarget.pressure,
+      de1ReportedValue: 9.0,
+      measuredValue: 9.0,
+    ),
+    De1CalibrationTarget.temperature: const De1Calibration(
+      target: De1CalibrationTarget.temperature,
+      de1ReportedValue: 93.0,
+      measuredValue: 93.0,
+    ),
+  };
+
+  final Map<De1CalibrationTarget, De1Calibration> _factoryCalibration = {
+    De1CalibrationTarget.flow: const De1Calibration(
+      target: De1CalibrationTarget.flow,
+      de1ReportedValue: 1.0,
+      measuredValue: 1.0,
+    ),
+    De1CalibrationTarget.pressure: const De1Calibration(
+      target: De1CalibrationTarget.pressure,
+      de1ReportedValue: 9.0,
+      measuredValue: 9.0,
+    ),
+    De1CalibrationTarget.temperature: const De1Calibration(
+      target: De1CalibrationTarget.temperature,
+      de1ReportedValue: 93.0,
+      measuredValue: 93.0,
+    ),
+  };
+
+  @override
+  Future<De1Calibration> readCalibration(
+    De1CalibrationTarget target, {
+    De1CalibrationSource source = De1CalibrationSource.current,
+  }) async {
+    final store = source == De1CalibrationSource.factory
+        ? _factoryCalibration
+        : _currentCalibration;
+    return store[target]!;
+  }
+
+  @override
+  Future<void> writeCalibration(De1Calibration calibration) async {
+    _currentCalibration[calibration.target] = calibration;
+  }
+
   @override
   Future<int> getSteamPurgeMode() async {
     return _steamPurgeMode;

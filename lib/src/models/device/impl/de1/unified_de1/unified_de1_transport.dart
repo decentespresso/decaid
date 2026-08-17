@@ -6,6 +6,7 @@ import 'package:reaprime/src/models/device/device.dart' as device;
 import 'package:reaprime/src/models/device/ble_service_identifier.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/bengle_shot_sample.dart';
+import 'package:reaprime/src/models/device/impl/de1/unified_de1/calibration_codec.dart';
 import 'package:reaprime/src/models/device/transport/ble_timeout_exception.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
@@ -40,6 +41,7 @@ class UnifiedDe1Transport {
   final PublishSubject<ByteData> _mmrSubject = PublishSubject();
   BehaviorSubject<ByteData> _fwMapRequestSubject = BehaviorSubject();
   ReplaySubject<ByteData> _bengleShotSampleSubject = ReplaySubject(maxSize: 1);
+  PublishSubject<ByteData> _calibrationSubject = PublishSubject();
   bool _bengleShotSampleEnabled = false;
 
   Stream<ByteData> get state => _stateSubject.asBroadcastStream();
@@ -49,6 +51,7 @@ class UnifiedDe1Transport {
   Stream<ByteData> get mmr => _mmrSubject.asBroadcastStream();
   Stream<ByteData> get fwMapRequest => _fwMapRequestSubject.asBroadcastStream();
   Stream<ByteData> get bengleShotSample => _bengleShotSampleSubject.stream;
+  Stream<ByteData> get calibration => _calibrationSubject.asBroadcastStream();
 
   String _currentBuffer = "";
 
@@ -146,6 +149,12 @@ class UnifiedDe1Transport {
     await _transport.subscribe(de1ServiceUUID, Endpoint.fwMapRequest.uuid, (d) {
       _fwMapNotification(ByteData.sublistView(Uint8List.fromList(d)));
     });
+    await _transport.subscribe(
+      de1ServiceUUID,
+      Endpoint.calibration.uuid,
+      (d) =>
+          _calibrationNotification(ByteData.sublistView(Uint8List.fromList(d))),
+    );
   }
 
   Future<void> subscribeBengleShotSample() async {
@@ -201,6 +210,7 @@ class UnifiedDe1Transport {
     await _transport.writeCommand("<+${Endpoint.shotSettings.representation}>");
     await _transport.writeCommand("<+${Endpoint.readFromMMR.representation}>");
     await _transport.writeCommand("<+${Endpoint.fwMapRequest.representation}>");
+    await _transport.writeCommand("<+${Endpoint.calibration.representation}>");
 
     await _transport.writeCommand("<B>02");
   }
@@ -221,6 +231,7 @@ class UnifiedDe1Transport {
     if (!_bengleShotSampleSubject.isClosed) {
       _bengleShotSampleSubject.close();
     }
+    if (!_calibrationSubject.isClosed) _calibrationSubject.close();
 
     await _transport.dispose();
   }
@@ -255,6 +266,9 @@ class UnifiedDe1Transport {
         await _transport.writeCommand(
           "<-${Endpoint.fwMapRequest.representation}>",
         );
+        await _transport.writeCommand(
+          "<-${Endpoint.calibration.representation}>",
+        );
         if (_bengleShotSampleEnabled) {
           await _transport.writeCommand(
             '<-${Endpoint.bengleShotSample.representation}>',
@@ -284,12 +298,14 @@ class UnifiedDe1Transport {
     _waterLevelsSubject.close();
     _fwMapRequestSubject.close();
     _bengleShotSampleSubject.close();
+    _calibrationSubject.close();
     _stateSubject = BehaviorSubject();
     _shotSampleSubject = BehaviorSubject();
     _shotSettingsSubject = BehaviorSubject();
     _waterLevelsSubject = BehaviorSubject();
     _fwMapRequestSubject = BehaviorSubject();
     _bengleShotSampleSubject = ReplaySubject(maxSize: 1);
+    _calibrationSubject = PublishSubject();
     _bengleShotSampleEnabled = false;
   }
 
@@ -372,6 +388,8 @@ class UnifiedDe1Transport {
           _mmrNotification(data);
         case "I":
           _fwMapNotification(data);
+        case "R":
+          _calibrationNotification(data);
         case "S":
           _bengleShotSampleNotification(data);
         default:
@@ -400,6 +418,7 @@ class UnifiedDe1Transport {
 
   static const _minShotSampleBytes = 19;
   static const _minStateBytes = 2;
+  static const _minCalibrationBytes = De1CalibrationCodec.packetLength;
 
   void _shotSampleNotification(ByteData d) {
     if (d.lengthInBytes < _minShotSampleBytes) {
@@ -444,6 +463,17 @@ class UnifiedDe1Transport {
 
   void _fwMapNotification(ByteData d) {
     _fwMapRequestSubject.add(d);
+  }
+
+  void _calibrationNotification(ByteData d) {
+    if (d.lengthInBytes < _minCalibrationBytes) {
+      _log.warning(
+        'Dropping short calibration frame '
+        '(${d.lengthInBytes} < $_minCalibrationBytes bytes)',
+      );
+      return;
+    }
+    _calibrationSubject.add(d);
   }
 
   void _mmrNotification(ByteData d) {
@@ -518,7 +548,6 @@ class UnifiedDe1Transport {
     switch (e) {
       case Endpoint.versions:
       case Endpoint.temperatures:
-      case Endpoint.calibration:
         return _serialOneShotRead(e, timeout);
       case Endpoint.requestedState:
         throw UnsupportedError(
@@ -546,6 +575,8 @@ class UnifiedDe1Transport {
         return _latestSerialFrame(e, _bengleShotSampleSubject, timeout);
       case Endpoint.stateInfo:
         return _latestSerialFrame(e, _stateSubject, timeout);
+      case Endpoint.calibration:
+        return _latestSerialFrame(e, _calibrationSubject, timeout);
       case Endpoint.headerWrite:
       case Endpoint.frameWrite:
         throw UnsupportedError('Endpoint ${e.name} is write-only');

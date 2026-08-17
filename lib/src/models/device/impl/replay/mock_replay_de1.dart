@@ -398,6 +398,14 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   @override
   double? get cachedFlowEstimation => _synthetic.cachedFlowEstimation;
   @override
+  Future<De1Calibration> readCalibration(
+    De1CalibrationTarget target, {
+    De1CalibrationSource source = De1CalibrationSource.current,
+  }) => _synthetic.readCalibration(target, source: source);
+  @override
+  Future<void> writeCalibration(De1Calibration calibration) =>
+      _synthetic.writeCalibration(calibration);
+  @override
   Future<De1HeaterVoltage> getHeaterVoltage() => _synthetic.getHeaterVoltage();
   @override
   Future<void> setHeaterVoltage(De1HeaterVoltage v) =>

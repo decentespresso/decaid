@@ -247,6 +247,16 @@ class SpyDe1 implements De1Interface {
   }
 
   @override
+  Future<De1Calibration> readCalibration(
+    De1CalibrationTarget target, {
+    De1CalibrationSource source = De1CalibrationSource.current,
+  }) async =>
+      De1Calibration(target: target, de1ReportedValue: 1.0, measuredValue: 1.0);
+
+  @override
+  Future<void> writeCalibration(De1Calibration calibration) async {}
+
+  @override
   Future<bool> getUsbChargerMode() async => false;
   @override
   Future<void> setUsbChargerMode(bool t) async {}

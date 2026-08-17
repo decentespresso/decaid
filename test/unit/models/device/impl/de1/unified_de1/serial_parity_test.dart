@@ -174,6 +174,7 @@ void main() {
         Endpoint.waterLevels,
         Endpoint.shotSettings,
         Endpoint.fwMapRequest,
+        Endpoint.calibration,
       ]) {
         await expectLater(
           transport.read(endpoint, timeout: Duration.zero),
@@ -247,11 +248,7 @@ void main() {
       serial.writes.clear();
     });
 
-    for (final endpoint in [
-      Endpoint.versions,
-      Endpoint.temperatures,
-      Endpoint.calibration,
-    ]) {
+    for (final endpoint in [Endpoint.versions, Endpoint.temperatures]) {
       test(
         '${endpoint.representation} captures an immediate response',
         () async {
