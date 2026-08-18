@@ -7,6 +7,7 @@ import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/services/android_updater.dart';
 import 'package:reaprime/src/services/app_update_state.dart';
 import 'package:reaprime/src/settings/settings_service.dart';
+import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 
 class UpdateCheckService {
@@ -14,6 +15,7 @@ class UpdateCheckService {
   final SettingsService _settingsService;
   final AndroidUpdater _updater;
   final WebUIStorage _webUIStorage;
+  final PluginSourceService? _pluginSourceService;
 
   final bool _isAndroid;
 
@@ -33,11 +35,13 @@ class UpdateCheckService {
     required SettingsService settingsService,
     AndroidUpdater? updater,
     required WebUIStorage webUIStorage,
+    PluginSourceService? pluginSourceService,
     bool? platformIsAndroid,
     bool? platformIsMacOS,
   }) : _settingsService = settingsService,
        _updater = updater ?? AndroidUpdater(owner: 'tadelv', repo: 'reaprime'),
        _webUIStorage = webUIStorage,
+       _pluginSourceService = pluginSourceService,
        _isAndroid = platformIsAndroid ?? Platform.isAndroid,
        _isMacOS = platformIsMacOS ?? Platform.isMacOS {
     _state = BehaviorSubject.seeded(_snapshot(AppUpdatePhase.idle));
@@ -140,13 +144,13 @@ class UpdateCheckService {
     );
 
     if (_isMacOS) {
-      await _updateSkins();
+      await _updateManagedContent();
     } else {
       final lastCheck = await _settingsService.lastUpdateCheckTime();
       if (lastCheck == null ||
           DateTime.now().difference(lastCheck) > _checkInterval) {
         await checkForUpdate();
-        await _updateSkins();
+        await _updateManagedContent();
       }
     }
 
@@ -155,7 +159,7 @@ class UpdateCheckService {
       if (!_isMacOS) {
         await checkForUpdate();
       }
-      await _updateSkins();
+      await _updateManagedContent();
     });
   }
 
@@ -165,13 +169,23 @@ class UpdateCheckService {
     _periodicTimer = null;
   }
 
-  Future<void> _updateSkins() async {
+  Future<void> _updateManagedContent() async {
     try {
       _log.info('Updating skins...');
       await _webUIStorage.updateAllSkins();
       _log.info('Skin update complete');
     } catch (e, st) {
       _log.warning('Error updating skins', e, st);
+    }
+
+    final pluginSourceService = _pluginSourceService;
+    if (pluginSourceService == null) return;
+    try {
+      _log.info('Updating plugins...');
+      await pluginSourceService.updateAllPlugins();
+      _log.info('Plugin update complete');
+    } catch (e, st) {
+      _log.warning('Error updating plugins', e, st);
     }
   }
 

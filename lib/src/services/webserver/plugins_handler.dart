@@ -3,12 +3,19 @@ part of '../webserver_service.dart';
 final class PluginsHandler {
   final PluginManager pluginManager;
   final PluginLoaderService pluginService;
+  final PluginSourceService pluginSourceService;
 
   final Logger _log = Logger("PluginsHandler");
 
   final Random _random = Random();
 
-  PluginsHandler({required this.pluginManager, required this.pluginService});
+  PluginsHandler({
+    required this.pluginManager,
+    required PluginLoaderService pluginService,
+    PluginSourceService? pluginSourceService,
+  }) : pluginService = pluginService,
+       pluginSourceService =
+           pluginSourceService ?? PluginSourceService(pluginService);
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/plugins', (Request req) async {
@@ -17,24 +24,40 @@ final class PluginsHandler {
         final json = manifest.toJson();
         json['loaded'] = pluginService.isPluginLoaded(manifest.id);
         json['autoLoad'] = await pluginService.shouldAutoLoad(manifest.id);
+        final source = pluginSourceService.sourceFor(manifest.id);
+        json['source'] = source == null ? null : _sourceJson(source);
+        json['pendingUpdate'] = source?.pendingUpdate?.toJson();
         list.add(json);
       }
       return jsonOk(list);
     });
 
     app.post('/api/v1/plugins/install', (Request request) async {
+      return jsonNotImplemented({
+        'error':
+            'Plugin install from an arbitrary URL is not supported. Use '
+            '/api/v1/plugins/install/github-release or '
+            '/api/v1/plugins/install/github-branch',
+      });
+    });
+
+    app.post(
+      '/api/v1/plugins/install/github-release',
+      _handleInstallFromGitHubRelease,
+    );
+
+    app.post(
+      '/api/v1/plugins/install/github-branch',
+      _handleInstallFromGitHubBranch,
+    );
+
+    app.post('/api/v1/plugins/update', (Request request) async {
       try {
-        final payload = await request.readAsString();
-        final json = jsonDecode(payload) as Map<String, dynamic>;
-        final url = json['url'] as String?;
-        if (url == null || url.isEmpty) {
-          return jsonBadRequest({'error': 'url is required'});
-        }
-        return jsonNotImplemented({
-          'error': 'Plugin install from URL not yet implemented',
-        });
+        await pluginSourceService.updateAllPlugins();
+        return jsonOk({'message': 'Plugin update check complete'});
       } catch (e) {
-        return jsonError({'error': 'Failed to install plugin: $e'});
+        _log.warning('Plugin update check failed', e);
+        return jsonError({'error': 'Failed to update plugins: $e'});
       }
     });
 
@@ -70,6 +93,31 @@ final class PluginsHandler {
       }
     });
 
+    app.post('/api/v1/plugins/<id>/update/approve', (
+      Request request,
+      String id,
+    ) async {
+      if (pluginService.getPluginManifest(id) == null) {
+        return jsonNotFound({'error': 'Plugin not found: $id'});
+      }
+      try {
+        final manifest = await pluginSourceService.approvePendingUpdate(id);
+        return jsonOk({
+          'message': 'Plugin updated',
+          'id': id,
+          'version': manifest.version,
+          'loaded': pluginService.isPluginLoaded(id),
+        });
+      } on PluginApprovalRequiredException catch (e) {
+        return jsonConflict({'error': e.message});
+      } on FormatException catch (e) {
+        return jsonBadRequest({'error': e.message});
+      } catch (e) {
+        _log.warning('Failed to approve update of plugin $id', e);
+        return jsonError({'error': 'Failed to approve update: $e'});
+      }
+    });
+
     app.delete('/api/v1/plugins/<id>', (Request request, String id) async {
       try {
         if (pluginService.getPluginManifest(id) == null) {
@@ -84,6 +132,86 @@ final class PluginsHandler {
 
     app.get('/ws/v1/plugins/<id>/<endpoint>', _handlePluginSocketEndpoint);
     app.all('/api/v1/plugins/<id>/<endpoint>', _handlePluginApiEndpoint);
+  }
+
+  Map<String, dynamic> _sourceJson(PluginSource source) {
+    final json = source.toJson();
+    json.remove('pendingUpdate');
+    return json;
+  }
+
+  Future<Response> _handleInstallFromGitHubRelease(Request request) async {
+    final Map<String, dynamic> json;
+    try {
+      json = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+    } catch (e) {
+      return jsonBadRequest({'error': 'Invalid JSON body: $e'});
+    }
+
+    final repo = json['repo'];
+    if (repo is! String || repo.isEmpty) {
+      return jsonBadRequest({'error': 'repo is required (owner/repo)'});
+    }
+    final assetName = json['assetName'];
+    if (assetName != null && assetName is! String) {
+      return jsonBadRequest({'error': 'assetName must be a string'});
+    }
+    final includePrerelease = json['includePrerelease'];
+    if (includePrerelease != null && includePrerelease is! bool) {
+      return jsonBadRequest({'error': 'includePrerelease must be a boolean'});
+    }
+
+    return _install(
+      () => pluginSourceService.installFromGitHubRelease(
+        repo,
+        assetName: assetName as String?,
+        includePrerelease: (includePrerelease as bool?) ?? false,
+      ),
+    );
+  }
+
+  Future<Response> _handleInstallFromGitHubBranch(Request request) async {
+    final Map<String, dynamic> json;
+    try {
+      json = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+    } catch (e) {
+      return jsonBadRequest({'error': 'Invalid JSON body: $e'});
+    }
+
+    final repo = json['repo'];
+    if (repo is! String || repo.isEmpty) {
+      return jsonBadRequest({'error': 'repo is required (owner/repo)'});
+    }
+    final branch = json['branch'];
+    if (branch != null && branch is! String) {
+      return jsonBadRequest({'error': 'branch must be a string'});
+    }
+
+    return _install(
+      () => pluginSourceService.installFromGitHubBranch(
+        repo,
+        branch: (branch as String?) ?? 'main',
+      ),
+    );
+  }
+
+  Future<Response> _install(Future<PluginManifest> Function() install) async {
+    try {
+      final manifest = await install();
+      return jsonOk({
+        'message': 'Plugin installed',
+        'id': manifest.id,
+        'version': manifest.version,
+        'loaded': pluginService.isPluginLoaded(manifest.id),
+      });
+    } on PluginDowngradeException catch (e) {
+      return jsonConflict({'error': e.message});
+    } on FormatException catch (e) {
+      return jsonBadRequest({'error': e.message});
+    } catch (e) {
+      _log.warning('Plugin installation failed', e);
+      return jsonError({'error': 'Failed to install plugin: $e'});
+    }
   }
 
   Future<Response> _handlePluginSourceWrite(Request request, String id) async {

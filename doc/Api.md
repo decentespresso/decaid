@@ -262,13 +262,18 @@ Settings fields include: `gatewayMode`, `themeMode`, `logLevel`, `weightFlowMult
 
 | Method | Path | Description | Handler |
 |--------|------|-------------|---------|
-| GET | `/api/v1/plugins` | List all plugins (with `loaded`, `autoLoad` fields) | `plugins_handler.dart` |
+| GET | `/api/v1/plugins` | List all plugins (with `loaded`, `autoLoad`, `source`, `pendingUpdate` fields) | `plugins_handler.dart` |
 | GET | `/api/v1/plugins/:id/settings` | Get plugin settings; secure fields return `{isSet}` only | |
 | POST | `/api/v1/plugins/:id/settings` | Patch plugin settings (omitted preserves, `null` clears) and return a redacted result | |
 | POST | `/api/v1/plugins/:id/enable` | Load plugin + enable auto-load | |
 | POST | `/api/v1/plugins/:id/disable` | Unload plugin + disable auto-load | |
 | DELETE | `/api/v1/plugins/:id` | Remove plugin (unload + delete files) | |
-| POST | `/api/v1/plugins/install` | Install from URL (not yet implemented — returns 501) | |
+| PUT | `/api/v1/plugins/:id/source` | Create or overwrite `manifest.json` + `plugin.js` | |
+| POST | `/api/v1/plugins/install` | Not supported — returns 501 naming the GitHub endpoints | |
+| POST | `/api/v1/plugins/install/github-release` | Install from a GitHub release asset; tag must equal the manifest version | |
+| POST | `/api/v1/plugins/install/github-branch` | Install from a GitHub branch; the resolved commit drives updates | |
+| POST | `/api/v1/plugins/update` | Check every GitHub-backed plugin for updates | |
+| POST | `/api/v1/plugins/:id/update/approve` | Install an update that asks for new permissions | |
 | ANY | `/api/v1/plugins/:id/:endpoint` | Plugin HTTP endpoint; requires `api` and returns 403 without it | |
 | WS | `/ws/v1/plugins/:id/:endpoint` | Plugin WebSocket endpoint | |
 

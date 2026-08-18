@@ -443,18 +443,103 @@ The DYE2 (Describe Your Espresso) plugin ships from its own repo, [allofmeng/dye
 
 `packages/dye2-plugin/` still holds the plugin's original TypeScript + Vite source and is useful as a reference for advanced patterns (REST API client, HTML template rendering, Vite dev server — see `packages/dye2-plugin/README.md`), but it is **not** built or bundled by Decaid anymore and is not authoritative for what ships. Treat [allofmeng/dye2](https://github.com/allofmeng/dye2) as the source of truth for the DYE2 plugin; update `packages/dye2-plugin/` only if it's being kept in sync deliberately.
 
+## Distribution and Updates
+
+A plugin can be installed from four sources:
+
+| Source | Tracked | Updates |
+|--------|---------|---------|
+| GitHub release | yes | new release tag |
+| GitHub branch | yes | new commit on the branch |
+| Local ZIP | no | none, it is a snapshot |
+| Local folder | no | none, it is a snapshot |
+
+Every install goes through the same validation: the package must resolve to a
+single plugin root holding both `manifest.json` and `plugin.js`, the manifest
+must parse, and the id must be a single safe path component. A GitHub archive or
+a release ZIP may wrap its content in one directory; more than one candidate
+root is rejected rather than guessed.
+
+Provenance for a tracked install is stored in a Decaid-owned
+`.rea_source.json` inside the plugin directory. It is not part of your plugin
+package, it is rewritten on every install, and it disappears when the plugin is
+removed.
+
+### Packaging a release
+
+For a GitHub release install:
+
+- tag the release `X.Y.Z` or `vX.Y.Z`;
+- the tag must equal `manifest.json`'s `version` after removing the leading `v`,
+  so `v1.4.0` requires `"version": "1.4.0"`. A mismatch is rejected;
+- attach exactly one `.zip` asset holding the plugin, either flat or inside one
+  wrapper directory. If a release carries several `.zip` assets, the installer
+  refuses to guess and the caller must name the asset.
+
+Branch installs have no tag rule. The resolved commit is the update signal, so a
+branch-backed plugin updates when the branch moves even if `version` never
+changes.
+
+```bash
+curl -X POST http://tablet:8080/api/v1/plugins/install/github-release \
+  -H 'content-type: application/json' \
+  -d '{"repo": "acme/my-plugin"}'
+
+curl -X POST http://tablet:8080/api/v1/plugins/install/github-branch \
+  -H 'content-type: application/json' \
+  -d '{"repo": "acme/my-plugin", "branch": "dev"}'
+```
+
+### Update rules
+
+Tracked plugins are checked on the app's normal update cadence, next to WebUI
+skin updates, and on demand from the Plugins settings screen or
+`POST /api/v1/plugins/update`. For each plugin:
+
+- an unchanged tag or commit only refreshes `lastChecked`;
+- a changed tag or commit is downloaded and validated before anything installed
+  is touched;
+- downgrade protection still applies to release installs: a lower version is
+  rejected, and going back requires removing the plugin first;
+- the swap is transactional. The plugin is unloaded only once the replacement is
+  ready, and a failed copy or a failed reload restores the previous files,
+  manifest and running plugin;
+- settings, secure settings and the auto-load preference survive an update. A
+  running plugin is restarted on the new version; a disabled one stays disabled;
+- one plugin's failure never stops the others; the failure is recorded in
+  `lastError`.
+
+### Permission escalation
+
+An automatic update installs only when the candidate manifest requests the same
+permissions as the installed version or fewer. If it asks for anything new, the
+update is not installed. It is recorded as a `pendingUpdate` carrying the
+candidate version and the added permissions, shown in the Plugins settings
+screen and in `GET /api/v1/plugins`, and installed only after explicit approval:
+
+```bash
+curl -X POST http://tablet:8080/api/v1/plugins/my.reaplugin/update/approve
+```
+
+Trusting a repository is not the same as trusting a new permission, so this
+holds regardless of where the plugin came from.
+
 ## Plugin Lifecycle Management (REST API)
 
 Plugins can be managed via REST API:
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/v1/plugins` | List all plugins (includes `loaded`, `autoLoad` fields) |
+| GET | `/api/v1/plugins` | List all plugins (includes `loaded`, `autoLoad`, `source`, `pendingUpdate` fields) |
 | POST | `/api/v1/plugins/:id/enable` | Load plugin + enable auto-load on startup |
 | POST | `/api/v1/plugins/:id/disable` | Unload plugin + disable auto-load |
 | PUT | `/api/v1/plugins/:id/source` | Create or overwrite `manifest.json` + `plugin.js` |
 | DELETE | `/api/v1/plugins/:id` | Remove plugin (unload + delete files) |
-| POST | `/api/v1/plugins/install` | Install from URL (not yet implemented) |
+| POST | `/api/v1/plugins/install` | Not supported (501); use the GitHub endpoints below |
+| POST | `/api/v1/plugins/install/github-release` | Install from a GitHub release asset |
+| POST | `/api/v1/plugins/install/github-branch` | Install from a GitHub branch |
+| POST | `/api/v1/plugins/update` | Check every GitHub-backed plugin for updates |
+| POST | `/api/v1/plugins/:id/update/approve` | Install an update that requests new permissions |
 | GET | `/api/v1/plugins/:id/settings` | Get plugin settings |
 | POST | `/api/v1/plugins/:id/settings` | Update plugin settings |
 

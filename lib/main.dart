@@ -37,6 +37,7 @@ import 'package:reaprime/src/controllers/workflow_device_sync.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
+import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/services/android_updater.dart';
 import 'package:reaprime/src/services/wifi/wifi_scale_discovery_service.dart';
 import 'package:reaprime/src/services/database/database.dart' hide Workflow;
@@ -435,6 +436,7 @@ void main(List<String> args) async {
   final updateCheckService = UpdateCheckService(
     settingsService: SharedPreferencesSettingsService(),
     webUIStorage: webUIStorage,
+    pluginSourceService: PluginSourceService(pluginService),
   );
 
   final macosUpdater = Platform.isMacOS ? MacOSUpdater() : null;

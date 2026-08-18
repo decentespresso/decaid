@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/src/plugins/plugin_loader_service.dart';
+import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/services/android_updater.dart';
 import 'package:reaprime/src/services/app_update_state.dart';
 import 'package:reaprime/src/services/update_check_service.dart';
@@ -9,6 +11,19 @@ import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 
 import 'helpers/mock_settings_service.dart';
+
+class _FakeLoader extends Fake implements PluginLoaderService {}
+
+class _RecordingPluginSourceService extends PluginSourceService {
+  _RecordingPluginSourceService() : super(_FakeLoader());
+
+  int updateCalls = 0;
+
+  @override
+  Future<void> updateAllPlugins() async {
+    updateCalls++;
+  }
+}
 
 class _FakeUpdater extends AndroidUpdater {
   _FakeUpdater() : super(owner: 'tadelv', repo: 'reaprime');
@@ -74,15 +89,18 @@ void main() {
   late _FakeUpdater updater;
   late MockSettingsService settingsService;
   late WebUIStorage webUIStorage;
+  late _RecordingPluginSourceService pluginSourceService;
 
   UpdateCheckService build({bool isAndroid = true, bool isMacOS = false}) {
     updater = _FakeUpdater();
     settingsService = MockSettingsService();
     final settingsController = SettingsController(settingsService);
     webUIStorage = WebUIStorage(settingsController);
+    pluginSourceService = _RecordingPluginSourceService();
     return UpdateCheckService(
       settingsService: settingsService,
       webUIStorage: webUIStorage,
+      pluginSourceService: pluginSourceService,
       updater: updater,
       platformIsAndroid: isAndroid,
       platformIsMacOS: isMacOS,
@@ -322,6 +340,26 @@ void main() {
       await svc.initialize();
 
       expect(updater.checkCalls, 0);
+      svc.dispose();
+    });
+  });
+
+  group('managed content', () {
+    test('enabling automatic checks also updates managed plugins', () async {
+      final svc = build();
+
+      await svc.enableAutomaticChecks();
+
+      expect(pluginSourceService.updateCalls, 1);
+      svc.dispose();
+    });
+
+    test('macOS still updates managed plugins', () async {
+      final svc = build(isMacOS: true);
+
+      await svc.enableAutomaticChecks();
+
+      expect(pluginSourceService.updateCalls, 1);
       svc.dispose();
     });
   });

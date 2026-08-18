@@ -11,6 +11,7 @@ import 'package:reaprime/src/services/storage/kv_store_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:reaprime/src/plugins/plugin_manager.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
+import 'package:reaprime/src/plugins/plugin_package.dart';
 import 'package:reaprime/src/plugins/plugin_runtime.dart';
 import 'package:reaprime/src/plugins/plugin_version.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart'
@@ -41,6 +42,7 @@ class PluginLoaderService {
   static const _maxConsecutiveLoadFailures = 3;
   static const _loadingPluginKey = 'plugin.watchdog.loading';
   static const _stagingSuffix = '.staged';
+  static const _backupSuffix = '.previous';
 
   final PluginManager pluginManager;
   final CredentialStore? _credentialStore;
@@ -116,55 +118,81 @@ class PluginLoaderService {
   }
 
   Future<void> addPlugin(String sourcePath) async {
-    final source = File(sourcePath);
-    final sourceDir = Directory(sourcePath);
-
-    Directory sourceDirectory;
-    File manifestFile;
-
-    if (source.existsSync()) {
+    if (File(sourcePath).existsSync()) {
       throw Exception(
         'File-based plugin installation not yet implemented. Please provide a directory path.',
       );
-    } else if (sourceDir.existsSync()) {
-      sourceDirectory = sourceDir;
-      manifestFile = File('${sourceDirectory.path}/manifest.json');
-      if (!manifestFile.existsSync()) {
-        throw Exception('manifest.json not found in plugin directory');
-      }
-    } else {
+    }
+    final sourceDir = Directory(sourcePath);
+    if (!sourceDir.existsSync()) {
       throw Exception('Source does not exist: $sourcePath');
     }
 
-    final manifestJson = jsonDecode(await manifestFile.readAsString());
-    final manifest = PluginManifest.fromJson(manifestJson);
+    await installPluginPackage(sourceDir);
+  }
 
-    if (!isSafePathComponent(manifest.id)) {
-      throw FormatException(
-        'Unsafe plugin id "${manifest.id}": must be a single safe path component',
-      );
-    }
+  Future<PluginManifest> installPluginPackage(
+    Directory stagedDir, {
+    bool allowDowngrade = false,
+  }) async {
+    final package = resolvePluginPackage(stagedDir);
+    final manifest = package.manifest;
+    final pluginId = manifest.id;
 
-    return _withPluginMutationLock(manifest.id, () async {
+    return _withPluginMutationLock(pluginId, () async {
       _ensureActive();
-      _ensureNotDowngrade(manifest);
+      if (!allowDowngrade) _ensureNotDowngrade(manifest);
 
-      final pluginDir = Directory('${_pluginsDir.path}/${manifest.id}');
-      if (pluginDir.existsSync()) {
-        if (isPluginLoaded(manifest.id)) {
-          await _unloadPlugin(manifest.id);
-        }
-        await pluginDir.delete(recursive: true);
-        _log.info('Replacing existing plugin: ${manifest.id}');
+      final pluginDir = Directory('${_pluginsDir.path}/$pluginId');
+      final backupDir = Directory('${pluginDir.path}$_backupSuffix');
+      final previousManifest = _availablePluginsCache[pluginId];
+      final wasLoaded = isPluginLoaded(pluginId);
+
+      if (wasLoaded) {
+        await _unloadPlugin(pluginId);
       }
 
-      pluginDir.createSync(recursive: true);
+      if (backupDir.existsSync()) backupDir.deleteSync(recursive: true);
+      final hadPrevious = pluginDir.existsSync();
+      if (hadPrevious) pluginDir.renameSync(backupDir.path);
 
-      await _copyDirectory(sourceDirectory, pluginDir);
+      try {
+        pluginDir.createSync(recursive: true);
+        await _copyDirectory(package.root, pluginDir);
+        _availablePluginsCache[pluginId] = manifest;
 
-      _availablePluginsCache[manifest.id] = manifest;
+        if (wasLoaded) {
+          await _queuedLoad(pluginId);
+        }
+      } catch (e) {
+        _log.warning('Rolling back failed install of plugin $pluginId', e);
+        if (pluginDir.existsSync()) pluginDir.deleteSync(recursive: true);
+        if (hadPrevious) {
+          backupDir.renameSync(pluginDir.path);
+          if (previousManifest == null) {
+            _availablePluginsCache.remove(pluginId);
+          } else {
+            _availablePluginsCache[pluginId] = previousManifest;
+            if (wasLoaded) {
+              try {
+                await _queuedLoad(pluginId);
+              } catch (e2) {
+                _log.warning(
+                  'Failed to reload previous version of plugin $pluginId',
+                  e2,
+                );
+              }
+            }
+          }
+        } else {
+          _availablePluginsCache.remove(pluginId);
+        }
+        rethrow;
+      }
 
-      _log.info('Plugin installed: ${manifest.id}');
+      if (backupDir.existsSync()) backupDir.deleteSync(recursive: true);
+      _log.info('Plugin installed: $pluginId (${manifest.version})');
+      return manifest;
     });
   }
 

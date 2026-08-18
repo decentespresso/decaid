@@ -2956,8 +2956,41 @@ paths:
 
   /api/v1/plugins/install:
     post:
-      summary: Install a plugin from URL
-      description: Installs a plugin from a remote URL (not yet implemented)
+      summary: Install a plugin from URL (not supported)
+      description: >
+        Installing from an arbitrary URL is not supported. Use
+        /api/v1/plugins/install/github-release or
+        /api/v1/plugins/install/github-branch.
+      tags: [Plugins]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+      responses:
+        "501":
+          description: Not supported; the response names the endpoints to use
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+
+  /api/v1/plugins/install/github-release:
+    post:
+      summary: Install a plugin from a GitHub release
+      description: >
+        Downloads a release asset, validates the package, and installs it. The
+        release tag must be X.Y.Z or vX.Y.Z and must equal the manifest version
+        after stripping the optional leading v. When the release carries several
+        .zip assets, assetName must name the one to install. Downgrades are
+        rejected; remove the plugin first to go back to an older version.
       tags: [Plugins]
       requestBody:
         required: true
@@ -2965,31 +2998,163 @@ paths:
           application/json:
             schema:
               type: object
-              required:
-                - url
+              required: [repo]
               properties:
-                url:
+                repo:
                   type: string
-                  description: URL to install the plugin from
+                  description: owner/repo
+                assetName:
+                  type: string
+                  description: Release asset to install; required when several .zip assets exist
+                includePrerelease:
+                  type: boolean
+                  default: false
       responses:
-        "501":
-          description: Not yet implemented
+        "200":
+          description: Plugin installed
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  error:
-                    type: string
+                $ref: '#/components/schemas/PluginInstallResult'
         "400":
-          description: Missing url field
+          description: Invalid body, invalid package, or tag/version mismatch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: The release is older than the installed version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Download or installation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/plugins/install/github-branch:
+    post:
+      summary: Install a plugin from a GitHub branch
+      description: >
+        Resolves the branch head, downloads the branch archive, validates the
+        package, and installs it. The resolved commit is stored and later drives
+        updates, so a branch-backed plugin updates even when its manifest
+        version does not change.
+      tags: [Plugins]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [repo]
+              properties:
+                repo:
+                  type: string
+                  description: owner/repo
+                branch:
+                  type: string
+                  default: main
+      responses:
+        "200":
+          description: Plugin installed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PluginInstallResult'
+        "400":
+          description: Invalid body or invalid package
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: The branch carries an older version than the installed one
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Download or installation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/plugins/update:
+    post:
+      summary: Check every GitHub-backed plugin for updates
+      description: >
+        Runs the same check the app runs on its update cadence. Unchanged
+        plugins only get a new lastChecked; changed plugins are validated and
+        installed when the candidate keeps the same permissions or fewer, and
+        recorded as a pendingUpdate when it asks for more. One plugin failing
+        does not stop the others.
+      tags: [Plugins]
+      responses:
+        "200":
+          description: Update check finished
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  error:
+                  message:
                     type: string
+        "500":
+          description: The update check could not run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/v1/plugins/{id}/update/approve:
+    post:
+      summary: Approve and install a permission-escalating update
+      description: >
+        Installs the update recorded in pendingUpdate, accepting the added
+        permissions.
+      tags: [Plugins]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Plugin updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PluginInstallResult'
+        "400":
+          description: The candidate package is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Plugin not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: No update is awaiting approval
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Installation failed and the previous version was restored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   # Profiles API
   # 
@@ -6659,6 +6824,89 @@ components:
         autoLoad:
           type: boolean
           description: Whether the plugin is set to auto-load on startup
+        source:
+          allOf:
+            - $ref: '#/components/schemas/PluginSource'
+          nullable: true
+          description: >
+            Where the installed copy came from. Null for plugins installed
+            before source tracking existed and for bundled plugins.
+        pendingUpdate:
+          allOf:
+            - $ref: '#/components/schemas/PluginPendingUpdate'
+          nullable: true
+          description: >
+            An update that was found but not installed because it requests
+            permissions the installed version does not hold.
+
+    PluginInstallResult:
+      type: object
+      properties:
+        message:
+          type: string
+        id:
+          type: string
+        version:
+          type: string
+        loaded:
+          type: boolean
+
+    PluginSource:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [github_release, github_branch, local_zip, local_folder]
+        repo:
+          type: string
+          nullable: true
+          description: owner/repo for GitHub-backed sources
+        branch:
+          type: string
+          nullable: true
+        commit:
+          type: string
+          nullable: true
+          description: Resolved branch head at install time; the branch update signal
+        releaseTag:
+          type: string
+          nullable: true
+        assetName:
+          type: string
+          nullable: true
+        includePrerelease:
+          type: boolean
+        installedAt:
+          type: string
+          format: date-time
+        lastChecked:
+          type: string
+          format: date-time
+          nullable: true
+        lastError:
+          type: string
+          nullable: true
+          description: Why the most recent update check or install failed
+
+    PluginPendingUpdate:
+      type: object
+      properties:
+        version:
+          type: string
+          description: Manifest version of the candidate
+        releaseTag:
+          type: string
+          nullable: true
+        commit:
+          type: string
+          nullable: true
+        addedPermissions:
+          type: array
+          items:
+            type: string
+        detectedAt:
+          type: string
+          format: date-time
 
     PluginSettings:
       type: object

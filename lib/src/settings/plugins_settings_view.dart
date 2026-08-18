@@ -7,6 +7,8 @@ import 'package:saf_util/saf_util.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
+import 'package:reaprime/src/plugins/plugin_source.dart';
+import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/services/security_scoped_file.dart';
 
 const _maxPluginSafDepth = 32;
@@ -95,12 +97,14 @@ class PluginsSettingsView extends StatefulWidget {
   const PluginsSettingsView({
     super.key,
     required this.pluginLoaderService,
+    this.pluginSourceService,
     this.allowInstall = true,
   });
 
   static const routeName = '/plugins';
 
   final PluginLoaderService pluginLoaderService;
+  final PluginSourceService? pluginSourceService;
   final bool allowInstall;
 
   @override
@@ -109,7 +113,13 @@ class PluginsSettingsView extends StatefulWidget {
 
 class _PluginsSettingsViewState extends State<PluginsSettingsView> {
   List<PluginManifest> _plugins = [];
+  Map<String, PluginSource> _sources = {};
   bool _isLoading = true;
+  bool _isCheckingUpdates = false;
+
+  late final PluginSourceService _sourceService =
+      widget.pluginSourceService ??
+      PluginSourceService(widget.pluginLoaderService);
 
   @override
   void initState() {
@@ -123,9 +133,15 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
     });
 
     final plugins = widget.pluginLoaderService.availablePlugins;
+    final sources = <String, PluginSource>{};
+    for (final plugin in plugins) {
+      final source = _sourceService.sourceFor(plugin.id);
+      if (source != null) sources[plugin.id] = source;
+    }
 
     setState(() {
       _plugins = plugins;
+      _sources = sources;
       _isLoading = false;
     });
   }
@@ -145,11 +161,39 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
             onPressed: _refreshPlugins,
             tooltip: 'Refresh Plugins',
           ),
+          IconButton(
+            icon: _isCheckingUpdates
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(LucideIcons.cloudDownload),
+            onPressed: _isCheckingUpdates
+                ? null
+                : () => _checkForPluginUpdates(context),
+            tooltip: 'Check for updates',
+          ),
           if (widget.allowInstall)
-            IconButton(
+            PopupMenuButton<String>(
               icon: const Icon(LucideIcons.plus),
-              onPressed: () => _installPlugin(context),
               tooltip: 'Install Plugin',
+              onSelected: (value) => _handleInstallAction(context, value),
+              itemBuilder: (context) => const [
+                PopupMenuItem<String>(
+                  value: 'github-release',
+                  child: Text('GitHub Release'),
+                ),
+                PopupMenuItem<String>(
+                  value: 'github-branch',
+                  child: Text('GitHub Branch'),
+                ),
+                PopupMenuItem<String>(value: 'zip', child: Text('ZIP file')),
+                PopupMenuItem<String>(
+                  value: 'folder',
+                  child: Text('Folder snapshot'),
+                ),
+              ],
             ),
         ],
       ),
@@ -292,6 +336,8 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                   ),
                 ],
               ),
+            _buildSourceLine(context, plugin),
+            _buildPendingUpdate(context, plugin),
             const SizedBox(height: 8),
             FutureBuilder<bool>(
               future: widget.pluginLoaderService.shouldAutoLoad(plugin.id),
@@ -429,6 +475,260 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
         final newDir = Directory(newPath);
         await _copyDirectoryRecursively(entry, newDir);
       }
+    }
+  }
+
+  Widget _buildSourceLine(BuildContext context, PluginManifest plugin) {
+    final source = _sources[plugin.id];
+    if (source == null) return const SizedBox.shrink();
+
+    final description = switch (source.kind) {
+      PluginSourceKind.githubRelease =>
+        'GitHub release ${source.repo} @ ${source.releaseTag}',
+      PluginSourceKind.githubBranch =>
+        'GitHub branch ${source.repo}@${source.branch} '
+            '(${_shortCommit(source.commit)})',
+      PluginSourceKind.localZip => 'Local ZIP snapshot',
+      PluginSourceKind.localFolder => 'Local folder snapshot',
+    };
+
+    final checked = source.lastChecked;
+    final suffix = source.kind.isManaged && checked != null
+        ? ' • checked ${checked.toLocal()}'
+        : '';
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '$description$suffix',
+            style: Theme.of(context).textTheme.labelSmall,
+          ),
+          if (source.lastError != null)
+            Text(
+              'Last update failed: ${source.lastError}',
+              style: Theme.of(
+                context,
+              ).textTheme.labelSmall?.copyWith(color: Colors.red),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _shortCommit(String? commit) {
+    if (commit == null || commit.isEmpty) return 'unknown';
+    return commit.length > 7 ? commit.substring(0, 7) : commit;
+  }
+
+  Widget _buildPendingUpdate(BuildContext context, PluginManifest plugin) {
+    final pending = _sources[plugin.id]?.pendingUpdate;
+    if (pending == null) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              'Update to ${pending.version} needs approval: adds '
+              '${pending.addedPermissions.join(', ')}',
+              style: Theme.of(context).textTheme.labelMedium,
+            ),
+          ),
+          const SizedBox(width: 8),
+          ShadButton.outline(
+            onPressed: () => _approvePendingUpdate(context, plugin, pending),
+            child: const Text('Review'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _approvePendingUpdate(
+    BuildContext context,
+    PluginManifest plugin,
+    PluginPendingUpdate pending,
+  ) async {
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Update ${plugin.name} to ${pending.version}?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('This update requests new permissions:'),
+            const SizedBox(height: 8),
+            ...pending.addedPermissions.map((p) => Text('• $p')),
+            const SizedBox(height: 12),
+            Text(
+              'Current permissions: '
+              '${plugin.permissions.map((p) => p.wireName).join(', ')}',
+              style: Theme.of(context).textTheme.labelSmall,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Approve and update'),
+          ),
+        ],
+      ),
+    );
+
+    if (approved != true || !mounted || !context.mounted) return;
+
+    await _runInstall(
+      context,
+      () => _sourceService.approvePendingUpdate(plugin.id),
+      successMessage: 'Plugin updated',
+    );
+  }
+
+  Future<void> _checkForPluginUpdates(BuildContext context) async {
+    setState(() => _isCheckingUpdates = true);
+    try {
+      await _sourceService.updateAllPlugins();
+      if (context.mounted) _showSnackBar(context, 'Plugin update check done');
+    } catch (e, st) {
+      Logger(
+        'PluginsSettingsView',
+      ).warning('Plugin update check failed', e, st);
+      if (context.mounted) {
+        _showSnackBar(context, 'Update check failed: $e', isError: true);
+      }
+    } finally {
+      if (mounted) setState(() => _isCheckingUpdates = false);
+      _refreshPlugins();
+    }
+  }
+
+  Future<void> _handleInstallAction(BuildContext context, String action) async {
+    switch (action) {
+      case 'github-release':
+        await _installFromGitHub(context, release: true);
+      case 'github-branch':
+        await _installFromGitHub(context, release: false);
+      case 'zip':
+        await _installFromZip(context);
+      case 'folder':
+        await _installPlugin(context);
+    }
+  }
+
+  Future<void> _installFromGitHub(
+    BuildContext context, {
+    required bool release,
+  }) async {
+    final repoController = TextEditingController();
+    final detailController = TextEditingController(text: release ? '' : 'main');
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          release
+              ? 'Install from GitHub Release'
+              : 'Install from GitHub Branch',
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: repoController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Repository',
+                hintText: 'owner/repo',
+              ),
+            ),
+            TextField(
+              controller: detailController,
+              decoration: InputDecoration(
+                labelText: release ? 'Asset name (optional)' : 'Branch',
+                hintText: release ? 'plugin.zip' : 'main',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Install'),
+          ),
+        ],
+      ),
+    );
+
+    final repo = repoController.text.trim();
+    final detail = detailController.text.trim();
+    repoController.dispose();
+    detailController.dispose();
+    if (confirmed != true || repo.isEmpty) return;
+    if (!context.mounted) return;
+
+    await _runInstall(
+      context,
+      () => release
+          ? _sourceService.installFromGitHubRelease(
+              repo,
+              assetName: detail.isEmpty ? null : detail,
+            )
+          : _sourceService.installFromGitHubBranch(
+              repo,
+              branch: detail.isEmpty ? 'main' : detail,
+            ),
+      successMessage: 'Plugin installed',
+    );
+  }
+
+  Future<void> _installFromZip(BuildContext context) async {
+    final picked = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['zip'],
+    );
+    final path = picked?.files.firstOrNull?.path;
+    if (path == null || !mounted || !context.mounted) return;
+
+    await _runInstall(
+      context,
+      () => _sourceService.installFromZip(path),
+      successMessage: 'Plugin installed',
+    );
+  }
+
+  Future<void> _runInstall(
+    BuildContext context,
+    Future<PluginManifest> Function() install, {
+    required String successMessage,
+  }) async {
+    try {
+      final manifest = await install();
+      if (context.mounted) {
+        _showSnackBar(context, '$successMessage: ${manifest.name}');
+      }
+    } catch (e, st) {
+      Logger(
+        'PluginsSettingsView',
+      ).warning('Plugin installation failed', e, st);
+      if (context.mounted) {
+        _showSnackBar(context, 'Installation failed: $e', isError: true);
+      }
+    } finally {
+      _refreshPlugins();
     }
   }
 

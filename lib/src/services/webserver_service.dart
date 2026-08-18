@@ -24,6 +24,8 @@ import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/models/device/sensor.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
+import 'package:reaprime/src/plugins/plugin_source.dart';
+import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/services/storage/hive_store_service.dart';
 import 'package:reaprime/src/services/webserver/json_response.dart';
 import 'package:http/http.dart' as http;
