@@ -48,10 +48,7 @@ final class PluginsHandler {
         if (pluginService.getPluginManifest(id) == null) {
           return jsonNotFound({'error': 'Plugin not found: $id'});
         }
-        await pluginService.setPluginAutoLoad(id, true);
-        if (!pluginService.isPluginLoaded(id)) {
-          await pluginService.loadPlugin(id);
-        }
+        await pluginService.enablePlugin(id);
         return jsonOk({'message': 'Plugin enabled', 'id': id});
       } catch (e) {
         return jsonError({'error': 'Failed to enable plugin: $e'});
@@ -66,10 +63,7 @@ final class PluginsHandler {
         if (pluginService.getPluginManifest(id) == null) {
           return jsonNotFound({'error': 'Plugin not found: $id'});
         }
-        if (pluginService.isPluginLoaded(id)) {
-          await pluginService.unloadPlugin(id);
-        }
-        await pluginService.setPluginAutoLoad(id, false);
+        await pluginService.disablePlugin(id);
         return jsonOk({'message': 'Plugin disabled', 'id': id});
       } catch (e) {
         return jsonError({'error': 'Failed to disable plugin: $e'});

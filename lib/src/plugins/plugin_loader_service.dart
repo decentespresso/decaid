@@ -40,6 +40,7 @@ class PluginLoaderService {
   static const _loadTimeout = Duration(seconds: 1);
   static const _maxConsecutiveLoadFailures = 3;
   static const _loadingPluginKey = 'plugin.watchdog.loading';
+  static const _stagingSuffix = '.staged';
 
   final PluginManager pluginManager;
   final CredentialStore? _credentialStore;
@@ -207,31 +208,47 @@ class PluginLoaderService {
           : null;
       final wasLoaded = isPluginLoaded(pluginId);
 
+      pluginDir.createSync(recursive: true);
+      final stagedManifest = File('${manifestFile.path}$_stagingSuffix');
+      final stagedSource = File('${sourceFile.path}$_stagingSuffix');
+      try {
+        stagedManifest.writeAsStringSync(jsonEncode(manifestJson));
+        stagedSource.writeAsStringSync(pluginJs);
+      } catch (e) {
+        _deleteQuietly(stagedManifest);
+        _deleteQuietly(stagedSource);
+        if (!directoryExisted && pluginDir.existsSync()) {
+          pluginDir.deleteSync(recursive: true);
+        }
+        rethrow;
+      }
+
       if (wasLoaded) {
         await _unloadPlugin(pluginId);
       }
 
-      pluginDir.createSync(recursive: true);
-      manifestFile.writeAsStringSync(jsonEncode(manifestJson));
-      sourceFile.writeAsStringSync(pluginJs);
-      _availablePluginsCache[pluginId] = manifest;
+      try {
+        stagedManifest.renameSync(manifestFile.path);
+        stagedSource.renameSync(sourceFile.path);
+        _availablePluginsCache[pluginId] = manifest;
 
-      if (wasLoaded) {
-        try {
+        if (wasLoaded) {
           await _queuedLoad(pluginId);
-        } catch (e) {
-          _log.warning('Rolling back failed update of plugin $pluginId', e);
-          await _restorePluginSource(
-            pluginId: pluginId,
-            pluginDir: pluginDir,
-            directoryExisted: directoryExisted,
-            previousManifest: previousManifest,
-            previousManifestSource: previousManifestSource,
-            previousSource: previousSource,
-            reload: true,
-          );
-          rethrow;
         }
+      } catch (e) {
+        _log.warning('Rolling back failed update of plugin $pluginId', e);
+        _deleteQuietly(stagedManifest);
+        _deleteQuietly(stagedSource);
+        await _restorePluginSource(
+          pluginId: pluginId,
+          pluginDir: pluginDir,
+          directoryExisted: directoryExisted,
+          previousManifest: previousManifest,
+          previousManifestSource: previousManifestSource,
+          previousSource: previousSource,
+          reload: wasLoaded,
+        );
+        rethrow;
       }
 
       _log.info('Plugin source updated: $pluginId (${manifest.version})');
@@ -272,6 +289,12 @@ class PluginLoaderService {
     } catch (e) {
       _log.warning('Failed to reload previous version of plugin $pluginId', e);
     }
+  }
+
+  static void _deleteQuietly(File file) {
+    try {
+      if (file.existsSync()) file.deleteSync();
+    } catch (_) {}
   }
 
   static void _writeOrDelete(File file, String? contents) {
@@ -405,7 +428,15 @@ class PluginLoaderService {
     });
   }
 
-  Future<void> setPluginAutoLoad(String pluginId, bool enabled) async {
+  Future<void> setPluginAutoLoad(String pluginId, bool enabled) {
+    _ensureActive();
+    return _withPluginMutationLock(
+      pluginId,
+      () => _setPluginAutoLoad(pluginId, enabled),
+    );
+  }
+
+  Future<void> _setPluginAutoLoad(String pluginId, bool enabled) async {
     _ensureActive();
     if (enabled) {
       await _prefs.remove(_loadFailureKey(pluginId));
@@ -414,6 +445,39 @@ class PluginLoaderService {
       }
     }
     await _prefs.setBool('plugin.autoload.$pluginId', enabled);
+  }
+
+  Future<void> enablePlugin(String pluginId) {
+    _ensureActive();
+    return _withPluginMutationLock(pluginId, () async {
+      _ensureActive();
+      final previousAutoLoad = _prefs.getBool('plugin.autoload.$pluginId');
+      await _setPluginAutoLoad(pluginId, true);
+      if (isPluginLoaded(pluginId)) return;
+      try {
+        await _queuedLoad(pluginId);
+      } catch (_) {
+        if (_prefs.getBool('plugin.autoload.$pluginId') ?? false) {
+          if (previousAutoLoad == null) {
+            await _prefs.remove('plugin.autoload.$pluginId');
+          } else {
+            await _prefs.setBool('plugin.autoload.$pluginId', previousAutoLoad);
+          }
+        }
+        rethrow;
+      }
+    });
+  }
+
+  Future<void> disablePlugin(String pluginId) {
+    _ensureActive();
+    return _withPluginMutationLock(pluginId, () async {
+      _ensureActive();
+      if (isPluginLoaded(pluginId)) {
+        await _unloadPlugin(pluginId);
+      }
+      await _setPluginAutoLoad(pluginId, false);
+    });
   }
 
   Future<bool> shouldAutoLoad(String pluginId) async {

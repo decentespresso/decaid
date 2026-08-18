@@ -29,18 +29,13 @@ class _FakePluginLoaderService extends Fake implements PluginLoaderService {
   bool isPluginLoaded(String pluginId) => false;
 
   @override
-  Future<void> loadPlugin(String pluginId) async {
-    calls.add('load');
-  }
-
-  @override
-  Future<void> setPluginAutoLoad(String pluginId, bool enabled) async {
-    calls.add('autoLoad:$enabled');
+  Future<void> enablePlugin(String pluginId) async {
+    calls.add('enable');
   }
 }
 
 void main() {
-  test('enable resets watchdog state before retrying plugin load', () async {
+  test('enable delegates the whole transition to the service', () async {
     final pluginService = _FakePluginLoaderService();
     final app = Router().plus;
     PluginsHandler(
@@ -58,6 +53,6 @@ void main() {
     );
 
     expect(response.statusCode, 200);
-    expect(pluginService.calls, ['autoLoad:true', 'load']);
+    expect(pluginService.calls, ['enable']);
   });
 }

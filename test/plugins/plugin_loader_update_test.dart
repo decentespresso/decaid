@@ -166,5 +166,94 @@ function createPlugin() {
       expect(service.isPluginLoaded(id), isTrue);
       expect(service.getPluginManifest(id)?.version, '1.1.0');
     });
+
+    test(
+      'a failed write leaves the previous version installed and running',
+      () async {
+        const id = 'writefail.reaplugin';
+        await install(id);
+        await service.loadPlugin(id);
+        Directory(
+          '${tempDir.path}/plugins/$id/plugin.js.staged',
+        ).createSync(recursive: true);
+
+        await expectLater(
+          update(id, '2.0.0'),
+          throwsA(isA<FileSystemException>()),
+        );
+
+        expect(service.isPluginLoaded(id), isTrue);
+        expect(service.getPluginManifest(id)?.version, '1.0.0');
+        final onDisk = jsonDecode(
+          File('${tempDir.path}/plugins/$id/manifest.json').readAsStringSync(),
+        );
+        expect(onDisk['version'], '1.0.0');
+        expect(
+          File('${tempDir.path}/plugins/$id/plugin.js').readAsStringSync(),
+          pluginJs(id),
+        );
+      },
+    );
+
+    test('enablePlugin sets auto-load and loads under one lock', () async {
+      const id = 'enable.reaplugin';
+      await install(id);
+
+      await service.enablePlugin(id);
+
+      expect(service.isPluginLoaded(id), isTrue);
+      expect(await service.shouldAutoLoad(id), isTrue);
+    });
+
+    test('enablePlugin leaves auto-load off when the load fails', () async {
+      const id = 'enablefail.reaplugin';
+      await install(id);
+      File('${tempDir.path}/plugins/$id/plugin.js').writeAsStringSync(
+        'function createPlugin() { throw new Error("boom"); }',
+      );
+
+      await expectLater(service.enablePlugin(id), throwsA(anything));
+
+      expect(service.isPluginLoaded(id), isFalse);
+      expect(await service.shouldAutoLoad(id), isFalse);
+    });
+
+    test('disablePlugin unloads and clears auto-load under one lock', () async {
+      const id = 'disable.reaplugin';
+      await install(id);
+      await service.enablePlugin(id);
+
+      await service.disablePlugin(id);
+
+      expect(service.isPluginLoaded(id), isFalse);
+      expect(await service.shouldAutoLoad(id), isFalse);
+    });
+
+    test('concurrent enable/disable end in a consistent state', () async {
+      const id = 'togglerace.reaplugin';
+      await install(id);
+
+      await Future.wait([
+        service.enablePlugin(id),
+        service.disablePlugin(id),
+        service.enablePlugin(id),
+      ]);
+
+      expect(service.isPluginLoaded(id), await service.shouldAutoLoad(id));
+    });
+
+    test('enable/disable do not interleave with a concurrent update', () async {
+      const id = 'toggleupdate.reaplugin';
+      await install(id);
+
+      await Future.wait([
+        service.enablePlugin(id),
+        update(id, '1.1.0'),
+        service.disablePlugin(id),
+      ]);
+
+      expect(service.getPluginManifest(id)?.version, '1.1.0');
+      expect(service.isPluginLoaded(id), await service.shouldAutoLoad(id));
+    });
   });
 }
