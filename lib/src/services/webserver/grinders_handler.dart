@@ -89,6 +89,17 @@ class GrindersHandler {
       final json = jsonDecode(body) as Map<String, dynamic>;
 
       rejectExplicitNulls(json, const ['model', 'archived', 'settingType']);
+      validatePatchFieldTypes(
+        json,
+        numberFields: const [
+          'burrSize',
+          'settingSmallStep',
+          'settingBigStep',
+          'rpmSmallStep',
+          'rpmBigStep',
+        ],
+        stringListFields: const ['settingValues'],
+      );
       final updated = Grinder.fromJson({
         ...existing.toJson(),
         ...json,

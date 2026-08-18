@@ -243,6 +243,41 @@ void main() {
       expect(rejected.statusCode, 400);
     });
 
+    test(
+      'PUT /api/v1/beans/<id> rejects malformed lists without mutation',
+      () async {
+        final createRes = await sendPost('/api/v1/beans', {
+          'roaster': 'Sey',
+          'name': 'Gichathaini',
+          'variety': ['Heirloom'],
+          'altitude': [1800, 2200],
+        });
+        final created = jsonDecode(await createRes.readAsString());
+        final id = created['id'];
+
+        for (final patch in [
+          {
+            'altitude': ['1800', 2200],
+          },
+          {
+            'altitude': [1800.5, 2200],
+          },
+          {
+            'variety': [1],
+          },
+        ]) {
+          final response = await sendPut('/api/v1/beans/$id', patch);
+          expect(response.statusCode, 400, reason: '$patch');
+
+          final stored = jsonDecode(
+            await (await sendGet('/api/v1/beans/$id')).readAsString(),
+          );
+          expect(stored['altitude'], [1800, 2200], reason: '$patch');
+          expect(stored['variety'], ['Heirloom'], reason: '$patch');
+        }
+      },
+    );
+
     test('PUT /api/v1/beans/<id> returns 404 for missing bean', () async {
       final response = await sendPut('/api/v1/beans/nonexistent', {
         'name': 'Test',
@@ -456,6 +491,52 @@ void main() {
           'frozen': null,
         });
         expect(rejected.statusCode, 400);
+      },
+    );
+
+    test(
+      'PUT /api/v1/bean-batches/<id> rejects malformed numbers without mutation',
+      () async {
+        final createRes = await sendPost('/api/v1/beans/$beanId/batches', {
+          'qualityScore': 87.5,
+          'price': 18.5,
+          'weight': 250.0,
+        });
+        final created = jsonDecode(await createRes.readAsString());
+        final batchId = created['id'];
+        const expected = {
+          'qualityScore': 87.5,
+          'price': 18.5,
+          'weight': 250.0,
+          'weightRemaining': 250.0,
+        };
+
+        for (final field in expected.keys) {
+          final patch = {field: 'oops'};
+          final response = await sendPut(
+            '/api/v1/bean-batches/$batchId',
+            patch,
+          );
+          expect(response.statusCode, 400, reason: '$patch');
+
+          final stored = jsonDecode(
+            await (await sendGet(
+              '/api/v1/bean-batches/$batchId',
+            )).readAsString(),
+          );
+          for (final entry in expected.entries) {
+            expect(stored[entry.key], entry.value, reason: '$patch');
+          }
+        }
+
+        final numericString = await sendPut('/api/v1/bean-batches/$batchId', {
+          'price': '12.5',
+        });
+        expect(numericString.statusCode, 400);
+        final stored = jsonDecode(
+          await (await sendGet('/api/v1/bean-batches/$batchId')).readAsString(),
+        );
+        expect(stored['price'], 18.5);
       },
     );
 

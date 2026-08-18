@@ -93,6 +93,11 @@ class BeansHandler {
       final json = jsonDecode(body) as Map<String, dynamic>;
 
       rejectExplicitNulls(json, const ['roaster', 'name', 'decaf', 'archived']);
+      validatePatchFieldTypes(
+        json,
+        integerListFields: const ['altitude'],
+        stringListFields: const ['variety'],
+      );
       final updated = Bean.fromJson({
         ...existing.toJson(),
         ...json,
@@ -209,6 +214,15 @@ class BeansHandler {
       final json = jsonDecode(body) as Map<String, dynamic>;
 
       rejectExplicitNulls(json, const ['frozen', 'archived']);
+      validatePatchFieldTypes(
+        json,
+        numberFields: const [
+          'qualityScore',
+          'price',
+          'weight',
+          'weightRemaining',
+        ],
+      );
       final updated = BeanBatch.fromJson({
         ...existing.toJson(),
         ...json,

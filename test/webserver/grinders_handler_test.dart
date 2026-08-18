@@ -194,6 +194,62 @@ void main() {
       },
     );
 
+    test(
+      'PUT /api/v1/grinders/<id> rejects malformed values without mutation',
+      () async {
+        final createRes = await sendPost('/api/v1/grinders', {
+          'model': 'Niche Zero',
+          'burrSize': 63.0,
+          'settingValues': ['Fine', 'Coarse'],
+          'settingSmallStep': 0.1,
+          'settingBigStep': 1.0,
+          'rpmSmallStep': 10.0,
+          'rpmBigStep': 100.0,
+        });
+        final created = jsonDecode(await createRes.readAsString());
+        final id = created['id'];
+        const expected = {
+          'burrSize': 63.0,
+          'settingSmallStep': 0.1,
+          'settingBigStep': 1.0,
+          'rpmSmallStep': 10.0,
+          'rpmBigStep': 100.0,
+        };
+
+        for (final field in expected.keys) {
+          final patch = {field: 'oops'};
+          final response = await sendPut('/api/v1/grinders/$id', patch);
+          expect(response.statusCode, 400, reason: '$patch');
+
+          final stored = jsonDecode(
+            await (await sendGet('/api/v1/grinders/$id')).readAsString(),
+          );
+          for (final entry in expected.entries) {
+            expect(stored[entry.key], entry.value, reason: '$patch');
+          }
+          expect(stored['settingValues'], ['Fine', 'Coarse']);
+        }
+
+        for (final patch in [
+          {'burrSize': '63.0'},
+          {
+            'settingValues': [1],
+          },
+        ]) {
+          final response = await sendPut('/api/v1/grinders/$id', patch);
+          expect(response.statusCode, 400, reason: '$patch');
+
+          final stored = jsonDecode(
+            await (await sendGet('/api/v1/grinders/$id')).readAsString(),
+          );
+          for (final entry in expected.entries) {
+            expect(stored[entry.key], entry.value, reason: '$patch');
+          }
+          expect(stored['settingValues'], ['Fine', 'Coarse']);
+        }
+      },
+    );
+
     test('PUT /api/v1/grinders/<id> returns 404 for missing grinder', () async {
       final response = await sendPut('/api/v1/grinders/nonexistent', {
         'model': 'Test',
