@@ -139,7 +139,11 @@ class ProfileHandler {
 
       Profile? profile;
       if (json.containsKey('profile')) {
-        profile = Profile.fromJson(json['profile'] as Map<String, dynamic>);
+        final profileJson = json['profile'];
+        if (profileJson == null) {
+          throw const FormatException('Field "profile" cannot be null');
+        }
+        profile = Profile.fromJson(profileJson as Map<String, dynamic>);
       }
 
       final metadata = json['metadata'] as Map<String, dynamic>?;
@@ -148,12 +152,15 @@ class ProfileHandler {
         id,
         profile: profile,
         metadata: metadata,
+        metadataPresent: json.containsKey('metadata'),
       );
 
       return jsonOk(record.toJson());
     } on ArgumentError catch (e) {
       return jsonBadRequest({'error': 'Invalid request', 'message': '$e'});
     } on FormatException catch (e) {
+      return jsonBadRequest({'error': 'Invalid request', 'message': '$e'});
+    } on TypeError catch (e) {
       return jsonBadRequest({'error': 'Invalid request', 'message': '$e'});
     } catch (e, st) {
       log.severe('Error in _handleUpdate', e, st);

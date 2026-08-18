@@ -100,6 +100,7 @@ class ProfileRecord extends Equatable {
     DateTime? createdAt,
     DateTime? updatedAt,
     Map<String, dynamic>? metadata,
+    bool clearMetadata = false,
   }) {
     final newProfile = profile ?? this.profile;
     final hashes = ProfileHash.calculateAll(newProfile);
@@ -114,7 +115,7 @@ class ProfileRecord extends Equatable {
       isDefault: isDefault ?? this.isDefault,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? DateTime.now(),
-      metadata: metadata ?? this.metadata,
+      metadata: clearMetadata ? null : metadata ?? this.metadata,
     );
   }
 

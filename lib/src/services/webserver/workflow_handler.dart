@@ -8,6 +8,7 @@ import 'package:reaprime/src/controllers/workflow_controller.dart';
 import 'package:reaprime/src/models/data/json_utils.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
 import 'package:reaprime/src/models/errors.dart';
+import 'package:reaprime/src/services/webserver/json_patch.dart';
 import 'package:reaprime/src/services/webserver/json_response.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
@@ -156,6 +157,18 @@ class WorkflowHandler {
 
   Future<Response> _applyUpdate(Map<String, dynamic> merge) async {
     try {
+      rejectExplicitNulls(merge, const ['steamSettings']);
+      if (merge['steamSettings'] case final Map<String, dynamic> settings) {
+        rejectExplicitNulls(settings, const [
+          'targetTemperature',
+          'duration',
+          'flow',
+          'stopAtTemperature',
+        ]);
+      } else if (merge.containsKey('steamSettings')) {
+        throw const FormatException('Field "steamSettings" must be an object');
+      }
+
       while (true) {
         final oldWorkflow = _controller.currentWorkflow;
         final revision = _controller.revision;

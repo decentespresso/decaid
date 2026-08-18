@@ -480,6 +480,52 @@ void main() {
       expect(spy.updateShotSettingsCalls.single.targetSteamTemp, 0);
     });
 
+    test('steam settings preserve, replace, and reject null values', () async {
+      await _settleHandler(spy);
+      final initial = workflowController.currentWorkflow.steamSettings;
+
+      final updatedDuration = initial.duration + 1;
+      final replaced = await put({
+        'steamSettings': {'duration': updatedDuration},
+      });
+      expect(replaced.statusCode, 200);
+      final body = jsonDecode(await replaced.readAsString());
+      expect(body['steamSettings']['duration'], updatedDuration);
+      expect(
+        body['steamSettings']['targetTemperature'],
+        initial.targetTemperature,
+      );
+      expect(body['steamSettings']['flow'], initial.flow);
+      expect(
+        body['steamSettings']['stopAtTemperature'],
+        initial.stopAtTemperature,
+      );
+
+      for (final patch in [
+        {'steamSettings': null},
+        {
+          'steamSettings': {'targetTemperature': null},
+        },
+        {
+          'steamSettings': {'duration': null},
+        },
+        {
+          'steamSettings': {'flow': null},
+        },
+        {
+          'steamSettings': {'stopAtTemperature': null},
+        },
+      ]) {
+        final rejected = await put(patch);
+        expect(rejected.statusCode, 400, reason: '$patch');
+      }
+
+      expect(
+        workflowController.currentWorkflow.steamSettings.duration,
+        updatedDuration,
+      );
+    });
+
     test('no-op PUT (same values) issues no DE1 writes', () async {
       await _settleHandler(spy);
       final snapshot = workflowController.currentWorkflow;

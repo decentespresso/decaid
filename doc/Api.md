@@ -178,6 +178,10 @@ in-app stop will trigger on.
 | POST | `/api/v1/profiles/import` | Import profiles from JSON | |
 | POST | `/api/v1/profiles/restore/:filename` | Restore a bundled default by manifest filename | |
 
+Profile updates use tri-state patch semantics: omitting `metadata` preserves it,
+`metadata: null` clears it, and an object replaces it. The profile itself is
+non-nullable; `profile: null` returns `400`.
+
 ### Workflow
 
 | Method | Path | Description | Handler |
@@ -188,7 +192,9 @@ in-app stop will trigger on.
 Each `PUT /api/v1/workflow` is one independent mutation. Requests run in FIFO order without
 cross-request or cross-client coalescing. Partial updates are deep-merged against the latest
 workflow state when each request executes, and each response contains that request's resulting
-workflow. Requests may wait behind machine I/O; the server does not debounce high-frequency
+workflow. Omitted steam-setting fields are preserved and supplied values replace them. The
+`steamSettings` object and all of its fields are non-nullable; explicit `null` returns `400`.
+Requests may wait behind machine I/O; the server does not debounce high-frequency
 input, so clients should throttle controls themselves. Bodies larger than 1 MiB return `413`,
 requests beyond the eight-entry active/queued limit return `429`, and requests waiting more
 than 30 seconds for execution return `503` without being applied. Machine-write failures
@@ -203,6 +209,11 @@ workflow change never touches the DE1 directly — the Bengle bridge applies it
 asynchronously — so it commits even while no machine is connected.
 
 ### Beans
+
+Bean, bean-batch, and grinder updates use tri-state patch semantics: omitted
+fields preserve stored values, explicit `null` clears nullable fields, and
+supplied values replace them. Explicit `null` for non-nullable fields returns
+`400`.
 
 | Method | Path | Description | Handler |
 |--------|------|-------------|---------|

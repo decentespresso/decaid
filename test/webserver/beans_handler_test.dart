@@ -212,6 +212,37 @@ void main() {
       expect(body['roaster'], 'Sey');
     });
 
+    test('PUT /api/v1/beans/<id> applies tri-state patch semantics', () async {
+      final createRes = await sendPost('/api/v1/beans', {
+        'roaster': 'Sey',
+        'name': 'Gichathaini',
+        'country': 'Kenya',
+      });
+      final created = jsonDecode(await createRes.readAsString());
+      final id = created['id'];
+
+      final preserved = await sendPut('/api/v1/beans/$id', {
+        'name': 'Gichathaini AA',
+      });
+      expect(jsonDecode(await preserved.readAsString())['country'], 'Kenya');
+
+      final cleared = await sendPut('/api/v1/beans/$id', {'country': null});
+      expect(
+        (jsonDecode(await cleared.readAsString()) as Map).containsKey(
+          'country',
+        ),
+        isFalse,
+      );
+
+      final replaced = await sendPut('/api/v1/beans/$id', {
+        'country': 'Ethiopia',
+      });
+      expect(jsonDecode(await replaced.readAsString())['country'], 'Ethiopia');
+
+      final rejected = await sendPut('/api/v1/beans/$id', {'roaster': null});
+      expect(rejected.statusCode, 400);
+    });
+
     test('PUT /api/v1/beans/<id> returns 404 for missing bean', () async {
       final response = await sendPut('/api/v1/beans/nonexistent', {
         'name': 'Test',
@@ -414,12 +445,17 @@ void main() {
         expect(DateTime.parse(fetched['unfreezeDate']), unfreezeDate);
         expect(fetched['roastLevel'], 'light');
 
-        await sendPut('/api/v1/bean-batches/${batch.id}', {'freezeDate': null});
-        final nullDateResponse = await sendGet(
+        final clearResponse = await sendPut(
           '/api/v1/bean-batches/${batch.id}',
+          {'freezeDate': null},
         );
-        final afterNullDate = jsonDecode(await nullDateResponse.readAsString());
-        expect(DateTime.parse(afterNullDate['freezeDate']), freezeDate);
+        final cleared = jsonDecode(await clearResponse.readAsString()) as Map;
+        expect(cleared.containsKey('freezeDate'), isFalse);
+
+        final rejected = await sendPut('/api/v1/bean-batches/${batch.id}', {
+          'frozen': null,
+        });
+        expect(rejected.statusCode, 400);
       },
     );
 

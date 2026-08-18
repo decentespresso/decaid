@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/data/bean.dart';
 import 'package:reaprime/src/services/storage/bean_storage_service.dart';
+import 'package:reaprime/src/services/webserver/json_patch.dart';
 import 'package:reaprime/src/services/webserver/json_response.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
@@ -91,25 +92,21 @@ class BeansHandler {
       final body = await req.body.asString;
       final json = jsonDecode(body) as Map<String, dynamic>;
 
-      final updated = existing.copyWith(
-        roaster: json['roaster'] as String?,
-        name: json['name'] as String?,
-        species: json['species'] as String?,
-        decaf: json['decaf'] as bool?,
-        decafProcess: json['decafProcess'] as String?,
-        country: json['country'] as String?,
-        region: json['region'] as String?,
-        producer: json['producer'] as String?,
-        variety: (json['variety'] as List?)?.cast<String>(),
-        altitude: (json['altitude'] as List?)?.cast<int>(),
-        processing: json['processing'] as String?,
-        notes: json['notes'] as String?,
-        archived: json['archived'] as bool?,
-        extras: json['extras'] as Map<String, dynamic>?,
-      );
+      rejectExplicitNulls(json, const ['roaster', 'name', 'decaf', 'archived']);
+      final updated = Bean.fromJson({
+        ...existing.toJson(),
+        ...json,
+        'id': existing.id,
+        'createdAt': existing.createdAt.toIso8601String(),
+        'updatedAt': DateTime.now().toIso8601String(),
+      });
 
       await _storage.updateBean(updated);
       return jsonOk(updated.toJson());
+    } on FormatException catch (e) {
+      return jsonBadRequest({'error': e.toString()});
+    } on TypeError catch (e) {
+      return jsonBadRequest({'error': e.toString()});
     } catch (e, st) {
       _log.severe('Error updating bean $id', e, st);
       return jsonError({'error': e.toString()});
@@ -211,40 +208,22 @@ class BeansHandler {
       final body = await req.body.asString;
       final json = jsonDecode(body) as Map<String, dynamic>;
 
-      final updated = existing.copyWith(
-        roastDate: json['roastDate'] != null
-            ? DateTime.parse(json['roastDate'] as String)
-            : null,
-        roastLevel: json['roastLevel'] as String?,
-        harvestDate: json['harvestDate'] as String?,
-        qualityScore: (json['qualityScore'] as num?)?.toDouble(),
-        price: (json['price'] as num?)?.toDouble(),
-        currency: json['currency'] as String?,
-        weight: (json['weight'] as num?)?.toDouble(),
-        weightRemaining: (json['weightRemaining'] as num?)?.toDouble(),
-        buyDate: json['buyDate'] != null
-            ? DateTime.parse(json['buyDate'] as String)
-            : null,
-        openDate: json['openDate'] != null
-            ? DateTime.parse(json['openDate'] as String)
-            : null,
-        bestBeforeDate: json['bestBeforeDate'] != null
-            ? DateTime.parse(json['bestBeforeDate'] as String)
-            : null,
-        freezeDate: json['freezeDate'] != null
-            ? DateTime.parse(json['freezeDate'] as String)
-            : null,
-        unfreezeDate: json['unfreezeDate'] != null
-            ? DateTime.parse(json['unfreezeDate'] as String)
-            : null,
-        frozen: json['frozen'] as bool?,
-        archived: json['archived'] as bool?,
-        notes: json['notes'] as String?,
-        extras: json['extras'] as Map<String, dynamic>?,
-      );
+      rejectExplicitNulls(json, const ['frozen', 'archived']);
+      final updated = BeanBatch.fromJson({
+        ...existing.toJson(),
+        ...json,
+        'id': existing.id,
+        'beanId': existing.beanId,
+        'createdAt': existing.createdAt.toIso8601String(),
+        'updatedAt': DateTime.now().toIso8601String(),
+      });
 
       await _storage.updateBatch(updated);
       return jsonOk(updated.toJson());
+    } on FormatException catch (e) {
+      return jsonBadRequest({'error': e.toString()});
+    } on TypeError catch (e) {
+      return jsonBadRequest({'error': e.toString()});
     } catch (e, st) {
       _log.severe('Error updating batch $id', e, st);
       return jsonError({'error': e.toString()});

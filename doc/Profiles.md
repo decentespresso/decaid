@@ -254,7 +254,9 @@ Content-Type: application/json
 }
 ```
 
-Note: Cannot modify the `profile` field of default profiles (only metadata). If execution changes produce a new ID, replacement is atomic. If that ID already exists, the update is rejected and both profiles remain unchanged.
+Omitted fields are preserved. Set `metadata` to `null` to clear stored metadata, or pass an object to replace it. The `profile` field is non-nullable; explicit `null` returns 400.
+
+Cannot modify the `profile` field of default profiles (only metadata). If execution changes produce a new ID, replacement is atomic. If that ID already exists, the update is rejected and both profiles remain unchanged.
 
 Response: Updated `ProfileRecord` (200) or error (400/404)
 

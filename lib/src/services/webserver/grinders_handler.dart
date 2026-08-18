@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/data/grinder.dart';
 import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
+import 'package:reaprime/src/services/webserver/json_patch.dart';
 import 'package:reaprime/src/services/webserver/json_response.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
@@ -87,26 +88,21 @@ class GrindersHandler {
       final body = await req.body.asString;
       final json = jsonDecode(body) as Map<String, dynamic>;
 
-      final updated = existing.copyWith(
-        model: json['model'] as String?,
-        burrs: json['burrs'] as String?,
-        burrSize: (json['burrSize'] as num?)?.toDouble(),
-        burrType: json['burrType'] as String?,
-        notes: json['notes'] as String?,
-        archived: json['archived'] as bool?,
-        settingType: json['settingType'] != null
-            ? GrinderSettingType.fromString(json['settingType'] as String)
-            : null,
-        settingValues: (json['settingValues'] as List?)?.cast<String>(),
-        settingSmallStep: (json['settingSmallStep'] as num?)?.toDouble(),
-        settingBigStep: (json['settingBigStep'] as num?)?.toDouble(),
-        rpmSmallStep: (json['rpmSmallStep'] as num?)?.toDouble(),
-        rpmBigStep: (json['rpmBigStep'] as num?)?.toDouble(),
-        extras: json['extras'] as Map<String, dynamic>?,
-      );
+      rejectExplicitNulls(json, const ['model', 'archived', 'settingType']);
+      final updated = Grinder.fromJson({
+        ...existing.toJson(),
+        ...json,
+        'id': existing.id,
+        'createdAt': existing.createdAt.toIso8601String(),
+        'updatedAt': DateTime.now().toIso8601String(),
+      });
 
       await _storage.updateGrinder(updated);
       return jsonOk(updated.toJson());
+    } on FormatException catch (e) {
+      return jsonBadRequest({'error': e.toString()});
+    } on TypeError catch (e) {
+      return jsonBadRequest({'error': e.toString()});
     } catch (e, st) {
       _log.severe('Error updating grinder $id', e, st);
       return jsonError({'error': e.toString()});

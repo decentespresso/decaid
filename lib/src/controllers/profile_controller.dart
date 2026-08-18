@@ -216,6 +216,7 @@ class ProfileController {
     String id, {
     Profile? profile,
     Map<String, dynamic>? metadata,
+    bool metadataPresent = false,
   }) async {
     final existing = await _storage.get(id);
     if (existing == null) {
@@ -226,7 +227,11 @@ class ProfileController {
       throw ArgumentError('Cannot modify default profile content');
     }
 
-    final updated = existing.copyWith(profile: profile, metadata: metadata);
+    final updated = existing.copyWith(
+      profile: profile,
+      metadata: metadata,
+      clearMetadata: metadataPresent && metadata == null,
+    );
 
     if (updated.id != existing.id) {
       _log.warning(

@@ -51,6 +51,7 @@ class _StubStorage implements ProfileStorageService {
 }
 
 void main() {
+  late ProfileController controller;
   late Handler handler;
 
   Future<Response> postProfile(Map<String, dynamic> body) async {
@@ -63,8 +64,18 @@ void main() {
     );
   }
 
+  Future<Response> putProfile(String id, Map<String, dynamic> body) async {
+    return await handler(
+      Request(
+        'PUT',
+        Uri.parse('http://localhost/api/v1/profiles/$id'),
+        body: jsonEncode(body),
+      ),
+    );
+  }
+
   setUp(() {
-    final controller = ProfileController(storage: _StubStorage());
+    controller = ProfileController(storage: _StubStorage());
     final profileHandler = ProfileHandler(controller: controller);
     final app = Router().plus;
     profileHandler.addRoutes(app);
@@ -158,5 +169,48 @@ void main() {
         expect(response.statusCode, 400);
       },
     );
+  });
+
+  group('PUT /api/v1/profiles/<id>', () {
+    test('applies tri-state metadata semantics', () async {
+      final createResponse = await postProfile({
+        'profile': profileWithoutMetadata(),
+        'metadata': {'source': 'import'},
+      });
+      final created =
+          jsonDecode(await createResponse.readAsString())
+              as Map<String, dynamic>;
+      final id = created['id'] as String;
+
+      final preserved = await putProfile(id, {});
+      expect(jsonDecode(await preserved.readAsString())['metadata'], {
+        'source': 'import',
+      });
+
+      final cleared = await putProfile(id, {'metadata': null});
+      expect(jsonDecode(await cleared.readAsString())['metadata'], isNull);
+
+      final replaced = await putProfile(id, {
+        'metadata': {'source': 'user'},
+      });
+      expect(jsonDecode(await replaced.readAsString())['metadata'], {
+        'source': 'user',
+      });
+    });
+
+    test('rejects explicit null for the non-nullable profile', () async {
+      final createResponse = await postProfile({
+        'profile': profileWithoutMetadata(),
+      });
+      final created =
+          jsonDecode(await createResponse.readAsString())
+              as Map<String, dynamic>;
+
+      final response = await putProfile(created['id'] as String, {
+        'profile': null,
+      });
+
+      expect(response.statusCode, 400);
+    });
   });
 }

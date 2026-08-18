@@ -1198,8 +1198,11 @@ paths:
 
         Each HTTP request is an independent mutation. Requests are processed in FIFO order,
         and partial request bodies are deep-merged against the workflow state when that request
-        reaches the front of the queue. The server does not debounce or combine separate
-        requests. Machine side effects from workflow PUT requests do not execute concurrently,
+        reaches the front of the queue. Omitted steam-setting fields keep their current values;
+        supplied values replace them. Steam settings are non-nullable, so explicit `null` for
+        `steamSettings` or any of its fields returns `400`.
+        The server does not debounce or combine separate requests. Machine side effects from
+        workflow PUT requests do not execute concurrently,
         so a request may wait behind an in-flight machine operation. Each response describes
         the workflow resulting from that request. High-frequency clients should throttle input
         on the client side rather than relying on server-side debounce.
@@ -1231,7 +1234,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/WorkflowRequest"
+              $ref: "#/components/schemas/WorkflowPatch"
             examples:
               updateContext:
                 summary: Update dose and grinder via context (recommended)
@@ -1917,7 +1920,10 @@ paths:
           description: Internal Server Error
     put:
       summary: Update a bean
-      description: Updates an existing bean. Pass only the fields to change.
+      description: |
+        Updates an existing bean. Omitted fields preserve their current values,
+        explicit `null` clears nullable fields, and supplied values replace them.
+        Explicit `null` for a non-nullable field returns `400`.
       tags: [Beans]
       parameters:
         - name: id
@@ -2184,7 +2190,10 @@ paths:
           description: Internal Server Error
     put:
       summary: Update a batch
-      description: Updates an existing batch. Pass only the fields to change.
+      description: |
+        Updates an existing batch. Omitted fields preserve their current values,
+        explicit `null` clears nullable fields, and supplied values replace them.
+        Explicit `null` for a non-nullable field returns `400`.
       tags: [Beans]
       parameters:
         - name: id
@@ -2458,7 +2467,10 @@ paths:
           description: Internal Server Error
     put:
       summary: Update a grinder
-      description: Updates an existing grinder. Pass only the fields to change.
+      description: |
+        Updates an existing grinder. Omitted fields preserve their current values,
+        explicit `null` clears nullable fields, and supplied values replace them.
+        Explicit `null` for a non-nullable field returns `400`.
       tags: [Grinders]
       parameters:
         - name: id
@@ -3115,10 +3127,13 @@ paths:
     put:
       summary: Update profile
       description: |
-        Updates an existing profile. Cannot modify default profiles' content,
-        only metadata. Execution changes that produce a new profile ID replace
-        the old record atomically. If the target ID already exists, the update
-        is rejected and both records remain unchanged.
+        Updates an existing profile. Omitted fields preserve their current values;
+        `metadata: null` clears metadata; supplied metadata replaces it. The profile
+        itself is non-nullable, so `profile: null` returns `400`.
+        Cannot modify default profiles' content, only metadata. Execution changes
+        that produce a new profile ID replace the old record atomically. If the
+        target ID already exists, the update is rejected and both records remain
+        unchanged.
       tags: [Profiles]
       parameters:
         - name: id
@@ -3136,10 +3151,10 @@ paths:
               properties:
                 profile:
                   $ref: '#/components/schemas/Profile'
-                  nullable: true
                 metadata:
                   type: object
                   nullable: true
+                  description: Set to `null` to clear stored profile metadata.
       responses:
         "200":
           description: Profile updated successfully
@@ -6340,6 +6355,29 @@ components:
             Machine settings active when the shot was pulled — recorded onto the
             shot, ignored on apply.
 
+    WorkflowPatch:
+      type: object
+      description: |
+        Partial workflow update. Omitted fields preserve their current values.
+        Fields in `steamSettings` are non-nullable and reject explicit `null`.
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        profile:
+          $ref: "#/components/schemas/Profile"
+        context:
+          $ref: "#/components/schemas/WorkflowContext"
+        steamSettings:
+          $ref: "#/components/schemas/SteamSettingsPatch"
+        hotWaterData:
+          $ref: "#/components/schemas/HotWaterData"
+        rinseData:
+          $ref: "#/components/schemas/RinseData"
+        machine:
+          $ref: "#/components/schemas/WorkflowMachine"
+
     WorkflowMachine:
       type: object
       description: >
@@ -6353,6 +6391,21 @@ components:
           description: >
             The DE1's flow-estimation calibration (calibration_flow_multiplier)
             active when the shot was pulled.
+
+    SteamSettingsPatch:
+      type: object
+      description: Partial steam-settings update; omitted fields are preserved and `null` is rejected.
+      properties:
+        targetTemperature:
+          type: integer
+        duration:
+          type: integer
+        flow:
+          type: number
+          format: double
+        stopAtTemperature:
+          type: number
+          format: double
 
     SteamSettings:
       type: object

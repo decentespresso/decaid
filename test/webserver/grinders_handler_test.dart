@@ -155,6 +155,45 @@ void main() {
       expect(body['notes'], 'Upgraded burrs');
     });
 
+    test(
+      'PUT /api/v1/grinders/<id> applies tri-state patch semantics',
+      () async {
+        final createRes = await sendPost('/api/v1/grinders', {
+          'model': 'Niche Zero',
+          'notes': 'Original burrs',
+        });
+        final created = jsonDecode(await createRes.readAsString());
+        final id = created['id'];
+
+        final preserved = await sendPut('/api/v1/grinders/$id', {
+          'burrType': 'conical',
+        });
+        expect(
+          jsonDecode(await preserved.readAsString())['notes'],
+          'Original burrs',
+        );
+
+        final cleared = await sendPut('/api/v1/grinders/$id', {'notes': null});
+        expect(
+          (jsonDecode(await cleared.readAsString()) as Map).containsKey(
+            'notes',
+          ),
+          isFalse,
+        );
+
+        final replaced = await sendPut('/api/v1/grinders/$id', {
+          'notes': 'Upgraded burrs',
+        });
+        expect(
+          jsonDecode(await replaced.readAsString())['notes'],
+          'Upgraded burrs',
+        );
+
+        final rejected = await sendPut('/api/v1/grinders/$id', {'model': null});
+        expect(rejected.statusCode, 400);
+      },
+    );
+
     test('PUT /api/v1/grinders/<id> returns 404 for missing grinder', () async {
       final response = await sendPut('/api/v1/grinders/nonexistent', {
         'model': 'Test',
