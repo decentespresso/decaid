@@ -30,7 +30,7 @@ Requirements: Flutter (stable), the [GitHub CLI](https://cli.github.com) (`gh`, 
 
 ```bash
 flutter pub get
-./scripts/fetch_dye2_plugin.sh   # installs assets/plugins/dye2.reaplugin/ from the pinned allofmeng/dye2 release (scripts/fetch_dye2_plugin.sh)
+./scripts/fetch_dye2_plugin.sh   # installs assets/plugins/dye2.reaplugin/ from the pinned decentespresso/dye2 release (scripts/fetch_dye2_plugin.sh)
 
 # Run with simulated hardware (no DE1 / scale required):
 flutter run --dart-define=simulate=1

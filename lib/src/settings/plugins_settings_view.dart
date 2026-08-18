@@ -133,6 +133,7 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
     });
 
     final plugins = widget.pluginLoaderService.availablePlugins;
+    _sourceService.seedBundledSources();
     final sources = <String, PluginSource>{};
     for (final plugin in plugins) {
       final source = _sourceService.sourceFor(plugin.id);

@@ -34,7 +34,7 @@ When you change X, also check Y and Z.
 | Profile/workflow serialization | `Workflow.fromJson()`, `ProfileDao`, `ProfileStorageService`, legacy field backfill, spec | Dual representation (`context` + legacy fields); both must stay in sync |
 | `ConnectionManager` | 7 collaborators (`DisconnectExpectations`, `StatusPublisher`, `ScanReportBuilder`, `DisconnectSupervisor`, `EarlyConnectWatcher`, `ScanOrchestrator`, `PolicyResolver`) | Delegate to the right collaborator rather than growing the manager |
 | `De1StateManager` | `ShotSequencer`, `SteamSequencer`, `ScaleController` (sleep/wake), `ConnectionManager` (reconnect) | Machine state transitions cascade to shot lifecycle, scale power, and reconnect logic |
-| Plugin API or permissions | `PluginManager`, `PluginHost`, [allofmeng/dye2](https://github.com/allofmeng/dye2), `doc/Plugins.md`, bundled plugin assets | Plugin host + bundled plugin must stay compatible |
+| Plugin API or permissions | `PluginManager`, `PluginHost`, [decentespresso/dye2](https://github.com/decentespresso/dye2), `doc/Plugins.md`, bundled plugin assets | Plugin host + bundled plugin must stay compatible |
 | WebUI / skin serving | `lib/src/webui_support/`, `lib/src/services/webserver/webui/`, `doc/Skins.md` | Skin install, serving, and metadata are coupled |
 | Device discovery | `DeviceMatcher`, `BleServiceIdentifier`, `ScanStateGuardian`, `ScanOrchestrator`, `doc/DeviceManagement.md` | Name matching, service verification, and scan lifecycle are interdependent |
 | `BatteryController` / charging | `charging_logic.dart`, `De1Controller`, DE1 FW behavior (auto-re-enables charger) | Charger mode logic depends on DE1 FW quirks |
@@ -57,4 +57,4 @@ API smoke test: `scripts/sb-dev.sh start` then `curl` / `websocat` per `.agents/
 - `test/` test files — read only the ones relevant to the change.
 - `assets/` assets unrelated to API specs.
 - `ios/`, `android/`, `macos/`, `linux/`, `windows/` — platform-native project files. Only touch when adding platform capabilities.
-- `packages/dye2-plugin/` — DYE2 plugin source, **not built or bundled by Decaid**. The bundled copy is pinned and fetched from [allofmeng/dye2](https://github.com/allofmeng/dye2) releases via `scripts/fetch_dye2_plugin.sh` (see `doc/Plugins.md`). Do DYE2 compatibility work against that repo, not this in-tree copy.
+- `packages/dye2-plugin/` — DYE2 plugin source, **not built or bundled by Decaid**. The bundled copy is pinned and fetched from [decentespresso/dye2](https://github.com/decentespresso/dye2) releases via `scripts/fetch_dye2_plugin.sh` (see `doc/Plugins.md`). Do DYE2 compatibility work against that repo, not this in-tree copy.

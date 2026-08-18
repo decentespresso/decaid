@@ -439,9 +439,9 @@ it in Decaid UI.
 
 ## Reference Implementation: DYE2 Plugin
 
-The DYE2 (Describe Your Espresso) plugin ships from its own repo, [allofmeng/dye2](https://github.com/allofmeng/dye2), as a release asset. CI and local setup install it by running `./scripts/fetch_dye2_plugin.sh`, which downloads a pinned release tag (`DYE2_VERSION` in the script), verifies its checksum (`DYE2_SHA256`) and manifest contract (`id`, `version`, `apiVersion`), and unpacks it into `assets/plugins/dye2.reaplugin/`. Bump the pinned version/checksum in a normal PR when DYE2 ships a new release.
+The DYE2 (Describe Your Espresso) plugin ships from its own repo, [decentespresso/dye2](https://github.com/decentespresso/dye2), as a release asset. CI and local setup install it by running `./scripts/fetch_dye2_plugin.sh`, which downloads a pinned release tag (`DYE2_VERSION` in the script), verifies its checksum (`DYE2_SHA256`) and manifest contract (`id`, `version`, `apiVersion`), and unpacks it into `assets/plugins/dye2.reaplugin/`. Bump the pinned version/checksum in a normal PR when DYE2 ships a new release.
 
-`packages/dye2-plugin/` still holds the plugin's original TypeScript + Vite source and is useful as a reference for advanced patterns (REST API client, HTML template rendering, Vite dev server — see `packages/dye2-plugin/README.md`), but it is **not** built or bundled by Decaid anymore and is not authoritative for what ships. Treat [allofmeng/dye2](https://github.com/allofmeng/dye2) as the source of truth for the DYE2 plugin; update `packages/dye2-plugin/` only if it's being kept in sync deliberately.
+`packages/dye2-plugin/` still holds the plugin's original TypeScript + Vite source and is useful as a reference for advanced patterns (REST API client, HTML template rendering, Vite dev server — see `packages/dye2-plugin/README.md`), but it is **not** built or bundled by Decaid anymore and is not authoritative for what ships. Treat [decentespresso/dye2](https://github.com/decentespresso/dye2) as the source of truth for the DYE2 plugin; update `packages/dye2-plugin/` only if it's being kept in sync deliberately.
 
 ## Distribution and Updates
 
@@ -508,6 +508,29 @@ skin updates, and on demand from the Plugins settings screen or
   running plugin is restarted on the new version; a disabled one stays disabled;
 - one plugin's failure never stops the others; the failure is recorded in
   `lastError`.
+
+### Bundled plugins
+
+A bundled plugin is copied out of the app at startup and stays the app-owned
+floor: a newer bundled version replaces an older installed copy, an equal or
+older one does not.
+
+Bundled plugins published from a GitHub repo also take part in normal update
+checks. `bundledPluginRepos` in `plugin_source_service.dart` maps the plugin id
+to its canonical repo - today `dye2.reaplugin` to
+[decentespresso/dye2](https://github.com/decentespresso/dye2) - and the first
+update check or visit to the Plugins screen seeds `.rea_source.json` for it as
+a `github_release` source tagged with the installed manifest version. Existing
+installs from before source tracking are seeded the same way, so DYE2 starts
+receiving releases without a reinstall. The seeder also realigns the recorded
+tag when a newer bundled copy has been laid down, and never touches metadata
+that points somewhere else, so a plugin the user pointed at their own fork or
+branch keeps that source.
+
+No asset name is recorded for a bundled seed: DYE2 names its release asset
+after the version (`dye2.reaplugin-<version>.zip`), so pinning today's name
+would break tomorrow's release. The installer picks the release's single
+`.zip`, and a release with several zip assets asks for an explicit choice.
 
 ### Permission escalation
 
@@ -592,7 +615,7 @@ The bundled **settings plugin** (`settings.reaplugin`) provides a web UI for plu
 
 ## Next Steps
 
-1. Review the example plugins in `assets/plugins/` and the DYE2 plugin at [allofmeng/dye2](https://github.com/allofmeng/dye2)
+1. Review the example plugins in `assets/plugins/` and the DYE2 plugin at [decentespresso/dye2](https://github.com/decentespresso/dye2)
 2. Start with a simple plugin that logs `stateUpdate` events
 3. Add settings and persistent storage
 4. Implement HTTP communication with external services

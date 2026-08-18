@@ -20,6 +20,13 @@ class PluginApprovalRequiredException implements Exception {
 
 final _releaseTagPattern = RegExp(r'^v?\d+\.\d+\.\d+$');
 
+/// GitHub repositories the bundled plugins are published from. A bundled copy
+/// is the app-owned floor; this table lets an installed copy keep receiving
+/// releases from its canonical repo.
+const bundledPluginRepos = <String, String>{
+  'dye2.reaplugin': 'decentespresso/dye2',
+};
+
 class PluginSourceService {
   static const metadataFileName = '.rea_source.json';
 
@@ -149,8 +156,50 @@ class PluginSourceService {
     return manifest;
   }
 
+  /// Gives a bundled plugin the provenance of the repo it is published from,
+  /// so it takes part in update checks like any other release-backed plugin.
+  ///
+  /// Seeds a plugin that has no metadata yet - a fresh install, or an existing
+  /// one from before source tracking - and keeps the recorded tag in step with
+  /// the installed manifest version when the bundled copy has moved. Metadata
+  /// pointing somewhere else is left alone.
+  void seedBundledSources() {
+    for (final entry in bundledPluginRepos.entries) {
+      final pluginId = entry.key;
+      final repo = entry.value;
+      final manifest = _loader.getPluginManifest(pluginId);
+      if (manifest == null) continue;
+
+      final existing = sourceFor(pluginId);
+      final tag = 'v${manifest.version}';
+
+      if (existing == null) {
+        _writeSource(
+          pluginId,
+          PluginSource(
+            kind: PluginSourceKind.githubRelease,
+            repo: repo,
+            releaseTag: tag,
+            installedAt: DateTime.now(),
+          ),
+        );
+        _log.info('Seeded bundled plugin source: $pluginId from $repo');
+        continue;
+      }
+
+      final isBundledSource =
+          existing.kind == PluginSourceKind.githubRelease &&
+          existing.repo == repo;
+      if (!isBundledSource || existing.releaseTag == tag) continue;
+
+      _writeSource(pluginId, existing.copyWith(releaseTag: tag));
+      _log.info('Realigned bundled plugin source: $pluginId at $tag');
+    }
+  }
+
   Future<void> updateAllPlugins() async {
     _log.info('Starting update check for managed plugins');
+    seedBundledSources();
 
     for (final manifest in _loader.availablePlugins) {
       final source = sourceFor(manifest.id);
@@ -194,6 +243,7 @@ class PluginSourceService {
       await _withStaging((staging) async {
         _extractArchive(bytes, staging);
         final package = resolvePluginPackage(staging);
+        _requireSamePlugin(installed, package);
         _requireTagMatchesManifest(release.tag, package.manifest.version);
 
         final added = _addedPermissions(installed, package.manifest);
@@ -250,6 +300,7 @@ class PluginSourceService {
     await _withStaging((staging) async {
       _extractArchive(bytes, staging);
       final package = resolvePluginPackage(staging);
+      _requireSamePlugin(installed, package);
 
       final added = _addedPermissions(installed, package.manifest);
       if (added.isNotEmpty) {
@@ -306,6 +357,13 @@ class PluginSourceService {
     return installFromGitHubBranch(
       source.repo!,
       branch: source.branch ?? 'main',
+    );
+  }
+
+  void _requireSamePlugin(PluginManifest installed, PluginPackage package) {
+    if (package.manifest.id == installed.id) return;
+    throw PluginPackageException(
+      'Update for ${installed.id} carries plugin "${package.manifest.id}"',
     );
   }
 

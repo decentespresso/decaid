@@ -514,6 +514,128 @@ function createPlugin() {
       expect(loader.getPluginManifest(id), isNull);
     });
 
+    test('an update carrying a different plugin is rejected', () async {
+      await http.runWithClient(
+        () => service.installFromGitHubBranch('acme/plugin'),
+        () => gitHubClient(commit: 'first'),
+      );
+
+      await http.runWithClient(
+        () => service.updateAllPlugins(),
+        () => gitHubClient(
+          commit: 'second',
+          branchArchive: pluginArchive(pluginId: 'someone-else.reaplugin'),
+        ),
+      );
+
+      expect(loader.getPluginManifest('someone-else.reaplugin'), isNull);
+      final source = service.sourceFor(id)!;
+      expect(source.commit, 'first');
+      expect(source.lastError, contains('someone-else.reaplugin'));
+    });
+
+    group('bundled plugin provenance', () {
+      const dye2Id = 'dye2.reaplugin';
+
+      Future<void> installBundledCopy({String version = '0.1.4'}) async {
+        final staging = Directory('${tempDir.path}/bundled_$version')
+          ..createSync(recursive: true);
+        File(
+          '${staging.path}/manifest.json',
+        ).writeAsStringSync(jsonEncode(manifestJson(dye2Id, version: version)));
+        File('${staging.path}/plugin.js').writeAsStringSync(pluginJs(dye2Id));
+        await loader.installPluginPackage(staging);
+      }
+
+      test('a freshly installed bundled DYE2 gets its repo', () async {
+        await installBundledCopy();
+        expect(sourceFile(dye2Id).existsSync(), isFalse);
+
+        service.seedBundledSources();
+
+        final source = service.sourceFor(dye2Id)!;
+        expect(source.kind, PluginSourceKind.githubRelease);
+        expect(source.repo, 'decentespresso/dye2');
+        expect(source.releaseTag, 'v0.1.4');
+        expect(source.includePrerelease, isFalse);
+        expect(source.assetName, isNull);
+      });
+
+      test('an existing DYE2 without metadata is migrated', () async {
+        await installBundledCopy();
+        expect(service.sourceFor(dye2Id), isNull);
+
+        await http.runWithClient(
+          () => service.updateAllPlugins(),
+          () => gitHubClient(
+            tag: 'v0.1.4',
+            releaseArchive: pluginArchive(pluginId: dye2Id),
+          ),
+        );
+
+        expect(service.sourceFor(dye2Id)?.repo, 'decentespresso/dye2');
+      });
+
+      test('the update checker then queries decentespresso/dye2', () async {
+        await installBundledCopy();
+
+        final requested = <String>[];
+        await http.runWithClient(() => service.updateAllPlugins(), () {
+          return MockClient((request) async {
+            requested.add(request.url.toString());
+            final url = request.url.toString();
+            if (url.contains('/releases/latest')) {
+              return http.Response(
+                releaseJson('v0.2.0', ['dye2.reaplugin-0.2.0.zip']),
+                200,
+              );
+            }
+            return http.Response.bytes(
+              pluginArchive(pluginId: dye2Id, version: '0.2.0'),
+              200,
+            );
+          });
+        });
+
+        expect(
+          requested,
+          contains(
+            'https://api.github.com/repos/decentespresso/dye2/releases/latest',
+          ),
+        );
+        expect(loader.getPluginManifest(dye2Id)?.version, '0.2.0');
+        expect(service.sourceFor(dye2Id)?.releaseTag, 'v0.2.0');
+      });
+
+      test('seeding realigns the tag after a newer bundled copy', () async {
+        await installBundledCopy();
+        service.seedBundledSources();
+        expect(service.sourceFor(dye2Id)?.releaseTag, 'v0.1.4');
+
+        await installBundledCopy(version: '0.1.5');
+        service.seedBundledSources();
+
+        expect(service.sourceFor(dye2Id)?.releaseTag, 'v0.1.5');
+      });
+
+      test('seeding leaves a user-chosen source alone', () async {
+        await http.runWithClient(
+          () => service.installFromGitHubBranch('someone/dye2-fork'),
+          () => gitHubClient(
+            commit: 'fork-commit',
+            branchArchive: pluginArchive(pluginId: dye2Id),
+          ),
+        );
+
+        service.seedBundledSources();
+
+        final source = service.sourceFor(dye2Id)!;
+        expect(source.kind, PluginSourceKind.githubBranch);
+        expect(source.repo, 'someone/dye2-fork');
+        expect(source.commit, 'fork-commit');
+      });
+    });
+
     test('a failed install leaves the previous version running', () async {
       await http.runWithClient(
         () => service.installFromGitHubRelease('acme/plugin'),

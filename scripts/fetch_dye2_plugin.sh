@@ -5,7 +5,7 @@ pinned_version="v0.1.4"
 pinned_sha256="fd8e43afa7d953c48ad23ca74aa76cb5314fde5602d07149f954e8e3497b81a6"
 pinned_api_version="1"
 
-repo="${DYE2_REPO:-allofmeng/dye2}"
+repo="${DYE2_REPO:-decentespresso/dye2}"
 version="${DYE2_VERSION:-$pinned_version}"
 expected_sha256="${DYE2_SHA256:-$pinned_sha256}"
 expected_api_version="${DYE2_API_VERSION:-$pinned_api_version}"
