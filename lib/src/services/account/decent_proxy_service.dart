@@ -5,6 +5,8 @@ import 'package:logging/logging.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart'
     show CredentialStore;
 
+typedef RequireAccountConsent = Future<bool> Function(String callerId);
+
 class DecentAccountNotLinkedException implements Exception {
   @override
   String toString() => 'DecentAccountNotLinkedException: no account linked';
@@ -16,6 +18,11 @@ class DecentProxyForbiddenPathException implements Exception {
   @override
   String toString() =>
       'DecentProxyForbiddenPathException: path not allowed: $path';
+}
+
+class DecentProxyConsentDeniedException implements Exception {
+  @override
+  String toString() => 'DecentProxyConsentDeniedException';
 }
 
 class DecentProxyResponse {
@@ -35,6 +42,7 @@ class DecentProxyResponse {
 class DecentProxyService {
   final http.Client _httpClient;
   final CredentialStore _store;
+  final RequireAccountConsent _requireConsent;
   final String baseUrl;
 
   final Set<String> allowedPrefixes;
@@ -56,10 +64,12 @@ class DecentProxyService {
   DecentProxyService({
     required http.Client httpClient,
     required CredentialStore credentialStore,
+    required RequireAccountConsent requireConsent,
     this.baseUrl = 'https://decentespresso.com',
     this.allowedPrefixes = const {'support/api/'},
   }) : _httpClient = httpClient,
-       _store = credentialStore;
+       _store = credentialStore,
+       _requireConsent = requireConsent;
 
   Future<DecentProxyResponse> proxy({
     required String callerId,
@@ -86,11 +96,17 @@ class DecentProxyService {
       throw DecentProxyForbiddenPathException(normalizedPath);
     }
 
-    final email = await _store.read(key: 'email');
-    final password = await _store.read(key: 'password');
-    if (email == null || password == null) {
+    if (await _credentials() == null) {
       throw DecentAccountNotLinkedException();
     }
+
+    if (!await _requireConsent(callerId)) {
+      _log.warning('caller=$callerId -> account consent denied');
+      throw DecentProxyConsentDeniedException();
+    }
+
+    final credentials = await _credentials();
+    if (credentials == null) throw DecentAccountNotLinkedException();
 
     final uri = _buildUri(
       normalizedPath,
@@ -105,7 +121,7 @@ class DecentProxyService {
     }
 
     final basic = base64Encode(
-      utf8.encode('${email.trim()}:${password.trim()}'),
+      utf8.encode('${credentials.email}:${credentials.password}'),
     );
     final outbound = http.Request(normalizedMethod, uri)
       ..headers['authorization'] = 'Basic $basic';
@@ -130,6 +146,13 @@ class DecentProxyService {
       headers: _relayHeaders(response.headers),
       bodyBytes: responseBody,
     );
+  }
+
+  Future<({String email, String password})?> _credentials() async {
+    final email = await _store.read(key: 'email');
+    final password = await _store.read(key: 'password');
+    if (email == null || password == null) return null;
+    return (email: email.trim(), password: password.trim());
   }
 
   Future<DecentProxyResponse> proxyGet({

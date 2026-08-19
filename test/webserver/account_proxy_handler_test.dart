@@ -33,6 +33,7 @@ void main() {
     upstream = null;
 
     final proxy = DecentProxyService(
+      requireConsent: (_) async => true,
       httpClient: http_testing.MockClient((request) async {
         upstream = request;
         return http.Response('SN001\nSN002', 200);
@@ -136,10 +137,39 @@ void main() {
     },
   );
 
+  test('authenticated caller denied consent receives 403', () async {
+    await linkAccount();
+    final app = Router().plus;
+    final proxy = DecentProxyService(
+      requireConsent: (_) async => false,
+      httpClient: http_testing.MockClient((request) async {
+        fail('must not call upstream when consent is denied: ${request.url}');
+      }),
+      credentialStore: store,
+    );
+    AccountProxyHandler(proxy: proxy).addRoutes(app);
+    handler = const Pipeline()
+        .addMiddleware(proxyAuthMiddleware(tokens))
+        .addHandler(app.call);
+
+    final response = await get(
+      '/api/v1/account/proxy/support/api/sn',
+      token: 'skin-token',
+    );
+
+    expect(response.statusCode, 403);
+    expect(
+      jsonDecode(await response.readAsString())['error'],
+      'Account access was not granted',
+    );
+    expect(upstream, isNull);
+  });
+
   test('authenticated + linked relays upstream response bytes', () async {
     await linkAccount();
     final app = Router().plus;
     final proxy = DecentProxyService(
+      requireConsent: (_) async => true,
       httpClient: http_testing.MockClient((request) async {
         upstream = request;
         return http.Response.bytes(
@@ -237,6 +267,7 @@ void main() {
     registerWriteToken();
     final app = Router().plus;
     final proxy = DecentProxyService(
+      requireConsent: (_) async => true,
       httpClient: http_testing.MockClient((request) async {
         upstream = request;
         return http.Response('SN001\nSN002', 200);
@@ -272,6 +303,7 @@ void main() {
     registerWriteToken();
     final app = Router().plus;
     final proxy = DecentProxyService(
+      requireConsent: (_) async => true,
       httpClient: http_testing.MockClient((request) async {
         upstream = request;
         return http.Response('SN001\nSN002', 200);
@@ -301,6 +333,7 @@ void main() {
     registerWriteToken();
     final app = Router().plus;
     final proxy = DecentProxyService(
+      requireConsent: (_) async => true,
       httpClient: http_testing.MockClient((request) async {
         upstream = request;
         return http.Response('SN001\nSN002', 200);

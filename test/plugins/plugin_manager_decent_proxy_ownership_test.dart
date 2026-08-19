@@ -59,6 +59,7 @@ void main() {
       decentProxyTimeout: decentProxyTimeout,
       decentProxyService: DecentProxyService(
         credentialStore: store,
+        requireConsent: (_) async => true,
         httpClient: http_testing.MockClient(onRequest),
       ),
     );

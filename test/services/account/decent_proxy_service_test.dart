@@ -24,6 +24,8 @@ class FakeCredentialStore implements CredentialStore {
   }
 }
 
+Future<bool> _allowConsent(String _) async => true;
+
 void main() {
   late FakeCredentialStore store;
 
@@ -39,10 +41,12 @@ void main() {
   DecentProxyService buildService(
     http_testing.MockClientHandler handler, {
     String baseUrl = 'https://decentespresso.com',
+    Future<bool> Function(String callerId) requireConsent = _allowConsent,
   }) {
     return DecentProxyService(
       httpClient: http_testing.MockClient(handler),
       credentialStore: store,
+      requireConsent: requireConsent,
       baseUrl: baseUrl,
     );
   }
@@ -56,6 +60,26 @@ void main() {
       () => service.proxyGet(callerId: 'skin', path: 'support/api/sn'),
       throwsA(isA<DecentAccountNotLinkedException>()),
     );
+  });
+
+  test('denied consent never reaches the upstream service', () async {
+    await linkAccount();
+    String? consentCaller;
+    final service = buildService(
+      (request) async {
+        fail('must not call upstream when consent is denied: ${request.url}');
+      },
+      requireConsent: (callerId) async {
+        consentCaller = callerId;
+        return false;
+      },
+    );
+
+    await expectLater(
+      service.proxyGet(callerId: 'plugin:dye2', path: 'support/api/sn'),
+      throwsA(isA<DecentProxyConsentDeniedException>()),
+    );
+    expect(consentCaller, 'plugin:dye2');
   });
 
   test('attaches Basic auth and relays the upstream body + status', () async {
