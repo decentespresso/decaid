@@ -33,8 +33,9 @@ class SkinSelectorPage extends StatefulWidget {
 class _SkinSelectorPageState extends State<SkinSelectorPage>
     with WidgetsBindingObserver {
   String? _selectedSkinId;
-  static const String _customSkinId = '__custom__';
   static const String _liveEditSkinId = '__live_edit__';
+  final TextEditingController _repoController = TextEditingController();
+  final TextEditingController _detailController = TextEditingController();
   final Logger _log = Logger('SkinSelector');
   bool _storagePermissionGranted = false;
 
@@ -48,6 +49,8 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
 
   @override
   void dispose() {
+    _repoController.dispose();
+    _detailController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -72,7 +75,27 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
     final showStorageRow = Platform.isAndroid;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Web Interface')),
+      appBar: AppBar(
+        title: const Text('Web Interface'),
+        actions: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.add),
+            tooltip: 'Install skin',
+            onSelected: (value) => _handleInstallAction(context, value),
+            itemBuilder: (context) => const [
+              PopupMenuItem<String>(
+                value: 'github-release',
+                child: Text('GitHub Release'),
+              ),
+              PopupMenuItem<String>(
+                value: 'github-branch',
+                child: Text('GitHub Branch'),
+              ),
+              PopupMenuItem<String>(value: 'zip', child: Text('ZIP file')),
+            ],
+          ),
+        ],
+      ),
       body: SafeArea(
         top: false,
         child: SingleChildScrollView(
@@ -247,9 +270,7 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
 
               setState(() => _selectedSkinId = value);
 
-              if (value == _customSkinId) {
-                await _pickCustomSkinZip(context);
-              } else if (value == _liveEditSkinId) {
+              if (value == _liveEditSkinId) {
                 await _pickLiveEditFolder(context);
               } else if (widget.webUIService.isServing) {
                 await _restartServerWithSkin(value);
@@ -346,16 +367,6 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
                   ),
                 );
               }),
-              const DropdownMenuItem(
-                value: _customSkinId,
-                child: Row(
-                  children: [
-                    Icon(Icons.archive_outlined, size: 16),
-                    SizedBox(width: 8),
-                    Text('Install from .zip...'),
-                  ],
-                ),
-              ),
               if (Platform.isMacOS ||
                   Platform.isLinux ||
                   Platform.isWindows ||
@@ -462,11 +473,6 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
       return;
     }
 
-    if (_selectedSkinId == _customSkinId) {
-      await _pickCustomSkinZip(context);
-      return;
-    }
-
     if (_selectedSkinId == _liveEditSkinId) {
       await _pickLiveEditFolder(context);
       return;
@@ -555,6 +561,103 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
         ).showSnackBar(SnackBar(content: Text('Failed to install skin: $e')));
       }
       setState(() => _selectedSkinId = widget.webUIStorage.defaultSkin?.id);
+    }
+  }
+
+  Future<void> _handleInstallAction(BuildContext context, String action) async {
+    switch (action) {
+      case 'github-release':
+        await _installFromGitHub(context, release: true);
+      case 'github-branch':
+        await _installFromGitHub(context, release: false);
+      case 'zip':
+        await _pickCustomSkinZip(context);
+    }
+  }
+
+  Future<void> _installFromGitHub(
+    BuildContext context, {
+    required bool release,
+  }) async {
+    _repoController.clear();
+    _detailController.text = release ? '' : 'main';
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          release
+              ? 'Install from GitHub Release'
+              : 'Install from GitHub Branch',
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _repoController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Repository',
+                hintText: 'owner/repo',
+              ),
+            ),
+            TextField(
+              controller: _detailController,
+              decoration: InputDecoration(
+                labelText: release ? 'Asset name (optional)' : 'Branch',
+                hintText: release ? 'skin.zip' : 'main',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Install'),
+          ),
+        ],
+      ),
+    );
+
+    final repo = _repoController.text.trim();
+    final detail = _detailController.text.trim();
+    if (confirmed != true || repo.isEmpty) return;
+    if (!context.mounted) return;
+
+    try {
+      if (release) {
+        await widget.webUIStorage.installFromGitHubRelease(
+          repo,
+          assetName: detail.isEmpty ? null : detail,
+        );
+      } else {
+        await widget.webUIStorage.installFromGitHub(
+          repo,
+          branch: detail.isEmpty ? 'main' : detail,
+        );
+      }
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Skin installed from GitHub'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      _log.severe('Failed to install skin from GitHub', e);
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to install skin: $e')));
+      }
+    } finally {
+      if (mounted) setState(() {});
     }
   }
 
