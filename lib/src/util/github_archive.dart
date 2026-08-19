@@ -104,9 +104,6 @@ Future<String> fetchGitHubBranchCommit(String repo, String branch) async {
   return commit;
 }
 
-String gitHubBranchArchiveUrl(String repo, String branch) =>
-    'https://github.com/$repo/archive/refs/heads/$branch.zip';
-
 String gitHubCommitArchiveUrl(String repo, String commit) =>
     'https://github.com/$repo/archive/$commit.zip';
 

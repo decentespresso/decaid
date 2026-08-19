@@ -498,7 +498,9 @@ skin updates, and on demand from the Plugins settings screen or
 
 - an unchanged tag or commit only refreshes `lastChecked`;
 - a changed tag or commit is downloaded and validated before anything installed
-  is touched;
+  is touched. A branch is resolved to a commit first and that commit's archive
+  is what gets downloaded, so a branch that moves mid-check cannot install
+  contents the recorded SHA does not describe;
 - an update must carry the plugin being updated: a candidate whose manifest id
   differs from the installed plugin is rejected before anything is touched;
 - downgrade protection applies to release and branch updates alike: a lower

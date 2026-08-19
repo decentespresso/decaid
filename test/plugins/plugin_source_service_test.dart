@@ -261,6 +261,55 @@ function createPlugin() {
       );
     });
 
+    test('a branch install downloads the commit it records', () async {
+      await http.runWithClient(
+        () => service.installFromGitHubBranch('acme/plugin'),
+        () => MockClient((request) async {
+          final url = request.url.toString();
+          if (url.contains('/commits/')) {
+            return http.Response(jsonEncode({'sha': 'commit-1'}), 200);
+          }
+          if (url.endsWith('/archive/commit-1.zip')) {
+            return http.Response.bytes(pluginArchive(version: '1.0.0'), 200);
+          }
+          if (url.contains('/archive/refs/heads/')) {
+            return http.Response.bytes(pluginArchive(version: '2.0.0'), 200);
+          }
+          return http.Response('not found: $url', 404);
+        }),
+      );
+
+      expect(loader.getPluginManifest(id)?.version, '1.0.0');
+      expect(service.sourceFor(id)!.commit, 'commit-1');
+    });
+
+    test('a branch update downloads the commit it records', () async {
+      await http.runWithClient(
+        () => service.installFromGitHubBranch('acme/plugin'),
+        () => gitHubClient(commit: 'commit-1'),
+      );
+
+      await http.runWithClient(
+        () => service.updateAllPlugins(),
+        () => MockClient((request) async {
+          final url = request.url.toString();
+          if (url.contains('/commits/')) {
+            return http.Response(jsonEncode({'sha': 'commit-2'}), 200);
+          }
+          if (url.endsWith('/archive/commit-2.zip')) {
+            return http.Response.bytes(pluginArchive(version: '1.1.0'), 200);
+          }
+          if (url.contains('/archive/refs/heads/')) {
+            return http.Response.bytes(pluginArchive(version: '1.2.0'), 200);
+          }
+          return http.Response('not found: $url', 404);
+        }),
+      );
+
+      expect(loader.getPluginManifest(id)?.version, '1.1.0');
+      expect(service.sourceFor(id)!.commit, 'commit-2');
+    });
+
     test('an unchanged commit only moves lastChecked', () async {
       await http.runWithClient(
         () => service.installFromGitHubBranch('acme/plugin'),

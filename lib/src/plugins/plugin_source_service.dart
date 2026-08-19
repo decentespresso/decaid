@@ -96,7 +96,7 @@ class PluginSourceService {
   }) async {
     final commit = await fetchGitHubBranchCommit(repo, branch);
     final bytes = await downloadGitHubArchive(
-      gitHubBranchArchiveUrl(repo, branch),
+      gitHubCommitArchiveUrl(repo, commit),
     );
 
     return _withStaging((staging) async {
@@ -304,7 +304,7 @@ class PluginSourceService {
     }
 
     final bytes = await downloadGitHubArchive(
-      gitHubBranchArchiveUrl(source.repo!, branch),
+      gitHubCommitArchiveUrl(source.repo!, commit),
     );
     await _withStaging((staging) async {
       _extractArchive(bytes, staging);
