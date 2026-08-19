@@ -423,7 +423,6 @@ class _MyAppState extends State<MyApp> {
                         de1Controller: widget.de1Controller,
                         scaleController: widget.scaleController,
                         webUIService: widget.webUIService,
-                        pluginLoaderService: widget.pluginLoaderService,
                         batteryController: widget.batteryController,
                         decentAccountService: widget.decentAccountService,
                         isDegradedAndroid: _degradedAndroid,

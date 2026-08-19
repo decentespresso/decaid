@@ -4,8 +4,6 @@ import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/scan_state_guardian.dart';
 import 'package:reaprime/src/launcher/launcher_view.dart';
 import 'package:reaprime/src/launcher/widgets/connect_device_hero_card.dart';
-import 'package:reaprime/src/plugins/plugin_loader_service.dart';
-import 'package:reaprime/src/services/storage/hive_store_service.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
@@ -25,7 +23,6 @@ void main() {
   late MockBleDiscoveryService bleService;
   late SettingsController settingsController;
   late WebUIService webUIService;
-  late PluginLoaderService pluginLoaderService;
 
   setUp(() async {
     settingsController = SettingsController(MockSettingsService());
@@ -41,9 +38,6 @@ void main() {
     bleService = MockBleDiscoveryService();
     guardian = ScanStateGuardian(bleService: bleService);
     webUIService = WebUIService();
-    pluginLoaderService = PluginLoaderService(
-      kvStore: HiveStoreService(defaultNamespace: 'test-launcher-hero'),
-    );
   });
 
   tearDown(() {
@@ -57,7 +51,6 @@ void main() {
       de1Controller: de1Controller,
       scaleController: scaleController,
       webUIService: webUIService,
-      pluginLoaderService: pluginLoaderService,
       connectionManager: connectionManager,
       deviceController: DeviceController([]),
       settingsController: settingsController,
@@ -91,5 +84,12 @@ void main() {
     await tester.pump();
 
     expect(find.byType(ConnectDeviceHeroCard), findsNothing);
+  });
+
+  testWidgets('plugins destination is always visible', (tester) async {
+    await tester.pumpWidget(buildLauncher());
+    await tester.pump();
+
+    expect(find.text('Plugins'), findsOneWidget);
   });
 }
