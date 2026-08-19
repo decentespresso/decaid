@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:reaprime/src/debug_feature/calibration_debug_card.dart';
 import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/de1_rawmessage.dart';
@@ -74,29 +75,33 @@ class _De1DebugViewState extends State<De1DebugView> {
   }
 
   Widget _buildWideLayout(ShadThemeData theme) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(child: _buildShotSnapshotCard(theme)),
-                const SizedBox(width: 12),
-                Expanded(child: _buildShotSettingsCard(theme)),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(child: _buildWaterLevelsCard(theme)),
-                const SizedBox(width: 12),
-                Expanded(child: _buildMachineInfoCard(theme)),
-              ],
-            ),
-          ],
+    return SingleChildScrollView(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: _buildShotSnapshotCard(theme)),
+                  const SizedBox(width: 12),
+                  Expanded(child: _buildShotSettingsCard(theme)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: _buildWaterLevelsCard(theme)),
+                  const SizedBox(width: 12),
+                  Expanded(child: _buildMachineInfoCard(theme)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              CalibrationDebugCard(machine: widget.machine),
+            ],
+          ),
         ),
       ),
     );
@@ -113,6 +118,8 @@ class _De1DebugViewState extends State<De1DebugView> {
         _buildWaterLevelsCard(theme),
         const SizedBox(height: 12),
         _buildMachineInfoCard(theme),
+        const SizedBox(height: 12),
+        CalibrationDebugCard(machine: widget.machine),
       ],
     );
   }
