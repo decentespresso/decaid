@@ -881,6 +881,18 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                   final schema = entry.value;
                   final currentValue = newSettings[key];
                   final defaultValue = schema['default'];
+                  final enumValues = schema['values'] is String
+                      ? (schema['values'] as String)
+                            .split('|')
+                            .map((value) => value.trim())
+                            .where((value) => value.isNotEmpty)
+                            .toList()
+                      : const <String>[];
+                  final selectedEnumValue = enumValues.contains(currentValue)
+                      ? currentValue as String
+                      : enumValues.contains(defaultValue)
+                      ? defaultValue as String
+                      : null;
                   final secureDraft = secureDrafts[key];
                   final secureValueIsSet =
                       secureDraft != null &&
@@ -990,6 +1002,29 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                                 });
                               }
                             },
+                          )
+                        else if (schema['type'] == 'enum')
+                          ShadSelect<String>(
+                            initialValue: selectedEnumValue,
+                            enabled: enumValues.isNotEmpty,
+                            placeholder: const Text('Select a value...'),
+                            selectedOptionBuilder: (context, value) =>
+                                Text(value),
+                            onChanged: (value) {
+                              if (value != null) {
+                                setState(() {
+                                  newSettings[key] = value;
+                                });
+                              }
+                            },
+                            options: enumValues
+                                .map(
+                                  (value) => ShadOption<String>(
+                                    value: value,
+                                    child: Text(value),
+                                  ),
+                                )
+                                .toList(),
                           )
                         else
                           ShadInput(
