@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -18,6 +19,21 @@ import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 enum SkinNavDecision { exitDashboard, allow, openExternal, block }
+
+String skinExitInstructions(TargetPlatform platform) {
+  const purpose = 'Dashboard contains app settings and skin selection.';
+  final navigation = switch (platform) {
+    TargetPlatform.android =>
+      'Swipe inward from either screen edge or tap Android Back to open it.',
+    TargetPlatform.iOS => 'Swipe right from the left screen edge to open it.',
+    TargetPlatform.macOS =>
+      'Press ⌘D or use View → Back to Dashboard to open it.',
+    TargetPlatform.windows => 'Press Alt+Backspace to open it.',
+    TargetPlatform.linux ||
+    TargetPlatform.fuchsia => 'Use system back navigation to open it.',
+  };
+  return '$purpose $navigation';
+}
 
 SkinNavDecision classifySkinNavigation(Uri? url) {
   if (url == null) return SkinNavDecision.block;
@@ -247,24 +263,9 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   }
 
   void _showExitInstructions() {
-    String instructions;
-
-    if (Platform.isIOS) {
-      instructions =
-          'Swipe right from the left side of the screen to return to Dashboard';
-    } else if (Platform.isAndroid) {
-      instructions = 'Use system back button to return to Dashboard';
-    } else if (Platform.isMacOS) {
-      instructions = 'Press ⌘D or use View → Back to Dashboard to return';
-    } else if (Platform.isWindows) {
-      instructions = 'Press Alt+Backspace to return to Dashboard';
-    } else {
-      instructions = 'Use back navigation to return to Dashboard';
-    }
-
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(instructions),
+        content: Text(skinExitInstructions(defaultTargetPlatform)),
         duration: const Duration(seconds: 10),
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.all(16),
