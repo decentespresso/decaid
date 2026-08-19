@@ -10,10 +10,12 @@ import 'package:path_provider/path_provider.dart';
 import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/models/feedback/feedback_request.dart';
 import 'package:reaprime/src/models/feedback/feedback_result.dart';
+import 'package:reaprime/src/services/telemetry/anonymization.dart';
 
 class FeedbackService {
   final String _githubToken;
   final String _repo;
+  final String? Function()? _currentSerialNumber;
   final Logger _log = Logger('FeedbackService');
 
   static const String _githubApiBase = 'https://api.github.com';
@@ -21,8 +23,10 @@ class FeedbackService {
   FeedbackService({
     required String githubToken,
     String repo = 'decentespresso/decaid',
+    String? Function()? currentSerialNumber,
   }) : _githubToken = githubToken,
-       _repo = repo;
+       _repo = repo,
+       _currentSerialNumber = currentSerialNumber;
 
   bool get isConfigured => _githubToken.isNotEmpty;
 
@@ -167,7 +171,7 @@ class FeedbackService {
       final docs = await getApplicationDocumentsDirectory();
       final logFile = File('${docs.path}/log.txt');
       if (await logFile.exists()) {
-        return await logFile.readAsString();
+        return _scrubSensitive(await logFile.readAsString());
       }
       _log.info('No log file found');
       return null;
@@ -182,7 +186,7 @@ class FeedbackService {
       final docs = await getApplicationDocumentsDirectory();
       final logFile = File('${docs.path}/webview_console.log');
       if (await logFile.exists()) {
-        return await logFile.readAsString();
+        return _scrubSensitive(await logFile.readAsString());
       }
       _log.info('No webview log file found');
       return null;
@@ -190,6 +194,16 @@ class FeedbackService {
       _log.warning('Failed to read webview log file', e);
       return null;
     }
+  }
+
+  String _scrubSensitive(String content) {
+    final serial = _currentSerialNumber?.call();
+    return Anonymization.scrubString(
+      content,
+      sensitiveStrings: [
+        if (serial != null && serial.isNotEmpty && serial != '0') serial,
+      ],
+    );
   }
 
   Future<Uint8List> _scaleImageToMaxSize(

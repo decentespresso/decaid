@@ -27,6 +27,13 @@ class Anonymization {
     return 'ip_${hash.toString().substring(0, 16)}';
   }
 
+  static String anonymizeSerial(String serialNumber) {
+    final bytes = utf8.encode('$_salt:serial:$serialNumber');
+    final hash = sha256.convert(bytes);
+
+    return 'serial_${hash.toString().substring(0, 16)}';
+  }
+
   static String anonymize(String input) {
     final macPattern = RegExp(r'^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$');
     if (macPattern.hasMatch(input)) {
@@ -46,8 +53,16 @@ class Anonymization {
     return input;
   }
 
-  static String scrubString(String text) {
+  static String scrubString(
+    String text, {
+    List<String> sensitiveStrings = const [],
+  }) {
     var scrubbed = text;
+
+    for (final sensitive in sensitiveStrings) {
+      if (sensitive.length < 3) continue;
+      scrubbed = scrubbed.replaceAll(sensitive, anonymizeSerial(sensitive));
+    }
 
     final macPattern = RegExp(r'([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}');
     scrubbed = scrubbed.replaceAllMapped(macPattern, (match) {
