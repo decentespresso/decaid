@@ -43,11 +43,12 @@ void main() {
   group('logRequestsWithClientIp', () {
     test('logs the client ip and status code', () async {
       final messages = <String>[];
-      final handler = logRequestsWithClientIp(
-        logger: (msg, isError) => messages.add(msg),
-      )((Request request) async {
-        return Response.ok('ok');
-      });
+      final handler =
+          logRequestsWithClientIp(logger: (msg, isError) => messages.add(msg))((
+            Request request,
+          ) async {
+            return Response.ok('ok');
+          });
 
       final request = Request(
         'GET',
@@ -70,11 +71,12 @@ void main() {
 
     test('logs errors with the client ip', () async {
       final messages = <String>[];
-      final handler = logRequestsWithClientIp(
-        logger: (msg, isError) => messages.add('$isError:$msg'),
-      )((Request request) async {
-        throw StateError('boom');
-      });
+      final handler =
+          logRequestsWithClientIp(
+            logger: (msg, isError) => messages.add('$isError:$msg'),
+          )((Request request) async {
+            throw StateError('boom');
+          });
 
       final request = Request(
         'POST',
