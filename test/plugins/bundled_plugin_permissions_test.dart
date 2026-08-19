@@ -34,6 +34,7 @@ void main() {
       PluginPermissions.emit,
       PluginPermissions.pluginStorage,
       PluginPermissions.proxyDecentApiWrite,
+      PluginPermissions.eventsMachine,
       PluginPermissions.eventsShots,
     },
   };

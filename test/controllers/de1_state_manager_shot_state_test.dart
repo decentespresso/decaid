@@ -226,6 +226,10 @@ void main() {
     expect(storage.storedShots, hasLength(1));
     final record = storage.storedShots.single;
     expect(record.stopReason, 'machineEnded');
+    expect(record.workflow.machine?.flowCalibration, 1.0);
+    expect(record.workflow.machine?.serialNumber, '1');
+    expect(record.workflow.machine?.model, '1');
+    expect(record.workflow.machine?.firmwareVersion, '1');
     expect(
       record.id,
       decision.shotId,

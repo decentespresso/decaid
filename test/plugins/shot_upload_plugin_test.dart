@@ -56,6 +56,11 @@ Map<String, dynamic> _shot(String id) => {
   'workflow': {
     'profile': {'title': 'Damian LRv3', 'steps': <dynamic>[]},
     'context': <String, dynamic>{},
+    'machine': {
+      'serialNumber': '6262',
+      'model': 'DE1Pro',
+      'firmwareVersion': '1293',
+    },
   },
   'measurements': [
     for (final t in const ['2026-01-01T00:00:00Z', '2026-01-01T00:00:30Z'])
@@ -127,11 +132,13 @@ void main() {
       ),
     );
     final r = manager.js.evaluate('''
-      globalThis.__timerSet = (pluginId, generation, callback, delay) => { callback(); return 1; };
+      globalThis.__timerSet = (pluginId, generation, callback, delay) => 1;
       globalThis.__timerClear = () => {};
       globalThis.__puts = [];
+      globalThis.__fetches = [];
       globalThis.__fetchFor = async (pluginId, generation, url, init) => {
         init = init || {};
+        globalThis.__fetches.push(String(url));
         if (init.method === 'PUT') { globalThis.__puts.push({ url: String(url), body: init.body }); return { ok:true, status:200, json: async () => ({}) }; }
         if (url.endsWith('/shots/latest')) return { ok:true, json: async () => ({ id:'shot-1' }) };
         if (url.endsWith('/shots/shot-1')) return { ok:true, json: async () => (${jsonEncode(_shot('shot-1'))}) };
@@ -187,6 +194,17 @@ void main() {
       expect(body['machine']['firmwareVersion'], '1293');
       expect(body['machine'].containsKey('bleId'), isFalse);
       expect(body['app']['version'], '9.9.9');
+      final fetches =
+          jsonDecode(
+                manager.js
+                    .evaluate('JSON.stringify(globalThis.__fetches)')
+                    .stringResult,
+              )
+              as List;
+      expect(
+        fetches.where((url) => url.toString().endsWith('/machine/info')),
+        isEmpty,
+      );
 
       final puts =
           jsonDecode(

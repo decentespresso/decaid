@@ -4,7 +4,7 @@
  * decentespresso.com (POST support/api/shot_upload) through the authenticated
  * Decent proxy, reusing the account the user is already logged into. The proxy
  * attaches the account credentials in Dart and never exposes them to plugin JS;
- * the server verifies the account and that the connected machine's serial
+ * the server verifies the account and that the captured machine's serial
  * belongs to it, then stores the shot.
  *
  * Opt-in: AutoUpload defaults to FALSE, so nothing is uploaded until the user
@@ -23,13 +23,23 @@ function createPlugin(host) {
   "use strict";
 
   const NS = "shot-upload.reaplugin";
-  const VERSION = "0.1.0";
+  const VERSION = "0.2.0";
   const LOCAL_API_URL = "http://localhost:8080/api/v1";
   const UPLOAD_PATH = "support/api/shot_upload"; // exact allowlisted proxy write path
   const RETRIES = 3;
   const RETRY_DELAY_MS = 2000;
+  const RECONCILE_PAGE_SIZE = 20;
+  const RECONCILE_PAGE_LIMIT = 5;
+  const RECONCILE_BATCH_SIZE = 5;
+  const RECONCILE_PERIOD_MS = 5 * 60 * 1000;
+  const RECONCILE_RETRY_MS = 60 * 1000;
+  const RECONCILE_CONTINUE_MS = 30 * 1000;
+  const SAFE_MACHINE_STATES = new Set(["idle", "schedIdle", "sleeping"]);
 
   let isUploading = false;
+  let isReconciling = false;
+  let reconcileTimerId = null;
+  let unloaded = false;
   let decaidVersion = null;
 
   const state = {
@@ -37,6 +47,8 @@ function createPlugin(host) {
     lengthThreshold: 5,
     lastUploadedShot: null,
     lastResult: null,
+    reconcileOffset: 0,
+    machineState: null,
   };
 
   function log(msg) { try { host.log(`[shot-upload] ${msg}`); } catch (e) {} }
@@ -47,22 +59,29 @@ function createPlugin(host) {
     return await res.json();
   }
 
-  // Mark the stored shot as uploaded, mirroring the de1app plugin: write
-  // `uploaded_to_decent <clock seconds>` into the shot's annotations.extras so
-  // the record itself records that it was uploaded (deep-merged by the app's
-  // PUT /shots/<id> handler). Best-effort -- never fails the upload.
+  async function updateShotExtras(shotId, extras) {
+    const res = await fetch(`${LOCAL_API_URL}/shots/${shotId}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ annotations: { extras: extras } }),
+    });
+    if (!res || !res.ok) throw new Error(`mark ${shotId} -> HTTP ${res && res.status}`);
+  }
+
   async function markUploaded(shotId) {
-    try {
-      const seconds = Math.floor(Date.now() / 1000);
-      const res = await fetch(`${LOCAL_API_URL}/shots/${shotId}`, {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ annotations: { extras: { uploaded_to_decent: seconds } } }),
-      });
-      if (!res || !res.ok) log(`mark ${shotId} uploaded -> HTTP ${res && res.status}`);
-    } catch (e) {
-      log(`could not mark ${shotId} uploaded: ${e.message}`);
-    }
+    await updateShotExtras(shotId, {
+      uploaded_to_decent: Math.floor(Date.now() / 1000),
+      decent_upload_rejected: null,
+    });
+  }
+
+  async function markRejected(shotId, error) {
+    await updateShotExtras(shotId, {
+      decent_upload_rejected: {
+        status: error.status,
+        timestamp: Math.floor(Date.now() / 1000),
+      },
+    });
   }
 
   // Decaid app version (for provenance), cached.
@@ -82,18 +101,25 @@ function createPlugin(host) {
     return isNaN(t0) || isNaN(t1) ? 0 : (t1 - t0) / 1000;
   }
 
-  // Inject machine identity (serial not carried in the shot JSON) + provenance,
-  // populated from the actual /machine/info fields (firmware = `version`).
-  async function withMachine(shot) {
-    const info = await fetchLocal("/machine/info");
-    const serial = info && info.serialNumber;
-    if (!serial) return null;
-    shot.machine = { serialNumber: String(serial) };
-    if (info.version) shot.machine.firmwareVersion = String(info.version);
-    if (info.model) shot.machine.model = String(info.model);
-    shot.app = { name: "decaid", version: await getDecaidVersion(), sourceFormat: "decaid" };
-    shot.schemaVersion = 1;
-    return shot;
+  function capturedMachine(shot) {
+    const machine = shot && shot.workflow && shot.workflow.machine;
+    if (!machine || !machine.serialNumber) return null;
+    return {
+      serialNumber: String(machine.serialNumber),
+      ...(machine.firmwareVersion ? { firmwareVersion: String(machine.firmwareVersion) } : {}),
+      ...(machine.model ? { model: String(machine.model) } : {}),
+    };
+  }
+
+  async function withCapturedMachine(shot) {
+    const machine = capturedMachine(shot);
+    if (!machine) return null;
+    return {
+      ...shot,
+      machine: machine,
+      app: { name: "decaid", version: await getDecaidVersion(), sourceFormat: "decaid" },
+      schemaVersion: 1,
+    };
   }
 
   // POST the shot through the authenticated Decent proxy (reuses account login).
@@ -112,56 +138,80 @@ function createPlugin(host) {
         if (status >= 200 && status < 300) {
           try { return JSON.parse(text); } catch (e) { return { ok: true }; }
         }
-        // 4xx (not logged in / not your machine / bad shot) -> don't retry
-        if (status >= 400 && status < 500) {
-          throw new Error(`HTTP ${status}: ${text}`);
+        const error = new Error(`HTTP ${status}: ${text}`);
+        error.status = status;
+        error.permanent = status >= 400 && status < 500 && status !== 401 && status !== 403 && status !== 408 && status !== 429;
+        if (error.permanent) {
+          throw error;
         }
-        lastErr = new Error(`HTTP ${status}: ${text}`);
+        lastErr = error;
       } catch (e) {
         lastErr = e;
-        if (String(e.message).indexOf("HTTP 4") === 0) throw e;
+        if (e.permanent) throw e;
       }
-      if (i < RETRIES - 1) await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+      if (i < RETRIES - 1) await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (i + 1)));
     }
     throw lastErr || new Error("upload failed");
   }
 
-  // Upload one stored shot by id. Throws on failure (so callers can report
-  // status); marks e.skipped=true for a too-short shot. Returns the server result.
-  async function uploadShot(shotId) {
+  function extrasFor(shot) {
+    return shot && shot.annotations && shot.annotations.extras || {};
+  }
+
+  function skipped(message) {
+    const error = new Error(message);
+    error.skipped = true;
+    return error;
+  }
+
+  async function uploadShot(shotId, retryRejected) {
     const full = await fetchLocal(`/shots/${shotId}`);
-    if (!full || !full.id) throw new Error(`shot ${shotId} not found`);
+    if (!full || !full.id) throw skipped(`shot ${shotId} not found`);
+
+    const extras = extrasFor(full);
+    if (extras.uploaded_to_decent) throw skipped(`shot ${shotId} already uploaded`);
+    if (extras.decent_upload_rejected && !retryRejected) throw skipped(`shot ${shotId} was rejected`);
 
     const dur = shotDuration(full);
     if (dur < state.lengthThreshold) {
-      const e = new Error(`shot too short (${dur.toFixed(1)}s < ${state.lengthThreshold}s)`);
-      e.skipped = true;
-      throw e;
+      throw skipped(`shot too short (${dur.toFixed(1)}s < ${state.lengthThreshold}s)`);
     }
 
-    const payload = await withMachine(full);
-    if (!payload) throw new Error("no machine serial available");
+    const payload = await withCapturedMachine(full);
+    if (!payload) throw skipped("no captured machine serial available");
 
     const result = await postShot(payload);
+    await markUploaded(full.id);
     state.lastUploadedShot = full.id;
     state.lastResult = result;
     host.storage({ type: "write", key: "lastUploadedShot", data: full.id });
-    await markUploaded(full.id);
     host.emit("shotUploaded", { shotId: full.id, result: result, timestamp: Date.now() });
     return result;
   }
 
-  // Auto path: fire-and-forget with dedup + error handling (never throws).
   async function autoUpload(shotId) {
-    if (isUploading) return;
-    if (shotId && shotId === state.lastUploadedShot) { log(`shot ${shotId} already uploaded`); return; }
+    if (shotId && shotId === state.lastUploadedShot) {
+      log(`shot ${shotId} already uploaded`);
+      return;
+    }
+    if (isUploading || isReconciling) {
+      scheduleReconcile(0);
+      return;
+    }
     isUploading = true;
     try {
-      const r = await uploadShot(shotId);
+      const r = await uploadShot(shotId, false);
       log(`uploaded ${shotId} -> ${r && r.profile_ref ? r.profile_ref : "ok"}`);
     } catch (e) {
       if (e.skipped) { log(`skipped ${shotId}: ${e.message}`); }
-      else { log(`error uploading ${shotId}: ${e.message}`); host.emit("uploadError", { shotId: shotId, error: e.message, timestamp: Date.now() }); }
+      else {
+        if (e.permanent) {
+          try { await markRejected(shotId, e); } catch (markError) { log(`could not mark ${shotId} rejected: ${markError.message}`); }
+        }
+        log(`error uploading ${shotId}: ${e.message}`);
+        host.emit("uploadError", { shotId: shotId, error: e.message, timestamp: Date.now() });
+        scheduleReconcile(RECONCILE_RETRY_MS);
+      }
     } finally {
       isUploading = false;
     }
@@ -174,6 +224,91 @@ function createPlugin(host) {
     state.lengthThreshold = settings.LengthThreshold !== undefined ? settings.LengthThreshold : 5;
   }
 
+  function scheduleReconcile(delay) {
+    if (!state.autoUpload || unloaded) return;
+    if (reconcileTimerId !== null) clearTimeout(reconcileTimerId);
+    reconcileTimerId = setTimeout(() => {
+      reconcileTimerId = null;
+      reconcile();
+    }, delay);
+  }
+
+  function currentMachineState(snapshot) {
+    return snapshot && snapshot.state && snapshot.state.state || null;
+  }
+
+  function reconciliationIsSafe() {
+    return SAFE_MACHINE_STATES.has(state.machineState);
+  }
+
+  async function confirmReconciliationIsSafe() {
+    const snapshot = await fetchLocal("/machine/state");
+    state.machineState = currentMachineState(snapshot);
+    return reconciliationIsSafe();
+  }
+
+  function reconcileCandidate(shot) {
+    const extras = extrasFor(shot);
+    return !extras.uploaded_to_decent && !extras.decent_upload_rejected && capturedMachine(shot) !== null;
+  }
+
+  function setReconcileOffset(offset) {
+    state.reconcileOffset = offset;
+    host.storage({ type: "write", key: "reconcileOffset", data: offset });
+  }
+
+  async function reconcile() {
+    if (!state.autoUpload || unloaded) return;
+    if (isUploading || isReconciling) {
+      scheduleReconcile(RECONCILE_RETRY_MS);
+      return;
+    }
+    isReconciling = true;
+    let nextDelay = RECONCILE_PERIOD_MS;
+    try {
+      if (!await confirmReconciliationIsSafe()) return;
+      let pages = 0;
+      let attempts = 0;
+      while (pages < RECONCILE_PAGE_LIMIT && attempts < RECONCILE_BATCH_SIZE && state.autoUpload && !unloaded && reconciliationIsSafe()) {
+        const page = await fetchLocal(`/shots?limit=${RECONCILE_PAGE_SIZE}&offset=${state.reconcileOffset}&order=asc`);
+        if (!page || !Array.isArray(page.items)) throw new Error("could not list local shots");
+        if (page.items.length === 0 || state.reconcileOffset >= page.total) {
+          setReconcileOffset(0);
+          break;
+        }
+        let scanned = 0;
+        for (const shot of page.items) {
+          if (!state.autoUpload || unloaded || !reconciliationIsSafe() || attempts >= RECONCILE_BATCH_SIZE) break;
+          scanned++;
+          if (!reconcileCandidate(shot)) continue;
+          try {
+            await uploadShot(shot.id, false);
+            attempts++;
+          } catch (e) {
+            if (e.skipped) continue;
+            if (!e.permanent) throw e;
+            await markRejected(shot.id, e);
+            attempts++;
+            log(`shot ${shot.id} rejected: ${e.message}`);
+          }
+        }
+        setReconcileOffset(state.reconcileOffset + scanned);
+        pages++;
+        if (state.reconcileOffset >= page.total) {
+          setReconcileOffset(0);
+          break;
+        }
+      }
+      if (attempts >= RECONCILE_BATCH_SIZE) nextDelay = RECONCILE_CONTINUE_MS;
+    } catch (e) {
+      log(`reconciliation paused: ${e.message}`);
+      nextDelay = RECONCILE_RETRY_MS;
+    } finally {
+      isReconciling = false;
+      scheduleReconcile(nextDelay);
+    }
+  }
+
   function jsonResponse(status, obj) {
     return { status: status, headers: { "Content-Type": "application/json" }, body: JSON.stringify(obj) };
   }
@@ -183,14 +318,21 @@ function createPlugin(host) {
     version: VERSION,
 
     onLoad(settings) {
+      unloaded = false;
       applySettings(settings);
       // Storage reads are event-based: this triggers a `storageRead` event,
       // handled in onEvent, that restores lastUploadedShot.
       try { host.storage({ type: "read", key: "lastUploadedShot" }); } catch (e) {}
+      try { host.storage({ type: "read", key: "reconcileOffset" }); } catch (e) {}
       log(`loaded (autoUpload ${state.autoUpload})`);
+      scheduleReconcile(1000);
     },
 
-    onUnload() {},
+    onUnload() {
+      unloaded = true;
+      if (reconcileTimerId !== null) clearTimeout(reconcileTimerId);
+      reconcileTimerId = null;
+    },
 
     onEvent(event) {
       switch (event.name) {
@@ -203,16 +345,35 @@ function createPlugin(host) {
           if (event.payload && event.payload.key === "lastUploadedShot") {
             state.lastUploadedShot = event.payload.value || null;
           }
+          if (event.payload && event.payload.key === "reconcileOffset") {
+            const offset = Number(event.payload.value);
+            state.reconcileOffset = Number.isFinite(offset) && offset >= 0 ? Math.trunc(offset) : 0;
+          }
           break;
-        case "settingsUpdated":
+        case "stateUpdate": {
+          const previousMachineState = state.machineState;
+          state.machineState = currentMachineState(event.payload);
+          if (state.machineState !== previousMachineState && reconciliationIsSafe()) {
+            scheduleReconcile(0);
+          }
+          break;
+        }
+        case "settingsUpdated": {
+          const wasEnabled = state.autoUpload;
           applySettings(event.payload);
+          if (!state.autoUpload && reconcileTimerId !== null) {
+            clearTimeout(reconcileTimerId);
+            reconcileTimerId = null;
+          } else if (state.autoUpload) {
+            if (!wasEnabled) setReconcileOffset(0);
+            scheduleReconcile(0);
+          }
           break;
+        }
       }
     },
 
-    // Control endpoints. GET status; POST upload (uploads the latest shot, which
-    // belongs to the currently-connected machine — avoids misattributing an
-    // arbitrary historical id to the wrong machine).
+    // Control endpoints. GET status; POST upload of the latest eligible shot.
     async __httpRequestHandler(request) {
       const endpoint = request && request.endpoint;
       if (endpoint === "status") {
@@ -226,7 +387,7 @@ function createPlugin(host) {
         try {
           const latest = await fetchLocal("/shots/latest");
           if (!latest || !latest.id) return jsonResponse(404, { ok: false, error: "no shot available" });
-          const result = await uploadShot(latest.id);
+          const result = await uploadShot(latest.id, true);
           return jsonResponse(200, { ok: true, id: latest.id, result: result });
         } catch (e) {
           if (e.skipped) return jsonResponse(200, { ok: false, skipped: true, error: e.message });

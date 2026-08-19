@@ -599,17 +599,21 @@ class De1StateManager with WidgetsBindingObserver {
     final baseWorkflow = _workflowController.currentWorkflow;
     final startTime = _currentShotSequencer!.shotStartTime;
 
-    double? flowCalibration;
+    WorkflowMachine? machine;
     try {
-      flowCalibration = _de1Controller.connectedDe1().cachedFlowEstimation;
+      final de1 = _de1Controller.connectedDe1();
+      final info = de1.machineInfo;
+      machine = WorkflowMachine(
+        flowCalibration: de1.cachedFlowEstimation,
+        serialNumber: info.serialNumber,
+        model: info.model,
+        firmwareVersion: info.version,
+      );
     } catch (e) {
-      _logger.warning('Could not read flow calibration for shot: $e');
+      _logger.warning('Could not read machine snapshot for shot: $e');
     }
-    final workflow = flowCalibration != null
-        ? baseWorkflow.copyWith(
-            id: baseWorkflow.id,
-            machine: WorkflowMachine(flowCalibration: flowCalibration),
-          )
+    final workflow = machine != null
+        ? baseWorkflow.copyWith(id: baseWorkflow.id, machine: machine)
         : baseWorkflow;
 
     _persistenceController.persistShot(

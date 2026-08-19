@@ -629,6 +629,16 @@ first read.
 
 The bundled **settings plugin** (`settings.reaplugin`) provides a web UI for plugin management at `/api/v1/plugins/settings.reaplugin/ui`. It includes an enable/disable toggle and remove button for each plugin, with a self-protection guard that prevents disabling itself.
 
+The bundled **Decent shot upload plugin** (`shot-upload.reaplugin`) keeps the
+`shotStored` fast path and also scans the paginated local shot library in bounded
+batches while the machine is idle, scheduled idle, or sleeping.
+It uses `annotations.extras.uploaded_to_decent` as the durable success marker and
+the capture-time identity in `workflow.machine`; records without that identity
+are skipped rather than attributed to the currently connected machine. A
+shot-specific rejected response is recorded in
+`annotations.extras.decent_upload_rejected`, while transient failures are retried
+on a later reconciliation pass.
+
 ## Next Steps
 
 1. Review the example plugins in `assets/plugins/` and the DYE2 plugin at [decentespresso/dye2](https://github.com/decentespresso/dye2)

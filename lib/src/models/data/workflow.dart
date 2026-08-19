@@ -123,27 +123,55 @@ class Workflow {
 
 class WorkflowMachine {
   final double? flowCalibration;
+  final String? serialNumber;
+  final String? model;
+  final String? firmwareVersion;
 
-  const WorkflowMachine({this.flowCalibration});
+  const WorkflowMachine({
+    this.flowCalibration,
+    this.serialNumber,
+    this.model,
+    this.firmwareVersion,
+  });
 
-  WorkflowMachine copyWith({double? flowCalibration}) =>
-      WorkflowMachine(flowCalibration: flowCalibration ?? this.flowCalibration);
+  WorkflowMachine copyWith({
+    double? flowCalibration,
+    String? serialNumber,
+    String? model,
+    String? firmwareVersion,
+  }) => WorkflowMachine(
+    flowCalibration: flowCalibration ?? this.flowCalibration,
+    serialNumber: serialNumber ?? this.serialNumber,
+    model: model ?? this.model,
+    firmwareVersion: firmwareVersion ?? this.firmwareVersion,
+  );
 
   Map<String, dynamic> toJson() => {
     if (flowCalibration != null) 'flowCalibration': flowCalibration,
+    if (serialNumber != null) 'serialNumber': serialNumber,
+    if (model != null) 'model': model,
+    if (firmwareVersion != null) 'firmwareVersion': firmwareVersion,
   };
 
   factory WorkflowMachine.fromJson(Map<String, dynamic> json) =>
       WorkflowMachine(
         flowCalibration: parseOptionalDouble(json['flowCalibration']),
+        serialNumber: parseOptionalString(json['serialNumber']),
+        model: parseOptionalString(json['model']),
+        firmwareVersion: parseOptionalString(json['firmwareVersion']),
       );
 
   @override
   bool operator ==(Object other) =>
-      other is WorkflowMachine && other.flowCalibration == flowCalibration;
+      other is WorkflowMachine &&
+      other.flowCalibration == flowCalibration &&
+      other.serialNumber == serialNumber &&
+      other.model == model &&
+      other.firmwareVersion == firmwareVersion;
 
   @override
-  int get hashCode => flowCalibration.hashCode;
+  int get hashCode =>
+      Object.hash(flowCalibration, serialNumber, model, firmwareVersion);
 }
 
 class SteamSettings {
