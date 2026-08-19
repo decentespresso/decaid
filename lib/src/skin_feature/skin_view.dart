@@ -69,11 +69,13 @@ class SkinView extends StatefulWidget {
     required this.settingsController,
     required this.webViewLogService,
     required this.deviceIp,
+    required this.restoreBrightness,
   });
 
   final SettingsController settingsController;
   final WebViewLogService webViewLogService;
   final String deviceIp;
+  final Future<void> Function() restoreBrightness;
 
   static const routeName = '/skin';
 
@@ -113,6 +115,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   @override
   void dispose() {
     _log.fine("disposing");
+    unawaited(widget.restoreBrightness());
     _blankPageTimer?.cancel();
     _blankPageTimer = null;
     final controller = _webViewController;

@@ -610,6 +610,7 @@ void main(List<String> args) async {
         decentAccountService: decentAccountService,
         accountTokensController: accountTokensController,
         batteryController: batteryController,
+        displayController: displayController,
       ),
     ),
   );
@@ -825,6 +826,7 @@ class AppRoot extends StatefulWidget {
   final DecentAccountService? decentAccountService;
   final AccountTokensController? accountTokensController;
   final BatteryController? batteryController;
+  final DisplayController displayController;
 
   const AppRoot({
     super.key,
@@ -850,6 +852,7 @@ class AppRoot extends StatefulWidget {
     this.decentAccountService,
     this.accountTokensController,
     this.batteryController,
+    required this.displayController,
   });
 
   static void restart(BuildContext context) {
@@ -908,6 +911,7 @@ class _AppRootState extends State<AppRoot> {
         decentAccountService: widget.decentAccountService,
         accountTokensController: widget.accountTokensController,
         batteryController: widget.batteryController,
+        displayController: widget.displayController,
       ),
     );
 
