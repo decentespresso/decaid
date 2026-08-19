@@ -16,11 +16,13 @@ class AtomheartScale implements Scale {
   final Logger _log = Logger('AtomheartScale');
 
   static final BleServiceIdentifier serviceIdentifier =
-      BleServiceIdentifier.long('b905eaea-6c7e-4f73-b43d-2cdfcab29570');
+      BleServiceIdentifier.long('b905eaea-2e63-0e04-7582-7913f10d8f81');
   static final BleServiceIdentifier dataCharacteristic =
-      BleServiceIdentifier.long('b905eaeb-6c7e-4f73-b43d-2cdfcab29570');
+      BleServiceIdentifier.long('ad736c5f-bbc9-1f96-d304-cb5d5f41e160');
   static final BleServiceIdentifier commandCharacteristic =
-      BleServiceIdentifier.long('b905eaec-6c7e-4f73-b43d-2cdfcab29570');
+      BleServiceIdentifier.long('4f9a45ba-8e1b-4e07-e157-0814d393b968');
+
+  static const _notificationAttempts = 3;
 
   final String _deviceId;
 
@@ -28,10 +30,15 @@ class AtomheartScale implements Scale {
       StreamController.broadcast();
 
   final BLETransport _transport;
+  final Duration _notificationTimeout;
+  Completer<void>? _firstValidFrame;
 
-  AtomheartScale({required BLETransport transport})
-    : _transport = transport,
-      _deviceId = transport.id;
+  AtomheartScale({
+    required BLETransport transport,
+    Duration notificationTimeout = const Duration(milliseconds: 800),
+  }) : _transport = transport,
+       _notificationTimeout = notificationTimeout,
+       _deviceId = transport.id;
 
   @override
   Stream<ScaleSnapshot> get currentSnapshot => _streamController.stream;
@@ -49,7 +56,7 @@ class AtomheartScale implements Scale {
   @override
   String get name => "Atomheart Eclair";
 
-  final StreamController<ConnectionState> _connectionStateController =
+  final BehaviorSubject<ConnectionState> _connectionStateController =
       BehaviorSubject.seeded(ConnectionState.discovered);
 
   @override
@@ -58,7 +65,8 @@ class AtomheartScale implements Scale {
 
   @override
   Future<void> onConnect() async {
-    if (await _transport.connectionState.first == ConnectionState.connected) {
+    if (_connectionStateController.value == ConnectionState.connected &&
+        await _transport.connectionState.first == ConnectionState.connected) {
       return;
     }
     _connectionStateController.add(ConnectionState.connecting);
@@ -82,7 +90,10 @@ class AtomheartScale implements Scale {
           'Discovered services: $services',
         );
       }
-      await _registerNotifications();
+      await _confirmNotifications();
+      if (_connectionStateController.value != ConnectionState.connecting) {
+        throw const DeviceNotConnectedException.scale();
+      }
       _connectionStateController.add(ConnectionState.connected);
     } catch (e) {
       _log.warning('Connect failed: $e');
@@ -130,17 +141,17 @@ class AtomheartScale implements Scale {
 
   @override
   Future<void> startTimer() async {
-    await _safeWrite(Uint8List.fromList([0x43, 0x01, 0x01]));
+    await _safeWrite(Uint8List.fromList([0x53, 0x01, 0x01]));
   }
 
   @override
   Future<void> stopTimer() async {
-    await _safeWrite(Uint8List.fromList([0x43, 0x00, 0x00]));
+    await _safeWrite(Uint8List.fromList([0x45, 0x01, 0x01]));
   }
 
   @override
   Future<void> resetTimer() async {
-    await tare();
+    await _safeWrite(Uint8List.fromList([0x52, 0x01, 0x01]));
   }
 
   Future<void> _registerNotifications() async {
@@ -149,6 +160,35 @@ class AtomheartScale implements Scale {
       dataCharacteristic.long,
       _parseNotification,
     );
+  }
+
+  Future<void> _confirmNotifications() async {
+    final firstValidFrame = Completer<void>();
+    _firstValidFrame = firstValidFrame;
+    try {
+      for (var attempt = 0; attempt < _notificationAttempts; attempt++) {
+        if (attempt == 0) {
+          await _registerNotifications();
+        } else {
+          await _transport.resetSubscription(
+            serviceIdentifier.long,
+            dataCharacteristic.long,
+            _parseNotification,
+          );
+        }
+        if (firstValidFrame.isCompleted) return;
+        try {
+          await firstValidFrame.future.timeout(_notificationTimeout);
+          return;
+        } on TimeoutException {
+          if (attempt == _notificationAttempts - 1) rethrow;
+        }
+      }
+    } finally {
+      if (identical(_firstValidFrame, firstValidFrame)) {
+        _firstValidFrame = null;
+      }
+    }
   }
 
   static ScaleSnapshot? parseFrame(List<int> data) {
@@ -187,6 +227,10 @@ class AtomheartScale implements Scale {
     final snapshot = parseFrame(data);
     if (snapshot != null) {
       _streamController.add(snapshot);
+      final firstValidFrame = _firstValidFrame;
+      if (firstValidFrame != null && !firstValidFrame.isCompleted) {
+        firstValidFrame.complete();
+      }
     }
   }
 }
