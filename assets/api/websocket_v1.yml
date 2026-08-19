@@ -845,10 +845,11 @@ components:
         available:
           type: boolean
           description: >
-            true if the device is currently present in discovery; false for a
-            remembered device that is not present (reported with state
-            "disconnected"). Remembered devices persist across restarts until
-            forgotten via the REST /api/v1/devices/forget endpoint.
+            true if the device is currently present in discovery or is actively
+            connected; false for a remembered device that is not present
+            (reported with state "disconnected"). Remembered devices persist
+            across restarts until forgotten via the REST
+            /api/v1/devices/forget endpoint.
           example: true
 
     DeviceConnectResult:

@@ -37,8 +37,8 @@ class DevicesStateAggregator {
 
   void _start() {
     _subscriptions.add(
-      _controller.deviceStream.skip(1).listen((devices) {
-        _updateDeviceSubscriptions(devices);
+      _controller.deviceStream.skip(1).listen((_) {
+        _updateDeviceSubscriptions(_inventoryDevices());
         _emitState();
       }),
     );
@@ -57,6 +57,13 @@ class DevicesStateAggregator {
       _connectionManager.status.skip(1).listen((_) => _emitState()),
     );
 
+    _subscriptions.add(
+      _connectionManager.scaleController.connectionState.skip(1).listen((_) {
+        _updateDeviceSubscriptions(_inventoryDevices());
+        _emitState();
+      }),
+    );
+
     final remembered = _rememberedController;
     if (remembered != null) {
       _subscriptions.add(
@@ -64,7 +71,7 @@ class DevicesStateAggregator {
       );
     }
 
-    _updateDeviceSubscriptions(_controller.devices);
+    _updateDeviceSubscriptions(_inventoryDevices());
 
     _emitState(immediate: true);
   }
@@ -115,8 +122,10 @@ class DevicesStateAggregator {
   }
 
   Future<Map<String, dynamic>> _buildSnapshot() async {
+    final devices = _inventoryDevices();
+    _updateDeviceSubscriptions(devices);
     final devList = await buildAvailabilityDeviceList(
-      _controller.devices,
+      devices,
       _rememberedController?.remembered ?? const [],
       preferredScaleId: _preferredScaleId?.call(),
     );
@@ -157,6 +166,11 @@ class DevicesStateAggregator {
     };
     return snapshot;
   }
+
+  List<Device> _inventoryDevices() => _devicesForInventory(
+    _controller.devices,
+    _connectionManager.scaleController,
+  );
 
   void dispose() {
     _debounceTimer?.cancel();
@@ -247,7 +261,10 @@ class DevicesHandler {
 
   Future<List<Map<String, dynamic>>> _deviceList() async {
     return buildAvailabilityDeviceList(
-      _controller.devices,
+      _devicesForInventory(
+        _controller.devices,
+        _connectionManager.scaleController,
+      ),
       _rememberedController?.remembered ?? const [],
       preferredScaleId: _preferredScaleId?.call(),
     );
@@ -533,6 +550,23 @@ class DevicesHandler {
           : '${device.name} failed to connect.',
       suggestion: 'Check that the device is available and try again.',
     );
+  }
+}
+
+List<Device> _devicesForInventory(
+  List<Device> discoveredDevices,
+  ScaleController scaleController,
+) {
+  try {
+    final connectedScale = scaleController.connectedScale();
+    if (discoveredDevices.any(
+      (device) => device.deviceId == connectedScale.deviceId,
+    )) {
+      return discoveredDevices;
+    }
+    return [...discoveredDevices, connectedScale];
+  } on DeviceNotConnectedException {
+    return discoveredDevices;
   }
 }
 

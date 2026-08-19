@@ -131,6 +131,43 @@ void main() {
       await channel.sink.close();
     });
 
+    test('tracks a connected scale that is outside discovery', () async {
+      final scale = TestScale(
+        deviceId: 'bengle-internal-machine',
+        name: 'Bengle scale',
+      );
+      await scaleController.connectToScale(scale);
+
+      final (channel, messages) = connectWs();
+      final connected = await messages
+          .where(
+            (message) => (message['devices'] as List).any(
+              (device) =>
+                  device['id'] == scale.deviceId &&
+                  device['state'] == 'connected',
+            ),
+          )
+          .first
+          .timeout(Duration(seconds: 2));
+
+      expect((connected['devices'] as List).single['available'], true);
+
+      scale.setConnectionState(ConnectionState.disconnected);
+
+      final disconnected = await messages
+          .where(
+            (message) => (message['devices'] as List).every(
+              (device) => device['id'] != scale.deviceId,
+            ),
+          )
+          .first
+          .timeout(Duration(seconds: 2));
+
+      expect(disconnected['devices'], isEmpty);
+
+      await channel.sink.close();
+    });
+
     test('emits update when device is added', () async {
       final (channel, messages) = connectWs();
 

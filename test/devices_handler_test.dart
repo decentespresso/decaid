@@ -409,6 +409,25 @@ void main() {
         expect(body[0]['name'], 'Test Scale');
         expect(body[0]['type'], 'scale');
       });
+
+      test('returns a connected scale that is outside discovery', () async {
+        await scaleController.connectToScale(
+          TestScale(deviceId: 'bengle-internal-machine', name: 'Bengle scale'),
+        );
+
+        final response = await sendGet('/api/v1/devices');
+        expect(response.statusCode, 200);
+        final body = jsonDecode(await response.readAsString()) as List;
+        expect(body, [
+          {
+            'name': 'Bengle scale',
+            'id': 'bengle-internal-machine',
+            'state': 'connected',
+            'type': 'scale',
+            'available': true,
+          },
+        ]);
+      });
     });
   });
 

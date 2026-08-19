@@ -116,11 +116,12 @@ and connection timeouts return 504. The devices WebSocket returns the same resul
 after each connect command.
 
 Each device entry carries an **`available`** boolean. `true` = currently present
-in discovery; `false` = a **remembered** device that isn't present (reported with
-`state: "disconnected"`). Devices the user connects to are remembered and persist
-across restarts, shown as unavailable when offline, until forgotten via
-`PUT /api/v1/devices/forget` (deviceId in the JSON body or `?deviceId=` query).
-The same `available` field is on each device in the `ws/v1/devices` snapshot.
+in discovery or actively connected; `false` = a **remembered** device that isn't
+present (reported with `state: "disconnected"`). Devices the user connects to are
+remembered and persist across restarts, shown as unavailable when offline, until
+forgotten via `PUT /api/v1/devices/forget` (deviceId in the JSON body or
+`?deviceId=` query). The same `available` field is on each device in the
+`ws/v1/devices` snapshot.
 
 **Manual WiFi scale endpoints.** Auto-discovered (DNS-SD) WiFi scales appear in
 `GET /api/v1/devices` like any other device and need no extra calls. The

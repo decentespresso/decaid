@@ -39,11 +39,12 @@ paths:
                     available:
                       type: boolean
                       description: >
-                        true if the device is currently present in discovery;
-                        false for a remembered device that is not present
-                        (reported with state "disconnected"). Remembered devices
-                        are those the user has connected to; they persist across
-                        restarts until forgotten via /api/v1/devices/forget.
+                        true if the device is currently present in discovery or
+                        is actively connected; false for a remembered device
+                        that is not present (reported with state "disconnected").
+                        Remembered devices are those the user has connected to;
+                        they persist across restarts until forgotten via
+                        /api/v1/devices/forget.
         "500":
           description: Internal Server Error
           content:
