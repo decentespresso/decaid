@@ -107,6 +107,7 @@ class Skale2Scale implements Scale {
       await _initScale();
       _connectionStateController.add(ConnectionState.connected);
     } catch (e) {
+      _log.warning('Connect failed: $e');
       disconnectSub?.cancel();
       _connectionStateController.add(ConnectionState.disconnected);
       try {

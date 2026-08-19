@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/device/ble_service_identifier.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
@@ -12,6 +13,8 @@ import 'package:reaprime/src/models/errors.dart';
 import '../../scale.dart';
 
 class AtomheartScale implements Scale {
+  final Logger _log = Logger('AtomheartScale');
+
   static final BleServiceIdentifier serviceIdentifier =
       BleServiceIdentifier.long('b905eaea-6c7e-4f73-b43d-2cdfcab29570');
   static final BleServiceIdentifier dataCharacteristic =
@@ -82,6 +85,7 @@ class AtomheartScale implements Scale {
       await _registerNotifications();
       _connectionStateController.add(ConnectionState.connected);
     } catch (e) {
+      _log.warning('Connect failed: $e');
       disconnectSub?.cancel();
       _connectionStateController.add(ConnectionState.disconnected);
       try {

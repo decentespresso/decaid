@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/device/ble_service_identifier.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
@@ -12,6 +13,8 @@ import 'package:rxdart/subjects.dart';
 import '../../scale.dart';
 
 class WeighMasterScale implements Scale {
+  final Logger _log = Logger('WeighMasterScale');
+
   static final BleServiceIdentifier serviceIdentifier =
       BleServiceIdentifier.short('fff0');
   static final BleServiceIdentifier dataCharacteristic =
@@ -93,7 +96,8 @@ class WeighMasterScale implements Scale {
       }
       await _registerNotifications();
       _connectionStateController.add(ConnectionState.connected);
-    } catch (_) {
+    } catch (e) {
+      _log.warning('Connect failed: $e');
       disconnectSub?.cancel();
       _connectionStateController.add(ConnectionState.disconnected);
       try {

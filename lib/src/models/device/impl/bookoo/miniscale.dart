@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/device/ble_service_identifier.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
@@ -12,6 +13,8 @@ import 'package:reaprime/src/models/device/device.dart';
 import '../../scale.dart';
 
 class BookooScale implements Scale {
+  final Logger _log = Logger('BookooScale');
+
   static final BleServiceIdentifier serviceIdentifier =
       BleServiceIdentifier.short('0ffe');
   static final BleServiceIdentifier dataCharacteristic =
@@ -77,6 +80,7 @@ class BookooScale implements Scale {
       await _registerNotifications();
       _connectionStateController.add(ConnectionState.connected);
     } catch (e) {
+      _log.warning('Connect failed: $e');
       disconnectSub?.cancel();
       _connectionStateController.add(ConnectionState.disconnected);
       try {

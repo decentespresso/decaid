@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/device/ble_service_identifier.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
@@ -10,6 +11,8 @@ import 'package:reaprime/src/models/device/device.dart';
 import '../../scale.dart';
 
 class SmartChefScale implements Scale {
+  final Logger _log = Logger('SmartChefScale');
+
   static final BleServiceIdentifier serviceIdentifier =
       BleServiceIdentifier.short('fff0');
   static final BleServiceIdentifier dataCharacteristic =
@@ -80,6 +83,7 @@ class SmartChefScale implements Scale {
       await _registerNotifications();
       _connectionStateController.add(ConnectionState.connected);
     } catch (e) {
+      _log.warning('Connect failed: $e');
       disconnectSub?.cancel();
       _connectionStateController.add(ConnectionState.disconnected);
       try {

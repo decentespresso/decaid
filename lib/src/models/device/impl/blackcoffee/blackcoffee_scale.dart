@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/device/ble_service_identifier.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
@@ -11,6 +12,8 @@ import 'package:reaprime/src/models/device/device.dart';
 import '../../scale.dart';
 
 class BlackCoffeeScale implements Scale {
+  final Logger _log = Logger('BlackCoffeeScale');
+
   static final BleServiceIdentifier serviceIdentifier =
       BleServiceIdentifier.short('ffb0');
   static final BleServiceIdentifier dataCharacteristic =
@@ -81,6 +84,7 @@ class BlackCoffeeScale implements Scale {
       await _registerNotifications();
       _connectionStateController.add(ConnectionState.connected);
     } catch (e) {
+      _log.warning('Connect failed: $e');
       disconnectSub?.cancel();
       _connectionStateController.add(ConnectionState.disconnected);
       try {
