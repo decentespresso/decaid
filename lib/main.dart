@@ -4,6 +4,7 @@ import 'dart:ui' show AppExitResponse, AppExitType;
 
 import 'package:collection/collection.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
+import 'package:path/path.dart' as p;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -13,6 +14,7 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:logging/logging.dart';
 import 'package:logging_appenders/logging_appenders.dart';
 import 'package:reaprime/build_info.dart';
+import 'package:reaprime/src/account/account_consent_prompter.dart';
 import 'package:reaprime/src/controllers/battery_controller.dart';
 import 'package:reaprime/src/controllers/bengle_probe_bridge.dart';
 import 'package:reaprime/src/controllers/bengle_saw_bridge.dart';
@@ -52,6 +54,8 @@ import 'package:reaprime/src/services/storage/bean_storage_service.dart';
 import 'package:reaprime/src/services/storage/drift_storage_service.dart';
 import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
 import 'package:reaprime/src/services/storage/profile_storage_service.dart';
+import 'package:reaprime/src/services/account/account_consent_gate.dart';
+import 'package:reaprime/src/services/account/account_consent_store.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/account/decent_proxy_service.dart';
 import 'package:reaprime/src/services/account/proxy_token_service.dart';
@@ -153,6 +157,23 @@ Future<void> _printStoragePaths() async {
   stdout.writeln('temp: ${await AppDirectories.temp}');
   await stdout.flush();
   exit(0);
+}
+
+ActiveSkinConsent? _activeSkinConsent(
+  WebUIService service,
+  WebUIStorage storage,
+) {
+  final path = service.serverPath().trim();
+  if (path.isEmpty) return null;
+  final normalizedPath = p.normalize(path);
+  final skin = storage.installedSkins.firstWhereOrNull(
+    (candidate) => p.equals(p.normalize(candidate.path), normalizedPath),
+  );
+  return ActiveSkinConsent(
+    id: skin?.id,
+    name: skin?.name ?? 'Custom skin',
+    path: path,
+  );
 }
 
 void main(List<String> args) async {
@@ -402,6 +423,16 @@ void main(List<String> args) async {
     decentProxyService = null;
   } else {
     credentialStore = await createCredentialStore();
+    final consentPrompter = AccountConsentPrompter(
+      navigatorKey: NavigationService.navigatorKey,
+    );
+    final consentGate = AccountConsentGate(
+      store: AccountConsentStore(credentialStore: credentialStore),
+      activeSkin: () => _activeSkinConsent(webUIService, webUIStorage),
+      prompt: consentPrompter.prompt,
+      trustedConsentKeys: cliArgs.trustedConsentKeys,
+      trustAllConsent: cliArgs.trustAllConsent,
+    );
     const decentBaseUrl = String.fromEnvironment(
       'DECENT_BASE_URL',
       defaultValue: 'https://decentespresso.com',
@@ -414,6 +445,7 @@ void main(List<String> args) async {
     decentProxyService = DecentProxyService(
       httpClient: http.Client(),
       credentialStore: credentialStore,
+      requireConsent: consentGate.requireConsent,
       baseUrl: decentBaseUrl,
     );
     accountTokensController = AccountTokensController(

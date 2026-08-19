@@ -5168,7 +5168,8 @@ paths:
         token (injected into served skin pages) or a user-managed API-client
         token. Unauthenticated/unknown tokens get 401; known but unscoped get
         403; a path outside the allowed prefix gets 403; no linked account gets
-        401.
+        401. A caller's first linked-account request pauses for native consent;
+        denial or a 30-second timeout gets 403 before any upstream request.
       tags: [Account]
       parameters:
         - name: endpoint
@@ -5194,7 +5195,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Token not scoped for account:proxy, or path not allowed
+          description: Token unscoped, path disallowed, or account consent not granted
           content:
             application/json:
               schema:
@@ -5211,7 +5212,8 @@ paths:
         Requires `Authorization: Bearer <token>` scoped
         `account:proxy:write`. The read-only skin token cannot write — it gets
         403. Other rejection rules match the GET form (401 unknown token / no
-        linked account; 403 unscoped or disallowed path).
+        linked account; 403 unscoped, disallowed path, or account consent not
+        granted).
       tags: [Account]
       parameters:
         - name: endpoint
@@ -5245,7 +5247,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Token not scoped for account:proxy:write, or path not allowed
+          description: Token unscoped, path disallowed, or account consent not granted
           content:
             application/json:
               schema:
@@ -5288,7 +5290,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Token not scoped for account:proxy:write, or path not allowed
+          description: Token unscoped, path disallowed, or account consent not granted
           content:
             application/json:
               schema:

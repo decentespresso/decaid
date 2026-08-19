@@ -6,6 +6,8 @@ class CliArgs {
   final bool direct;
   final bool noAccount;
   final bool printStoragePaths;
+  final Set<String> trustedConsentKeys;
+  final bool trustAllConsent;
   final String? skinId;
   final String? skinPath;
 
@@ -15,6 +17,8 @@ class CliArgs {
     this.direct = false,
     this.noAccount = false,
     this.printStoragePaths = false,
+    this.trustedConsentKeys = const {},
+    this.trustAllConsent = false,
     this.skinId,
     this.skinPath,
   });
@@ -43,6 +47,15 @@ CliArgs parseCliArgs(List<String> args) {
       'print-storage-paths',
       help: 'Print resolved application storage paths and exit.',
       defaultsTo: false,
+    )
+    ..addMultiOption(
+      'trust-consent',
+      help: 'Trust an account-consent key for this process.',
+    )
+    ..addFlag(
+      'trust-all-consent',
+      help: 'Trust every account-proxy caller for this process.',
+      defaultsTo: false,
     );
 
   final results = parser.parse(args);
@@ -52,6 +65,8 @@ CliArgs parseCliArgs(List<String> args) {
     direct: results['direct'] as bool,
     noAccount: results['no-account'] as bool,
     printStoragePaths: results['print-storage-paths'] as bool,
+    trustedConsentKeys: (results['trust-consent'] as List<String>).toSet(),
+    trustAllConsent: results['trust-all-consent'] as bool,
     skinId: results['skin'] as String?,
     skinPath: results['skin-path'] as String?,
   );
