@@ -115,6 +115,22 @@ void main() {
   });
 
   group('BeanDao - BeanBatches', () {
+    test('lists batches across beans and filters archived', () async {
+      await db.beanDao.insertBean(makeBean(id: 'bean-1'));
+      await db.beanDao.insertBean(makeBean(id: 'bean-2'));
+      await db.beanDao.insertBatch(makeBatch(id: 'b1'));
+      await db.beanDao.insertBatch(makeBatch(id: 'b2', beanId: 'bean-2'));
+      await db.beanDao.insertBatch(
+        makeBatch(id: 'b3', beanId: 'bean-2', archived: true),
+      );
+
+      final active = await db.beanDao.getAllBatches();
+      expect(active.map((batch) => batch.id).toSet(), {'b1', 'b2'});
+
+      final all = await db.beanDao.getAllBatches(includeArchived: true);
+      expect(all.map((batch) => batch.id).toSet(), {'b1', 'b2', 'b3'});
+    });
+
     test('inserts and retrieves batches for a bean', () async {
       await db.beanDao.insertBean(makeBean(id: 'bean-1'));
       await db.beanDao.insertBatch(makeBatch(id: 'batch-1'));

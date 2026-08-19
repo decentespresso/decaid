@@ -43,6 +43,12 @@ class MockBeanStorageService implements BeanStorageService {
   }
 
   @override
+  Future<List<BeanBatch>> getAllBatches({bool includeArchived = false}) async {
+    if (includeArchived) return List.of(batches);
+    return batches.where((b) => !b.archived).toList();
+  }
+
+  @override
   Future<List<BeanBatch>> getBatchesForBean(
     String beanId, {
     bool includeArchived = false,
@@ -407,6 +413,74 @@ void main() {
       expect(response.statusCode, 200);
       final body = jsonDecode(await response.readAsString()) as List;
       expect(body, hasLength(2));
+    });
+
+    test(
+      'GET /api/v1/bean-batches lists active batches across beans',
+      () async {
+        final otherBeanResponse = await sendPost('/api/v1/beans', {
+          'roaster': 'Tim Wendelboe',
+          'name': 'Karogoto',
+        });
+        final otherBeanId = jsonDecode(
+          await otherBeanResponse.readAsString(),
+        )['id'];
+        final first = jsonDecode(
+          await (await sendPost('/api/v1/beans/$beanId/batches', {
+            'roastLevel': 'light',
+          })).readAsString(),
+        );
+        final second = jsonDecode(
+          await (await sendPost('/api/v1/beans/$otherBeanId/batches', {
+            'roastLevel': 'medium',
+          })).readAsString(),
+        );
+        final archived = jsonDecode(
+          await (await sendPost('/api/v1/beans/$otherBeanId/batches', {
+            'roastLevel': 'dark',
+          })).readAsString(),
+        );
+        await sendPut('/api/v1/bean-batches/${archived['id']}', {
+          'archived': true,
+        });
+
+        final activeResponse = await sendGet('/api/v1/bean-batches');
+        expect(activeResponse.statusCode, 200);
+        final active = jsonDecode(await activeResponse.readAsString()) as List;
+        expect(active.map((batch) => batch['id']).toSet(), {
+          first['id'],
+          second['id'],
+        });
+
+        final allResponse = await sendGet(
+          '/api/v1/bean-batches?includeArchived=true',
+        );
+        final all = jsonDecode(await allResponse.readAsString()) as List;
+        expect(all.map((batch) => batch['id']).toSet(), {
+          first['id'],
+          second['id'],
+          archived['id'],
+        });
+      },
+    );
+
+    test('GET /api/v1/bean-batches supports conditional GET', () async {
+      await sendPost('/api/v1/beans/$beanId/batches', {'roastLevel': 'light'});
+
+      final response = await sendGet('/api/v1/bean-batches');
+      final etag = response.headers['etag'];
+      expect(etag, isNotNull);
+
+      final cached = await handler(
+        Request(
+          'GET',
+          Uri.parse('http://localhost/api/v1/bean-batches'),
+          headers: {'If-None-Match': etag!},
+        ),
+      );
+      expect(cached.statusCode, 304);
+      expect(cached.headers['etag'], etag);
+      expect(await cached.readAsString(), isEmpty);
     });
 
     test('GET /api/v1/bean-batches/<id> returns a specific batch', () async {
