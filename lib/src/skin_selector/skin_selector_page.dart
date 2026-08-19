@@ -650,7 +650,6 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
         );
       }
     } catch (e) {
-      _log.severe('Failed to install skin from GitHub', e);
       if (context.mounted) {
         ScaffoldMessenger.of(
           context,
