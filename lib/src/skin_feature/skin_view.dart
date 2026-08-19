@@ -38,6 +38,8 @@ SkinNavDecision classifySkinNavigation(Uri? url) {
   return SkinNavDecision.block;
 }
 
+bool shouldShowSkinLoadError(bool? isForMainFrame) => isForMainFrame != false;
+
 class SkinExitCoordinator {
   bool _inProgress = false;
 
@@ -645,6 +647,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
         _log.warning(
           'WebView error - Code: ${error.type}, Description: ${error.description}',
         );
+        if (!shouldShowSkinLoadError(request.isForMainFrame)) return;
         if (!mounted) return;
         setState(() {
           _isLoading = false;
