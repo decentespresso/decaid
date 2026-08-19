@@ -7,6 +7,36 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
         <title>Decaid</title>
         <item>
             <title>0.8.0</title>
+            <pubDate>Wed, 19 Aug 2026 10:49:04 +0000</pubDate>
+            <sparkle:version>2353</sparkle:version>
+            <sparkle:shortVersionString>0.8.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* chore: require accepted issues for external PRs by @tadelv in https://github.com/decentespresso/decaid/pull/600
+* test: cut wall-clock waits from slowest test files (protected_surface, led_strip, ble recovery) by @tadelv in https://github.com/decentespresso/decaid/pull/602
+* fix: round Bengle scaled MMR writes by @ODevStudio in https://github.com/decentespresso/decaid/pull/604
+* Optional replay simulator (simulate=replay) — profile-matched, honors target weight by @johnbuckman in https://github.com/decentespresso/decaid/pull/599
+* fix: iOS security-scoped folder access for plugin install and folder-based imports by @tadelv in https://github.com/decentespresso/decaid/pull/609
+* fix: align Bengle MMR units with firmware by @ODevStudio in https://github.com/decentespresso/decaid/pull/605
+* feat: complete Bengle support for the current firmware (scale cal, LEDs, cup warmer + preheat, wake schedule) by @tadelv in https://github.com/decentespresso/decaid/pull/612
+* fix steam documentation, add tests by @tadelv in https://github.com/decentespresso/decaid/pull/616
+* fix(scale): preserve preferred-scale reconnect backoff by @tadelv in https://github.com/decentespresso/decaid/pull/617
+* fix(sync): normalize target URLs before appending API paths by @tadelv in https://github.com/decentespresso/decaid/pull/618
+* Add DE1 calibration endpoint support to machine API by @tadelv in https://github.com/decentespresso/decaid/pull/623
+* fix(profiles): make ID-changing updates atomic by @tadelv in https://github.com/decentespresso/decaid/pull/624
+* feat(api): add plugin source update endpoint by @allofmeng in https://github.com/decentespresso/decaid/pull/619
+* feat(profiles): bundle the Weber Spring Clean cleaning profile by @allofmeng in https://github.com/decentespresso/decaid/pull/625
+* fix(api): support tri-state partial updates by @tadelv in https://github.com/decentespresso/decaid/pull/628
+* feat(plugins): install and update plugins from GitHub, ZIP and folders by @allofmeng in https://github.com/decentespresso/decaid/pull/627
+
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.7.17...v0.8.0
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.8.0/decaid-macos-0.8.0.zip" length="72686953" type="application/octet-stream" sparkle:edSignature="kvS+DZKc4t2JDePzJOtMQwLBQsUF4OQlC9ouNX5x1GgoQ4PsoIuXN9vleOJKcHPaakiPUp8b3/N5LBAMuqqhCA=="/>
+        </item>
+        <item>
+            <title>0.8.0</title>
             <pubDate>Fri, 14 Aug 2026 13:47:42 +0000</pubDate>
             <sparkle:channel>beta</sparkle:channel>
             <sparkle:version>2326</sparkle:version>
@@ -148,6 +178,6 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: 7HrLtAoD6NmB0bPU/WbtuTM2w5P8Z6Gmg9N3mV0ZjPF9l+Z/9CIoTigW30QTHqo9ImWH1mdJjoFNPXwhU+HaBA==
-length: 12503
+edSignature: JmuOLS/AgN5OKyUw6KvBR+PjttjfpPCSinsCzWXipVBwSBZwjj+bMVdShtcO9N8GCRkljgBBJre+4CgM+Et7Dw==
+length: 15352
 -->
