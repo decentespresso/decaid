@@ -1,8 +1,17 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/skin_feature/skin_view.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 
 void main() {
+  test('skin exit guide explains Android navigation and Dashboard purpose', () {
+    final instructions = skinExitInstructions(TargetPlatform.android);
+
+    expect(instructions, contains('settings and skin selection'));
+    expect(instructions, contains('Swipe inward from either screen edge'));
+    expect(instructions, contains('Android Back'));
+  });
+
   group('classifySkinNavigation', () {
     test('allows localhost:3000 and its sub-paths', () {
       expect(
