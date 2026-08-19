@@ -67,7 +67,8 @@ void main() {
     }) {
       return MockClient((request) async {
         final url = request.url.toString();
-        if (url.contains('/releases/latest')) {
+        if (url.contains('/releases/latest') ||
+            url.contains('/releases/tags/')) {
           return http.Response(
             jsonEncode({
               'tag_name': tag,

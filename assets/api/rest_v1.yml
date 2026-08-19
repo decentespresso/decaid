@@ -3115,8 +3115,10 @@ paths:
     post:
       summary: Approve and install a permission-escalating update
       description: >
-        Installs the update recorded in pendingUpdate, accepting the added
-        permissions.
+        Installs the exact candidate recorded in pendingUpdate - the stored
+        release tag or commit - accepting its added permissions. If the source
+        moved since detection, the fetched candidate is refused, recorded as
+        the new pendingUpdate and has to be approved again.
       tags: [Plugins]
       parameters:
         - name: id
@@ -3144,7 +3146,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: No update is awaiting approval
+          description: >
+            No update is awaiting approval, or the candidate no longer matches
+            the approved one
           content:
             application/json:
               schema:

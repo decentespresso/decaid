@@ -499,8 +499,11 @@ skin updates, and on demand from the Plugins settings screen or
 - an unchanged tag or commit only refreshes `lastChecked`;
 - a changed tag or commit is downloaded and validated before anything installed
   is touched;
-- downgrade protection still applies to release installs: a lower version is
-  rejected, and going back requires removing the plugin first;
+- an update must carry the plugin being updated: a candidate whose manifest id
+  differs from the installed plugin is rejected before anything is touched;
+- downgrade protection applies to release and branch updates alike: a lower
+  version is rejected, and going back requires removing the plugin first. A
+  moved branch whose manifest version is unchanged still updates;
 - the swap is transactional. The plugin is unloaded only once the replacement is
   ready, and a failed copy or a failed reload restores the previous files,
   manifest and running plugin;
@@ -543,6 +546,17 @@ screen and in `GET /api/v1/plugins`, and installed only after explicit approval:
 ```bash
 curl -X POST http://tablet:8080/api/v1/plugins/my.reaplugin/update/approve
 ```
+
+Approval is bound to the exact candidate that was reviewed. The pending release
+tag or commit is the fetch target, not "whatever is latest now", and the fetched
+candidate is revalidated - same plugin id, same version, no permission beyond
+the approved ones - before anything is installed. A source that moved between
+detection and approval is refused with a 409, the new candidate is recorded as
+the pending update, and its delta has to be approved in turn.
+
+A pending update the app has already overtaken is cleared: when a newer bundled
+copy lands at or above the pending version, the stale approval prompt goes away.
+A genuinely newer pending update is kept.
 
 Trusting a repository is not the same as trusting a new permission, so this
 holds regardless of where the plugin came from.

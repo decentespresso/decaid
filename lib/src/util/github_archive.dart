@@ -57,6 +57,24 @@ Future<GitHubRelease> fetchLatestGitHubRelease(
     release = decoded as Map<String, dynamic>;
   }
 
+  return _releaseFromJson(release);
+}
+
+Future<GitHubRelease> fetchGitHubReleaseByTag(String repo, String tag) async {
+  validateGitHubRepo(repo);
+  final response = await http.get(
+    Uri.parse('https://api.github.com/repos/$repo/releases/tags/$tag'),
+    headers: _headers,
+  );
+  if (response.statusCode != 200) {
+    throw Exception(
+      'Failed to fetch release "$tag" of $repo: ${response.statusCode}',
+    );
+  }
+  return _releaseFromJson(jsonDecode(response.body) as Map<String, dynamic>);
+}
+
+GitHubRelease _releaseFromJson(Map<String, dynamic> release) {
   final assets = ((release['assets'] as List?) ?? [])
       .cast<Map<String, dynamic>>()
       .map(
@@ -88,6 +106,9 @@ Future<String> fetchGitHubBranchCommit(String repo, String branch) async {
 
 String gitHubBranchArchiveUrl(String repo, String branch) =>
     'https://github.com/$repo/archive/refs/heads/$branch.zip';
+
+String gitHubCommitArchiveUrl(String repo, String commit) =>
+    'https://github.com/$repo/archive/$commit.zip';
 
 Future<List<int>> downloadGitHubArchive(String url) async {
   final response = await http.get(Uri.parse(url));

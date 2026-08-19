@@ -7,6 +7,7 @@ import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'package:reaprime/src/plugins/plugin_package.dart';
 import 'package:reaprime/src/plugins/plugin_source.dart';
+import 'package:reaprime/src/plugins/plugin_version.dart';
 import 'package:reaprime/src/util/github_archive.dart';
 import 'package:reaprime/src/webui_support/webui_zip_support.dart';
 
@@ -145,13 +146,9 @@ class PluginSourceService {
 
   Future<PluginManifest> _install(
     PluginPackage package,
-    PluginSource source, {
-    bool allowDowngrade = false,
-  }) async {
-    final manifest = await _loader.installPluginPackage(
-      package.root,
-      allowDowngrade: allowDowngrade,
-    );
+    PluginSource source,
+  ) async {
+    final manifest = await _loader.installPluginPackage(package.root);
     _writeSource(manifest.id, source);
     return manifest;
   }
@@ -190,9 +187,21 @@ class PluginSourceService {
       final isBundledSource =
           existing.kind == PluginSourceKind.githubRelease &&
           existing.repo == repo;
-      if (!isBundledSource || existing.releaseTag == tag) continue;
+      if (!isBundledSource) continue;
 
-      _writeSource(pluginId, existing.copyWith(releaseTag: tag));
+      final pending = existing.pendingUpdate;
+      final pendingSatisfied =
+          pending != null &&
+          comparePluginVersions(manifest.version, pending.version) >= 0;
+      if (existing.releaseTag == tag && !pendingSatisfied) continue;
+
+      _writeSource(
+        pluginId,
+        existing.copyWith(
+          releaseTag: tag,
+          clearPendingUpdate: pendingSatisfied,
+        ),
+      );
       _log.info('Realigned bundled plugin source: $pluginId at $tag');
     }
   }
@@ -334,29 +343,133 @@ class PluginSourceService {
           installedAt: now,
           lastChecked: now,
         ),
-        allowDowngrade: true,
       );
     });
   }
 
   Future<PluginManifest> approvePendingUpdate(String pluginId) async {
     final source = sourceFor(pluginId);
-    if (source == null || source.pendingUpdate == null) {
+    final pending = source?.pendingUpdate;
+    final installed = _loader.getPluginManifest(pluginId);
+    if (source == null || pending == null || installed == null) {
       throw PluginApprovalRequiredException(
         'Plugin $pluginId has no update awaiting approval',
       );
     }
 
     if (source.kind == PluginSourceKind.githubRelease) {
-      return installFromGitHubRelease(
-        source.repo!,
-        assetName: source.assetName,
-        includePrerelease: source.includePrerelease,
+      final tag = pending.releaseTag;
+      if (tag == null) {
+        throw PluginApprovalRequiredException(
+          'Approved update of $pluginId records no release tag',
+        );
+      }
+
+      final release = await fetchGitHubReleaseByTag(source.repo!, tag);
+      final asset = _selectReleaseAsset(release, source.assetName);
+      final bytes = await downloadGitHubArchive(asset.downloadUrl);
+
+      return _withStaging((staging) async {
+        _extractArchive(bytes, staging);
+        final package = resolvePluginPackage(staging);
+        _requireSamePlugin(installed, package);
+        _requireTagMatchesManifest(release.tag, package.manifest.version);
+        _requireApprovedCandidate(
+          installed,
+          source,
+          pending,
+          package,
+          releaseTag: release.tag,
+        );
+
+        final now = DateTime.now();
+        return _install(
+          package,
+          PluginSource(
+            kind: PluginSourceKind.githubRelease,
+            repo: source.repo,
+            releaseTag: release.tag,
+            assetName: source.assetName,
+            includePrerelease: source.includePrerelease,
+            installedAt: now,
+            lastChecked: now,
+          ),
+        );
+      });
+    }
+
+    final commit = pending.commit;
+    if (commit == null) {
+      throw PluginApprovalRequiredException(
+        'Approved update of $pluginId records no commit',
       );
     }
-    return installFromGitHubBranch(
-      source.repo!,
-      branch: source.branch ?? 'main',
+
+    final bytes = await downloadGitHubArchive(
+      gitHubCommitArchiveUrl(source.repo!, commit),
+    );
+
+    return _withStaging((staging) async {
+      _extractArchive(bytes, staging);
+      final package = resolvePluginPackage(staging);
+      _requireSamePlugin(installed, package);
+      _requireApprovedCandidate(
+        installed,
+        source,
+        pending,
+        package,
+        commit: commit,
+      );
+
+      final now = DateTime.now();
+      return _install(
+        package,
+        PluginSource(
+          kind: PluginSourceKind.githubBranch,
+          repo: source.repo,
+          branch: source.branch ?? 'main',
+          commit: commit,
+          installedAt: now,
+          lastChecked: now,
+        ),
+      );
+    });
+  }
+
+  /// Rejects a candidate that is not the one whose permission delta the user
+  /// approved, and records the candidate as the new pending update so the
+  /// fresh delta is what gets reviewed next.
+  void _requireApprovedCandidate(
+    PluginManifest installed,
+    PluginSource source,
+    PluginPendingUpdate approved,
+    PluginPackage package, {
+    String? releaseTag,
+    String? commit,
+  }) {
+    final added = _addedPermissions(installed, package.manifest);
+    final unapproved = added
+        .where((p) => !approved.addedPermissions.contains(p))
+        .toList();
+    if (package.manifest.version == approved.version && unapproved.isEmpty) {
+      return;
+    }
+
+    _writeSource(
+      installed.id,
+      source.copyWith(
+        pendingUpdate: PluginPendingUpdate(
+          version: package.manifest.version,
+          releaseTag: releaseTag,
+          commit: commit,
+          addedPermissions: added,
+          detectedAt: DateTime.now(),
+        ),
+      ),
+    );
+    throw PluginApprovalRequiredException(
+      'Update of ${installed.id} changed since it was approved '
+      '(${approved.version} -> ${package.manifest.version}); approve again',
     );
   }
 

@@ -773,7 +773,7 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
         }
       }
 
-      await widget.pluginLoaderService.addPlugin(tempDir.path);
+      await _sourceService.installFromFolder(tempDir.path);
 
       if (context.mounted) {
         _showSnackBar(context, 'Plugin installed successfully');

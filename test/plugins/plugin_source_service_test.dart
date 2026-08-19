@@ -100,13 +100,16 @@ function createPlugin() {
             200,
           );
         }
+        if (url.contains('/releases/tags/')) {
+          return http.Response(releaseJson(url.split('/').last, assets), 200);
+        }
         if (url.contains('/commits/')) {
           return http.Response(jsonEncode({'sha': commit}), 200);
         }
         if (url.startsWith('https://example.test/assets/')) {
           return http.Response.bytes(releaseArchive ?? pluginArchive(), 200);
         }
-        if (url.contains('/archive/refs/heads/')) {
+        if (url.contains('/archive/')) {
           return http.Response.bytes(branchArchive ?? pluginArchive(), 200);
         }
         return http.Response('not found: $url', 404);
@@ -351,6 +354,178 @@ function createPlugin() {
       expect(service.sourceFor(id)?.pendingUpdate, isNull);
     });
 
+    test('approval installs the reviewed release, not a newer one', () async {
+      await http.runWithClient(
+        () => service.installFromGitHubRelease('acme/plugin'),
+        () => gitHubClient(releaseArchive: pluginArchive(permissions: ['log'])),
+      );
+      await http.runWithClient(
+        () => service.updateAllPlugins(),
+        () => gitHubClient(
+          tag: 'v1.1.0',
+          assets: ['plugin-1.1.0.zip'],
+          releaseArchive: pluginArchive(
+            version: '1.1.0',
+            permissions: ['log', 'proxy.decent_api'],
+          ),
+        ),
+      );
+      expect(service.sourceFor(id)!.pendingUpdate!.releaseTag, 'v1.1.0');
+
+      await http.runWithClient(
+        () => service.approvePendingUpdate(id),
+        () => MockClient((request) async {
+          final url = request.url.toString();
+          if (url.contains('/releases/latest')) {
+            return http.Response(
+              releaseJson('v1.2.0', ['plugin-1.2.0.zip']),
+              200,
+            );
+          }
+          if (url.endsWith('/releases/tags/v1.1.0')) {
+            return http.Response(
+              releaseJson('v1.1.0', ['plugin-1.1.0.zip']),
+              200,
+            );
+          }
+          if (url.endsWith('plugin-1.1.0.zip')) {
+            return http.Response.bytes(
+              pluginArchive(
+                version: '1.1.0',
+                permissions: ['log', 'proxy.decent_api'],
+              ),
+              200,
+            );
+          }
+          if (url.endsWith('plugin-1.2.0.zip')) {
+            return http.Response.bytes(
+              pluginArchive(
+                version: '1.2.0',
+                permissions: [
+                  'log',
+                  'proxy.decent_api',
+                  'proxy.decent_api.write',
+                ],
+              ),
+              200,
+            );
+          }
+          return http.Response('not found: $url', 404);
+        }),
+      );
+
+      expect(loader.getPluginManifest(id)?.version, '1.1.0');
+      expect(service.sourceFor(id)!.releaseTag, 'v1.1.0');
+      expect(service.sourceFor(id)!.pendingUpdate, isNull);
+    });
+
+    test('a release re-cut at the approved tag needs a new approval', () async {
+      await http.runWithClient(
+        () => service.installFromGitHubRelease('acme/plugin'),
+        () => gitHubClient(releaseArchive: pluginArchive(permissions: ['log'])),
+      );
+      await http.runWithClient(
+        () => service.updateAllPlugins(),
+        () => gitHubClient(
+          tag: 'v1.1.0',
+          releaseArchive: pluginArchive(
+            version: '1.1.0',
+            permissions: ['log', 'proxy.decent_api'],
+          ),
+        ),
+      );
+
+      await expectLater(
+        http.runWithClient(
+          () => service.approvePendingUpdate(id),
+          () => gitHubClient(
+            tag: 'v1.1.0',
+            releaseArchive: pluginArchive(
+              version: '1.1.0',
+              permissions: [
+                'log',
+                'proxy.decent_api',
+                'proxy.decent_api.write',
+              ],
+            ),
+          ),
+        ),
+        throwsA(isA<PluginApprovalRequiredException>()),
+      );
+
+      expect(loader.getPluginManifest(id)?.version, '1.0.0');
+      expect(service.sourceFor(id)!.pendingUpdate!.addedPermissions, [
+        'proxy.decent_api',
+        'proxy.decent_api.write',
+      ]);
+    });
+
+    test('approval installs the reviewed commit, not the new head', () async {
+      await http.runWithClient(
+        () => service.installFromGitHubBranch('acme/plugin'),
+        () => gitHubClient(commit: 'commit-1'),
+      );
+      await http.runWithClient(
+        () => service.updateAllPlugins(),
+        () => gitHubClient(
+          commit: 'commit-2',
+          branchArchive: pluginArchive(version: '1.1.0', permissions: ['log']),
+        ),
+      );
+      expect(service.sourceFor(id)!.pendingUpdate!.commit, 'commit-2');
+
+      await http.runWithClient(
+        () => service.approvePendingUpdate(id),
+        () => MockClient((request) async {
+          final url = request.url.toString();
+          if (url.contains('/commits/')) {
+            return http.Response(jsonEncode({'sha': 'commit-3'}), 200);
+          }
+          if (url.endsWith('/archive/commit-2.zip')) {
+            return http.Response.bytes(
+              pluginArchive(version: '1.1.0', permissions: ['log']),
+              200,
+            );
+          }
+          if (url.contains('/archive/refs/heads/')) {
+            return http.Response.bytes(
+              pluginArchive(version: '2.0.0', permissions: ['log', 'emit']),
+              200,
+            );
+          }
+          return http.Response('not found: $url', 404);
+        }),
+      );
+
+      expect(loader.getPluginManifest(id)?.version, '1.1.0');
+      final source = service.sourceFor(id)!;
+      expect(source.commit, 'commit-2');
+      expect(source.pendingUpdate, isNull);
+    });
+
+    test('a branch commit that lowers the version is refused', () async {
+      await http.runWithClient(
+        () => service.installFromGitHubBranch('acme/plugin'),
+        () => gitHubClient(
+          commit: 'commit-1',
+          branchArchive: pluginArchive(version: '2.0.0'),
+        ),
+      );
+
+      await http.runWithClient(
+        () => service.updateAllPlugins(),
+        () => gitHubClient(
+          commit: 'commit-2',
+          branchArchive: pluginArchive(version: '1.0.0'),
+        ),
+      );
+
+      expect(loader.getPluginManifest(id)?.version, '2.0.0');
+      final source = service.sourceFor(id)!;
+      expect(source.commit, 'commit-1');
+      expect(source.lastError, isNotNull);
+    });
+
     test('approving without a pending update is an error', () async {
       await http.runWithClient(
         () => service.installFromGitHubRelease('acme/plugin'),
@@ -537,6 +712,12 @@ function createPlugin() {
     group('bundled plugin provenance', () {
       const dye2Id = 'dye2.reaplugin';
 
+      Future<void> bundledUpgrade(String version) => loader.updatePluginSource(
+        dye2Id,
+        manifestJson: manifestJson(dye2Id, version: version),
+        pluginJs: pluginJs(dye2Id),
+      );
+
       Future<void> installBundledCopy({String version = '0.1.4'}) async {
         final staging = Directory('${tempDir.path}/bundled_$version')
           ..createSync(recursive: true);
@@ -612,11 +793,67 @@ function createPlugin() {
         service.seedBundledSources();
         expect(service.sourceFor(dye2Id)?.releaseTag, 'v0.1.4');
 
-        await installBundledCopy(version: '0.1.5');
+        await bundledUpgrade('0.1.5');
         service.seedBundledSources();
 
         expect(service.sourceFor(dye2Id)?.releaseTag, 'v0.1.5');
       });
+
+      test(
+        'seeding clears a pending update the bundled copy satisfies',
+        () async {
+          await installBundledCopy();
+          service.seedBundledSources();
+
+          await http.runWithClient(
+            () => service.updateAllPlugins(),
+            () => gitHubClient(
+              tag: 'v0.2.0',
+              releaseArchive: pluginArchive(
+                pluginId: dye2Id,
+                version: '0.2.0',
+                permissions: ['log'],
+              ),
+            ),
+          );
+          expect(service.sourceFor(dye2Id)!.pendingUpdate!.version, '0.2.0');
+
+          await bundledUpgrade('0.2.0');
+          service.seedBundledSources();
+
+          final source = service.sourceFor(dye2Id)!;
+          expect(source.pendingUpdate, isNull);
+          expect(source.releaseTag, 'v0.2.0');
+        },
+      );
+
+      test(
+        'seeding keeps a pending update newer than the bundled copy',
+        () async {
+          await installBundledCopy();
+          service.seedBundledSources();
+
+          await http.runWithClient(
+            () => service.updateAllPlugins(),
+            () => gitHubClient(
+              tag: 'v0.3.0',
+              releaseArchive: pluginArchive(
+                pluginId: dye2Id,
+                version: '0.3.0',
+                permissions: ['log'],
+              ),
+            ),
+          );
+          expect(service.sourceFor(dye2Id)!.pendingUpdate!.version, '0.3.0');
+
+          await bundledUpgrade('0.2.0');
+          service.seedBundledSources();
+
+          final source = service.sourceFor(dye2Id)!;
+          expect(source.pendingUpdate!.version, '0.3.0');
+          expect(source.releaseTag, 'v0.2.0');
+        },
+      );
 
       test('seeding leaves a user-chosen source alone', () async {
         await http.runWithClient(
