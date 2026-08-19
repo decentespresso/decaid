@@ -489,7 +489,7 @@ All WebSocket endpoints are on port 8080 at `/ws/v1/...`. See [`assets/api/webso
 | `/ws/v1/machine/raw` | Raw BLE characteristic data. Re-binds across a machine reconnect; writes go to the currently-bound machine. | Hex-encoded bytes |
 | `/ws/v1/machine/shotState` | Shot sequencer state + decision feed: why a step advanced, why the shot stopped. Replays the latest frame on connect; idle between shots; not gated on a connected machine. | `event` (`state`\|`decision`\|`terminal`), `shotId`, shot phase, machine context, `decision {kind, reason, details, data}` |
 | `/ws/v1/devices` | Device discovery + `ConnectionManager` status (phase, found devices, ambiguity, errors). Also accepts `scan`/`connect`/`disconnect` commands. | Device list, `connectionStatus` |
-| `/ws/v1/sensors/:id/snapshot` | Sensor data stream | Sensor-specific |
+| `/ws/v1/sensors/:id/snapshot` | Sensor data stream. Re-binds across replacement or transient removal/re-add of the same sensor ID. | Sensor-specific |
 | `/ws/v1/plugins/:id/:endpoint` | Plugin WebSocket proxy | Plugin-specific |
 | `/ws/v1/logs` | App log stream | Timestamped log entries |
 | `/ws/v1/webview/logs` | WebView console log stream | WebView console messages |
@@ -524,6 +524,16 @@ For clients this means:
 Machine sockets opened before the first machine connection behave like any later disconnected gap:
 the socket stays open and remains silent until a machine attaches. No error or status frame is emitted
 on the typed telemetry sockets.
+
+### Sensor sockets follow replacement
+
+An open `/ws/v1/sensors/:id/snapshot` socket follows the current sensor instance for its ID. When that
+sensor is replaced, the server cancels the old data subscription and binds the socket to the replacement.
+During a transient removal the socket stays open and silent, then resumes when the same ID returns. The
+channel remains sensor-data-only and emits no connection status frames.
+
+The initial lookup is unchanged: opening a socket for an ID that is not present returns
+`{"error":"not found"}` and closes the socket.
 
 ### `shotState` events
 

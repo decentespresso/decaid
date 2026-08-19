@@ -102,7 +102,12 @@ channels:
       shotStateEvent:
         $ref: '#/components/messages/ShotStateEvent'
   SensorSnapshot:
-    description: Real-time sensor snapshot updates for a specific sensor.
+    description: >
+      Real-time sensor snapshot updates for a specific sensor. An open socket
+      follows replacement sensor instances with the same id and stays open
+      during a transient removal, resuming when that id returns. No status
+      frame is emitted while the sensor is absent. Opening the socket for an id
+      that is not present still returns an error frame and closes the socket.
     address: ws/v1/sensors/{id}/snapshot
     parameters:
       id:
