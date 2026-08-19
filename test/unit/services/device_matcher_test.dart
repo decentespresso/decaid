@@ -83,6 +83,13 @@ void main() {
       mockTransport = _MockBLETransport();
     });
 
+    test('Eclair scan filter uses the current service UUID', () {
+      final services = DeviceMatcher.serviceUuidsFor(DeviceType.scale);
+
+      expect(services, contains('b905eaea-2e63-0e04-7582-7913f10d8f81'));
+      expect(services, isNot(contains('b905eaea-6c7e-4f73-b43d-2cdfcab29570')));
+    });
+
     test('exact match for Decent Scale', () async {
       final device = await DeviceMatcher.match(
         transport: mockTransport,
