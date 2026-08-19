@@ -14,13 +14,15 @@ class _FakeWebUIService extends Fake implements WebUIService {
 }
 
 class _FakeWebUIStorage extends Fake implements WebUIStorage {
-  final WebUISkin _skin = WebUISkin(
-    id: 'streamline.js',
-    name: 'Streamline',
-    path: '/tmp/streamline.js',
-    version: '0.2.2',
-    isBundled: true,
-  );
+  final List<WebUISkin> _skins = [
+    WebUISkin(
+      id: 'streamline.js',
+      name: 'Streamline',
+      path: '/tmp/streamline.js',
+      version: '0.2.2',
+      isBundled: true,
+    ),
+  ];
 
   String? releaseRepo;
   String? releaseAsset;
@@ -29,10 +31,10 @@ class _FakeWebUIStorage extends Fake implements WebUIStorage {
   Object? installError;
 
   @override
-  List<WebUISkin> get installedSkins => [_skin];
+  List<WebUISkin> get installedSkins => _skins;
 
   @override
-  WebUISkin? get defaultSkin => _skin;
+  WebUISkin? get defaultSkin => _skins.first;
 
   @override
   Future<void> installFromGitHubRelease(
@@ -43,6 +45,15 @@ class _FakeWebUIStorage extends Fake implements WebUIStorage {
     if (installError != null) throw installError!;
     releaseRepo = repo;
     releaseAsset = assetName;
+    _skins.add(
+      WebUISkin(
+        id: 'custom-skin',
+        name: 'Custom Skin',
+        path: '/tmp/custom-skin',
+        version: '1.0.0',
+        isBundled: false,
+      ),
+    );
   }
 
   @override
@@ -50,6 +61,15 @@ class _FakeWebUIStorage extends Fake implements WebUIStorage {
     if (installError != null) throw installError!;
     branchRepo = repo;
     branchName = branch;
+    _skins.add(
+      WebUISkin(
+        id: 'custom-skin',
+        name: 'Custom Skin',
+        path: '/tmp/custom-skin',
+        version: '1.0.0',
+        isBundled: false,
+      ),
+    );
   }
 }
 
@@ -93,6 +113,11 @@ void main() {
     expect(storage.releaseRepo, 'tadelv/passione');
     expect(storage.releaseAsset, 'passione.zip');
     expect(find.text('Skin installed from GitHub'), findsOneWidget);
+
+    // the installed skin is visible after the selector rebuilds
+    await tester.tap(find.byType(DropdownButton<String>));
+    await tester.pumpAndSettle();
+    expect(find.text('Custom Skin'), findsOneWidget);
   });
 
   testWidgets('install menu installs a skin from a GitHub branch', (
@@ -112,6 +137,11 @@ void main() {
     expect(storage.branchRepo, 'tadelv/passione');
     expect(storage.branchName, 'dev');
     expect(find.text('Skin installed from GitHub'), findsOneWidget);
+
+    // the installed skin is visible after the selector rebuilds
+    await tester.tap(find.byType(DropdownButton<String>));
+    await tester.pumpAndSettle();
+    expect(find.text('Custom Skin'), findsOneWidget);
   });
 
   testWidgets('empty branch defaults to main', (tester) async {
@@ -121,6 +151,8 @@ void main() {
     await _openInstallMenu(tester, 'GitHub Branch');
 
     await tester.enterText(find.byType(TextField).at(0), 'tadelv/passione');
+    // explicitly clear the pre-filled branch field so the default path runs
+    await tester.enterText(find.byType(TextField).at(1), '');
     await tester.tap(find.text('Install'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));

@@ -517,13 +517,11 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
     );
 
     if (result == null || result.files.isEmpty) {
-      setState(() => _selectedSkinId = widget.webUIStorage.defaultSkin?.id);
       return;
     }
 
     final filePath = result.files.single.path;
     if (filePath == null) {
-      setState(() => _selectedSkinId = widget.webUIStorage.defaultSkin?.id);
       return;
     }
 
@@ -560,7 +558,6 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
           context,
         ).showSnackBar(SnackBar(content: Text('Failed to install skin: $e')));
       }
-      setState(() => _selectedSkinId = widget.webUIStorage.defaultSkin?.id);
     }
   }
 
