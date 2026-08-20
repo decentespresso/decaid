@@ -401,10 +401,30 @@ jobs:
         env:
           FEEDBACK_TOKEN: ${{ secrets.FEEDBACK_TOKEN }}
 
+      - name: Copy app-local VC++ runtime
+        shell: pwsh
+        run: |
+          $crtDir = Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT' -Directory |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $crtDir) { throw 'VS 2022 VC runtime redist not found' }
+          Copy-Item (Join-Path $crtDir.FullName '*.dll') 'build/windows/x64/runner/Release/'
+
       - name: Create Windows archive
         shell: pwsh
         run: |
           Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath decaid-windows-x64-${{ needs.release-metadata.outputs.version }}.zip
+
+      - name: Verify ZIP clean extraction and launch
+        shell: pwsh
+        run: |
+          $zip = 'decaid-windows-x64-${{ needs.release-metadata.outputs.version }}.zip'
+          $extract = Join-Path $env:RUNNER_TEMP 'decaid-extracted'
+          Expand-Archive -Path $zip -DestinationPath $extract
+          & (Join-Path $extract 'Decaid.exe') --print-storage-paths
+          if ($LASTEXITCODE -ne 0) { throw "Decaid.exe exited with code $LASTEXITCODE" }
+          foreach ($name in @('Decaid.exe','flutter_windows.dll','vcruntime140.dll','msvcp140.dll','data')) {
+            if (-not (Test-Path (Join-Path $extract $name))) { throw "missing $name in extracted ZIP" }
+          }
 
       - name: Upload Windows app artifact
         uses: actions/upload-artifact@v7
