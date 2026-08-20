@@ -324,7 +324,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install Linux dependencies
-        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libsecret-1-dev squashfs-tools desktop-file-utils librsvg2-dev libgirepository1.0-dev libglib2.0-bin libgtk-3-bin libgdk-pixbuf2.0-bin
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libsecret-1-dev squashfs-tools desktop-file-utils librsvg2-dev libgirepository1.0-dev libglib2.0-bin libgtk-3-bin libgdk-pixbuf2.0-bin xvfb
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -359,6 +359,11 @@ jobs:
             build/linux/x64/release/bundle \
             x86_64 ${{ needs.release-metadata.outputs.version }} "$GITHUB_WORKSPACE"
 
+      - name: Verify Linux AppImage structure and launch
+        run: |
+          scripts/verify_appimage.sh \
+            decaid-linux-x86_64-${{ needs.release-metadata.outputs.version }}.AppImage x86-64
+
       - name: Upload Linux app artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -378,7 +383,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install Linux dependencies
-        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libsecret-1-dev squashfs-tools desktop-file-utils librsvg2-dev libgirepository1.0-dev libglib2.0-bin libgtk-3-bin libgdk-pixbuf2.0-bin
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libsecret-1-dev squashfs-tools desktop-file-utils librsvg2-dev libgirepository1.0-dev libglib2.0-bin libgtk-3-bin libgdk-pixbuf2.0-bin xvfb
 
       - name: Set up Flutter
         id: flutter-action
@@ -418,6 +423,11 @@ jobs:
           scripts/package_appimage.sh \
             build/linux/arm64/release/bundle \
             aarch64 ${{ needs.release-metadata.outputs.version }} "$GITHUB_WORKSPACE"
+
+      - name: Verify Raspberry Pi AppImage structure and launch
+        run: |
+          scripts/verify_appimage.sh \
+            decaid-linux-aarch64-${{ needs.release-metadata.outputs.version }}.AppImage aarch64
 
       - name: Upload Raspberry Pi build artifacts
         uses: actions/upload-artifact@v7
