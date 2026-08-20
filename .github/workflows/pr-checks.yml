@@ -302,12 +302,32 @@ jobs:
       - name: Build Linux app (unsigned)
         run: flutter build linux --release --no-pub
 
-      - name: Verify internal data paths avoid Documents
+      - name: Verify internal data paths use Application Support, not Documents
+        env:
+          XDG_DATA_HOME: ${{ runner.temp }}/xdg-data
+          XDG_CONFIG_HOME: ${{ runner.temp }}/xdg-config
         run: |
           set -euo pipefail
-          PATHS=$(xvfb-run -a ./build/linux/x64/release/bundle/decaid --print-storage-paths)
+          mkdir -p "$XDG_CONFIG_HOME"
+          printf 'XDG_DOCUMENTS_DIR="$HOME"\n' > "$XDG_CONFIG_HOME/user-dirs.dirs"
+          APP=./build/linux/x64/release/bundle/decaid
+          PATHS=$(xvfb-run -a "$APP" --print-storage-paths)
           echo "$PATHS"
+          echo "$PATHS" | grep -q '^support:' || {
+            echo 'FAIL: missing support line' >&2
+            exit 1
+          }
+          echo "$PATHS" | grep -q "$XDG_DATA_HOME" || {
+            echo 'FAIL: support not under XDG_DATA_HOME' >&2
+            exit 1
+          }
           ! grep -qi documents <<<"$PATHS"
+          ! grep -qF "$HOME" <<<"$PATHS"
+          timeout 30 xvfb-run -a "$APP" --no-account || true
+          find "$XDG_DATA_HOME" -name log.txt -print -quit | grep -q . || {
+            echo 'FAIL: no log.txt after fresh start' >&2
+            exit 1
+          }
 
   tools:
     name: Python tools tests
