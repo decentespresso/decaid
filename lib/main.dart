@@ -151,6 +151,7 @@ Future<void> _printStoragePaths() async {
   stdout.writeln('plugins: ${await AppDirectories.plugins}');
   stdout.writeln('webUi: ${await AppDirectories.webUi}');
   stdout.writeln('temp: ${await AppDirectories.temp}');
+  await stdout.flush();
   exit(0);
 }
 
@@ -191,6 +192,7 @@ void main(List<String> args) async {
   }
 
   final logDir = await AppDirectories.logs;
+  await Directory(logDir).create(recursive: true);
 
   RotatingFileAppender(
     baseFilePath: '$logDir/log.txt',
@@ -263,6 +265,7 @@ void main(List<String> args) async {
   }
 
   Hive.init(await AppDirectories.hive);
+  ensureFlutterTypeAdaptersRegistered();
 
   services.add(createSerialService());
 
