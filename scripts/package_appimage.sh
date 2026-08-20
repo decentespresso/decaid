@@ -51,6 +51,7 @@ fetch_verified() {
     mv "${dest}.part" "${dest}"
   fi
   echo "${sha256}  ${dest}" | sha256sum -c --quiet
+  chmod +x "${dest}"
 }
 
 fetch_verified "${LINUXDEPLOY_URL}" "${CACHE_DIR}/linuxdeploy-${ARCH}.AppImage" "${LINUXDEPLOY_SHA256}"
