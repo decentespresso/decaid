@@ -7,8 +7,50 @@ This document describes how to create releases for Decaid.
 Decaid uses git tags to trigger automatic releases. When you push a tag, GitHub Actions will:
 1. Build all supported platforms
 2. Export the iOS archive for TestFlight
-3. Generate release notes from merged pull requests using GitHub's release-notes generator
-4. Create a GitHub release with those notes and the desktop, Android, Raspberry Pi, and unsigned iOS artifacts
+3. Package the macOS DMG and Linux AppImages, and bundle the VC++ runtime into the Windows ZIP
+4. Generate release notes from merged pull requests using GitHub's release-notes generator
+5. Attach every artifact plus a SHA-256 checksum manifest to a GitHub release
+
+## Desktop Artifacts
+
+Each tagged release attaches these desktop files (plus the Android APK and unsigned iOS IPA):
+
+| Platform | Artifact | Install |
+| --- | --- | --- |
+| macOS (Intel + Apple Silicon) | `decaid-macos-<version>.dmg` | Open the DMG and drag Decaid to Applications. Signed and notarized. |
+| macOS (portable / auto-update) | `decaid-macos-<version>.zip` | Extract and run `Decaid.app`; also the Sparkle auto-update payload. |
+| Windows x64 | `decaid-windows-x64-<version>.zip` | Extract the whole ZIP and run `Decaid.exe`. Portable and unsigned; the VC++ runtime is bundled. |
+| Linux x86_64 | `decaid-linux-x86_64-<version>.AppImage` | `chmod +x` and run. No installation needed. |
+| Linux ARM64 | `decaid-linux-aarch64-<version>.AppImage` | `chmod +x` and run. No installation needed. |
+| Linux portable | `decaid-linux-x64-<version>.tar.gz`, `decaid-linux-arm64-<version>.tar.gz` | Extract and run `decaid` from the bundle directory. |
+
+All files are covered by `decaid-<version>-SHA256SUMS.txt` in the release.
+
+### Verifying checksums
+
+```bash
+# macOS / Linux
+curl -sL -O https://github.com/decentespresso/decaid/releases/download/v<version>/decaid-<version>-SHA256SUMS.txt
+shasum -a 256 -c decaid-<version>-SHA256SUMS.txt --ignore-missing
+# download every artifact into the same directory first, or use --ignore-missing
+```
+
+```powershell
+# Windows PowerShell
+curl.exe -L -O https://github.com/decentespresso/decaid/releases/download/v<version>/decaid-<version>-SHA256SUMS.txt
+Get-FileHash decaid-windows-x64-<version>.zip -Algorithm SHA256
+# compare the hash against the manifest entry
+```
+
+### AppImage notes
+
+- Optional desktop integration (menu entry, icon) is handled by AppImageLauncher or `appimaged` when installed; the AppImage itself always runs standalone.
+- On systems without FUSE, run `./decaid-linux-<arch>-<version>.AppImage --appimage-extract-and-run` instead.
+- Removal is deleting the file; the app stores its data under `~/.local/share` (or `$XDG_DATA_HOME`).
+
+### Windows notes
+
+The Windows build is unsigned, so a clean machine may show an unknown-publisher warning when `Decaid.exe` is first launched. There is no installer and nothing is written outside the extraction directory.
 
 ### Step 1: Tag Your Release
 
@@ -102,7 +144,7 @@ the feed.
 
 ### What a tag push publishes
 
-1. All platform builds, signed + notarized as before. macOS uses Developer ID signing of Sparkle's
+1. All platform builds, signed + notarized as before, plus the DMG wrapping the notarized app. macOS uses Developer ID signing of Sparkle's
    nested helpers deepest-first (never `codesign --deep` — see `scripts/sign_macos_deepest_first.sh`)
    and runs `scripts/verify_macos_signature.sh` before and after notarization.
 2. `create-release` attaches the artifacts, then `publish-appcast` (macOS runner):
@@ -253,6 +295,4 @@ Required secrets: `APPLE_DISTRIBUTION_CERTIFICATE_P12`, `APPLE_DISTRIBUTION_CERT
 
 ## Future Enhancements
 
-- [ ] Add multi-platform releases (macOS, Linux, Windows)
-- [ ] Add checksums for security verification
 - [ ] Add release approval workflow
