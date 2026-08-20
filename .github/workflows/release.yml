@@ -794,30 +794,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Prepend download guidance to release notes
-        env:
-          VERSION: ${{ needs.release-metadata.outputs.version }}
-        run: |
-          cat > notes-header.md <<EOF
-          ## Downloads
-
-          Every file below is covered by \`decaid-${VERSION}-SHA256SUMS.txt\`.
-
-          - **macOS** — \`decaid-macos-${VERSION}.dmg\` (signed and notarized; drag Decaid to Applications). The \`decaid-macos-${VERSION}.zip\` remains the portable build used for auto-update.
-          - **Windows x64** — \`decaid-windows-x64-${VERSION}.zip\` (portable; extract the whole ZIP and run \`Decaid.exe\`; the build is unsigned).
-          - **Linux x86_64** — \`decaid-linux-x86_64-${VERSION}.AppImage\` (chmod +x and run; no installation needed).
-          - **Linux ARM64** — \`decaid-linux-aarch64-${VERSION}.AppImage\`.
-          - **Linux portable archives** — \`decaid-linux-x64-${VERSION}.tar.gz\` and \`decaid-linux-arm64-${VERSION}.tar.gz\`.
-          - **Android** — \`decaid-android-${VERSION}.apk\`. **iOS** — unsigned \`decaid-ios-unsigned-${VERSION}.ipa\`.
-
-          **Stable URLs** — every file above also ships as a \`-latest\` alias, so \`https://github.com/decentespresso/decaid/releases/latest/download/decaid-android-latest.apk\` (and \`decaid-macos-latest.dmg\`, \`decaid-linux-x86_64-latest.AppImage\`, ...) always points at the newest stable release. The aliases are covered by \`decaid-latest-SHA256SUMS.txt\`.
-
-          See \`doc/RELEASE.md\` for install and verification instructions.
-
-          EOF
-          cat notes-header.md release-notes.md > combined-notes.md
-          mv combined-notes.md release-notes.md
-
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
