@@ -232,10 +232,83 @@ jobs:
           cd build/macos/Build/Products/Release
           ditto -c -k --keepParent Decaid.app ../../../../../decaid-macos-${{ needs.release-metadata.outputs.version }}.zip
 
+      # ---- DMG ----
+      - name: Create DMG
+        run: |
+          APP="build/macos/Build/Products/Release/Decaid.app"
+          DMG_STAGE="$RUNNER_TEMP/dmg-stage"
+          rm -rf "$DMG_STAGE"
+          mkdir -p "$DMG_STAGE"
+          cp -R "$APP" "$DMG_STAGE/"
+          ln -s /Applications "$DMG_STAGE/Applications"
+          hdiutil create \
+            -volname Decaid \
+            -srcfolder "$DMG_STAGE" \
+            -ov -format UDZO \
+            decaid-macos-${{ needs.release-metadata.outputs.version }}.dmg
+
+      - name: Sign DMG
+        run: |
+          codesign --sign "Developer ID Application" --timestamp \
+            decaid-macos-${{ needs.release-metadata.outputs.version }}.dmg
+
+      - name: Notarize DMG
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+          APP_SPECIFIC_PASSWORD: ${{ secrets.APP_SPECIFIC_PASSWORD }}
+        run: |
+          xcrun notarytool submit \
+            decaid-macos-${{ needs.release-metadata.outputs.version }}.dmg \
+            --apple-id "$APPLE_ID" \
+            --team-id "$TEAM_ID" \
+            --password "$APP_SPECIFIC_PASSWORD" \
+            --wait 2>&1 | tee dmg-notarization.log
+          if grep -q "status: Invalid" dmg-notarization.log; then
+            ID=$(grep -o '[0-9a-f\-]\{36\}' dmg-notarization.log | head -1)
+            xcrun notarytool log "$ID" \
+              --apple-id "$APPLE_ID" \
+              --team-id "$TEAM_ID" \
+              --password "$APP_SPECIFIC_PASSWORD" || true
+            exit 1
+          fi
+
+      - name: Staple DMG
+        run: |
+          DMG="decaid-macos-${{ needs.release-metadata.outputs.version }}.dmg"
+          for i in 1 2 3 4 5; do
+            if xcrun stapler staple "$DMG"; then
+              exit 0
+            fi
+            echo "Staple attempt $i failed, waiting 15s..."
+            sleep 15
+          done
+          echo "Stapling failed after 5 attempts"
+          exit 1
+
+      - name: Verify DMG contents, signature, and launch
+        run: |
+          set -euo pipefail
+          DMG="decaid-macos-${{ needs.release-metadata.outputs.version }}.dmg"
+          MOUNT="$RUNNER_TEMP/dmg-mount"
+          rm -rf "$MOUNT"
+          mkdir -p "$MOUNT"
+          hdiutil attach "$DMG" -readonly -nobrowse -mountpoint "$MOUNT"
+          trap 'hdiutil detach "$MOUNT" >/dev/null 2>&1 || true' EXIT
+          test -d "$MOUNT/Decaid.app"
+          test -L "$MOUNT/Applications"
+          scripts/verify_macos_signature.sh "$MOUNT/Decaid.app" XLS3XF57J8 1
+          spctl --assess --type open --context context:primary-signature --verbose=4 "$DMG"
+          mkdir -p "$RUNNER_TEMP/Applications"
+          cp -R "$MOUNT/Decaid.app" "$RUNNER_TEMP/Applications/"
+          "$RUNNER_TEMP/Applications/Decaid.app/Contents/MacOS/Decaid" --print-storage-paths
+
       - uses: actions/upload-artifact@v7
         with:
           name: macos-app
-          path: decaid-macos-${{ needs.release-metadata.outputs.version }}.zip
+          path: |
+            decaid-macos-${{ needs.release-metadata.outputs.version }}.zip
+            decaid-macos-${{ needs.release-metadata.outputs.version }}.dmg
 
   build-linux:
     needs: release-metadata
