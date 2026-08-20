@@ -2,11 +2,6 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-/// Resolves platform-appropriate directories for application-managed data.
-///
-/// On desktop, internal state lives under Application Support so Decent files
-/// never appear in user Documents. On mobile, the Documents directory is
-/// already the app-private sandbox and is kept as-is.
 class AppDirectories {
   AppDirectories._();
 
@@ -27,10 +22,6 @@ class AppDirectories {
   static Future<String> get driftFile async =>
       p.join(await support, 'streamline_bridge.sqlite');
 
-  /// Directory containing `log.txt` and `webview_console.log`.
-  ///
-  /// Desktop uses a dedicated `logs` subdirectory; mobile keeps logs at the
-  /// support root so the existing layout is unchanged.
   static Future<String> get logs async =>
       isDesktop ? p.join(await support, 'logs') : await support;
 
