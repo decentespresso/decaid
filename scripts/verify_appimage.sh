@@ -9,6 +9,7 @@ usage() {
 APPIMAGE="${1:-}"
 ARCH_PATTERN="${2:-}"
 [ -n "$APPIMAGE" ] && [ -n "$ARCH_PATTERN" ] || usage
+APPIMAGE="$(realpath "$APPIMAGE")"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
