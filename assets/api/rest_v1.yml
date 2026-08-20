@@ -1212,7 +1212,9 @@ paths:
         the same request re-attempts the requested settings.
 
         Bodies are limited to 1 MiB. At most eight workflow requests may be active or queued,
-        and a request that waits more than 30 seconds for its turn is skipped.
+        and a request that waits more than 30 seconds for its turn is skipped. A request whose
+        machine writes stall for more than 120 seconds returns `503` and releases the queue, so
+        one stuck operation cannot block later requests indefinitely.
 
         You can update the complete workflow or just specific fields:
         - **context**: Set dose, grinder, coffee, and people metadata (recommended)
