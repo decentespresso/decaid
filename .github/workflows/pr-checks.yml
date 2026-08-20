@@ -329,6 +329,31 @@ jobs:
             exit 1
           }
 
+      - name: Install AppImage packaging dependencies
+        run: sudo apt-get update && sudo apt-get install -y squashfs-tools desktop-file-utils librsvg2-dev libgirepository1.0-dev libglib2.0-bin libgtk-3-bin libgdk-pixbuf2.0-bin
+
+      - name: Package Linux AppImage
+        run: |
+          scripts/package_appimage.sh \
+            build/linux/x64/release/bundle \
+            x86_64 0.0.0-test "$RUNNER_TEMP"
+
+      - name: Verify AppImage structure and launch
+        shell: bash
+        run: |
+          set -euo pipefail
+          APPIMAGE="$RUNNER_TEMP/decaid-linux-x86_64-0.0.0-test.AppImage"
+          file "$APPIMAGE" | grep -q 'x86-64'
+          APPIMAGE_EXTRACT_AND_RUN=1 xvfb-run -a "$APPIMAGE" --print-storage-paths
+          cd "$RUNNER_TEMP"
+          "$APPIMAGE" --appimage-extract >/dev/null
+          test -x squashfs-root/AppRun
+          test -f squashfs-root/net.tadel.reaprime.desktop
+          test -e squashfs-root/net.tadel.reaprime.png
+          desktop-file-validate squashfs-root/net.tadel.reaprime.desktop
+          test -x squashfs-root/usr/lib/decaid/decaid
+          test -f squashfs-root/usr/lib/decaid/data/flutter_assets/AssetManifest.json
+
   tools:
     name: Python tools tests
     needs: changes
