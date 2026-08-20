@@ -7,8 +7,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:reaprime/src/services/security_scoped_file.dart';
+import 'package:reaprime/src/services/storage/app_directories.dart';
 import 'package:reaprime/src/util/rot13.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
@@ -381,9 +381,9 @@ class _DataManagementPageState extends State<DataManagementPage> {
 
     final Uint8List zipBytes;
     try {
-      final docs = await getApplicationDocumentsDirectory();
-      final logFile = File('${docs.path}/log.txt');
-      final webviewLogFile = File('${docs.path}/webview_console.log');
+      final logDir = await AppDirectories.logs;
+      final logFile = File('$logDir/log.txt');
+      final webviewLogFile = File('$logDir/webview_console.log');
 
       final hasAppLog = await logFile.exists();
       final hasWebviewLog =

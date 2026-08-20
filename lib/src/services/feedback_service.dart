@@ -6,10 +6,10 @@ import 'dart:ui' as ui;
 import 'package:flutter/painting.dart';
 import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/models/feedback/feedback_request.dart';
 import 'package:reaprime/src/models/feedback/feedback_result.dart';
+import 'package:reaprime/src/services/storage/app_directories.dart';
 import 'package:reaprime/src/services/telemetry/anonymization.dart';
 
 class FeedbackService {
@@ -168,8 +168,7 @@ class FeedbackService {
 
   Future<String?> _readLogFile() async {
     try {
-      final docs = await getApplicationDocumentsDirectory();
-      final logFile = File('${docs.path}/log.txt');
+      final logFile = File('${await AppDirectories.logs}/log.txt');
       if (await logFile.exists()) {
         return _scrubSensitive(await logFile.readAsString());
       }
@@ -183,8 +182,7 @@ class FeedbackService {
 
   Future<String?> _readWebViewLogFile() async {
     try {
-      final docs = await getApplicationDocumentsDirectory();
-      final logFile = File('${docs.path}/webview_console.log');
+      final logFile = File('${await AppDirectories.logs}/webview_console.log');
       if (await logFile.exists()) {
         return _scrubSensitive(await logFile.readAsString());
       }
