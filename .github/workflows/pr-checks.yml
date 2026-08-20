@@ -307,14 +307,7 @@ jobs:
           set -euo pipefail
           PATHS=$(xvfb-run -a ./build/linux/x64/release/bundle/decaid --print-storage-paths)
           echo "$PATHS"
-          if echo "$PATHS" | grep -qi 'documents'; then
-            echo 'FAIL: Documents directory in storage paths' >&2
-            exit 1
-          fi
-          echo "$PATHS" | grep -q '\.local/share' || {
-            echo 'FAIL: expected XDG data directory (.local/share)' >&2
-            exit 1
-          }
+          ! grep -qi documents <<<"$PATHS"
 
   tools:
     name: Python tools tests

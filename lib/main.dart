@@ -196,8 +196,7 @@ void main(List<String> args) async {
     baseFilePath: '$logDir/log.txt',
   ).attachToLogger(Logger.root);
 
-  final webViewLogDir = logDir;
-  final webViewLogService = WebViewLogService(logDirectoryPath: webViewLogDir);
+  final webViewLogService = WebViewLogService(logDirectoryPath: logDir);
   await webViewLogService.initialize();
 
   Logger.root.info("==== Decent starting ====");

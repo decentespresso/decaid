@@ -10,18 +10,11 @@ import 'package:path_provider/path_provider.dart';
 class AppDirectories {
   AppDirectories._();
 
-  static bool get isDesktop {
-    switch (defaultTargetPlatform) {
-      case TargetPlatform.macOS:
-      case TargetPlatform.windows:
-      case TargetPlatform.linux:
-        return true;
-      case TargetPlatform.android:
-      case TargetPlatform.iOS:
-      case TargetPlatform.fuchsia:
-        return false;
-    }
-  }
+  static bool get isDesktop => const {
+    TargetPlatform.macOS,
+    TargetPlatform.windows,
+    TargetPlatform.linux,
+  }.contains(defaultTargetPlatform);
 
   static Future<String> get support async => isDesktop
       ? (await getApplicationSupportDirectory()).path
