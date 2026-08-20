@@ -45,6 +45,10 @@ void main() {
     expect(await AppDirectories.support, supportPath);
     expect(await AppDirectories.temp, tempPath);
     expect(await AppDirectories.hive, p.join(supportPath, 'store'));
+    expect(
+      await AppDirectories.driftFile,
+      p.join(supportPath, 'streamline_bridge.sqlite'),
+    );
     expect(await AppDirectories.logs, p.join(supportPath, 'logs'));
     expect(await AppDirectories.plugins, p.join(supportPath, 'plugins'));
     expect(await AppDirectories.webUi, p.join(supportPath, 'web-ui'));
@@ -55,6 +59,10 @@ void main() {
 
     expect(await AppDirectories.support, docsPath);
     expect(await AppDirectories.hive, p.join(docsPath, 'store'));
+    expect(
+      await AppDirectories.driftFile,
+      p.join(docsPath, 'streamline_bridge.sqlite'),
+    );
     expect(await AppDirectories.logs, docsPath);
     expect(await AppDirectories.plugins, p.join(docsPath, 'plugins'));
   });

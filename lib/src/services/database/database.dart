@@ -37,7 +37,7 @@ class AppDatabase extends _$AppDatabase {
       driftDatabase(
         name: 'streamline_bridge',
         native: DriftNativeOptions(
-          databaseDirectory: () async => await AppDirectories.support,
+          databasePath: () => AppDirectories.driftFile,
         ),
       ),
     );
