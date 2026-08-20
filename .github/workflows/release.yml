@@ -773,6 +773,19 @@ jobs:
           cd ..
           cat "decaid-${VERSION}-SHA256SUMS.txt"
 
+      - name: Create stable aliases for every artifact
+        env:
+          VERSION: ${{ needs.release-metadata.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd release-artifacts
+          while IFS= read -r f; do
+            cp "$f" "${f/-${VERSION}/-latest}"
+          done < <(find . -type f -name "*-${VERSION}.*" | sort)
+          find . -type f -name "*-latest.*" -print0 | sort -z | xargs -0 sha256sum \
+            | sed 's| \./[^/]*/| |' > "../decaid-latest-SHA256SUMS.txt"
+          cat "../decaid-latest-SHA256SUMS.txt"
+
       - name: Generate release notes
         run: |
           gh api --method POST "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
@@ -798,6 +811,8 @@ jobs:
           - **Linux portable archives** — \`decaid-linux-x64-${VERSION}.tar.gz\` and \`decaid-linux-arm64-${VERSION}.tar.gz\`.
           - **Android** — \`decaid-android-${VERSION}.apk\`. **iOS** — unsigned \`decaid-ios-unsigned-${VERSION}.ipa\`.
 
+          **Stable URLs** — every file above also ships as a \`-latest\` alias, so \`https://github.com/decentespresso/decaid/releases/latest/download/decaid-android-latest.apk\` (and \`decaid-macos-latest.dmg\`, \`decaid-linux-x86_64-latest.AppImage\`, ...) always points at the newest release. The aliases are covered by \`decaid-latest-SHA256SUMS.txt\`.
+
           See \`doc/RELEASE.md\` for install and verification instructions.
 
           EOF
@@ -815,6 +830,7 @@ jobs:
             release-artifacts/windows-app/*
             release-artifacts/ios-ipa-unsigned/*
             decaid-${{ needs.release-metadata.outputs.version }}-SHA256SUMS.txt
+            decaid-latest-SHA256SUMS.txt
           tag_name: ${{ needs.release-metadata.outputs.tag }}
           name: Decaid ${{ needs.release-metadata.outputs.version }}
           draft: false
@@ -841,6 +857,7 @@ jobs:
           TAG="${GITHUB_REF#refs/tags/}"
           VERSION="${TAG#v}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           # Match the prerelease detection in create-release: any beta/alpha/rc
           # tag publishes to the Sparkle beta channel.
           if [[ "$VERSION" == *beta* || "$VERSION" == *alpha* || "$VERSION" == *rc* ]]; then
@@ -878,7 +895,7 @@ jobs:
       - name: Download the release ZIP asset
         run: |
           gh release download "${{ steps.version.outputs.tag }}" \
-            --pattern 'decaid-macos-*.zip' \
+            --pattern "decaid-macos-${{ steps.version.outputs.version }}.zip" \
             --dir "$RUNNER_TEMP/appcast-staging"
           ls -la "$RUNNER_TEMP/appcast-staging"
         env:
@@ -917,7 +934,7 @@ jobs:
             echo "  gh secret set SPARKLE_ED_PRIVATE_KEY < private-key-file"
             exit 1
           fi
-          ZIP="$(ls "$RUNNER_TEMP/appcast-staging"/decaid-macos-*.zip | head -1)"
+          ZIP="$RUNNER_TEMP/appcast-staging/decaid-macos-${{ steps.version.outputs.version }}.zip"
           mkdir -p "$RUNNER_TEMP/pages"
           PREV=""
           if [ -f "$RUNNER_TEMP/previous-appcast.xml" ]; then

@@ -26,6 +26,8 @@ Each tagged release attaches these desktop files (plus the Android APK and unsig
 
 All files are covered by `decaid-<version>-SHA256SUMS.txt` in the release.
 
+Every file also ships as a `-latest` alias (`decaid-android-latest.apk`, `decaid-macos-latest.dmg`, `decaid-linux-x86_64-latest.AppImage`, ...), so `https://github.com/decentespresso/decaid/releases/latest/download/decaid-android-latest.apk` always points at the newest release. The aliases are covered by `decaid-latest-SHA256SUMS.txt`.
+
 ### Verifying checksums
 
 ```bash
