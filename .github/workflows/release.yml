@@ -741,6 +741,35 @@ jobs:
       - name: Display structure of downloaded files
         run: ls -R release-artifacts
 
+      - name: Assert expected release artifacts
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.release-metadata.outputs.version }}"
+          EXPECTED=(
+            "release-artifacts/android-apk/decaid-android-${VERSION}.apk"
+            "release-artifacts/macos-app/decaid-macos-${VERSION}.zip"
+            "release-artifacts/macos-app/decaid-macos-${VERSION}.dmg"
+            "release-artifacts/linux-app/decaid-linux-x64-${VERSION}.tar.gz"
+            "release-artifacts/linux-app/decaid-linux-x86_64-${VERSION}.AppImage"
+            "release-artifacts/raspberrypi-linux-arm64-app/decaid-linux-arm64-${VERSION}.tar.gz"
+            "release-artifacts/raspberrypi-linux-arm64-app/decaid-linux-aarch64-${VERSION}.AppImage"
+            "release-artifacts/windows-app/decaid-windows-x64-${VERSION}.zip"
+            "release-artifacts/ios-ipa-unsigned/decaid-ios-unsigned-${VERSION}.ipa"
+          )
+          for f in "${EXPECTED[@]}"; do
+            [ -f "$f" ] || { echo "FAIL: missing $f" >&2; exit 1; }
+          done
+
+      - name: Generate SHA-256 manifest
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.release-metadata.outputs.version }}"
+          cd release-artifacts
+          find . -type f -print0 | sort -z | xargs -0 sha256sum \
+            | sed 's| \./[^/]*/| |' > "../decaid-${VERSION}-SHA256SUMS.txt"
+          cd ..
+          cat "decaid-${VERSION}-SHA256SUMS.txt"
+
       - name: Generate release notes
         run: |
           gh api --method POST "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
@@ -749,6 +778,28 @@ jobs:
           test -s release-notes.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepend download guidance to release notes
+        env:
+          VERSION: ${{ needs.release-metadata.outputs.version }}
+        run: |
+          cat > notes-header.md <<EOF
+          ## Downloads
+
+          Every file below is covered by \`decaid-${VERSION}-SHA256SUMS.txt\`.
+
+          - **macOS** — \`decaid-macos-${VERSION}.dmg\` (signed and notarized; drag Decaid to Applications). The \`decaid-macos-${VERSION}.zip\` remains the portable build used for auto-update.
+          - **Windows x64** — \`decaid-windows-x64-${VERSION}.zip\` (portable; extract the whole ZIP and run \`Decaid.exe\`; the build is unsigned).
+          - **Linux x86_64** — \`decaid-linux-x86_64-${VERSION}.AppImage\` (chmod +x and run; no installation needed).
+          - **Linux ARM64** — \`decaid-linux-aarch64-${VERSION}.AppImage\`.
+          - **Linux portable archives** — \`decaid-linux-x64-${VERSION}.tar.gz\` and \`decaid-linux-arm64-${VERSION}.tar.gz\`.
+          - **Android** — \`decaid-android-${VERSION}.apk\`. **iOS** — unsigned \`decaid-ios-unsigned-${VERSION}.ipa\`.
+
+          See \`doc/RELEASE.md\` for install and verification instructions.
+
+          EOF
+          cat notes-header.md release-notes.md > combined-notes.md
+          mv combined-notes.md release-notes.md
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -760,6 +811,7 @@ jobs:
             release-artifacts/raspberrypi-linux-arm64-app/*
             release-artifacts/windows-app/*
             release-artifacts/ios-ipa-unsigned/*
+            decaid-${{ needs.release-metadata.outputs.version }}-SHA256SUMS.txt
           tag_name: ${{ needs.release-metadata.outputs.tag }}
           name: Decaid ${{ needs.release-metadata.outputs.version }}
           draft: false
