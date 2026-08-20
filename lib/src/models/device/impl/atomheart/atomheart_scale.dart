@@ -23,6 +23,7 @@ class AtomheartScale implements Scale {
       BleServiceIdentifier.long('4f9a45ba-8e1b-4e07-e157-0814d393b968');
 
   static const _notificationAttempts = 3;
+  static const _frameLength = 10;
 
   final String _deviceId;
 
@@ -192,7 +193,7 @@ class AtomheartScale implements Scale {
   }
 
   static ScaleSnapshot? parseFrame(List<int> data) {
-    if (data.length < 9) return null;
+    if (data.length != _frameLength) return null;
     if (data[0] != 0x57) return null;
 
     var xorResult = 0;

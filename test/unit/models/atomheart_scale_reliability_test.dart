@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/impl/atomheart/atomheart_scale.dart';
+import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:rxdart/rxdart.dart';
 
@@ -172,6 +173,33 @@ void main() {
 
     expect(await scale.connectionState.first, ConnectionState.connected);
     expect((await snapshot).weight, closeTo(1.5, 0.001));
+    await transport.dispose();
+  });
+
+  test('a truncated frame does not satisfy the readiness gate', () async {
+    final transport = _RecordingTransport();
+    final scale = AtomheartScale(
+      transport: transport,
+      notificationTimeout: const Duration(seconds: 30),
+    );
+    final snapshots = <ScaleSnapshot>[];
+    final snapshotSub = scale.currentSnapshot.listen(snapshots.add);
+    final connection = scale.onConnect();
+
+    await transport.firstSubscription.future;
+    transport.emit([0x57, 0, 0, 0, 0, 0, 0, 0, 0]);
+    await pumpEventQueue();
+
+    expect(snapshots, isEmpty);
+    expect(await scale.connectionState.first, ConnectionState.connecting);
+    expect(transport.resetSubscriptionCalls, 0);
+
+    transport.emit(_weightFrame(weightMg: 1500, timerMs: 5000));
+    await connection;
+
+    expect(await scale.connectionState.first, ConnectionState.connected);
+    expect(snapshots.single.weight, closeTo(1.5, 0.001));
+    await snapshotSub.cancel();
     await transport.dispose();
   });
 
