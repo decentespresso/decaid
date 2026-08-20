@@ -617,7 +617,13 @@ class De1Controller {
         await device.setSteamPurgeMode(steamPurgeMode);
       }
     }, retryOnReplacement: true);
-    if (flushFlow != null) _publishFlushFlow(flushFlow);
+    if (flushTemp != null || flushFlow != null || flushTimeout != null) {
+      _publishRinseSettings(
+        targetTemperature: flushTemp,
+        flow: flushFlow,
+        duration: flushTimeout,
+      );
+    }
     if (hotWaterFlow != null) _publishHotWaterFlow(hotWaterFlow);
     if (steamFlow != null) _publishSteamFlow(steamFlow);
   }
@@ -650,13 +656,22 @@ class De1Controller {
   }
 
   void _publishFlushFlow(double newFlow) {
+    _publishRinseSettings(flow: newFlow);
+  }
+
+  void _publishRinseSettings({
+    double? targetTemperature,
+    double? duration,
+    double? flow,
+  }) {
     final current = _rinseStream.valueOrNull;
     if (current != null) {
       _rinseStream.add(
         RinseData(
-          targetTemperature: current.targetTemperature,
-          duration: current.duration,
-          flow: newFlow,
+          targetTemperature:
+              targetTemperature?.toInt() ?? current.targetTemperature,
+          duration: duration?.toInt() ?? current.duration,
+          flow: flow ?? current.flow,
         ),
       );
     }
