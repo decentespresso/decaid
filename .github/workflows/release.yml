@@ -239,7 +239,10 @@ jobs:
 
   build-linux:
     needs: release-metadata
-    runs-on: ubuntu-latest
+    # Pinned to 22.04 (same glibc baseline as ubuntu-22.04-arm) so the
+    # tarball and AppImage run on older distributions; an AppImage cannot
+    # bundle glibc.
+    runs-on: ubuntu-22.04
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -247,7 +250,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install Linux dependencies
-        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libsecret-1-dev
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libsecret-1-dev squashfs-tools desktop-file-utils librsvg2-dev libgirepository1.0-dev libglib2.0-bin libgtk-3-bin libgdk-pixbuf2.0-bin
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -276,11 +279,23 @@ jobs:
           cd build/linux/x64/release
           tar -czf ../../../../decaid-linux-x64-${{ needs.release-metadata.outputs.version }}.tar.gz bundle
 
+      - name: Package Linux AppImage
+        run: |
+          scripts/package_appimage.sh \
+            build/linux/x64/release/bundle \
+            x86_64 ${{ needs.release-metadata.outputs.version }} "$GITHUB_WORKSPACE"
+
       - name: Upload Linux app artifact
         uses: actions/upload-artifact@v7
         with:
           name: linux-app
           path: decaid-linux-x64-${{ needs.release-metadata.outputs.version }}.tar.gz
+
+      - name: Upload Linux AppImage artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-appimage
+          path: decaid-linux-x86_64-${{ needs.release-metadata.outputs.version }}.AppImage
 
   build-raspberrypi:
     name: Build for Raspberry Pi (ARM64 / Pi 4+)
@@ -293,7 +308,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install Linux dependencies
-        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libsecret-1-dev
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libsecret-1-dev squashfs-tools desktop-file-utils librsvg2-dev libgirepository1.0-dev libglib2.0-bin libgtk-3-bin libgdk-pixbuf2.0-bin
 
       - name: Set up Flutter
         id: flutter-action
@@ -328,11 +343,23 @@ jobs:
           cd build/linux/arm64/release
           tar -czf ../../../../decaid-linux-arm64-${{ needs.release-metadata.outputs.version }}.tar.gz bundle
 
+      - name: Package Raspberry Pi AppImage
+        run: |
+          scripts/package_appimage.sh \
+            build/linux/arm64/release/bundle \
+            aarch64 ${{ needs.release-metadata.outputs.version }} "$GITHUB_WORKSPACE"
+
       - name: Upload Raspberry Pi build artifact
         uses: actions/upload-artifact@v7
         with:
           name: raspberrypi-linux-arm64-app
           path: decaid-linux-arm64-${{ needs.release-metadata.outputs.version }}.tar.gz
+
+      - name: Upload Raspberry Pi AppImage artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: raspberrypi-linux-arm64-appimage
+          path: decaid-linux-aarch64-${{ needs.release-metadata.outputs.version }}.AppImage
 
   build-windows:
     needs: release-metadata
