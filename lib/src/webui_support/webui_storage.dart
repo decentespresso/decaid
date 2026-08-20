@@ -4,11 +4,11 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart';
 import 'package:logging/logging.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:archive/archive_io.dart';
 import 'package:path/path.dart' as p;
 import 'package:reaprime/src/settings/settings_controller.dart';
+import 'package:reaprime/src/services/storage/app_directories.dart';
 import 'package:reaprime/src/util/safe_path.dart';
 import 'package:reaprime/src/webui_support/webui_zip_support.dart';
 
@@ -182,8 +182,7 @@ class WebUIStorage {
       return;
     }
 
-    final appDocDir = await getApplicationDocumentsDirectory();
-    _webUIDir = Directory('${appDocDir.path}/web-ui');
+    _webUIDir = Directory(await AppDirectories.webUi);
 
     if (!_webUIDir.existsSync()) {
       _webUIDir.createSync(recursive: true);
@@ -292,8 +291,8 @@ class WebUIStorage {
       final etag = response.headers['etag'];
       final lastModified = response.headers['last-modified'];
 
-      final appDocDir = await getApplicationDocumentsDirectory();
-      final tempFile = File('${appDocDir.path}/temp_webui.zip');
+      final tempDir = await AppDirectories.temp;
+      final tempFile = File('$tempDir/temp_webui.zip');
       await tempFile.writeAsBytes(response.bodyBytes);
 
       String installedSkinId;
@@ -634,8 +633,8 @@ class WebUIStorage {
         );
       }
 
-      final appDocDir = await getApplicationDocumentsDirectory();
-      final tempFile = File('${appDocDir.path}/temp_webui_release.zip');
+      final tempDir = await AppDirectories.temp;
+      final tempFile = File('$tempDir/temp_webui_release.zip');
       await tempFile.writeAsBytes(assetResponse.bodyBytes);
 
       String installedSkinId;
@@ -720,8 +719,8 @@ class WebUIStorage {
         throw Exception('Failed to download: ${response.statusCode}');
       }
 
-      final appDocDir = await getApplicationDocumentsDirectory();
-      final tempFile = File('${appDocDir.path}/temp_webui.zip');
+      final tempDir = await AppDirectories.temp;
+      final tempFile = File('$tempDir/temp_webui.zip');
       await tempFile.writeAsBytes(response.bodyBytes);
 
       String? commitHash;
@@ -1057,8 +1056,9 @@ class WebUIStorage {
   }) async {
     _log.info('Installing WebUI from zip: $zipPath');
 
-    final appDocDir = await getApplicationDocumentsDirectory();
-    final tempDir = Directory('${appDocDir.path}/temp_webui_extract');
+    final tempDir = Directory(
+      '${await AppDirectories.temp}/temp_webui_extract',
+    );
 
     if (tempDir.existsSync()) {
       await tempDir.delete(recursive: true);
