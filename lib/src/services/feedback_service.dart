@@ -15,7 +15,7 @@ import 'package:reaprime/src/services/telemetry/anonymization.dart';
 class FeedbackService {
   final String _githubToken;
   final String _repo;
-  final String? Function()? _currentSerialNumber;
+  final List<String> Function() _currentSerialNumbers;
   final Logger _log = Logger('FeedbackService');
 
   static const String _githubApiBase = 'https://api.github.com';
@@ -23,10 +23,10 @@ class FeedbackService {
   FeedbackService({
     required String githubToken,
     String repo = 'decentespresso/decaid',
-    String? Function()? currentSerialNumber,
+    required List<String> Function() currentSerialNumbers,
   }) : _githubToken = githubToken,
        _repo = repo,
-       _currentSerialNumber = currentSerialNumber;
+       _currentSerialNumbers = currentSerialNumbers;
 
   bool get isConfigured => _githubToken.isNotEmpty;
 
@@ -197,12 +197,9 @@ class FeedbackService {
   }
 
   String _scrubSensitive(String content) {
-    final serial = _currentSerialNumber?.call();
     return Anonymization.scrubString(
       content,
-      sensitiveStrings: [
-        if (serial != null && serial.isNotEmpty && serial != '0') serial,
-      ],
+      sensitiveStrings: _currentSerialNumbers(),
     );
   }
 

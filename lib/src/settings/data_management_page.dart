@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:reaprime/src/services/security_scoped_file.dart';
 import 'package:reaprime/src/util/rot13.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
+import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/feedback_feature/feedback_view.dart';
 import 'package:reaprime/src/import/de1app_importer.dart';
 import 'package:reaprime/src/import/saf_folder_copier.dart';
@@ -47,6 +48,7 @@ class DataManagementPage extends StatefulWidget {
     super.key,
     required this.controller,
     required this.persistenceController,
+    required this.de1Controller,
     this.profileStorageService,
     this.beanStorageService,
     this.grinderStorageService,
@@ -57,6 +59,7 @@ class DataManagementPage extends StatefulWidget {
 
   final SettingsController controller;
   final PersistenceController persistenceController;
+  final De1Controller de1Controller;
   final ProfileStorageService? profileStorageService;
   final BeanStorageService? beanStorageService;
   final GrinderStorageService? grinderStorageService;
@@ -258,6 +261,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
                   defaultValue: '',
                 ),
               ),
+              serialNumbers: () => widget.de1Controller.seenSerials,
             ),
             child: const Text("Send Feedback"),
           ),

@@ -94,6 +94,8 @@ void main() {
       expect(messages.single, startsWith('true:'));
       expect(messages.single, contains('10.0.0.9'));
       expect(messages.single, contains('/api/v1/scale/tare'));
+      expect(messages.single, contains('boom'));
+      expect(messages.single, contains('logRequestsWithClientIp'));
     });
   });
 }

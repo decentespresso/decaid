@@ -73,6 +73,56 @@ void main() {
     });
   });
 
+  group('seenSerials', () {
+    test('retains serials after the device disconnects', () async {
+      await runZonedGuarded(() async {
+        final deviceController = DeviceController([
+          MockDeviceDiscoveryService(),
+        ]);
+        await deviceController.initialize();
+        final de1Controller = De1Controller(controller: deviceController);
+        final testDe1 = TestDe1(serialNumber: '123456');
+
+        await de1Controller.connectToDe1(testDe1);
+        testDe1.emitShotSettings(_emptyShotSettings());
+        await Future<void>.delayed(Duration.zero);
+        expect(de1Controller.seenSerials, contains('123456'));
+
+        testDe1.setConnectionState(ConnectionState.disconnected);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(de1Controller.seenSerials, contains('123456'));
+
+        testDe1.dispose();
+      }, (_, _) {});
+    });
+
+    test('accumulates serials across device switches', () async {
+      await runZonedGuarded(() async {
+        final deviceController = DeviceController([
+          MockDeviceDiscoveryService(),
+        ]);
+        await deviceController.initialize();
+        final de1Controller = De1Controller(controller: deviceController);
+
+        final first = TestDe1(serialNumber: '111111');
+        await de1Controller.connectToDe1(first);
+        first.emitShotSettings(_emptyShotSettings());
+        await Future<void>.delayed(Duration.zero);
+
+        final second = TestDe1(serialNumber: '222222');
+        await de1Controller.connectToDe1(second);
+        second.emitShotSettings(_emptyShotSettings());
+        await Future<void>.delayed(Duration.zero);
+
+        expect(de1Controller.seenSerials, containsAll(['111111', '222222']));
+
+        first.dispose();
+        second.dispose();
+      }, (_, _) {});
+    });
+  });
+
   group('initial shot settings', () {
     test('missing initial settings do not block initialization', () async {
       final deviceController = DeviceController([MockDeviceDiscoveryService()]);

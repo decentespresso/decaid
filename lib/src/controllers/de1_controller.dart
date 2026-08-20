@@ -21,7 +21,10 @@ class De1Controller {
   Workflow? defaultWorkflow;
 
   De1Interface? _de1;
+  final Set<String> _seenSerials = {};
   final Logger _log = Logger("De1Controller");
+
+  List<String> get seenSerials => List.unmodifiable(_seenSerials);
 
   final BehaviorSubject<De1Interface?> _de1Controller = BehaviorSubject.seeded(
     null,
@@ -195,6 +198,18 @@ class De1Controller {
     );
   }
 
+  void _recordSerial(De1Interface device) {
+    final String serial;
+    try {
+      serial = device.machineInfo.serialNumber;
+    } catch (_) {
+      return;
+    }
+    if (serial.isNotEmpty && serial != '0') {
+      _seenSerials.add(serial);
+    }
+  }
+
   void _onDisconnect() {
     _log.info("resetting de1");
     _connectionGeneration++;
@@ -224,6 +239,7 @@ class De1Controller {
 
     _log.info("Initializing DE1 data");
     _dataInitialized = true;
+    _recordSerial(device);
 
     try {
       _subscriptions.add(device.shotSettings.listen(_shotSettingsUpdate));

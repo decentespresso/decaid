@@ -26,6 +26,7 @@ dependencies:
   permission_handler: ^12.0.0+1
   rxdart: ^0.28.0
   shelf: ^1.0.0
+  stack_trace: ^1.12.0
   shelf_web_socket: ^3.0.0
   shelf_router: ^1.1.4
   battery_plus: ^7.0.0

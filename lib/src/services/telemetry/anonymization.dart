@@ -74,6 +74,17 @@ class Anonymization {
       return anonymizeIp(match.group(0)!);
     });
 
+    final ipv6Pattern = RegExp(
+      r'(?<![\dA-Fa-f:])(?:'
+      r'(?:[0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{1,4})*)?::(?:[0-9A-Fa-f]{1,4}:)*[0-9A-Fa-f]{1,4}'
+      r'|'
+      r'[0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{1,4}){3,}'
+      r')(?![\dA-Fa-f:])',
+    );
+    scrubbed = scrubbed.replaceAllMapped(ipv6Pattern, (match) {
+      return anonymizeIp(match.group(0)!);
+    });
+
     return scrubbed;
   }
 }

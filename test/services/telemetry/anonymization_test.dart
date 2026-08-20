@@ -27,6 +27,26 @@ void main() {
       expect(out, isNot(contains('AA:BB:CC:DD:EE:FF')));
       expect(out, isNot(contains('192.168.1.50')));
     });
+
+    test('scrubs ipv6 addresses', () {
+      final out = Anonymization.scrubString(
+        'loopback ::1 link-local fe80::1234:abcd '
+        '2001:db8::1 full 2001:db8:0:1:1:1:1:1',
+      );
+      expect(out, isNot(contains('::1')));
+      expect(out, isNot(contains('fe80::1234:abcd')));
+      expect(out, isNot(contains('2001:db8::1')));
+      expect(out, isNot(contains('2001:db8:0:1:1:1:1:1')));
+      expect(out, contains('ip_'));
+    });
+
+    test('leaves timestamps and bare colons untouched', () {
+      final out = Anonymization.scrubString(
+        'at 10:30:00 request 2025-05-14T10:30:00.123Z',
+      );
+      expect(out, contains('10:30:00'));
+      expect(out, isNot(contains('ip_')));
+    });
   });
 
   group('Anonymization.anonymizeSerial', () {
