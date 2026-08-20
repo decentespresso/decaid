@@ -198,6 +198,8 @@ Acaia parsing is frame-bounded. Payload lengths above 64 bytes and impossible le
 
 AtomHeart Eclair uses service `B905EAEA-2E63-0E04-7582-7913F10D8F81`, data/status characteristic `AD736C5F-BBC9-1F96-D304-CB5D5F41E160`, and command characteristic `4F9A45BA-8E1B-4E07-E157-0814D393B968`. Its connection remains `connecting` until a valid checksummed `0x57` weight frame arrives. Silence for 800 ms resets the notification subscription at most twice; a third silent window tears down the transport so ConnectionManager owns recovery. Timer reset/start/stop commands are `520101`, `530101`, and `450101`; tare remains `540101`.
 
+The Eclair weight frame is fixed at exactly 10 bytes: `0x57` header, four little-endian weight bytes in milligrams, four timer bytes, and one XOR checksum over bytes 1 to 8. Accept only that exact width. A shorter frame makes the last payload byte double as the checksum, so `57 00 00 00 00 00 00 00 00` would otherwise XOR-validate as a zero-weight snapshot and satisfy the readiness gate.
+
 Scale maintenance uses self-scheduling one-shot timers and owns each asynchronous operation before scheduling another cycle. Do not perform asynchronous BLE writes directly from `Timer.periodic`; that permits overlap and leaves failures unowned. Decent notification recovery remains single-flight across connection generations, so reconnect waits for an unresolved prior subscription operation.
 
 Three reusable idioms from the comms-harden effort:
