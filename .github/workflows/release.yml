@@ -17,7 +17,29 @@ env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
+  release-metadata:
+    name: Resolve release version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Resolve tag and version
+        id: meta
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          case "$TAG" in
+            v*) VERSION="${TAG#v}" ;;
+            *)
+              echo "Expected a v* tag, got: $TAG" >&2
+              exit 1
+              ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
   build-android:
+    needs: release-metadata
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -68,26 +90,19 @@ jobs:
         env:
           FEEDBACK_TOKEN: ${{ secrets.FEEDBACK_TOKEN }}
 
-      - name: Get version from tag
-        id: version
-        run: |
-          # Extract version from tag (v1.2.3 -> 1.2.3)
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-
       - name: Rename APK with version
         run: |
           mv build/app/outputs/flutter-apk/app-release.apk \
-             build/app/outputs/flutter-apk/decaid-android-${{ steps.version.outputs.version }}.apk
+             build/app/outputs/flutter-apk/decaid-android-${{ needs.release-metadata.outputs.version }}.apk
 
       - name: Upload Android APK artifact
         uses: actions/upload-artifact@v7
         with:
           name: android-apk
-          path: build/app/outputs/flutter-apk/decaid-android-${{ steps.version.outputs.version }}.apk
+          path: build/app/outputs/flutter-apk/decaid-android-${{ needs.release-metadata.outputs.version }}.apk
 
   build-macos:
+    needs: release-metadata
     runs-on: macos-latest
     steps:
       - name: Check out repository
@@ -212,23 +227,18 @@ jobs:
             build/macos/Build/Products/Release/Decaid.app XLS3XF57J8 1
 
       # ---- Final ZIP ----
-      - name: Get version
-        id: version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
       - name: Create release ZIP
         run: |
           cd build/macos/Build/Products/Release
-          ditto -c -k --keepParent Decaid.app ../../../../../decaid-macos-${{ steps.version.outputs.version }}.zip
+          ditto -c -k --keepParent Decaid.app ../../../../../decaid-macos-${{ needs.release-metadata.outputs.version }}.zip
 
       - uses: actions/upload-artifact@v7
         with:
           name: macos-app
-          path: decaid-macos-${{ steps.version.outputs.version }}.zip
+          path: decaid-macos-${{ needs.release-metadata.outputs.version }}.zip
 
   build-linux:
+    needs: release-metadata
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -261,25 +271,20 @@ jobs:
         env:
           FEEDBACK_TOKEN: ${{ secrets.FEEDBACK_TOKEN }}
 
-      - name: Get version from tag
-        id: version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
       - name: Create Linux archive
         run: |
           cd build/linux/x64/release
-          tar -czf ../../../../decaid-linux-x64-${{ steps.version.outputs.version }}.tar.gz bundle
+          tar -czf ../../../../decaid-linux-x64-${{ needs.release-metadata.outputs.version }}.tar.gz bundle
 
       - name: Upload Linux app artifact
         uses: actions/upload-artifact@v7
         with:
           name: linux-app
-          path: decaid-linux-x64-${{ steps.version.outputs.version }}.tar.gz
+          path: decaid-linux-x64-${{ needs.release-metadata.outputs.version }}.tar.gz
 
   build-raspberrypi:
     name: Build for Raspberry Pi (ARM64 / Pi 4+)
+    needs: release-metadata
     runs-on: ubuntu-22.04-arm
     steps:
       - name: Check out repository
@@ -318,24 +323,19 @@ jobs:
         env:
           FEEDBACK_TOKEN: ${{ secrets.FEEDBACK_TOKEN }}
 
-      - name: Get version from tag
-        id: version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
       - name: Create Raspberry Pi archive
         run: |
           cd build/linux/arm64/release
-          tar -czf ../../../../decaid-linux-arm64-${{ steps.version.outputs.version }}.tar.gz bundle
+          tar -czf ../../../../decaid-linux-arm64-${{ needs.release-metadata.outputs.version }}.tar.gz bundle
 
       - name: Upload Raspberry Pi build artifact
         uses: actions/upload-artifact@v7
         with:
           name: raspberrypi-linux-arm64-app
-          path: decaid-linux-arm64-${{ steps.version.outputs.version }}.tar.gz
+          path: decaid-linux-arm64-${{ needs.release-metadata.outputs.version }}.tar.gz
 
   build-windows:
+    needs: release-metadata
     # Pinned: windows-latest rolled to VS 18 / MSVC 14.51, which hard-errors on
     # <experimental/coroutine> still used by flutter_inappwebview_windows and
     # permission_handler_windows. Revisit when plugins migrate to C++20 <coroutine>.
@@ -374,25 +374,19 @@ jobs:
         env:
           FEEDBACK_TOKEN: ${{ secrets.FEEDBACK_TOKEN }}
 
-      - name: Get version from tag
-        id: version
-        shell: bash
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
       - name: Create Windows archive
         shell: pwsh
         run: |
-          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath decaid-windows-x64-${{ steps.version.outputs.version }}.zip
+          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath decaid-windows-x64-${{ needs.release-metadata.outputs.version }}.zip
 
       - name: Upload Windows app artifact
         uses: actions/upload-artifact@v7
         with:
           name: windows-app
-          path: decaid-windows-x64-${{ steps.version.outputs.version }}.zip
+          path: decaid-windows-x64-${{ needs.release-metadata.outputs.version }}.zip
 
   build-ios:
+    needs: release-metadata
     runs-on: macos-latest
     steps:
       - name: Check out repository
@@ -434,14 +428,10 @@ jobs:
         env:
           FEEDBACK_TOKEN: ${{ secrets.FEEDBACK_TOKEN }}
 
-      - name: Get version from tag
-        id: version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
-
       - name: Package unsigned IPA
         run: |
           APP_PATH="build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app"
-          OUTPUT_PATH="$GITHUB_WORKSPACE/decaid-ios-unsigned-${{ steps.version.outputs.version }}.ipa"
+          OUTPUT_PATH="$GITHUB_WORKSPACE/decaid-ios-unsigned-${{ needs.release-metadata.outputs.version }}.ipa"
           PACKAGE_DIR="$RUNNER_TEMP/unsigned-ipa"
 
           test -d "$APP_PATH"
@@ -457,7 +447,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ios-ipa-unsigned
-          path: decaid-ios-unsigned-${{ steps.version.outputs.version }}.ipa
+          path: decaid-ios-unsigned-${{ needs.release-metadata.outputs.version }}.ipa
           if-no-files-found: error
 
       - name: Import distribution certificate
@@ -613,7 +603,7 @@ jobs:
 
   create-release:
     name: Create GitHub Release
-    needs: [build-android, build-macos, build-linux, build-raspberrypi, build-windows, build-ios]
+    needs: [release-metadata, build-android, build-macos, build-linux, build-raspberrypi, build-windows, build-ios]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -622,13 +612,6 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
-
-      - name: Get version from tag
-        id: version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
 
       - name: Download all artifacts
         uses: actions/download-artifact@v8
@@ -641,7 +624,7 @@ jobs:
       - name: Generate release notes
         run: |
           gh api --method POST "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
-            -f tag_name="${{ steps.version.outputs.tag }}" \
+            -f tag_name="${{ needs.release-metadata.outputs.tag }}" \
             --jq .body > release-notes.md
           test -s release-notes.md
         env:
@@ -657,10 +640,10 @@ jobs:
             release-artifacts/raspberrypi-linux-arm64-app/*
             release-artifacts/windows-app/*
             release-artifacts/ios-ipa-unsigned/*
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: Decaid ${{ steps.version.outputs.version }}
+          tag_name: ${{ needs.release-metadata.outputs.tag }}
+          name: Decaid ${{ needs.release-metadata.outputs.version }}
           draft: false
-          prerelease: ${{ contains(steps.version.outputs.version, 'beta') || contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'rc') }}
+          prerelease: ${{ contains(needs.release-metadata.outputs.version, 'beta') || contains(needs.release-metadata.outputs.version, 'alpha') || contains(needs.release-metadata.outputs.version, 'rc') }}
           body_path: release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
