@@ -50,7 +50,7 @@ Get-FileHash decaid-windows-x64-<version>.zip -Algorithm SHA256
 
 ### Windows notes
 
-The Windows build is unsigned, so a clean machine may show an unknown-publisher warning when `Decaid.exe` is first launched. There is no installer and nothing is written outside the extraction directory.
+The Windows build is unsigned, so a clean machine may show an unknown-publisher warning when `Decaid.exe` is first launched. There is no installer; the ZIP is portable. Decaid stores user data and logs under `%APPDATA%`, not in the extraction folder, so deleting the extracted folder does not remove them.
 
 ### Step 1: Tag Your Release
 

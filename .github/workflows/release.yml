@@ -299,6 +299,7 @@ jobs:
           test -L "$MOUNT/Applications"
           scripts/verify_macos_signature.sh "$MOUNT/Decaid.app" XLS3XF57J8 1
           spctl --assess --type open --context context:primary-signature --verbose=4 "$DMG"
+          xcrun stapler validate "$DMG"
           mkdir -p "$RUNNER_TEMP/Applications"
           cp -R "$MOUNT/Decaid.app" "$RUNNER_TEMP/Applications/"
           "$RUNNER_TEMP/Applications/Decaid.app/Contents/MacOS/Decaid" --print-storage-paths
@@ -358,17 +359,13 @@ jobs:
             build/linux/x64/release/bundle \
             x86_64 ${{ needs.release-metadata.outputs.version }} "$GITHUB_WORKSPACE"
 
-      - name: Upload Linux app artifact
+      - name: Upload Linux app artifacts
         uses: actions/upload-artifact@v7
         with:
           name: linux-app
-          path: decaid-linux-x64-${{ needs.release-metadata.outputs.version }}.tar.gz
-
-      - name: Upload Linux AppImage artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: linux-appimage
-          path: decaid-linux-x86_64-${{ needs.release-metadata.outputs.version }}.AppImage
+          path: |
+            decaid-linux-x64-${{ needs.release-metadata.outputs.version }}.tar.gz
+            decaid-linux-x86_64-${{ needs.release-metadata.outputs.version }}.AppImage
 
   build-raspberrypi:
     name: Build for Raspberry Pi (ARM64 / Pi 4+)
@@ -422,17 +419,13 @@ jobs:
             build/linux/arm64/release/bundle \
             aarch64 ${{ needs.release-metadata.outputs.version }} "$GITHUB_WORKSPACE"
 
-      - name: Upload Raspberry Pi build artifact
+      - name: Upload Raspberry Pi build artifacts
         uses: actions/upload-artifact@v7
         with:
           name: raspberrypi-linux-arm64-app
-          path: decaid-linux-arm64-${{ needs.release-metadata.outputs.version }}.tar.gz
-
-      - name: Upload Raspberry Pi AppImage artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: raspberrypi-linux-arm64-appimage
-          path: decaid-linux-aarch64-${{ needs.release-metadata.outputs.version }}.AppImage
+          path: |
+            decaid-linux-arm64-${{ needs.release-metadata.outputs.version }}.tar.gz
+            decaid-linux-aarch64-${{ needs.release-metadata.outputs.version }}.AppImage
 
   build-windows:
     needs: release-metadata
