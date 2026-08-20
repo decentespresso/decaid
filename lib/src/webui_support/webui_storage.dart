@@ -291,17 +291,17 @@ class WebUIStorage {
       final etag = response.headers['etag'];
       final lastModified = response.headers['last-modified'];
 
-      final tempDir = await AppDirectories.temp;
-      final tempFile = File('$tempDir/temp_webui.zip');
+      final tempDir = await Directory(
+        await AppDirectories.temp,
+      ).createTemp('webui_install');
+      final tempFile = File('${tempDir.path}/skin.zip');
       await tempFile.writeAsBytes(response.bodyBytes);
 
       String installedSkinId;
       try {
         installedSkinId = await _installFromZip(tempFile.path);
       } finally {
-        if (tempFile.existsSync()) {
-          await tempFile.delete();
-        }
+        await tempDir.delete(recursive: true);
       }
 
       _skinMetadata[installedSkinId] = WebUIReaMetadata(
@@ -633,17 +633,17 @@ class WebUIStorage {
         );
       }
 
-      final tempDir = await AppDirectories.temp;
-      final tempFile = File('$tempDir/temp_webui_release.zip');
+      final tempDir = await Directory(
+        await AppDirectories.temp,
+      ).createTemp('webui_install');
+      final tempFile = File('${tempDir.path}/skin.zip');
       await tempFile.writeAsBytes(assetResponse.bodyBytes);
 
       String installedSkinId;
       try {
         installedSkinId = await _installFromZip(tempFile.path);
       } finally {
-        if (tempFile.existsSync()) {
-          await tempFile.delete();
-        }
+        await tempDir.delete(recursive: true);
       }
 
       if (markAsRemoteBundled) {
@@ -719,8 +719,10 @@ class WebUIStorage {
         throw Exception('Failed to download: ${response.statusCode}');
       }
 
-      final tempDir = await AppDirectories.temp;
-      final tempFile = File('$tempDir/temp_webui.zip');
+      final tempDir = await Directory(
+        await AppDirectories.temp,
+      ).createTemp('webui_install');
+      final tempFile = File('${tempDir.path}/skin.zip');
       await tempFile.writeAsBytes(response.bodyBytes);
 
       String? commitHash;
@@ -733,9 +735,7 @@ class WebUIStorage {
       try {
         installedSkinId = await _installFromZip(tempFile.path);
       } finally {
-        if (tempFile.existsSync()) {
-          await tempFile.delete();
-        }
+        await tempDir.delete(recursive: true);
       }
 
       if (markAsRemoteBundled) {
@@ -1056,14 +1056,9 @@ class WebUIStorage {
   }) async {
     _log.info('Installing WebUI from zip: $zipPath');
 
-    final tempDir = Directory(
-      '${await AppDirectories.temp}/temp_webui_extract',
-    );
-
-    if (tempDir.existsSync()) {
-      await tempDir.delete(recursive: true);
-    }
-    tempDir.createSync(recursive: true);
+    final tempDir = await Directory(
+      await AppDirectories.temp,
+    ).createTemp('webui_extract');
 
     try {
       final zipFile = File(zipPath);
