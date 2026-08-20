@@ -64,6 +64,16 @@ class Anonymization {
       scrubbed = scrubbed.replaceAll(sensitive, anonymizeSerial(sensitive));
     }
 
+    final serialFieldPattern = RegExp(
+      r'serialNumber"?\s*:\s*"?([0-9A-Za-z._-]{3,})',
+      caseSensitive: false,
+    );
+    scrubbed = scrubbed.replaceAllMapped(serialFieldPattern, (match) {
+      return match
+          .group(0)!
+          .replaceFirst(match.group(1)!, anonymizeSerial(match.group(1)!));
+    });
+
     final macPattern = RegExp(r'([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}');
     scrubbed = scrubbed.replaceAllMapped(macPattern, (match) {
       return anonymizeMac(match.group(0)!);

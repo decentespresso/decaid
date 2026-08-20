@@ -40,6 +40,16 @@ void main() {
       expect(out, contains('ip_'));
     });
 
+    test('scrubs serialNumber log fields without a serial provider', () {
+      final out = Anonymization.scrubString(
+        '{"machineInfo":{"serialNumber":"SN123456"}} '
+        'serialNumber: SN999888',
+      );
+      expect(out, isNot(contains('SN123456')));
+      expect(out, isNot(contains('SN999888')));
+      expect(out, contains('serial_'));
+    });
+
     test('leaves timestamps and bare colons untouched', () {
       final out = Anonymization.scrubString(
         'at 10:30:00 request 2025-05-14T10:30:00.123Z',

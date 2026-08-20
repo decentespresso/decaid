@@ -160,6 +160,7 @@ dev_dependencies:
   # Test-only: mock url_launcher for the skin "Go to skin" button. Already
   # present transitively via url_launcher; declared so the test imports resolve.
   plugin_platform_interface: ^2.1.8
+  path_provider_platform_interface: ^2.1.2
   url_launcher_platform_interface: ^2.3.2
   hive_ce_generator: ^1.10.0
   drift_dev: ^2.24.0
