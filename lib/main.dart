@@ -4,7 +4,6 @@ import 'dart:ui' show AppExitResponse, AppExitType;
 
 import 'package:collection/collection.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
-import 'package:path_provider/path_provider.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -45,6 +44,7 @@ import 'package:reaprime/src/services/database/mappers/shot_mapper.dart';
 import 'package:reaprime/src/services/database/mappers/steam_mapper.dart';
 import 'package:reaprime/src/services/database/mappers/bean_mapper.dart';
 import 'package:reaprime/src/services/database/mappers/grinder_mapper.dart';
+import 'package:reaprime/src/services/storage/app_directories.dart';
 import 'package:reaprime/src/services/storage/drift_bean_storage.dart';
 import 'package:reaprime/src/services/storage/drift_grinder_storage.dart';
 import 'package:reaprime/src/services/storage/drift_profile_storage.dart';
@@ -143,9 +143,23 @@ Set<SimulatedDevicesTypes> _parseSimulateFlag(String value) {
       .toSet();
 }
 
+Future<void> _printStoragePaths() async {
+  stdout.writeln('support: ${await AppDirectories.support}');
+  stdout.writeln('hive: ${await AppDirectories.hive}');
+  stdout.writeln('drift: ${await AppDirectories.driftFile}');
+  stdout.writeln('logs: ${await AppDirectories.logs}');
+  stdout.writeln('plugins: ${await AppDirectories.plugins}');
+  stdout.writeln('webUi: ${await AppDirectories.webUi}');
+  stdout.writeln('temp: ${await AppDirectories.temp}');
+  exit(0);
+}
+
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   final cliArgs = parseCliArgs(args);
+  if (cliArgs.printStoragePaths) {
+    await _printStoragePaths();
+  }
   SemanticsBinding.instance.ensureSemantics();
   SystemChrome.setEnabledSystemUIMode(
     SystemUiMode.manual,
@@ -176,13 +190,13 @@ void main(List<String> args) async {
     }
   }
 
-  final appDocsPath = (await getApplicationDocumentsDirectory()).path;
+  final logDir = await AppDirectories.logs;
 
   RotatingFileAppender(
-    baseFilePath: '$appDocsPath/log.txt',
+    baseFilePath: '$logDir/log.txt',
   ).attachToLogger(Logger.root);
 
-  final webViewLogDir = appDocsPath;
+  final webViewLogDir = logDir;
   final webViewLogService = WebViewLogService(logDirectoryPath: webViewLogDir);
   await webViewLogService.initialize();
 
@@ -249,7 +263,7 @@ void main(List<String> args) async {
     log.info('--serial: BLE service not added to scan list');
   }
 
-  await Hive.initFlutter('store');
+  Hive.init(await AppDirectories.hive);
 
   services.add(createSerialService());
 
@@ -454,7 +468,7 @@ void main(List<String> args) async {
       webUIService,
       webUIStorage,
       profileController,
-      '$appDocsPath/log.txt',
+      '$logDir/log.txt',
       webViewLogService,
       batteryController,
       presenceController,

@@ -31,6 +31,9 @@ class AppDirectories {
 
   static Future<String> get hive async => p.join(await support, 'store');
 
+  static Future<String> get driftFile async =>
+      p.join(await support, 'streamline_bridge.sqlite');
+
   /// Directory containing `log.txt` and `webview_console.log`.
   ///
   /// Desktop uses a dedicated `logs` subdirectory; mobile keeps logs at the
