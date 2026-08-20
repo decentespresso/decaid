@@ -179,6 +179,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Test release aliases
+        run: scripts/test_release_aliases.sh
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:

@@ -776,15 +776,7 @@ jobs:
       - name: Create stable aliases for every artifact
         env:
           VERSION: ${{ needs.release-metadata.outputs.version }}
-        run: |
-          set -euo pipefail
-          cd release-artifacts
-          while IFS= read -r f; do
-            cp "$f" "${f/-${VERSION}/-latest}"
-          done < <(find . -type f -name "*-${VERSION}.*" | sort)
-          find . -type f -name "*-latest.*" -print0 | sort -z | xargs -0 sha256sum \
-            | sed 's| \./[^/]*/| |' > "../decaid-latest-SHA256SUMS.txt"
-          cat "../decaid-latest-SHA256SUMS.txt"
+        run: scripts/create_release_aliases.sh release-artifacts "$VERSION"
 
       - name: Generate release notes
         run: |
@@ -811,7 +803,7 @@ jobs:
           - **Linux portable archives** — \`decaid-linux-x64-${VERSION}.tar.gz\` and \`decaid-linux-arm64-${VERSION}.tar.gz\`.
           - **Android** — \`decaid-android-${VERSION}.apk\`. **iOS** — unsigned \`decaid-ios-unsigned-${VERSION}.ipa\`.
 
-          **Stable URLs** — every file above also ships as a \`-latest\` alias, so \`https://github.com/decentespresso/decaid/releases/latest/download/decaid-android-latest.apk\` (and \`decaid-macos-latest.dmg\`, \`decaid-linux-x86_64-latest.AppImage\`, ...) always points at the newest release. The aliases are covered by \`decaid-latest-SHA256SUMS.txt\`.
+          **Stable URLs** — every file above also ships as a \`-latest\` alias, so \`https://github.com/decentespresso/decaid/releases/latest/download/decaid-android-latest.apk\` (and \`decaid-macos-latest.dmg\`, \`decaid-linux-x86_64-latest.AppImage\`, ...) always points at the newest stable release. The aliases are covered by \`decaid-latest-SHA256SUMS.txt\`.
 
           See \`doc/RELEASE.md\` for install and verification instructions.
 
