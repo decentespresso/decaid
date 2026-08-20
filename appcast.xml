@@ -6,6 +6,42 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Decaid</title>
         <item>
+            <title>0.8.1</title>
+            <pubDate>Thu, 20 Aug 2026 20:27:30 +0000</pubDate>
+            <sparkle:version>2397</sparkle:version>
+            <sparkle:shortVersionString>0.8.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## Downloads
+
+Every file below is covered by `decaid-0.8.1-SHA256SUMS.txt`.
+
+- **macOS** — `decaid-macos-0.8.1.dmg` (signed and notarized; drag Decaid to Applications). The `decaid-macos-0.8.1.zip` remains the portable build used for auto-update.
+- **Windows x64** — `decaid-windows-x64-0.8.1.zip` (portable; extract the whole ZIP and run `Decaid.exe`; the build is unsigned).
+- **Linux x86_64** — `decaid-linux-x86_64-0.8.1.AppImage` (chmod +x and run; no installation needed).
+- **Linux ARM64** — `decaid-linux-aarch64-0.8.1.AppImage`.
+- **Linux portable archives** — `decaid-linux-x64-0.8.1.tar.gz` and `decaid-linux-arm64-0.8.1.tar.gz`.
+- **Android** — `decaid-android-0.8.1.apk`. **iOS** — unsigned `decaid-ios-unsigned-0.8.1.ipa`.
+
+**Stable URLs** — every file above also ships as a `-latest` alias, so `https://github.com/decentespresso/decaid/releases/latest/download/decaid-android-latest.apk` (and `decaid-macos-latest.dmg`, `decaid-linux-x86_64-latest.AppImage`, ...) always points at the newest stable release. The aliases are covered by `decaid-latest-SHA256SUMS.txt`.
+
+See `doc/RELEASE.md` for install and verification instructions.
+
+## What's Changed
+* fix(scales): log why a BLE scale connect failed by @allofmeng in https://github.com/decentespresso/decaid/pull/631
+* feat(skins): add native GitHub release/branch skin install (gh-571) by @tadelv in https://github.com/decentespresso/decaid/pull/633
+* feat(api): log client IP and scrub serial from exported logs by @tadelv in https://github.com/decentespresso/decaid/pull/632
+* fix(de1): publish flush temp and timeout after a settings write by @allofmeng in https://github.com/decentespresso/decaid/pull/637
+* Move application-managed data out of Documents (desktop) by @tadelv in https://github.com/decentespresso/decaid/pull/650
+* Package desktop releases with conventional installers and portable packages by @tadelv in https://github.com/decentespresso/decaid/pull/652
+* ci: publish stable aliases for release artifacts by @tadelv in https://github.com/decentespresso/decaid/pull/653
+
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.8.0...v0.8.1
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.8.1/decaid-macos-0.8.1.zip" length="72722138" type="application/octet-stream" sparkle:edSignature="XmvIiVclpfnlghXzq7EdOMneVve9Pmrs1+U0jo+bnd9RhgzEf7kkWzok12FpgtYz21JxioJeFOZ9dWf4xi1NCA=="/>
+        </item>
+        <item>
             <title>0.8.0</title>
             <pubDate>Wed, 19 Aug 2026 10:49:04 +0000</pubDate>
             <sparkle:version>2353</sparkle:version>
@@ -178,6 +214,6 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: JmuOLS/AgN5OKyUw6KvBR+PjttjfpPCSinsCzWXipVBwSBZwjj+bMVdShtcO9N8GCRkljgBBJre+4CgM+Et7Dw==
-length: 15352
+edSignature: AIw4lGxbRSUzRYdKtGVasej/NWpQ8P4rMyIRk8SRkKB3BAPhGG1uc9BraMmSoaf7NDORwuPJKoE97iUTQ4yBCg==
+length: 18204
 -->
