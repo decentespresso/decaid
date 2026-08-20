@@ -29,6 +29,12 @@ void main() {
     });
   });
 
+  test('registers Flutter type adapters for Hive.init-based startup', () {
+    ensureFlutterTypeAdaptersRegistered();
+    expect(Hive.isAdapterRegistered(200), isTrue);
+    expect(Hive.isAdapterRegistered(201), isTrue);
+  });
+
   group('getAll', () {
     test('returns all key-value pairs in a namespace', () async {
       await store.set(key: 'a', value: 'alpha');
