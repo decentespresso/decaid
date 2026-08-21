@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/launcher/launcher_view.dart';
@@ -18,46 +19,70 @@ void main() {
     expect(instructions, contains('tap Back'));
   });
 
-  testWidgets(
-    'system back exits directly to Dashboard from the skin selector',
-    (tester) async {
-      tester.view.physicalSize = const Size(1600, 900);
-      tester.view.devicePixelRatio = 1;
-      addTearDown(tester.view.resetPhysicalSize);
-      addTearDown(tester.view.resetDevicePixelRatio);
-      final navigatorKey = GlobalKey<NavigatorState>();
-      final webViewLogService = WebViewLogService(logDirectoryPath: '.');
-      addTearDown(webViewLogService.dispose);
+  test('skin exit guide points Windows users to the Dashboard button', () {
+    final instructions = skinExitInstructions(TargetPlatform.windows);
 
-      await tester.pumpWidget(
-        MaterialApp(
-          navigatorKey: navigatorKey,
-          home: const Scaffold(body: Text('Dashboard')),
-          routes: {
-            LauncherView.routeName: (_) =>
-                const Scaffold(body: Text('Dashboard')),
-            '/skins-test': (_) => const Scaffold(body: Text('Skins')),
-            SkinView.routeName: (_) => SkinView(
-              settingsController: SettingsController(MockSettingsService()),
-              webViewLogService: webViewLogService,
-              deviceIp: '127.0.0.1',
-              webView: const SizedBox.shrink(),
-            ),
-          },
-        ),
-      );
-      navigatorKey.currentState!.pushNamed('/skins-test');
-      await tester.pumpAndSettle();
-      navigatorKey.currentState!.pushNamed(SkinView.routeName);
-      await tester.pump();
+    expect(instructions, contains('Dashboard button'));
+    expect(instructions, isNot(contains('Alt+Backspace')));
+  });
 
-      await tester.binding.handlePopRoute();
-      await tester.pumpAndSettle();
+  testWidgets('system back and Windows button exit directly to Dashboard', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final navigatorKey = GlobalKey<NavigatorState>();
+    final webViewLogService = WebViewLogService(logDirectoryPath: '.');
+    addTearDown(webViewLogService.dispose);
 
-      expect(find.text('Dashboard'), findsOneWidget);
-      expect(find.text('Skins'), findsNothing);
-    },
-  );
+    await tester.pumpWidget(
+      MaterialApp(
+        navigatorKey: navigatorKey,
+        home: const Scaffold(body: Text('Dashboard')),
+        routes: {
+          LauncherView.routeName: (_) =>
+              const Scaffold(body: Text('Dashboard')),
+          '/skins-test': (_) => const Scaffold(body: Text('Skins')),
+          SkinView.routeName: (_) => SkinView(
+            settingsController: SettingsController(MockSettingsService()),
+            webViewLogService: webViewLogService,
+            deviceIp: '127.0.0.1',
+            webView: const SizedBox.expand(key: Key('webview')),
+          ),
+        },
+      ),
+    );
+    navigatorKey.currentState!.pushNamed('/skins-test');
+    await tester.pumpAndSettle();
+    navigatorKey.currentState!.pushNamed(SkinView.routeName);
+    await tester.pump();
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Dashboard'), findsOneWidget);
+    expect(find.text('Skins'), findsNothing);
+
+    debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+    navigatorKey.currentState!.pushNamed('/skins-test');
+    await tester.pumpAndSettle();
+    navigatorKey.currentState!.pushNamed(SkinView.routeName);
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    debugDefaultTargetPlatformOverride = null;
+
+    expect(
+      tester.getSize(find.byKey(const Key('webview'))),
+      const Size(1600, 900),
+    );
+    await tester.tap(find.byTooltip('Open Dashboard'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Dashboard'), findsOneWidget);
+    expect(find.text('Skins'), findsNothing);
+  });
 
   group('classifySkinNavigation', () {
     test('allows localhost:3000 and its sub-paths', () {
