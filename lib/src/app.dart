@@ -494,8 +494,7 @@ class _MyAppState extends State<MyApp> {
                         settingsController: widget.settingsController,
                         webViewLogService: widget.webViewLogService,
                         deviceIp: widget.webUIService.deviceIp(),
-                        restoreBrightness: () =>
-                            widget.displayController.setBrightness(100),
+                        displayController: widget.displayController,
                       );
                     default:
                       return OnboardingView(
