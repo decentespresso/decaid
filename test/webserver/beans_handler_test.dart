@@ -45,7 +45,15 @@ class MockBeanStorageService implements BeanStorageService {
   @override
   Future<List<BeanBatch>> getAllBatches({bool includeArchived = false}) async {
     if (includeArchived) return List.of(batches);
-    return batches.where((b) => !b.archived).toList();
+    final activeBeanIds = beans
+        .where((bean) => !bean.archived)
+        .map((bean) => bean.id)
+        .toSet();
+    return batches
+        .where(
+          (batch) => !batch.archived && activeBeanIds.contains(batch.beanId),
+        )
+        .toList();
   }
 
   @override
@@ -416,7 +424,7 @@ void main() {
     });
 
     test(
-      'GET /api/v1/bean-batches lists active batches across beans',
+      'GET /api/v1/bean-batches filters archived batches and parent beans',
       () async {
         final otherBeanResponse = await sendPost('/api/v1/beans', {
           'roaster': 'Tim Wendelboe',
@@ -443,14 +451,12 @@ void main() {
         await sendPut('/api/v1/bean-batches/${archived['id']}', {
           'archived': true,
         });
+        await sendPut('/api/v1/beans/$otherBeanId', {'archived': true});
 
         final activeResponse = await sendGet('/api/v1/bean-batches');
         expect(activeResponse.statusCode, 200);
         final active = jsonDecode(await activeResponse.readAsString()) as List;
-        expect(active.map((batch) => batch['id']).toSet(), {
-          first['id'],
-          second['id'],
-        });
+        expect(active.map((batch) => batch['id']).toSet(), {first['id']});
 
         final allResponse = await sendGet(
           '/api/v1/bean-batches?includeArchived=true',
