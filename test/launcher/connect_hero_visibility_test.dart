@@ -4,6 +4,7 @@ import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/scan_state_guardian.dart';
 import 'package:reaprime/src/launcher/launcher_view.dart';
 import 'package:reaprime/src/launcher/widgets/connect_device_hero_card.dart';
+import 'package:reaprime/src/launcher/widgets/destination_card.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
@@ -91,5 +92,30 @@ void main() {
     await tester.pump();
 
     expect(find.text('Plugins'), findsOneWidget);
+  });
+
+  testWidgets('destination card fits the Pixel 8a grid cell', (tester) async {
+    tester.platformDispatcher.textScaleFactorTestValue = 1.15;
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+
+    await tester.pumpWidget(
+      ShadApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox.square(
+              dimension: 111,
+              child: DestinationCard(
+                icon: LucideIcons.settings,
+                label: 'Advanced',
+                onTap: () {},
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
   });
 }
