@@ -6551,8 +6551,8 @@ components:
       type: object
       description: >
         Machine-side settings snapshotted onto a shot (the part of the setup that
-        lives on the machine, not the recipe). Extensible; currently just the
-        flow-estimation calibration.
+        lives on the machine, not the recipe), including the capture-time identity
+        required to attribute historical uploads safely.
       properties:
         flowCalibration:
           type: number
@@ -6560,6 +6560,12 @@ components:
           description: >
             The DE1's flow-estimation calibration (calibration_flow_multiplier)
             active when the shot was pulled.
+        serialNumber:
+          type: string
+        model:
+          type: string
+        firmwareVersion:
+          type: string
 
     SteamSettingsPatch:
       type: object

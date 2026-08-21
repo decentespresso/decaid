@@ -142,6 +142,11 @@ reaches `connected`.
 | PUT | `/api/v1/shots/:id` | Update shot annotations | |
 | DELETE | `/api/v1/shots/:id` | Delete shot | |
 
+Newly recorded shots snapshot `serialNumber`, `model`, `firmwareVersion`, and
+`flowCalibration` under `workflow.machine`. Historical records may omit these
+fields. Consumers must not infer missing capture-time identity from the machine
+connected when a record is read.
+
 ### Steams
 
 Recorded milk-steaming sessions. Each record is opened when the machine

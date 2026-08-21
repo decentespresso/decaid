@@ -629,6 +629,12 @@ first read.
 
 The bundled **settings plugin** (`settings.reaplugin`) provides a web UI for plugin management at `/api/v1/plugins/settings.reaplugin/ui`. It includes an enable/disable toggle and remove button for each plugin, with a self-protection guard that prevents disabling itself.
 
+The bundled **Decent shot upload plugin** (`shot-upload.reaplugin`) uploads
+recent backlog entries first while the machine is idle. It uses the machine
+identity captured in `workflow.machine`, skips records without trustworthy
+identity, and stops scheduled retries when history upload is disabled or the
+machine starts brewing.
+
 ## Next Steps
 
 1. Review the example plugins in `assets/plugins/` and the DYE2 plugin at [decentespresso/dye2](https://github.com/decentespresso/dye2)

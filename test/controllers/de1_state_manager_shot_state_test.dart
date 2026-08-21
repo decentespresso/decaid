@@ -29,6 +29,7 @@ class _TestDe1Controller extends De1Controller {
     null,
   );
   De1Interface? current;
+  bool failConnectedRead = false;
 
   _TestDe1Controller({required super.controller});
 
@@ -37,6 +38,7 @@ class _TestDe1Controller extends De1Controller {
 
   @override
   De1Interface connectedDe1() {
+    if (failConnectedRead) throw 'connected de1 unavailable';
     final de1 = current;
     if (de1 == null) throw 'no de1 connected';
     return de1;
@@ -125,6 +127,7 @@ void main() {
   late TestDe1 testDe1;
   late _TestDe1Controller de1Controller;
   late ScaleController scaleController;
+  late WorkflowController workflowController;
   late _CapturingStorageService storage;
   late De1StateManager manager;
   late List<ShotStateEvent> events;
@@ -138,6 +141,7 @@ void main() {
     await deviceController.initialize();
     de1Controller = _TestDe1Controller(controller: deviceController);
     scaleController = ScaleController();
+    workflowController = WorkflowController();
     storage = _CapturingStorageService();
 
     final settingsService = MockSettingsService();
@@ -155,7 +159,7 @@ void main() {
     manager = De1StateManager(
       de1Controller: de1Controller,
       scaleController: scaleController,
-      workflowController: WorkflowController(),
+      workflowController: workflowController,
       persistenceController: PersistenceController(storageService: storage),
       settingsController: settingsController,
       connectionManager: connectionManager,
@@ -233,6 +237,44 @@ void main() {
           'the persisted record id must match the live shotId so '
           'clients can correlate the stream to the saved shot',
     );
+    expect(record.workflow.machine?.serialNumber, '1');
+    expect(record.workflow.machine?.model, '1');
+    expect(record.workflow.machine?.firmwareVersion, '1');
+    expect(record.workflow.machine?.flowCalibration, 1.0);
+  });
+
+  test('failed machine capture clears stale workflow identity', () async {
+    final current = workflowController.currentWorkflow;
+    workflowController.setWorkflow(
+      current.copyWith(
+        id: current.id,
+        machine: const WorkflowMachine(
+          serialNumber: 'stale-serial',
+          model: 'stale-model',
+          firmwareVersion: 'stale-firmware',
+        ),
+      ),
+    );
+
+    testDe1.emitStateAndSubstate(
+      MachineState.espresso,
+      MachineSubstate.preparingForShot,
+    );
+    await pump();
+    testDe1.emitStateAndSubstate(
+      MachineState.espresso,
+      MachineSubstate.pouring,
+    );
+    await pump();
+    de1Controller.failConnectedRead = true;
+    testDe1.emitStateAndSubstate(
+      MachineState.espresso,
+      MachineSubstate.pouringDone,
+    );
+    await pump();
+
+    expect(storage.storedShots, hasLength(1));
+    expect(storage.storedShots.single.workflow.machine?.serialNumber, isNull);
   });
 
   test('keeps forwarding across consecutive shots (per-shot sequencer '

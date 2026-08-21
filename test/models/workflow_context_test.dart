@@ -334,14 +334,15 @@ void main() {
   });
 
   group('Workflow.machine snapshot', () {
-    test('WorkflowMachine round-trips and omits null flowCalibration', () {
-      final m = WorkflowMachine(flowCalibration: 1.05);
-      expect(m.toJson(), {'flowCalibration': 1.05});
-      expect(WorkflowMachine.fromJson(m.toJson()).flowCalibration, 1.05);
-      expect(
-        const WorkflowMachine().toJson().containsKey('flowCalibration'),
-        false,
+    test('WorkflowMachine round-trips and omits null fields', () {
+      const m = WorkflowMachine(
+        flowCalibration: 1.05,
+        serialNumber: 'DE1-123',
+        model: 'DE1Pro',
+        firmwareVersion: '1.2.3',
       );
+      expect(WorkflowMachine.fromJson(m.toJson()), m);
+      expect(const WorkflowMachine().toJson(), isEmpty);
     });
 
     test('Workflow round-trips the machine snapshot', () {

@@ -15,11 +15,11 @@
  * with the shot id after persistence), so there is no timer/`/shots/latest`
  * race, and machine identity is captured at completion time.
  *
- * Backlog drain (DrainHistory, also opt-in): shots recorded before the plugin was
- * enabled -- including history imported from the de1app -- are uploaded by a paced
- * background pass. It runs only while the machine is idle/asleep, one shot at a
- * time with a delay between them, so a first run over a long history never
- * arrives as a burst. The ledger is the shot itself: `uploadShot` stamps
+ * Backlog drain (DrainHistory, also opt-in): eligible shots recorded before the
+ * plugin was enabled are uploaded by a paced background pass. It runs only while
+ * the machine is idle/asleep, one shot at a time with a delay between them, so a
+ * first run over a long history never arrives as a burst. Records without captured
+ * machine identity stay local. The ledger is the shot itself: `uploadShot` stamps
  * annotations.extras.uploaded_to_decent, the list endpoint returns that field, so
  * a re-run skips what is already up and nothing extra has to be persisted or kept
  * in sync. Uploads are idempotent server-side (INSERT OR REPLACE on the shot id),
@@ -33,7 +33,7 @@ function createPlugin(host) {
   "use strict";
 
   const NS = "shot-upload.reaplugin";
-  const VERSION = "0.2.0";
+  const VERSION = "0.2.1";
   const LOCAL_API_URL = "http://localhost:8080/api/v1";
   const UPLOAD_PATH = "support/api/shot_upload"; // exact allowlisted proxy write path
   const RETRIES = 3;
@@ -146,30 +146,42 @@ function createPlugin(host) {
     return isNaN(t0) || isNaN(t1) ? 0 : (t1 - t0) / 1000;
   }
 
-  // Inject machine identity (serial not carried in the shot JSON) + provenance,
-  // populated from the actual /machine/info fields (firmware = `version`).
+  function capturedMachine(shot) {
+    const machine = shot && shot.workflow && shot.workflow.machine;
+    if (!machine || !machine.serialNumber) return null;
+    return {
+      serialNumber: String(machine.serialNumber),
+      ...(machine.firmwareVersion ? { firmwareVersion: String(machine.firmwareVersion) } : {}),
+      ...(machine.model ? { model: String(machine.model) } : {}),
+    };
+  }
+
   async function withMachine(shot) {
-    const info = await fetchLocal("/machine/info");
-    const serial = info && info.serialNumber;
-    if (!serial) return null;
-    if (isMockSerial(serial)) {
-      const e = new Error(`simulated machine (${serial})`);
+    const machine = capturedMachine(shot);
+    if (!machine) return null;
+    if (isMockSerial(machine.serialNumber)) {
+      const e = new Error(`simulated machine (${machine.serialNumber})`);
       e.mock = true;
       throw e;
     }
-    shot.machine = { serialNumber: String(serial) };
-    if (info.version) shot.machine.firmwareVersion = String(info.version);
-    if (info.model) shot.machine.model = String(info.model);
-    shot.app = { name: "decaid", version: await getDecaidVersion(), sourceFormat: "decaid" };
-    shot.schemaVersion = 1;
-    return shot;
+    return {
+      ...shot,
+      machine: machine,
+      app: { name: "decaid", version: await getDecaidVersion(), sourceFormat: "decaid" },
+      schemaVersion: 1,
+    };
   }
 
   // POST the shot through the authenticated Decent proxy (reuses account login).
-  async function postShot(shot) {
+  async function postShot(shot, shouldContinue) {
     const body = JSON.stringify(shot);
     let lastErr = null;
     for (let i = 0; i < RETRIES; i++) {
+      if (i > 0 && shouldContinue && !(await shouldContinue())) {
+        const error = new Error("upload paused");
+        error.paused = true;
+        throw error;
+      }
       try {
         const res = await host.decentProxy(UPLOAD_PATH, {
           method: "POST",
@@ -197,7 +209,7 @@ function createPlugin(host) {
 
   // Upload one stored shot by id. Throws on failure (so callers can report
   // status); marks e.skipped=true for a too-short shot. Returns the server result.
-  async function uploadShot(shotId) {
+  async function uploadShot(shotId, shouldContinue) {
     const full = await fetchLocal(`/shots/${shotId}`);
     if (!full || !full.id) throw new Error(`shot ${shotId} not found`);
 
@@ -209,9 +221,13 @@ function createPlugin(host) {
     }
 
     const payload = await withMachine(full);
-    if (!payload) throw new Error("no machine serial available");
+    if (!payload) {
+      const error = new Error("no captured machine serial available");
+      error.skipped = true;
+      throw error;
+    }
 
-    const result = await postShot(payload);
+    const result = await postShot(payload, shouldContinue);
     state.lastUploadedShot = full.id;
     state.lastResult = result;
     host.storage({ type: "write", key: "lastUploadedShot", data: full.id });
@@ -226,10 +242,11 @@ function createPlugin(host) {
     if (shotId && shotId === state.lastUploadedShot) { log(`shot ${shotId} already uploaded`); return; }
     isUploading = true;
     try {
-      const r = await uploadShot(shotId);
+      const r = await uploadShot(shotId, () => state.autoUpload);
       log(`uploaded ${shotId} -> ${r && r.profile_ref ? r.profile_ref : "ok"}`);
     } catch (e) {
-      if (e.mock) { log(`not uploading ${shotId}: ${e.message}`); await markSkipped(shotId, "mock-device"); }
+      if (e.paused) { log(`paused ${shotId}`); }
+      else if (e.mock) { log(`not uploading ${shotId}: ${e.message}`); await markSkipped(shotId, "mock-device"); }
       else if (e.skipped) { log(`skipped ${shotId}: ${e.message}`); }
       else { log(`error uploading ${shotId}: ${e.message}`); host.emit("uploadError", { shotId: shotId, error: e.message, timestamp: Date.now() }); }
     } finally {
@@ -260,7 +277,7 @@ function createPlugin(host) {
   const uploadedStamp = (shot) => shotExtras(shot).uploaded_to_decent;
   const skippedMark = (shot) => shotExtras(shot).upload_skipped;
 
-  // One pass over the local history, oldest first. The list endpoint omits
+  // One pass over the local history, newest first. The list endpoint omits
   // measurements, so this is cheap even with thousands of shots, and it carries
   // annotations.extras -- the upload stamp -- so nothing has to be fetched to
   // decide whether a shot still needs uploading.
@@ -286,8 +303,7 @@ function createPlugin(host) {
       if (typeof total === "number" && offset >= total) break;
       if (items.length < DRAIN_PAGE) break;
     }
-    // The list is newest-first; upload oldest-first so history fills in order.
-    return out.reverse();
+    return out;
   }
 
   // Wait for the machine to go idle, giving up after a bounded wait so a pass
@@ -314,14 +330,19 @@ function createPlugin(host) {
       if (isUploading) { await sleep(DRAIN_DELAY_MS); continue; }
       isUploading = true;
       try {
-        await uploadShot(id);
+        await uploadShot(
+          id,
+          async () => !drain.stop && state.drainHistory && await machineIsIdle(),
+        );
         drain.done[id] = true;
         uploaded++;
         drain.counters.uploaded++;
         delete drain.failed[id];
         log(`drain uploaded ${id}`);
       } catch (e) {
-        if (e.mock) {
+        if (e.paused) {
+          return uploaded;
+        } else if (e.mock) {
           await markSkipped(id, "mock-device");
           drain.skipped[id] = true;
           drain.counters.skipped++;
@@ -360,14 +381,6 @@ function createPlugin(host) {
 
   async function startDrain(reason) {
     if (drain.running || !state.drainHistory) return;
-    // Nothing identifies the machine these shots belong to if none is connected,
-    // and the server checks that serial against the account, so do not even scan.
-    const info = await fetchLocal("/machine/info");
-    if (!info || !info.serialNumber) { log("drain skipped: no machine connected"); return; }
-    // Refuse wholesale rather than walk the backlog: with a simulator attached
-    // every upload would be attributed to it, and shots recorded earlier on the
-    // real machine are indistinguishable from the simulator's own.
-    if (isMockSerial(info.serialNumber)) { log(`drain skipped: simulated machine (${info.serialNumber})`); return; }
     drain.running = true;
     drain.stop = false;
     drain.done = {};
