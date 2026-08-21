@@ -1,7 +1,12 @@
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/src/launcher/launcher_view.dart';
+import 'package:reaprime/src/services/webview_log_service.dart';
+import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/skin_feature/skin_view.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
+
+import '../../helpers/mock_settings_service.dart';
 
 void main() {
   test('skin exit guide explains Android navigation and Dashboard purpose', () {
@@ -9,8 +14,49 @@ void main() {
 
     expect(instructions, contains('settings and skin selection'));
     expect(instructions, contains('Swipe inward from either screen edge'));
-    expect(instructions, contains('Android Back'));
+    expect(instructions, contains('reveal the navigation bar'));
+    expect(instructions, contains('tap Back'));
   });
+
+  testWidgets(
+    'system back exits directly to Dashboard from the skin selector',
+    (tester) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final navigatorKey = GlobalKey<NavigatorState>();
+      final webViewLogService = WebViewLogService(logDirectoryPath: '.');
+      addTearDown(webViewLogService.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navigatorKey,
+          home: const Scaffold(body: Text('Dashboard')),
+          routes: {
+            LauncherView.routeName: (_) =>
+                const Scaffold(body: Text('Dashboard')),
+            '/skins-test': (_) => const Scaffold(body: Text('Skins')),
+            SkinView.routeName: (_) => SkinView(
+              settingsController: SettingsController(MockSettingsService()),
+              webViewLogService: webViewLogService,
+              deviceIp: '127.0.0.1',
+            ),
+          },
+        ),
+      );
+      navigatorKey.currentState!.pushNamed('/skins-test');
+      await tester.pumpAndSettle();
+      navigatorKey.currentState!.pushNamed(SkinView.routeName);
+      await tester.pump();
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Dashboard'), findsOneWidget);
+      expect(find.text('Skins'), findsNothing);
+    },
+  );
 
   group('classifySkinNavigation', () {
     test('allows localhost:3000 and its sub-paths', () {
