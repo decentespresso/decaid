@@ -13,6 +13,9 @@ class _FakeLoader extends Fake implements PluginLoaderService {
   final List<PluginManifest> plugins;
 
   @override
+  Future<void> initialize() async {}
+
+  @override
   List<PluginManifest> get availablePlugins => plugins;
 
   @override
