@@ -4,13 +4,26 @@ import 'package:reaprime/src/webui_support/webui_service.dart';
 
 void main() {
   group('classifySkinNavigation', () {
-    test('allows localhost:3000 and its sub-paths', () {
+    test('allows the active skin origin and its sub-paths', () {
       expect(
-        classifySkinNavigation(Uri.parse('http://localhost:3000/')),
+        classifySkinNavigation(
+          Uri.parse('http://localhost:43210/'),
+          skinPort: 43210,
+        ),
         SkinNavDecision.allow,
       );
       expect(
-        classifySkinNavigation(Uri.parse('http://localhost:3000/foo?x=1')),
+        classifySkinNavigation(
+          Uri.parse('http://localhost:43210/foo?x=1'),
+          skinPort: 43210,
+        ),
+        SkinNavDecision.allow,
+      );
+      expect(
+        classifySkinNavigation(
+          Uri.parse('http://localhost:3000/'),
+          skinPort: 43210,
+        ),
         SkinNavDecision.allow,
       );
     });
@@ -25,25 +38,27 @@ void main() {
     });
 
     test('exits to the dashboard for the exact skin exit URL', () {
+      final url = skinExitDashboardUrlForPort(43210);
       expect(
-        classifySkinNavigation(Uri.parse(skinExitDashboardUrl)),
+        classifySkinNavigation(Uri.parse(url), skinPort: 43210),
         SkinNavDecision.exitDashboard,
       );
     });
 
     test('blocks extended and malformed skin exit URLs', () {
+      final url = skinExitDashboardUrlForPort(43210);
       for (final url in [
-        '$skinExitDashboardUrl/path',
-        '$skinExitDashboardUrl?unexpected=true',
-        '$skinExitDashboardUrl#fragment',
-        'http://user@localhost:3000$skinExitDashboardPath',
-        'http://localhost:3001$skinExitDashboardPath',
+        '$url/path',
+        '$url?unexpected=true',
+        '$url#fragment',
+        'http://user@localhost:43210$skinExitDashboardPath',
+        'http://localhost:43211$skinExitDashboardPath',
         'http://localhost$skinExitDashboardPath',
-        'https://localhost:3000$skinExitDashboardPath',
-        'http://example.com:3000$skinExitDashboardPath',
+        'https://localhost:43210$skinExitDashboardPath',
+        'http://example.com:43210$skinExitDashboardPath',
       ]) {
         expect(
-          classifySkinNavigation(Uri.parse(url)),
+          classifySkinNavigation(Uri.parse(url), skinPort: 43210),
           isNot(SkinNavDecision.exitDashboard),
           reason: url,
         );
@@ -83,8 +98,8 @@ void main() {
   });
 
   group('SkinExitCoordinator', () {
-    final target = Uri.parse(skinExitDashboardUrl);
-    final trustedPage = Uri.parse('http://localhost:3000/?_=123');
+    final target = Uri.parse(skinExitDashboardUrlForPort(43210));
+    final trustedPage = Uri.parse('http://localhost:43210/?_=123');
 
     test('accepts one trusted main-frame request', () {
       final coordinator = SkinExitCoordinator();
@@ -94,6 +109,7 @@ void main() {
           target: target,
           isForMainFrame: true,
           topLevelUri: trustedPage,
+          skinPort: 43210,
         ),
         isTrue,
       );
@@ -102,6 +118,7 @@ void main() {
           target: target,
           isForMainFrame: true,
           topLevelUri: trustedPage,
+          skinPort: 43210,
         ),
         isFalse,
       );
@@ -114,6 +131,7 @@ void main() {
           target: target,
           isForMainFrame: false,
           topLevelUri: trustedPage,
+          skinPort: 43210,
         ),
         isFalse,
       );
@@ -121,7 +139,8 @@ void main() {
         SkinExitCoordinator().tryStart(
           target: target,
           isForMainFrame: true,
-          topLevelUri: Uri.parse('http://example.com:3000/'),
+          topLevelUri: Uri.parse('http://example.com:43210/'),
+          skinPort: 43210,
         ),
         isFalse,
       );

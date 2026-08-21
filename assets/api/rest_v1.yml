@@ -3880,6 +3880,7 @@ paths:
                   port:
                     type: integer
                     nullable: true
+                    description: Active per-generation skin origin port
                   ip:
                     type: string
                     nullable: true
@@ -3887,7 +3888,7 @@ paths:
   /api/v1/webui/server/start:
     post:
       summary: Start the WebUI server
-      description: Starts serving the default WebUI skin
+      description: Starts serving the default WebUI skin through the stable port 3000 entry point
       tags: [WebUI]
       responses:
         "200":

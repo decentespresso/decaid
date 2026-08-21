@@ -159,20 +159,17 @@ Future<void> _printStoragePaths() async {
   exit(0);
 }
 
-ActiveSkinConsent? _activeSkinConsent(
-  WebUIService service,
-  WebUIStorage storage,
-) {
-  final path = service.serverPath().trim();
-  if (path.isEmpty) return null;
-  final normalizedPath = p.normalize(path);
+ActiveSkinConsent? _activeSkinConsent(String path, WebUIStorage storage) {
+  final value = path.trim();
+  if (value.isEmpty) return null;
+  final normalizedPath = p.normalize(value);
   final skin = storage.installedSkins.firstWhereOrNull(
     (candidate) => p.equals(p.normalize(candidate.path), normalizedPath),
   );
   return ActiveSkinConsent(
     id: skin?.id,
     name: skin?.name ?? 'Custom skin',
-    path: path,
+    path: value,
   );
 }
 
@@ -416,6 +413,7 @@ void main(List<String> args) async {
   DecentProxyService? decentProxyService;
   AccountTokensController? accountTokensController;
   CredentialStore? credentialStore;
+  AccountConsentGate? consentGate;
   final proxyTokenService = ProxyTokenService();
   if (cliArgs.noAccount) {
     log.info('--no-account: skipping credential store and account service');
@@ -426,13 +424,13 @@ void main(List<String> args) async {
     final consentPrompter = AccountConsentPrompter(
       navigatorKey: NavigationService.navigatorKey,
     );
-    final consentGate = AccountConsentGate(
+    final gate = AccountConsentGate(
       store: AccountConsentStore(credentialStore: credentialStore),
-      activeSkin: () => _activeSkinConsent(webUIService, webUIStorage),
       prompt: consentPrompter.prompt,
       trustedConsentKeys: cliArgs.trustedConsentKeys,
       trustAllConsent: cliArgs.trustAllConsent,
     );
+    consentGate = gate;
     const decentBaseUrl = String.fromEnvironment(
       'DECENT_BASE_URL',
       defaultValue: 'https://decentespresso.com',
@@ -445,7 +443,7 @@ void main(List<String> args) async {
     decentProxyService = DecentProxyService(
       httpClient: http.Client(),
       credentialStore: credentialStore,
-      requireConsent: consentGate.requireConsent,
+      requireConsent: gate.requireConsent,
       baseUrl: decentBaseUrl,
     );
     accountTokensController = AccountTokensController(
@@ -454,7 +452,19 @@ void main(List<String> args) async {
     );
     await accountTokensController.initialize();
   }
-  webUIService.skinProxyToken = proxyTokenService.skinToken;
+  webUIService.skinProxyTokenProvider = (path) {
+    final skin = _activeSkinConsent(path, webUIStorage);
+    final gate = consentGate;
+    if (skin == null || gate == null) return null;
+    gate.registerCallerLabel(skin.key, skin.name);
+    return proxyTokenService.rotateSkinToken(
+      ProxyCaller(
+        id: skin.key,
+        scopes: const {ProxyTokenService.scopeAccountProxy},
+      ),
+    );
+  };
+  webUIService.skinProxyTokenRevoker = proxyTokenService.revokeSkinToken;
 
   final PluginLoaderService pluginService = PluginLoaderService(
     kvStore: HiveStoreService(defaultNamespace: "plugins")..initialize(),

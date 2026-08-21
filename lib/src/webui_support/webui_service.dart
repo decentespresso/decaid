@@ -80,14 +80,17 @@ List<int> injectSkinApiScriptTagBytes(
   );
 }
 
-String buildSkinApiJavaScript() {
+String skinExitDashboardUrlForPort(int port) =>
+    'http://localhost:$port$skinExitDashboardPath';
+
+String buildSkinApiJavaScript({int port = 3000}) {
   return 'var tokenMeta=document.querySelector('
       '${jsonEncode('meta[name="$_skinProxyTokenMetaName"]')});'
       'if(tokenMeta)window.__REA_PROXY_TOKEN__=tokenMeta.content;'
       'window.decentApp=window.decentApp||{};'
       'window.decentApp.exitToDashboard=function(){'
       'if(window.__DECENT_HOST__)window.location.assign('
-      '${jsonEncode(skinExitDashboardUrl)});'
+      '${jsonEncode(skinExitDashboardUrlForPort(port))});'
       '};';
 }
 
@@ -103,6 +106,8 @@ class WebUIService {
   final _log = Logger("WebUIService");
   final Future<List<String>> Function() _listLocalAddresses;
   HttpServer? _server;
+  HttpServer? _entryServer;
+  final Set<int> _usedPorts = {};
   int port = 3000;
   String _path = "";
   String? _localIP;
@@ -126,6 +131,8 @@ class WebUIService {
   SkinOverride skinOverride = const SkinOverride.registry();
 
   String? skinProxyToken;
+  String? Function(String path)? skinProxyTokenProvider;
+  void Function()? skinProxyTokenRevoker;
 
   Future<bool> _isLocalHost(String host) async {
     if (host == 'localhost' || host == '127.0.0.1' || host == '::1') {
@@ -155,6 +162,9 @@ class WebUIService {
 
   Future<void> serveFolderAtPath(String path, {int port = 3000}) async {
     await _server?.close(force: true);
+    _server = null;
+    final tokenProvider = skinProxyTokenProvider;
+    if (tokenProvider != null) _revokeSkinProxyToken();
     _localIP ??= await _resolveLocalIP();
 
     final webUI = createStaticHandler(
@@ -167,7 +177,9 @@ class WebUIService {
     FutureOr<Response> skinHandler(Request request) {
       if (request.url.path == skinApiScriptPath.substring(1)) {
         return Response.ok(
-          request.method == 'HEAD' ? null : buildSkinApiJavaScript(),
+          request.method == 'HEAD'
+              ? null
+              : buildSkinApiJavaScript(port: this.port),
           headers: {
             'Content-Type': 'application/javascript; charset=utf-8',
             'Cache-Control': 'no-store',
@@ -212,7 +224,7 @@ class WebUIService {
             response.headers.containsKey('content-encoding')) {
           return response;
         }
-        final scriptUrl = await _skinApiUrl(request, port);
+        final scriptUrl = await _skinApiUrl(request, this.port);
         if (scriptUrl == null) return response;
         final encoding = response.encoding ?? utf8;
         final body = await response.read().expand((chunk) => chunk).toList();
@@ -243,13 +255,58 @@ class WebUIService {
         .addHandler(skinHandler);
 
     try {
-      _server = await shelf_io.serve(handler, '0.0.0.0', port);
+      if (tokenProvider != null) skinProxyToken = tokenProvider(path);
+      _server = await _serveFresh(handler);
+      this.port = _server!.port;
+      await _serveEntryPoint(port);
       _log.fine("serving $path");
       _path = path;
     } catch (e, st) {
+      await _server?.close(force: true);
+      await _entryServer?.close(force: true);
+      _server = null;
+      _entryServer = null;
+      _revokeSkinProxyToken();
       _log.severe("failed to start serving", e, st);
       rethrow;
     }
+  }
+
+  void _revokeSkinProxyToken() {
+    if (skinProxyToken != null) skinProxyTokenRevoker?.call();
+    skinProxyToken = null;
+  }
+
+  Future<HttpServer> _serveFresh(Handler handler) async {
+    while (true) {
+      final server = await shelf_io.serve(handler, '0.0.0.0', 0);
+      if (_usedPorts.add(server.port)) return server;
+      await server.close(force: true);
+    }
+  }
+
+  Future<void> _serveEntryPoint(int requestedPort) async {
+    if (_entryServer?.port == requestedPort) return;
+    await _entryServer?.close(force: true);
+    _entryServer = await shelf_io.serve(
+      (request) async {
+        final uri = request.requestedUri;
+        if (uri.scheme != 'http' ||
+            uri.userInfo.isNotEmpty ||
+            !await _isLocalHost(uri.host)) {
+          return Response.notFound('Not found');
+        }
+        return Response(
+          HttpStatus.temporaryRedirect,
+          headers: {
+            HttpHeaders.locationHeader: uri.replace(port: port).toString(),
+            HttpHeaders.cacheControlHeader: 'no-store',
+          },
+        );
+      },
+      '0.0.0.0',
+      requestedPort,
+    );
   }
 
   String serverIP() {
@@ -270,12 +327,15 @@ class WebUIService {
   bool get isServing => _server != null;
 
   Future<void> stopServing() async {
-    if (_server != null) {
+    if (_server != null || _entryServer != null) {
       _log.info('Stopping WebUI server on port $port');
       await _server?.close(force: true);
+      await _entryServer?.close(force: true);
       _server = null;
+      _entryServer = null;
       _path = "";
       _log.info('WebUI server stopped');
     }
+    _revokeSkinProxyToken();
   }
 }

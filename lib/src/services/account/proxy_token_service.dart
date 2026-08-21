@@ -14,7 +14,7 @@ class ProxyTokenService {
   static const String scopeAccountProxyWrite = 'account:proxy:write';
 
   final Map<String, ProxyCaller> _tokens = {};
-  late final String _skinToken;
+  late String _skinToken;
 
   ProxyTokenService({String? skinToken}) {
     _skinToken = skinToken ?? generateToken();
@@ -25,6 +25,17 @@ class ProxyTokenService {
   }
 
   String get skinToken => _skinToken;
+
+  String rotateSkinToken(ProxyCaller caller) {
+    _tokens.remove(_skinToken);
+    _skinToken = generateToken();
+    _tokens[_skinToken] = caller;
+    return _skinToken;
+  }
+
+  void revokeSkinToken() {
+    _tokens.remove(_skinToken);
+  }
 
   void registerToken(String token, ProxyCaller caller) {
     _tokens[token] = caller;

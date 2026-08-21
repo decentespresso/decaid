@@ -26,17 +26,11 @@ class _CredentialStore implements CredentialStore {
 void main() {
   late _CredentialStore credentials;
   late AccountConsentStore store;
-  late ActiveSkinConsent? activeSkin;
   late List<String> prompts;
 
   setUp(() {
     credentials = _CredentialStore();
     store = AccountConsentStore(credentialStore: credentials);
-    activeSkin = const ActiveSkinConsent(
-      id: 'aileen',
-      name: 'Aileen',
-      path: '/skins/aileen',
-    );
     prompts = [];
   });
 
@@ -46,7 +40,6 @@ void main() {
     bool trustAllConsent = false,
   }) => AccountConsentGate(
     store: store,
-    activeSkin: () => activeSkin,
     prompt:
         prompt ??
         (label) async {
@@ -59,9 +52,10 @@ void main() {
 
   test('prompts once and remembers an installed skin allow', () async {
     final consent = gate();
+    consent.registerCallerLabel('skin:aileen', 'Aileen');
 
-    expect(await consent.requireConsent('skin'), isTrue);
-    expect(await consent.requireConsent('skin'), isTrue);
+    expect(await consent.requireConsent('skin:aileen'), isTrue);
+    expect(await consent.requireConsent('skin:aileen'), isTrue);
     expect(prompts, ['Aileen']);
     expect(await store.read('skin:aileen'), AccountConsentDecision.allowed);
   });
@@ -82,25 +76,25 @@ void main() {
 
   test('a different skin id cannot inherit consent', () async {
     final consent = gate();
+    consent.registerCallerLabel('skin:aileen', 'Aileen');
+    consent.registerCallerLabel('skin:streamline', 'Streamline');
 
-    expect(await consent.requireConsent('skin'), isTrue);
-    activeSkin = const ActiveSkinConsent(
-      id: 'streamline',
-      name: 'Streamline',
-      path: '/skins/streamline',
-    );
-    expect(await consent.requireConsent('skin'), isTrue);
+    expect(await consent.requireConsent('skin:aileen'), isTrue);
+    expect(await consent.requireConsent('skin:streamline'), isTrue);
 
     expect(prompts, ['Aileen', 'Streamline']);
   });
 
   test('a custom skin path is hashed instead of persisted', () async {
-    activeSkin = const ActiveSkinConsent(
+    final skin = const ActiveSkinConsent(
       name: 'Custom skin',
       path: r'C:\Users\rea\private-skin',
     );
 
-    expect(await gate().requireConsent('skin'), isTrue);
+    final consent = gate();
+    consent.registerCallerLabel(skin.key, skin.name);
+
+    expect(await consent.requireConsent(skin.key), isTrue);
 
     final persisted = credentials.values['account_proxy_consent']!;
     expect(persisted, contains('skin:path:'));
@@ -141,16 +135,15 @@ void main() {
   });
 
   test('headless skin request denies without a wildcard decision', () async {
-    activeSkin = null;
-
     expect(await gate().requireConsent('skin'), isFalse);
     expect(prompts, isEmpty);
   });
 
   test('trust-all permits a headless skin caller', () async {
-    activeSkin = null;
-
-    expect(await gate(trustAllConsent: true).requireConsent('skin'), isTrue);
+    expect(
+      await gate(trustAllConsent: true).requireConsent('skin:aileen'),
+      isTrue,
+    );
     expect(prompts, isEmpty);
   });
 
