@@ -849,7 +849,8 @@ components:
             connected; false for a remembered device that is not present
             (reported with state "disconnected"). Remembered devices persist
             across restarts until forgotten via the REST
-            /api/v1/devices/forget endpoint.
+            /api/v1/devices/forget endpoint. Availability does not imply command
+            ownership; controller-owned devices may be inventory-only.
           example: true
 
     DeviceConnectResult:
@@ -890,7 +891,11 @@ components:
           description: The command to execute.
         deviceId:
           type: string
-          description: Device identifier. Required for connect and disconnect commands.
+          description: >
+            Device identifier. Required for connect and disconnect commands.
+            Controller-owned inventory devices such as Bengle's integrated
+            virtual scale reject both commands because their lifecycle follows
+            the machine.
         connect:
           type: boolean
           description: Whether to scan first and automatically fill missing machine and scale slots without replacing connected devices (scan command only).

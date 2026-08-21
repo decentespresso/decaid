@@ -736,7 +736,9 @@ always wins on Bengle: external scale scanning is skipped entirely, and
 `preferredScaleId` is ignored while a Bengle is connected. Multi-scale
 support (external scale alongside the integrated scale) is on the roadmap. The
 REST and WebSocket device inventories include the attached virtual scale even
-though it does not originate from `DeviceController` discovery.
+though it does not originate from `DeviceController` discovery. It is
+inventory-only in the devices API: connect and disconnect commands reject its
+ID because its lifecycle follows the Bengle machine.
 
 The confirmed Bengle application telemetry source is its 28-byte `0xA013`
 packet, consumed as the Bengle transport telemetry source and fanned out into

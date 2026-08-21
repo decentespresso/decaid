@@ -121,6 +121,8 @@ paths:
         Accepts deviceId via JSON body (preferred) or query parameter (backward compatible).
         Device IDs may contain special characters (e.g. colons in BLE MAC addresses,
         slashes in serial port paths), so the JSON body approach avoids URL encoding issues.
+        Controller-owned inventory devices such as Bengle's integrated virtual scale
+        are not independent command targets and return 409.
       tags: [Devices]
       parameters:
         - name: deviceId
@@ -154,11 +156,13 @@ paths:
         "404":
           description: "Device not found"
         "409":
-          description: "Connection conflicts with another operation or a stale selection"
+          description: "Connection conflicts with another operation, a stale selection, or an inventory-only device"
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DeviceConnectResult"
+                oneOf:
+                  - $ref: "#/components/schemas/DeviceConnectResult"
+                  - $ref: "#/components/schemas/Error"
         "503":
           description: "Device transport currently unavailable"
           content:
@@ -177,6 +181,8 @@ paths:
       summary: Disconnect a specified device
       description: |
         Accepts deviceId via JSON body (preferred) or query parameter (backward compatible).
+        Controller-owned inventory devices such as Bengle's integrated virtual scale
+        follow their machine lifecycle and return 409.
       tags: [Devices]
       parameters:
         - name: deviceId
@@ -205,6 +211,12 @@ paths:
           description: "Missing deviceId"
         "404":
           description: "Device not found"
+        "409":
+          description: "Device is inventory-only and cannot be disconnected independently"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /api/v1/devices/wifi:
     get:

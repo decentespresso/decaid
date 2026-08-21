@@ -11,6 +11,8 @@ import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/impl/bengle/bengle_virtual_scale.dart';
+import 'package:reaprime/src/models/device/impl/bengle/mock_bengle.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
 
@@ -132,10 +134,10 @@ void main() {
     });
 
     test('tracks a connected scale that is outside discovery', () async {
-      final scale = TestScale(
-        deviceId: 'bengle-internal-machine',
-        name: 'Bengle scale',
-      );
+      final bengle = MockBengle();
+      await bengle.onConnect();
+      addTearDown(bengle.onDisconnect);
+      final scale = BengleVirtualScale(bengle);
       await scaleController.connectToScale(scale);
 
       final (channel, messages) = connectWs();
@@ -152,7 +154,16 @@ void main() {
 
       expect((connected['devices'] as List).single['available'], true);
 
-      scale.setConnectionState(ConnectionState.disconnected);
+      channel.sink.add(
+        jsonEncode({'command': 'disconnect', 'deviceId': scale.deviceId}),
+      );
+      expect(await waitForError(messages), {
+        'error':
+            'Device is inventory-only and cannot be controlled here: '
+            '${scale.deviceId}',
+      });
+
+      await bengle.onDisconnect();
 
       final disconnected = await messages
           .where(

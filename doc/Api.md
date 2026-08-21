@@ -123,6 +123,12 @@ forgotten via `PUT /api/v1/devices/forget` (deviceId in the JSON body or
 `?deviceId=` query). The same `available` field is on each device in the
 `ws/v1/devices` snapshot.
 
+`available` describes inventory presence, not command ownership. A connected
+controller-owned device such as Bengle's integrated virtual scale is listed as
+available but is inventory-only: REST connect/disconnect returns 409 and the
+devices WebSocket returns an explicit error. Its lifecycle follows the Bengle
+machine; use the scale API for operations such as tare.
+
 **Manual WiFi scale endpoints.** Auto-discovered (DNS-SD) WiFi scales appear in
 `GET /api/v1/devices` like any other device and need no extra calls. The
 `/api/v1/devices/wifi` routes are only for *manually* entering a scale by IP or

@@ -314,6 +314,8 @@ class DevicesHandler {
     }
     final device = devices.firstWhereOrNull((e) => e.deviceId == deviceId);
     if (device == null) {
+      final error = _inventoryOnlyCommandError(deviceId);
+      if (error != null) return jsonConflict({'error': error});
       return jsonNotFound({'error': 'Device not found: $deviceId'});
     }
     final result = await _connectDevice(device);
@@ -335,6 +337,8 @@ class DevicesHandler {
     }
     final device = devices.firstWhereOrNull((e) => e.deviceId == deviceId);
     if (device == null) {
+      final error = _inventoryOnlyCommandError(deviceId);
+      if (error != null) return jsonConflict({'error': error});
       return jsonNotFound({'error': 'Device not found: $deviceId'});
     }
     _connectionManager.markExpectingDisconnect(device.deviceId);
@@ -428,7 +432,13 @@ class DevicesHandler {
           (e) => e.deviceId == deviceId,
         );
         if (device == null) {
-          socket.sink.add(jsonEncode({'error': 'Device not found: $deviceId'}));
+          socket.sink.add(
+            jsonEncode({
+              'error':
+                  _inventoryOnlyCommandError(deviceId) ??
+                  'Device not found: $deviceId',
+            }),
+          );
           return;
         }
         await _sendConnectResult(device, socket);
@@ -445,7 +455,13 @@ class DevicesHandler {
           (e) => e.deviceId == deviceId,
         );
         if (device == null) {
-          socket.sink.add(jsonEncode({'error': 'Device not found: $deviceId'}));
+          socket.sink.add(
+            jsonEncode({
+              'error':
+                  _inventoryOnlyCommandError(deviceId) ??
+                  'Device not found: $deviceId',
+            }),
+          );
           return;
         }
         _connectionManager.markExpectingDisconnect(device.deviceId);
@@ -456,6 +472,16 @@ class DevicesHandler {
       default:
         socket.sink.add(jsonEncode({'error': 'Unknown command: $command'}));
     }
+  }
+
+  String? _inventoryOnlyCommandError(String deviceId) {
+    final inventoryOnly = _devicesForInventory(
+      const [],
+      _connectionManager.scaleController,
+    ).any((device) => device.deviceId == deviceId);
+    return inventoryOnly
+        ? 'Device is inventory-only and cannot be controlled here: $deviceId'
+        : null;
   }
 
   Future<void> _sendConnectResult(
