@@ -327,15 +327,18 @@ Guards now in place:
 - `De1Controller._readShotSettings` bounds every read with
   `ConnectionTimings.initialShotSettingsTimeout` and maps a closed subject
   (`StateError`) to `DeviceNotConnectedException`.
-- `De1Controller.deviceWriteStallTimeout` (60 s) lets the device-write queue
-  advance past an operation that never returns.
-- `WorkflowHandler.applyTimeout` (120 s) is the same backstop one layer up.
-  It is deliberately much larger than `queueWaitTimeout`: queued requests
-  expire, in-flight machine writes are not killed for being slow.
 - A connect-time read timeout no longer skips startup defaults permanently.
   `_deferStartupDefaults` re-arms on the first frame that does arrive, so a
   transient MMR timeout at connect no longer leaves the machine unconfigured
-  until app restart.
+  until app restart. The deferred defaults run through `runDeviceWrite`, so
+  they cannot overlap a normal workflow write that started while init was
+  still waiting on shot settings.
+
+No generic stall timeout guards the device-write queue. `Future.timeout()` does
+not cancel the underlying future, so releasing the queue on timeout would let a
+stalled write resume later and overwrite a newer one. Bound the actual
+unbounded read instead; a real anti-wedge mechanism needs explicit
+cancellation or fencing.
 
 ## Keeping Notes Fresh
 

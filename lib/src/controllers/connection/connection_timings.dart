@@ -10,6 +10,4 @@ class ConnectionTimings {
   static const profileDownloadGuard = Duration(milliseconds: 500);
 
   static const machineReplacementTimeout = Duration(seconds: 10);
-
-  static const deviceWriteStallTimeout = Duration(seconds: 60);
 }

@@ -78,10 +78,13 @@ class _LateShotSettingsDe1 extends TestDe1 {
   _LateShotSettingsDe1() : super(deviceId: 'late-de1', name: 'LateDe1');
 
   int fanThresholdCalls = 0;
+  final List<String> calls = [];
+  Completer<void>? flushGate;
 
   @override
   Future<void> setFanThreshhold(int temp) async {
     fanThresholdCalls++;
+    calls.add('fan');
   }
 
   @override
@@ -91,7 +94,11 @@ class _LateShotSettingsDe1 extends TestDe1 {
   Future<void> setHotWaterFlow(double value) async {}
 
   @override
-  Future<void> setFlushFlow(double value) async {}
+  Future<void> setFlushFlow(double value) async {
+    calls.add('flush');
+    final gate = flushGate;
+    if (gate != null) await gate.future;
+  }
 
   @override
   Future<void> setFlushTimeout(double value) async {}
@@ -151,6 +158,54 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 200));
 
     expect(lateDe1.fanThresholdCalls, 1);
+    await lateDe1.dispose();
+  });
+
+  test('deferred startup defaults do not overlap an in-flight write', () async {
+    final controller = De1Controller(controller: deviceController);
+    controller.defaultWorkflow = _workflow(steamDuration: 16);
+    final lateDe1 = _LateShotSettingsDe1();
+    lateDe1.flushGate = Completer<void>();
+
+    await controller.connectToDe1(lateDe1);
+    await Future<void>.delayed(
+      ConnectionTimings.initialShotSettingsTimeout +
+          const Duration(milliseconds: 200),
+    );
+    expect(lateDe1.fanThresholdCalls, 0);
+
+    final pendingWrite = controller.updateFlushSettings(
+      RinseData(targetTemperature: 92, duration: 6, flow: 2.5),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(lateDe1.calls, ['flush']);
+
+    lateDe1.emitShotSettings(
+      De1ShotSettings(
+        steamSetting: 0,
+        targetSteamTemp: 150,
+        targetSteamDuration: 30,
+        targetHotWaterTemp: 75,
+        targetHotWaterVolume: 50,
+        targetHotWaterDuration: 30,
+        targetShotVolume: 36,
+        groupTemp: 94.0,
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    expect(
+      lateDe1.fanThresholdCalls,
+      0,
+      reason: 'late startup defaults must wait for the device write queue',
+    );
+
+    lateDe1.flushGate!.complete();
+    await pendingWrite;
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+
+    expect(lateDe1.fanThresholdCalls, 1);
+    expect(lateDe1.calls.first, 'flush');
+    expect(lateDe1.calls.indexOf('fan'), greaterThan(0));
     await lateDe1.dispose();
   });
 

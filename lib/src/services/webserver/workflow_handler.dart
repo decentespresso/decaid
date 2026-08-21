@@ -14,7 +14,6 @@ import 'package:shelf_plus/shelf_plus.dart';
 
 const _workflowBodyReadTimeout = Duration(seconds: 30);
 const _workflowQueueWaitTimeout = Duration(seconds: 30);
-const _workflowApplyTimeout = Duration(seconds: 120);
 const _workflowMaxBodyBytes = 1024 * 1024;
 const _workflowMaxPendingRequests = 8;
 
@@ -25,7 +24,6 @@ class WorkflowHandler {
   final De1Controller _de1controller;
   final Duration bodyReadTimeout;
   final Duration queueWaitTimeout;
-  final Duration applyTimeout;
   final int maxBodyBytes;
   final int maxPendingRequests;
 
@@ -38,7 +36,6 @@ class WorkflowHandler {
     required De1Controller de1controller,
     this.bodyReadTimeout = _workflowBodyReadTimeout,
     this.queueWaitTimeout = _workflowQueueWaitTimeout,
-    this.applyTimeout = _workflowApplyTimeout,
     this.maxBodyBytes = _workflowMaxBodyBytes,
     this.maxPendingRequests = _workflowMaxPendingRequests,
   }) : _controller = controller,
@@ -82,15 +79,8 @@ class WorkflowHandler {
       if (expired) return;
       waitTimer.cancel();
       try {
-        final result = await _applyPayload(payload).timeout(applyTimeout);
+        final result = await _applyPayload(payload);
         if (!response.isCompleted) response.complete(result);
-      } on TimeoutException {
-        _log.severe('Workflow apply timed out; releasing queue');
-        if (!response.isCompleted) {
-          response.complete(
-            jsonServiceUnavailable({'error': 'Workflow apply timed out'}),
-          );
-        }
       } finally {
         releaseSlot();
       }
