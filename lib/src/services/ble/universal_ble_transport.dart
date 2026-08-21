@@ -282,7 +282,7 @@ class UniversalBleTransport extends BLETransport {
           _connectionGeneration,
         ),
       );
-      throw e;
+      throw GattAttributeUnavailableException(operation: operation, path: path);
     }
     if (_goneDeviceCodes.contains(e.code)) {
       _log.warning('GATT $operation($path) failed — device gone: ${e.code}');
