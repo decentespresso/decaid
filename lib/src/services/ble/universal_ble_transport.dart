@@ -256,11 +256,14 @@ class UniversalBleTransport extends BLETransport {
   }
 
   static const _goneDeviceCodes = {
-    UniversalBleErrorCode.characteristicNotFound,
     UniversalBleErrorCode.deviceNotFound,
-    UniversalBleErrorCode.serviceNotFound,
     UniversalBleErrorCode.connectionTerminated,
     UniversalBleErrorCode.deviceDisconnected,
+  };
+
+  static const _attributeMissingCodes = {
+    UniversalBleErrorCode.characteristicNotFound,
+    UniversalBleErrorCode.serviceNotFound,
   };
 
   Never _handleGattError(
@@ -268,6 +271,19 @@ class UniversalBleTransport extends BLETransport {
     String operation,
     String path,
   ) {
+    if (_attributeMissingCodes.contains(e.code)) {
+      _log.warning(
+        'GATT $operation($path) failed — attribute not in GATT database: '
+        '${e.code}',
+      );
+      unawaited(
+        _probeAndDeclareIfDead(
+          'GATT $operation($path) attribute missing',
+          _connectionGeneration,
+        ),
+      );
+      throw e;
+    }
     if (_goneDeviceCodes.contains(e.code)) {
       _log.warning('GATT $operation($path) failed — device gone: ${e.code}');
       _connectionStateSubject.add(device.ConnectionState.disconnected);

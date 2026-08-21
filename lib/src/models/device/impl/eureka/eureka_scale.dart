@@ -89,7 +89,9 @@ class EurekaScale implements Scale {
         );
       }
       await _registerNotifications();
-      _readBattery();
+      if (batteryService.matchesAny(services)) {
+        _readBattery();
+      }
       _connectionStateController.add(ConnectionState.connected);
     } catch (e) {
       _log.warning('Connect failed: $e');

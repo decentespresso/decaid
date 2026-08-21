@@ -144,9 +144,19 @@ cancellation.
 ## Gone-Device Error Handling
 
 `UniversalBleTransport._handleGattError()` catches `UniversalBleException` with gone-device codes:
-`characteristicNotFound`, `deviceNotFound`, `serviceNotFound`, `connectionTerminated`, `deviceDisconnected`, `unknownError`.
+`deviceNotFound`, `connectionTerminated`, `deviceDisconnected`, `unknownError`.
 
 On hit: emits `disconnected`, drains the queue with typed `deviceDisconnected`, and throws `DeviceNotConnectedException`.
+
+`characteristicNotFound` and `serviceNotFound` are ambiguous and are handled separately. A live peripheral
+returns them when the attribute simply is not in its GATT database, and a dead link returns them from a stale
+cache. Treating them as gone-device broke the Solo Barista (LSJ-001), which the matcher routes to `EurekaScale`
+but which has no 0x180F battery service: the optional battery read at the end of `onConnect()` failed with
+`characteristicNotFound`, the transport emitted `disconnected`, and the scale dropped one tick after connecting
+(log signature: `GATT read(...2a19...) failed - device gone`, then `scale connection update: disconnected`).
+These two codes now log, rethrow the original `UniversalBleException`, and hand off to
+`_probeAndDeclareIfDead()`, which asks the OS for the real link state and only then declares the link dead.
+Device implementations should still gate optional reads on `discoverServices()` rather than relying on the probe.
 
 The `isBenignFrameworkError()` filter in `crashlytics_error_filter.dart` suppresses these from `FlutterError.onError` — but scale-level catches at the write helper are defense-in-depth.
 
