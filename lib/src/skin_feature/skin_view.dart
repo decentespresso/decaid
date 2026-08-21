@@ -31,7 +31,8 @@ String skinExitInstructions(TargetPlatform platform) {
     TargetPlatform.iOS => 'Swipe right from the left screen edge to open it.',
     TargetPlatform.macOS =>
       'Press ⌘D or use View → Back to Dashboard to open it.',
-    TargetPlatform.windows => 'Press Alt+Backspace to open it.',
+    TargetPlatform.windows =>
+      'Use the Dashboard button in the top-right corner to open it.',
     TargetPlatform.linux ||
     TargetPlatform.fuchsia => 'Use system back navigation to open it.',
   };
@@ -217,6 +218,10 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   }
 
   Future<void> _checkCompatibilityAndInit() async {
+    if (widget.webView != null) {
+      _isCheckingCompatibility = false;
+      return;
+    }
     _log.info('Checking WebView compatibility...');
 
     if (!Platform.isWindows) {
@@ -253,6 +258,8 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
       allowUniversalAccessFromFileURLs: false,
 
       useShouldOverrideUrlLoading: true,
+
+      browserAcceleratorKeysEnabled: !Platform.isWindows,
 
       cacheEnabled: false,
 
@@ -590,17 +597,6 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
       );
     }
 
-    if (Platform.isWindows) {
-      return CallbackShortcuts(
-        bindings: {
-          const SingleActivator(LogicalKeyboardKey.backspace, alt: true): () {
-            _exitToDashboard();
-          },
-        },
-        child: _buildWebViewStack(),
-      );
-    }
-
     return _buildWebViewStack();
   }
 
@@ -617,6 +613,28 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
               child: _buildWebView(simulatedDevice),
             ),
             if (_isLoading) const Center(child: CircularProgressIndicator()),
+            if (defaultTargetPlatform == TargetPlatform.windows)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Material(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.surfaceContainer.withValues(alpha: 0.9),
+                  elevation: 2,
+                  borderRadius: BorderRadius.circular(8),
+                  child: IconButton(
+                    tooltip: 'Open Dashboard',
+                    onPressed: _exitToDashboard,
+                    icon: const Icon(Icons.dashboard),
+                    iconSize: 20,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 40,
+                      height: 40,
+                    ),
+                  ),
+                ),
+              ),
           ],
         );
       },
