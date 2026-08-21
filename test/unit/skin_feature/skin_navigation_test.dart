@@ -41,6 +41,7 @@ void main() {
               settingsController: SettingsController(MockSettingsService()),
               webViewLogService: webViewLogService,
               deviceIp: '127.0.0.1',
+              webView: const SizedBox.shrink(),
             ),
           },
         ),
