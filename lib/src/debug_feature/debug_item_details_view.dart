@@ -47,14 +47,16 @@ class _De1DebugViewState extends State<De1DebugView> {
         ),
         actions: [_buildStateDropdown(context)],
       ),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          final isWide = constraints.maxWidth > 900;
-          if (isWide) {
-            return _buildWideLayout(theme);
-          }
-          return _buildNarrowLayout(theme);
-        },
+      body: SingleChildScrollView(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final isWide = constraints.maxWidth > 900;
+            if (isWide) {
+              return _buildWideLayout(theme);
+            }
+            return _buildNarrowLayout(theme);
+          },
+        ),
       ),
     );
   }
@@ -284,6 +286,7 @@ class _De1DebugViewState extends State<De1DebugView> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
+          Text('Firmware: ${widget.machine.machineInfo.version}'),
           ShadButton.outline(
             size: ShadButtonSize.sm,
             child: const Text('Firmware Update'),
