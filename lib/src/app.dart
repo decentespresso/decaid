@@ -495,6 +495,7 @@ class _MyAppState extends State<MyApp> {
                         webViewLogService: widget.webViewLogService,
                         deviceIp: widget.webUIService.deviceIp(),
                         displayController: widget.displayController,
+                        port: widget.webUIService.port,
                       );
                     default:
                       return OnboardingView(

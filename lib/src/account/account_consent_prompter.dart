@@ -16,52 +16,31 @@ class AccountConsentPrompter {
   Future<AccountConsentDecision?> prompt(String callerLabel) {
     final context = _navigatorKey.currentContext;
     if (context == null || !context.mounted) return Future.value();
-
-    return showShadDialog<AccountConsentDecision>(
-      context: context,
+    final navigator = _navigatorKey.currentState;
+    if (navigator == null) return Future.value();
+    final route = ShadDialogRoute<AccountConsentDecision>(
+      pageBuilder: (context) => _AccountConsentDialog(callerLabel: callerLabel),
       barrierDismissible: false,
-      builder: (context) =>
-          _AccountConsentDialog(callerLabel: callerLabel, timeout: timeout),
     );
-  }
-}
-
-class _AccountConsentDialog extends StatefulWidget {
-  final String callerLabel;
-  final Duration timeout;
-
-  const _AccountConsentDialog({
-    required this.callerLabel,
-    required this.timeout,
-  });
-
-  @override
-  State<_AccountConsentDialog> createState() => _AccountConsentDialogState();
-}
-
-class _AccountConsentDialogState extends State<_AccountConsentDialog> {
-  late final Timer _timer;
-
-  @override
-  void initState() {
-    super.initState();
-    _timer = Timer(widget.timeout, () {
-      if (mounted) Navigator.of(context).pop<AccountConsentDecision>();
+    final result = navigator.push(route);
+    final timer = Timer(timeout, () {
+      if (route.isActive && navigator.mounted) navigator.removeRoute(route);
     });
+    return result.whenComplete(timer.cancel);
   }
+}
 
-  @override
-  void dispose() {
-    _timer.cancel();
-    super.dispose();
-  }
+class _AccountConsentDialog extends StatelessWidget {
+  final String callerLabel;
+
+  const _AccountConsentDialog({required this.callerLabel});
 
   @override
   Widget build(BuildContext context) {
     return ShadDialog(
       title: const Text('Decent account access'),
       description: Text(
-        '${widget.callerLabel} wants to use your linked Decent account.',
+        '$callerLabel wants to use your linked Decent account.',
       ),
       actions: [
         ShadButton.outline(

@@ -14,26 +14,31 @@ class ActiveSkinConsent {
   final String path;
 
   const ActiveSkinConsent({this.id, required this.name, required this.path});
+
+  String get key {
+    final installedId = id?.trim();
+    return installedId != null && installedId.isNotEmpty
+        ? 'skin:$installedId'
+        : 'skin:path:${_pathDigest(path)}';
+  }
 }
 
 class AccountConsentGate {
   final AccountConsentStore _store;
-  final ActiveSkinConsent? Function() _activeSkin;
   final AccountConsentPrompt _prompt;
   final Set<String> _trustedConsentKeys;
   final bool _trustAllConsent;
   final Logger _log;
   final Map<String, Future<bool>> _pending = {};
+  final Map<String, String> _callerLabels = {};
 
   AccountConsentGate({
     required AccountConsentStore store,
-    required ActiveSkinConsent? Function() activeSkin,
     required AccountConsentPrompt prompt,
     Set<String> trustedConsentKeys = const {},
     bool trustAllConsent = false,
     Logger? log,
   }) : _store = store,
-       _activeSkin = activeSkin,
        _prompt = prompt,
        _trustedConsentKeys = Set.unmodifiable(
          trustedConsentKeys
@@ -43,10 +48,14 @@ class AccountConsentGate {
        _trustAllConsent = trustAllConsent,
        _log = log ?? Logger('AccountConsentGate');
 
+  void registerCallerLabel(String callerId, String label) {
+    final id = callerId.trim();
+    final value = label.trim();
+    if (id.isNotEmpty && value.isNotEmpty) _callerLabels[id] = value;
+  }
+
   Future<bool> requireConsent(String callerId) async {
     final id = callerId.trim();
-    if (_trustAllConsent && id == 'skin') return true;
-
     final subject = _subjectFor(id);
     if (subject == null) return false;
     if (_trustAllConsent || _trustedConsentKeys.contains(subject.key)) {
@@ -111,15 +120,10 @@ class AccountConsentGate {
   }
 
   _ConsentSubject? _subjectFor(String callerId) {
-    if (callerId == 'skin') {
-      final skin = _activeSkin();
-      if (skin == null || skin.path.trim().isEmpty) return null;
-      final id = skin.id?.trim();
-      final key = id != null && id.isNotEmpty
-          ? 'skin:$id'
-          : 'skin:path:${_pathDigest(skin.path)}';
-      final label = skin.name.trim().isEmpty ? 'Custom skin' : skin.name.trim();
-      return _ConsentSubject(key, label);
+    if (callerId.startsWith('skin:')) {
+      final id = callerId.substring(5).trim();
+      if (id.isEmpty) return null;
+      return _ConsentSubject(callerId, _callerLabels[callerId] ?? 'Skin "$id"');
     }
 
     if (callerId.startsWith('plugin:')) {
@@ -134,11 +138,11 @@ class AccountConsentGate {
     }
     return null;
   }
-
-  String _pathDigest(String path) => sha256
-      .convert(utf8.encode(p.normalize(p.absolute(path.trim()))))
-      .toString();
 }
+
+String _pathDigest(String path) => sha256
+    .convert(utf8.encode(p.normalize(p.absolute(path.trim()))))
+    .toString();
 
 class _ConsentSubject {
   final String key;

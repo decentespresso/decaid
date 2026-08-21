@@ -71,6 +71,25 @@ void main() {
     expect(find.text('Decent account access'), findsNothing);
   });
 
+  testWidgets('concurrent timeouts remove their own dialog routes', (
+    tester,
+  ) async {
+    await pumpApp(tester);
+    final prompter = AccountConsentPrompter(
+      navigatorKey: navigatorKey,
+      timeout: const Duration(milliseconds: 20),
+    );
+
+    final first = prompter.prompt('Aileen');
+    final second = prompter.prompt('Plugin "dye2"');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 20));
+    await tester.pumpAndSettle();
+
+    expect(await Future.wait([first, second]), [isNull, isNull]);
+    expect(find.text('Decent account access'), findsNothing);
+  });
+
   test('no attached navigator denies without showing UI', () async {
     final prompter = AccountConsentPrompter(navigatorKey: navigatorKey);
 

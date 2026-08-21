@@ -40,16 +40,17 @@ String skinExitInstructions(TargetPlatform platform) {
   return '$purpose $navigation';
 }
 
-SkinNavDecision classifySkinNavigation(Uri? url) {
+SkinNavDecision classifySkinNavigation(Uri? url, {int skinPort = 3000}) {
   if (url == null) return SkinNavDecision.block;
   if (url.host == 'localhost' && url.path.startsWith('/__decent/')) {
-    return url.toString() == skinExitDashboardUrl
+    return url.toString() == skinExitDashboardUrlForPort(skinPort)
         ? SkinNavDecision.exitDashboard
         : SkinNavDecision.block;
   }
   if (url.scheme == 'http' &&
       url.host == 'localhost' &&
-      (url.port == 3000 ||
+      (url.port == skinPort ||
+          url.port == 3000 ||
           (url.port == 8080 && url.path.startsWith('/api/v1/plugins/')))) {
     return SkinNavDecision.allow;
   }
@@ -70,14 +71,15 @@ class SkinExitCoordinator {
     required Uri? target,
     required bool isForMainFrame,
     required Uri? topLevelUri,
+    int skinPort = 3000,
   }) {
     if (_inProgress ||
         !isForMainFrame ||
-        target?.toString() != skinExitDashboardUrl ||
+        target?.toString() != skinExitDashboardUrlForPort(skinPort) ||
         topLevelUri == null ||
         topLevelUri.scheme != 'http' ||
         topLevelUri.host != 'localhost' ||
-        topLevelUri.port != 3000 ||
+        topLevelUri.port != skinPort ||
         topLevelUri.userInfo.isNotEmpty) {
       return false;
     }
@@ -94,6 +96,7 @@ class SkinView extends StatefulWidget {
     required this.deviceIp,
     required this.displayController,
     this.webView,
+    required this.port,
   });
 
   final SettingsController settingsController;
@@ -102,6 +105,7 @@ class SkinView extends StatefulWidget {
   final DisplayController displayController;
   @visibleForTesting
   final Widget? webView;
+  final int port;
 
   static const routeName = '/skin';
 
@@ -131,7 +135,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   bool _didShowExit = false;
 
   String get _skinUrl =>
-      'http://localhost:3000/?_=${DateTime.now().millisecondsSinceEpoch}';
+      'http://localhost:${widget.port}/?_=${DateTime.now().millisecondsSinceEpoch}';
 
   @override
   void initState() {
@@ -664,7 +668,8 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
       },
       onReceivedError: (controller, request, error) {
         if (_skinExitCoordinator.inProgress &&
-            request.url.toString() == skinExitDashboardUrl) {
+            request.url.toString() ==
+                skinExitDashboardUrlForPort(widget.port)) {
           return;
         }
         _log.warning(
@@ -682,12 +687,13 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
       },
       shouldOverrideUrlLoading: (controller, navigationAction) async {
         final uri = navigationAction.request.url;
-        switch (classifySkinNavigation(uri)) {
+        switch (classifySkinNavigation(uri, skinPort: widget.port)) {
           case SkinNavDecision.exitDashboard:
             if (_skinExitCoordinator.tryStart(
               target: uri,
               isForMainFrame: navigationAction.isForMainFrame,
               topLevelUri: _mainFrameUri,
+              skinPort: widget.port,
             )) {
               _log.info('Skin requested dashboard');
               if (mounted) _exitToDashboard();

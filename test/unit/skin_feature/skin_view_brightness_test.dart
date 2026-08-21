@@ -48,6 +48,7 @@ void main() {
             webViewLogService: logs,
             deviceIp: '127.0.0.1',
             displayController: displayController,
+            port: 43210,
           ),
         ),
       );
