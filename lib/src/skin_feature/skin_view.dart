@@ -91,12 +91,15 @@ class SkinView extends StatefulWidget {
     required this.webViewLogService,
     required this.deviceIp,
     required this.displayController,
+    this.webView,
   });
 
   final SettingsController settingsController;
   final WebViewLogService webViewLogService;
   final String deviceIp;
   final DisplayController displayController;
+  @visibleForTesting
+  final Widget? webView;
 
   static const routeName = '/skin';
 
@@ -621,6 +624,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   }
 
   Widget _buildWebView(SimulatedWebViewDevice? simulatedDevice) {
+    if (widget.webView != null) return widget.webView!;
     return InAppWebView(
       key: ValueKey(simulatedDevice?.id ?? 'native-webview'),
       initialUrlRequest: URLRequest(url: WebUri(_skinUrl)),
