@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
@@ -74,6 +76,28 @@ class _CalibrationDe1 extends TestDe1 {
   }
 }
 
+class _DelayedCalibrationDe1 extends _CalibrationDe1 {
+  final _connection = Completer<void>();
+  var _connected = false;
+
+  @override
+  Future<void> onConnect() async {
+    await _connection.future;
+    _connected = true;
+  }
+
+  @override
+  Future<De1Calibration> readCalibration(
+    De1CalibrationTarget target, {
+    De1CalibrationSource source = De1CalibrationSource.current,
+  }) {
+    if (!_connected) throw StateError('read before connection');
+    return super.readCalibration(target, source: source);
+  }
+
+  void completeConnection() => _connection.complete();
+}
+
 void main() {
   group('debugViewTitle', () {
     test('returns DE1 label for a non-Bengle De1Interface', () {
@@ -134,6 +158,31 @@ void main() {
         find.text('Factory: reported 1.0000, measured 1.0000'),
         findsNWidgets(2),
       );
+    });
+
+    testWidgets('waits for connection before reading calibration', (
+      tester,
+    ) async {
+      final machine = _DelayedCalibrationDe1();
+
+      await tester.pumpWidget(
+        ScaffoldMessenger(
+          child: ShadApp(home: De1DebugView(machine: machine)),
+        ),
+      );
+      await tester.pump();
+      await tester.scrollUntilVisible(
+        find.text('Calibration'),
+        400,
+        scrollable: find.byType(Scrollable).first,
+      );
+
+      expect(machine.reads, isEmpty);
+
+      machine.completeConnection();
+      await tester.pumpAndSettle();
+
+      expect(machine.reads, hasLength(6));
     });
 
     testWidgets('writes entered values and refreshes the current value', (
@@ -219,6 +268,52 @@ void main() {
         find.text('Enter valid reported and measured values'),
         findsOneWidget,
       );
+    });
+
+    testWidgets('rejects multiplicative reported values that encode as zero', (
+      tester,
+    ) async {
+      final machine = _CalibrationDe1();
+      await pumpView(tester, machine);
+
+      for (final (target, value) in const [
+        (De1CalibrationTarget.flow, '0'),
+        (De1CalibrationTarget.pressure, '0.000001'),
+      ]) {
+        final reported = find.byKey(Key('calibration-reported-${target.name}'));
+        final write = find.byKey(Key('calibration-write-${target.name}'));
+        await tester.ensureVisible(write);
+        await tester.enterText(reported, value);
+        await tester.tap(write);
+        await tester.pumpAndSettle();
+      }
+
+      expect(machine.writes, isEmpty);
+      expect(
+        find.text('Reported value must be non-zero for flow and pressure'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('permits a zero reported value for temperature', (
+      tester,
+    ) async {
+      final machine = _CalibrationDe1();
+      await pumpView(tester, machine);
+
+      final temperatureReported = find.byKey(
+        const Key('calibration-reported-temperature'),
+      );
+      final temperatureWrite = find.byKey(
+        const Key('calibration-write-temperature'),
+      );
+      await tester.ensureVisible(temperatureWrite);
+      await tester.enterText(temperatureReported, '0');
+      await tester.tap(temperatureWrite);
+      await tester.pumpAndSettle();
+
+      expect(machine.writes.single.target, De1CalibrationTarget.temperature);
+      expect(machine.writes.single.de1ReportedValue, 0);
     });
 
     testWidgets('shows device read and write failures', (tester) async {

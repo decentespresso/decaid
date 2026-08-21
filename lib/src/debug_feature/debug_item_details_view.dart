@@ -26,11 +26,12 @@ class De1DebugView extends StatefulWidget {
 
 class _De1DebugViewState extends State<De1DebugView> {
   var _lastDate = DateTime.now();
+  late final Future<void> _connection;
 
   @override
   void initState() {
     super.initState();
-    widget.machine.onConnect();
+    _connection = widget.machine.onConnect();
   }
 
   @override
@@ -99,7 +100,7 @@ class _De1DebugViewState extends State<De1DebugView> {
                 ],
               ),
               const SizedBox(height: 12),
-              CalibrationDebugCard(machine: widget.machine),
+              _buildCalibrationCard(),
             ],
           ),
         ),
@@ -119,8 +120,35 @@ class _De1DebugViewState extends State<De1DebugView> {
         const SizedBox(height: 12),
         _buildMachineInfoCard(theme),
         const SizedBox(height: 12),
-        CalibrationDebugCard(machine: widget.machine),
+        _buildCalibrationCard(),
       ],
+    );
+  }
+
+  Widget _buildCalibrationCard() {
+    return FutureBuilder<void>(
+      future: _connection,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return ShadCard(
+            title: const Text('Calibration'),
+            child: const Center(
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          );
+        }
+        if (snapshot.hasError) {
+          return const ShadCard(
+            title: Text('Calibration'),
+            child: Text('Machine connection failed'),
+          );
+        }
+        return CalibrationDebugCard(machine: widget.machine);
+      },
     );
   }
 
