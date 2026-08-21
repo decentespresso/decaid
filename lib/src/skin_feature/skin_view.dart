@@ -11,6 +11,7 @@ import 'package:logging/logging.dart';
 import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/controllers/display_controller.dart';
 import 'package:reaprime/src/home_feature/widgets/quick_settings_widget.dart';
+import 'package:reaprime/src/launcher/launcher_view.dart';
 import 'package:reaprime/src/services/telemetry/boot_timing.dart';
 import 'package:reaprime/src/services/webview_compatibility_checker.dart';
 import 'package:reaprime/src/services/webview_log_service.dart';
@@ -25,7 +26,8 @@ String skinExitInstructions(TargetPlatform platform) {
   const purpose = 'Dashboard contains app settings and skin selection.';
   final navigation = switch (platform) {
     TargetPlatform.android =>
-      'Swipe inward from either screen edge or tap Android Back to open it.',
+      'Swipe inward from either screen edge to open it. With button '
+          'navigation, reveal the navigation bar and tap Back.',
     TargetPlatform.iOS => 'Swipe right from the left screen edge to open it.',
     TargetPlatform.macOS =>
       'Press ⌘D or use View → Back to Dashboard to open it.',
@@ -289,15 +291,27 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
     );
   }
 
+  void _exitToDashboard() {
+    Navigator.of(
+      context,
+    ).pushNamedAndRemoveUntil(LauncherView.routeName, (_) => false);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        top: false,
-        bottom: false,
-        left: false,
-        right: false,
-        child: _buildBody(),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _exitToDashboard();
+      },
+      child: Scaffold(
+        body: SafeArea(
+          top: false,
+          bottom: false,
+          left: false,
+          right: false,
+          child: _buildBody(),
+        ),
       ),
     );
   }
@@ -396,9 +410,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
                   ),
                 ),
                 OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
+                  onPressed: _exitToDashboard,
                   icon: const Icon(Icons.dashboard),
                   label: const Text('Dashboard'),
                 ),
@@ -481,7 +493,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
         await launchUrl(url, mode: LaunchMode.externalApplication);
 
         if (mounted) {
-          Navigator.of(context).pop();
+          _exitToDashboard();
         }
       } else {
         _log.warning('Cannot launch URL: $url');
@@ -550,9 +562,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
               ),
               const SizedBox(height: 16),
               ElevatedButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                },
+                onPressed: _exitToDashboard,
                 child: const Text('Go to Dashboard'),
               ),
             ],
@@ -581,7 +591,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
       return CallbackShortcuts(
         bindings: {
           const SingleActivator(LogicalKeyboardKey.backspace, alt: true): () {
-            Navigator.of(context).pop();
+            _exitToDashboard();
           },
         },
         child: _buildWebViewStack(),
@@ -672,7 +682,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
               topLevelUri: _mainFrameUri,
             )) {
               _log.info('Skin requested dashboard');
-              if (mounted) Navigator.of(context).pop();
+              if (mounted) _exitToDashboard();
             } else {
               _log.warning('Rejected skin dashboard request');
             }
