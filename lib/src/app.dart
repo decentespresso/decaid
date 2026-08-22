@@ -273,7 +273,7 @@ class _MyAppState extends State<MyApp> {
     }
 
     _log.info('Navigating to SkinView');
-    navigator.pushNamed(SkinView.routeName);
+    SkinView.open(navigator);
   }
 
   @override
