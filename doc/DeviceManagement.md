@@ -1,6 +1,6 @@
-# Device Management in REA
+# Device Management in Decaid
 
-This document explains how devices (DE1 machines, scales, sensors) are discovered, connected, and managed throughout the REA application lifecycle.
+This document explains how devices (DE1 machines, scales, sensors) are discovered, connected, and managed throughout the Decaid application lifecycle.
 
 ## Table of Contents
 
@@ -17,7 +17,7 @@ This document explains how devices (DE1 machines, scales, sensors) are discovere
 
 ## Architecture Overview
 
-REA uses a layered architecture for device management:
+Decaid uses a layered architecture for device management:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -748,25 +748,6 @@ Decaid's existing abstractions:
 - `MilkTemp` (0 = no probe) drives the existing Bengle milk-probe sensor
   (`probeAttached` / `probeTemperature`), which appears through the normal
   `/ws/v1/sensors/<id>/snapshot` API.
-
-### Integrated-scale weight is signed
-
-Weight arrives at offset 20 of the `0xA013` frame as **S16P4**: a signed
-big-endian 16-bit value with 4 fractional bits, decoded as `int16 / 16`.
-Range −2048 … +2047.9375 g, step 0.0625 g.
-
-The value is already net of the firmware tare (`CurrW - LastTARE`), so it is
-**genuinely negative** whenever the platform is unloaded after a tare, the cup
-is lifted, or liquid drips back. Consumers must not clamp it at zero and must
-not take `abs()` — a negative reading is real information about the cup, and
-hiding it misreports the machine.
-
-Before August 2026 the field was unsigned `U16P5` (`uint16 / 32`) and the
-firmware clamped every negative to 0 before transmitting, so no negative could
-reach the app at all. The frame length did not change with the format, so a
-decoder still dividing by 32 reports **half** the true weight and raises no
-error. The firmware and the decoder must therefore be updated together; there
-is no firmware version frame to negotiate on.
 
 The normal scale tare command writes Bengle's `ScaleTare` MMR trigger.
 Autonomous stop-at-weight uses the firmware `EndOfShotWeight` register;
