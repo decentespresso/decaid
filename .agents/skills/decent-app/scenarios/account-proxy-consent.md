@@ -25,7 +25,7 @@ In another terminal, wait for the servers and obtain the injected skin token:
 ```bash
 until curl -sf http://localhost:8080/api/v1/info >/dev/null; do sleep 1; done
 P=/api/v1/account/proxy/support/api/sn
-TOK=$(curl -s http://localhost:3000/ \
+TOK=$(curl -sL http://localhost:3000/ \
   | sed -n 's/.*name="reaprime-proxy-token" content="\([^"]*\)".*/\1/p' \
   | head -1)
 test -n "$TOK"
@@ -59,7 +59,7 @@ Fetch the new process token and repeat the request:
 
 ```bash
 until curl -sf http://localhost:8080/api/v1/info >/dev/null; do sleep 1; done
-TOK=$(curl -s http://localhost:3000/ \
+TOK=$(curl -sL http://localhost:3000/ \
   | sed -n 's/.*name="reaprime-proxy-token" content="\([^"]*\)".*/\1/p' \
   | head -1)
 status=$(curl -sS -o /tmp/decaid-consent-body -w '%{http_code}' \
