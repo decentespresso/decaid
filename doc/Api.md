@@ -224,6 +224,7 @@ supplied values replace them. Explicit `null` for non-nullable fields returns
 | DELETE | `/api/v1/beans/:id` | Delete bean | |
 | GET | `/api/v1/beans/:id/batches` | List batches for a bean | |
 | POST | `/api/v1/beans/:id/batches` | Create batch | |
+| GET | `/api/v1/bean-batches` | List batches across all beans | |
 | GET | `/api/v1/bean-batches/:id` | Get batch | |
 | PUT | `/api/v1/bean-batches/:id` | Update batch | |
 | DELETE | `/api/v1/bean-batches/:id` | Delete batch | |

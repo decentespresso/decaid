@@ -179,6 +179,12 @@ class FakeBeanStorageService implements BeanStorageService {
   Future<void> deleteBean(String id) async => beans.remove(id);
 
   @override
+  Future<List<BeanBatch>> getAllBatches({bool includeArchived = false}) async =>
+      includeArchived
+      ? batches.values.toList()
+      : batches.values.where((batch) => !batch.archived).toList();
+
+  @override
   Future<List<BeanBatch>> getBatchesForBean(
     String beanId, {
     bool includeArchived = false,
