@@ -358,6 +358,43 @@ void main() {
     expect(harness.requests, hasLength(1));
   });
 
+  test('cancels retries when automatic upload is disabled', () async {
+    final harness = await _load(
+      shots: [_shot('eventual')],
+      responseStatuses: [503, 200],
+      onRequest: (manager) => manager.dispatchEvent(
+        _manifest().id,
+        'settingsUpdated',
+        {'AutoUpload': false, 'LengthThreshold': 0},
+      ),
+    );
+
+    expect(await harness.runNextTimer(), isTrue);
+    await harness.pump();
+    expect(await harness.runNextTimer(), isTrue);
+    await harness.pump();
+
+    expect(harness.requests, hasLength(1));
+  });
+
+  test('cancels retries when brewing starts', () async {
+    final harness = await _load(
+      shots: [_shot('eventual')],
+      responseStatuses: [503, 200],
+      onRequest: (manager) =>
+          manager.dispatchEvent(_manifest().id, 'stateUpdate', {
+            'state': {'state': 'espresso'},
+          }),
+    );
+
+    expect(await harness.runNextTimer(), isTrue);
+    await harness.pump();
+    expect(await harness.runNextTimer(), isTrue);
+    await harness.pump();
+
+    expect(harness.requests, hasLength(1));
+  });
+
   test('a rejected shot is marked and does not block the next shot', () async {
     final harness = await _load(
       shots: [_shot('bad'), _shot('good')],

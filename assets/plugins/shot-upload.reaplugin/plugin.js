@@ -127,6 +127,12 @@ function createPlugin(host) {
     const body = JSON.stringify(shot);
     let lastErr = null;
     for (let i = 0; i < RETRIES; i++) {
+      if (unloaded || ((isUploading || isReconciling) && !state.autoUpload)) {
+        throw skipped("automatic upload stopped");
+      }
+      if (isReconciling && !reconciliationIsSafe()) {
+        throw skipped("machine is active");
+      }
       try {
         const res = await host.decentProxy(UPLOAD_PATH, {
           method: "POST",
