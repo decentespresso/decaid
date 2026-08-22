@@ -179,6 +179,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Test release aliases
+        run: scripts/test_release_aliases.sh
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -281,7 +284,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install Linux dependencies
-        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libsecret-1-dev
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libsecret-1-dev xvfb
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -301,6 +304,49 @@ jobs:
 
       - name: Build Linux app (unsigned)
         run: flutter build linux --release --no-pub
+
+      - name: Verify internal data paths use Application Support, not Documents
+        env:
+          XDG_DATA_HOME: ${{ runner.temp }}/xdg-data
+          XDG_CONFIG_HOME: ${{ runner.temp }}/xdg-config
+        run: |
+          set -euo pipefail
+          mkdir -p "$XDG_CONFIG_HOME"
+          printf 'XDG_DOCUMENTS_DIR="$HOME"\n' > "$XDG_CONFIG_HOME/user-dirs.dirs"
+          APP=./build/linux/x64/release/bundle/decaid
+          PATHS=$(xvfb-run -a "$APP" --print-storage-paths)
+          echo "$PATHS"
+          echo "$PATHS" | grep -q '^support:' || {
+            echo 'FAIL: missing support line' >&2
+            exit 1
+          }
+          echo "$PATHS" | grep -q "$XDG_DATA_HOME" || {
+            echo 'FAIL: support not under XDG_DATA_HOME' >&2
+            exit 1
+          }
+          ! grep -qi documents <<<"$PATHS"
+          ! grep -qF "$HOME" <<<"$PATHS"
+          timeout 30 xvfb-run -a "$APP" --no-account || true
+          find "$XDG_DATA_HOME" -name log.txt -print -quit | grep -q . || {
+            echo 'FAIL: no log.txt after fresh start' >&2
+            exit 1
+          }
+
+      - name: Install AppImage packaging dependencies
+        run: sudo apt-get update && sudo apt-get install -y squashfs-tools desktop-file-utils librsvg2-dev libgirepository1.0-dev libglib2.0-bin libgtk-3-bin libgdk-pixbuf2.0-bin
+
+      - name: Package Linux AppImage
+        run: |
+          scripts/package_appimage.sh \
+            build/linux/x64/release/bundle \
+            x86_64 0.0.0-test "$RUNNER_TEMP"
+
+      - name: Verify AppImage structure and launch
+        shell: bash
+        run: |
+          set -euo pipefail
+          APPIMAGE="$RUNNER_TEMP/decaid-linux-x86_64-0.0.0-test.AppImage"
+          scripts/verify_appimage.sh "$APPIMAGE" x86-64
 
   tools:
     name: Python tools tests

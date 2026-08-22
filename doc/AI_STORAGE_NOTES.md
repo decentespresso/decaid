@@ -18,6 +18,28 @@ Read this when changing database schema, migrations, persistent settings, Shared
 - Domain models and Drift-generated code share class names (`ShotRecord`, `Workflow`, `ProfileRecord`). Use prefixed imports: `import '...shot_record.dart' as domain;` or `hide Workflow` on the database import.
 - Profiles go through `ProfileStorageService` interface, not direct DAO access.
 
+## Storage Locations (issue #508)
+
+Internal, non-user-authored data lives under Application Support on desktop (Linux/macOS/Windows). Mobile (Android/iOS) keeps the existing Documents-based layout; the app sandbox already isolates it there.
+
+| Data | Desktop | Mobile |
+|------|---------|--------|
+| Drift database | `<support>/streamline_bridge.sqlite` | `<docs>/streamline_bridge.sqlite` |
+| Hive boxes | `<support>/store` | `<docs>/store` |
+| Installed plugins | `<support>/plugins` | `<docs>/plugins` |
+| Web UI skins | `<support>/web-ui` | `<docs>/web-ui` |
+| Logs (`log.txt`, `webview_console.log`) | `<support>/logs` | `<docs>` |
+
+`AppDirectories` (`lib/src/services/storage/app_directories.dart`) is the single resolver. Consumers must not call `getApplicationDocumentsDirectory()` for internal state. There is no in-app migration: pre-change desktop users export a full backup before upgrading and restore after (rationale: `doc/plans/archive/app-data-out-of-documents/design.md`).
+
+Gotchas:
+
+- `RotatingFileAppender` requires its parent directory to exist at construction; `main()` creates the logs directory explicitly.
+- `Hive.init()` does not register the Flutter `ColorAdapter`/`TimeOfDayAdapter` that `Hive.initFlutter()` did; `main()` calls `ensureFlutterTypeAdaptersRegistered()` after `Hive.init()`.
+- Web UI downloads/extraction use `Directory.createTemp()` under the temp directory, never fixed names (`/tmp` is shared on Linux).
+- Log readers (feedback, export, import report, discovery views) read `<logs>/log.txt` via `AppDirectories.logs`.
+- CI (`pr-checks.yml` Linux build smoke) runs the app with controlled `XDG_DATA_HOME`/`XDG_CONFIG_HOME`, asserts resolved paths, then fresh-starts the app and requires `log.txt` under `XDG_DATA_HOME`.
+
 ## Storage Ownership
 
 | Store | Owner | Purpose |

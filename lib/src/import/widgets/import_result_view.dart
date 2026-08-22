@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:reaprime/src/import/import_result.dart';
+import 'package:reaprime/src/services/storage/app_directories.dart';
 import 'package:reaprime/src/widgets/accessible_button.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:share_plus/share_plus.dart';
@@ -232,8 +233,7 @@ class _ImportResultViewState extends State<ImportResultView> {
       await reportFile.writeAsString(report);
 
       try {
-        final docs = await getApplicationDocumentsDirectory();
-        final logFile = File('${docs.path}/log.txt');
+        final logFile = File('${await AppDirectories.logs}/log.txt');
         if (await logFile.exists()) {
           final logContent = await logFile.readAsString();
           await reportFile.writeAsString(

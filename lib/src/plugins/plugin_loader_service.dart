@@ -6,7 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
+import 'package:reaprime/src/services/storage/app_directories.dart';
 import 'package:reaprime/src/services/storage/kv_store_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:reaprime/src/plugins/plugin_manager.dart';
@@ -97,8 +97,7 @@ class PluginLoaderService {
   }
 
   Future<void> _initialize() async {
-    final appDocDir = await getApplicationDocumentsDirectory();
-    _pluginsDir = Directory('${appDocDir.path}/plugins');
+    _pluginsDir = Directory(await AppDirectories.plugins);
 
     _prefs = await SharedPreferences.getInstance();
     await _recoverInterruptedPluginLoad();

@@ -5,6 +5,7 @@ class CliArgs {
   final bool bypassOnboarding;
   final bool direct;
   final bool noAccount;
+  final bool printStoragePaths;
   final String? skinId;
   final String? skinPath;
 
@@ -13,6 +14,7 @@ class CliArgs {
     this.bypassOnboarding = false,
     this.direct = false,
     this.noAccount = false,
+    this.printStoragePaths = false,
     this.skinId,
     this.skinPath,
   });
@@ -36,6 +38,11 @@ CliArgs parseCliArgs(List<String> args) {
       'no-account',
       help: 'Bypass DecentAccountService (headless Linux with no keyring).',
       defaultsTo: false,
+    )
+    ..addFlag(
+      'print-storage-paths',
+      help: 'Print resolved application storage paths and exit.',
+      defaultsTo: false,
     );
 
   final results = parser.parse(args);
@@ -44,6 +51,7 @@ CliArgs parseCliArgs(List<String> args) {
     bypassOnboarding: results['bypass-onboarding'] as bool,
     direct: results['direct'] as bool,
     noAccount: results['no-account'] as bool,
+    printStoragePaths: results['print-storage-paths'] as bool,
     skinId: results['skin'] as String?,
     skinPath: results['skin-path'] as String?,
   );
