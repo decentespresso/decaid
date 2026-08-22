@@ -13,6 +13,7 @@ import 'package:reaprime/src/services/database/tables/profile_tables.dart';
 import 'package:reaprime/src/services/database/tables/shot_tables.dart';
 import 'package:reaprime/src/services/database/tables/steam_tables.dart';
 import 'package:reaprime/src/services/database/tables/workflow_tables.dart';
+import 'package:reaprime/src/services/storage/app_directories.dart';
 
 part 'database.g.dart';
 
@@ -32,7 +33,14 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
 
   factory AppDatabase.defaults() {
-    return AppDatabase(driftDatabase(name: 'streamline_bridge'));
+    return AppDatabase(
+      driftDatabase(
+        name: 'streamline_bridge',
+        native: DriftNativeOptions(
+          databasePath: () => AppDirectories.driftFile,
+        ),
+      ),
+    );
   }
 
   @override

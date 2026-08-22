@@ -17,7 +17,29 @@ env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
+  release-metadata:
+    name: Resolve release version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Resolve tag and version
+        id: meta
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          case "$TAG" in
+            v*) VERSION="${TAG#v}" ;;
+            *)
+              echo "Expected a v* tag, got: $TAG" >&2
+              exit 1
+              ;;
+          esac
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
   build-android:
+    needs: release-metadata
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -68,26 +90,19 @@ jobs:
         env:
           FEEDBACK_TOKEN: ${{ secrets.FEEDBACK_TOKEN }}
 
-      - name: Get version from tag
-        id: version
-        run: |
-          # Extract version from tag (v1.2.3 -> 1.2.3)
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-
       - name: Rename APK with version
         run: |
           mv build/app/outputs/flutter-apk/app-release.apk \
-             build/app/outputs/flutter-apk/decaid-android-${{ steps.version.outputs.version }}.apk
+             build/app/outputs/flutter-apk/decaid-android-${{ needs.release-metadata.outputs.version }}.apk
 
       - name: Upload Android APK artifact
         uses: actions/upload-artifact@v7
         with:
           name: android-apk
-          path: build/app/outputs/flutter-apk/decaid-android-${{ steps.version.outputs.version }}.apk
+          path: build/app/outputs/flutter-apk/decaid-android-${{ needs.release-metadata.outputs.version }}.apk
 
   build-macos:
+    needs: release-metadata
     runs-on: macos-latest
     steps:
       - name: Check out repository
@@ -212,24 +227,96 @@ jobs:
             build/macos/Build/Products/Release/Decaid.app XLS3XF57J8 1
 
       # ---- Final ZIP ----
-      - name: Get version
-        id: version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
       - name: Create release ZIP
         run: |
           cd build/macos/Build/Products/Release
-          ditto -c -k --keepParent Decaid.app ../../../../../decaid-macos-${{ steps.version.outputs.version }}.zip
+          ditto -c -k --keepParent Decaid.app ../../../../../decaid-macos-${{ needs.release-metadata.outputs.version }}.zip
+
+      # ---- DMG ----
+      - name: Create DMG
+        run: |
+          APP="build/macos/Build/Products/Release/Decaid.app"
+          DMG_STAGE="$RUNNER_TEMP/dmg-stage"
+          rm -rf "$DMG_STAGE"
+          mkdir -p "$DMG_STAGE"
+          cp -R "$APP" "$DMG_STAGE/"
+          ln -s /Applications "$DMG_STAGE/Applications"
+          hdiutil create \
+            -volname Decaid \
+            -srcfolder "$DMG_STAGE" \
+            -ov -format UDZO \
+            decaid-macos-${{ needs.release-metadata.outputs.version }}.dmg
+
+      - name: Sign DMG
+        run: |
+          codesign --sign "Developer ID Application" --timestamp \
+            decaid-macos-${{ needs.release-metadata.outputs.version }}.dmg
+
+      - name: Notarize DMG
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+          APP_SPECIFIC_PASSWORD: ${{ secrets.APP_SPECIFIC_PASSWORD }}
+        run: |
+          xcrun notarytool submit \
+            decaid-macos-${{ needs.release-metadata.outputs.version }}.dmg \
+            --apple-id "$APPLE_ID" \
+            --team-id "$TEAM_ID" \
+            --password "$APP_SPECIFIC_PASSWORD" \
+            --wait 2>&1 | tee dmg-notarization.log
+          if grep -q "status: Invalid" dmg-notarization.log; then
+            ID=$(grep -o '[0-9a-f\-]\{36\}' dmg-notarization.log | head -1)
+            xcrun notarytool log "$ID" \
+              --apple-id "$APPLE_ID" \
+              --team-id "$TEAM_ID" \
+              --password "$APP_SPECIFIC_PASSWORD" || true
+            exit 1
+          fi
+
+      - name: Staple DMG
+        run: |
+          DMG="decaid-macos-${{ needs.release-metadata.outputs.version }}.dmg"
+          for i in 1 2 3 4 5; do
+            if xcrun stapler staple "$DMG"; then
+              exit 0
+            fi
+            echo "Staple attempt $i failed, waiting 15s..."
+            sleep 15
+          done
+          echo "Stapling failed after 5 attempts"
+          exit 1
+
+      - name: Verify DMG contents, signature, and launch
+        run: |
+          set -euo pipefail
+          DMG="decaid-macos-${{ needs.release-metadata.outputs.version }}.dmg"
+          MOUNT="$RUNNER_TEMP/dmg-mount"
+          rm -rf "$MOUNT"
+          mkdir -p "$MOUNT"
+          hdiutil attach "$DMG" -readonly -nobrowse -mountpoint "$MOUNT"
+          trap 'hdiutil detach "$MOUNT" >/dev/null 2>&1 || true' EXIT
+          test -d "$MOUNT/Decaid.app"
+          test -L "$MOUNT/Applications"
+          scripts/verify_macos_signature.sh "$MOUNT/Decaid.app" XLS3XF57J8 1
+          spctl --assess --type open --context context:primary-signature --verbose=4 "$DMG"
+          xcrun stapler validate "$DMG"
+          mkdir -p "$RUNNER_TEMP/Applications"
+          cp -R "$MOUNT/Decaid.app" "$RUNNER_TEMP/Applications/"
+          "$RUNNER_TEMP/Applications/Decaid.app/Contents/MacOS/Decaid" --print-storage-paths
 
       - uses: actions/upload-artifact@v7
         with:
           name: macos-app
-          path: decaid-macos-${{ steps.version.outputs.version }}.zip
+          path: |
+            decaid-macos-${{ needs.release-metadata.outputs.version }}.zip
+            decaid-macos-${{ needs.release-metadata.outputs.version }}.dmg
 
   build-linux:
-    runs-on: ubuntu-latest
+    needs: release-metadata
+    # Pinned to 22.04 (same glibc baseline as ubuntu-22.04-arm) so the
+    # tarball and AppImage run on older distributions; an AppImage cannot
+    # bundle glibc.
+    runs-on: ubuntu-22.04
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -237,7 +324,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install Linux dependencies
-        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libsecret-1-dev
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libsecret-1-dev squashfs-tools desktop-file-utils librsvg2-dev libgirepository1.0-dev libglib2.0-bin libgtk-3-bin libgdk-pixbuf2.0-bin xvfb
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -261,25 +348,33 @@ jobs:
         env:
           FEEDBACK_TOKEN: ${{ secrets.FEEDBACK_TOKEN }}
 
-      - name: Get version from tag
-        id: version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
       - name: Create Linux archive
         run: |
           cd build/linux/x64/release
-          tar -czf ../../../../decaid-linux-x64-${{ steps.version.outputs.version }}.tar.gz bundle
+          tar -czf ../../../../decaid-linux-x64-${{ needs.release-metadata.outputs.version }}.tar.gz bundle
 
-      - name: Upload Linux app artifact
+      - name: Package Linux AppImage
+        run: |
+          scripts/package_appimage.sh \
+            build/linux/x64/release/bundle \
+            x86_64 ${{ needs.release-metadata.outputs.version }} "$GITHUB_WORKSPACE"
+
+      - name: Verify Linux AppImage structure and launch
+        run: |
+          scripts/verify_appimage.sh \
+            decaid-linux-x86_64-${{ needs.release-metadata.outputs.version }}.AppImage x86-64
+
+      - name: Upload Linux app artifacts
         uses: actions/upload-artifact@v7
         with:
           name: linux-app
-          path: decaid-linux-x64-${{ steps.version.outputs.version }}.tar.gz
+          path: |
+            decaid-linux-x64-${{ needs.release-metadata.outputs.version }}.tar.gz
+            decaid-linux-x86_64-${{ needs.release-metadata.outputs.version }}.AppImage
 
   build-raspberrypi:
     name: Build for Raspberry Pi (ARM64 / Pi 4+)
+    needs: release-metadata
     runs-on: ubuntu-22.04-arm
     steps:
       - name: Check out repository
@@ -288,7 +383,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install Linux dependencies
-        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libsecret-1-dev
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libsecret-1-dev squashfs-tools desktop-file-utils librsvg2-dev libgirepository1.0-dev libglib2.0-bin libgtk-3-bin libgdk-pixbuf2.0-bin xvfb
 
       - name: Set up Flutter
         id: flutter-action
@@ -318,24 +413,32 @@ jobs:
         env:
           FEEDBACK_TOKEN: ${{ secrets.FEEDBACK_TOKEN }}
 
-      - name: Get version from tag
-        id: version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
       - name: Create Raspberry Pi archive
         run: |
           cd build/linux/arm64/release
-          tar -czf ../../../../decaid-linux-arm64-${{ steps.version.outputs.version }}.tar.gz bundle
+          tar -czf ../../../../decaid-linux-arm64-${{ needs.release-metadata.outputs.version }}.tar.gz bundle
 
-      - name: Upload Raspberry Pi build artifact
+      - name: Package Raspberry Pi AppImage
+        run: |
+          scripts/package_appimage.sh \
+            build/linux/arm64/release/bundle \
+            aarch64 ${{ needs.release-metadata.outputs.version }} "$GITHUB_WORKSPACE"
+
+      - name: Verify Raspberry Pi AppImage structure and launch
+        run: |
+          scripts/verify_appimage.sh \
+            decaid-linux-aarch64-${{ needs.release-metadata.outputs.version }}.AppImage aarch64
+
+      - name: Upload Raspberry Pi build artifacts
         uses: actions/upload-artifact@v7
         with:
           name: raspberrypi-linux-arm64-app
-          path: decaid-linux-arm64-${{ steps.version.outputs.version }}.tar.gz
+          path: |
+            decaid-linux-arm64-${{ needs.release-metadata.outputs.version }}.tar.gz
+            decaid-linux-aarch64-${{ needs.release-metadata.outputs.version }}.AppImage
 
   build-windows:
+    needs: release-metadata
     # Pinned: windows-latest rolled to VS 18 / MSVC 14.51, which hard-errors on
     # <experimental/coroutine> still used by flutter_inappwebview_windows and
     # permission_handler_windows. Revisit when plugins migrate to C++20 <coroutine>.
@@ -374,25 +477,46 @@ jobs:
         env:
           FEEDBACK_TOKEN: ${{ secrets.FEEDBACK_TOKEN }}
 
-      - name: Get version from tag
-        id: version
-        shell: bash
+      - name: Copy app-local VC++ runtime
+        shell: pwsh
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          $crtDir = Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT' -Directory |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $crtDir) { throw 'VS 2022 VC runtime redist not found' }
+          Copy-Item (Join-Path $crtDir.FullName '*.dll') 'build/windows/x64/runner/Release/'
 
       - name: Create Windows archive
         shell: pwsh
         run: |
-          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath decaid-windows-x64-${{ steps.version.outputs.version }}.zip
+          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath decaid-windows-x64-${{ needs.release-metadata.outputs.version }}.zip
+
+      - name: Verify ZIP clean extraction and launch
+        shell: pwsh
+        run: |
+          $zip = 'decaid-windows-x64-${{ needs.release-metadata.outputs.version }}.zip'
+          $extract = Join-Path $env:RUNNER_TEMP 'decaid-extracted'
+          Expand-Archive -Path $zip -DestinationPath $extract
+          # GUI-subsystem executables cannot be awaited with & or -Wait on the
+          # runner; inherit the console and wait with a bound.
+          $exe = Join-Path $extract 'Decaid.exe'
+          $proc = Start-Process -FilePath $exe -ArgumentList '--print-storage-paths' -NoNewWindow -PassThru
+          if (-not $proc.WaitForExit(60000)) {
+            $proc.Kill()
+            throw 'Decaid.exe did not exit within 60s'
+          }
+          if ($proc.ExitCode -ne 0) { throw "Decaid.exe exited with code $($proc.ExitCode)" }
+          foreach ($name in @('Decaid.exe','flutter_windows.dll','vcruntime140.dll','msvcp140.dll','data')) {
+            if (-not (Test-Path (Join-Path $extract $name))) { throw "missing $name in extracted ZIP" }
+          }
 
       - name: Upload Windows app artifact
         uses: actions/upload-artifact@v7
         with:
           name: windows-app
-          path: decaid-windows-x64-${{ steps.version.outputs.version }}.zip
+          path: decaid-windows-x64-${{ needs.release-metadata.outputs.version }}.zip
 
   build-ios:
+    needs: release-metadata
     runs-on: macos-latest
     steps:
       - name: Check out repository
@@ -434,14 +558,10 @@ jobs:
         env:
           FEEDBACK_TOKEN: ${{ secrets.FEEDBACK_TOKEN }}
 
-      - name: Get version from tag
-        id: version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
-
       - name: Package unsigned IPA
         run: |
           APP_PATH="build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app"
-          OUTPUT_PATH="$GITHUB_WORKSPACE/decaid-ios-unsigned-${{ steps.version.outputs.version }}.ipa"
+          OUTPUT_PATH="$GITHUB_WORKSPACE/decaid-ios-unsigned-${{ needs.release-metadata.outputs.version }}.ipa"
           PACKAGE_DIR="$RUNNER_TEMP/unsigned-ipa"
 
           test -d "$APP_PATH"
@@ -457,7 +577,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ios-ipa-unsigned
-          path: decaid-ios-unsigned-${{ steps.version.outputs.version }}.ipa
+          path: decaid-ios-unsigned-${{ needs.release-metadata.outputs.version }}.ipa
           if-no-files-found: error
 
       - name: Import distribution certificate
@@ -613,7 +733,7 @@ jobs:
 
   create-release:
     name: Create GitHub Release
-    needs: [build-android, build-macos, build-linux, build-raspberrypi, build-windows, build-ios]
+    needs: [release-metadata, build-android, build-macos, build-linux, build-raspberrypi, build-windows, build-ios]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -623,13 +743,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Get version from tag
-        id: version
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
-
       - name: Download all artifacts
         uses: actions/download-artifact@v8
         with:
@@ -638,10 +751,44 @@ jobs:
       - name: Display structure of downloaded files
         run: ls -R release-artifacts
 
+      - name: Assert expected release artifacts
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.release-metadata.outputs.version }}"
+          EXPECTED=(
+            "release-artifacts/android-apk/decaid-android-${VERSION}.apk"
+            "release-artifacts/macos-app/decaid-macos-${VERSION}.zip"
+            "release-artifacts/macos-app/decaid-macos-${VERSION}.dmg"
+            "release-artifacts/linux-app/decaid-linux-x64-${VERSION}.tar.gz"
+            "release-artifacts/linux-app/decaid-linux-x86_64-${VERSION}.AppImage"
+            "release-artifacts/raspberrypi-linux-arm64-app/decaid-linux-arm64-${VERSION}.tar.gz"
+            "release-artifacts/raspberrypi-linux-arm64-app/decaid-linux-aarch64-${VERSION}.AppImage"
+            "release-artifacts/windows-app/decaid-windows-x64-${VERSION}.zip"
+            "release-artifacts/ios-ipa-unsigned/decaid-ios-unsigned-${VERSION}.ipa"
+          )
+          for f in "${EXPECTED[@]}"; do
+            [ -f "$f" ] || { echo "FAIL: missing $f" >&2; exit 1; }
+          done
+
+      - name: Generate SHA-256 manifest
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.release-metadata.outputs.version }}"
+          cd release-artifacts
+          find . -type f -print0 | sort -z | xargs -0 sha256sum \
+            | sed 's| \./[^/]*/| |' > "../decaid-${VERSION}-SHA256SUMS.txt"
+          cd ..
+          cat "decaid-${VERSION}-SHA256SUMS.txt"
+
+      - name: Create stable aliases for every artifact
+        env:
+          VERSION: ${{ needs.release-metadata.outputs.version }}
+        run: scripts/create_release_aliases.sh release-artifacts "$VERSION"
+
       - name: Generate release notes
         run: |
           gh api --method POST "repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
-            -f tag_name="${{ steps.version.outputs.tag }}" \
+            -f tag_name="${{ needs.release-metadata.outputs.tag }}" \
             --jq .body > release-notes.md
           test -s release-notes.md
         env:
@@ -657,10 +804,12 @@ jobs:
             release-artifacts/raspberrypi-linux-arm64-app/*
             release-artifacts/windows-app/*
             release-artifacts/ios-ipa-unsigned/*
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: Decaid ${{ steps.version.outputs.version }}
+            decaid-${{ needs.release-metadata.outputs.version }}-SHA256SUMS.txt
+            decaid-latest-SHA256SUMS.txt
+          tag_name: ${{ needs.release-metadata.outputs.tag }}
+          name: Decaid ${{ needs.release-metadata.outputs.version }}
           draft: false
-          prerelease: ${{ contains(steps.version.outputs.version, 'beta') || contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'rc') }}
+          prerelease: ${{ contains(needs.release-metadata.outputs.version, 'beta') || contains(needs.release-metadata.outputs.version, 'alpha') || contains(needs.release-metadata.outputs.version, 'rc') }}
           body_path: release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -683,6 +832,7 @@ jobs:
           TAG="${GITHUB_REF#refs/tags/}"
           VERSION="${TAG#v}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           # Match the prerelease detection in create-release: any beta/alpha/rc
           # tag publishes to the Sparkle beta channel.
           if [[ "$VERSION" == *beta* || "$VERSION" == *alpha* || "$VERSION" == *rc* ]]; then
@@ -720,7 +870,7 @@ jobs:
       - name: Download the release ZIP asset
         run: |
           gh release download "${{ steps.version.outputs.tag }}" \
-            --pattern 'decaid-macos-*.zip' \
+            --pattern "decaid-macos-${{ steps.version.outputs.version }}.zip" \
             --dir "$RUNNER_TEMP/appcast-staging"
           ls -la "$RUNNER_TEMP/appcast-staging"
         env:
@@ -759,7 +909,7 @@ jobs:
             echo "  gh secret set SPARKLE_ED_PRIVATE_KEY < private-key-file"
             exit 1
           fi
-          ZIP="$(ls "$RUNNER_TEMP/appcast-staging"/decaid-macos-*.zip | head -1)"
+          ZIP="$RUNNER_TEMP/appcast-staging/decaid-macos-${{ steps.version.outputs.version }}.zip"
           mkdir -p "$RUNNER_TEMP/pages"
           PREV=""
           if [ -f "$RUNNER_TEMP/previous-appcast.xml" ]; then

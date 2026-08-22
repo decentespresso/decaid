@@ -103,7 +103,7 @@ function createPlugin(host) {
 
   function capturedMachine(shot) {
     const machine = shot && shot.workflow && shot.workflow.machine;
-    if (!machine || !machine.serialNumber) return null;
+    if (!machine || !machine.serialNumber || /^mock/i.test(String(machine.serialNumber))) return null;
     return {
       serialNumber: String(machine.serialNumber),
       ...(machine.firmwareVersion ? { firmwareVersion: String(machine.firmwareVersion) } : {}),

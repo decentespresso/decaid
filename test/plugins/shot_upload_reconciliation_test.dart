@@ -61,6 +61,7 @@ class _FakeKeyValueStore implements KeyValueStoreService {
 Map<String, dynamic> _shot(
   String id, {
   bool capturedMachine = true,
+  String serialNumber = '6262',
   bool uploaded = false,
   bool rejected = false,
 }) {
@@ -77,7 +78,7 @@ Map<String, dynamic> _shot(
       'context': <String, dynamic>{},
       if (capturedMachine)
         'machine': {
-          'serialNumber': '6262',
+          'serialNumber': serialNumber,
           'model': 'DE1Pro',
           'firmwareVersion': '1352',
         },
@@ -265,6 +266,7 @@ void main() {
           _shot('uploaded', uploaded: true),
           _shot('rejected', rejected: true),
           _shot('legacy', capturedMachine: false),
+          _shot('simulated', serialNumber: 'MockDe1'),
         ],
         responseStatuses: [200],
       );
