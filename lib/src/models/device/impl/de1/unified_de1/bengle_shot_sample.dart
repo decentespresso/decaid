@@ -31,7 +31,6 @@ final class BengleShotSample {
   final double groupTemperature;
   final double setMixTemperature;
   final double setGroupTemperature;
-
   final double weight;
   final int frameNumber;
   final double steamTemperature;
