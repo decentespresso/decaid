@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Decaid
+GenericName=Espresso Machine Controller
+Comment=Control and monitor your Decent Espresso machine
+Exec=AppRun
+Icon=net.tadel.reaprime
+Terminal=false
+Categories=Utility;
+StartupWMClass=Decaid

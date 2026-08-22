@@ -451,6 +451,7 @@ class _MyAppState extends State<MyApp> {
                       return DataManagementPage(
                         controller: widget.settingsController,
                         persistenceController: widget.persistenceController,
+                        de1Controller: widget.de1Controller,
                         profileStorageService: widget.profileStorageService,
                         beanStorageService: widget.beanStorage,
                         grinderStorageService: widget.grinderStorage,

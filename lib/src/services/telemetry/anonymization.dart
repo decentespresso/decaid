@@ -27,6 +27,13 @@ class Anonymization {
     return 'ip_${hash.toString().substring(0, 16)}';
   }
 
+  static String anonymizeSerial(String serialNumber) {
+    final bytes = utf8.encode('$_salt:serial:$serialNumber');
+    final hash = sha256.convert(bytes);
+
+    return 'serial_${hash.toString().substring(0, 16)}';
+  }
+
   static String anonymize(String input) {
     final macPattern = RegExp(r'^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$');
     if (macPattern.hasMatch(input)) {
@@ -46,8 +53,26 @@ class Anonymization {
     return input;
   }
 
-  static String scrubString(String text) {
+  static String scrubString(
+    String text, {
+    List<String> sensitiveStrings = const [],
+  }) {
     var scrubbed = text;
+
+    for (final sensitive in sensitiveStrings) {
+      if (sensitive.length < 3) continue;
+      scrubbed = scrubbed.replaceAll(sensitive, anonymizeSerial(sensitive));
+    }
+
+    final serialFieldPattern = RegExp(
+      r'serialNumber"?\s*:\s*"?([0-9A-Za-z._-]{3,})',
+      caseSensitive: false,
+    );
+    scrubbed = scrubbed.replaceAllMapped(serialFieldPattern, (match) {
+      return match
+          .group(0)!
+          .replaceFirst(match.group(1)!, anonymizeSerial(match.group(1)!));
+    });
 
     final macPattern = RegExp(r'([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}');
     scrubbed = scrubbed.replaceAllMapped(macPattern, (match) {
@@ -56,6 +81,17 @@ class Anonymization {
 
     final ipv4Pattern = RegExp(r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b');
     scrubbed = scrubbed.replaceAllMapped(ipv4Pattern, (match) {
+      return anonymizeIp(match.group(0)!);
+    });
+
+    final ipv6Pattern = RegExp(
+      r'(?<![\dA-Fa-f:])(?:'
+      r'(?:[0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{1,4})*)?::(?:[0-9A-Fa-f]{1,4}:)*[0-9A-Fa-f]{1,4}'
+      r'|'
+      r'[0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{1,4}){3,}'
+      r')(?![\dA-Fa-f:])',
+    );
+    scrubbed = scrubbed.replaceAllMapped(ipv6Pattern, (match) {
       return anonymizeIp(match.group(0)!);
     });
 

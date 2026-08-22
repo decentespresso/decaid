@@ -13,10 +13,14 @@ import 'package:rxdart/rxdart.dart';
 class TestDe1 implements De1Interface {
   final String _deviceId;
   final String _name;
+  final String serialNumber;
 
-  TestDe1({String deviceId = 'test-de1', String name = 'TestDe1'})
-    : _deviceId = deviceId,
-      _name = name;
+  TestDe1({
+    String deviceId = 'test-de1',
+    String name = 'TestDe1',
+    this.serialNumber = '1',
+  }) : _deviceId = deviceId,
+       _name = name;
   final BehaviorSubject<MachineSnapshot> snapshotSubject =
       BehaviorSubject.seeded(
         MachineSnapshot(
@@ -100,7 +104,7 @@ class TestDe1 implements De1Interface {
   MachineInfo get machineInfo => MachineInfo(
     version: '1',
     model: '1',
-    serialNumber: '1',
+    serialNumber: serialNumber,
     groupHeadControllerPresent: false,
     extra: {},
   );
