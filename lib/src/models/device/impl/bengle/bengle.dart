@@ -45,7 +45,7 @@ class Bengle extends UnifiedDe1
 
   @override
   @protected
-  Duration get firmwareUploadBatchPause => Duration.zero;
+  Duration get firmwareUploadBatchPause => Duration(milliseconds: 50);
 
   final BehaviorSubject<double> _stopAtTempTarget =
       BehaviorSubject<double>.seeded(0.0);
