@@ -46,7 +46,7 @@ extension Defaults on De1Controller {
     SteamFormSettings settings,
     bool Function() stillCurrent,
   ) async {
-    De1ShotSettings shotSettings = await device.shotSettings.first;
+    De1ShotSettings shotSettings = await _readShotSettings(device);
     if (!stillCurrent()) return;
     await device.setSteamFlow(settings.targetFlow);
     if (!stillCurrent()) return;
@@ -73,7 +73,7 @@ extension Defaults on De1Controller {
   ) async {
     await device.setHotWaterFlow(settings.flow);
     if (!stillCurrent()) return;
-    De1ShotSettings shotSettings = await device.shotSettings.first;
+    De1ShotSettings shotSettings = await _readShotSettings(device);
     if (!stillCurrent()) return;
     await device.updateShotSettings(
       shotSettings.copyWith(

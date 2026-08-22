@@ -21,7 +21,10 @@ class De1Controller {
   Workflow? defaultWorkflow;
 
   De1Interface? _de1;
+  final Set<String> _seenSerials = {};
   final Logger _log = Logger("De1Controller");
+
+  List<String> get seenSerials => List.unmodifiable(_seenSerials);
 
   final BehaviorSubject<De1Interface?> _de1Controller = BehaviorSubject.seeded(
     null,
@@ -195,6 +198,18 @@ class De1Controller {
     );
   }
 
+  void _recordSerial(De1Interface device) {
+    final String serial;
+    try {
+      serial = device.machineInfo.serialNumber;
+    } catch (_) {
+      return;
+    }
+    if (serial.isNotEmpty && serial != '0') {
+      _seenSerials.add(serial);
+    }
+  }
+
   void _onDisconnect() {
     _log.info("resetting de1");
     _connectionGeneration++;
@@ -224,23 +239,30 @@ class De1Controller {
 
     _log.info("Initializing DE1 data");
     _dataInitialized = true;
+    _recordSerial(device);
 
     try {
       _subscriptions.add(device.shotSettings.listen(_shotSettingsUpdate));
       try {
-        final settings = await device.shotSettings.first.timeout(
-          ConnectionTimings.initialShotSettingsTimeout,
-        );
+        final settings = await _readShotSettings(device);
         if (!stillCurrent()) return;
         _shotSettingsUpdate(settings);
       } on TimeoutException catch (e, st) {
+        _log.warning(
+          'Initial shot settings unavailable; deferring startup defaults',
+          e,
+          st,
+        );
+        _deferStartupDefaults(device, stillCurrent);
+        return;
+      } on EndpointUnavailableException catch (e, st) {
         _log.warning(
           'Initial shot settings unavailable; skipping startup defaults',
           e,
           st,
         );
         return;
-      } on EndpointUnavailableException catch (e, st) {
+      } on DeviceNotConnectedException catch (e, st) {
         _log.warning(
           'Initial shot settings unavailable; skipping startup defaults',
           e,
@@ -263,6 +285,27 @@ class De1Controller {
         _initSettledSubject.add(generation);
       }
     }
+  }
+
+  void _deferStartupDefaults(
+    De1Interface device,
+    bool Function() stillCurrent,
+  ) {
+    unawaited(
+      device.shotSettings.first
+          .then((settings) async {
+            if (!stillCurrent()) return;
+            _log.info('Shot settings arrived late; applying startup defaults');
+            _shotSettingsUpdate(settings);
+            await runDeviceWrite((queued) async {
+              if (!identical(queued, device) || !stillCurrent()) return;
+              await _setDe1DefaultsFor(device, stillCurrent);
+            });
+          })
+          .catchError((Object e, StackTrace st) {
+            _log.warning('Deferred startup defaults failed', e, st);
+          }),
+    );
   }
 
   Future<void> _shotSettingsUpdate(De1ShotSettings data) async {
@@ -416,11 +459,21 @@ class De1Controller {
         .timeout(ConnectionTimings.initialShotSettingsTimeout);
   }
 
+  Future<De1ShotSettings> _readShotSettings(De1Interface device) async {
+    try {
+      return await device.shotSettings.first.timeout(
+        ConnectionTimings.initialShotSettingsTimeout,
+      );
+    } on StateError {
+      throw const DeviceNotConnectedException.machine();
+    }
+  }
+
   Future<SteamFormSettings> steamSettings() async {
     if (_de1 == null) {
       throw const DeviceNotConnectedException.machine();
     }
-    De1ShotSettings shotSettings = await connectedDe1().shotSettings.first;
+    De1ShotSettings shotSettings = await _readShotSettings(connectedDe1());
     double flowRate = await connectedDe1().getSteamFlow();
 
     return SteamFormSettings(
@@ -443,7 +496,7 @@ class De1Controller {
     De1Interface device,
     SteamFormSettings settings,
   ) async {
-    final shotSettings = await device.shotSettings.first;
+    final shotSettings = await _readShotSettings(device);
     await device.setSteamFlow(settings.targetFlow);
     await device.updateShotSettings(
       shotSettings.copyWith(
@@ -467,7 +520,7 @@ class De1Controller {
     if (_de1 == null) {
       throw const DeviceNotConnectedException.machine();
     }
-    De1ShotSettings shotSettings = await connectedDe1().shotSettings.first;
+    De1ShotSettings shotSettings = await _readShotSettings(connectedDe1());
     double flowRate = await connectedDe1().getHotWaterFlow();
     return HotWaterFormSettings(
       targetTemperature: shotSettings.targetHotWaterTemp,
@@ -490,7 +543,7 @@ class De1Controller {
     HotWaterFormSettings settings,
   ) async {
     await device.setHotWaterFlow(settings.flow);
-    final shotSettings = await device.shotSettings.first;
+    final shotSettings = await _readShotSettings(device);
     await device.updateShotSettings(
       shotSettings.copyWith(
         targetHotWaterTemp: settings.targetTemperature,
@@ -617,7 +670,13 @@ class De1Controller {
         await device.setSteamPurgeMode(steamPurgeMode);
       }
     }, retryOnReplacement: true);
-    if (flushFlow != null) _publishFlushFlow(flushFlow);
+    if (flushTemp != null || flushFlow != null || flushTimeout != null) {
+      _publishRinseSettings(
+        targetTemperature: flushTemp,
+        flow: flushFlow,
+        duration: flushTimeout,
+      );
+    }
     if (hotWaterFlow != null) _publishHotWaterFlow(hotWaterFlow);
     if (steamFlow != null) _publishSteamFlow(steamFlow);
   }
@@ -650,13 +709,22 @@ class De1Controller {
   }
 
   void _publishFlushFlow(double newFlow) {
+    _publishRinseSettings(flow: newFlow);
+  }
+
+  void _publishRinseSettings({
+    double? targetTemperature,
+    double? duration,
+    double? flow,
+  }) {
     final current = _rinseStream.valueOrNull;
     if (current != null) {
       _rinseStream.add(
         RinseData(
-          targetTemperature: current.targetTemperature,
-          duration: current.duration,
-          flow: newFlow,
+          targetTemperature:
+              targetTemperature?.toInt() ?? current.targetTemperature,
+          duration: duration?.toInt() ?? current.duration,
+          flow: flow ?? current.flow,
         ),
       );
     }

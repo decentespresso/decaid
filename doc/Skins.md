@@ -3027,8 +3027,15 @@ This creates an `out/` directory with static HTML/CSS/JS files.
 **Option B: Install from ZIP** (works on all platforms):
 
 1. Package your build output as a `.zip`
-2. In **Settings**, select **"Install from .zip..."** and pick the file
-3. The skin is extracted and served immediately
+2. In Decaid, open **Launcher → Skins**, tap the **+** (Install skin) button and choose **ZIP file**
+3. Pick the file; the skin is extracted, installed, and loaded immediately
+
+**Option B2: Install from GitHub** (public repositories only):
+
+1. Push your skin to a GitHub repository — either as a tagged release with a `.zip` asset, or on a branch
+2. In Decaid, open **Launcher → Skins**, tap the **+** (Install skin) button and choose **GitHub Release** or **GitHub Branch**
+3. Enter `owner/repo` (and optionally the asset name, or the branch, defaulting to `main`)
+4. The skin is installed and appears in the skin list; **Check for updates** re-fetches from the same source
 
 **Option C: Install via REST API:**
 

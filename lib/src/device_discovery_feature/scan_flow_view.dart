@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:reaprime/src/controllers/connection_error.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
@@ -16,6 +15,7 @@ import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart' as dev;
 import 'package:reaprime/src/models/device/scale.dart' as device_scale;
 import 'package:reaprime/src/services/telemetry/boot_timing.dart';
+import 'package:reaprime/src/services/storage/app_directories.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/settings/settings_service.dart';
 import 'package:reaprime/src/widgets/accessible_button.dart';
@@ -923,8 +923,7 @@ class ScanFlowViewState extends State<ScanFlowView> {
 
   Future<void> _exportLogs() async {
     try {
-      final docs = await getApplicationDocumentsDirectory();
-      final logFile = File('${docs.path}/log.txt');
+      final logFile = File('${await AppDirectories.logs}/log.txt');
 
       if (!await logFile.exists()) {
         if (mounted) {

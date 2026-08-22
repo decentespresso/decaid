@@ -73,6 +73,7 @@ import 'package:reaprime/src/models/device/transport/ble_timeout_exception.dart'
 import 'package:shelf/shelf_io.dart' as io;
 import 'package:shelf_web_socket/shelf_web_socket.dart' as sws;
 import 'package:shelf_cors_headers/shelf_cors_headers.dart';
+import 'package:stack_trace/stack_trace.dart';
 import 'package:reaprime/src/models/device/de1_rawmessage.dart';
 import 'package:reaprime/src/plugins/plugin_manager.dart';
 import 'package:reaprime/src/services/feedback_service.dart';
@@ -220,6 +221,7 @@ Future<void> startWebServer(
       githubToken: rot13(
         const String.fromEnvironment('GITHUB_FEEDBACK_TOKEN', defaultValue: ''),
       ),
+      currentSerialNumbers: () => de1Controller.seenSerials,
     ),
   );
 
@@ -463,13 +465,7 @@ Handler _init(
 
   final handler = const Pipeline()
       .addMiddleware(accountProxyCorsMiddleware(accountProxyAllowedOrigins))
-      .addMiddleware(
-        logRequests(
-          logger: (msg, isError) {
-            isError ? log.warning(msg) : log.info(msg);
-          },
-        ),
-      )
+      .addMiddleware(logRequestsWithClientIp())
       .addMiddleware(
         corsHeaders(
           headers: {
@@ -489,6 +485,66 @@ Handler _init(
       .addHandler(app.call);
 
   return handler;
+}
+
+const _shelfConnectionInfoKey = 'shelf.io.connection_info';
+
+Middleware logRequestsWithClientIp({
+  void Function(String message, bool isError)? logger,
+}) {
+  final write =
+      logger ?? (msg, isError) => isError ? log.warning(msg) : log.info(msg);
+
+  return (innerHandler) {
+    return (request) {
+      final startTime = DateTime.now();
+      final watch = Stopwatch()..start();
+      final ip = clientIpFromRequest(request);
+
+      return Future.sync(() => innerHandler(request)).then(
+        (response) {
+          write(
+            '${startTime.toIso8601String()} '
+            '${watch.elapsed.toString().padLeft(15)} '
+            '${request.method.padRight(7)} $ip '
+            '[${response.statusCode}] '
+            '${request.requestedUri.path}'
+            '${_formatQuery(request.requestedUri.query)}',
+            false,
+          );
+          return response;
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          if (error is HijackException) throw error;
+
+          var chain = Chain.forTrace(stackTrace)
+              .foldFrames((frame) => frame.isCore || frame.package == 'shelf')
+              .terse;
+
+          write(
+            '${startTime.toIso8601String()} '
+            '${watch.elapsed.toString().padLeft(15)} '
+            '${request.method.padRight(7)} $ip '
+            '${request.requestedUri.path}'
+            '${_formatQuery(request.requestedUri.query)}\n'
+            '$error\n$chain',
+            true,
+          );
+
+          throw error;
+        },
+      );
+    };
+  };
+}
+
+String clientIpFromRequest(Request request) {
+  final info = request.context[_shelfConnectionInfoKey];
+  return info is HttpConnectionInfo ? info.remoteAddress.address : '-';
+}
+
+String _formatQuery(String query) {
+  return query.isEmpty ? '' : '?$query';
 }
 
 Set<String> accountProxyCorsAllowedOrigins(WebUIService webUIService) {
