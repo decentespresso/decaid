@@ -153,6 +153,37 @@ void main() {
       );
     });
 
+    test('rejects multiplicative reported values that encode as zero', () {
+      for (final calibration in const [
+        De1Calibration(
+          target: De1CalibrationTarget.flow,
+          de1ReportedValue: 0,
+          measuredValue: 1,
+        ),
+        De1Calibration(
+          target: De1CalibrationTarget.pressure,
+          de1ReportedValue: 0.000001,
+          measuredValue: 1,
+        ),
+      ]) {
+        expect(
+          () => De1CalibrationCodec.encodeWrite(calibration),
+          throwsArgumentError,
+        );
+      }
+
+      expect(
+        De1CalibrationCodec.encodeWrite(
+          const De1Calibration(
+            target: De1CalibrationTarget.temperature,
+            de1ReportedValue: 0,
+            measuredValue: 1,
+          ),
+        ),
+        hasLength(De1CalibrationCodec.packetLength),
+      );
+    });
+
     test('rejects values outside the fixed-point ranges', () {
       expect(
         () => De1CalibrationCodec.encodeWrite(

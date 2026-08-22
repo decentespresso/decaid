@@ -13,8 +13,6 @@ class CalibrationDebugCard extends StatefulWidget {
 
 class _CalibrationDebugCardState extends State<CalibrationDebugCard>
     with AutomaticKeepAliveClientMixin {
-  static const _fixedPointScale = 65536.0;
-
   final _reportedControllers = {
     for (final target in De1CalibrationTarget.values)
       target: TextEditingController(),
@@ -201,12 +199,6 @@ class _CalibrationDebugCardState extends State<CalibrationDebugCard>
       _showStatus('Enter valid reported and measured values');
       return;
     }
-    if (target != De1CalibrationTarget.temperature &&
-        (reported * _fixedPointScale).round() == 0) {
-      _showStatus('Reported value must be non-zero for flow and pressure');
-      return;
-    }
-
     setState(() => _writing = {target});
     try {
       await widget.machine.writeCalibration(

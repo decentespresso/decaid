@@ -43,20 +43,22 @@ final class De1CalibrationCodec {
   static Uint8List encodeWrite(De1Calibration calibration) {
     _checkFinite(calibration.de1ReportedValue, 'de1ReportedValue');
     _checkFinite(calibration.measuredValue, 'measuredValue');
+    final reported = _encodeQ16_16Signed(calibration.de1ReportedValue);
+    final measured = _encodeQ16_16Signed(calibration.measuredValue);
+    if (calibration.target != De1CalibrationTarget.temperature &&
+        reported == 0) {
+      throw ArgumentError.value(
+        calibration.de1ReportedValue,
+        'de1ReportedValue',
+        'must not encode as zero for flow or pressure',
+      );
+    }
     final bytes = ByteData(packetLength);
     bytes.setUint32(0, _writeWriteKey, Endian.big);
     bytes.setUint8(4, writeCommand);
     bytes.setUint8(5, calibration.target.wireValue);
-    bytes.setInt32(
-      6,
-      _encodeQ16_16Signed(calibration.de1ReportedValue),
-      Endian.big,
-    );
-    bytes.setInt32(
-      10,
-      _encodeQ16_16Signed(calibration.measuredValue),
-      Endian.big,
-    );
+    bytes.setInt32(6, reported, Endian.big);
+    bytes.setInt32(10, measured, Endian.big);
     return bytes.buffer.asUint8List();
   }
 

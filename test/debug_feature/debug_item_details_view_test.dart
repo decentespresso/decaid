@@ -270,31 +270,6 @@ void main() {
       );
     });
 
-    testWidgets('rejects multiplicative reported values that encode as zero', (
-      tester,
-    ) async {
-      final machine = _CalibrationDe1();
-      await pumpView(tester, machine);
-
-      for (final (target, value) in const [
-        (De1CalibrationTarget.flow, '0'),
-        (De1CalibrationTarget.pressure, '0.000001'),
-      ]) {
-        final reported = find.byKey(Key('calibration-reported-${target.name}'));
-        final write = find.byKey(Key('calibration-write-${target.name}'));
-        await tester.ensureVisible(write);
-        await tester.enterText(reported, value);
-        await tester.tap(write);
-        await tester.pumpAndSettle();
-      }
-
-      expect(machine.writes, isEmpty);
-      expect(
-        find.text('Reported value must be non-zero for flow and pressure'),
-        findsOneWidget,
-      );
-    });
-
     testWidgets('permits a zero reported value for temperature', (
       tester,
     ) async {
