@@ -851,6 +851,26 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
     }
 
     final Map<String, dynamic> newSettings = Map.from(settings);
+    final enumValuesByKey = <String, List<String>>{
+      for (final entry in settingsSchema.entries)
+        if (entry.value['type'] == 'enum' &&
+            entry.value['secure'] != true &&
+            entry.value['values'] is String)
+          entry.key: (entry.value['values'] as String)
+              .split('|')
+              .map((value) => value.trim())
+              .where((value) => value.isNotEmpty)
+              .toList(growable: false),
+    };
+    for (final entry in enumValuesByKey.entries) {
+      if (entry.value.contains(newSettings[entry.key])) continue;
+      final defaultValue = settingsSchema[entry.key]?['default'];
+      if (entry.value.contains(defaultValue)) {
+        newSettings[entry.key] = defaultValue;
+      } else {
+        newSettings.remove(entry.key);
+      }
+    }
     if (context.mounted == false) {
       return;
     }
@@ -881,17 +901,9 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                   final schema = entry.value;
                   final currentValue = newSettings[key];
                   final defaultValue = schema['default'];
-                  final enumValues = schema['values'] is String
-                      ? (schema['values'] as String)
-                            .split('|')
-                            .map((value) => value.trim())
-                            .where((value) => value.isNotEmpty)
-                            .toList()
-                      : const <String>[];
+                  final enumValues = enumValuesByKey[key] ?? const <String>[];
                   final selectedEnumValue = enumValues.contains(currentValue)
                       ? currentValue as String
-                      : enumValues.contains(defaultValue)
-                      ? defaultValue as String
                       : null;
                   final secureDraft = secureDrafts[key];
                   final secureValueIsSet =

@@ -113,27 +113,31 @@ void main() {
     expect(find.text('proxyDecentApi'), findsNothing);
   });
 
-  testWidgets('selects and saves enum settings', (tester) async {
-    final manifest = PluginManifest(
-      id: 'enum.reaplugin',
-      name: 'Enum Plugin',
-      author: 'Test',
-      description: 'Test plugin',
-      version: '1.0.0',
-      apiVersion: 1,
-      permissions: {},
-      settings: {
-        'Roast': {
-          'type': 'enum',
-          'values': 'Light | Medium | Dark',
-          'default': 'Medium',
-        },
+  PluginManifest enumManifest() => PluginManifest(
+    id: 'enum.reaplugin',
+    name: 'Enum Plugin',
+    author: 'Test',
+    description: 'Test plugin',
+    version: '1.0.0',
+    apiVersion: 1,
+    permissions: {},
+    settings: {
+      'Roast': {
+        'type': 'enum',
+        'values': 'Light | Medium | Dark',
+        'default': 'Medium',
       },
-      api: PluginApi(endpoints: []),
-    );
+    },
+    api: PluginApi(endpoints: []),
+  );
+
+  Future<void> openEnumSettingsDialog(
+    WidgetTester tester,
+    Map<String, dynamic> settings,
+  ) async {
     fakePluginLoaderService = FakePluginLoaderService(
-      plugins: [manifest],
-      settings: {'Roast': 'Light'},
+      plugins: [enumManifest()],
+      settings: settings,
     );
 
     await tester.pumpWidget(
@@ -148,6 +152,10 @@ void main() {
     await tester.pump();
     await tester.tap(find.widgetWithText(ShadButton, 'Settings'));
     await tester.pumpAndSettle();
+  }
+
+  testWidgets('selects and saves enum settings', (tester) async {
+    await openEnumSettingsDialog(tester, {'Roast': 'Light'});
 
     expect(find.byType(ShadSelect<String>), findsOneWidget);
     expect(find.text('Light'), findsOneWidget);
@@ -159,6 +167,18 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(fakePluginLoaderService.savedSettings, {'Roast': 'Dark'});
+  });
+
+  testWidgets('replaces an invalid enum setting with its valid default', (
+    tester,
+  ) async {
+    await openEnumSettingsDialog(tester, {'Roast': 'Obsolete'});
+
+    expect(find.text('Medium'), findsOneWidget);
+    await tester.tap(find.widgetWithText(ShadButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(fakePluginLoaderService.savedSettings, {'Roast': 'Medium'});
   });
 
   PluginManifest secureManifest() => PluginManifest(
