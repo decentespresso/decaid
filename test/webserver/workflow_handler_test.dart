@@ -1589,6 +1589,34 @@ void main() {
     );
 
     test(
+      'a successful settings request publishes flush temp and timeout once',
+      () async {
+        await _settleHandler(spy);
+        final initial = workflowController.currentWorkflow;
+        final flushTemp = initial.rinseData.targetTemperature + 1;
+        final flushTimeout = initial.rinseData.duration + 1;
+
+        final rinseEmits = <(int, int)>[];
+        final rinseSub = de1Controller.rinseData
+            .map((e) => (e.targetTemperature, e.duration))
+            .listen(rinseEmits.add);
+
+        final response = await postSettings({
+          'flushTemp': flushTemp,
+          'flushTimeout': flushTimeout,
+        });
+        expect(response.statusCode, 202);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        expect(
+          rinseEmits.where((e) => e == (flushTemp, flushTimeout)).length,
+          1,
+        );
+        await rinseSub.cancel();
+      },
+    );
+
+    test(
       'no flow publication occurs before a replacement retry succeeds',
       () async {
         await _settleHandler(spy);
