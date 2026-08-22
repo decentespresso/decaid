@@ -31,6 +31,21 @@ final class BengleShotSample {
   final double groupTemperature;
   final double setMixTemperature;
   final double setGroupTemperature;
+
+  /// Integrated-scale weight in grams, already NET of the firmware tare.
+  ///
+  /// Wire format S16P4 at offset 20: SIGNED big-endian 16-bit, 4 fractional
+  /// bits, so `int16 / 16`. Range -2048 .. +2047.9375 g, step 0.0625 g.
+  ///
+  /// **This value is legitimately negative.** Net weight is `CurrW - LastTARE`,
+  /// so unloading the platform after a tare, lifting the cup, or a drip-back
+  /// all produce a real reading below zero. Do not clamp it, and do not take
+  /// `abs()`: a consumer that hides the sign is reporting a lie about the cup.
+  ///
+  /// The field was unsigned U16P5 (`uint16 / 32`) until Aug 2026, which
+  /// clamped every negative to 0 in the firmware before it reached the wire.
+  /// A decoder still dividing by 32 reports HALF the true weight and raises
+  /// no error, because the frame length is unchanged at 28 bytes.
   final double weight;
   final int frameNumber;
   final double steamTemperature;
@@ -51,7 +66,7 @@ BengleShotSample? decodeBengleShotSample(ByteData data) {
     groupTemperature: data.getUint16(14, Endian.big) / 100,
     setMixTemperature: data.getUint16(16, Endian.big) / 100,
     setGroupTemperature: data.getUint16(18, Endian.big) / 100,
-    weight: data.getUint16(20, Endian.big) / 32,
+    weight: data.getInt16(20, Endian.big) / 16,
     frameNumber: data.getUint8(22),
     steamTemperature: data.getUint16(23, Endian.big) / 100,
     milkTemperature: data.getUint16(25, Endian.big) / 100,
