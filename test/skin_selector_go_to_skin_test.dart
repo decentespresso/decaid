@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
+import 'package:reaprime/src/launcher/launcher_view.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/skin_feature/skin_view.dart';
 import 'package:reaprime/src/skin_selector/skin_selector_page.dart';
@@ -91,6 +92,12 @@ Future<void> _pumpPage(WidgetTester tester, WebUIService service) async {
   await tester.pumpWidget(
     ShadApp(
       onGenerateRoute: (settings) {
+        if (settings.name == LauncherView.routeName) {
+          return MaterialPageRoute<void>(
+            settings: settings,
+            builder: (_) => const Scaffold(body: Text('Dashboard')),
+          );
+        }
         if (settings.name == SkinView.routeName) {
           return MaterialPageRoute<void>(
             settings: settings,

@@ -149,8 +149,7 @@ class _DeviceDiscoveryState extends State<DeviceDiscoveryView> {
     if (!mounted) return;
 
     if (route == SkinView.routeName) {
-      Navigator.popAndPushNamed(context, LauncherView.routeName);
-      Navigator.of(context).pushNamed(SkinView.routeName);
+      SkinView.open(Navigator.of(context));
     } else {
       Navigator.popAndPushNamed(context, route);
     }

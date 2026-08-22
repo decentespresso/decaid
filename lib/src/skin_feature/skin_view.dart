@@ -99,6 +99,11 @@ class SkinView extends StatefulWidget {
 
   static const routeName = '/skin';
 
+  static Future<T?> open<T>(NavigatorState navigator) {
+    navigator.pushNamedAndRemoveUntil(LauncherView.routeName, (_) => false);
+    return navigator.pushNamed<T>(routeName);
+  }
+
   @override
   State<SkinView> createState() => _SkinViewState();
 }
@@ -303,20 +308,22 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    final view = Scaffold(
+      body: SafeArea(
+        top: false,
+        bottom: false,
+        left: false,
+        right: false,
+        child: _buildBody(),
+      ),
+    );
+    if (defaultTargetPlatform == TargetPlatform.iOS) return view;
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _exitToDashboard();
       },
-      child: Scaffold(
-        body: SafeArea(
-          top: false,
-          bottom: false,
-          left: false,
-          right: false,
-          child: _buildBody(),
-        ),
-      ),
+      child: view,
     );
   }
 
