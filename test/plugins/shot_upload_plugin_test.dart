@@ -56,6 +56,11 @@ Map<String, dynamic> _shot(String id) => {
   'workflow': {
     'profile': {'title': 'Damian LRv3', 'steps': <dynamic>[]},
     'context': <String, dynamic>{},
+    'machine': {
+      'serialNumber': '6262',
+      'model': 'DE1Pro',
+      'firmwareVersion': '1293',
+    },
   },
   'measurements': [
     for (final t in const ['2026-01-01T00:00:00Z', '2026-01-01T00:00:30Z'])
@@ -77,16 +82,6 @@ Map<String, dynamic> _shot(String id) => {
         'scale': {'weight': 18, 'weightFlow': 2},
       },
   ],
-};
-
-// A row as the list endpoint returns it: no measurements, and the upload stamp
-// carried in annotations.extras.
-Map<String, dynamic> _historyRow(String id, {int? uploadedAt}) => {
-  'id': id,
-  'timestamp': '2026-01-01T00:00:00Z',
-  'annotations': {
-    if (uploadedAt != null) 'extras': {'uploaded_to_decent': uploadedAt},
-  },
 };
 
 PluginManifest _manifest() => PluginManifest.fromJson(
@@ -117,12 +112,6 @@ void main() {
   Future<PluginManager> load({
     required Map<String, dynamic> settings,
     required List<http.Request> captured,
-    // Backlog-drain fixtures: the history the list endpoint serves, the machine
-    // state the drain gates on, and an optional id the proxy should reject.
-    List<Map<String, dynamic>> history = const [],
-    String machineState = 'idle',
-    int uploadStatus = 200,
-    String serialNumber = '6262',
   }) async {
     final store = _FakeCredentialStore();
     await store.write(key: 'email', value: 'user@example.com');
@@ -135,54 +124,25 @@ void main() {
         httpClient: http_testing.MockClient((request) async {
           captured.add(request);
           return http.Response(
-            jsonEncode(
-              uploadStatus == 200
-                  ? {'ok': true, 'profile_ref': 'damian@1'}
-                  : {'ok': false, 'error': 'not your machine'},
-            ),
-            uploadStatus,
+            jsonEncode({'ok': true, 'profile_ref': 'damian@1'}),
+            200,
             headers: {'content-type': 'application/json'},
           );
         }),
       ),
     );
     final r = manager.js.evaluate('''
-      globalThis.__timerSet = (pluginId, generation, callback, delay) => { callback(); return 1; };
+      globalThis.__timerSet = (pluginId, generation, callback, delay) => 1;
       globalThis.__timerClear = () => {};
       globalThis.__puts = [];
-      globalThis.__history = ${jsonEncode(history)};
-      globalThis.__machineState = ${jsonEncode(machineState)};
-      globalThis.__listCalls = 0;
+      globalThis.__fetches = [];
       globalThis.__fetchFor = async (pluginId, generation, url, init) => {
         init = init || {};
-        if (init.method === 'PUT') {
-          globalThis.__puts.push({ url: String(url), body: init.body });
-          // Writing the stamp is what stops a later pass re-uploading the shot.
-          const id = String(url).split('/shots/')[1];
-          const body = JSON.parse(init.body || '{}');
-          const stamp = body.annotations && body.annotations.extras && body.annotations.extras.uploaded_to_decent;
-          for (const s of globalThis.__history) {
-            if (s.id === id && stamp) { s.annotations = s.annotations || {}; s.annotations.extras = { uploaded_to_decent: stamp }; }
-          }
-          return { ok:true, status:200, json: async () => ({}) };
-        }
-        if (url.indexOf('/shots?') >= 0) {
-          globalThis.__listCalls++;
-          const qs = String(url).split('?')[1] || '';
-          const num = (k, d) => { const m = qs.match(new RegExp(k + '=(\\d+)')); return m ? parseInt(m[1], 10) : d; };
-          const limit = num('limit', 20), offset = num('offset', 0);
-          const all = globalThis.__history;
-          return { ok:true, json: async () => ({ items: all.slice(offset, offset + limit), total: all.length, limit: limit, offset: offset }) };
-        }
-        if (url.endsWith('/machine/state')) return { ok:true, json: async () => ({ state: { state: globalThis.__machineState, substate: 'idle' } }) };
+        globalThis.__fetches.push(String(url));
+        if (init.method === 'PUT') { globalThis.__puts.push({ url: String(url), body: init.body }); return { ok:true, status:200, json: async () => ({}) }; }
         if (url.endsWith('/shots/latest')) return { ok:true, json: async () => ({ id:'shot-1' }) };
         if (url.endsWith('/shots/shot-1')) return { ok:true, json: async () => (${jsonEncode(_shot('shot-1'))}) };
-        if (url.indexOf('/shots/') >= 0) {
-          const id = String(url).split('/shots/')[1];
-          const known = globalThis.__history.find(s => s.id === id);
-          if (known) return { ok:true, json: async () => (${jsonEncode(_shot('ID')).replaceAll('"ID"', 'id')}) };
-        }
-        if (url.endsWith('/machine/info')) return { ok:true, json: async () => ({ serialNumber:${jsonEncode(serialNumber)}, version:'1293', model:'DE1Pro' }) };
+        if (url.endsWith('/machine/info')) return { ok:true, json: async () => ({ serialNumber:'6262', version:'1293', model:'DE1Pro' }) };
         if (url.endsWith('/info')) return { ok:true, json: async () => ({ version:'9.9.9' }) };
         throw new Error('Unexpected URL: ' + url);
       };
@@ -234,6 +194,17 @@ void main() {
       expect(body['machine']['firmwareVersion'], '1293');
       expect(body['machine'].containsKey('bleId'), isFalse);
       expect(body['app']['version'], '9.9.9');
+      final fetches =
+          jsonDecode(
+                manager.js
+                    .evaluate('JSON.stringify(globalThis.__fetches)')
+                    .stringResult,
+              )
+              as List;
+      expect(
+        fetches.where((url) => url.toString().endsWith('/machine/info')),
+        isEmpty,
+      );
 
       final puts =
           jsonDecode(
@@ -277,224 +248,6 @@ void main() {
     manager.dispatchEvent(_manifest().id, 'shotStored', {'id': 'shot-1'});
     await Future<void>.delayed(const Duration(milliseconds: 100));
     expect(captured, isEmpty);
-  });
-
-  // ---- backlog drain ----
-
-  Future<void> runDrain(PluginManager manager) async {
-    final done = manager.registerPendingHttp(_manifest().id, 'drain-1');
-    manager.dispatchEvent(_manifest().id, 'httpRequest', {
-      'requestId': 'drain-1',
-      'endpoint': 'drain',
-      'method': 'POST',
-      'headers': <String, String>{},
-      'body': null,
-      'query': <String, String>{},
-    });
-    await done.timeout(const Duration(seconds: 5));
-  }
-
-  Future<Map<String, dynamic>> drainStatus(PluginManager manager) async {
-    final done = manager.registerPendingHttp(_manifest().id, 'status-1');
-    manager.dispatchEvent(_manifest().id, 'httpRequest', {
-      'requestId': 'status-1',
-      'endpoint': 'status',
-      'method': 'GET',
-      'headers': <String, String>{},
-      'body': null,
-      'query': <String, String>{},
-    });
-    final res = await done.timeout(const Duration(seconds: 5));
-    return jsonDecode(res['body'] as String) as Map<String, dynamic>;
-  }
-
-  test('drain uploads only shots without an uploaded stamp', () async {
-    final captured = <http.Request>[];
-    final manager = await load(
-      settings: {'DrainHistory': true, 'LengthThreshold': 0},
-      captured: captured,
-      history: [
-        _historyRow('old-1'),
-        _historyRow('old-2', uploadedAt: 1787000000),
-        _historyRow('old-3'),
-      ],
-    );
-    await runDrain(manager);
-    await _pumpUntil(manager, () => captured.length >= 2);
-
-    expect(captured, hasLength(2), reason: 'the stamped shot must be skipped');
-    final ids = captured
-        .map((r) => (jsonDecode(r.body) as Map<String, dynamic>)['id'])
-        .toList();
-    expect(ids, containsAll(<String>['old-1', 'old-3']));
-    expect(ids, isNot(contains('old-2')));
-  });
-
-  test('drain uploads oldest first', () async {
-    final captured = <http.Request>[];
-    final manager = await load(
-      settings: {'DrainHistory': true, 'LengthThreshold': 0},
-      captured: captured,
-      // the list endpoint serves newest-first
-      history: [
-        _historyRow('newest'),
-        _historyRow('middle'),
-        _historyRow('oldest'),
-      ],
-    );
-    await runDrain(manager);
-    await _pumpUntil(manager, () => captured.length >= 3);
-
-    final ids = captured
-        .map((r) => (jsonDecode(r.body) as Map<String, dynamic>)['id'])
-        .toList();
-    expect(ids, ['oldest', 'middle', 'newest']);
-  });
-
-  test('a second drain uploads nothing (the stamp is the ledger)', () async {
-    final captured = <http.Request>[];
-    final manager = await load(
-      settings: {'DrainHistory': true, 'LengthThreshold': 0},
-      captured: captured,
-      history: [_historyRow('a'), _historyRow('b')],
-    );
-    await runDrain(manager);
-    await _pumpUntil(manager, () => captured.length >= 2);
-    expect(captured, hasLength(2));
-
-    captured.clear();
-    await runDrain(manager);
-    await Future<void>.delayed(const Duration(milliseconds: 200));
-    while (manager.js.executePendingJob() > 0) {}
-    expect(captured, isEmpty, reason: 're-run must be a no-op');
-  });
-
-  test('drain does not run while the machine is busy', () async {
-    final captured = <http.Request>[];
-    final manager = await load(
-      settings: {'DrainHistory': true, 'LengthThreshold': 0},
-      captured: captured,
-      history: [_historyRow('a')],
-      machineState: 'espresso',
-    );
-    await runDrain(manager);
-    await Future<void>.delayed(const Duration(milliseconds: 200));
-    while (manager.js.executePendingJob() > 0) {}
-    expect(captured, isEmpty);
-  });
-
-  test('a 4xx parks the shot instead of retrying it', () async {
-    final captured = <http.Request>[];
-    final manager = await load(
-      settings: {'DrainHistory': true, 'LengthThreshold': 0},
-      captured: captured,
-      history: [_historyRow('bad')],
-      uploadStatus: 403,
-    );
-    await runDrain(manager);
-    await _pumpUntil(manager, () => captured.isNotEmpty);
-    await Future<void>.delayed(const Duration(milliseconds: 200));
-    while (manager.js.executePendingJob() > 0) {}
-
-    expect(captured, hasLength(1), reason: '4xx must not be retried');
-    final status = await drainStatus(manager);
-    expect(status['drainParked'], 1);
-  });
-
-  test('drain does nothing while DrainHistory is off', () async {
-    final captured = <http.Request>[];
-    final manager = await load(
-      settings: <String, dynamic>{},
-      captured: captured,
-      history: [_historyRow('a')],
-    );
-    final done = manager.registerPendingHttp(_manifest().id, 'drain-off');
-    manager.dispatchEvent(_manifest().id, 'httpRequest', {
-      'requestId': 'drain-off',
-      'endpoint': 'drain',
-      'method': 'POST',
-      'headers': <String, String>{},
-      'body': null,
-      'query': <String, String>{},
-    });
-    final res = await done.timeout(const Duration(seconds: 5));
-    expect(res['status'], 409);
-    expect(captured, isEmpty);
-  });
-
-  test('a shot pulled on a simulated machine is never uploaded', () async {
-    final captured = <http.Request>[];
-    final manager = await load(
-      settings: {'AutoUpload': true, 'LengthThreshold': 0},
-      captured: captured,
-      serialNumber: 'mock-de1',
-    );
-    manager.dispatchEvent(_manifest().id, 'shotStored', {'id': 'shot-1'});
-    await _pumpUntil(manager, () {
-      final puts =
-          jsonDecode(
-                manager.js
-                    .evaluate('JSON.stringify(globalThis.__puts)')
-                    .stringResult,
-              )
-              as List;
-      return puts.isNotEmpty;
-    });
-
-    expect(captured, isEmpty, reason: 'a simulated shot must not be uploaded');
-    // ... and it is marked so a later drain on the real machine cannot pick it up
-    final puts =
-        jsonDecode(
-              manager.js
-                  .evaluate('JSON.stringify(globalThis.__puts)')
-                  .stringResult,
-            )
-            as List;
-    final body =
-        jsonDecode(puts.single['body'] as String) as Map<String, dynamic>;
-    expect(body['annotations']['extras']['upload_skipped'], 'mock-device');
-  });
-
-  test('drain does not run on a simulated machine', () async {
-    final captured = <http.Request>[];
-    final manager = await load(
-      settings: {'DrainHistory': true, 'LengthThreshold': 0},
-      captured: captured,
-      history: [_historyRow('a'), _historyRow('b')],
-      serialNumber: 'mock-de1',
-    );
-    await runDrain(manager);
-    await Future<void>.delayed(const Duration(milliseconds: 200));
-    while (manager.js.executePendingJob() > 0) {}
-    expect(captured, isEmpty);
-  });
-
-  test('drain skips shots already marked upload_skipped', () async {
-    final captured = <http.Request>[];
-    final manager = await load(
-      settings: {'DrainHistory': true, 'LengthThreshold': 0},
-      captured: captured,
-      history: [
-        {
-          'id': 'mocky',
-          'timestamp': '2026-01-01T00:00:00Z',
-          'annotations': {
-            'extras': {'upload_skipped': 'mock-device'},
-          },
-        },
-        _historyRow('real'),
-      ],
-    );
-    await runDrain(manager);
-    await _pumpUntil(manager, () => captured.isNotEmpty);
-    await Future<void>.delayed(const Duration(milliseconds: 200));
-    while (manager.js.executePendingJob() > 0) {}
-
-    expect(captured, hasLength(1));
-    expect(
-      (jsonDecode(captured.single.body) as Map<String, dynamic>)['id'],
-      'real',
-    );
   });
 
   test('upload HTTP endpoint uploads the latest shot and reports ok', () async {

@@ -2,8 +2,8 @@
   "id": "shot-upload.reaplugin",
   "author": "Decent Espresso",
   "name": "Decent shot upload",
-  "description": "Uploads your espresso shots to your Decent account at decentespresso.com so you can see your shot history and charts. Uses your existing Decent login; only your own machines are accepted. Off by default: enable Upload shots automatically to opt in, and Upload existing shot history to send shots recorded before you turned it on.",
-  "version": "0.2.0",
+  "description": "Uploads your espresso shots to your Decent account at decentespresso.com and catches up eligible local shots while the machine is idle. Uses your existing Decent login and each shot's captured machine identity. Off by default: enable Upload shots automatically to opt in.",
+  "version": "0.2.1",
   "apiVersion": 1,
   "permissions": [
     "log",
@@ -11,6 +11,7 @@
     "emit",
     "pluginStorage",
     "proxy.decent_api.write",
+    "events.machine",
     "events.shots"
   ],
   "settings": {
@@ -23,11 +24,6 @@
       "type": "number",
       "description": "Only upload shots longer than this many seconds (skips flushes)",
       "default": 5
-    },
-    "DrainHistory": {
-      "type": "boolean",
-      "description": "Also upload shots already in your history, a few at a time while the machine is idle (opt-in; off by default)",
-      "default": false
     }
   },
   "api": [
@@ -41,13 +37,6 @@
       "type": "http",
       "data": {
         "description": "POST to upload the latest shot now (from the currently-connected machine)"
-      }
-    },
-    {
-      "id": "drain",
-      "type": "http",
-      "data": {
-        "description": "POST to start a backlog drain now (requires DrainHistory)"
       }
     }
   ]
