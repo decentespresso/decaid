@@ -313,6 +313,37 @@ Generation tokens in both `De1Controller` (`_connectionGeneration`) and
 `WorkflowDeviceSync` (`_generation`) guard against stale init completions
 from a disconnected generation.
 
+### shotSettings Never Arrives (gh-634)
+
+`UnifiedDe1Transport._shotSettingsSubject` is an unseeded `BehaviorSubject`. It
+is seeded by the connect-time characteristic read; if that read fails, the
+subject stays empty for the whole connection and `shotSettings.first` never
+completes.
+
+Every steam and hot-water write reads the current `De1ShotSettings` first, so an
+empty subject used to hang the write forever. That hang propagated outward: the
+`De1Controller` device-write queue never advanced, and every later
+`PUT /api/v1/workflow` sat behind it until the 30 s queue wait expired with 503.
+Field symptom was "steam duration change does nothing" - the DE1 kept running on
+its firmware value while the app reported an error 30 s later.
+
+Guards now in place:
+- `De1Controller._readShotSettings` bounds every read with
+  `ConnectionTimings.initialShotSettingsTimeout` and maps a closed subject
+  (`StateError`) to `DeviceNotConnectedException`.
+- A connect-time read timeout no longer skips startup defaults permanently.
+  `_deferStartupDefaults` re-arms on the first frame that does arrive, so a
+  transient MMR timeout at connect no longer leaves the machine unconfigured
+  until app restart. The deferred defaults run through `runDeviceWrite`, so
+  they cannot overlap a normal workflow write that started while init was
+  still waiting on shot settings.
+
+No generic stall timeout guards the device-write queue. `Future.timeout()` does
+not cancel the underlying future, so releasing the queue on timeout would let a
+stalled write resume later and overwrite a newer one. Bound the actual
+unbounded read instead; a real anti-wedge mechanism needs explicit
+cancellation or fencing.
+
 ## Keeping Notes Fresh
 
 Add lessons that would have saved debugging time: new footguns, thread-safety constraints, connection-lifecycle changes, non-obvious symptoms, and cross-transport dependencies. Prune stale claims. Prefer fewer, sharper notes over long background.

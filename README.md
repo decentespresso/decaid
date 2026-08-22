@@ -240,8 +240,7 @@ This reduces startup races but does not replace the application's Bluetooth reco
 - **macOS**: 13.0 or later
 - **iOS**: 15.0 or later (experimental)
 - **Linux**: Modern distribution with GTK 3.0+
-- **Windows**: Windows 10 or later
-  - **Important**: Requires [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170#latest-supported-redistributable-version) to be installed
+- **Windows**: Windows 10 or later (the release ZIP bundles the Visual C++ runtime; no separate redistributable install is needed)
 
 ### Recommended
 

@@ -189,6 +189,11 @@ class WorkflowHandler {
         'error': 'Machine unavailable',
         'message': '$e',
       });
+    } on TimeoutException catch (e) {
+      return jsonServiceUnavailable({
+        'error': 'Machine unavailable',
+        'message': '$e',
+      });
     } on ArgumentError catch (e) {
       return jsonBadRequest({'error': 'Invalid request', 'message': '$e'});
     } on FormatException catch (e) {

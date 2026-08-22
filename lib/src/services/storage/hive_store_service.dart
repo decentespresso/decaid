@@ -1,5 +1,13 @@
-import 'package:hive_ce_flutter/hive_flutter.dart';
+import 'package:hive_ce_flutter/adapters.dart';
 import 'package:reaprime/src/services/storage/kv_store_service.dart';
+
+void ensureFlutterTypeAdaptersRegistered() {
+  for (final TypeAdapter adapter in [ColorAdapter(), TimeOfDayAdapter()]) {
+    if (!Hive.isAdapterRegistered(adapter.typeId)) {
+      Hive.registerAdapter(adapter);
+    }
+  }
+}
 
 class HiveStoreService implements KeyValueStoreService {
   final String defaultNamespace;
