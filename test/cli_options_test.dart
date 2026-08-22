@@ -43,6 +43,11 @@ void main() {
       expect(args.noAccount, isTrue);
     });
 
+    test('--print-storage-paths', () {
+      final args = parseCliArgs(['--print-storage-paths']);
+      expect(args.printStoragePaths, isTrue);
+    });
+
     test('all flags combined', () {
       final args = parseCliArgs([
         '--serial',

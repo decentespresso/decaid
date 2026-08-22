@@ -7,10 +7,11 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:reaprime/src/services/security_scoped_file.dart';
+import 'package:reaprime/src/services/storage/app_directories.dart';
 import 'package:reaprime/src/util/rot13.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
+import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/feedback_feature/feedback_view.dart';
 import 'package:reaprime/src/import/de1app_importer.dart';
 import 'package:reaprime/src/import/saf_folder_copier.dart';
@@ -47,6 +48,7 @@ class DataManagementPage extends StatefulWidget {
     super.key,
     required this.controller,
     required this.persistenceController,
+    required this.de1Controller,
     this.profileStorageService,
     this.beanStorageService,
     this.grinderStorageService,
@@ -57,6 +59,7 @@ class DataManagementPage extends StatefulWidget {
 
   final SettingsController controller;
   final PersistenceController persistenceController;
+  final De1Controller de1Controller;
   final ProfileStorageService? profileStorageService;
   final BeanStorageService? beanStorageService;
   final GrinderStorageService? grinderStorageService;
@@ -258,6 +261,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
                   defaultValue: '',
                 ),
               ),
+              serialNumbers: () => widget.de1Controller.seenSerials,
             ),
             child: const Text("Send Feedback"),
           ),
@@ -377,9 +381,9 @@ class _DataManagementPageState extends State<DataManagementPage> {
 
     final Uint8List zipBytes;
     try {
-      final docs = await getApplicationDocumentsDirectory();
-      final logFile = File('${docs.path}/log.txt');
-      final webviewLogFile = File('${docs.path}/webview_console.log');
+      final logDir = await AppDirectories.logs;
+      final logFile = File('$logDir/log.txt');
+      final webviewLogFile = File('$logDir/webview_console.log');
 
       final hasAppLog = await logFile.exists();
       final hasWebviewLog =
