@@ -117,8 +117,10 @@ const bodyExample = "</body>";
     Future<String> getBodyForHost(String host) async {
       final client = HttpClient();
       addTearDown(client.close);
-      final request = await client.getUrl(Uri.parse('http://localhost:3001/'));
-      request.headers.set(HttpHeaders.hostHeader, '$host:3001');
+      final request = await client.getUrl(
+        Uri.parse('http://localhost:${service.port}/'),
+      );
+      request.headers.set(HttpHeaders.hostHeader, '$host:${service.port}');
       final response = await request.close();
       return response.transform(utf8.decoder).join();
     }
@@ -137,35 +139,44 @@ const bodyExample = "</body>";
 
       final client = HttpClient();
       addTearDown(client.close);
-      final request = await client.getUrl(Uri.parse('http://localhost:3000/'));
+      final request = await client.getUrl(
+        Uri.parse('http://localhost:${service.port}/'),
+      );
       final response = await request.close();
       final body = await response.transform(utf8.decoder).join();
 
-      expect(body, contains(scriptTag));
+      expect(
+        body,
+        contains(
+          '<script src="http://localhost:${service.port}$skinApiScriptPath">'
+          '</script>',
+        ),
+      );
       expect(body, contains("script-src 'self'"));
       expect(body, contains('content="$token"'));
       expect(response.headers.value(HttpHeaders.acceptRangesHeader), isNull);
       expect(response.headers.value(HttpHeaders.lastModifiedHeader), isNull);
 
       final lanRequest = await client.getUrl(
-        Uri.parse('http://localhost:3000/'),
+        Uri.parse('http://localhost:${service.port}/'),
       );
-      lanRequest.headers.set(HttpHeaders.hostHeader, '$lanIp:3000');
+      lanRequest.headers.set(HttpHeaders.hostHeader, '$lanIp:${service.port}');
       final lanResponse = await lanRequest.close();
       final lanBody = await lanResponse.transform(utf8.decoder).join();
       expect(
         lanBody,
         contains(
-          '<script src="http://$lanIp:3000$skinApiScriptPath"></script>',
+          '<script src="http://$lanIp:${service.port}$skinApiScriptPath">'
+          '</script>',
         ),
       );
 
       final untrustedRequest = await client.getUrl(
-        Uri.parse('http://localhost:3000/'),
+        Uri.parse('http://localhost:${service.port}/'),
       );
       untrustedRequest.headers.set(
         HttpHeaders.hostHeader,
-        'example.invalid:3000',
+        'example.invalid:${service.port}',
       );
       final untrustedResponse = await untrustedRequest.close();
       final untrustedBody = await untrustedResponse
@@ -175,7 +186,7 @@ const bodyExample = "</body>";
       expect(untrustedBody, isNot(contains(skinApiScriptPath)));
 
       final scriptRequest = await client.getUrl(
-        Uri.parse('http://localhost:3000$skinApiScriptPath'),
+        Uri.parse('http://localhost:${service.port}$skinApiScriptPath'),
       );
       final scriptResponse = await scriptRequest.close();
       final script = await scriptResponse.transform(utf8.decoder).join();
@@ -193,6 +204,62 @@ const bodyExample = "</body>";
       expect(script, isNot(contains(token)));
     });
 
+    test('switching skins rotates both browser origin and token', () async {
+      final secondDir = await Directory.systemTemp.createTemp(
+        'webui_second_skin',
+      );
+      addTearDown(() => secondDir.delete(recursive: true));
+      await File(
+        '${secondDir.path}/index.html',
+      ).writeAsString('<html><body>second</body></html>');
+      var generation = 0;
+      service.skinProxyTokenProvider = (_) => 'token-${++generation}';
+
+      await service.serveFolderAtPath(tempDir.path);
+      final firstPort = service.port;
+      final firstToken = service.skinProxyToken;
+      await service.serveFolderAtPath(secondDir.path);
+
+      expect(service.port, isNot(firstPort));
+      expect(service.skinProxyToken, isNot(firstToken));
+
+      final client = HttpClient();
+      addTearDown(client.close);
+      await expectLater(
+        client.getUrl(Uri.parse('http://localhost:$firstPort/')),
+        throwsA(isA<SocketException>()),
+      );
+      final entryRequest = await client.getUrl(
+        Uri.parse('http://localhost:3000/'),
+      );
+      entryRequest.followRedirects = false;
+      final entryResponse = await entryRequest.close();
+      expect(entryResponse.statusCode, HttpStatus.temporaryRedirect);
+      expect(
+        entryResponse.headers.value(HttpHeaders.locationHeader),
+        'http://localhost:${service.port}/',
+      );
+      final request = await client.getUrl(
+        Uri.parse('http://localhost:${service.port}/'),
+      );
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      expect(body, contains('content="token-2"'));
+      expect(body, isNot(contains('token-1')));
+    });
+
+    test('stopping the server revokes the served skin token', () async {
+      var revocations = 0;
+      service.skinProxyTokenProvider = (_) => token;
+      service.skinProxyTokenRevoker = () => revocations++;
+      await service.serveFolderAtPath(tempDir.path);
+
+      await service.stopServing();
+
+      expect(revocations, 1);
+      expect(service.skinProxyToken, isNull);
+    });
+
     test('accepts another local interface address', () async {
       const wifiIp = '192.168.50.20';
       const ethernetIp = '10.0.0.7';
@@ -207,7 +274,7 @@ const bodyExample = "</body>";
       expect(
         body,
         contains(
-          '<script src="http://$ethernetIp:3001$skinApiScriptPath">'
+          '<script src="http://$ethernetIp:${service.port}$skinApiScriptPath">'
           '</script>',
         ),
       );

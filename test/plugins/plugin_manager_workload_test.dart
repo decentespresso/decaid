@@ -51,6 +51,7 @@ void main() {
         decentProxyTimeout: const Duration(seconds: 5),
         decentProxyService: DecentProxyService(
           credentialStore: store,
+          requireConsent: (_) async => true,
           httpClient: http_testing.MockClient(
             (request) async => http.Response('{"serial":"SN001"}', 200),
           ),

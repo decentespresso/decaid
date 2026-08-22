@@ -140,7 +140,7 @@ host.storage({
 **Note:** namespace is not used by Decaid internally, the plugin storage is namespaced to the plugins' identifier.
 
 ### `host.decentProxy(path, options)`
-Call the Decent account proxy without exposing stored credentials to plugin code. `GET` requires the read-only `proxy.decent_api` permission. `POST` requires the distinct write permission `proxy.decent_api.write` **and** is restricted to an explicit path allowlist (currently only `support/api/shot_upload`); other methods/paths are rejected and logged.
+Call the Decent account proxy without exposing stored credentials to plugin code. `GET` requires the read-only `proxy.decent_api` permission. `POST` requires the distinct write permission `proxy.decent_api.write` **and** is restricted to an explicit path allowlist (currently only `support/api/shot_upload`); other methods/paths are rejected and logged. The first request from each plugin id pauses for approval in Decaid's native UI. Explicit allow and deny decisions are remembered; denial or timeout rejects the call before any upstream request.
 
 ```javascript
 const response = await host.decentProxy("support/api/sn", {

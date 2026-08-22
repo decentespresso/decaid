@@ -26,6 +26,8 @@ class FakeCredentialStore implements CredentialStore {
   }
 }
 
+Future<bool> _allowConsent(String _) async => true;
+
 void main() {
   late FakeCredentialStore store;
 
@@ -52,11 +54,15 @@ void main() {
     );
   }
 
-  PluginDecentProxyBridge bridge(http_testing.MockClientHandler handler) {
+  PluginDecentProxyBridge bridge(
+    http_testing.MockClientHandler handler, {
+    Future<bool> Function(String callerId) requireConsent = _allowConsent,
+  }) {
     return PluginDecentProxyBridge(
       decentProxyService: DecentProxyService(
         httpClient: http_testing.MockClient(handler),
         credentialStore: store,
+        requireConsent: requireConsent,
       ),
     );
   }
@@ -98,6 +104,33 @@ void main() {
       records.any((r) => r.message.contains('plugin:test.plugin')),
       isTrue,
     );
+  });
+
+  test('plugin consent denial stops before the upstream request', () async {
+    await linkAccount();
+    String? consentCaller;
+    var upstreamCalled = false;
+
+    await expectLater(
+      bridge(
+        (request) async {
+          upstreamCalled = true;
+          return http.Response('must not happen', 200);
+        },
+        requireConsent: (callerId) async {
+          consentCaller = callerId;
+          return false;
+        },
+      ).proxyForPlugin(
+        pluginId: 'test.plugin',
+        manifest: manifestWith({PluginPermissions.proxyDecentApi}),
+        path: 'support/api/sn',
+      ),
+      throwsA(isA<DecentProxyConsentDeniedException>()),
+    );
+
+    expect(consentCaller, 'plugin:test.plugin');
+    expect(upstreamCalled, isFalse);
   });
 
   test(
