@@ -3,12 +3,14 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/home_feature/widgets/quick_settings_widget.dart';
+import 'package:reaprime/src/launcher/launcher_view.dart';
 import 'package:reaprime/src/services/telemetry/boot_timing.dart';
 import 'package:reaprime/src/services/webview_compatibility_checker.dart';
 import 'package:reaprime/src/services/webview_log_service.dart';
@@ -18,6 +20,23 @@ import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 enum SkinNavDecision { exitDashboard, allow, openExternal, block }
+
+String skinExitInstructions(TargetPlatform platform) {
+  const purpose = 'Dashboard contains app settings and skin selection.';
+  final navigation = switch (platform) {
+    TargetPlatform.android =>
+      'Swipe inward from either screen edge to open it. With button '
+          'navigation, reveal the navigation bar and tap Back.',
+    TargetPlatform.iOS => 'Swipe right from the left screen edge to open it.',
+    TargetPlatform.macOS =>
+      'Press ⌘D or use View → Back to Dashboard to open it.',
+    TargetPlatform.windows =>
+      'Use the Dashboard button in the top-right corner to open it.',
+    TargetPlatform.linux ||
+    TargetPlatform.fuchsia => 'Use system back navigation to open it.',
+  };
+  return '$purpose $navigation';
+}
 
 SkinNavDecision classifySkinNavigation(Uri? url) {
   if (url == null) return SkinNavDecision.block;
@@ -69,13 +88,21 @@ class SkinView extends StatefulWidget {
     required this.settingsController,
     required this.webViewLogService,
     required this.deviceIp,
+    this.webView,
   });
 
   final SettingsController settingsController;
   final WebViewLogService webViewLogService;
   final String deviceIp;
+  @visibleForTesting
+  final Widget? webView;
 
   static const routeName = '/skin';
+
+  static Future<T?> open<T>(NavigatorState navigator) {
+    navigator.pushNamedAndRemoveUntil(LauncherView.routeName, (_) => false);
+    return navigator.pushNamed<T>(routeName);
+  }
 
   @override
   State<SkinView> createState() => _SkinViewState();
@@ -190,6 +217,10 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   }
 
   Future<void> _checkCompatibilityAndInit() async {
+    if (widget.webView != null) {
+      _isCheckingCompatibility = false;
+      return;
+    }
     _log.info('Checking WebView compatibility...');
 
     if (!Platform.isWindows) {
@@ -227,6 +258,8 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
 
       useShouldOverrideUrlLoading: true,
 
+      browserAcceleratorKeysEnabled: !Platform.isWindows,
+
       cacheEnabled: false,
 
       supportZoom: false,
@@ -247,24 +280,9 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   }
 
   void _showExitInstructions() {
-    String instructions;
-
-    if (Platform.isIOS) {
-      instructions =
-          'Swipe right from the left side of the screen to return to Dashboard';
-    } else if (Platform.isAndroid) {
-      instructions = 'Use system back button to return to Dashboard';
-    } else if (Platform.isMacOS) {
-      instructions = 'Press ⌘D or use View → Back to Dashboard to return';
-    } else if (Platform.isWindows) {
-      instructions = 'Press Alt+Backspace to return to Dashboard';
-    } else {
-      instructions = 'Use back navigation to return to Dashboard';
-    }
-
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(instructions),
+        content: Text(skinExitInstructions(defaultTargetPlatform)),
         duration: const Duration(seconds: 10),
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.all(16),
@@ -282,9 +300,15 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
     );
   }
 
+  void _exitToDashboard() {
+    Navigator.of(
+      context,
+    ).pushNamedAndRemoveUntil(LauncherView.routeName, (_) => false);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    final view = Scaffold(
       body: SafeArea(
         top: false,
         bottom: false,
@@ -292,6 +316,14 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
         right: false,
         child: _buildBody(),
       ),
+    );
+    if (defaultTargetPlatform == TargetPlatform.iOS) return view;
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _exitToDashboard();
+      },
+      child: view,
     );
   }
 
@@ -389,9 +421,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
                   ),
                 ),
                 OutlinedButton.icon(
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                  },
+                  onPressed: _exitToDashboard,
                   icon: const Icon(Icons.dashboard),
                   label: const Text('Dashboard'),
                 ),
@@ -474,7 +504,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
         await launchUrl(url, mode: LaunchMode.externalApplication);
 
         if (mounted) {
-          Navigator.of(context).pop();
+          _exitToDashboard();
         }
       } else {
         _log.warning('Cannot launch URL: $url');
@@ -543,9 +573,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
               ),
               const SizedBox(height: 16),
               ElevatedButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                },
+                onPressed: _exitToDashboard,
                 child: const Text('Go to Dashboard'),
               ),
             ],
@@ -570,17 +598,6 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
       );
     }
 
-    if (Platform.isWindows) {
-      return CallbackShortcuts(
-        bindings: {
-          const SingleActivator(LogicalKeyboardKey.backspace, alt: true): () {
-            Navigator.of(context).pop();
-          },
-        },
-        child: _buildWebViewStack(),
-      );
-    }
-
     return _buildWebViewStack();
   }
 
@@ -597,6 +614,28 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
               child: _buildWebView(simulatedDevice),
             ),
             if (_isLoading) const Center(child: CircularProgressIndicator()),
+            if (defaultTargetPlatform == TargetPlatform.windows)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Material(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.surfaceContainer.withValues(alpha: 0.9),
+                  elevation: 2,
+                  borderRadius: BorderRadius.circular(8),
+                  child: IconButton(
+                    tooltip: 'Open Dashboard',
+                    onPressed: _exitToDashboard,
+                    icon: const Icon(Icons.dashboard),
+                    iconSize: 20,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 40,
+                      height: 40,
+                    ),
+                  ),
+                ),
+              ),
           ],
         );
       },
@@ -604,6 +643,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   }
 
   Widget _buildWebView(SimulatedWebViewDevice? simulatedDevice) {
+    if (widget.webView != null) return widget.webView!;
     return InAppWebView(
       key: ValueKey(simulatedDevice?.id ?? 'native-webview'),
       initialUrlRequest: URLRequest(url: WebUri(_skinUrl)),
@@ -664,7 +704,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
               topLevelUri: _mainFrameUri,
             )) {
               _log.info('Skin requested dashboard');
-              if (mounted) Navigator.of(context).pop();
+              if (mounted) _exitToDashboard();
             } else {
               _log.warning('Rejected skin dashboard request');
             }

@@ -146,7 +146,7 @@ class LauncherView extends StatelessWidget {
       case LauncherSkinSlot.returnToSkin:
         return _ReturnToSkinButton(
           onTap: () {
-            Navigator.of(context).pushNamed(SkinView.routeName);
+            SkinView.open(Navigator.of(context));
           },
         );
       case LauncherSkinSlot.skinUnavailable:
