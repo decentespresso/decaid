@@ -23,6 +23,21 @@ class DeviceNotConnectedException implements Exception {
       'DeviceNotConnectedException: ${kind.name} not connected';
 }
 
+class GattAttributeUnavailableException extends DeviceNotConnectedException {
+  final String operation;
+  final String path;
+
+  const GattAttributeUnavailableException({
+    required this.operation,
+    required this.path,
+  }) : super(DeviceKind.unknown);
+
+  @override
+  String toString() =>
+      'GattAttributeUnavailableException: $operation($path) not in the '
+      'GATT database';
+}
+
 class DeviceIdentityMismatchException implements Exception {
   final String expected;
   final int actualModelValue;

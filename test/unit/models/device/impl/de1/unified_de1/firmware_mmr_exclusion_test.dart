@@ -158,33 +158,37 @@ void main() {
     timeout: const Timeout(Duration(seconds: 10)),
   );
 
-  test('MMR issued during firmware follows final firmware traffic', () async {
-    transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
-    transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xfd]);
-    final eraseRequest = transport.nextWrite(Endpoint.fwMapRequest.uuid);
-    final update = de1.updateFirmware(
-      Uint8List.fromList(List<int>.filled(16, 0xab)),
-      onProgress: (_) {},
-    );
-    await eraseRequest;
+  test(
+    'MMR issued during firmware follows final firmware traffic',
+    () async {
+      transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
+      transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xfd]);
+      final eraseRequest = transport.nextWrite(Endpoint.fwMapRequest.uuid);
+      final update = de1.updateFirmware(
+        Uint8List.fromList(List<int>.filled(16, 0xab)),
+        onProgress: (_) {},
+      );
+      await eraseRequest;
 
-    transport.queueMmrResponseInt(MMRItem.targetSteamFlow, 100);
-    final read = de1.getSteamFlow();
-    await update;
-    await read;
+      transport.queueMmrResponseInt(MMRItem.targetSteamFlow, 100);
+      final read = de1.getSteamFlow();
+      await update;
+      await read;
 
-    final characteristics = transport.writes
-        .map((write) => write.characteristicUUID)
-        .toList();
-    expect(
-      characteristics.indexOf(Endpoint.readFromMMR.uuid),
-      greaterThan(characteristics.lastIndexOf(Endpoint.fwMapRequest.uuid)),
-    );
-    expect(
-      characteristics.indexOf(Endpoint.readFromMMR.uuid),
-      greaterThan(characteristics.lastIndexOf(Endpoint.writeToMMR.uuid)),
-    );
-  }, timeout: const Timeout(Duration(seconds: 15)));
+      final characteristics = transport.writes
+          .map((write) => write.characteristicUUID)
+          .toList();
+      expect(
+        characteristics.indexOf(Endpoint.readFromMMR.uuid),
+        greaterThan(characteristics.lastIndexOf(Endpoint.fwMapRequest.uuid)),
+      );
+      expect(
+        characteristics.indexOf(Endpoint.readFromMMR.uuid),
+        greaterThan(characteristics.lastIndexOf(Endpoint.writeToMMR.uuid)),
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 15)),
+  );
 }
 
 class _BarrierBleTransport extends BarrierBleTransport {

@@ -124,25 +124,31 @@ void main() {
   });
 
   group('initial shot settings', () {
-    test('missing initial settings do not block initialization', () async {
-      final deviceController = DeviceController([MockDeviceDiscoveryService()]);
-      await deviceController.initialize();
-      final de1Controller = De1Controller(controller: deviceController);
-      final testDe1 = TestDe1();
+    test(
+      'missing initial settings do not block initialization',
+      () async {
+        final deviceController = DeviceController([
+          MockDeviceDiscoveryService(),
+        ]);
+        await deviceController.initialize();
+        final de1Controller = De1Controller(controller: deviceController);
+        final testDe1 = TestDe1();
 
-      await de1Controller.connectToDe1(testDe1);
+        await de1Controller.connectToDe1(testDe1);
 
-      expect(
-        await de1Controller.initSettled
-            .firstWhere((generation) => generation != null)
-            .timeout(const Duration(seconds: 3)),
-        isNotNull,
-      );
-      expect(de1Controller.connectedDe1OrNull, same(testDe1));
+        expect(
+          await de1Controller.initSettled
+              .firstWhere((generation) => generation != null)
+              .timeout(const Duration(seconds: 3)),
+          isNotNull,
+        );
+        expect(de1Controller.connectedDe1OrNull, same(testDe1));
 
-      testDe1.dispose();
-      de1Controller.dispose();
-    }, timeout: const Timeout(Duration(seconds: 5)));
+        testDe1.dispose();
+        de1Controller.dispose();
+      },
+      timeout: const Timeout(Duration(seconds: 5)),
+    );
   });
 
   group('shot-settings debounce race (comms-harden #5)', () {

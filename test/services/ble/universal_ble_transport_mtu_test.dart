@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/device.dart' as device;
+import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/services/ble/universal_ble_transport.dart';
 import 'package:universal_ble/universal_ble.dart';
 
@@ -9,6 +10,7 @@ class _MtuRecordingBlePlatform extends UniversalBlePlatform {
   final List<(String, int)> mtuRequests = [];
 
   bool throwOnRequestMtu = false;
+  UniversalBleErrorCode? readErrorCode;
   bool systemConnected = true;
   bool attached = false;
   int connectCalls = 0;
@@ -92,7 +94,16 @@ class _MtuRecordingBlePlatform extends UniversalBlePlatform {
     String service,
     String characteristic, {
     Duration? timeout,
-  }) async => Uint8List(0);
+  }) async {
+    final code = readErrorCode;
+    if (code != null) {
+      throw UniversalBleException(
+        code: code,
+        message: 'simulated read failure',
+      );
+    }
+    return Uint8List(0);
+  }
 
   @override
   Future<void> writeValue(
@@ -161,6 +172,70 @@ void main() {
     isLinuxOverride: linux,
     requestLargeMtuNonAndroid: flag,
   );
+
+  for (final code in [
+    UniversalBleErrorCode.characteristicNotFound,
+    UniversalBleErrorCode.serviceNotFound,
+  ]) {
+    test('$code on a live link does not disconnect', () async {
+      final value = transport(android: false, linux: false);
+      final states = <device.ConnectionState>[];
+      final subscription = value.connectionState.listen(states.add);
+      await value.connect();
+      platform.readErrorCode = code;
+
+      await expectLater(
+        value.read(
+          '0000180f-0000-1000-8000-00805f9b34fb',
+          '00002a19-0000-1000-8000-00805f9b34fb',
+        ),
+        throwsA(isA<GattAttributeUnavailableException>()),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(states, isNot(contains(device.ConnectionState.disconnected)));
+      await subscription.cancel();
+      await value.dispose();
+    });
+
+    test('$code after the link died reports disconnected', () async {
+      final value = transport(android: false, linux: false);
+      final states = <device.ConnectionState>[];
+      final subscription = value.connectionState.listen(states.add);
+      await value.connect();
+      platform.readErrorCode = code;
+      platform.systemConnected = false;
+
+      await expectLater(
+        value.read(
+          '0000180f-0000-1000-8000-00805f9b34fb',
+          '00002a19-0000-1000-8000-00805f9b34fb',
+        ),
+        throwsA(isA<GattAttributeUnavailableException>()),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(states, contains(device.ConnectionState.disconnected));
+      await subscription.cancel();
+      await value.dispose();
+    });
+  }
+
+  test('attribute-missing errors are catchable as not-connected', () async {
+    final value = transport(android: false, linux: false);
+    await value.connect();
+    platform.readErrorCode = UniversalBleErrorCode.characteristicNotFound;
+
+    await expectLater(
+      value.read(
+        '0000180f-0000-1000-8000-00805f9b34fb',
+        '00002a19-0000-1000-8000-00805f9b34fb',
+      ),
+      throwsA(isA<DeviceNotConnectedException>()),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await value.dispose();
+  });
 
   test('Android requests 517 once with the flag off or on', () async {
     for (final flag in [false, true]) {
