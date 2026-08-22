@@ -29,6 +29,8 @@ class _TestDe1Controller extends De1Controller {
     null,
   );
   De1Interface? current;
+  int connectedLookupCount = 0;
+  int? failConnectedLookupAt;
 
   _TestDe1Controller({required super.controller});
 
@@ -37,6 +39,10 @@ class _TestDe1Controller extends De1Controller {
 
   @override
   De1Interface connectedDe1() {
+    connectedLookupCount++;
+    if (connectedLookupCount == failConnectedLookupAt) {
+      throw 'machine info unavailable';
+    }
     final de1 = current;
     if (de1 == null) throw 'no de1 connected';
     return de1;
@@ -126,6 +132,7 @@ void main() {
   late _TestDe1Controller de1Controller;
   late ScaleController scaleController;
   late _CapturingStorageService storage;
+  late WorkflowController workflowController;
   late De1StateManager manager;
   late List<ShotStateEvent> events;
   late StreamSubscription<ShotStateEvent> eventsSub;
@@ -139,6 +146,7 @@ void main() {
     de1Controller = _TestDe1Controller(controller: deviceController);
     scaleController = ScaleController();
     storage = _CapturingStorageService();
+    workflowController = WorkflowController();
 
     final settingsService = MockSettingsService();
     await settingsService.updateGatewayMode(GatewayMode.tracking);
@@ -155,7 +163,7 @@ void main() {
     manager = De1StateManager(
       de1Controller: de1Controller,
       scaleController: scaleController,
-      workflowController: WorkflowController(),
+      workflowController: workflowController,
       persistenceController: PersistenceController(storageService: storage),
       settingsController: settingsController,
       connectionManager: connectionManager,
@@ -238,6 +246,24 @@ void main() {
           'clients can correlate the stream to the saved shot',
     );
   });
+
+  test(
+    'failed machine capture does not persist stale workflow identity',
+    () async {
+      workflowController.setWorkflow(
+        workflowController.currentWorkflow.copyWith(
+          machine: const WorkflowMachine(serialNumber: 'stale-machine'),
+        ),
+      );
+      de1Controller.failConnectedLookupAt =
+          de1Controller.connectedLookupCount + 3;
+
+      await driveShot();
+
+      expect(storage.storedShots, hasLength(1));
+      expect(storage.storedShots.single.workflow.machine, isNull);
+    },
+  );
 
   test('keeps forwarding across consecutive shots (per-shot sequencer '
       'recreation)', () async {

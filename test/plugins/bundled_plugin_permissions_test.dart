@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pub_semver/pub_semver.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
+import 'package:reaprime/src/plugins/plugin_version.dart';
 
 void main() {
   const requiredPermissions = <String, Set<PluginPermissions>>{
@@ -62,4 +63,21 @@ void main() {
       }
     });
   }
+
+  test('shot upload bundled copy upgrades existing 0.2.0 installs', () async {
+    final manifestJson = jsonDecode(
+      await File(
+        'assets/plugins/shot-upload.reaplugin/manifest.json',
+      ).readAsString(),
+    );
+    final manifest = PluginManifest.fromJson(
+      manifestJson as Map<String, dynamic>,
+    );
+    final pluginSource = await File(
+      'assets/plugins/shot-upload.reaplugin/plugin.js',
+    ).readAsString();
+
+    expect(comparePluginVersions(manifest.version, '0.2.0'), greaterThan(0));
+    expect(pluginSource, contains('const VERSION = "${manifest.version}";'));
+  });
 }

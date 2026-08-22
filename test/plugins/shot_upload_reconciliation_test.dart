@@ -309,6 +309,30 @@ void main() {
     );
   });
 
+  test('a live shot preempts the remaining reconciliation backlog', () async {
+    var dispatched = false;
+    late final _Harness harness;
+    harness = await _load(
+      shots: [for (var i = 0; i < 10; i++) _shot('backlog-$i'), _shot('live')],
+      responseStatuses: [200, 200],
+      onRequest: (manager) {
+        if (dispatched) return;
+        dispatched = true;
+        manager.dispatchEvent(_manifest().id, 'shotStored', {'id': 'live'});
+      },
+    );
+
+    expect(await harness.runNextTimer(), isTrue);
+    await harness.pump();
+
+    expect(
+      harness.requests
+          .map((request) => jsonDecode(request.body)['id'] as String)
+          .take(2),
+      ['backlog-0', 'live'],
+    );
+  });
+
   test('pauses reconciliation while the machine is active', () async {
     final harness = await _load(
       shots: [_shot('eligible')],

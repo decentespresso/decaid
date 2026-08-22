@@ -49,6 +49,7 @@ class De1StateManager with WidgetsBindingObserver {
   StreamSubscription<ShotDecision>? _shotDecisionSubscription;
 
   String? _currentShotId;
+  WorkflowMachine? _currentShotMachine;
 
   MachineSnapshot? _latestSnapshot;
 
@@ -508,6 +509,7 @@ class De1StateManager with WidgetsBindingObserver {
         FeatureFlag.stepExitArbiter,
       ),
     );
+    _currentShotMachine = _captureMachineSnapshot();
 
     _currentShotSnapshots.clear();
     _currentShotId = Uuid().v4();
@@ -599,22 +601,11 @@ class De1StateManager with WidgetsBindingObserver {
     final baseWorkflow = _workflowController.currentWorkflow;
     final startTime = _currentShotSequencer!.shotStartTime;
 
-    WorkflowMachine? machine;
-    try {
-      final de1 = _de1Controller.connectedDe1();
-      final info = de1.machineInfo;
-      machine = WorkflowMachine(
-        flowCalibration: de1.cachedFlowEstimation,
-        serialNumber: info.serialNumber,
-        model: info.model,
-        firmwareVersion: info.version,
-      );
-    } catch (e) {
-      _logger.warning('Could not read machine snapshot for shot: $e');
-    }
-    final workflow = machine != null
-        ? baseWorkflow.copyWith(id: baseWorkflow.id, machine: machine)
-        : baseWorkflow;
+    final workflow = baseWorkflow.copyWith(
+      id: baseWorkflow.id,
+      machine: _currentShotMachine,
+      clearMachine: _currentShotMachine == null,
+    );
 
     _persistenceController.persistShot(
       ShotRecord(
@@ -630,6 +621,22 @@ class De1StateManager with WidgetsBindingObserver {
         ),
       ),
     );
+  }
+
+  WorkflowMachine? _captureMachineSnapshot() {
+    try {
+      final de1 = _de1Controller.connectedDe1();
+      final info = de1.machineInfo;
+      return WorkflowMachine(
+        flowCalibration: de1.cachedFlowEstimation,
+        serialNumber: info.serialNumber,
+        model: info.model,
+        firmwareVersion: info.version,
+      );
+    } catch (e) {
+      _logger.warning('Could not read machine snapshot for shot: $e');
+      return null;
+    }
   }
 
   void _cleanupShotSequencer({bool emitTerminal = true}) {
@@ -668,6 +675,7 @@ class De1StateManager with WidgetsBindingObserver {
     _currentShotSequencer = null;
 
     _currentShotSnapshots.clear();
+    _currentShotMachine = null;
 
     if (_currentShotId != null) {
       _currentShotId = null;

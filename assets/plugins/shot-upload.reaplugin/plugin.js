@@ -13,7 +13,7 @@
  *
  * The upload binds to the exact persisted shot via the `shotStored` event (fired
  * with the shot id after persistence), so there is no timer/`/shots/latest`
- * race, and machine identity is captured at completion time.
+ * race, and machine identity is captured at shot start.
  *
  * Contract: must define createPlugin(host) returning {id, version, onLoad,
  * onUnload, onEvent}.
@@ -23,7 +23,7 @@ function createPlugin(host) {
   "use strict";
 
   const NS = "shot-upload.reaplugin";
-  const VERSION = "0.2.0";
+  const VERSION = "0.2.1";
   const LOCAL_API_URL = "http://localhost:8080/api/v1";
   const UPLOAD_PATH = "support/api/shot_upload"; // exact allowlisted proxy write path
   const RETRIES = 3;
@@ -38,6 +38,7 @@ function createPlugin(host) {
 
   let isUploading = false;
   let isReconciling = false;
+  let pendingLiveShotIds = [];
   let reconcileTimerId = null;
   let unloaded = false;
   let decaidVersion = null;
@@ -195,16 +196,23 @@ function createPlugin(host) {
     return result;
   }
 
-  async function autoUpload(shotId) {
+  function queueLiveShot(shotId) {
+    if (!pendingLiveShotIds.includes(shotId)) {
+      pendingLiveShotIds = [...pendingLiveShotIds, shotId];
+    }
+  }
+
+  function takeLiveShot() {
+    const shotId = pendingLiveShotIds[0];
+    pendingLiveShotIds = pendingLiveShotIds.slice(1);
+    return shotId;
+  }
+
+  async function uploadAutomatically(shotId) {
     if (shotId && shotId === state.lastUploadedShot) {
       log(`shot ${shotId} already uploaded`);
       return;
     }
-    if (isUploading || isReconciling) {
-      scheduleReconcile(0);
-      return;
-    }
-    isUploading = true;
     try {
       const r = await uploadShot(shotId, false);
       log(`uploaded ${shotId} -> ${r && r.profile_ref ? r.profile_ref : "ok"}`);
@@ -218,8 +226,22 @@ function createPlugin(host) {
         host.emit("uploadError", { shotId: shotId, error: e.message, timestamp: Date.now() });
         scheduleReconcile(RECONCILE_RETRY_MS);
       }
+    }
+  }
+
+  async function autoUpload(shotId) {
+    if (!state.autoUpload || unloaded) return;
+    if (isUploading || isReconciling) {
+      queueLiveShot(shotId);
+      return;
+    }
+    isUploading = true;
+    try {
+      await uploadAutomatically(shotId);
     } finally {
       isUploading = false;
+      const nextShotId = takeLiveShot();
+      if (nextShotId) autoUpload(nextShotId);
     }
   }
 
@@ -285,6 +307,11 @@ function createPlugin(host) {
         let scanned = 0;
         for (const shot of page.items) {
           if (!state.autoUpload || unloaded || !reconciliationIsSafe() || attempts >= RECONCILE_BATCH_SIZE) break;
+          while (pendingLiveShotIds.length > 0 && attempts < RECONCILE_BATCH_SIZE) {
+            await uploadAutomatically(takeLiveShot());
+            attempts++;
+          }
+          if (attempts >= RECONCILE_BATCH_SIZE) break;
           scanned++;
           if (!reconcileCandidate(shot)) continue;
           try {
@@ -311,7 +338,13 @@ function createPlugin(host) {
       nextDelay = RECONCILE_RETRY_MS;
     } finally {
       isReconciling = false;
-      scheduleReconcile(nextDelay);
+      const nextShotId = takeLiveShot();
+      if (nextShotId) {
+        autoUpload(nextShotId);
+        scheduleReconcile(RECONCILE_CONTINUE_MS);
+      } else {
+        scheduleReconcile(nextDelay);
+      }
     }
   }
 
@@ -338,6 +371,7 @@ function createPlugin(host) {
       unloaded = true;
       if (reconcileTimerId !== null) clearTimeout(reconcileTimerId);
       reconcileTimerId = null;
+      pendingLiveShotIds = [];
     },
 
     onEvent(event) {
@@ -367,9 +401,10 @@ function createPlugin(host) {
         case "settingsUpdated": {
           const wasEnabled = state.autoUpload;
           applySettings(event.payload);
-          if (!state.autoUpload && reconcileTimerId !== null) {
-            clearTimeout(reconcileTimerId);
+          if (!state.autoUpload) {
+            if (reconcileTimerId !== null) clearTimeout(reconcileTimerId);
             reconcileTimerId = null;
+            pendingLiveShotIds = [];
           } else if (state.autoUpload) {
             if (!wasEnabled) setReconcileOffset(0);
             scheduleReconcile(0);

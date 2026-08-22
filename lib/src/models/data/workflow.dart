@@ -106,6 +106,7 @@ class Workflow {
     HotWaterData? hotWaterData,
     RinseData? rinseData,
     WorkflowMachine? machine,
+    bool clearMachine = false,
   }) {
     return Workflow(
       id: id ?? Uuid().v4(),
@@ -116,7 +117,7 @@ class Workflow {
       steamSettings: steamSettings ?? this.steamSettings,
       hotWaterData: hotWaterData ?? this.hotWaterData,
       rinseData: rinseData ?? this.rinseData,
-      machine: machine ?? this.machine,
+      machine: clearMachine ? null : machine ?? this.machine,
     );
   }
 }
