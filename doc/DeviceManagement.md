@@ -664,7 +664,7 @@ Future<void> connectToDe1(De1Interface de1Interface) async {
 
 **Note:** ScaleController does **not** auto-connect. Connection decisions are made by `ConnectionManager`. ScaleController only handles the mechanics of connecting to a specific scale.
 
-Device implementations define their own readiness gate before `ScaleController` adopts them. Acaia requires its first structurally valid weight frame. An awake Decent Scale connection requires a recognised FFF4 status or weight frame, retrying the subscription and status probe once after two seconds. A deliberately sleeping reconnect restores the subscription while remaining dark and defers readiness verification until wake. Successful GATT setup or arbitrary notifications alone are not connected readiness. A mute transport is torn down without powering off the scale, and normal ConnectionManager recovery remains responsible for retrying.
+Device implementations define their own readiness gate before `ScaleController` adopts them. Acaia requires its first structurally valid weight frame. AtomHeart Eclair likewise waits for its first valid weight frame, with two bounded notification re-subscriptions before a silent connection is rejected. An awake Decent Scale connection requires a recognised FFF4 status or weight frame, retrying the subscription and status probe once after two seconds. A deliberately sleeping reconnect restores the subscription while remaining dark and defers readiness verification until wake. Successful GATT setup or arbitrary notifications alone are not connected readiness. A mute transport is torn down without powering off the scale, and normal ConnectionManager recovery remains responsible for retrying.
 
 **Connection Flow:**
 ```dart

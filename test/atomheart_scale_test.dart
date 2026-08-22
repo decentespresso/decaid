@@ -34,6 +34,35 @@ void main() {
       expect(AtomheartScale.parseFrame([0x57, 0x01]), isNull);
     });
 
+    test('parseFrame rejects a truncated nine byte frame', () {
+      expect(
+        AtomheartScale.parseFrame([
+          0x57,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+        ]),
+        isNull,
+      );
+    });
+
+    test('parseFrame rejects a frame longer than the Eclair frame', () {
+      final payload = [0xDC, 0x05, 0x00, 0x00, 0x88, 0x13, 0x00, 0x00, 0x00];
+      var xor = 0;
+      for (var b in payload) {
+        xor ^= b;
+      }
+      final data = [0x57, ...payload, xor & 0xFF];
+
+      expect(data.length, 11);
+      expect(AtomheartScale.parseFrame(data), isNull);
+    });
+
     test('parseFrame returns null for wrong header', () {
       final payload = [0xDC, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
       var xor = 0;
