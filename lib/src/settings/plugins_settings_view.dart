@@ -863,12 +863,15 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
               .toList(growable: false),
     };
     for (final entry in enumValuesByKey.entries) {
-      if (entry.value.contains(newSettings[entry.key])) continue;
+      if (!newSettings.containsKey(entry.key) ||
+          entry.value.contains(newSettings[entry.key])) {
+        continue;
+      }
       final defaultValue = settingsSchema[entry.key]?['default'];
       if (entry.value.contains(defaultValue)) {
         newSettings[entry.key] = defaultValue;
       } else {
-        newSettings.remove(entry.key);
+        newSettings[entry.key] = null;
       }
     }
     if (context.mounted == false) {
@@ -904,6 +907,8 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                   final enumValues = enumValuesByKey[key] ?? const <String>[];
                   final selectedEnumValue = enumValues.contains(currentValue)
                       ? currentValue as String
+                      : enumValues.contains(defaultValue)
+                      ? defaultValue as String
                       : null;
                   final secureDraft = secureDrafts[key];
                   final secureValueIsSet =
