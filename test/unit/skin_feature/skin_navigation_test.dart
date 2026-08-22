@@ -82,6 +82,12 @@ void main() {
     });
   });
 
+  test('only main-frame load errors replace the skin', () {
+    expect(shouldShowSkinLoadError(false), isFalse);
+    expect(shouldShowSkinLoadError(true), isTrue);
+    expect(shouldShowSkinLoadError(null), isTrue);
+  });
+
   group('SkinExitCoordinator', () {
     final target = Uri.parse(skinExitDashboardUrl);
     final trustedPage = Uri.parse('http://localhost:3000/?_=123');
