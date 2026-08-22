@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
 import 'package:reaprime/src/launcher/launcher_view.dart';
 import 'package:reaprime/src/home_feature/widgets/device_selection_widget.dart';
@@ -17,6 +16,7 @@ import 'package:reaprime/src/models/device/device.dart' as dev;
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/settings/settings_service.dart';
+import 'package:reaprime/src/services/storage/app_directories.dart';
 
 class DeviceDiscoveryView extends StatefulWidget {
   final ConnectionManager connectionManager;
@@ -504,8 +504,7 @@ class _DeviceDiscoveryState extends State<DeviceDiscoveryView> {
 
   Future<void> _exportLogs() async {
     try {
-      final docs = await getApplicationDocumentsDirectory();
-      final logFile = File('${docs.path}/log.txt');
+      final logFile = File('${await AppDirectories.logs}/log.txt');
 
       if (!await logFile.exists()) {
         if (mounted) {

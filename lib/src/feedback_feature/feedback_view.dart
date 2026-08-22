@@ -12,17 +12,27 @@ import 'package:url_launcher/url_launcher.dart';
 
 const _maxScreenshots = 2;
 
-void showFeedbackDialog(BuildContext context, {required String githubToken}) {
+void showFeedbackDialog(
+  BuildContext context, {
+  required String githubToken,
+  required List<String> Function() serialNumbers,
+}) {
   showShadDialog(
     context: context,
-    builder: (context) => FeedbackDialog(githubToken: githubToken),
+    builder: (context) =>
+        FeedbackDialog(githubToken: githubToken, serialNumbers: serialNumbers),
   );
 }
 
 class FeedbackDialog extends StatefulWidget {
   final String githubToken;
+  final List<String> Function() serialNumbers;
 
-  const FeedbackDialog({super.key, required this.githubToken});
+  const FeedbackDialog({
+    super.key,
+    required this.githubToken,
+    required this.serialNumbers,
+  });
 
   @override
   State<FeedbackDialog> createState() => _FeedbackDialogState();
@@ -44,7 +54,10 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
   @override
   void initState() {
     super.initState();
-    _service = FeedbackService(githubToken: widget.githubToken);
+    _service = FeedbackService(
+      githubToken: widget.githubToken,
+      currentSerialNumbers: widget.serialNumbers,
+    );
     _controller = FeedbackController(service: _service);
     _controller.addListener(_onControllerChanged);
   }

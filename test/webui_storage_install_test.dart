@@ -130,6 +130,28 @@ void main() {
       expect(DateTime.parse(persisted['passione-dist']['lastChecked']), after);
     });
 
+    test('install cleans up temporary directories', () async {
+      final archive = makeGitHubArchive();
+
+      await http.runWithClient(
+        () => storage.installFromUrl('https://example.com/skin.zip'),
+        () => MockClient((request) async {
+          return http.Response.bytes(archive, 200);
+        }),
+      );
+
+      final leftovers = tmpRoot
+          .listSync()
+          .whereType<Directory>()
+          .where(
+            (dir) =>
+                dir.path.contains('webui_install') ||
+                dir.path.contains('webui_extract'),
+          )
+          .toList();
+      expect(leftovers, isEmpty);
+    });
+
     test('URL install persists source metadata; updateAllSkins refreshes on '
         'ETag change', () async {
       final archive = makeGitHubArchive();

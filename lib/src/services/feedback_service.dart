@@ -6,14 +6,16 @@ import 'dart:ui' as ui;
 import 'package:flutter/painting.dart';
 import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/models/feedback/feedback_request.dart';
 import 'package:reaprime/src/models/feedback/feedback_result.dart';
+import 'package:reaprime/src/services/storage/app_directories.dart';
+import 'package:reaprime/src/services/telemetry/anonymization.dart';
 
 class FeedbackService {
   final String _githubToken;
   final String _repo;
+  final List<String> Function() _currentSerialNumbers;
   final Logger _log = Logger('FeedbackService');
 
   static const String _githubApiBase = 'https://api.github.com';
@@ -21,8 +23,10 @@ class FeedbackService {
   FeedbackService({
     required String githubToken,
     String repo = 'decentespresso/decaid',
+    required List<String> Function() currentSerialNumbers,
   }) : _githubToken = githubToken,
-       _repo = repo;
+       _repo = repo,
+       _currentSerialNumbers = currentSerialNumbers;
 
   bool get isConfigured => _githubToken.isNotEmpty;
 
@@ -164,10 +168,9 @@ class FeedbackService {
 
   Future<String?> _readLogFile() async {
     try {
-      final docs = await getApplicationDocumentsDirectory();
-      final logFile = File('${docs.path}/log.txt');
+      final logFile = File('${await AppDirectories.logs}/log.txt');
       if (await logFile.exists()) {
-        return await logFile.readAsString();
+        return _scrubSensitive(await logFile.readAsString());
       }
       _log.info('No log file found');
       return null;
@@ -179,10 +182,9 @@ class FeedbackService {
 
   Future<String?> _readWebViewLogFile() async {
     try {
-      final docs = await getApplicationDocumentsDirectory();
-      final logFile = File('${docs.path}/webview_console.log');
+      final logFile = File('${await AppDirectories.logs}/webview_console.log');
       if (await logFile.exists()) {
-        return await logFile.readAsString();
+        return _scrubSensitive(await logFile.readAsString());
       }
       _log.info('No webview log file found');
       return null;
@@ -190,6 +192,13 @@ class FeedbackService {
       _log.warning('Failed to read webview log file', e);
       return null;
     }
+  }
+
+  String _scrubSensitive(String content) {
+    return Anonymization.scrubString(
+      content,
+      sensitiveStrings: _currentSerialNumbers(),
+    );
   }
 
   Future<Uint8List> _scaleImageToMaxSize(
