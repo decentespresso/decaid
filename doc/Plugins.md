@@ -37,6 +37,12 @@ A Decaid plugin consists of two required files:
       "type": "string",
       "secure": false,
       "description": "Setting description"
+    },
+    "Roast": {
+      "type": "enum",
+      "values": "Light | Medium | Dark",
+      "default": "Medium",
+      "description": "Roast degree"
     }
   },
   "api": [
@@ -66,7 +72,7 @@ A Decaid plugin consists of two required files:
   - `events.shots`: Receive `shotStored` and `shotUpdated`
   - `proxy.decent_api`: Send read requests through `host.decentProxy`
   - `proxy.decent_api.write`: Send allowlisted write requests through `host.decentProxy`
-- **settings**: User-configurable options with `type` (`string`, `number`, `boolean`) and optional `secure` flag for credentials such as passwords. Secure values use platform credential storage, are supplied in memory to `onLoad(settings)`, and are never returned by the REST API.
+- **settings**: User-configurable options with `type` (`string`, `number`, `boolean`, `enum`) and optional `secure` flag for credentials such as passwords. Enum `values` are separated by `|`. Secure values use platform credential storage, are supplied in memory to `onLoad(settings)`, and are never returned by the REST API.
 - **api**: HTTP and WebSocket endpoints exposed by the plugin
 
 Unknown permission names make the manifest invalid. Calls without their required
