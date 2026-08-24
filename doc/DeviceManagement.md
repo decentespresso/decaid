@@ -1,6 +1,6 @@
-# Device Management in REA
+# Device Management in Decaid
 
-This document explains how devices (DE1 machines, scales, sensors) are discovered, connected, and managed throughout the REA application lifecycle.
+This document explains how devices (DE1 machines, scales, sensors) are discovered, connected, and managed throughout the Decaid application lifecycle.
 
 ## Table of Contents
 
@@ -17,7 +17,7 @@ This document explains how devices (DE1 machines, scales, sensors) are discovere
 
 ## Architecture Overview
 
-REA uses a layered architecture for device management:
+Decaid uses a layered architecture for device management:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -715,10 +715,11 @@ of vanishing. Cross-transport (BLE/USB/WiFi) by construction.
   `{id, name, type}` off the connected device. A null emission (disconnect)
   does **not** forget — the device stays remembered.
 - **Availability:** computed at the API layer. `DevicesStateAggregator` /
-  `DevicesHandler` merge live devices (`available: true`) with remembered
-  devices that aren't present (`available: false`, `state: "disconnected"`) via
-  the shared `buildAvailabilityDeviceList`. The aggregator re-emits when the
-  registry changes. `DeviceController` itself stays live-only.
+  `DevicesHandler` merge discovered devices and the actively connected scale
+  (`available: true`) with remembered devices that aren't present
+  (`available: false`, `state: "disconnected"`) via the shared
+  `buildAvailabilityDeviceList`. The aggregator re-emits when the registry or
+  connected scale changes. `DeviceController` itself stays discovery-only.
 - **Forget:** `RememberedDevicesController.forget(id)`, exposed as
   `PUT /api/v1/devices/forget` (deviceId in body/query). A GUI Forget control
   lives in the web skin (separate repo), driven by this endpoint.
@@ -733,7 +734,11 @@ When a Bengle is the connected machine, its integrated scale is auto-attached
 to `ScaleController` as a virtual `BengleVirtualScale`. The integrated scale
 always wins on Bengle: external scale scanning is skipped entirely, and
 `preferredScaleId` is ignored while a Bengle is connected. Multi-scale
-support (external scale alongside the integrated scale) is on the roadmap.
+support (external scale alongside the integrated scale) is on the roadmap. The
+REST and WebSocket device inventories include the attached virtual scale even
+though it does not originate from `DeviceController` discovery. It is
+inventory-only in the devices API: connect and disconnect commands reject its
+ID because its lifecycle follows the Bengle machine.
 
 The confirmed Bengle application telemetry source is its 28-byte `0xA013`
 packet, consumed as the Bengle transport telemetry source and fanned out into
@@ -743,7 +748,8 @@ Decaid's existing abstractions:
   steam temperature) feed the normal `MachineSnapshot` stream;
 - Weight and firmware `GFlow` feed the integrated `BengleVirtualScale`
   surface (`weightFlow` is device-provided for Bengle, so no second app-side
-  estimate is layered on top);
+  estimate is layered on top). **Weight is signed and is legitimately
+  negative** — see below;
 - `MilkTemp` (0 = no probe) drives the existing Bengle milk-probe sensor
   (`probeAttached` / `probeTemperature`), which appears through the normal
   `/ws/v1/sensors/<id>/snapshot` API.

@@ -4,6 +4,7 @@ import 'dart:ui' show AppExitResponse, AppExitType;
 
 import 'package:collection/collection.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
+import 'package:path/path.dart' as p;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -13,6 +14,7 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:logging/logging.dart';
 import 'package:logging_appenders/logging_appenders.dart';
 import 'package:reaprime/build_info.dart';
+import 'package:reaprime/src/account/account_consent_prompter.dart';
 import 'package:reaprime/src/controllers/battery_controller.dart';
 import 'package:reaprime/src/controllers/bengle_probe_bridge.dart';
 import 'package:reaprime/src/controllers/bengle_saw_bridge.dart';
@@ -52,6 +54,8 @@ import 'package:reaprime/src/services/storage/bean_storage_service.dart';
 import 'package:reaprime/src/services/storage/drift_storage_service.dart';
 import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
 import 'package:reaprime/src/services/storage/profile_storage_service.dart';
+import 'package:reaprime/src/services/account/account_consent_gate.dart';
+import 'package:reaprime/src/services/account/account_consent_store.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/account/decent_proxy_service.dart';
 import 'package:reaprime/src/services/account/proxy_token_service.dart';
@@ -153,6 +157,20 @@ Future<void> _printStoragePaths() async {
   stdout.writeln('temp: ${await AppDirectories.temp}');
   await stdout.flush();
   exit(0);
+}
+
+ActiveSkinConsent? _activeSkinConsent(String path, WebUIStorage storage) {
+  final value = path.trim();
+  if (value.isEmpty) return null;
+  final normalizedPath = p.normalize(value);
+  final skin = storage.installedSkins.firstWhereOrNull(
+    (candidate) => p.equals(p.normalize(candidate.path), normalizedPath),
+  );
+  return ActiveSkinConsent(
+    id: skin?.id,
+    name: skin?.name ?? 'Custom skin',
+    path: value,
+  );
 }
 
 void main(List<String> args) async {
@@ -395,6 +413,7 @@ void main(List<String> args) async {
   DecentProxyService? decentProxyService;
   AccountTokensController? accountTokensController;
   CredentialStore? credentialStore;
+  AccountConsentGate? consentGate;
   final proxyTokenService = ProxyTokenService();
   if (cliArgs.noAccount) {
     log.info('--no-account: skipping credential store and account service');
@@ -402,6 +421,16 @@ void main(List<String> args) async {
     decentProxyService = null;
   } else {
     credentialStore = await createCredentialStore();
+    final consentPrompter = AccountConsentPrompter(
+      navigatorKey: NavigationService.navigatorKey,
+    );
+    final gate = AccountConsentGate(
+      store: AccountConsentStore(credentialStore: credentialStore),
+      prompt: consentPrompter.prompt,
+      trustedConsentKeys: cliArgs.trustedConsentKeys,
+      trustAllConsent: cliArgs.trustAllConsent,
+    );
+    consentGate = gate;
     const decentBaseUrl = String.fromEnvironment(
       'DECENT_BASE_URL',
       defaultValue: 'https://decentespresso.com',
@@ -414,15 +443,29 @@ void main(List<String> args) async {
     decentProxyService = DecentProxyService(
       httpClient: http.Client(),
       credentialStore: credentialStore,
+      requireConsent: gate.requireConsent,
       baseUrl: decentBaseUrl,
     );
     accountTokensController = AccountTokensController(
       tokenService: proxyTokenService,
       store: ProxyTokenStore(credentialStore: credentialStore),
+      callerLabelRegistrar: gate.registerCallerLabel,
     );
     await accountTokensController.initialize();
   }
-  webUIService.skinProxyToken = proxyTokenService.skinToken;
+  webUIService.skinProxyTokenProvider = (path) {
+    final skin = _activeSkinConsent(path, webUIStorage);
+    final gate = consentGate;
+    if (skin == null || gate == null) return null;
+    gate.registerCallerLabel(skin.key, skin.name);
+    return proxyTokenService.rotateSkinToken(
+      ProxyCaller(
+        id: skin.key,
+        scopes: const {ProxyTokenService.scopeAccountProxy},
+      ),
+    );
+  };
+  webUIService.skinProxyTokenRevoker = proxyTokenService.revokeSkinToken;
 
   final PluginLoaderService pluginService = PluginLoaderService(
     kvStore: HiveStoreService(defaultNamespace: "plugins")..initialize(),
@@ -626,6 +669,7 @@ void main(List<String> args) async {
         decentAccountService: decentAccountService,
         accountTokensController: accountTokensController,
         batteryController: batteryController,
+        displayController: displayController,
       ),
     ),
   );
@@ -841,6 +885,7 @@ class AppRoot extends StatefulWidget {
   final DecentAccountService? decentAccountService;
   final AccountTokensController? accountTokensController;
   final BatteryController? batteryController;
+  final DisplayController displayController;
 
   const AppRoot({
     super.key,
@@ -866,6 +911,7 @@ class AppRoot extends StatefulWidget {
     this.decentAccountService,
     this.accountTokensController,
     this.batteryController,
+    required this.displayController,
   });
 
   static void restart(BuildContext context) {
@@ -879,6 +925,37 @@ class AppRoot extends StatefulWidget {
 class _AppRootState extends State<AppRoot> {
   final Logger _log = Logger("AppRoot");
   Key _key = UniqueKey();
+
+  static const _windowChannel = MethodChannel('net.tadel.reaprime/window');
+
+  @override
+  void initState() {
+    super.initState();
+    if (Platform.isWindows) {
+      _windowChannel.setMethodCallHandler(_handleWindowMethod);
+    }
+  }
+
+  @override
+  void dispose() {
+    if (Platform.isWindows) {
+      _windowChannel.setMethodCallHandler(null);
+    }
+    super.dispose();
+  }
+
+  Future<void> _handleWindowMethod(MethodCall call) async {
+    if (call.method == 'backToDashboard') {
+      _backToDashboard();
+    }
+  }
+
+  void _backToDashboard() {
+    NavigationService.navigatorKey.currentState?.pushNamedAndRemoveUntil(
+      LauncherView.routeName,
+      (_) => false,
+    );
+  }
 
   Future<void> restart() async {
     _log.info("recreating App Root");
@@ -924,6 +1001,7 @@ class _AppRootState extends State<AppRoot> {
         decentAccountService: widget.decentAccountService,
         accountTokensController: widget.accountTokensController,
         batteryController: widget.batteryController,
+        displayController: widget.displayController,
       ),
     );
 
@@ -1009,15 +1087,7 @@ class _AppRootState extends State<AppRoot> {
               LogicalKeyboardKey.keyD,
               meta: true,
             ),
-            onSelected: () {
-              final navigator = NavigationService.navigatorKey.currentState;
-              if (navigator != null) {
-                navigator.pushNamedAndRemoveUntil(
-                  LauncherView.routeName,
-                  (_) => false,
-                );
-              }
-            },
+            onSelected: _backToDashboard,
           ),
           if (widget.settingsController.enableSimulatedWebViews) ...[
             PlatformMenuItem(

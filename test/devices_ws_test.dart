@@ -11,6 +11,8 @@ import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/impl/bengle/bengle_virtual_scale.dart';
+import 'package:reaprime/src/models/device/impl/bengle/mock_bengle.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
 
@@ -127,6 +129,52 @@ void main() {
       expect(devices[0]['id'], 'scale-1');
       expect(devices[0]['name'], 'My Scale');
       expect(devices[0]['type'], 'scale');
+
+      await channel.sink.close();
+    });
+
+    test('tracks a connected scale that is outside discovery', () async {
+      final bengle = MockBengle();
+      await bengle.onConnect();
+      addTearDown(bengle.onDisconnect);
+      final scale = BengleVirtualScale(bengle);
+      await scaleController.connectToScale(scale);
+
+      final (channel, messages) = connectWs();
+      final connected = await messages
+          .where(
+            (message) => (message['devices'] as List).any(
+              (device) =>
+                  device['id'] == scale.deviceId &&
+                  device['state'] == 'connected',
+            ),
+          )
+          .first
+          .timeout(Duration(seconds: 2));
+
+      expect((connected['devices'] as List).single['available'], true);
+
+      channel.sink.add(
+        jsonEncode({'command': 'disconnect', 'deviceId': scale.deviceId}),
+      );
+      expect(await waitForError(messages), {
+        'error':
+            'Device is inventory-only and cannot be controlled here: '
+            '${scale.deviceId}',
+      });
+
+      await bengle.onDisconnect();
+
+      final disconnected = await messages
+          .where(
+            (message) => (message['devices'] as List).every(
+              (device) => device['id'] != scale.deviceId,
+            ),
+          )
+          .first
+          .timeout(Duration(seconds: 2));
+
+      expect(disconnected['devices'], isEmpty);
 
       await channel.sink.close();
     });

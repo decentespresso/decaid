@@ -51,7 +51,7 @@ BengleShotSample? decodeBengleShotSample(ByteData data) {
     groupTemperature: data.getUint16(14, Endian.big) / 100,
     setMixTemperature: data.getUint16(16, Endian.big) / 100,
     setGroupTemperature: data.getUint16(18, Endian.big) / 100,
-    weight: data.getUint16(20, Endian.big) / 32,
+    weight: data.getInt16(20, Endian.big) / 16,
     frameNumber: data.getUint8(22),
     steamTemperature: data.getUint16(23, Endian.big) / 100,
     milkTemperature: data.getUint16(25, Endian.big) / 100,

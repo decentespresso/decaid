@@ -311,6 +311,46 @@ function createPlugin() {
       });
     });
 
+    test('enum settings reject values outside the manifest array', () async {
+      const id = 'enum.reaplugin';
+      await service.addPlugin(
+        makePluginSource(
+          id,
+          settings: {
+            'Roast': {
+              'type': 'enum',
+              'values': ['Light', 'Medium', 'Dark'],
+            },
+          },
+        ).path,
+      );
+
+      await service.savePluginSettings(id, {'Roast': 'Light'});
+      await expectLater(
+        service.savePluginSettings(id, {'Roast': 'Obsolete'}),
+        throwsA(isA<PluginSettingsValidationException>()),
+      );
+
+      expect(await service.pluginSettings(id), {'Roast': 'Light'});
+
+      await service.savePluginSettings(id, {'Roast': null});
+      expect(await service.pluginSettings(id), isEmpty);
+    });
+
+    test('rejects pipe-delimited enum manifest values', () async {
+      await expectLater(
+        service.addPlugin(
+          makePluginSource(
+            'invalid-enum.reaplugin',
+            settings: {
+              'Roast': {'type': 'enum', 'values': 'Light | Medium | Dark'},
+            },
+          ).path,
+        ),
+        throwsFormatException,
+      );
+    });
+
     test(
       'a mixed patch updates, preserves, and clears settings at once',
       () async {

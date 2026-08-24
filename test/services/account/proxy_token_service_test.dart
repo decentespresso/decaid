@@ -20,6 +20,36 @@ void main() {
     expect(ProxyTokenService().skinToken, isNot(ProxyTokenService().skinToken));
   });
 
+  test('rotating the skin token binds identity and revokes the old token', () {
+    final service = ProxyTokenService();
+    final oldToken = service.skinToken;
+
+    final newToken = service.rotateSkinToken(
+      const ProxyCaller(
+        id: 'skin:aileen',
+        scopes: {ProxyTokenService.scopeAccountProxy},
+      ),
+    );
+
+    expect(newToken, isNot(oldToken));
+    expect(service.validate(oldToken), isNull);
+    expect(service.validate(newToken)?.id, 'skin:aileen');
+  });
+
+  test('revoking the skin token ends the served skin session', () {
+    final service = ProxyTokenService();
+    final token = service.rotateSkinToken(
+      const ProxyCaller(
+        id: 'skin:aileen',
+        scopes: {ProxyTokenService.scopeAccountProxy},
+      ),
+    );
+
+    service.revokeSkinToken();
+
+    expect(service.validate(token), isNull);
+  });
+
   test('unknown tokens do not validate', () {
     final service = ProxyTokenService();
     expect(service.validate('nope'), isNull);

@@ -9,6 +9,8 @@ void main() {
       expect(args.bypassOnboarding, isFalse);
       expect(args.direct, isFalse);
       expect(args.noAccount, isFalse);
+      expect(args.trustedConsentKeys, isEmpty);
+      expect(args.trustAllConsent, isFalse);
       expect(args.skinId, isNull);
       expect(args.skinPath, isNull);
     });
@@ -48,12 +50,28 @@ void main() {
       expect(args.printStoragePaths, isTrue);
     });
 
+    test('--trust-consent is repeatable', () {
+      final args = parseCliArgs([
+        '--trust-consent=skin:aileen',
+        '--trust-consent=plugin:dye2',
+      ]);
+
+      expect(args.trustedConsentKeys, {'skin:aileen', 'plugin:dye2'});
+    });
+
+    test('--trust-all-consent', () {
+      final args = parseCliArgs(['--trust-all-consent']);
+      expect(args.trustAllConsent, isTrue);
+    });
+
     test('all flags combined', () {
       final args = parseCliArgs([
         '--serial',
         '--bypass-onboarding',
         '--direct',
         '--no-account',
+        '--trust-consent=skin:streamline.js',
+        '--trust-all-consent',
         '--skin=streamline.js',
         '--skin-path=/tmp/test-skin',
       ]);
@@ -61,6 +79,8 @@ void main() {
       expect(args.bypassOnboarding, isTrue);
       expect(args.direct, isTrue);
       expect(args.noAccount, isTrue);
+      expect(args.trustedConsentKeys, {'skin:streamline.js'});
+      expect(args.trustAllConsent, isTrue);
       expect(args.skinId, 'streamline.js');
       expect(args.skinPath, '/tmp/test-skin');
     });

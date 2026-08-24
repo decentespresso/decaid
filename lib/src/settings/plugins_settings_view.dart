@@ -116,6 +116,7 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
   Map<String, PluginSource> _sources = {};
   bool _isLoading = true;
   bool _isCheckingUpdates = false;
+  String? _loadError;
 
   late final PluginSourceService _sourceService =
       widget.pluginSourceService ??
@@ -130,21 +131,36 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
   Future<void> _loadPlugins() async {
     setState(() {
       _isLoading = true;
+      _loadError = null;
     });
 
-    final plugins = widget.pluginLoaderService.availablePlugins;
-    _sourceService.seedBundledSources();
-    final sources = <String, PluginSource>{};
-    for (final plugin in plugins) {
-      final source = _sourceService.sourceFor(plugin.id);
-      if (source != null) sources[plugin.id] = source;
+    try {
+      await widget.pluginLoaderService.initialize();
+      if (!mounted) return;
+
+      final plugins = widget.pluginLoaderService.availablePlugins;
+      _sourceService.seedBundledSources();
+      final sources = <String, PluginSource>{};
+      for (final plugin in plugins) {
+        final source = _sourceService.sourceFor(plugin.id);
+        if (source != null) sources[plugin.id] = source;
+      }
+
+      setState(() {
+        _plugins = plugins;
+        _sources = sources;
+        _isLoading = false;
+      });
+    } catch (error, stackTrace) {
+      Logger(
+        'PluginsSettingsView',
+      ).warning('Failed to initialize plugins', error, stackTrace);
+      if (!mounted) return;
+      setState(() {
+        _loadError = error.toString();
+        _isLoading = false;
+      });
     }
-
-    setState(() {
-      _plugins = plugins;
-      _sources = sources;
-      _isLoading = false;
-    });
   }
 
   void _refreshPlugins() {
@@ -159,7 +175,7 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
         actions: [
           IconButton(
             icon: const Icon(LucideIcons.refreshCw),
-            onPressed: _refreshPlugins,
+            onPressed: _isLoading ? null : _refreshPlugins,
             tooltip: 'Refresh Plugins',
           ),
           IconButton(
@@ -170,13 +186,14 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(LucideIcons.cloudDownload),
-            onPressed: _isCheckingUpdates
+            onPressed: _isLoading || _loadError != null || _isCheckingUpdates
                 ? null
                 : () => _checkForPluginUpdates(context),
             tooltip: 'Check for updates',
           ),
           if (widget.allowInstall)
             PopupMenuButton<String>(
+              enabled: !_isLoading && _loadError == null,
               icon: const Icon(LucideIcons.plus),
               tooltip: 'Install Plugin',
               onSelected: (value) => _handleInstallAction(context, value),
@@ -205,6 +222,24 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
   Widget _buildPluginList() {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_loadError != null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          spacing: 12,
+          children: [
+            const Icon(Icons.error_outline, size: 48),
+            const Text(
+              'Plugins unavailable',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            ),
+            Text(_loadError!, textAlign: TextAlign.center),
+            ShadButton(onPressed: _refreshPlugins, child: const Text('Retry')),
+          ],
+        ),
+      );
     }
 
     if (_plugins.isEmpty) {
@@ -851,6 +886,23 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
     }
 
     final Map<String, dynamic> newSettings = Map.from(settings);
+    final enumValuesByKey = <String, List<String>>{
+      for (final entry in settingsSchema.entries)
+        if (entry.value['type'] == 'enum' && entry.value['secure'] != true)
+          entry.key: parsePluginEnumValues(entry.key, entry.value),
+    };
+    for (final entry in enumValuesByKey.entries) {
+      if (!newSettings.containsKey(entry.key) ||
+          entry.value.contains(newSettings[entry.key])) {
+        continue;
+      }
+      final defaultValue = settingsSchema[entry.key]?['default'];
+      if (entry.value.contains(defaultValue)) {
+        newSettings[entry.key] = defaultValue;
+      } else {
+        newSettings[entry.key] = null;
+      }
+    }
     if (context.mounted == false) {
       return;
     }
@@ -881,6 +933,12 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                   final schema = entry.value;
                   final currentValue = newSettings[key];
                   final defaultValue = schema['default'];
+                  final enumValues = enumValuesByKey[key] ?? const <String>[];
+                  final selectedEnumValue = enumValues.contains(currentValue)
+                      ? currentValue as String
+                      : enumValues.contains(defaultValue)
+                      ? defaultValue as String
+                      : null;
                   final secureDraft = secureDrafts[key];
                   final secureValueIsSet =
                       secureDraft != null &&
@@ -990,6 +1048,29 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                                 });
                               }
                             },
+                          )
+                        else if (schema['type'] == 'enum')
+                          ShadSelect<String>(
+                            initialValue: selectedEnumValue,
+                            enabled: enumValues.isNotEmpty,
+                            placeholder: const Text('Select a value...'),
+                            selectedOptionBuilder: (context, value) =>
+                                Text(value),
+                            onChanged: (value) {
+                              if (value != null) {
+                                setState(() {
+                                  newSettings[key] = value;
+                                });
+                              }
+                            },
+                            options: enumValues
+                                .map(
+                                  (value) => ShadOption<String>(
+                                    value: value,
+                                    child: Text(value),
+                                  ),
+                                )
+                                .toList(),
                           )
                         else
                           ShadInput(

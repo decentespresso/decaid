@@ -47,6 +47,7 @@ Pick the scenario that matches the task, run it verbatim, and finish before call
 | Bengle firmware wake-schedule sync | `scenarios/bengle-wake-schedule.md` |
 | Account-proxy CORS pinned to skin origin | `scenarios/account-proxy-cors.md` |
 | Account-proxy write forwarding + write-scope gate | `scenarios/account-proxy-write.md` |
+| Account-proxy native consent gate | `scenarios/account-proxy-consent.md` |
 | Plugin Decent-account proxy bridge (host.decentProxy) | `scenarios/plugin-decent-proxy.md` |
 
 ## Authoritative sources

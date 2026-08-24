@@ -17,7 +17,7 @@ Per the session decision, we also lay the **write-scope** capability so #355
 
 ## Scope (from issue #297)
 
-- Persist API-client tokens (`{token, label, scopes, createdAt}`) across restarts.
+- Persist API-client tokens (`{id, token, label, scopes, createdAt}`) across restarts.
 - Load persisted tokens into `ProxyTokenService` at startup, alongside the skin token.
 - Settings UI: create a named token, show it **once** to copy, list existing, revoke.
 
@@ -53,7 +53,8 @@ class SecureProxyTokenStore implements ProxyTokenStore  // FlutterSecureStorage,
 class InMemoryProxyTokenStore implements ProxyTokenStore // tests + headless fallback
 ```
 
-`PersistedProxyToken = {token, label, scopes:Set<String>, createdAt}`.
+`PersistedProxyToken = {id, token, label, scopes:Set<String>, createdAt}`. The
+non-secret UUID is the immutable caller identity; the label is presentation-only.
 Stored as a JSON list under a single secure-storage key. We persist the **raw token**
 (same trust level as the account password already in secure storage) because
 `validate()` is an exact-match lookup — storing only a hash would require changing

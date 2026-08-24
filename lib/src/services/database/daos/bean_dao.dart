@@ -66,6 +66,20 @@ class BeanDao extends DatabaseAccessor<AppDatabase> with _$BeanDaoMixin {
     return (delete(beans)..where((b) => b.id.equals(id))).go();
   }
 
+  Future<List<BeanBatche>> getAllBatches({bool includeArchived = false}) {
+    final query = select(beanBatches);
+    if (!includeArchived) {
+      final activeBeans = selectOnly(beans)
+        ..addColumns([beans.id])
+        ..where(beans.archived.equals(false));
+      query.where(
+        (b) => b.archived.equals(false) & b.beanId.isInQuery(activeBeans),
+      );
+    }
+    query.orderBy([(b) => OrderingTerm.desc(b.updatedAt)]);
+    return query.get();
+  }
+
   Future<List<BeanBatche>> getBatchesForBean(
     String beanId, {
     bool includeArchived = false,

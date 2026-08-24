@@ -102,7 +102,12 @@ channels:
       shotStateEvent:
         $ref: '#/components/messages/ShotStateEvent'
   SensorSnapshot:
-    description: Real-time sensor snapshot updates for a specific sensor.
+    description: >
+      Real-time sensor snapshot updates for a specific sensor. An open socket
+      follows replacement sensor instances with the same id and stays open
+      during a transient removal, resuming when that id returns. No status
+      frame is emitted while the sensor is absent. Opening the socket for an id
+      that is not present still returns an error frame and closes the socket.
     address: ws/v1/sensors/{id}/snapshot
     parameters:
       id:
@@ -845,10 +850,12 @@ components:
         available:
           type: boolean
           description: >
-            true if the device is currently present in discovery; false for a
-            remembered device that is not present (reported with state
-            "disconnected"). Remembered devices persist across restarts until
-            forgotten via the REST /api/v1/devices/forget endpoint.
+            true if the device is currently present in discovery or is actively
+            connected; false for a remembered device that is not present
+            (reported with state "disconnected"). Remembered devices persist
+            across restarts until forgotten via the REST
+            /api/v1/devices/forget endpoint. Availability does not imply command
+            ownership; controller-owned devices may be inventory-only.
           example: true
 
     DeviceConnectResult:
@@ -889,7 +896,11 @@ components:
           description: The command to execute.
         deviceId:
           type: string
-          description: Device identifier. Required for connect and disconnect commands.
+          description: >
+            Device identifier. Required for connect and disconnect commands.
+            Controller-owned inventory devices such as Bengle's integrated
+            virtual scale reject both commands because their lifecycle follows
+            the machine.
         connect:
           type: boolean
           description: Whether to scan first and automatically fill missing machine and scale slots without replacing connected devices (scan command only).

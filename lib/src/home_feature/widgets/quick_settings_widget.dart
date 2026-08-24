@@ -195,7 +195,7 @@ class _QuickSettingsState extends State<QuickSettingsWidget> {
                           );
                           await launchUrl(url);
                         } else {
-                          Navigator.of(context).pushNamed(SkinView.routeName);
+                          SkinView.open(Navigator.of(context));
                         }
                       },
                     ),

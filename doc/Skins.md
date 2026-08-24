@@ -1444,6 +1444,8 @@ Returns to auto-managed wake-lock behavior based on machine state.
 **Wake-Lock Auto-Management:**
 - When no override is active, wake-lock is automatically enabled when the machine is connected and not sleeping, and disabled when the machine sleeps or disconnects.
 - Brightness is automatically restored to its pre-sleep value when the machine transitions from sleeping to idle.
+- When the embedded skin view closes, native UI becomes authoritative and the host resets brightness to 100 (OS-managed), overriding any active REST or WebSocket brightness request.
+- Clients that still require fixed brightness must request it again after the skin closes.
 
 **Low Battery Brightness Cap:**
 - When the `lowBatteryBrightnessLimit` setting is enabled (via `POST /api/v1/settings`) and battery drops below 30%, screen brightness is capped at 20.
@@ -3314,18 +3316,18 @@ http://<host>:8080/api/v1/plugins/settings.reaplugin/ui?backName=MySkin
 
 This shows "Back to MySkin" in the settings plugin's nav bar. When clicked, it navigates to `http://<host>:3000/?_=<timestamp>` (with cache busting). This allows skins to provide a "Settings" link that returns to the skin after configuration changes.
 
-**External links:** When a skin runs inside the embedded webview (mobile/desktop app), navigations to `localhost:3000` and the settings plugin load in place; any other `http`/`https` link opens in the **system browser** while the skin stays loaded. A plain `<a href="https://…">` works, but the in-app webview blocks `target="_blank"` popups (`javaScriptCanOpenWindowsAutomatically: false`), so for JS-driven links route through a delegated click handler — `window.open(url, '_blank')` with a `location.href` fallback — so the navigation reaches `shouldOverrideUrlLoading` and is handed off to the OS.
+**External links:** When a skin runs inside the embedded webview (mobile/desktop app), navigations to the active skin origin, `localhost:3000`, and the settings plugin load in place; any other `http`/`https` link opens in the **system browser** while the skin stays loaded. A plain `<a href="https://…">` works, but the in-app webview blocks `target="_blank"` popups (`javaScriptCanOpenWindowsAutomatically: false`). For JS-driven links, use a delegated click handler with `window.open(url, '_blank')` and a `location.href` fallback so the navigation reaches `shouldOverrideUrlLoading` and is handed off to the OS.
 
-**Return to the dashboard:** Skin pages served on port 3000 load the tokenless `/__decent/skin-api.js` from an absolute same-origin URL, which exposes `window.decentApp.exitToDashboard()`. ReaPrime stores the account-proxy token in escaped page metadata that only the same-origin script reads. Token injection accepts loopback and IP addresses currently assigned to the device, including Ethernet and secondary adapters; arbitrary hostnames and stale addresses are rejected. If local interface enumeration is unavailable, the WiFi address cached for the server link is used as a fallback. The script response also uses `Cross-Origin-Resource-Policy: same-origin`. In the embedded webview the callback closes the skin and reveals the Decent dashboard. In an external browser it is a no-op. The script works with `script-src 'self'`; policies that reject all same-origin scripts, such as `script-src 'none'` or nonce-only policies without `'self'`, also reject this API.
+**Return to the dashboard:** Port 3000 is a stable no-store entry point that redirects to a fresh browser origin each time Decaid serves a skin. The active origin loads the tokenless `/__decent/skin-api.js` from an absolute same-origin URL, which exposes `window.decentApp.exitToDashboard()`. ReaPrime stores a newly rotated, skin-bound account-proxy token in escaped page metadata that only the same-origin script reads; switching or stopping the server revokes it. This prevents a stale skin tab from reading or using the next skin's token. Token injection accepts loopback and IP addresses currently assigned to the device, including Ethernet and secondary adapters; arbitrary hostnames and stale addresses are rejected. If local interface enumeration is unavailable, the WiFi address cached for the server link is used as a fallback. The script response also uses `Cross-Origin-Resource-Policy: same-origin`. In the embedded webview the callback closes the skin and reveals the Decent dashboard. In an external browser it is a no-op. The script works with `script-src 'self'`; policies that reject all same-origin scripts, such as `script-src 'none'` or nonce-only policies without `'self'`, also reject this API.
 
-The embedded webview also shows a platform-specific navigation guide when a skin opens. Disable or restore it in **Settings** under **General** with **Skin navigation guide**.
+The embedded webview also shows a platform-specific navigation guide when a skin opens. On Windows, choose **Back to Dashboard** from the system menu, available from the window icon or by right-clicking the title bar. Disable or restore the guide in **Settings** under **General** with **Skin navigation guide**.
 
 **Server control endpoints:**
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/v1/webui/server/status` | Current status (`{serving, path, port, ip}`) |
-| POST | `/api/v1/webui/server/start` | Start serving the default skin on port 3000 |
+| POST | `/api/v1/webui/server/start` | Start serving the default skin through the port 3000 entry point |
 | POST | `/api/v1/webui/server/stop` | Stop serving |
 | POST | `/api/v1/webui/skins/update` | Check all remote skin sources for updates |
 

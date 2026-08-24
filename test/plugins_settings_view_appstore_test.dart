@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
@@ -6,12 +8,25 @@ import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'package:reaprime/src/settings/plugins_settings_view.dart';
 
 class FakePluginLoaderService extends Fake implements PluginLoaderService {
-  FakePluginLoaderService({this.plugins = const [], this.settings = const {}});
+  FakePluginLoaderService({
+    List<PluginManifest> plugins = const [],
+    this.settings = const {},
+    Future<void>? initialization,
+  }) : plugins = List.of(plugins),
+       initialization = initialization ?? Future.value();
 
   final List<PluginManifest> plugins;
   final Map<String, dynamic> settings;
+  final Future<void> initialization;
   Map<String, dynamic>? savedSettings;
   int saveCallCount = 0;
+  int initializeCallCount = 0;
+
+  @override
+  Future<void> initialize() {
+    initializeCallCount++;
+    return initialization;
+  }
 
   @override
   List<PluginManifest> get availablePlugins => plugins;
@@ -84,6 +99,74 @@ void main() {
     });
   });
 
+  testWidgets('waits for initialization before exposing discovered plugins', (
+    tester,
+  ) async {
+    final ready = Completer<void>();
+    fakePluginLoaderService = FakePluginLoaderService(
+      initialization: ready.future,
+    );
+
+    await tester.pumpWidget(
+      ShadApp(
+        home: PluginsSettingsView(pluginLoaderService: fakePluginLoaderService),
+      ),
+    );
+    await tester.pump();
+
+    expect(fakePluginLoaderService.initializeCallCount, 1);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    final installButton = find.byWidgetPredicate(
+      (widget) =>
+          widget is PopupMenuButton<String> &&
+          widget.tooltip == 'Install Plugin',
+    );
+    expect(
+      tester.widget<PopupMenuButton<String>>(installButton).enabled,
+      isFalse,
+    );
+
+    fakePluginLoaderService.plugins.add(
+      PluginManifest(
+        id: 'ready.reaplugin',
+        name: 'Ready Plugin',
+        author: 'Test',
+        description: 'Loaded after initialization',
+        version: '1.0.0',
+        apiVersion: 1,
+        permissions: {},
+        settings: {},
+        api: PluginApi(endpoints: []),
+      ),
+    );
+    ready.complete();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Ready Plugin'), findsOneWidget);
+    expect(
+      tester.widget<PopupMenuButton<String>>(installButton).enabled,
+      isTrue,
+    );
+  });
+
+  testWidgets('shows a retry state when initialization fails', (tester) async {
+    final failed = Completer<void>();
+    fakePluginLoaderService = FakePluginLoaderService(
+      initialization: failed.future,
+    );
+
+    await tester.pumpWidget(
+      ShadApp(
+        home: PluginsSettingsView(pluginLoaderService: fakePluginLoaderService),
+      ),
+    );
+    failed.completeError(StateError('scan failed'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Plugins unavailable'), findsOneWidget);
+    expect(find.widgetWithText(ShadButton, 'Retry'), findsOneWidget);
+  });
+
   testWidgets('renders manifest permission wire names', (tester) async {
     final manifest = PluginManifest(
       id: 'proxy.reaplugin',
@@ -111,6 +194,98 @@ void main() {
 
     expect(find.text('proxy.decent_api'), findsOneWidget);
     expect(find.text('proxyDecentApi'), findsNothing);
+  });
+
+  PluginManifest enumManifest({bool includeDefault = true}) => PluginManifest(
+    id: 'enum.reaplugin',
+    name: 'Enum Plugin',
+    author: 'Test',
+    description: 'Test plugin',
+    version: '1.0.0',
+    apiVersion: 1,
+    permissions: {},
+    settings: {
+      'Roast': {
+        'type': 'enum',
+        'values': ['Light', 'Medium', 'Dark'],
+        if (includeDefault) 'default': 'Medium',
+      },
+    },
+    api: PluginApi(endpoints: []),
+  );
+
+  Future<void> openEnumSettingsDialog(
+    WidgetTester tester,
+    Map<String, dynamic> settings, {
+    bool includeDefault = true,
+  }) async {
+    fakePluginLoaderService = FakePluginLoaderService(
+      plugins: [enumManifest(includeDefault: includeDefault)],
+      settings: settings,
+    );
+
+    await tester.pumpWidget(
+      ShadApp(
+        builder: (_, child) => ScaffoldMessenger(child: child!),
+        home: PluginsSettingsView(
+          pluginLoaderService: fakePluginLoaderService,
+          allowInstall: false,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.widgetWithText(ShadButton, 'Settings'));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('selects and saves enum settings', (tester) async {
+    await openEnumSettingsDialog(tester, {'Roast': 'Light'});
+
+    expect(find.byType(ShadSelect<String>), findsOneWidget);
+    expect(find.text('Light'), findsOneWidget);
+    await tester.tap(find.byType(ShadSelect<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ShadOption<String>, 'Dark'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ShadButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(fakePluginLoaderService.savedSettings, {'Roast': 'Dark'});
+  });
+
+  testWidgets('replaces an invalid enum setting with its valid default', (
+    tester,
+  ) async {
+    await openEnumSettingsDialog(tester, {'Roast': 'Obsolete'});
+
+    expect(find.text('Medium'), findsOneWidget);
+    await tester.tap(find.widgetWithText(ShadButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(fakePluginLoaderService.savedSettings, {'Roast': 'Medium'});
+  });
+
+  testWidgets('clears an invalid enum setting without a valid default', (
+    tester,
+  ) async {
+    await openEnumSettingsDialog(tester, {
+      'Roast': 'Obsolete',
+    }, includeDefault: false);
+
+    await tester.tap(find.widgetWithText(ShadButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(fakePluginLoaderService.savedSettings, {'Roast': null});
+  });
+
+  testWidgets('does not persist an untouched enum default', (tester) async {
+    await openEnumSettingsDialog(tester, {});
+
+    expect(find.text('Medium'), findsOneWidget);
+    await tester.tap(find.widgetWithText(ShadButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(fakePluginLoaderService.savedSettings, isEmpty);
   });
 
   PluginManifest secureManifest() => PluginManifest(

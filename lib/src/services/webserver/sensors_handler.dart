@@ -58,15 +58,55 @@ final class SensorsHandler {
         return;
       }
 
-      final sub = sensor.data.listen((snapshot) {
-        _log.finest("received snapshot: $snapshot");
-        socket.sink.add(jsonEncode(snapshot));
-      }, onError: (e, st) => log.severe('send error', e, st));
+      Sensor? attached;
+      StreamSubscription<dynamic>? dataSub;
+      StreamSubscription<dynamic>? registrySub;
+      StreamSubscription<dynamic>? socketSub;
+      var disposed = false;
 
-      socket.stream.listen(
+      void detach() {
+        final sub = dataSub;
+        dataSub = null;
+        attached = null;
+        sub?.cancel();
+      }
+
+      void dispose({bool closeSocket = false}) {
+        if (disposed) return;
+        disposed = true;
+        registrySub?.cancel();
+        registrySub = null;
+        socketSub?.cancel();
+        socketSub = null;
+        detach();
+        if (closeSocket) socket.sink.close();
+      }
+
+      void bind(Map<String, Sensor> registry) {
+        final current = registry[id];
+        if (identical(current, attached)) return;
+        detach();
+        if (current == null) return;
+        attached = current;
+        dataSub = current.data.listen((snapshot) {
+          _log.finest("received snapshot: $snapshot");
+          socket.sink.add(jsonEncode(snapshot));
+        }, onError: (e, st) => log.severe('send error', e, st));
+      }
+
+      bind(_controller.sensors);
+      registrySub = _controller.sensorRegistry.listen(
+        bind,
+        onDone: () => dispose(closeSocket: true),
+        onError: (Object e, StackTrace st) {
+          log.severe('sensor registry error', e, st);
+          dispose(closeSocket: true);
+        },
+      );
+      socketSub = socket.stream.listen(
         (msg) {},
-        onDone: sub.cancel,
-        onError: (_, _) => sub.cancel(),
+        onDone: dispose,
+        onError: (_, _) => dispose(),
       );
     })(req);
   }

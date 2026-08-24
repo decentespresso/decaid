@@ -116,11 +116,18 @@ and connection timeouts return 504. The devices WebSocket returns the same resul
 after each connect command.
 
 Each device entry carries an **`available`** boolean. `true` = currently present
-in discovery; `false` = a **remembered** device that isn't present (reported with
-`state: "disconnected"`). Devices the user connects to are remembered and persist
-across restarts, shown as unavailable when offline, until forgotten via
-`PUT /api/v1/devices/forget` (deviceId in the JSON body or `?deviceId=` query).
-The same `available` field is on each device in the `ws/v1/devices` snapshot.
+in discovery or actively connected; `false` = a **remembered** device that isn't
+present (reported with `state: "disconnected"`). Devices the user connects to are
+remembered and persist across restarts, shown as unavailable when offline, until
+forgotten via `PUT /api/v1/devices/forget` (deviceId in the JSON body or
+`?deviceId=` query). The same `available` field is on each device in the
+`ws/v1/devices` snapshot.
+
+`available` describes inventory presence, not command ownership. A connected
+controller-owned device such as Bengle's integrated virtual scale is listed as
+available but is inventory-only: REST connect/disconnect returns 409 and the
+devices WebSocket returns an explicit error. Its lifecycle follows the Bengle
+machine; use the scale API for operations such as tare.
 
 **Manual WiFi scale endpoints.** Auto-discovered (DNS-SD) WiFi scales appear in
 `GET /api/v1/devices` like any other device and need no extra calls. The
@@ -229,6 +236,7 @@ supplied values replace them. Explicit `null` for non-nullable fields returns
 | DELETE | `/api/v1/beans/:id` | Delete bean | |
 | GET | `/api/v1/beans/:id/batches` | List batches for a bean | |
 | POST | `/api/v1/beans/:id/batches` | Create batch | |
+| GET | `/api/v1/bean-batches` | List batches across all beans | |
 | GET | `/api/v1/bean-batches/:id` | Get batch | |
 | PUT | `/api/v1/bean-batches/:id` | Update batch | |
 | DELETE | `/api/v1/bean-batches/:id` | Delete batch | |
@@ -447,7 +455,7 @@ archive is also bounded by the 2 GiB import request limit.
 
 Linking/unlinking a Decent account is **native-only** — there are no network login/logout routes. The webserver is unauthenticated with `Access-Control-Allow-Origin: *`, so exposing credential operations would let any LAN client or browser origin store attacker credentials or unlink the account. The status response omits the linked email (PII).
 
-The **proxy** lets clients *use* the account without ever seeing the credentials: it attaches the linked account's Basic auth server-side, forwards to `decentespresso.com`, and relays the upstream status + body verbatim. It requires `Authorization: Bearer <token>` and is enforced only on this path. `GET` requires `account:proxy` (including the skin token injected into served skin pages); `POST`/`PUT` require the stronger `account:proxy:write` scope, so the read-only skin token cannot write. Forwarding is restricted to the `support/api/` prefix. The OpenAPI spec documents the generated-client-safe `/support/api/{endpoint}` form; use this raw catch-all route when a Decent backend path contains additional slashes. Responses: 401 (missing/invalid token or no linked account), 403 (token unscoped or path not allowed). Write-scoped tokens are minted from the account page's API-token UI by enabling "Allow write access".
+The **proxy** lets clients *use* the account without ever seeing the credentials: it attaches the linked account's Basic auth server-side, forwards to `decentespresso.com`, and relays the upstream status + body verbatim. It requires `Authorization: Bearer <token>` and is enforced only on this path. `GET` requires `account:proxy` (including the skin token injected into served skin pages); `POST`/`PUT` require the stronger `account:proxy:write` scope, so the read-only skin token cannot write. Forwarding is restricted to the `support/api/` prefix. The OpenAPI spec documents the generated-client-safe `/support/api/{endpoint}` form; use this raw catch-all route when a Decent backend path contains additional slashes. Each served skin generation gets a fresh origin and token bound to that skin's immutable consent key; switching or stopping the skin server revokes the previous token. The stable port 3000 entry point redirects without caching to the active origin. The first request from each skin, plugin, or named API client pauses for native approval on the Decaid device. Explicit allow and deny decisions are remembered; a 30-second timeout denies only that request. Responses: 401 (missing/invalid token or no linked account), 403 (token unscoped, path not allowed, or account access not granted). Write-scoped tokens are minted from the account page's API-token UI by enabling "Allow write access". Headless operators can grant session-only access with `--trust-consent=<caller-key>` or `--trust-all-consent`.
 
 ### Other
 
@@ -494,7 +502,7 @@ All WebSocket endpoints are on port 8080 at `/ws/v1/...`. See [`assets/api/webso
 | `/ws/v1/machine/raw` | Raw BLE characteristic data. Re-binds across a machine reconnect; writes go to the currently-bound machine. | Hex-encoded bytes |
 | `/ws/v1/machine/shotState` | Shot sequencer state + decision feed: why a step advanced, why the shot stopped. Replays the latest frame on connect; idle between shots; not gated on a connected machine. | `event` (`state`\|`decision`\|`terminal`), `shotId`, shot phase, machine context, `decision {kind, reason, details, data}` |
 | `/ws/v1/devices` | Device discovery + `ConnectionManager` status (phase, found devices, ambiguity, errors). Also accepts `scan`/`connect`/`disconnect` commands. | Device list, `connectionStatus` |
-| `/ws/v1/sensors/:id/snapshot` | Sensor data stream | Sensor-specific |
+| `/ws/v1/sensors/:id/snapshot` | Sensor data stream. Re-binds across replacement or transient removal/re-add of the same sensor ID. | Sensor-specific |
 | `/ws/v1/plugins/:id/:endpoint` | Plugin WebSocket proxy | Plugin-specific |
 | `/ws/v1/logs` | App log stream | Timestamped log entries |
 | `/ws/v1/webview/logs` | WebView console log stream | WebView console messages |
@@ -529,6 +537,16 @@ For clients this means:
 Machine sockets opened before the first machine connection behave like any later disconnected gap:
 the socket stays open and remains silent until a machine attaches. No error or status frame is emitted
 on the typed telemetry sockets.
+
+### Sensor sockets follow replacement
+
+An open `/ws/v1/sensors/:id/snapshot` socket follows the current sensor instance for its ID. When that
+sensor is replaced, the server cancels the old data subscription and binds the socket to the replacement.
+During a transient removal the socket stays open and silent, then resumes when the same ID returns. The
+channel remains sensor-data-only and emits no connection status frames.
+
+The initial lookup is unchanged: opening a socket for an ID that is not present returns
+`{"error":"not found"}` and closes the socket.
 
 ### `shotState` events
 

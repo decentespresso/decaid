@@ -121,6 +121,7 @@ void main() {
       kvStore: _FakeKeyValueStore(),
       decentProxyService: DecentProxyService(
         credentialStore: store,
+        requireConsent: (_) async => true,
         httpClient: http_testing.MockClient((request) async {
           captured.add(request);
           return http.Response(

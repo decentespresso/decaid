@@ -21,6 +21,7 @@ class BeansHandler {
 
     app.get('/api/v1/beans/<beanId>/batches', _getBatches);
     app.post('/api/v1/beans/<beanId>/batches', _createBatch);
+    app.get('/api/v1/bean-batches', _getAllBatches);
     app.get('/api/v1/bean-batches/<id>', _getBatch);
     app.put('/api/v1/bean-batches/<id>', _updateBatch);
     app.delete('/api/v1/bean-batches/<id>', _deleteBatch);
@@ -141,6 +142,20 @@ class BeansHandler {
       return jsonOkConditional(req, batches.map((b) => b.toJson()).toList());
     } catch (e, st) {
       _log.severe('Error getting batches for bean $beanId', e, st);
+      return jsonError({'error': e.toString()});
+    }
+  }
+
+  Future<Response> _getAllBatches(Request req) async {
+    try {
+      final includeArchived =
+          req.url.queryParameters['includeArchived'] == 'true';
+      final batches = await _storage.getAllBatches(
+        includeArchived: includeArchived,
+      );
+      return jsonOkConditional(req, batches.map((b) => b.toJson()).toList());
+    } catch (e, st) {
+      _log.severe('Error getting batches', e, st);
       return jsonError({'error': e.toString()});
     }
   }

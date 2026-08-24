@@ -101,6 +101,7 @@ void main() {
         kvStore: FakeKeyValueStoreService(),
         decentProxyService: DecentProxyService(
           credentialStore: credentialStore,
+          requireConsent: (_) async => true,
           httpClient: http_testing.MockClient((request) async {
             upstreamCalls += 1;
             return http.Response(

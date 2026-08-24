@@ -9,6 +9,8 @@ import 'package:reaprime/src/controllers/connection_manager.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
+import 'package:reaprime/src/models/device/impl/bengle/bengle_virtual_scale.dart';
+import 'package:reaprime/src/models/device/impl/bengle/mock_bengle.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
 
@@ -408,6 +410,47 @@ void main() {
         expect(body[0]['id'], 'AA:BB:CC:DD:EE:FF');
         expect(body[0]['name'], 'Test Scale');
         expect(body[0]['type'], 'scale');
+      });
+
+      test('returns a connected scale that is outside discovery', () async {
+        final bengle = MockBengle();
+        await bengle.onConnect();
+        addTearDown(bengle.onDisconnect);
+        await scaleController.connectToScale(BengleVirtualScale(bengle));
+
+        final response = await sendGet('/api/v1/devices');
+        expect(response.statusCode, 200);
+        final body = jsonDecode(await response.readAsString()) as List;
+        expect(body, [
+          {
+            'name': 'Bengle scale',
+            'id': 'bengle-internal-MockBengle',
+            'state': 'connected',
+            'type': 'scale',
+            'available': true,
+          },
+        ]);
+      });
+
+      test('rejects machine-managed scale commands explicitly', () async {
+        final bengle = MockBengle();
+        await bengle.onConnect();
+        addTearDown(bengle.onDisconnect);
+        final scale = BengleVirtualScale(bengle);
+        await scaleController.connectToScale(scale);
+
+        for (final operation in ['connect', 'disconnect']) {
+          final response = await sendPut(
+            '/api/v1/devices/$operation',
+            body: jsonEncode({'deviceId': scale.deviceId}),
+          );
+          expect(response.statusCode, 409);
+          expect(jsonDecode(await response.readAsString()), {
+            'error':
+                'Device is inventory-only and cannot be controlled here: '
+                '${scale.deviceId}',
+          });
+        }
       });
     });
   });

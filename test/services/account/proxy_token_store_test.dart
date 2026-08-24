@@ -35,12 +35,14 @@ void main() {
     final created = DateTime.utc(2026, 6, 18, 12);
     await store.save([
       PersistedProxyToken(
+        id: 'laptop-id',
         token: 'tok-abc',
         label: 'laptop',
         scopes: {ProxyTokenService.scopeAccountProxy},
         createdAt: created,
       ),
       PersistedProxyToken(
+        id: 'ci-id',
         token: 'tok-def',
         label: 'ci',
         scopes: {
@@ -54,6 +56,7 @@ void main() {
     final loaded = await store.load();
     expect(loaded, hasLength(2));
     expect(loaded[0].token, 'tok-abc');
+    expect(loaded[0].id, 'laptop-id');
     expect(loaded[0].label, 'laptop');
     expect(loaded[0].scopes, {ProxyTokenService.scopeAccountProxy});
     expect(loaded[0].createdAt, created);
@@ -66,6 +69,7 @@ void main() {
   test('save overwrites the previous set', () async {
     await store.save([
       PersistedProxyToken(
+        id: 'old-id',
         token: 'old',
         label: 'old',
         scopes: {ProxyTokenService.scopeAccountProxy},
@@ -74,5 +78,19 @@ void main() {
     ]);
     await store.save([]);
     expect(await store.load(), isEmpty);
+  });
+
+  test('load persists an id for legacy token records', () async {
+    await creds.write(
+      key: 'account_proxy_tokens',
+      value:
+          '[{"token":"legacy","label":"station","scopes":["account:proxy"],"createdAt":"2026-01-01T00:00:00.000Z"}]',
+    );
+
+    final firstId = (await store.load()).single.id;
+    final secondId = (await store.load()).single.id;
+
+    expect(firstId, isNotEmpty);
+    expect(secondId, firstId);
   });
 }

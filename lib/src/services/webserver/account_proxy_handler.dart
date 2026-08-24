@@ -36,6 +36,8 @@ class AccountProxyHandler {
       return jsonUnauthorized({'error': 'Decent account not linked'});
     } on DecentProxyForbiddenPathException {
       return jsonForbidden({'error': 'Path not allowed'});
+    } on DecentProxyConsentDeniedException {
+      return jsonForbidden({'error': 'Account access was not granted'});
     }
   }
 
@@ -77,6 +79,8 @@ class AccountProxyHandler {
       return jsonUnauthorized({'error': 'Decent account not linked'});
     } on DecentProxyForbiddenPathException {
       return jsonForbidden({'error': 'Path not allowed'});
+    } on DecentProxyConsentDeniedException {
+      return jsonForbidden({'error': 'Account access was not granted'});
     }
   }
 }

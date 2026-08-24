@@ -721,7 +721,7 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
     if (Platform.isLinux) {
       await _openWebUIInBrowser();
     } else {
-      await Navigator.of(context).pushNamed(SkinView.routeName);
+      await SkinView.open(Navigator.of(context));
     }
   }
 

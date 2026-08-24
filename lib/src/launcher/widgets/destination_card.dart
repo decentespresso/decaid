@@ -34,7 +34,7 @@ class DestinationCard extends StatelessWidget {
           onTap: onTap,
           child: SizedBox.expand(
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.center,

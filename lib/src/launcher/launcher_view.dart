@@ -14,7 +14,6 @@ import 'package:reaprime/src/launcher/widgets/connect_device_hero_card.dart';
 import 'package:reaprime/src/launcher/widgets/destination_card.dart';
 import 'package:reaprime/src/launcher/widgets/skin_unavailable_card.dart';
 import 'package:reaprime/src/launcher/widgets/status_bar.dart';
-import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/settings/advanced_page.dart';
@@ -49,7 +48,6 @@ class LauncherView extends StatelessWidget {
     required this.de1Controller,
     required this.scaleController,
     required this.webUIService,
-    required this.pluginLoaderService,
     required this.connectionManager,
     required this.deviceController,
     required this.settingsController,
@@ -62,7 +60,6 @@ class LauncherView extends StatelessWidget {
   final De1Controller de1Controller;
   final ScaleController scaleController;
   final WebUIService webUIService;
-  final PluginLoaderService pluginLoaderService;
   final ConnectionManager connectionManager;
   final DeviceController deviceController;
   final SettingsController settingsController;
@@ -146,7 +143,7 @@ class LauncherView extends StatelessWidget {
       case LauncherSkinSlot.returnToSkin:
         return _ReturnToSkinButton(
           onTap: () {
-            Navigator.of(context).pushNamed(SkinView.routeName);
+            SkinView.open(Navigator.of(context));
           },
         );
       case LauncherSkinSlot.skinUnavailable:
@@ -190,12 +187,11 @@ class LauncherView extends StatelessWidget {
           label: 'Account',
           route: AccountPage.routeName,
         ),
-      if (pluginLoaderService.availablePlugins.isNotEmpty)
-        _Destination(
-          icon: LucideIcons.puzzle,
-          label: 'Plugins',
-          route: '/plugins',
-        ),
+      _Destination(
+        icon: LucideIcons.puzzle,
+        label: 'Plugins',
+        route: '/plugins',
+      ),
       _Destination(
         icon: LucideIcons.wrench,
         label: 'Advanced',

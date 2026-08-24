@@ -37,6 +37,12 @@ A Decaid plugin consists of two required files:
       "type": "string",
       "secure": false,
       "description": "Setting description"
+    },
+    "Roast": {
+      "type": "enum",
+      "values": ["Light", "Medium", "Dark"],
+      "default": "Medium",
+      "description": "Roast degree"
     }
   },
   "api": [
@@ -66,7 +72,7 @@ A Decaid plugin consists of two required files:
   - `events.shots`: Receive `shotStored` and `shotUpdated`
   - `proxy.decent_api`: Send read requests through `host.decentProxy`
   - `proxy.decent_api.write`: Send allowlisted write requests through `host.decentProxy`
-- **settings**: User-configurable options with `type` (`string`, `number`, `boolean`) and optional `secure` flag for credentials such as passwords. Secure values use platform credential storage, are supplied in memory to `onLoad(settings)`, and are never returned by the REST API.
+- **settings**: User-configurable options with `type` (`string`, `number`, `boolean`, `enum`) and optional `secure` flag for credentials such as passwords. Enum `values` are a JSON array of strings. Secure values use platform credential storage, are supplied in memory to `onLoad(settings)`, and are never returned by the REST API.
 - **api**: HTTP and WebSocket endpoints exposed by the plugin
 
 Unknown permission names make the manifest invalid. Calls without their required
@@ -140,7 +146,7 @@ host.storage({
 **Note:** namespace is not used by Decaid internally, the plugin storage is namespaced to the plugins' identifier.
 
 ### `host.decentProxy(path, options)`
-Call the Decent account proxy without exposing stored credentials to plugin code. `GET` requires the read-only `proxy.decent_api` permission. `POST` requires the distinct write permission `proxy.decent_api.write` **and** is restricted to an explicit path allowlist (currently only `support/api/shot_upload`); other methods/paths are rejected and logged.
+Call the Decent account proxy without exposing stored credentials to plugin code. `GET` requires the read-only `proxy.decent_api` permission. `POST` requires the distinct write permission `proxy.decent_api.write` **and** is restricted to an explicit path allowlist (currently only `support/api/shot_upload`); other methods/paths are rejected and logged. The first request from each plugin id pauses for approval in Decaid's native UI. Explicit allow and deny decisions are remembered; denial or timeout rejects the call before any upstream request.
 
 ```javascript
 const response = await host.decentProxy("support/api/sn", {

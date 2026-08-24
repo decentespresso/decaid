@@ -32,8 +32,8 @@ final _goldenFrame = Uint8List.fromList(const [
   0x54,
   0x23,
   0x28,
-  0x04,
-  0x90,
+  0x02,
+  0x48,
   0x07,
   0x34,
   0xEE,
@@ -67,6 +67,36 @@ void main() {
     expect(sample.milkTemperature, 42.5);
     expect(sample.flags, 1);
     expect(decodeBengleShotSample(ByteData(27)), isNull);
+  });
+
+  test('weight is SIGNED S16P4: a negative net weight survives the decode', () {
+    // Net weight is CurrW - LastTARE, so lifting the cup or unloading the
+    // platform after a tare is genuinely negative. The old unsigned U16P5
+    // field could not carry that and the firmware clamped it to 0.
+    ByteData frameWithWeight(int rawInt16) {
+      final bytes = Uint8List.fromList(_goldenFrame);
+      final view = ByteData.sublistView(bytes);
+      view.setInt16(20, rawInt16, Endian.big);
+      return view;
+    }
+
+    // -12.25 g -> -196 raw. Must decode negative, not 0 and not a huge
+    // positive (which is what an unsigned reader would produce).
+    final negative = decodeBengleShotSample(frameWithWeight(-196))!;
+    expect(negative.weight, -12.25);
+    expect(negative.weight, isNegative);
+
+    // One LSB below zero: the tare instant lives here, and this is exactly
+    // where the old clamp created a stuck-at-0 dead zone.
+    expect(decodeBengleShotSample(frameWithWeight(-1))!.weight, -0.0625);
+
+    // The +-2000 g range the format was widened for.
+    expect(decodeBengleShotSample(frameWithWeight(32000))!.weight, 2000.0);
+    expect(decodeBengleShotSample(frameWithWeight(-32000))!.weight, -2000.0);
+
+    // Scale check that fails loudly if a decoder drifts back to /32:
+    // 0x0248 = 584 -> 36.5 at /16, but 18.25 at /32.
+    expect(decodeBengleShotSample(frameWithWeight(584))!.weight, 36.5);
   });
 
   test(

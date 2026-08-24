@@ -39,11 +39,12 @@ paths:
                     available:
                       type: boolean
                       description: >
-                        true if the device is currently present in discovery;
-                        false for a remembered device that is not present
-                        (reported with state "disconnected"). Remembered devices
-                        are those the user has connected to; they persist across
-                        restarts until forgotten via /api/v1/devices/forget.
+                        true if the device is currently present in discovery or
+                        is actively connected; false for a remembered device
+                        that is not present (reported with state "disconnected").
+                        Remembered devices are those the user has connected to;
+                        they persist across restarts until forgotten via
+                        /api/v1/devices/forget.
         "500":
           description: Internal Server Error
           content:
@@ -120,6 +121,8 @@ paths:
         Accepts deviceId via JSON body (preferred) or query parameter (backward compatible).
         Device IDs may contain special characters (e.g. colons in BLE MAC addresses,
         slashes in serial port paths), so the JSON body approach avoids URL encoding issues.
+        Controller-owned inventory devices such as Bengle's integrated virtual scale
+        are not independent command targets and return 409.
       tags: [Devices]
       parameters:
         - name: deviceId
@@ -153,11 +156,13 @@ paths:
         "404":
           description: "Device not found"
         "409":
-          description: "Connection conflicts with another operation or a stale selection"
+          description: "Connection conflicts with another operation, a stale selection, or an inventory-only device"
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DeviceConnectResult"
+                oneOf:
+                  - $ref: "#/components/schemas/DeviceConnectResult"
+                  - $ref: "#/components/schemas/Error"
         "503":
           description: "Device transport currently unavailable"
           content:
@@ -176,6 +181,8 @@ paths:
       summary: Disconnect a specified device
       description: |
         Accepts deviceId via JSON body (preferred) or query parameter (backward compatible).
+        Controller-owned inventory devices such as Bengle's integrated virtual scale
+        follow their machine lifecycle and return 409.
       tags: [Devices]
       parameters:
         - name: deviceId
@@ -204,6 +211,12 @@ paths:
           description: "Missing deviceId"
         "404":
           description: "Device not found"
+        "409":
+          description: "Device is inventory-only and cannot be disconnected independently"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /api/v1/devices/wifi:
     get:
@@ -2166,6 +2179,40 @@ paths:
         "500":
           description: Internal Server Error
 
+  /api/v1/bean-batches:
+    get:
+      summary: List all bean batches
+      description: Returns batches across all beans, optionally including archived ones.
+      tags: [Beans]
+      parameters:
+        - name: includeArchived
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Include archived batches
+      responses:
+        "200":
+          description: Array of batches
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: |
+                Strong entity tag derived from the response body. Echo back as
+                `If-None-Match` on subsequent requests for conditional GET.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BeanBatch"
+        "304":
+          description: Not Modified — client's `If-None-Match` matched the current ETag.
+        "500":
+          description: Internal Server Error
+
   /api/v1/bean-batches/{id}:
     get:
       summary: Get a batch by ID
@@ -3880,6 +3927,7 @@ paths:
                   port:
                     type: integer
                     nullable: true
+                    description: Active per-generation skin origin port
                   ip:
                     type: string
                     nullable: true
@@ -3887,7 +3935,7 @@ paths:
   /api/v1/webui/server/start:
     post:
       summary: Start the WebUI server
-      description: Starts serving the default WebUI skin
+      description: Starts serving the default WebUI skin through the stable port 3000 entry point
       tags: [WebUI]
       responses:
         "200":
@@ -5121,7 +5169,8 @@ paths:
         token (injected into served skin pages) or a user-managed API-client
         token. Unauthenticated/unknown tokens get 401; known but unscoped get
         403; a path outside the allowed prefix gets 403; no linked account gets
-        401.
+        401. A caller's first linked-account request pauses for native consent;
+        denial or a 30-second timeout gets 403 before any upstream request.
       tags: [Account]
       parameters:
         - name: endpoint
@@ -5147,7 +5196,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Token not scoped for account:proxy, or path not allowed
+          description: Token unscoped, path disallowed, or account consent not granted
           content:
             application/json:
               schema:
@@ -5164,7 +5213,8 @@ paths:
         Requires `Authorization: Bearer <token>` scoped
         `account:proxy:write`. The read-only skin token cannot write — it gets
         403. Other rejection rules match the GET form (401 unknown token / no
-        linked account; 403 unscoped or disallowed path).
+        linked account; 403 unscoped, disallowed path, or account consent not
+        granted).
       tags: [Account]
       parameters:
         - name: endpoint
@@ -5198,7 +5248,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Token not scoped for account:proxy:write, or path not allowed
+          description: Token unscoped, path disallowed, or account consent not granted
           content:
             application/json:
               schema:
@@ -5241,7 +5291,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Token not scoped for account:proxy:write, or path not allowed
+          description: Token unscoped, path disallowed, or account consent not granted
           content:
             application/json:
               schema:

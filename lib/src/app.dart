@@ -8,6 +8,7 @@ import 'package:reaprime/main.dart';
 import 'package:reaprime/src/controllers/account_tokens_controller.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
 import 'package:reaprime/src/controllers/de1_state_manager.dart';
+import 'package:reaprime/src/controllers/display_controller.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/controllers/presence_controller.dart';
 import 'package:reaprime/src/controllers/presence_navigator_observer.dart';
@@ -87,6 +88,7 @@ class MyApp extends StatefulWidget {
     required this.webUIStorage,
     required this.webViewLogService,
     required this.presenceController,
+    required this.displayController,
     required this.connectionManager,
     required this.scanStateGuardian,
     this.updateCheckService,
@@ -111,6 +113,7 @@ class MyApp extends StatefulWidget {
   final WebUIStorage webUIStorage;
   final WebViewLogService webViewLogService;
   final PresenceController presenceController;
+  final DisplayController displayController;
   final ConnectionManager connectionManager;
   final ScanStateGuardian scanStateGuardian;
   final UpdateCheckService? updateCheckService;
@@ -270,7 +273,7 @@ class _MyAppState extends State<MyApp> {
     }
 
     _log.info('Navigating to SkinView');
-    navigator.pushNamed(SkinView.routeName);
+    SkinView.open(navigator);
   }
 
   @override
@@ -423,7 +426,6 @@ class _MyAppState extends State<MyApp> {
                         de1Controller: widget.de1Controller,
                         scaleController: widget.scaleController,
                         webUIService: widget.webUIService,
-                        pluginLoaderService: widget.pluginLoaderService,
                         batteryController: widget.batteryController,
                         decentAccountService: widget.decentAccountService,
                         isDegradedAndroid: _degradedAndroid,
@@ -492,6 +494,8 @@ class _MyAppState extends State<MyApp> {
                         settingsController: widget.settingsController,
                         webViewLogService: widget.webViewLogService,
                         deviceIp: widget.webUIService.deviceIp(),
+                        displayController: widget.displayController,
+                        port: widget.webUIService.port,
                       );
                     default:
                       return OnboardingView(

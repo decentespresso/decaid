@@ -37,8 +37,8 @@ class DevicesStateAggregator {
 
   void _start() {
     _subscriptions.add(
-      _controller.deviceStream.skip(1).listen((devices) {
-        _updateDeviceSubscriptions(devices);
+      _controller.deviceStream.skip(1).listen((_) {
+        _updateDeviceSubscriptions(_inventoryDevices());
         _emitState();
       }),
     );
@@ -57,6 +57,13 @@ class DevicesStateAggregator {
       _connectionManager.status.skip(1).listen((_) => _emitState()),
     );
 
+    _subscriptions.add(
+      _connectionManager.scaleController.connectionState.skip(1).listen((_) {
+        _updateDeviceSubscriptions(_inventoryDevices());
+        _emitState();
+      }),
+    );
+
     final remembered = _rememberedController;
     if (remembered != null) {
       _subscriptions.add(
@@ -64,7 +71,7 @@ class DevicesStateAggregator {
       );
     }
 
-    _updateDeviceSubscriptions(_controller.devices);
+    _updateDeviceSubscriptions(_inventoryDevices());
 
     _emitState(immediate: true);
   }
@@ -115,8 +122,10 @@ class DevicesStateAggregator {
   }
 
   Future<Map<String, dynamic>> _buildSnapshot() async {
+    final devices = _inventoryDevices();
+    _updateDeviceSubscriptions(devices);
     final devList = await buildAvailabilityDeviceList(
-      _controller.devices,
+      devices,
       _rememberedController?.remembered ?? const [],
       preferredScaleId: _preferredScaleId?.call(),
     );
@@ -157,6 +166,11 @@ class DevicesStateAggregator {
     };
     return snapshot;
   }
+
+  List<Device> _inventoryDevices() => _devicesForInventory(
+    _controller.devices,
+    _connectionManager.scaleController,
+  );
 
   void dispose() {
     _debounceTimer?.cancel();
@@ -247,7 +261,10 @@ class DevicesHandler {
 
   Future<List<Map<String, dynamic>>> _deviceList() async {
     return buildAvailabilityDeviceList(
-      _controller.devices,
+      _devicesForInventory(
+        _controller.devices,
+        _connectionManager.scaleController,
+      ),
       _rememberedController?.remembered ?? const [],
       preferredScaleId: _preferredScaleId?.call(),
     );
@@ -297,6 +314,8 @@ class DevicesHandler {
     }
     final device = devices.firstWhereOrNull((e) => e.deviceId == deviceId);
     if (device == null) {
+      final error = _inventoryOnlyCommandError(deviceId);
+      if (error != null) return jsonConflict({'error': error});
       return jsonNotFound({'error': 'Device not found: $deviceId'});
     }
     final result = await _connectDevice(device);
@@ -318,6 +337,8 @@ class DevicesHandler {
     }
     final device = devices.firstWhereOrNull((e) => e.deviceId == deviceId);
     if (device == null) {
+      final error = _inventoryOnlyCommandError(deviceId);
+      if (error != null) return jsonConflict({'error': error});
       return jsonNotFound({'error': 'Device not found: $deviceId'});
     }
     _connectionManager.markExpectingDisconnect(device.deviceId);
@@ -411,7 +432,13 @@ class DevicesHandler {
           (e) => e.deviceId == deviceId,
         );
         if (device == null) {
-          socket.sink.add(jsonEncode({'error': 'Device not found: $deviceId'}));
+          socket.sink.add(
+            jsonEncode({
+              'error':
+                  _inventoryOnlyCommandError(deviceId) ??
+                  'Device not found: $deviceId',
+            }),
+          );
           return;
         }
         await _sendConnectResult(device, socket);
@@ -428,7 +455,13 @@ class DevicesHandler {
           (e) => e.deviceId == deviceId,
         );
         if (device == null) {
-          socket.sink.add(jsonEncode({'error': 'Device not found: $deviceId'}));
+          socket.sink.add(
+            jsonEncode({
+              'error':
+                  _inventoryOnlyCommandError(deviceId) ??
+                  'Device not found: $deviceId',
+            }),
+          );
           return;
         }
         _connectionManager.markExpectingDisconnect(device.deviceId);
@@ -439,6 +472,16 @@ class DevicesHandler {
       default:
         socket.sink.add(jsonEncode({'error': 'Unknown command: $command'}));
     }
+  }
+
+  String? _inventoryOnlyCommandError(String deviceId) {
+    final inventoryOnly = _devicesForInventory(
+      const [],
+      _connectionManager.scaleController,
+    ).any((device) => device.deviceId == deviceId);
+    return inventoryOnly
+        ? 'Device is inventory-only and cannot be controlled here: $deviceId'
+        : null;
   }
 
   Future<void> _sendConnectResult(
@@ -533,6 +576,23 @@ class DevicesHandler {
           : '${device.name} failed to connect.',
       suggestion: 'Check that the device is available and try again.',
     );
+  }
+}
+
+List<Device> _devicesForInventory(
+  List<Device> discoveredDevices,
+  ScaleController scaleController,
+) {
+  try {
+    final connectedScale = scaleController.connectedScale();
+    if (discoveredDevices.any(
+      (device) => device.deviceId == connectedScale.deviceId,
+    )) {
+      return discoveredDevices;
+    }
+    return [...discoveredDevices, connectedScale];
+  } on DeviceNotConnectedException {
+    return discoveredDevices;
   }
 }
 
