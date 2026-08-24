@@ -66,10 +66,12 @@ Map<String, dynamic> _shot(
   String serialNumber = '6262',
   bool uploaded = false,
   bool rejected = false,
+  bool mockDeviceSkipped = false,
 }) {
   final extras = <String, dynamic>{
     if (uploaded) 'uploaded_to_decent': 1,
     if (rejected) 'decent_upload_rejected': {'status': 422, 'timestamp': 1},
+    if (mockDeviceSkipped) 'upload_skipped': 'mock-device',
   };
   return {
     'id': id,
@@ -115,10 +117,10 @@ class _Harness {
   final PluginManager manager;
   final List<http.Request> requests;
 
-  Future<bool> runNextTimer() async {
+  Future<bool> runNextTimer({bool pumpJobs = true}) async {
     final result = manager.js.evaluate('String(globalThis.__runNextTimer())');
     expect(result.isError, isFalse, reason: result.stringResult);
-    await pump();
+    if (pumpJobs) await pump();
     return result.stringResult == 'true';
   }
 
@@ -158,6 +160,7 @@ Future<_Harness> _load({
   },
   void Function(PluginManager manager)? onRequest,
   RequireAccountConsent requireConsent = _allowConsent,
+  int annotationStatus = 200,
 }) async {
   final credentials = _FakeCredentialStore();
   await credentials.write(key: 'email', value: 'user@example.com');
@@ -190,6 +193,7 @@ Future<_Harness> _load({
     globalThis.__machineState = ${jsonEncode(machineState)};
     globalThis.__connectedMachine = ${jsonEncode(connectedMachine)};
     globalThis.__puts = [];
+    globalThis.__annotationStatus = $annotationStatus;
     globalThis.__fetches = [];
     globalThis.__timers = [];
     globalThis.__nextTimerId = 0;
@@ -217,6 +221,9 @@ Future<_Harness> _load({
       globalThis.__fetches.push(value);
       if (init.method === 'PUT') {
         globalThis.__puts.push({ url: value, body: init.body });
+        if (globalThis.__annotationStatus < 200 || globalThis.__annotationStatus >= 300) {
+          return { ok: false, status: globalThis.__annotationStatus, json: async () => ({}) };
+        }
         const id = decodeURIComponent(value.substring(value.lastIndexOf('/') + 1));
         const patch = JSON.parse(init.body);
         const extras = patch.annotations && patch.annotations.extras;
@@ -348,6 +355,23 @@ void main() {
     },
   );
 
+  test('legacy mock-device shots stay skipped with a real machine', () async {
+    final harness = await _load(
+      shots: [
+        _shot('legacy-mock', capturedMachine: false, mockDeviceSkipped: true),
+      ],
+      responseStatuses: [200],
+    );
+
+    expect(await harness.runNextTimer(), isTrue);
+
+    expect(harness.requests, isEmpty);
+    expect(
+      harness.fetches().where((url) => url.endsWith('/machine/info')),
+      isEmpty,
+    );
+  });
+
   for (final connectedMachine in <Map<String, dynamic>?>[
     null,
     {'serialNumber': 'MockDe1', 'version': '1400'},
@@ -460,6 +484,30 @@ void main() {
       },
     );
   }
+
+  test('a queued live consent timeout stops the active pass', () async {
+    final consentStore = _FakeCredentialStore();
+    var prompts = 0;
+    final gate = AccountConsentGate(
+      store: AccountConsentStore(credentialStore: consentStore),
+      prompt: (_) async {
+        prompts++;
+        return null;
+      },
+    );
+    final harness = await _load(
+      shots: [_shot('backlog'), _shot('live')],
+      responseStatuses: [200],
+      requireConsent: gate.requireConsent,
+    );
+
+    expect(await harness.runNextTimer(pumpJobs: false), isTrue);
+    harness.manager.dispatchEvent(_manifest().id, 'shotStored', {'id': 'live'});
+    await harness.pump();
+
+    expect(prompts, 1);
+    expect(harness.requests, isEmpty);
+  });
 
   test(
     '0.2.1 reconciliation follows AutoUpload, not old DrainHistory',
@@ -622,6 +670,23 @@ void main() {
       contains('uploaded_to_decent'),
     );
   });
+
+  test(
+    'a failed local upload marker does not repeat the remote POST',
+    () async {
+      final harness = await _load(
+        shots: [_shot('uploaded-remotely')],
+        responseStatuses: [200, 200],
+        annotationStatus: 500,
+      );
+
+      expect(await harness.runNextTimer(), isTrue);
+      expect(await harness.runNextTimer(), isTrue);
+
+      expect(harness.requests, hasLength(1));
+      expect(harness.putBodies(), hasLength(1));
+    },
+  );
 
   test(
     'authorization failures are retried without rejecting the shot',

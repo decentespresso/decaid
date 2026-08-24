@@ -39,6 +39,7 @@ function createPlugin(host) {
   let isUploading = false;
   let isReconciling = false;
   let pendingLiveShotIds = [];
+  const remotelyPostedShotIds = new Set();
   let reconcileTimerId = null;
   let reconciliationPausedForConsent = false;
   let unloaded = false;
@@ -71,10 +72,14 @@ function createPlugin(host) {
   }
 
   async function markUploaded(shotId) {
-    await updateShotExtras(shotId, {
-      uploaded_to_decent: Math.floor(Date.now() / 1000),
-      decent_upload_rejected: null,
-    });
+    try {
+      await updateShotExtras(shotId, {
+        uploaded_to_decent: Math.floor(Date.now() / 1000),
+        decent_upload_rejected: null,
+      });
+    } catch (e) {
+      log(`could not mark ${shotId} uploaded: ${e.message}`);
+    }
   }
 
   async function markRejected(shotId, error) {
@@ -188,12 +193,14 @@ function createPlugin(host) {
   }
 
   async function uploadShot(shotId, retryRejected) {
+    if (remotelyPostedShotIds.has(shotId)) throw skipped(`shot ${shotId} already uploaded`);
     const full = await fetchLocal(`/shots/${shotId}`);
     if (!full || !full.id) throw skipped(`shot ${shotId} not found`);
 
     const extras = extrasFor(full);
     if (extras.uploaded_to_decent) throw skipped(`shot ${shotId} already uploaded`);
     if (extras.decent_upload_rejected && !retryRejected) throw skipped(`shot ${shotId} was rejected`);
+    if (extras.upload_skipped === "mock-device") throw skipped(`shot ${shotId} came from a mock device`);
 
     const dur = shotDuration(full);
     if (dur < state.lengthThreshold) {
@@ -204,6 +211,7 @@ function createPlugin(host) {
     if (!payload) throw skipped("no real machine serial available");
 
     const result = await postShot(payload);
+    remotelyPostedShotIds.add(full.id);
     await markUploaded(full.id);
     state.lastUploadedShot = full.id;
     state.lastResult = result;
@@ -295,8 +303,10 @@ function createPlugin(host) {
   function reconcileCandidate(shot) {
     const extras = extrasFor(shot);
     const captured = shot && shot.workflow && shot.workflow.machine;
-    return !extras.uploaded_to_decent &&
+    return !remotelyPostedShotIds.has(shot.id) &&
+      !extras.uploaded_to_decent &&
       !extras.decent_upload_rejected &&
+      extras.upload_skipped !== "mock-device" &&
       (!captured || !captured.serialNumber || capturedMachine(shot) !== null);
   }
 
@@ -306,7 +316,7 @@ function createPlugin(host) {
   }
 
   async function reconcile() {
-    if (!state.autoUpload || unloaded) return;
+    if (!state.autoUpload || reconciliationPausedForConsent || unloaded) return;
     if (isUploading || isReconciling) {
       scheduleReconcile(RECONCILE_RETRY_MS);
       return;
@@ -317,7 +327,7 @@ function createPlugin(host) {
       if (!await confirmReconciliationIsSafe()) return;
       let pages = 0;
       let attempts = 0;
-      while (pages < RECONCILE_PAGE_LIMIT && attempts < RECONCILE_BATCH_SIZE && state.autoUpload && !unloaded && reconciliationIsSafe()) {
+      while (pages < RECONCILE_PAGE_LIMIT && attempts < RECONCILE_BATCH_SIZE && state.autoUpload && !reconciliationPausedForConsent && !unloaded && reconciliationIsSafe()) {
         const page = await fetchLocal(`/shots?limit=${RECONCILE_PAGE_SIZE}&offset=${state.reconcileOffset}&order=desc`);
         if (!page || !Array.isArray(page.items)) throw new Error("could not list local shots");
         if (page.items.length === 0 || state.reconcileOffset >= page.total) {
@@ -326,12 +336,12 @@ function createPlugin(host) {
         }
         let scanned = 0;
         for (const shot of page.items) {
-          if (!state.autoUpload || unloaded || !reconciliationIsSafe() || attempts >= RECONCILE_BATCH_SIZE) break;
-          while (pendingLiveShotIds.length > 0 && attempts < RECONCILE_BATCH_SIZE) {
+          if (!state.autoUpload || reconciliationPausedForConsent || unloaded || !reconciliationIsSafe() || attempts >= RECONCILE_BATCH_SIZE) break;
+          while (pendingLiveShotIds.length > 0 && attempts < RECONCILE_BATCH_SIZE && !reconciliationPausedForConsent) {
             await uploadAutomatically(takeLiveShot());
             attempts++;
           }
-          if (attempts >= RECONCILE_BATCH_SIZE) break;
+          if (reconciliationPausedForConsent || attempts >= RECONCILE_BATCH_SIZE) break;
           scanned++;
           if (!reconcileCandidate(shot)) continue;
           try {
@@ -359,7 +369,7 @@ function createPlugin(host) {
       nextDelay = e.consent ? null : RECONCILE_RETRY_MS;
     } finally {
       isReconciling = false;
-      const nextShotId = takeLiveShot();
+      const nextShotId = reconciliationPausedForConsent ? null : takeLiveShot();
       if (nextShotId) {
         autoUpload(nextShotId);
         scheduleReconcile(RECONCILE_CONTINUE_MS);
