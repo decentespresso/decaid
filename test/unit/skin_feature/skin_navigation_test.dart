@@ -1,13 +1,33 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/src/controllers/device_controller.dart';
+import 'package:reaprime/src/controllers/display_controller.dart';
 import 'package:reaprime/src/launcher/launcher_view.dart';
 import 'package:reaprime/src/services/webview_log_service.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/skin_feature/skin_view.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 
+import '../../helpers/mock_de1_controller.dart';
 import '../../helpers/mock_settings_service.dart';
+
+DisplayController _createDisplayController(
+  SettingsController settingsController,
+) {
+  return DisplayController(
+    de1Controller: MockDe1Controller(controller: DeviceController(const [])),
+    settingsController: settingsController,
+    setBrightness: (_) async {},
+    resetBrightness: () async {},
+    enableWakeLock: () async {},
+    disableWakeLock: () async {},
+    platformSupport: const DisplayPlatformSupport(
+      brightness: false,
+      wakeLock: false,
+    ),
+  );
+}
 
 void main() {
   test('skin exit guide explains Android navigation and Dashboard purpose', () {
@@ -37,7 +57,10 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final navigatorKey = GlobalKey<NavigatorState>();
     final webViewLogService = WebViewLogService(logDirectoryPath: '.');
+    final settingsController = SettingsController(MockSettingsService());
+    final displayController = _createDisplayController(settingsController);
     addTearDown(webViewLogService.dispose);
+    addTearDown(displayController.dispose);
 
     await tester.pumpWidget(
       MaterialApp(
@@ -48,9 +71,10 @@ void main() {
               const Scaffold(body: Text('Dashboard')),
           '/skins-test': (_) => const Scaffold(body: Text('Skins')),
           SkinView.routeName: (_) => SkinView(
-            settingsController: SettingsController(MockSettingsService()),
+            settingsController: settingsController,
             webViewLogService: webViewLogService,
             deviceIp: '127.0.0.1',
+            displayController: displayController,
             webView: const SizedBox.expand(key: Key('webview')),
           ),
         },
@@ -91,7 +115,10 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     final navigatorKey = GlobalKey<NavigatorState>();
     final webViewLogService = WebViewLogService(logDirectoryPath: '.');
+    final settingsController = SettingsController(MockSettingsService());
+    final displayController = _createDisplayController(settingsController);
     addTearDown(webViewLogService.dispose);
+    addTearDown(displayController.dispose);
 
     await tester.pumpWidget(
       MaterialApp(
@@ -102,9 +129,10 @@ void main() {
               const Scaffold(body: Text('Dashboard')),
           '/skins-test': (_) => const Scaffold(body: Text('Skins')),
           SkinView.routeName: (_) => SkinView(
-            settingsController: SettingsController(MockSettingsService()),
+            settingsController: settingsController,
             webViewLogService: webViewLogService,
             deviceIp: '127.0.0.1',
+            displayController: displayController,
             webView: const SizedBox.expand(key: Key('webview')),
           ),
         },
