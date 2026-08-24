@@ -111,6 +111,15 @@ Discovery services are responsible for scanning and creating device instances. E
   - Notification liveness uses the existing snapshot watchdog and normal
     `ConnectionManager` reconnect lifecycle. Serial has no separate keepalive
     or reconnect loop.
+  - A DE1 pushes `K` (shot settings) only when the settings change, so a
+    serial connect can leave the shot-settings subject empty for the life of
+    the connection. After `<B>02`, `UnifiedDe1Transport` waits
+    `shotSettingsPrimeTimeout` for the connect-time `<+K>` to deliver, then
+    re-arms with `<-K>` / `<+K>` at most `shotSettingsPrimeRetries` times
+    before giving up. This is one-time recovery for a missing initial frame,
+    not a keepalive: it stops on the first frame, never restarts itself, and
+    is abandoned when the cached state resets. `De1Controller` applies the
+    recovered frame through its existing deferred startup defaults.
 
 ### Bengle firmware-synced state (post-connect)
 

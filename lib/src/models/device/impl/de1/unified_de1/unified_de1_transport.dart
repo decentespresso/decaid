@@ -16,6 +16,10 @@ import 'package:reaprime/src/models/device/transport/serial_port.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/serial_response_correlator.dart';
 import 'package:rxdart/rxdart.dart';
 
+const _defaultShotSettingsPrimeTimeout = Duration(seconds: 2);
+const _defaultShotSettingsPrimeBackoff = Duration(seconds: 1);
+const _defaultShotSettingsPrimeRetries = 2;
+
 class UnifiedDe1Transport {
   final DataTransport _transport;
   final TransportType transportType;
@@ -55,10 +59,23 @@ class UnifiedDe1Transport {
 
   String _currentBuffer = "";
 
-  UnifiedDe1Transport({required DataTransport transport})
-    : _transport = transport,
-      transportType = transport.transportType,
-      _log = Logger("UnifiedDe1Transport-${transport.id}");
+  final Duration shotSettingsPrimeTimeout;
+  final Duration shotSettingsPrimeBackoff;
+  final int shotSettingsPrimeRetries;
+
+  int _cacheGeneration = 0;
+  Future<void> _shotSettingsPrimed = Future<void>.value();
+
+  Future<void> get shotSettingsPrimed => _shotSettingsPrimed;
+
+  UnifiedDe1Transport({
+    required DataTransport transport,
+    this.shotSettingsPrimeTimeout = _defaultShotSettingsPrimeTimeout,
+    this.shotSettingsPrimeBackoff = _defaultShotSettingsPrimeBackoff,
+    this.shotSettingsPrimeRetries = _defaultShotSettingsPrimeRetries,
+  }) : _transport = transport,
+       transportType = transport.transportType,
+       _log = Logger("UnifiedDe1Transport-${transport.id}");
   Future<void> connect() async {
     final wasConnected =
         transportType == TransportType.ble &&
@@ -213,6 +230,56 @@ class UnifiedDe1Transport {
     await _transport.writeCommand("<+${Endpoint.calibration.representation}>");
 
     await _transport.writeCommand("<B>02");
+
+    _shotSettingsPrimed = _primeSerialShotSettings(_cacheGeneration);
+  }
+
+  Future<void> _primeSerialShotSettings(int generation) async {
+    final port = _transport;
+    if (port is! SerialTransport) return;
+    final representation = Endpoint.shotSettings.representation;
+
+    if (await _awaitShotSettingsFrame(generation)) return;
+
+    for (var attempt = 0; attempt < shotSettingsPrimeRetries; attempt++) {
+      if (!_primeStillCurrent(generation)) return;
+      try {
+        await port.writeCommand('<-$representation>');
+        await port.writeCommand('<+$representation>');
+      } catch (e, st) {
+        _log.warning('Failed to re-arm serial $representation', e, st);
+        return;
+      }
+      if (await _awaitShotSettingsFrame(generation)) return;
+      if (attempt + 1 < shotSettingsPrimeRetries) {
+        await Future<void>.delayed(shotSettingsPrimeBackoff);
+      }
+    }
+
+    _log.warning(
+      'No serial $representation frame after '
+      '${shotSettingsPrimeRetries + 1} attempts; '
+      'startup defaults stay deferred',
+    );
+  }
+
+  bool _primeStillCurrent(int generation) =>
+      generation == _cacheGeneration &&
+      !_shotSettingsSubject.isClosed &&
+      _transport is SerialTransport;
+
+  Future<bool> _awaitShotSettingsFrame(int generation) async {
+    if (!_primeStillCurrent(generation)) return true;
+    if (_shotSettingsSubject.hasValue) return true;
+    try {
+      await _shotSettingsSubject.stream.first.timeout(shotSettingsPrimeTimeout);
+      return true;
+    } on TimeoutException {
+      return false;
+    } catch (e, st) {
+      _log.fine('Serial shot-settings prime wait ended', e, st);
+      return true;
+    }
   }
 
   Future<void> dispose() async {
@@ -292,6 +359,7 @@ class UnifiedDe1Transport {
   void _resetCachedState() {
     if (_cacheCleared) return;
     _cacheCleared = true;
+    _cacheGeneration++;
     _stateSubject.close();
     _shotSampleSubject.close();
     _shotSettingsSubject.close();
