@@ -40,6 +40,12 @@ class MockBeanStorage implements BeanStorageService {
       beans.removeWhere((b) => b.id == id);
 
   @override
+  Future<List<BeanBatch>> getAllBatches({bool includeArchived = false}) async =>
+      throw StateError(
+        'getAllBatches must not be called during streaming export',
+      );
+
+  @override
   Future<List<BeanBatch>> getBatchesForBean(
     String beanId, {
     bool includeArchived = false,

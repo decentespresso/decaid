@@ -1444,6 +1444,8 @@ Returns to auto-managed wake-lock behavior based on machine state.
 **Wake-Lock Auto-Management:**
 - When no override is active, wake-lock is automatically enabled when the machine is connected and not sleeping, and disabled when the machine sleeps or disconnects.
 - Brightness is automatically restored to its pre-sleep value when the machine transitions from sleeping to idle.
+- When the embedded skin view closes, native UI becomes authoritative and the host resets brightness to 100 (OS-managed), overriding any active REST or WebSocket brightness request.
+- Clients that still require fixed brightness must request it again after the skin closes.
 
 **Low Battery Brightness Cap:**
 - When the `lowBatteryBrightnessLimit` setting is enabled (via `POST /api/v1/settings`) and battery drops below 30%, screen brightness is capped at 20.

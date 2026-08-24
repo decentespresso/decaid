@@ -45,6 +45,16 @@ class DriftBeanStorageService implements BeanStorageService {
   }
 
   @override
+  Future<List<domain.BeanBatch>> getAllBatches({
+    bool includeArchived = false,
+  }) async {
+    final rows = await _db.beanDao.getAllBatches(
+      includeArchived: includeArchived,
+    );
+    return rows.map(BeanMapper.batchFromRow).toList();
+  }
+
+  @override
   Future<List<domain.BeanBatch>> getBatchesForBean(
     String beanId, {
     bool includeArchived = false,

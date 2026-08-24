@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/build_info.dart';
+import 'package:reaprime/src/controllers/display_controller.dart';
 import 'package:reaprime/src/home_feature/widgets/quick_settings_widget.dart';
 import 'package:reaprime/src/services/telemetry/boot_timing.dart';
 import 'package:reaprime/src/services/webview_compatibility_checker.dart';
@@ -37,6 +38,8 @@ SkinNavDecision classifySkinNavigation(Uri? url) {
   }
   return SkinNavDecision.block;
 }
+
+bool shouldShowSkinLoadError(bool? isForMainFrame) => isForMainFrame != false;
 
 class SkinExitCoordinator {
   bool _inProgress = false;
@@ -69,11 +72,13 @@ class SkinView extends StatefulWidget {
     required this.settingsController,
     required this.webViewLogService,
     required this.deviceIp,
+    required this.displayController,
   });
 
   final SettingsController settingsController;
   final WebViewLogService webViewLogService;
   final String deviceIp;
+  final DisplayController displayController;
 
   static const routeName = '/skin';
 
@@ -113,6 +118,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   @override
   void dispose() {
     _log.fine("disposing");
+    unawaited(widget.displayController.setBrightness(100));
     _blankPageTimer?.cancel();
     _blankPageTimer = null;
     final controller = _webViewController;
@@ -645,6 +651,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
         _log.warning(
           'WebView error - Code: ${error.type}, Description: ${error.description}',
         );
+        if (!shouldShowSkinLoadError(request.isForMainFrame)) return;
         if (!mounted) return;
         setState(() {
           _isLoading = false;

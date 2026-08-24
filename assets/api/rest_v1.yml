@@ -2179,6 +2179,40 @@ paths:
         "500":
           description: Internal Server Error
 
+  /api/v1/bean-batches:
+    get:
+      summary: List all bean batches
+      description: Returns batches across all beans, optionally including archived ones.
+      tags: [Beans]
+      parameters:
+        - name: includeArchived
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Include archived batches
+      responses:
+        "200":
+          description: Array of batches
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: |
+                Strong entity tag derived from the response body. Echo back as
+                `If-None-Match` on subsequent requests for conditional GET.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BeanBatch"
+        "304":
+          description: Not Modified — client's `If-None-Match` matched the current ETag.
+        "500":
+          description: Internal Server Error
+
   /api/v1/bean-batches/{id}:
     get:
       summary: Get a batch by ID
