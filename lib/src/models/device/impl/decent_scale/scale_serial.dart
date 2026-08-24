@@ -48,6 +48,8 @@ class HDSSerial implements Scale, TransportHandoffScale {
   bool _isDisconnecting = false;
   Timer? _watchdogTimer;
   Completer<void>? _initialization;
+  bool _enableWriteComplete = false;
+  bool _initialWeightReceived = false;
   int _ticksSinceLastData = 0;
   bool _retryAttempted = false;
   final List<int> _inputBuffer = [];
@@ -99,6 +101,8 @@ class HDSSerial implements Scale, TransportHandoffScale {
     _invalidFrames = 0;
     _checksumFailures = 0;
     _inputBuffer.clear();
+    _enableWriteComplete = false;
+    _initialWeightReceived = false;
     _connectionSubject.add(ConnectionState.connecting);
     await _transport.connect();
     final initialization = Completer<void>();
@@ -119,14 +123,24 @@ class HDSSerial implements Scale, TransportHandoffScale {
     );
 
     try {
+      final enableWrite = _transport
+          .writeHexCommand(Uint8List.fromList(_enableCommand))
+          .then((_) {
+            if (!identical(_initialization, initialization)) return;
+            _enableWriteComplete = true;
+            _completeInitializationIfReady();
+          });
       await Future.wait<void>([
-        _transport.writeHexCommand(Uint8List.fromList(_enableCommand)),
+        enableWrite,
         initialization.future.timeout(
           _initializationTimeout,
-          onTimeout: () => throw const EndpointUnavailableException(
-            'HDS USB weight stream',
-            _initializationTimeout,
-          ),
+          onTimeout: () {
+            if (_initialWeightReceived) return initialization.future;
+            throw const EndpointUnavailableException(
+              'HDS USB weight stream',
+              _initializationTimeout,
+            );
+          },
         ),
       ], eagerError: true);
     } catch (_) {
@@ -147,6 +161,16 @@ class HDSSerial implements Scale, TransportHandoffScale {
     if (_initialization case final initialization?
         when !initialization.isCompleted) {
       initialization.completeError(error, stackTrace);
+    }
+  }
+
+  void _completeInitializationIfReady() {
+    final initialization = _initialization;
+    if (_enableWriteComplete &&
+        _initialWeightReceived &&
+        initialization != null &&
+        !initialization.isCompleted) {
+      initialization.complete();
     }
   }
 
@@ -274,10 +298,8 @@ class HDSSerial implements Scale, TransportHandoffScale {
     _ticksSinceLastData = 0;
     _retryAttempted = false;
     _validWeightFrames++;
-    if (_initialization case final initialization?
-        when !initialization.isCompleted) {
-      initialization.complete();
-    }
+    _initialWeightReceived = true;
+    _completeInitializationIfReady();
     final unsignedWeight = (data[2] << 8) | data[3];
     final signedWeight = unsignedWeight >= 0x8000
         ? unsignedWeight - 0x10000

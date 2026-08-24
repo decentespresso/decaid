@@ -112,6 +112,35 @@ void main() {
       });
     });
 
+    test('fails if transport errors after first frame but before enable', () {
+      fakeAsync((async) {
+        final writeCompleter = Completer<void>();
+        final transport = MockSerialTransport(writeCompleter: writeCompleter);
+        final hds = HDSSerial(transport: transport);
+        final transportError = StateError('USB removed before enable finished');
+        final states = <ConnectionState>[];
+        Object? error;
+        hds.connectionState.listen(states.add);
+
+        hds.onConnect().catchError((Object caught) {
+          error = caught;
+        });
+        async.flushMicrotasks();
+        transport.emitRawData(weightFrame(42));
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 3));
+        async.flushMicrotasks();
+        transport.emitRawError(transportError);
+        async.flushMicrotasks();
+        writeCompleter.complete();
+        async.flushMicrotasks();
+
+        expect(error, same(transportError));
+        expect(states, isNot(contains(ConnectionState.connected)));
+        expect(transport.disconnectCalled, isTrue);
+      });
+    });
+
     test('reports a closed transport during initialization', () {
       fakeAsync((async) {
         final transport = MockSerialTransport();
