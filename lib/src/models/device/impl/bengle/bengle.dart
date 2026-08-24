@@ -8,6 +8,7 @@ import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/bengle_shot_sample.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
 import 'package:reaprime/src/models/device/machine.dart';
+import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:rxdart/rxdart.dart';
 
@@ -45,7 +46,12 @@ class Bengle extends UnifiedDe1
 
   @override
   @protected
-  Duration get firmwareUploadBatchPause => Duration(milliseconds: 50);
+  Duration get firmwareUploadBatchPause {
+    return switch (transportType) {
+      TransportType.serial => const Duration(milliseconds: 20),
+      _ => Duration.zero,
+    };
+  }
 
   final BehaviorSubject<double> _stopAtTempTarget =
       BehaviorSubject<double>.seeded(0.0);

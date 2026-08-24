@@ -47,7 +47,8 @@ class _De1DebugViewState extends State<De1DebugView> {
         ),
         actions: [_buildStateDropdown(context)],
       ),
-      body: SingleChildScrollView(
+      body: SafeArea(
+        top: false,
         child: LayoutBuilder(
           builder: (context, constraints) {
             final isWide = constraints.maxWidth > 900;
