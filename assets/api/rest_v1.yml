@@ -6604,6 +6604,13 @@ components:
         lives on the machine, not the recipe), including the capture-time identity
         required to attribute historical uploads safely.
       properties:
+        provenanceStatus:
+          type: string
+          enum: [captured, unavailable]
+          description: >
+            Capture-time provenance state for newly recorded shots. Absence marks
+            pre-provenance legacy history; unavailable means capture was attempted
+            but failed and automatic upload must not substitute another machine.
         flowCalibration:
           type: number
           nullable: true

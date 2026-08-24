@@ -639,14 +639,20 @@ The bundled **Decent shot upload plugin** (`shot-upload.reaplugin`) keeps the
 `shotStored` fast path and also scans the paginated local shot library in bounded
 batches, newest first, while the machine is idle, scheduled idle, or sleeping.
 It uses `annotations.extras.uploaded_to_decent` as the durable success marker and
-prefers the capture-time identity in `workflow.machine`. Legacy records without
-a captured serial use the currently connected real machine, matching 0.2.0;
-captured simulated identities are never replaced by that fallback. A
+prefers the capture-time identity in `workflow.machine`. Newly recorded shots set
+`workflow.machine.provenanceStatus` to `captured` or `unavailable`. Only legacy
+records where that field is absent use the currently connected real machine,
+matching 0.2.0; unavailable or captured simulated identities are never replaced
+by that fallback during automatic reconciliation. An explicit manual upload may
+use the currently connected real machine when capture was unavailable. A
 shot-specific rejected response is recorded in
 `annotations.extras.decent_upload_rejected`, while transient failures are retried
-on a later reconciliation pass. In 0.2.1 backlog reconciliation follows
-`AutoUpload`; the removed 0.2.0 `DrainHistory` setting no longer gates it. Consent
-denial or non-decision pauses reconciliation without a periodic retry.
+on a later reconciliation pass. If the local annotation write fails, successful
+uploads and permanent rejections are suppressed in memory for the rest of the
+plugin session; after restart one later idempotent retry is possible. In 0.2.1
+backlog reconciliation follows `AutoUpload`; the removed 0.2.0 `DrainHistory`
+setting no longer gates it. Consent denial or non-decision pauses reconciliation
+without a periodic retry.
 
 ## Next Steps
 

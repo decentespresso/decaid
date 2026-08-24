@@ -40,6 +40,7 @@ function createPlugin(host) {
   let isReconciling = false;
   let pendingLiveShotIds = [];
   const remotelyPostedShotIds = new Set();
+  const permanentlyRejectedShotIds = new Set();
   let reconcileTimerId = null;
   let reconciliationPausedForConsent = false;
   let unloaded = false;
@@ -83,12 +84,16 @@ function createPlugin(host) {
   }
 
   async function markRejected(shotId, error) {
-    await updateShotExtras(shotId, {
-      decent_upload_rejected: {
-        status: error.status,
-        timestamp: Math.floor(Date.now() / 1000),
-      },
-    });
+    try {
+      await updateShotExtras(shotId, {
+        decent_upload_rejected: {
+          status: error.status,
+          timestamp: Math.floor(Date.now() / 1000),
+        },
+      });
+    } catch (e) {
+      log(`could not mark ${shotId} rejected: ${e.message}`);
+    }
   }
 
   // Decaid app version (for provenance), cached.
@@ -118,11 +123,21 @@ function createPlugin(host) {
     };
   }
 
-  async function withMachine(shot) {
+  async function withMachine(shot, manualRetry) {
     const captured = shot && shot.workflow && shot.workflow.machine;
     let machine = capturedMachine(shot);
     if (captured && captured.serialNumber && !machine) return null;
-    if (!captured || !captured.serialNumber) {
+    const hasProvenanceStatus = captured && Object.prototype.hasOwnProperty.call(captured, "provenanceStatus");
+    if (hasProvenanceStatus) {
+      if (captured.provenanceStatus === "captured" && !machine) return null;
+      if (captured.provenanceStatus === "unavailable") {
+        if (!manualRetry) return null;
+        machine = null;
+      } else if (captured.provenanceStatus !== "captured") {
+        return null;
+      }
+    }
+    if (!machine) {
       const current = await fetchLocal("/machine/info");
       if (!current || !current.serialNumber || /^mock/i.test(String(current.serialNumber))) return null;
       machine = {
@@ -192,14 +207,15 @@ function createPlugin(host) {
     return error;
   }
 
-  async function uploadShot(shotId, retryRejected) {
+  async function uploadShot(shotId, manualRetry) {
     if (remotelyPostedShotIds.has(shotId)) throw skipped(`shot ${shotId} already uploaded`);
+    if (!manualRetry && permanentlyRejectedShotIds.has(shotId)) throw skipped(`shot ${shotId} was rejected`);
     const full = await fetchLocal(`/shots/${shotId}`);
     if (!full || !full.id) throw skipped(`shot ${shotId} not found`);
 
     const extras = extrasFor(full);
     if (extras.uploaded_to_decent) throw skipped(`shot ${shotId} already uploaded`);
-    if (extras.decent_upload_rejected && !retryRejected) throw skipped(`shot ${shotId} was rejected`);
+    if (extras.decent_upload_rejected && !manualRetry) throw skipped(`shot ${shotId} was rejected`);
     if (extras.upload_skipped === "mock-device") throw skipped(`shot ${shotId} came from a mock device`);
 
     const dur = shotDuration(full);
@@ -207,10 +223,16 @@ function createPlugin(host) {
       throw skipped(`shot too short (${dur.toFixed(1)}s < ${state.lengthThreshold}s)`);
     }
 
-    const payload = await withMachine(full);
+    const payload = await withMachine(full, manualRetry);
     if (!payload) throw skipped("no real machine serial available");
 
-    const result = await postShot(payload);
+    let result;
+    try {
+      result = await postShot(payload);
+    } catch (e) {
+      if (e.permanent) permanentlyRejectedShotIds.add(full.id);
+      throw e;
+    }
     remotelyPostedShotIds.add(full.id);
     await markUploaded(full.id);
     state.lastUploadedShot = full.id;
@@ -244,7 +266,7 @@ function createPlugin(host) {
       if (e.skipped) { log(`skipped ${shotId}: ${e.message}`); }
       else {
         if (e.permanent) {
-          try { await markRejected(shotId, e); } catch (markError) { log(`could not mark ${shotId} rejected: ${markError.message}`); }
+          await markRejected(shotId, e);
         }
         log(`error uploading ${shotId}: ${e.message}`);
         host.emit("uploadError", { shotId: shotId, error: e.message, timestamp: Date.now() });
@@ -303,11 +325,15 @@ function createPlugin(host) {
   function reconcileCandidate(shot) {
     const extras = extrasFor(shot);
     const captured = shot && shot.workflow && shot.workflow.machine;
+    const hasProvenanceStatus = captured && Object.prototype.hasOwnProperty.call(captured, "provenanceStatus");
     return !remotelyPostedShotIds.has(shot.id) &&
+      !permanentlyRejectedShotIds.has(shot.id) &&
       !extras.uploaded_to_decent &&
       !extras.decent_upload_rejected &&
       extras.upload_skipped !== "mock-device" &&
-      (!captured || !captured.serialNumber || capturedMachine(shot) !== null);
+      (hasProvenanceStatus
+        ? captured.provenanceStatus === "captured" && capturedMachine(shot) !== null
+        : !captured || !captured.serialNumber || capturedMachine(shot) !== null);
   }
 
   function setReconcileOffset(offset) {

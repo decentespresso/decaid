@@ -64,6 +64,7 @@ Map<String, dynamic> _shot(
   String id, {
   bool capturedMachine = true,
   String serialNumber = '6262',
+  String provenanceStatus = 'captured',
   bool uploaded = false,
   bool rejected = false,
   bool mockDeviceSkipped = false,
@@ -82,9 +83,12 @@ Map<String, dynamic> _shot(
       'context': <String, dynamic>{},
       if (capturedMachine)
         'machine': {
-          'serialNumber': serialNumber,
-          'model': 'DE1Pro',
-          'firmwareVersion': '1352',
+          'provenanceStatus': provenanceStatus,
+          if (serialNumber.isNotEmpty) ...{
+            'serialNumber': serialNumber,
+            'model': 'DE1Pro',
+            'firmwareVersion': '1352',
+          },
         },
     },
     'measurements': [
@@ -261,6 +265,10 @@ Future<_Harness> _load({
           }),
         };
       }
+      if (value.endsWith('/shots/latest')) {
+        const shot = globalThis.__shots[globalThis.__shots.length - 1];
+        return { ok: !!shot, status: shot ? 200 : 404, json: async () => shot };
+      }
       if (value.indexOf('/shots/') >= 0) {
         const id = decodeURIComponent(value.substring(value.lastIndexOf('/') + 1));
         const shot = globalThis.__fullShots[id];
@@ -369,6 +377,74 @@ void main() {
     expect(
       harness.fetches().where((url) => url.endsWith('/machine/info')),
       isEmpty,
+    );
+  });
+
+  test(
+    'failed capture never uses the connected machine automatically',
+    () async {
+      final harness = await _load(
+        shots: [
+          _shot(
+            'capture-failed',
+            serialNumber: '',
+            provenanceStatus: 'unavailable',
+          ),
+        ],
+        responseStatuses: [200],
+        connectedMachine: const {
+          'serialNumber': 'machine-b',
+          'model': 'DE1XL',
+          'version': '1400',
+        },
+      );
+
+      expect(await harness.runNextTimer(), isTrue);
+
+      expect(harness.requests, isEmpty);
+      expect(
+        harness.fetches().where((url) => url.endsWith('/machine/info')),
+        isEmpty,
+      );
+    },
+  );
+
+  test('manual upload may override unavailable capture provenance', () async {
+    final harness = await _load(
+      shots: [
+        _shot(
+          'capture-failed',
+          serialNumber: '',
+          provenanceStatus: 'unavailable',
+        ),
+      ],
+      responseStatuses: [200],
+      connectedMachine: const {
+        'serialNumber': 'machine-b',
+        'model': 'DE1XL',
+        'version': '1400',
+      },
+    );
+
+    final responseFuture = harness.manager.registerPendingHttp(
+      _manifest().id,
+      'manual-upload',
+    );
+    harness.manager.dispatchEvent(_manifest().id, 'httpRequest', {
+      'requestId': 'manual-upload',
+      'endpoint': 'upload',
+      'method': 'POST',
+      'headers': <String, String>{},
+      'body': null,
+      'query': <String, String>{},
+    });
+    final response = await responseFuture;
+
+    expect(response['status'], 200);
+    expect(harness.requests, hasLength(1));
+    expect(
+      jsonDecode(harness.requests.single.body)['machine']['serialNumber'],
+      'machine-b',
     );
   });
 
@@ -649,6 +725,75 @@ void main() {
       ),
     );
     expect(extras, contains(contains('uploaded_to_decent')));
+  });
+
+  test(
+    'failed rejection marking does not retry or block following shots',
+    () async {
+      final harness = await _load(
+        shots: [_shot('good'), _shot('bad')],
+        responseStatuses: [422, 200],
+        annotationStatus: 500,
+      );
+
+      expect(await harness.runNextTimer(), isTrue);
+      expect(await harness.runNextTimer(), isTrue);
+
+      expect(
+        harness.requests.map(
+          (request) => jsonDecode(request.body)['id'] as String,
+        ),
+        ['bad', 'good'],
+      );
+    },
+  );
+
+  test('a new session may retry an undurably marked rejection once', () async {
+    final shot = _shot('bad');
+    final firstSession = await _load(
+      shots: [shot],
+      responseStatuses: [422],
+      annotationStatus: 500,
+    );
+    expect(await firstSession.runNextTimer(), isTrue);
+    expect(await firstSession.runNextTimer(), isTrue);
+    expect(firstSession.requests, hasLength(1));
+
+    final secondSession = await _load(
+      shots: [shot],
+      responseStatuses: [422],
+      annotationStatus: 500,
+    );
+    expect(await secondSession.runNextTimer(), isTrue);
+    expect(await secondSession.runNextTimer(), isTrue);
+    expect(secondSession.requests, hasLength(1));
+  });
+
+  test('manual upload may retry a session-rejected shot', () async {
+    final harness = await _load(
+      shots: [_shot('bad')],
+      responseStatuses: [422, 200],
+      annotationStatus: 500,
+    );
+    expect(await harness.runNextTimer(), isTrue);
+    expect(harness.requests, hasLength(1));
+
+    final responseFuture = harness.manager.registerPendingHttp(
+      _manifest().id,
+      'manual-retry',
+    );
+    harness.manager.dispatchEvent(_manifest().id, 'httpRequest', {
+      'requestId': 'manual-retry',
+      'endpoint': 'upload',
+      'method': 'POST',
+      'headers': <String, String>{},
+      'body': null,
+      'query': <String, String>{},
+    });
+    final response = await responseFuture;
+
+    expect(response['status'], 200);
+    expect(harness.requests, hasLength(2));
   });
 
   test('transient failures resume on a later reconciliation pass', () async {

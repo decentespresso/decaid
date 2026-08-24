@@ -122,13 +122,29 @@ class Workflow {
   }
 }
 
+enum WorkflowMachineProvenanceStatus {
+  captured,
+  unavailable,
+  unknown;
+
+  static WorkflowMachineProvenanceStatus? fromJson(Object? value) =>
+      switch (value) {
+        null => null,
+        'captured' => captured,
+        'unavailable' => unavailable,
+        _ => unknown,
+      };
+}
+
 class WorkflowMachine {
+  final WorkflowMachineProvenanceStatus? provenanceStatus;
   final double? flowCalibration;
   final String? serialNumber;
   final String? model;
   final String? firmwareVersion;
 
   const WorkflowMachine({
+    this.provenanceStatus,
     this.flowCalibration,
     this.serialNumber,
     this.model,
@@ -136,11 +152,13 @@ class WorkflowMachine {
   });
 
   WorkflowMachine copyWith({
+    WorkflowMachineProvenanceStatus? provenanceStatus,
     double? flowCalibration,
     String? serialNumber,
     String? model,
     String? firmwareVersion,
   }) => WorkflowMachine(
+    provenanceStatus: provenanceStatus ?? this.provenanceStatus,
     flowCalibration: flowCalibration ?? this.flowCalibration,
     serialNumber: serialNumber ?? this.serialNumber,
     model: model ?? this.model,
@@ -148,6 +166,7 @@ class WorkflowMachine {
   );
 
   Map<String, dynamic> toJson() => {
+    if (provenanceStatus != null) 'provenanceStatus': provenanceStatus!.name,
     if (flowCalibration != null) 'flowCalibration': flowCalibration,
     if (serialNumber != null) 'serialNumber': serialNumber,
     if (model != null) 'model': model,
@@ -156,6 +175,9 @@ class WorkflowMachine {
 
   factory WorkflowMachine.fromJson(Map<String, dynamic> json) =>
       WorkflowMachine(
+        provenanceStatus: WorkflowMachineProvenanceStatus.fromJson(
+          json['provenanceStatus'],
+        ),
         flowCalibration: parseOptionalDouble(json['flowCalibration']),
         serialNumber: parseOptionalString(json['serialNumber']),
         model: parseOptionalString(json['model']),
@@ -165,14 +187,20 @@ class WorkflowMachine {
   @override
   bool operator ==(Object other) =>
       other is WorkflowMachine &&
+      other.provenanceStatus == provenanceStatus &&
       other.flowCalibration == flowCalibration &&
       other.serialNumber == serialNumber &&
       other.model == model &&
       other.firmwareVersion == firmwareVersion;
 
   @override
-  int get hashCode =>
-      Object.hash(flowCalibration, serialNumber, model, firmwareVersion);
+  int get hashCode => Object.hash(
+    provenanceStatus,
+    flowCalibration,
+    serialNumber,
+    model,
+    firmwareVersion,
+  );
 }
 
 class SteamSettings {

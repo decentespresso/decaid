@@ -235,6 +235,10 @@ void main() {
     final record = storage.storedShots.single;
     expect(record.stopReason, 'machineEnded');
     expect(record.workflow.machine?.flowCalibration, 1.0);
+    expect(
+      record.workflow.machine?.provenanceStatus,
+      WorkflowMachineProvenanceStatus.captured,
+    );
     expect(record.workflow.machine?.serialNumber, '1');
     expect(record.workflow.machine?.model, '1');
     expect(record.workflow.machine?.firmwareVersion, '1');
@@ -248,7 +252,7 @@ void main() {
   });
 
   test(
-    'failed machine capture does not persist stale workflow identity',
+    'failed machine capture persists unavailable instead of stale identity',
     () async {
       workflowController.setWorkflow(
         workflowController.currentWorkflow.copyWith(
@@ -261,7 +265,9 @@ void main() {
       await driveShot();
 
       expect(storage.storedShots, hasLength(1));
-      expect(storage.storedShots.single.workflow.machine, isNull);
+      expect(storage.storedShots.single.workflow.machine?.toJson(), {
+        'provenanceStatus': 'unavailable',
+      });
     },
   );
 

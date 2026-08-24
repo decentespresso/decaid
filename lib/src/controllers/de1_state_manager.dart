@@ -628,6 +628,7 @@ class De1StateManager with WidgetsBindingObserver {
       final de1 = _de1Controller.connectedDe1();
       final info = de1.machineInfo;
       return WorkflowMachine(
+        provenanceStatus: WorkflowMachineProvenanceStatus.captured,
         flowCalibration: de1.cachedFlowEstimation,
         serialNumber: info.serialNumber,
         model: info.model,
@@ -635,7 +636,9 @@ class De1StateManager with WidgetsBindingObserver {
       );
     } catch (e) {
       _logger.warning('Could not read machine snapshot for shot: $e');
-      return null;
+      return const WorkflowMachine(
+        provenanceStatus: WorkflowMachineProvenanceStatus.unavailable,
+      );
     }
   }
 
