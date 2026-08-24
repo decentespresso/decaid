@@ -311,6 +311,44 @@ void main() {
       expect(find.text('Exception: write failed'), findsOneWidget);
     });
 
+    testWidgets('invalidates a target when write verification fails', (
+      tester,
+    ) async {
+      final machine = _CalibrationDe1();
+      await pumpView(tester, machine);
+      final write = find.byKey(const Key('calibration-write-flow'));
+      await tester.ensureVisible(write);
+      machine.failReads = true;
+
+      await tester.tap(write);
+      await tester.pumpAndSettle();
+
+      expect(machine.writes, hasLength(1));
+      expect(find.text('Calibration refresh failed'), findsOneWidget);
+      expect(find.text('Current: unavailable'), findsOneWidget);
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      await tester.tap(write, warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(machine.writes, hasLength(1));
+    });
+
+    testWidgets('failed refresh invalidates values and stops reading', (
+      tester,
+    ) async {
+      final machine = _CalibrationDe1();
+      await pumpView(tester, machine);
+      machine.failReads = true;
+
+      await tester.tap(find.byIcon(LucideIcons.refreshCw));
+      await tester.pumpAndSettle();
+
+      expect(machine.reads, hasLength(7));
+      expect(find.text('Current: unavailable'), findsNWidgets(3));
+      expect(find.text('Factory: unavailable'), findsNWidgets(3));
+      expect(find.text('Calibration read failed'), findsOneWidget);
+    });
+
     testWidgets('fits narrow and wide debug layouts', (tester) async {
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetDevicePixelRatio);

@@ -112,7 +112,9 @@ class _CalibrationDebugCardState extends State<CalibrationDebugCard>
               child: ShadButton(
                 key: Key('calibration-write-${target.name}'),
                 size: ShadButtonSize.sm,
-                onPressed: busy ? null : () => _write(target),
+                onPressed: busy || current == null
+                    ? null
+                    : () => _write(target),
                 child: _writing.contains(target)
                     ? const SizedBox(
                         width: 16,
@@ -157,23 +159,20 @@ class _CalibrationDebugCardState extends State<CalibrationDebugCard>
       setState(() => _loading = true);
     }
     try {
-      final reads = await Future.wait([
-        for (final target in De1CalibrationTarget.values)
-          widget.machine.readCalibration(target),
-        for (final target in De1CalibrationTarget.values)
-          widget.machine.readCalibration(
-            target,
-            source: De1CalibrationSource.factory,
-          ),
-      ]);
+      var current = const <De1CalibrationTarget, De1Calibration>{};
+      for (final target in De1CalibrationTarget.values) {
+        final value = await widget.machine.readCalibration(target);
+        current = {...current, value.target: value};
+      }
+      var factory = const <De1CalibrationTarget, De1Calibration>{};
+      for (final target in De1CalibrationTarget.values) {
+        final value = await widget.machine.readCalibration(
+          target,
+          source: De1CalibrationSource.factory,
+        );
+        factory = {...factory, value.target: value};
+      }
       if (!mounted) return;
-      final targetCount = De1CalibrationTarget.values.length;
-      final current = {
-        for (final value in reads.take(targetCount)) value.target: value,
-      };
-      final factory = {
-        for (final value in reads.skip(targetCount)) value.target: value,
-      };
       setState(() {
         _current = current;
         _factory = factory;
@@ -184,7 +183,11 @@ class _CalibrationDebugCardState extends State<CalibrationDebugCard>
       }
     } catch (error) {
       if (!mounted) return;
-      setState(() => _loading = false);
+      setState(() {
+        _current = const {};
+        _factory = const {};
+        _loading = false;
+      });
       _showFailure('Calibration read failed', error);
     }
   }
@@ -226,7 +229,13 @@ class _CalibrationDebugCardState extends State<CalibrationDebugCard>
       _showStatus('${_targetLabel(target)} calibration updated');
     } catch (error) {
       if (!mounted) return;
-      setState(() => _writing = const {});
+      setState(() {
+        _current = {
+          for (final entry in _current.entries)
+            if (entry.key != target) entry.key: entry.value,
+        };
+        _writing = const {};
+      });
       _showFailure('Calibration refresh failed', error);
     }
   }
