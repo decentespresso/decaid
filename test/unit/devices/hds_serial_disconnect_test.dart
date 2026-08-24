@@ -62,6 +62,12 @@ class MockSerialTransport implements SerialTransport {
     _rawController.add(data);
   }
 
+  void emitRawError(Object error, [StackTrace? stackTrace]) {
+    _rawController.addError(error, stackTrace);
+  }
+
+  Future<void> closeRawStream() => _rawController.close();
+
   @override
   Future<void> dispose() async {
     _connectionSubject.close();

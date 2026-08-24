@@ -8,6 +8,7 @@ import 'package:reaprime/src/models/device/impl/decent_scale/protocol.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/transport/serial_port.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
+import 'package:reaprime/src/models/errors.dart';
 import 'package:rxdart/subjects.dart';
 
 class HDSSerial implements Scale, TransportHandoffScale {
@@ -46,7 +47,7 @@ class HDSSerial implements Scale, TransportHandoffScale {
 
   bool _isDisconnecting = false;
   Timer? _watchdogTimer;
-  Completer<bool>? _initialization;
+  Completer<void>? _initialization;
   int _ticksSinceLastData = 0;
   bool _retryAttempted = false;
   final List<int> _inputBuffer = [];
@@ -64,7 +65,7 @@ class HDSSerial implements Scale, TransportHandoffScale {
       _watchdogTimer = null;
       if (_initialization case final initialization?
           when !initialization.isCompleted) {
-        initialization.complete(false);
+        initialization.completeError(const DeviceNotConnectedException.scale());
       }
       _connectionSubject.add(ConnectionState.disconnected);
       _transportSubscription?.cancel();
@@ -100,33 +101,51 @@ class HDSSerial implements Scale, TransportHandoffScale {
     _inputBuffer.clear();
     _connectionSubject.add(ConnectionState.connecting);
     await _transport.connect();
-    final initialization = Completer<bool>();
+    final initialization = Completer<void>();
     _initialization = initialization;
     _transportSubscription = _transport.rawStream.listen(
       onData,
-      onError: (error) {
+      onError: (Object error, StackTrace stackTrace) {
+        _completeInitializationError(error, stackTrace);
         _log.warning("transport error", error);
         disconnect();
       },
       onDone: () {
+        _completeInitializationError(
+          StateError('HDS USB transport closed during initialization'),
+        );
         disconnect();
       },
     );
 
-    await _transport.writeHexCommand(Uint8List.fromList(_enableCommand));
-    final initialized = await initialization.future.timeout(
-      _initializationTimeout,
-      onTimeout: () => false,
-    );
+    try {
+      await _transport.writeHexCommand(Uint8List.fromList(_enableCommand));
+      await initialization.future.timeout(
+        _initializationTimeout,
+        onTimeout: () => throw const EndpointUnavailableException(
+          'HDS USB weight stream',
+          _initializationTimeout,
+        ),
+      );
+    } catch (_) {
+      if (identical(_initialization, initialization)) {
+        _initialization = null;
+      }
+      await disconnect();
+      rethrow;
+    }
     if (identical(_initialization, initialization)) {
       _initialization = null;
     }
-    if (!initialized) {
-      await disconnect();
-      throw TimeoutException('HDS USB weight stream initialization timed out');
-    }
     _startWatchdog();
     _connectionSubject.add(ConnectionState.connected);
+  }
+
+  void _completeInitializationError(Object error, [StackTrace? stackTrace]) {
+    if (_initialization case final initialization?
+        when !initialization.isCompleted) {
+      initialization.completeError(error, stackTrace);
+    }
   }
 
   int _watchdogTotalTicks = 0;
@@ -255,7 +274,7 @@ class HDSSerial implements Scale, TransportHandoffScale {
     _validWeightFrames++;
     if (_initialization case final initialization?
         when !initialization.isCompleted) {
-      initialization.complete(true);
+      initialization.complete();
     }
     final unsignedWeight = (data[2] << 8) | data[3];
     final signedWeight = unsignedWeight >= 0x8000

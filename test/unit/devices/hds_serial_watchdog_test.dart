@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -6,6 +5,7 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/impl/decent_scale/scale_serial.dart';
+import 'package:reaprime/src/models/errors.dart';
 
 import 'hds_serial_disconnect_test.dart';
 
@@ -64,7 +64,45 @@ void main() {
         async.elapse(const Duration(seconds: 3));
         async.flushMicrotasks();
 
-        expect(error, isA<TimeoutException>());
+        expect(error, isA<EndpointUnavailableException>());
+        expect(transport.disconnectCalled, isTrue);
+      });
+    });
+
+    test('preserves a transport error during initialization', () {
+      fakeAsync((async) {
+        final transport = MockSerialTransport();
+        final hds = HDSSerial(transport: transport);
+        final transportError = StateError('USB read failed');
+        Object? error;
+
+        hds.onConnect().catchError((Object caught) {
+          error = caught;
+        });
+        async.flushMicrotasks();
+        transport.emitRawError(transportError);
+        async.flushMicrotasks();
+
+        expect(error, same(transportError));
+        expect(transport.disconnectCalled, isTrue);
+      });
+    });
+
+    test('reports a closed transport during initialization', () {
+      fakeAsync((async) {
+        final transport = MockSerialTransport();
+        final hds = HDSSerial(transport: transport);
+        Object? error;
+
+        hds.onConnect().catchError((Object caught) {
+          error = caught;
+        });
+        async.flushMicrotasks();
+        transport.closeRawStream();
+        async.flushMicrotasks();
+
+        expect(error, isA<StateError>());
+        expect(error.toString(), contains('closed'));
         expect(transport.disconnectCalled, isTrue);
       });
     });
@@ -199,8 +237,14 @@ void main() {
 
         transport.emitRawData(weightFrame(10.0));
         async.elapse(Duration(milliseconds: 100));
+        final initialCommands = transport.writtenHexCommands.length;
 
-        async.elapse(Duration(seconds: 5));
+        async.elapse(Duration(seconds: 7));
+
+        expect(
+          transport.writtenHexCommands.length,
+          greaterThan(initialCommands),
+        );
 
         transport.emitRawData(weightFrame(20.0));
 
