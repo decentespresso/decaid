@@ -119,14 +119,16 @@ class HDSSerial implements Scale, TransportHandoffScale {
     );
 
     try {
-      await _transport.writeHexCommand(Uint8List.fromList(_enableCommand));
-      await initialization.future.timeout(
-        _initializationTimeout,
-        onTimeout: () => throw const EndpointUnavailableException(
-          'HDS USB weight stream',
+      await Future.wait<void>([
+        _transport.writeHexCommand(Uint8List.fromList(_enableCommand)),
+        initialization.future.timeout(
           _initializationTimeout,
+          onTimeout: () => throw const EndpointUnavailableException(
+            'HDS USB weight stream',
+            _initializationTimeout,
+          ),
         ),
-      );
+      ], eagerError: true);
     } catch (_) {
       if (identical(_initialization, initialization)) {
         _initialization = null;

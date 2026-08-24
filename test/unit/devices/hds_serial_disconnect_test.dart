@@ -9,6 +9,10 @@ import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:rxdart/subjects.dart';
 
 class MockSerialTransport implements SerialTransport {
+  MockSerialTransport({this.writeCompleter});
+
+  final Completer<void>? writeCompleter;
+
   final BehaviorSubject<ConnectionState> _connectionSubject =
       BehaviorSubject.seeded(ConnectionState.discovered);
 
@@ -56,6 +60,7 @@ class MockSerialTransport implements SerialTransport {
   @override
   Future<void> writeHexCommand(Uint8List command) async {
     writtenHexCommands.add(command);
+    await writeCompleter?.future;
   }
 
   void emitRawData(Uint8List data) {

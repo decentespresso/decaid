@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -85,6 +86,29 @@ void main() {
 
         expect(error, same(transportError));
         expect(transport.disconnectCalled, isTrue);
+      });
+    });
+
+    test('handles a transport error while the enable write is pending', () {
+      fakeAsync((async) {
+        final writeCompleter = Completer<void>();
+        final transport = MockSerialTransport(writeCompleter: writeCompleter);
+        final hds = HDSSerial(transport: transport);
+        final transportError = StateError('USB removed during enable write');
+        Object? error;
+
+        hds.onConnect().catchError((Object caught) {
+          error = caught;
+        });
+        async.flushMicrotasks();
+        transport.emitRawError(transportError);
+        async.flushMicrotasks();
+
+        expect(error, same(transportError));
+        expect(transport.disconnectCalled, isTrue);
+
+        writeCompleter.complete();
+        async.flushMicrotasks();
       });
     });
 
