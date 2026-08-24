@@ -21,6 +21,8 @@ class DecentProxyForbiddenPathException implements Exception {
 }
 
 class DecentProxyConsentDeniedException implements Exception {
+  static const code = 'account_consent_denied';
+
   @override
   String toString() => 'DecentProxyConsentDeniedException';
 }

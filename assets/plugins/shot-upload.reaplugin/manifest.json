@@ -2,7 +2,7 @@
   "id": "shot-upload.reaplugin",
   "author": "Decent Espresso",
   "name": "Decent shot upload",
-  "description": "Uploads your espresso shots to your Decent account at decentespresso.com and catches up eligible local shots while the machine is idle. Uses your existing Decent login and each shot's captured machine identity. Off by default: enable Upload shots automatically to opt in.",
+  "description": "Uploads your espresso shots to your Decent account at decentespresso.com and catches up eligible local shots while the machine is idle. Uses captured machine identity when available and the connected real machine for legacy shots. Off by default: enable Upload shots automatically to opt in.",
   "version": "0.2.1",
   "apiVersion": 1,
   "permissions": [

@@ -6,6 +6,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart' as http_testing;
 import 'package:reaprime/src/plugins/plugin_manager.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
+import 'package:reaprime/src/services/account/account_consent_gate.dart';
+import 'package:reaprime/src/services/account/account_consent_store.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/account/decent_proxy_service.dart';
 import 'package:reaprime/src/services/storage/kv_store_service.dart';
@@ -135,13 +137,27 @@ class _Harness {
         .map((put) => jsonDecode(put['body'] as String) as Map<String, dynamic>)
         .toList();
   }
+
+  List<String> fetches() {
+    final result = manager.js.evaluate('JSON.stringify(globalThis.__fetches)');
+    expect(result.isError, isFalse, reason: result.stringResult);
+    return (jsonDecode(result.stringResult) as List).cast<String>();
+  }
 }
+
+Future<bool> _allowConsent(String _) async => true;
 
 Future<_Harness> _load({
   required List<Map<String, dynamic>> shots,
   required List<int> responseStatuses,
   String? machineState = 'sleeping',
+  Map<String, dynamic>? connectedMachine = const {
+    'serialNumber': '9999',
+    'model': 'DE1XL',
+    'version': '1400',
+  },
   void Function(PluginManager manager)? onRequest,
+  RequireAccountConsent requireConsent = _allowConsent,
 }) async {
   final credentials = _FakeCredentialStore();
   await credentials.write(key: 'email', value: 'user@example.com');
@@ -153,6 +169,7 @@ Future<_Harness> _load({
     kvStore: _FakeKeyValueStore(),
     decentProxyService: DecentProxyService(
       credentialStore: credentials,
+      requireConsent: requireConsent,
       httpClient: http_testing.MockClient((request) async {
         requests.add(request);
         onRequest?.call(manager);
@@ -171,6 +188,7 @@ Future<_Harness> _load({
     globalThis.__shots = ${jsonEncode(shots)};
     globalThis.__fullShots = ${jsonEncode(fullShots)};
     globalThis.__machineState = ${jsonEncode(machineState)};
+    globalThis.__connectedMachine = ${jsonEncode(connectedMachine)};
     globalThis.__puts = [];
     globalThis.__fetches = [];
     globalThis.__timers = [];
@@ -222,11 +240,14 @@ Future<_Harness> _load({
         const limitMatch = value.match(/[?&]limit=([0-9]+)/);
         const offset = offsetMatch ? Number(offsetMatch[1]) : 0;
         const limit = limitMatch ? Number(limitMatch[1]) : 20;
+        const ordered = value.indexOf('order=desc') >= 0
+          ? [...globalThis.__shots].reverse()
+          : globalThis.__shots;
         return {
           ok: true,
           status: 200,
           json: async () => ({
-            items: globalThis.__shots.slice(offset, offset + limit),
+            items: ordered.slice(offset, offset + limit),
             total: globalThis.__shots.length,
             limit,
             offset,
@@ -237,6 +258,10 @@ Future<_Harness> _load({
         const id = decodeURIComponent(value.substring(value.lastIndexOf('/') + 1));
         const shot = globalThis.__fullShots[id];
         return { ok: !!shot, status: shot ? 200 : 404, json: async () => shot };
+      }
+      if (value.endsWith('/machine/info')) {
+        const machine = globalThis.__connectedMachine;
+        return { ok: machine !== null, status: machine === null ? 503 : 200, json: async () => machine };
       }
       if (value.endsWith('/info')) {
         return { ok: true, status: 200, json: async () => ({ version: '9.9.9' }) };
@@ -265,7 +290,6 @@ void main() {
           _shot('eligible'),
           _shot('uploaded', uploaded: true),
           _shot('rejected', rejected: true),
-          _shot('legacy', capturedMachine: false),
           _shot('simulated', serialNumber: 'MockDe1'),
         ],
         responseStatuses: [200],
@@ -290,6 +314,63 @@ void main() {
     },
   );
 
+  test(
+    'uses the connected machine only when captured identity is absent',
+    () async {
+      final harness = await _load(
+        shots: [
+          _shot('legacy', capturedMachine: false),
+          _shot('captured'),
+          _shot('captured-mock', serialNumber: 'MockDe1'),
+        ],
+        responseStatuses: [200, 200],
+      );
+
+      expect(await harness.runNextTimer(), isTrue);
+      await harness.pump();
+
+      final payloads = {
+        for (final request in harness.requests)
+          jsonDecode(request.body)['id'] as String:
+              jsonDecode(request.body) as Map<String, dynamic>,
+      };
+      expect(payloads.keys, {'captured', 'legacy'});
+      expect(payloads['captured']!['machine']['serialNumber'], '6262');
+      expect(payloads['legacy']!['machine'], {
+        'serialNumber': '9999',
+        'firmwareVersion': '1400',
+        'model': 'DE1XL',
+      });
+      expect(
+        harness.fetches().where((url) => url.endsWith('/machine/info')),
+        hasLength(1),
+      );
+    },
+  );
+
+  for (final connectedMachine in <Map<String, dynamic>?>[
+    null,
+    {'serialNumber': 'MockDe1', 'version': '1400'},
+  ]) {
+    test(
+      connectedMachine == null
+          ? 'legacy fallback skips when no machine is connected'
+          : 'legacy fallback skips a connected simulated machine',
+      () async {
+        final harness = await _load(
+          shots: [_shot('legacy', capturedMachine: false)],
+          responseStatuses: [200],
+          connectedMachine: connectedMachine,
+        );
+
+        expect(await harness.runNextTimer(), isTrue);
+        await harness.pump();
+
+        expect(harness.requests, isEmpty);
+      },
+    );
+  }
+
   test('resumes at the first unscanned shot after a bounded batch', () async {
     final harness = await _load(
       shots: [for (var i = 0; i < 21; i++) _shot('shot-$i')],
@@ -305,7 +386,11 @@ void main() {
       harness.requests.map(
         (request) => jsonDecode(request.body)['id'] as String,
       ),
-      [for (var i = 0; i < 10; i++) 'shot-$i'],
+      [for (var i = 20; i > 10; i--) 'shot-$i'],
+    );
+    expect(
+      harness.fetches().where((url) => url.contains('/shots?')),
+      everyElement(contains('order=desc')),
     );
   });
 
@@ -313,7 +398,7 @@ void main() {
     var dispatched = false;
     late final _Harness harness;
     harness = await _load(
-      shots: [for (var i = 0; i < 10; i++) _shot('backlog-$i'), _shot('live')],
+      shots: [_shot('live'), for (var i = 0; i < 10; i++) _shot('backlog-$i')],
       responseStatuses: [200, 200],
       onRequest: (manager) {
         if (dispatched) return;
@@ -329,9 +414,83 @@ void main() {
       harness.requests
           .map((request) => jsonDecode(request.body)['id'] as String)
           .take(2),
-      ['backlog-0', 'live'],
+      ['backlog-9', 'live'],
     );
   });
+
+  for (final decision in <AccountConsentDecision?>[
+    AccountConsentDecision.denied,
+    null,
+  ]) {
+    test(
+      decision == null
+          ? 'consent timeout pauses reconciliation without another prompt'
+          : 'explicit consent denial pauses reconciliation without another prompt',
+      () async {
+        final consentStore = _FakeCredentialStore();
+        var prompts = 0;
+        final gate = AccountConsentGate(
+          store: AccountConsentStore(credentialStore: consentStore),
+          prompt: (_) async {
+            prompts++;
+            return decision;
+          },
+        );
+        final harness = await _load(
+          shots: [_shot('eligible')],
+          responseStatuses: [200],
+          requireConsent: gate.requireConsent,
+        );
+
+        expect(await harness.runNextTimer(), isTrue);
+        await harness.pump();
+
+        expect(harness.requests, isEmpty);
+        expect(prompts, 1);
+        expect(await harness.runNextTimer(), isFalse);
+        harness.manager.dispatchEvent(_manifest().id, 'stateUpdate', {
+          'state': {'state': 'espresso'},
+        });
+        harness.manager.dispatchEvent(_manifest().id, 'stateUpdate', {
+          'state': {'state': 'idle'},
+        });
+        await harness.pump();
+        expect(await harness.runNextTimer(), isFalse);
+        expect(prompts, 1);
+      },
+    );
+  }
+
+  test(
+    '0.2.1 reconciliation follows AutoUpload, not old DrainHistory',
+    () async {
+      final enabled = await _load(
+        shots: [_shot('enabled')],
+        responseStatuses: [200],
+      );
+      enabled.manager.dispatchEvent(_manifest().id, 'settingsUpdated', {
+        'AutoUpload': true,
+        'DrainHistory': false,
+        'LengthThreshold': 0,
+      });
+      expect(await enabled.runNextTimer(), isTrue);
+      await enabled.pump();
+      expect(enabled.requests, hasLength(1));
+
+      final disabled = await _load(
+        shots: [_shot('disabled')],
+        responseStatuses: [200],
+      );
+      disabled.manager.dispatchEvent(_manifest().id, 'settingsUpdated', {
+        'AutoUpload': false,
+        'DrainHistory': true,
+        'LengthThreshold': 0,
+      });
+      await disabled.pump();
+      expect(await disabled.runNextTimer(), isFalse);
+      expect(disabled.requests, isEmpty);
+    },
+  );
 
   test('pauses reconciliation while the machine is active', () async {
     final harness = await _load(

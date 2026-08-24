@@ -40,6 +40,7 @@ function createPlugin(host) {
   let isReconciling = false;
   let pendingLiveShotIds = [];
   let reconcileTimerId = null;
+  let reconciliationPausedForConsent = false;
   let unloaded = false;
   let decaidVersion = null;
 
@@ -112,8 +113,19 @@ function createPlugin(host) {
     };
   }
 
-  async function withCapturedMachine(shot) {
-    const machine = capturedMachine(shot);
+  async function withMachine(shot) {
+    const captured = shot && shot.workflow && shot.workflow.machine;
+    let machine = capturedMachine(shot);
+    if (captured && captured.serialNumber && !machine) return null;
+    if (!captured || !captured.serialNumber) {
+      const current = await fetchLocal("/machine/info");
+      if (!current || !current.serialNumber || /^mock/i.test(String(current.serialNumber))) return null;
+      machine = {
+        serialNumber: String(current.serialNumber),
+        ...(current.version ? { firmwareVersion: String(current.version) } : {}),
+        ...(current.model ? { model: String(current.model) } : {}),
+      };
+    }
     if (!machine) return null;
     return {
       ...shot,
@@ -154,6 +166,10 @@ function createPlugin(host) {
         lastErr = error;
       } catch (e) {
         lastErr = e;
+        if (e.code === "account_consent_denied") {
+          e.consent = true;
+          throw e;
+        }
         if (e.permanent) throw e;
       }
       if (i < RETRIES - 1) await new Promise(r => setTimeout(r, RETRY_DELAY_MS * (i + 1)));
@@ -184,8 +200,8 @@ function createPlugin(host) {
       throw skipped(`shot too short (${dur.toFixed(1)}s < ${state.lengthThreshold}s)`);
     }
 
-    const payload = await withCapturedMachine(full);
-    if (!payload) throw skipped("no captured machine serial available");
+    const payload = await withMachine(full);
+    if (!payload) throw skipped("no real machine serial available");
 
     const result = await postShot(payload);
     await markUploaded(full.id);
@@ -224,13 +240,14 @@ function createPlugin(host) {
         }
         log(`error uploading ${shotId}: ${e.message}`);
         host.emit("uploadError", { shotId: shotId, error: e.message, timestamp: Date.now() });
-        scheduleReconcile(RECONCILE_RETRY_MS);
+        if (e.consent) reconciliationPausedForConsent = true;
+        else scheduleReconcile(RECONCILE_RETRY_MS);
       }
     }
   }
 
   async function autoUpload(shotId) {
-    if (!state.autoUpload || unloaded) return;
+    if (!state.autoUpload || reconciliationPausedForConsent || unloaded) return;
     if (isUploading || isReconciling) {
       queueLiveShot(shotId);
       return;
@@ -253,7 +270,7 @@ function createPlugin(host) {
   }
 
   function scheduleReconcile(delay) {
-    if (!state.autoUpload || unloaded) return;
+    if (!state.autoUpload || reconciliationPausedForConsent || unloaded) return;
     if (reconcileTimerId !== null) clearTimeout(reconcileTimerId);
     reconcileTimerId = setTimeout(() => {
       reconcileTimerId = null;
@@ -277,7 +294,10 @@ function createPlugin(host) {
 
   function reconcileCandidate(shot) {
     const extras = extrasFor(shot);
-    return !extras.uploaded_to_decent && !extras.decent_upload_rejected && capturedMachine(shot) !== null;
+    const captured = shot && shot.workflow && shot.workflow.machine;
+    return !extras.uploaded_to_decent &&
+      !extras.decent_upload_rejected &&
+      (!captured || !captured.serialNumber || capturedMachine(shot) !== null);
   }
 
   function setReconcileOffset(offset) {
@@ -298,7 +318,7 @@ function createPlugin(host) {
       let pages = 0;
       let attempts = 0;
       while (pages < RECONCILE_PAGE_LIMIT && attempts < RECONCILE_BATCH_SIZE && state.autoUpload && !unloaded && reconciliationIsSafe()) {
-        const page = await fetchLocal(`/shots?limit=${RECONCILE_PAGE_SIZE}&offset=${state.reconcileOffset}&order=asc`);
+        const page = await fetchLocal(`/shots?limit=${RECONCILE_PAGE_SIZE}&offset=${state.reconcileOffset}&order=desc`);
         if (!page || !Array.isArray(page.items)) throw new Error("could not list local shots");
         if (page.items.length === 0 || state.reconcileOffset >= page.total) {
           setReconcileOffset(0);
@@ -335,14 +355,15 @@ function createPlugin(host) {
       if (attempts >= RECONCILE_BATCH_SIZE) nextDelay = RECONCILE_CONTINUE_MS;
     } catch (e) {
       log(`reconciliation paused: ${e.message}`);
-      nextDelay = RECONCILE_RETRY_MS;
+      if (e.consent) reconciliationPausedForConsent = true;
+      nextDelay = e.consent ? null : RECONCILE_RETRY_MS;
     } finally {
       isReconciling = false;
       const nextShotId = takeLiveShot();
       if (nextShotId) {
         autoUpload(nextShotId);
         scheduleReconcile(RECONCILE_CONTINUE_MS);
-      } else {
+      } else if (nextDelay !== null) {
         scheduleReconcile(nextDelay);
       }
     }
@@ -358,6 +379,7 @@ function createPlugin(host) {
 
     onLoad(settings) {
       unloaded = false;
+      reconciliationPausedForConsent = false;
       applySettings(settings);
       // Storage reads are event-based: this triggers a `storageRead` event,
       // handled in onEvent, that restores lastUploadedShot.
@@ -406,7 +428,10 @@ function createPlugin(host) {
             reconcileTimerId = null;
             pendingLiveShotIds = [];
           } else if (state.autoUpload) {
-            if (!wasEnabled) setReconcileOffset(0);
+            if (!wasEnabled) {
+              reconciliationPausedForConsent = false;
+              setReconcileOffset(0);
+            }
             scheduleReconcile(0);
           }
           break;

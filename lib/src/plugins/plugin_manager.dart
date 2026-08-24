@@ -348,7 +348,9 @@ class PluginManager {
             __mapDelete(__pendingDecentProxyRequests, pluginId);
           }
           if (response && response.error) {
-            pending.reject(new __NativeError(response.error));
+            const error = new __NativeError(response.error);
+            if (response.code) error.code = response.code;
+            pending.reject(error);
             return;
           }
           pending.resolve(response);
@@ -1321,10 +1323,13 @@ class PluginManager {
     _PendingOp op, {
     Map<String, dynamic>? result,
     String? error,
+    String? errorCode,
   }) {
     op.timeout?.cancel();
     if (_pendingOps.remove(op.key) == null) return;
-    final payload = error != null ? {'error': error} : result;
+    final payload = error != null
+        ? {'error': error, 'code': ?errorCode}
+        : result;
     switch (op.kind) {
       case _PendingOpKind.fetch:
         if (error != null) {
@@ -1417,6 +1422,12 @@ class PluginManager {
         contentType: msg['contentType'] as String?,
       );
       _completeOp(op, result: response);
+    } on DecentProxyConsentDeniedException catch (e) {
+      _completeOp(
+        op,
+        error: e.toString(),
+        errorCode: DecentProxyConsentDeniedException.code,
+      );
     } catch (e) {
       _completeOp(op, error: e.toString());
     }
