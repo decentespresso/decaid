@@ -449,6 +449,7 @@ void main(List<String> args) async {
     accountTokensController = AccountTokensController(
       tokenService: proxyTokenService,
       store: ProxyTokenStore(credentialStore: credentialStore),
+      callerLabelRegistrar: gate.registerCallerLabel,
     );
     await accountTokensController.initialize();
   }

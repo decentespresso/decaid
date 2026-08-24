@@ -134,7 +134,10 @@ class AccountConsentGate {
     if (callerId.startsWith('api:')) {
       final id = callerId.substring(4);
       if (id.trim().isEmpty) return null;
-      return _ConsentSubject(callerId, 'API client "$id"');
+      return _ConsentSubject(
+        callerId,
+        _callerLabels[callerId] ?? 'API client "$id"',
+      );
     }
     return null;
   }

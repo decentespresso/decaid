@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/src/services/account/account_consent_gate.dart';
+import 'package:reaprime/src/services/account/account_consent_store.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart'
     show CredentialStore;
 import 'package:reaprime/src/controllers/account_tokens_controller.dart';
@@ -20,11 +22,26 @@ void main() {
   late ProxyTokenService service;
   late ProxyTokenStore store;
   late AccountTokensController controller;
+  late AccountConsentGate consent;
+  late List<String> prompts;
 
   setUp(() {
     service = ProxyTokenService();
-    store = ProxyTokenStore(credentialStore: _FakeCredentialStore());
-    controller = AccountTokensController(tokenService: service, store: store);
+    final credentials = _FakeCredentialStore();
+    store = ProxyTokenStore(credentialStore: credentials);
+    prompts = [];
+    consent = AccountConsentGate(
+      store: AccountConsentStore(credentialStore: credentials),
+      prompt: (label) async {
+        prompts.add(label);
+        return AccountConsentDecision.allowed;
+      },
+    );
+    controller = AccountTokensController(
+      tokenService: service,
+      store: store,
+      callerLabelRegistrar: consent.registerCallerLabel,
+    );
   });
 
   test('create mints a token that validates with a read scope', () async {
@@ -33,7 +50,8 @@ void main() {
     expect(token, isNotEmpty);
     final caller = service.validate(token);
     expect(caller, isNotNull);
-    expect(caller!.id, 'api:laptop');
+    expect(caller!.id, startsWith('api:'));
+    expect(caller.id, isNot('api:laptop'));
     expect(caller.scopes, contains(ProxyTokenService.scopeAccountProxy));
     expect(
       caller.scopes,
@@ -73,9 +91,35 @@ void main() {
     expect(controller.tokens, isEmpty);
   });
 
+  test('duplicate labels require independent consent', () async {
+    final first = await controller.create(label: 'station');
+    final second = await controller.create(label: 'station');
+    final firstId = service.validate(first)!.id;
+    final secondId = service.validate(second)!.id;
+
+    expect(firstId, isNot(secondId));
+    expect(await consent.requireConsent(firstId), isTrue);
+    expect(await consent.requireConsent(secondId), isTrue);
+    expect(prompts, ['station', 'station']);
+  });
+
+  test('recreated label requires new consent after revoke', () async {
+    final first = await controller.create(label: 'station');
+    final firstId = service.validate(first)!.id;
+    expect(await consent.requireConsent(firstId), isTrue);
+    await controller.revoke(first);
+
+    final replacement = await controller.create(label: 'station');
+    final replacementId = service.validate(replacement)!.id;
+    expect(replacementId, isNot(firstId));
+    expect(await consent.requireConsent(replacementId), isTrue);
+    expect(prompts, ['station', 'station']);
+  });
+
   test('initialize loads persisted tokens into the service', () async {
     await store.save([
       PersistedProxyToken(
+        id: 'persisted-id',
         token: 'persisted-tok',
         label: 'desktop',
         scopes: {ProxyTokenService.scopeAccountProxy},
@@ -87,10 +131,11 @@ void main() {
     final freshController = AccountTokensController(
       tokenService: freshService,
       store: store,
+      callerLabelRegistrar: consent.registerCallerLabel,
     );
     await freshController.initialize();
 
-    expect(freshService.validate('persisted-tok')!.id, 'api:desktop');
+    expect(freshService.validate('persisted-tok')!.id, 'api:persisted-id');
     expect(freshController.tokens.map((t) => t.label), ['desktop']);
   });
 }
