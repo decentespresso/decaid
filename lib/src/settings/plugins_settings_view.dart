@@ -886,6 +886,23 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
     }
 
     final Map<String, dynamic> newSettings = Map.from(settings);
+    final enumValuesByKey = <String, List<String>>{
+      for (final entry in settingsSchema.entries)
+        if (entry.value['type'] == 'enum' && entry.value['secure'] != true)
+          entry.key: parsePluginEnumValues(entry.key, entry.value),
+    };
+    for (final entry in enumValuesByKey.entries) {
+      if (!newSettings.containsKey(entry.key) ||
+          entry.value.contains(newSettings[entry.key])) {
+        continue;
+      }
+      final defaultValue = settingsSchema[entry.key]?['default'];
+      if (entry.value.contains(defaultValue)) {
+        newSettings[entry.key] = defaultValue;
+      } else {
+        newSettings[entry.key] = null;
+      }
+    }
     if (context.mounted == false) {
       return;
     }
@@ -916,6 +933,12 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                   final schema = entry.value;
                   final currentValue = newSettings[key];
                   final defaultValue = schema['default'];
+                  final enumValues = enumValuesByKey[key] ?? const <String>[];
+                  final selectedEnumValue = enumValues.contains(currentValue)
+                      ? currentValue as String
+                      : enumValues.contains(defaultValue)
+                      ? defaultValue as String
+                      : null;
                   final secureDraft = secureDrafts[key];
                   final secureValueIsSet =
                       secureDraft != null &&
@@ -1025,6 +1048,29 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                                 });
                               }
                             },
+                          )
+                        else if (schema['type'] == 'enum')
+                          ShadSelect<String>(
+                            initialValue: selectedEnumValue,
+                            enabled: enumValues.isNotEmpty,
+                            placeholder: const Text('Select a value...'),
+                            selectedOptionBuilder: (context, value) =>
+                                Text(value),
+                            onChanged: (value) {
+                              if (value != null) {
+                                setState(() {
+                                  newSettings[key] = value;
+                                });
+                              }
+                            },
+                            options: enumValues
+                                .map(
+                                  (value) => ShadOption<String>(
+                                    value: value,
+                                    child: Text(value),
+                                  ),
+                                )
+                                .toList(),
                           )
                         else
                           ShadInput(

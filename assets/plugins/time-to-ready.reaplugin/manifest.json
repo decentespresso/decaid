@@ -32,7 +32,7 @@
         },
         "status": {
           "type": "enum",
-          "values": "reached | insufficient_data | not_heating | heating",
+          "values": ["reached", "insufficient_data", "not_heating", "heating"],
           "description": "current plugin heating state"
         }
       },

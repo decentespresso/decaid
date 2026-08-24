@@ -196,6 +196,98 @@ void main() {
     expect(find.text('proxyDecentApi'), findsNothing);
   });
 
+  PluginManifest enumManifest({bool includeDefault = true}) => PluginManifest(
+    id: 'enum.reaplugin',
+    name: 'Enum Plugin',
+    author: 'Test',
+    description: 'Test plugin',
+    version: '1.0.0',
+    apiVersion: 1,
+    permissions: {},
+    settings: {
+      'Roast': {
+        'type': 'enum',
+        'values': ['Light', 'Medium', 'Dark'],
+        if (includeDefault) 'default': 'Medium',
+      },
+    },
+    api: PluginApi(endpoints: []),
+  );
+
+  Future<void> openEnumSettingsDialog(
+    WidgetTester tester,
+    Map<String, dynamic> settings, {
+    bool includeDefault = true,
+  }) async {
+    fakePluginLoaderService = FakePluginLoaderService(
+      plugins: [enumManifest(includeDefault: includeDefault)],
+      settings: settings,
+    );
+
+    await tester.pumpWidget(
+      ShadApp(
+        builder: (_, child) => ScaffoldMessenger(child: child!),
+        home: PluginsSettingsView(
+          pluginLoaderService: fakePluginLoaderService,
+          allowInstall: false,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.tap(find.widgetWithText(ShadButton, 'Settings'));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('selects and saves enum settings', (tester) async {
+    await openEnumSettingsDialog(tester, {'Roast': 'Light'});
+
+    expect(find.byType(ShadSelect<String>), findsOneWidget);
+    expect(find.text('Light'), findsOneWidget);
+    await tester.tap(find.byType(ShadSelect<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ShadOption<String>, 'Dark'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ShadButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(fakePluginLoaderService.savedSettings, {'Roast': 'Dark'});
+  });
+
+  testWidgets('replaces an invalid enum setting with its valid default', (
+    tester,
+  ) async {
+    await openEnumSettingsDialog(tester, {'Roast': 'Obsolete'});
+
+    expect(find.text('Medium'), findsOneWidget);
+    await tester.tap(find.widgetWithText(ShadButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(fakePluginLoaderService.savedSettings, {'Roast': 'Medium'});
+  });
+
+  testWidgets('clears an invalid enum setting without a valid default', (
+    tester,
+  ) async {
+    await openEnumSettingsDialog(tester, {
+      'Roast': 'Obsolete',
+    }, includeDefault: false);
+
+    await tester.tap(find.widgetWithText(ShadButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(fakePluginLoaderService.savedSettings, {'Roast': null});
+  });
+
+  testWidgets('does not persist an untouched enum default', (tester) async {
+    await openEnumSettingsDialog(tester, {});
+
+    expect(find.text('Medium'), findsOneWidget);
+    await tester.tap(find.widgetWithText(ShadButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(fakePluginLoaderService.savedSettings, isEmpty);
+  });
+
   PluginManifest secureManifest() => PluginManifest(
     id: 'secure.reaplugin',
     name: 'Secure Plugin',

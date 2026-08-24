@@ -973,10 +973,20 @@ class PluginLoaderService {
       return;
     }
 
-    for (final key in settings.keys) {
-      if (!manifestSettings.containsKey(key)) {
+    for (final entry in settings.entries) {
+      if (!manifestSettings.containsKey(entry.key)) {
         throw PluginSettingsValidationException(
-          'Setting "$key" not defined in plugin manifest',
+          'Setting "${entry.key}" not defined in plugin manifest',
+        );
+      }
+      if (entry.value == null || _isSecureState(entry.value)) continue;
+      final schema = manifestSettings[entry.key];
+      final enumValues = parsePluginEnumValues(entry.key, schema);
+      if (schema is Map &&
+          schema['type'] == 'enum' &&
+          !enumValues.contains(entry.value)) {
+        throw PluginSettingsValidationException(
+          'Setting "${entry.key}" must be one of: ${enumValues.join(', ')}',
         );
       }
     }
