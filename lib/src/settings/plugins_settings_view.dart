@@ -853,14 +853,8 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
     final Map<String, dynamic> newSettings = Map.from(settings);
     final enumValuesByKey = <String, List<String>>{
       for (final entry in settingsSchema.entries)
-        if (entry.value['type'] == 'enum' &&
-            entry.value['secure'] != true &&
-            entry.value['values'] is String)
-          entry.key: (entry.value['values'] as String)
-              .split('|')
-              .map((value) => value.trim())
-              .where((value) => value.isNotEmpty)
-              .toList(growable: false),
+        if (entry.value['type'] == 'enum' && entry.value['secure'] != true)
+          entry.key: parsePluginEnumValues(entry.key, entry.value),
     };
     for (final entry in enumValuesByKey.entries) {
       if (!newSettings.containsKey(entry.key) ||

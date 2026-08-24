@@ -1,5 +1,16 @@
 import 'package:collection/collection.dart';
 
+List<String> parsePluginEnumValues(String key, dynamic schema) {
+  if (schema is! Map || schema['type'] != 'enum') return const [];
+  final values = schema['values'];
+  if (values is! List || values.any((value) => value is! String)) {
+    throw FormatException(
+      'Enum setting "$key" values must be a JSON array of strings',
+    );
+  }
+  return List<String>.unmodifiable(values.cast<String>());
+}
+
 class PluginManifest {
   final String id;
   final String name;
@@ -24,6 +35,10 @@ class PluginManifest {
   });
 
   factory PluginManifest.fromJson(Map<String, dynamic> json) {
+    final settings = Map<String, dynamic>.from(json['settings'] ?? {});
+    for (final entry in settings.entries) {
+      parsePluginEnumValues(entry.key, entry.value);
+    }
     return PluginManifest(
       id: json['id'],
       name: json['name'],
@@ -32,7 +47,7 @@ class PluginManifest {
       version: json['version'],
       apiVersion: json['apiVersion'],
       permissions: PluginPermissionsFromJson.fromJson(json['permissions']),
-      settings: json['settings'] ?? {},
+      settings: settings,
       api: PluginApi.fromJsonList(json['api']),
     );
   }
