@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
+import 'package:reaprime/src/models/device/impl/decent_scale/protocol.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/transport/serial_port.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
@@ -13,7 +14,9 @@ class HDSSerial implements Scale, TransportHandoffScale {
   late Logger _log;
   final SerialTransport _transport;
 
-  static const _enableCommand = [0x03, 0x20, 0x01];
+  static const _enableCommand = [0x03, 0x20, 0x01, 0x01];
+  static const _initializationTimeout = Duration(seconds: 2);
+  static const _weightFrameLength = 7;
   static const _watchdogInterval = Duration(seconds: 2);
   static const _warningTicks = 3;
   static const _disconnectTicks = 6;
@@ -43,8 +46,10 @@ class HDSSerial implements Scale, TransportHandoffScale {
 
   bool _isDisconnecting = false;
   Timer? _watchdogTimer;
+  Completer<bool>? _initialization;
   int _ticksSinceLastData = 0;
   bool _retryAttempted = false;
+  final List<int> _inputBuffer = [];
 
   @override
   disconnect() async {
@@ -52,11 +57,15 @@ class HDSSerial implements Scale, TransportHandoffScale {
     _isDisconnecting = true;
     final uptimeSec = _watchdogTotalTicks * _watchdogInterval.inSeconds;
     _log.info(
-      "disconnecting (totalFrames=$_totalFrames, uptime=${uptimeSec}s)",
+      "disconnecting (rawChunks=$_rawChunks, rawBytes=$_rawBytes, validWeightFrames=$_validWeightFrames, invalidFrames=$_invalidFrames, checksumFailures=$_checksumFailures, uptime=${uptimeSec}s)",
     );
     try {
       _watchdogTimer?.cancel();
       _watchdogTimer = null;
+      if (_initialization case final initialization?
+          when !initialization.isCompleted) {
+        initialization.complete(false);
+      }
       _connectionSubject.add(ConnectionState.disconnected);
       _transportSubscription?.cancel();
       await _transport.disconnect();
@@ -74,14 +83,25 @@ class HDSSerial implements Scale, TransportHandoffScale {
   String get name => "Half Decent Scale (USB)";
 
   StreamSubscription<Uint8List>? _transportSubscription;
-  int _totalFrames = 0;
+  int _rawChunks = 0;
+  int _rawBytes = 0;
+  int _validWeightFrames = 0;
+  int _invalidFrames = 0;
+  int _checksumFailures = 0;
 
   @override
   Future<void> onConnect() async {
     _log.info("on connect (id=$deviceId, transport=${_transport.name})");
-    _totalFrames = 0;
+    _rawChunks = 0;
+    _rawBytes = 0;
+    _validWeightFrames = 0;
+    _invalidFrames = 0;
+    _checksumFailures = 0;
+    _inputBuffer.clear();
     _connectionSubject.add(ConnectionState.connecting);
     await _transport.connect();
+    final initialization = Completer<bool>();
+    _initialization = initialization;
     _transportSubscription = _transport.rawStream.listen(
       onData,
       onError: (error) {
@@ -94,6 +114,17 @@ class HDSSerial implements Scale, TransportHandoffScale {
     );
 
     await _transport.writeHexCommand(Uint8List.fromList(_enableCommand));
+    final initialized = await initialization.future.timeout(
+      _initializationTimeout,
+      onTimeout: () => false,
+    );
+    if (identical(_initialization, initialization)) {
+      _initialization = null;
+    }
+    if (!initialized) {
+      await disconnect();
+      throw TimeoutException('HDS USB weight stream initialization timed out');
+    }
     _startWatchdog();
     _connectionSubject.add(ConnectionState.connected);
   }
@@ -113,21 +144,21 @@ class HDSSerial implements Scale, TransportHandoffScale {
         final uptimeMin =
             (_watchdogTotalTicks * _watchdogInterval.inSeconds) ~/ 60;
         _log.fine(
-          "heartbeat: ${uptimeMin}m uptime, $_totalFrames frames received",
+          "heartbeat: ${uptimeMin}m uptime, $_validWeightFrames valid weight frames received",
         );
       }
 
       if (_ticksSinceLastData >= _disconnectTicks) {
         _log.severe(
           "No data for ${_disconnectTicks * _watchdogInterval.inSeconds}s "
-          "(totalFrames=$_totalFrames, uptime=${_watchdogTotalTicks * _watchdogInterval.inSeconds}s), disconnecting",
+          "(validWeightFrames=$_validWeightFrames, uptime=${_watchdogTotalTicks * _watchdogInterval.inSeconds}s), disconnecting",
         );
         disconnect();
       } else if (_ticksSinceLastData >= _warningTicks && !_retryAttempted) {
         _retryAttempted = true;
         _log.warning(
           "No data for ${_warningTicks * _watchdogInterval.inSeconds}s "
-          "(totalFrames=$_totalFrames), resending enable command",
+          "(validWeightFrames=$_validWeightFrames), resending enable command",
         );
         _transport.writeHexCommand(Uint8List.fromList(_enableCommand));
       }
@@ -136,11 +167,9 @@ class HDSSerial implements Scale, TransportHandoffScale {
 
   @override
   Future<void> tare() async {
-    Uint8List cmd = Uint8List(5);
-    cmd[0] = 0x03;
-    cmd[1] = 0x0F;
-
-    await _transport.writeHexCommand(cmd);
+    await _transport.writeHexCommand(
+      buildDecentScaleCommand([0x0F, 0x00, 0x00, 0x00, 0x01]),
+    );
   }
 
   @override
@@ -173,24 +202,69 @@ class HDSSerial implements Scale, TransportHandoffScale {
   DeviceType get type => DeviceType.scale;
 
   void onData(Uint8List data) {
+    _rawChunks++;
+    _rawBytes += data.length;
+    _inputBuffer.addAll(data);
+    _decodeWeightFrames();
+  }
+
+  void _decodeWeightFrames() {
+    while (_inputBuffer.length >= 2) {
+      final start = _weightFrameStart();
+      if (start < 0) {
+        final trailingStart = _inputBuffer.last == 0x03;
+        _inputBuffer.removeRange(
+          0,
+          _inputBuffer.length - (trailingStart ? 1 : 0),
+        );
+        return;
+      }
+      if (start > 0) {
+        _inputBuffer.removeRange(0, start);
+      }
+      if (_inputBuffer.length < _weightFrameLength) {
+        return;
+      }
+
+      final frame = _inputBuffer.sublist(0, _weightFrameLength);
+      final checksum = frame.take(6).fold(0, (value, byte) => value ^ byte);
+      if (checksum != frame[6]) {
+        _checksumFailures++;
+        _invalidFrames++;
+        _inputBuffer.removeAt(0);
+        continue;
+      }
+
+      _inputBuffer.removeRange(0, _weightFrameLength);
+      _handleWeightFrame(frame);
+    }
+  }
+
+  int _weightFrameStart() {
+    for (var i = 0; i < _inputBuffer.length - 1; i++) {
+      if (_inputBuffer[i] == 0x03 && _inputBuffer[i + 1] == 0xCE) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  void _handleWeightFrame(List<int> data) {
     _ticksSinceLastData = 0;
     _retryAttempted = false;
-    _totalFrames++;
-    try {
-      _log.finest("got message: $data");
-    } catch (_) {}
-    if (data.length < 5 || data[0] != 0x03 || data[1] != 0xCE) {
-      _log.finest("data is not weight data (len=${data.length})");
-      return;
+    _validWeightFrames++;
+    if (_initialization case final initialization?
+        when !initialization.isCompleted) {
+      initialization.complete(true);
     }
-    var d = ByteData(2);
-    d.setInt8(0, data[2]);
-    d.setInt8(1, data[3]);
-    var weight = d.getInt16(0) / 10;
+    final unsignedWeight = (data[2] << 8) | data[3];
+    final signedWeight = unsignedWeight >= 0x8000
+        ? unsignedWeight - 0x10000
+        : unsignedWeight;
     _snapshotHandler.add(
       ScaleSnapshot(
         timestamp: DateTime.now(),
-        weight: weight,
+        weight: signedWeight / 10,
         batteryLevel: 100,
       ),
     );

@@ -105,7 +105,12 @@ void main() {
     });
 
     test('calls transport.disconnect() after onConnect', () async {
-      await hds.onConnect();
+      final connected = hds.onConnect();
+      await Future<void>.delayed(Duration.zero);
+      transport.emitRawData(
+        Uint8List.fromList([0x03, 0xCE, 0x00, 0x00, 0x00, 0x00, 0xCD]),
+      );
+      await connected;
       await hds.disconnect();
       expect(transport.disconnectCalled, isTrue);
     });

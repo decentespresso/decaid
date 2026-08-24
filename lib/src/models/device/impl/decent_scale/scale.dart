@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:reaprime/src/models/device/ble_service_identifier.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
+import 'package:reaprime/src/models/device/impl/decent_scale/protocol.dart';
 import 'package:reaprime/src/services/serial/serial_service_desktop.dart';
 import 'package:logging/logging.dart' as logging;
 import 'package:reaprime/src/models/device/device.dart';
@@ -56,16 +56,6 @@ class DecentScale implements Scale, TransportHandoffScale {
     : _deviceId = transport.id,
       _device = transport;
 
-  static Uint8List _buildCommand(List<int> commandBytes) {
-    final bytes = <int>[0x03, ...commandBytes];
-    int xor = 0;
-    for (final b in bytes) {
-      xor ^= b;
-    }
-    bytes.add(xor);
-    return Uint8List.fromList(bytes);
-  }
-
   Future<bool> _writeCommand(
     List<int> commandBytes, {
     Duration? timeout,
@@ -75,7 +65,7 @@ class DecentScale implements Scale, TransportHandoffScale {
       await _device.write(
         serviceIdentifier.long,
         writeCharacteristic.long,
-        _buildCommand(commandBytes),
+        buildDecentScaleCommand(commandBytes),
         timeout: timeout,
         withResponse: withResponse,
       );

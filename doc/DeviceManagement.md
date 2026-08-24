@@ -84,6 +84,7 @@ Discovery services are responsible for scanning and creating device instances. E
   - `lib/src/services/serial/serial_service_android.dart` (Android)
   - `lib/src/services/serial/serial_service.dart` (factory)
 - **Discovery:** Enumerates serial ports, probes for device identification
+- **HDS USB readiness:** `HDSSerial` enables the 10 Hz OpenScale binary stream and remains `connecting` until a checksum-valid weight frame arrives. Its buffered decoder accepts fragmented/coalesced frames mixed with firmware text; only valid weight frames refresh the watchdog.
 
   DE1-family detection uses product names and the normal protocol probe:
   1. Exact `productName == "DE1"` creates `UnifiedDe1`; exact
