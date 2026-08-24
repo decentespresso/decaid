@@ -3320,7 +3320,7 @@ This shows "Back to MySkin" in the settings plugin's nav bar. When clicked, it n
 
 **Return to the dashboard:** Skin pages served on port 3000 load the tokenless `/__decent/skin-api.js` from an absolute same-origin URL, which exposes `window.decentApp.exitToDashboard()`. ReaPrime stores the account-proxy token in escaped page metadata that only the same-origin script reads. Token injection accepts loopback and IP addresses currently assigned to the device, including Ethernet and secondary adapters; arbitrary hostnames and stale addresses are rejected. If local interface enumeration is unavailable, the WiFi address cached for the server link is used as a fallback. The script response also uses `Cross-Origin-Resource-Policy: same-origin`. In the embedded webview the callback closes the skin and reveals the Decent dashboard. In an external browser it is a no-op. The script works with `script-src 'self'`; policies that reject all same-origin scripts, such as `script-src 'none'` or nonce-only policies without `'self'`, also reject this API.
 
-The embedded webview also shows a platform-specific navigation guide when a skin opens. On Windows, a persistent Dashboard button is overlaid in the top-right corner because WebView2 owns browser keyboard shortcuts. Disable or restore the guide in **Settings** under **General** with **Skin navigation guide**.
+The embedded webview also shows a platform-specific navigation guide when a skin opens. On Windows, choose **Back to Dashboard** from the system menu, available from the window icon or by right-clicking the title bar. Disable or restore the guide in **Settings** under **General** with **Skin navigation guide**.
 
 **Server control endpoints:**
 

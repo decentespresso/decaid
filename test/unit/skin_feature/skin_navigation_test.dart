@@ -19,14 +19,16 @@ void main() {
     expect(instructions, contains('tap Back'));
   });
 
-  test('skin exit guide points Windows users to the Dashboard button', () {
+  test('skin exit guide points Windows users to the system menu', () {
     final instructions = skinExitInstructions(TargetPlatform.windows);
 
-    expect(instructions, contains('Dashboard button'));
+    expect(instructions, contains('Windows system menu'));
+    expect(instructions, contains('Back to Dashboard'));
     expect(instructions, isNot(contains('Alt+Backspace')));
+    expect(instructions, isNot(contains('Alt+Space')));
   });
 
-  testWidgets('system back and Windows button exit directly to Dashboard', (
+  testWidgets('system back exits directly to Dashboard without an overlay', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(1600, 900);
@@ -77,11 +79,7 @@ void main() {
       tester.getSize(find.byKey(const Key('webview'))),
       const Size(1600, 900),
     );
-    await tester.tap(find.byTooltip('Open Dashboard'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Dashboard'), findsOneWidget);
-    expect(find.text('Skins'), findsNothing);
+    expect(find.byTooltip('Open Dashboard'), findsNothing);
   });
 
   testWidgets('iOS edge swipe exits directly to Dashboard', (tester) async {

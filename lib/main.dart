@@ -883,6 +883,37 @@ class _AppRootState extends State<AppRoot> {
   final Logger _log = Logger("AppRoot");
   Key _key = UniqueKey();
 
+  static const _windowChannel = MethodChannel('net.tadel.reaprime/window');
+
+  @override
+  void initState() {
+    super.initState();
+    if (Platform.isWindows) {
+      _windowChannel.setMethodCallHandler(_handleWindowMethod);
+    }
+  }
+
+  @override
+  void dispose() {
+    if (Platform.isWindows) {
+      _windowChannel.setMethodCallHandler(null);
+    }
+    super.dispose();
+  }
+
+  Future<void> _handleWindowMethod(MethodCall call) async {
+    if (call.method == 'backToDashboard') {
+      _backToDashboard();
+    }
+  }
+
+  void _backToDashboard() {
+    NavigationService.navigatorKey.currentState?.pushNamedAndRemoveUntil(
+      LauncherView.routeName,
+      (_) => false,
+    );
+  }
+
   Future<void> restart() async {
     _log.info("recreating App Root");
     setState(() {
@@ -1013,15 +1044,7 @@ class _AppRootState extends State<AppRoot> {
               LogicalKeyboardKey.keyD,
               meta: true,
             ),
-            onSelected: () {
-              final navigator = NavigationService.navigatorKey.currentState;
-              if (navigator != null) {
-                navigator.pushNamedAndRemoveUntil(
-                  LauncherView.routeName,
-                  (_) => false,
-                );
-              }
-            },
+            onSelected: _backToDashboard,
           ),
           if (widget.settingsController.enableSimulatedWebViews) ...[
             PlatformMenuItem(
