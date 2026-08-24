@@ -244,6 +244,10 @@ enum De1CalibrationTarget {
 enum De1CalibrationSource { current, factory }
 
 final class De1Calibration {
+  static const fixedPointScale = 65536.0;
+  static const minValue = -32768.0;
+  static const maxValueExclusive = 32768.0;
+
   final De1CalibrationTarget target;
   final double de1ReportedValue;
   final double measuredValue;
@@ -253,6 +257,32 @@ final class De1Calibration {
     required this.de1ReportedValue,
     required this.measuredValue,
   });
+
+  void validateForWrite() {
+    _validateValue(de1ReportedValue, 'de1ReportedValue');
+    _validateValue(measuredValue, 'measuredValue');
+    if (target != De1CalibrationTarget.temperature &&
+        (de1ReportedValue * fixedPointScale).round() == 0) {
+      throw ArgumentError.value(
+        de1ReportedValue,
+        'de1ReportedValue',
+        'must not encode as zero for flow or pressure',
+      );
+    }
+  }
+
+  static void _validateValue(double value, String name) {
+    if (!value.isFinite) {
+      throw ArgumentError.value(value, name, 'must be finite');
+    }
+    if (value < minValue || value >= maxValueExclusive) {
+      throw ArgumentError.value(
+        value,
+        name,
+        'outside the signed Q16.16 range -32768..32767.9999',
+      );
+    }
+  }
 
   @override
   bool operator ==(Object other) =>

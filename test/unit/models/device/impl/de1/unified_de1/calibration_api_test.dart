@@ -5,6 +5,7 @@ import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/calibration_codec.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
+import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/models/errors.dart';
 
 import '../../../../../../helpers/fake_ble_transport.dart';
@@ -200,6 +201,34 @@ void main() {
       // notification is required or awaited.
       await future;
       expect(completed, isTrue);
+    },
+  );
+
+  test(
+    'real and simulated writes reject multiplicative encoded zero',
+    () async {
+      final mock = MockDe1();
+      for (final calibration in const [
+        De1Calibration(
+          target: De1CalibrationTarget.flow,
+          de1ReportedValue: 0,
+          measuredValue: 1,
+        ),
+        De1Calibration(
+          target: De1CalibrationTarget.pressure,
+          de1ReportedValue: 0.000001,
+          measuredValue: 1,
+        ),
+      ]) {
+        await expectLater(
+          de1.writeCalibration(calibration),
+          throwsArgumentError,
+        );
+        await expectLater(
+          mock.writeCalibration(calibration),
+          throwsArgumentError,
+        );
+      }
     },
   );
 

@@ -604,6 +604,7 @@ class MockDe1 implements De1Interface, SimulatedDevice {
 
   @override
   Future<void> writeCalibration(De1Calibration calibration) async {
+    calibration.validateForWrite();
     // Writes are corrections, not sets, matching the DE1 firmware:
     // flow/pressure multiply by measured/reported, temperature adds the
     // difference.

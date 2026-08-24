@@ -21,11 +21,10 @@ final class De1CalibrationCodec {
 
   static const int _readWriteKey = 1;
   static const int _writeWriteKey = 0xCAFEF00D;
-  static const double _fixedPointScale = 65536.0;
 
   /// Signed Q16.16 representable range (S32P16).
-  static const double minValue = -32768.0;
-  static const double maxValueExclusive = 32768.0;
+  static const double minValue = De1Calibration.minValue;
+  static const double maxValueExclusive = De1Calibration.maxValueExclusive;
 
   static Uint8List encodeRead(
     De1CalibrationTarget target, {
@@ -41,18 +40,9 @@ final class De1CalibrationCodec {
   }
 
   static Uint8List encodeWrite(De1Calibration calibration) {
-    _checkFinite(calibration.de1ReportedValue, 'de1ReportedValue');
-    _checkFinite(calibration.measuredValue, 'measuredValue');
+    calibration.validateForWrite();
     final reported = _encodeQ16_16Signed(calibration.de1ReportedValue);
     final measured = _encodeQ16_16Signed(calibration.measuredValue);
-    if (calibration.target != De1CalibrationTarget.temperature &&
-        reported == 0) {
-      throw ArgumentError.value(
-        calibration.de1ReportedValue,
-        'de1ReportedValue',
-        'must not encode as zero for flow or pressure',
-      );
-    }
     final bytes = ByteData(packetLength);
     bytes.setUint32(0, _writeWriteKey, Endian.big);
     bytes.setUint8(4, writeCommand);
@@ -90,24 +80,11 @@ final class De1CalibrationCodec {
     }
   }
 
-  static int _encodeQ16_16Signed(double value) {
-    if (value < minValue || value >= maxValueExclusive) {
-      throw ArgumentError.value(
-        value,
-        'value',
-        'outside the signed Q16.16 range -32768..32767.9999',
-      );
-    }
-    return (value * _fixedPointScale).round();
-  }
+  static int _encodeQ16_16Signed(double value) =>
+      (value * De1Calibration.fixedPointScale).round();
 
-  static double _decodeQ16_16Signed(int raw) => raw / _fixedPointScale;
-
-  static void _checkFinite(double value, String name) {
-    if (!value.isFinite) {
-      throw ArgumentError.value(value, name, 'must be finite');
-    }
-  }
+  static double _decodeQ16_16Signed(int raw) =>
+      raw / De1Calibration.fixedPointScale;
 }
 
 final class De1CalibrationPacket {

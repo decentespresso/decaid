@@ -572,7 +572,6 @@ class De1Handler {
             ),
           );
         } on ArgumentError catch (e) {
-          // Out-of-range values (outside signed Q16.16) are client errors.
           return jsonBadRequest({'error': e.toString()});
         }
         return jsonAccepted();
