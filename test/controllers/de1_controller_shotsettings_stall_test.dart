@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/connection/connection_timings.dart';
@@ -7,6 +8,10 @@ import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
+import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
+import 'package:reaprime/src/models/device/transport/serial_port.dart';
+import 'package:rxdart/rxdart.dart';
 
 import '../helpers/mock_device_discovery_service.dart';
 import '../helpers/test_de1.dart';
@@ -108,6 +113,89 @@ class _LateShotSettingsDe1 extends TestDe1 {
 
   @override
   Future<void> updateShotSettings(De1ShotSettings settings) async {}
+}
+
+class _RecoveringSerialTransport extends SerialTransport {
+  _RecoveringSerialTransport({required this.answerOnRearm});
+
+  final int answerOnRearm;
+  final _connState = BehaviorSubject<ConnectionState>.seeded(
+    ConnectionState.connected,
+  );
+  final input = StreamController<String>.broadcast(sync: true);
+  final writes = <String>[];
+  int rearms = 0;
+
+  @override
+  String get id => 'recovering-serial-de1';
+
+  @override
+  String get name => 'RecoveringSerialDe1';
+
+  @override
+  Stream<ConnectionState> get connectionState => _connState.stream;
+
+  @override
+  Stream<String> get readStream => input.stream;
+
+  @override
+  Stream<Uint8List> get rawStream => const Stream.empty();
+
+  @override
+  Future<void> connect() async {}
+
+  @override
+  Future<void> disconnect() async {}
+
+  @override
+  Future<void> dispose() async {
+    if (!input.isClosed) await input.close();
+    if (!_connState.isClosed) await _connState.close();
+  }
+
+  @override
+  Future<void> writeHexCommand(Uint8List command) async {}
+
+  @override
+  Future<void> writeCommand(String command) async {
+    writes.add(command);
+    if (command == '<-K>') {
+      rearms++;
+    } else if (command == '<+K>' && rearms == answerOnRearm) {
+      scheduleMicrotask(() => input.add(_shotSettingsFrame));
+    } else if (command.startsWith('<E>')) {
+      final request = _hexBytes(command.substring(3));
+      final response = Uint8List(20);
+      response[0] = 20;
+      response[1] = request[1];
+      response[2] = request[2];
+      response[3] = request[3];
+      scheduleMicrotask(() => input.add('[E]${_hexString(response)}\n'));
+    }
+  }
+}
+
+const _shotSettingsFrame = '[K]0100b4001e0050000000c8001400280239\n';
+
+Uint8List _hexBytes(String hex) {
+  final bytes = Uint8List(hex.length ~/ 2);
+  for (var i = 0; i < hex.length; i += 2) {
+    bytes[i ~/ 2] = int.parse(hex.substring(i, i + 2), radix: 16);
+  }
+  return bytes;
+}
+
+String _hexString(Uint8List bytes) =>
+    bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+
+Future<void> waitFor(bool Function() condition, String reason) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 8));
+  while (!condition()) {
+    if (DateTime.now().isAfter(deadline)) {
+      fail('Timed out waiting for $reason');
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+  }
 }
 
 void main() {
@@ -240,6 +328,57 @@ void main() {
           .timeout(const Duration(seconds: 5));
 
       expect(de1.setFlushFlowCalls, 1);
+    },
+  );
+
+  test(
+    'the serial re-arm recovery flows into deferred startup defaults',
+    () async {
+      final controller = De1Controller(controller: deviceController);
+      controller.defaultWorkflow = _workflow(steamDuration: 16);
+      final serial = _RecoveringSerialTransport(answerOnRearm: 2);
+      final de1 = UnifiedDe1(transport: serial);
+      addTearDown(de1.dispose);
+
+      await controller.connectToDe1(de1);
+
+      // The connect-time <+K> goes unanswered, so the initial read times out
+      // and the deferred-defaults path arms, before the second re-arm
+      // recovers the frame (production timing: 2s wait + 1s backoff + 2s
+      // wait).
+      await Future<void>.delayed(
+        ConnectionTimings.initialShotSettingsTimeout +
+            const Duration(milliseconds: 300),
+      );
+      expect(
+        serial.writes.where((w) => w.startsWith('<F>')),
+        hasLength(2),
+        reason: 'only the onConnect MMR writes (refill kit, app flags)',
+      );
+      expect(serial.rearms, 1);
+
+      await waitFor(
+        () => serial.writes.any((w) => w.startsWith('<K>019610')),
+        'the recovered frame to apply configured steam duration 16',
+      );
+
+      expect(serial.rearms, 2);
+      final steamIndex = serial.writes.indexWhere(
+        (w) => w.startsWith('<K>019610'),
+      );
+      final fanIndex = serial.writes.indexWhere(
+        (w) => w.startsWith('<F>04803808'),
+      );
+      expect(
+        fanIndex,
+        isNonNegative,
+        reason: 'deferred defaults start with the fan-threshold write',
+      );
+      expect(
+        steamIndex,
+        greaterThan(fanIndex),
+        reason: 'device writes stay serialized: fan before steam',
+      );
     },
   );
 }

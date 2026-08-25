@@ -77,6 +77,7 @@ class UnifiedDe1Transport {
        transportType = transport.transportType,
        _log = Logger("UnifiedDe1Transport-${transport.id}");
   Future<void> connect() async {
+    _cacheGeneration++;
     final wasConnected =
         transportType == TransportType.ble &&
         await _transport.connectionState.first ==
@@ -283,6 +284,7 @@ class UnifiedDe1Transport {
   }
 
   Future<void> dispose() async {
+    _cacheGeneration++;
     _serialResponses.failAll(StateError('Serial transport disposed'));
     await _transportSubscription?.cancel();
     _transportSubscription = null;
@@ -304,6 +306,7 @@ class UnifiedDe1Transport {
   }
 
   Future<void> disconnect() async {
+    _cacheGeneration++;
     _serialResponses.failAll(StateError('Serial transport disconnected'));
     _log.warning('disconnect() called by app code', null, StackTrace.current);
     switch (transportType) {
