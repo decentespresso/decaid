@@ -586,7 +586,7 @@ Plugins can be managed via REST API:
 | POST | `/api/v1/plugins/update` | Check every GitHub-backed plugin for updates |
 | POST | `/api/v1/plugins/:id/update/approve` | Install an update that requests new permissions |
 | GET | `/api/v1/plugins/:id/settings` | Get plugin settings |
-| POST | `/api/v1/plugins/:id/settings` | Update plugin settings |
+| POST | `/api/v1/plugins/:id/settings` | Update plugin settings; reloads the plugin if it is loaded so the change applies immediately |
 
 `PUT /api/v1/plugins/:id/source` writes `manifest.json` and `plugin.js` for
 that id, creating the plugin if it is not installed yet:

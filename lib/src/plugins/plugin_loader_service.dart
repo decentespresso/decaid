@@ -527,41 +527,49 @@ class PluginLoaderService {
   Future<void> savePluginSettings(
     String pluginId,
     Map<String, dynamic> settings,
-  ) => _withPluginSettingsLock(pluginId, () async {
-    _ensureActive();
-    final manifest = _availablePluginsCache[pluginId];
-    if (manifest == null) {
-      throw Exception('Plugin not found: $pluginId');
+  ) async {
+    await _withPluginSettingsLock(pluginId, () async {
+      _ensureActive();
+      final manifest = _availablePluginsCache[pluginId];
+      if (manifest == null) {
+        throw Exception('Plugin not found: $pluginId');
+      }
+
+      _validateSettings(manifest, settings);
+      final stored = await _storedSettings(manifest);
+      final secureKeys = _secureSettingKeys(manifest);
+      final ordinaryPatch = Map.fromEntries(
+        settings.entries.where((entry) => !secureKeys.contains(entry.key)),
+      );
+      var secure = stored.secure;
+      for (final entry in settings.entries.where(
+        (entry) => secureKeys.contains(entry.key),
+      )) {
+        if (_isSecureState(entry.value)) continue;
+        secure = entry.value == null
+            ? Map.fromEntries(
+                secure.entries.where((current) => current.key != entry.key),
+              )
+            : {...secure, entry.key: entry.value};
+      }
+
+      final mergedOrdinary = {...stored.ordinary, ...ordinaryPatch};
+      for (final entry in ordinaryPatch.entries) {
+        if (entry.value == null) mergedOrdinary.remove(entry.key);
+      }
+
+      await _writeSecureSettings(pluginId, secure);
+      await _writeOrdinarySettings(pluginId, mergedOrdinary);
+
+      _log.fine('Settings saved for plugin: $pluginId');
+    });
+
+    // Reload only after the settings lock above is released: the load path
+    // re-reads settings under that same lock.
+    if (isPluginLoaded(pluginId)) {
+      await reloadPlugin(pluginId);
     }
-
-    _validateSettings(manifest, settings);
-    final stored = await _storedSettings(manifest);
-    final secureKeys = _secureSettingKeys(manifest);
-    final ordinaryPatch = Map.fromEntries(
-      settings.entries.where((entry) => !secureKeys.contains(entry.key)),
-    );
-    var secure = stored.secure;
-    for (final entry in settings.entries.where(
-      (entry) => secureKeys.contains(entry.key),
-    )) {
-      if (_isSecureState(entry.value)) continue;
-      secure = entry.value == null
-          ? Map.fromEntries(
-              secure.entries.where((current) => current.key != entry.key),
-            )
-          : {...secure, entry.key: entry.value};
-    }
-
-    final mergedOrdinary = {...stored.ordinary, ...ordinaryPatch};
-    for (final entry in ordinaryPatch.entries) {
-      if (entry.value == null) mergedOrdinary.remove(entry.key);
-    }
-
-    await _writeSecureSettings(pluginId, secure);
-    await _writeOrdinarySettings(pluginId, mergedOrdinary);
-
-    _log.fine('Settings saved for plugin: $pluginId');
-  });
+  }
 
   List<PluginManifest> get availablePlugins {
     return _availablePluginsCache.values.toList();

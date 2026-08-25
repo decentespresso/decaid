@@ -288,7 +288,7 @@ Settings fields include: `gatewayMode`, `themeMode`, `logLevel`, `weightFlowMult
 |--------|------|-------------|---------|
 | GET | `/api/v1/plugins` | List all plugins (with `loaded`, `autoLoad`, `source`, `pendingUpdate` fields) | `plugins_handler.dart` |
 | GET | `/api/v1/plugins/:id/settings` | Get plugin settings; secure fields return `{isSet}` only | |
-| POST | `/api/v1/plugins/:id/settings` | Patch plugin settings (omitted preserves, `null` clears) and return a redacted result | |
+| POST | `/api/v1/plugins/:id/settings` | Patch plugin settings (omitted preserves, `null` clears), reload the plugin if loaded, and return a redacted result | |
 | POST | `/api/v1/plugins/:id/enable` | Load plugin + enable auto-load | |
 | POST | `/api/v1/plugins/:id/disable` | Unload plugin + disable auto-load | |
 | DELETE | `/api/v1/plugins/:id` | Remove plugin (unload + delete files) | |

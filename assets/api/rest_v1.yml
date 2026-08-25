@@ -2785,7 +2785,9 @@ paths:
       description: >
         Applies a settings patch. Omitted fields preserve the existing value;
         a null value clears the setting. For secure fields, an isSet state
-        object preserves the stored credential; null clears it. The response
+        object preserves the stored credential; null clears it. If the plugin
+        is loaded, it is reloaded so the running instance picks up the patch;
+        if it is unloaded, the patch is only persisted. The response
         is always redacted and never echoes a submitted credential.
       parameters:
         - name: id

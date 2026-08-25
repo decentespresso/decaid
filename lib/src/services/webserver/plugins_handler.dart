@@ -419,7 +419,6 @@ final class PluginsHandler {
       } on PluginSettingsValidationException catch (e) {
         return jsonBadRequest({'error': e.message});
       }
-      await pluginService.reloadPlugin(id);
       return jsonOk(await pluginService.pluginSettings(id));
     });
   }
