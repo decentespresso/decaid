@@ -101,7 +101,10 @@ enum De1RefillKitSettings {
   final int hex;
   const De1RefillKitSettings(this.hex);
   factory De1RefillKitSettings.fromInt(int setting) {
-    return De1RefillKitSettings.values.firstWhere((e) => e.hex == setting);
+    return De1RefillKitSettings.values.firstWhere(
+      (e) => e.hex == setting,
+      orElse: () => De1RefillKitSettings.auto,
+    );
   }
 }
 
