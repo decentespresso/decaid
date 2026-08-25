@@ -11,6 +11,14 @@ List<String> parsePluginEnumValues(String key, dynamic schema) {
   return List<String>.unmodifiable(values.cast<String>());
 }
 
+String pluginSettingLabel(String key, dynamic schema) {
+  if (schema is! Map) return key;
+  final label = schema['label'];
+  if (label is! String) return key;
+  final trimmed = label.trim();
+  return trimmed.isEmpty ? key : trimmed;
+}
+
 class PluginManifest {
   final String id;
   final String name;

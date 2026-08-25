@@ -957,7 +957,7 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          key,
+                          pluginSettingLabel(key, schema),
                           style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             fontSize: 14,

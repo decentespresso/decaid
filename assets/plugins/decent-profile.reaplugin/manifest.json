@@ -3,7 +3,7 @@
   "author": "Stephane Ribes and Alwaysdialingin",
   "name": "Decent Profile Generator",
   "description": "Generates optimized espresso profiles based on bean and grind characteristics. Configure settings to match your current beans, then connect to the profileGenerated WebSocket event to receive the computed profile. The UI can also upload the generated profile to your library and load it onto the connected machine. http://localhost:8080/api/v1/plugins/decent-profile.reaplugin/ui",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "apiVersion": 1,
   "permissions": [
     "log",
@@ -13,61 +13,73 @@
   "settings": {
     "roastDegree": {
       "type": "string",
+      "label": "Roast degree",
       "secure": false,
       "description": "Roast degree. Options: Light Roast, Medium-Light Roast, Medium Roast, Medium-Dark Roast, Dark Roast"
     },
     "roastQuality": {
       "type": "string",
+      "label": "Roast quality",
       "secure": false,
       "description": "Roast quality. Options: Underdevelopped, Smoky or overroasted, Outstanding, I have no idea"
     },
     "origin": {
       "type": "string",
+      "label": "Bean origin",
       "secure": false,
       "description": "Bean origin. Options: Kenya, Ethiopia, Other Africa, Colombia, Other America, Other"
     },
     "highlight": {
       "type": "string",
+      "label": "Flavours to highlight",
       "secure": false,
       "description": "What to highlight. Options: Body / Mouthfeel, Sweetness and acidity, Floral and fruity flavors, Chocolate and nuts flavors, I'm not sure"
     },
     "avoid": {
       "type": "string",
+      "label": "Flavours to avoid",
       "secure": false,
       "description": "What to avoid. Options: Sourness or high acidity, Bitterness or astringency, Nothing in particular"
     },
     "strength": {
       "type": "string",
+      "label": "Target strength",
       "secure": false,
       "description": "Desired strength. Options: Allongé (4.5 - 5.5% TDS), Low intensity (7.0 - 7.5% TDS), 7.5 - 8.0% TDS, 8.0 - 8.5% TDS, 8.5 - 9.0% TDS, Average intensity (9.0 - 9.5% TDS), 9.5 - 10% TDS, 10.5 - 11.5% TDS, High intensity (11.5 - 12.5% TDS)"
     },
     "basket": {
       "type": "string",
+      "label": "Basket type",
       "secure": false,
       "description": "Basket type. Options: High precision double (Decent, VST), Single (Decent 7g, LM Strada 7g), High precision + paper filter below the puck, Reneka Micro-Sieve or IMS Super Fine"
     },
     "dose": {
       "type": "string",
+      "label": "Dose",
       "secure": false,
       "description": "Dose. Options: 9 g, 9,5 g, 10 g, 11 g, 12 g, 13 g, 14 g, 15 g, 16 g, 17 g, 18 g, 19 g, 20 g, 21 g, 22 g, 23 g, 24 g"
     },
     "puckPrep": {
       "type": "string",
+      "label": "Puck prep quality",
       "secure": false,
       "description": "Puck prep quality. Options: Can be improved, OK, I am not sure"
     },
     "profileTitle": {
       "type": "string",
+      "label": "Profile title",
       "secure": false,
       "description": "Profile title used in the output file (default: \"Your Next Decent Profile\")"
     },
     "profileFormat": {
       "type": "string",
+      "label": "Output format",
       "secure": false,
       "description": "Output format: legacy-tcl or json-v2 (default: legacy-tcl)"
     },
     "layout": {
       "type": "string",
+      "label": "UI layout",
       "secure": false,
       "description": "UI layout. Options: baseline (two-column workspace, Inter font, orange accent) or decent (single-column stacked, green accent). Default: decent"
     }

@@ -6987,10 +6987,12 @@ components:
           example:
             AutoUpload:
               type: boolean
+              label: Upload shots automatically
               description: Upload shots automatically when they finish (opt-in; off by default)
               default: false
             LengthThreshold:
               type: number
+              label: Minimum shot length
               description: Only upload shots longer than this many seconds (skips flushes)
               default: 5
         api:
@@ -7042,6 +7044,14 @@ components:
           description: >
             Value type. `enum` additionally requires `values`, and the API
             rejects a saved value that is not one of them.
+        label:
+          type: string
+          description: >
+            Human-readable name for the setting, written by the plugin author.
+            Optional: when it is absent, empty or whitespace, clients fall back
+            to the setting's key, so a manifest that omits it renders exactly as
+            before. Use it so a settings form can read "Upload shots
+            automatically" instead of the storage key "AutoUpload".
         description:
           type: string
           description: >
@@ -7069,6 +7079,7 @@ components:
           description: Allowed values. Required when `type` is `enum`, otherwise absent.
       example:
         type: boolean
+        label: Upload shots automatically
         description: Upload shots automatically when they finish (opt-in; off by default)
         default: false
 

@@ -3,7 +3,7 @@
   "author": "Decent Espresso",
   "name": "Visualizer upload",
   "description": "Uploads shots to Visualizer and syncs your edited shot metadata back",
-  "version": "1.5.5",
+  "version": "1.5.6",
   "apiVersion": 1,
   "permissions": [
     "log",
@@ -16,30 +16,36 @@
   "settings": {
     "Username": {
       "type": "string",
+      "label": "Visualizer username",
       "description": "Visualiser username"
     },
     "Password": {
       "type": "string",
+      "label": "Visualizer password",
       "secure": true,
       "description": "Visualiser password"
     },
     "AutoUpload": {
       "type": "boolean",
+      "label": "Upload shots automatically",
       "description": "Upload shots automatically",
       "default": true
     },
     "LengthThreshold": {
       "type": "number",
+      "label": "Minimum shot length",
       "description": "Only upload shots that are longer than the threshold (in seconds)",
       "default": 5
     },
     "BackSync": {
       "type": "boolean",
+      "label": "Sync edits back from Visualizer",
       "description": "Sync metadata you edit on Visualizer (notes, TDS, EY, enjoyment, bean/grinder) back onto your local shots. Only your own uploaded shots are touched.",
       "default": false
     },
     "BackSyncIntervalSeconds": {
       "type": "number",
+      "label": "Back-sync check interval",
       "description": "How often to check Visualizer for back-sync changes (in seconds, minimum 60)",
       "default": 300
     }
