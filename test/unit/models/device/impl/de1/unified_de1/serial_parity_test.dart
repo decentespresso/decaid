@@ -172,7 +172,8 @@ void main() {
         Endpoint.stateInfo,
         Endpoint.shotSample,
         Endpoint.waterLevels,
-        Endpoint.shotSettings,
+        // shotSettings is intentionally absent: the serial subject is
+        // seeded from the local mirror at connect, so it is never missing.
         Endpoint.fwMapRequest,
         Endpoint.calibration,
       ]) {

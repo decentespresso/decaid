@@ -115,22 +115,18 @@ class _LateShotSettingsDe1 extends TestDe1 {
   Future<void> updateShotSettings(De1ShotSettings settings) async {}
 }
 
-class _RecoveringSerialTransport extends SerialTransport {
-  _RecoveringSerialTransport({required this.answerOnRearm});
-
-  final int answerOnRearm;
+class _QuietSerialDe1 extends SerialTransport {
   final _connState = BehaviorSubject<ConnectionState>.seeded(
     ConnectionState.connected,
   );
   final input = StreamController<String>.broadcast(sync: true);
   final writes = <String>[];
-  int rearms = 0;
 
   @override
-  String get id => 'recovering-serial-de1';
+  String get id => 'quiet-serial-de1';
 
   @override
-  String get name => 'RecoveringSerialDe1';
+  String get name => 'QuietSerialDe1';
 
   @override
   Stream<ConnectionState> get connectionState => _connState.stream;
@@ -159,11 +155,7 @@ class _RecoveringSerialTransport extends SerialTransport {
   @override
   Future<void> writeCommand(String command) async {
     writes.add(command);
-    if (command == '<-K>') {
-      rearms++;
-    } else if (command == '<+K>' && rearms == answerOnRearm) {
-      scheduleMicrotask(() => input.add(_shotSettingsFrame));
-    } else if (command.startsWith('<E>')) {
+    if (command.startsWith('<E>')) {
       final request = _hexBytes(command.substring(3));
       final response = Uint8List(20);
       response[0] = 20;
@@ -174,8 +166,6 @@ class _RecoveringSerialTransport extends SerialTransport {
     }
   }
 }
-
-const _shotSettingsFrame = '[K]0100b4001e0050000000c8001400280239\n';
 
 Uint8List _hexBytes(String hex) {
   final bytes = Uint8List(hex.length ~/ 2);
@@ -331,54 +321,44 @@ void main() {
     },
   );
 
-  test(
-    'the serial re-arm recovery flows into deferred startup defaults',
-    () async {
-      final controller = De1Controller(controller: deviceController);
-      controller.defaultWorkflow = _workflow(steamDuration: 16);
-      final serial = _RecoveringSerialTransport(answerOnRearm: 2);
-      final de1 = UnifiedDe1(transport: serial);
-      addTearDown(de1.dispose);
+  test('serial defaults and steam writes work without a K push', () async {
+    final controller = De1Controller(controller: deviceController);
+    controller.defaultWorkflow = _workflow(steamDuration: 16);
+    final serial = _QuietSerialDe1();
+    final de1 = UnifiedDe1(transport: serial);
+    addTearDown(de1.dispose);
 
-      await controller.connectToDe1(de1);
+    // A serial machine never pushes K; the transport seeds the subject
+    // from its local mirror, so the controller can write defaults and
+    // steam settings without any machine cooperation.
+    await controller.connectToDe1(de1);
 
-      // The connect-time <+K> goes unanswered, so the initial read times out
-      // and the deferred-defaults path arms, before the second re-arm
-      // recovers the frame (production timing: 2s wait + 1s backoff + 2s
-      // wait).
-      await Future<void>.delayed(
-        ConnectionTimings.initialShotSettingsTimeout +
-            const Duration(milliseconds: 300),
-      );
-      expect(
-        serial.writes.where((w) => w.startsWith('<F>')),
-        hasLength(2),
-        reason: 'only the onConnect MMR writes (refill kit, app flags)',
-      );
-      expect(serial.rearms, 1);
+    await waitFor(
+      () => serial.writes.any((w) => w.startsWith('<K>009610')),
+      'the mirror-seeded defaults to write configured steam duration 16',
+    );
 
-      await waitFor(
-        () => serial.writes.any((w) => w.startsWith('<K>019610')),
-        'the recovered frame to apply configured steam duration 16',
-      );
-
-      expect(serial.rearms, 2);
-      final steamIndex = serial.writes.indexWhere(
-        (w) => w.startsWith('<K>019610'),
-      );
-      final fanIndex = serial.writes.indexWhere(
-        (w) => w.startsWith('<F>04803808'),
-      );
-      expect(
-        fanIndex,
-        isNonNegative,
-        reason: 'deferred defaults start with the fan-threshold write',
-      );
-      expect(
-        steamIndex,
-        greaterThan(fanIndex),
-        reason: 'device writes stay serialized: fan before steam',
-      );
-    },
-  );
+    expect(
+      serial.writes.where((w) => w == '<-K>'),
+      isEmpty,
+      reason:
+          'no re-arm may be issued (the connect-time <+K> subscribe is expected)',
+    );
+    final steamIndex = serial.writes.indexWhere(
+      (w) => w.startsWith('<K>009610'),
+    );
+    final fanIndex = serial.writes.indexWhere(
+      (w) => w.startsWith('<F>04803808'),
+    );
+    expect(
+      fanIndex,
+      isNonNegative,
+      reason: 'startup defaults start with the fan-threshold write',
+    );
+    expect(
+      steamIndex,
+      greaterThan(fanIndex),
+      reason: 'device writes stay serialized: fan before steam',
+    );
+  });
 }

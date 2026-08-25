@@ -1,4 +1,4 @@
-# Serial shot-settings frame recovery
+# Serial shot-settings frame ownership
 
 Closes gh-660. Field report: gh-670.
 
@@ -44,69 +44,74 @@ flush setting writes, and 38 of 40 `PUT /api/v1/workflow` requests failed. The
 two that succeeded changed no steam, hot-water or rinse value, so
 `updateWorkflowSettings` returned before touching the device.
 
+## Hardware evidence (2026-08-24)
+
+Real field DE1 over USB serial (`/dev/cu.wchusbserial5B1F0919251`, 115200
+8N1), commands newline-terminated exactly as `SerialTransport.writeCommand`
+emits them. With the app's connect sequence (`<+N><+M><+Q><+K><+E><+I><+R>`
+then `<B>02`), the machine streams `[N]`/`[M]`/`[Q]` but never pushes `[K]`:
+
+- no `[K]` after the connect-time `<+K>` (5s window)
+- no `[K]` after two `<-K>`/`<+K>` re-arms (2x5s)
+- no `[K]` after a full `<K>` settings write (10s window)
+- serial `<E>` MMR reads do answer (`[E]0480382864...` for targetSteamFlow),
+  so the link is fully live both ways; `<+A>`/`<+J>` one-shot subscribes do
+  not answer
+
+The machine never transmits `K` unprompted. Only the app's own writes could
+ever populate the frame, so the app must own it.
+
 ## Approach
 
-Actively re-request the frame from the serial transport, and let the existing
-`De1Controller._deferStartupDefaults` deferral pick it up.
+The transport keeps a local mirror of the 9-byte shot-settings frame,
+initialised to the stock firmware defaults (`_defaultShotSettingsFrame`; BLE
+firmware also resets `K` to these defaults, so the app and the machine agree
+until the app writes). The mirror is refreshed by:
 
-After `_serialConnect` completes, prime the shot-settings subject:
+- live `[K]` frames (`_shotSettingsNotification`), when the machine does push
+  one
+- every local write (`recordLocalShotSettings`, called by
+  `UnifiedDe1.updateShotSettings`)
 
-1. Wait `shotSettingsPrimeTimeout` for the connect-time `<+K>` to deliver.
-2. If nothing arrived, re-arm the endpoint with `<-K>` then `<+K>` and wait
-   again.
-3. Repeat at most `shotSettingsPrimeRetries` times with
-   `shotSettingsPrimeBackoff` between attempts, then give up with a warning.
+After `_serialConnect` completes (right after `<B>02`), the transport seeds
+`_shotSettingsSubject` from the mirror. `De1Controller` is unchanged: its
+initial `_readShotSettings` succeeds immediately, so startup defaults
+(including configured steam duration) are applied and later steam/hot-water
+writes read the seeded value through the normal copyWith path. Write
+serialization and connection-generation fencing are untouched.
 
-The re-arm reuses the `<+X>` / `<-X>` mechanism the documented one-shot A/J/R
-reads already depend on. `_processDe1Response` routes `K` to
-`_shotSettingsNotification` before the `SerialResponseCorrelator` default
-branch, so the wait is on `_shotSettingsSubject` rather than on
-`_serialResponses`.
+Why not other options:
 
-Priming runs unawaited so `connect()` latency is unchanged, and is fenced by a
-generation counter incremented in `_resetCachedState()` so a disconnect,
-reconnect or dispose abandons an in-flight prime.
+- Re-arming (`<-K>`/`<+K>`) to elicit a retransmit: refuted on hardware, see
+  above.
+- Reading the values from serial MMR registers: the K fields (steam
+  temperature/duration, hot-water temperature/volume/duration, shot volume,
+  group temperature) have no MMR register counterparts; only `targetSteamFlow`
+  etc. exist.
+- Seeding from BLE session data: the DE1 allows only one active connection
+  (BLE or serial), and BLE firmware resets `K` to defaults, so a BLE-learned
+  frame is neither available nor authoritative.
 
-Recovery is confined to the transport. `De1Controller` is unchanged: its
-existing deferral already applies startup defaults when a late frame arrives,
-and later steam and hot-water writes read the recovered value through the
-normal path. Write serialization and connection-generation fencing are
-therefore untouched.
-
-## Bounded by construction
-
-If a DE1 answers neither the connect-time `<+K>` nor a re-armed one, the loop
-exhausts its retries and stops. That is the behaviour shipped today, so the
-change cannot regress a machine it does not help.
-
-This is recovery for a missing initial frame, not a keepalive: it stops on the
-first frame and never restarts on its own. The serial parity rule that there is
-no separate keepalive or reconnect loop still holds.
+The mirror is in-memory and per-transport. Staleness is accepted and bounded:
+the app writes the full frame it knows whenever settings change, which is the
+only way serial machines ever receive settings; a live `[K]` push (user
+changing settings on the machine) refreshes the mirror and takes precedence.
 
 ## Verification
 
-`test/unit/models/device/impl/de1/unified_de1/serial_shot_settings_prime_test.dart`,
-over the `_RecordingSerialTransport` fake already used by the serial parity
-tests:
+`test/unit/models/device/impl/de1/unified_de1/serial_shot_settings_mirror_test.dart`,
+over a quiet serial fake:
 
-- a frame delivered by the connect-time subscribe seeds the subject and issues
-  no re-arm
-- a missing frame triggers `<-K>` then `<+K>`, and a frame delivered on the
-  re-arm seeds the subject
-- a DE1 that never answers stops after the configured retries
-- disconnect during priming abandons it
+- a serial connect seeds the subject from the mirror (firmware defaults) and
+  issues no `<-K>` re-arm
+- a live `[K]` frame updates the mirror for the next connect
+- a local write (`recordLocalShotSettings`) updates the mirror for the next
+  connect
 - BLE connects issue no serial commands
 
-Hardware verification on a real field DE1 over USB (2026-08-24, stock DE1
-on `/dev/cu.wchusbserial5B1F0919251`, 115200 8N1, commands newline-terminated
-exactly as `SerialTransport.writeCommand` emits them) refutes the re-arm
-assumption. With the app's connect sequence (`<+N><+M><+Q><+K><+E><+I><+R>`
-then `<B>02`), the machine streamed `[N]`/`[M]`/`[Q]` but never pushed a
-`[K]`: not after the connect-time `<+K>` (5s), not after two `<-K>`/`<+K>`
-re-arms (2x5s), and not on a fresh session. Serial `<E>` MMR reads do answer
-(`[E]0480382864...` for targetSteamFlow), so the link is fully live; the
-machine simply does not retransmit `K` on subscribe or re-arm, and it also
-answered no `<+A>`/`<+J>` one-shot subscribes. The recovery is therefore a
-no-op on this hardware and #660 needs a different protocol action; the
-re-arm loop is kept because it is bounded, fenced and cannot regress a
-machine it does not help.
+`test/controllers/de1_controller_shotsettings_stall_test.dart` drives a real
+`UnifiedDe1` over a quiet serial fake that never pushes `[K]`:
+
+- startup defaults run without any machine cooperation: the fan-threshold
+  write precedes the steam `<K>` write carrying configured steam duration 16
+- no `<-K>` re-arm is ever issued
