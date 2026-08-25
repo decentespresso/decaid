@@ -72,7 +72,9 @@ A Decaid plugin consists of two required files:
   - `events.shots`: Receive `shotStored` and `shotUpdated`
   - `proxy.decent_api`: Send read requests through `host.decentProxy`
   - `proxy.decent_api.write`: Send allowlisted write requests through `host.decentProxy`
-- **settings**: User-configurable options with `type` (`string`, `number`, `boolean`, `enum`) and optional `secure` flag for credentials such as passwords. Enum `values` are a JSON array of strings. Secure values use platform credential storage, are supplied in memory to `onLoad(settings)`, and are never returned by the REST API.
+- **settings**: User-configurable options with `type` (`string`, `number`, `boolean`, `enum`), an optional `description` explaining what the setting does, an optional `default`, and an optional `secure` flag for credentials such as passwords. Enum `values` are a JSON array of strings. Secure values use platform credential storage, are supplied in memory to `onLoad(settings)`, and are never returned by the REST API.
+
+  `GET /api/v1/plugins` returns this schema verbatim under `settings`, so a skin can render a settings form — labels, help text and defaults included — without reading the plugin's repository. `GET /api/v1/plugins/:id/settings` returns the stored values only. Write a `description` for every setting; it is the only explanation a user sees.
 - **api**: HTTP and WebSocket endpoints exposed by the plugin
 
 Unknown permission names make the manifest invalid. Calls without their required

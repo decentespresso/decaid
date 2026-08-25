@@ -6965,15 +6965,34 @@ components:
         version:
           type: string
         apiVersion:
-          type: string
+          type: integer
+          description: Plugin API contract version the plugin targets.
+          example: 1
         permissions:
           type: array
           items:
             type: string
             enum: [log, api, emit, pluginStorage, events.machine, events.shots, proxy.decent_api, proxy.decent_api.write]
         settings:
-          description: Plugin settings schema
           type: object
+          description: >
+            Declared settings for this plugin, keyed by setting name. This is the
+            manifest schema, not the stored values: it carries the type, the
+            human-readable description and the default for each setting, so a
+            client can render a settings form without reading the plugin's
+            repository. Current values come from
+            GET /api/v1/plugins/{id}/settings instead.
+          additionalProperties:
+            $ref: '#/components/schemas/PluginSettingSchema'
+          example:
+            AutoUpload:
+              type: boolean
+              description: Upload shots automatically when they finish (opt-in; off by default)
+              default: false
+            LengthThreshold:
+              type: number
+              description: Only upload shots longer than this many seconds (skips flushes)
+              default: 5
         api:
           type: array
           description: A list of endpoints this plugin will expose
@@ -7007,6 +7026,51 @@ components:
           description: >
             An update that was found but not installed because it requests
             permissions the installed version does not hold.
+
+    PluginSettingSchema:
+      type: object
+      description: >
+        Declaration of a single plugin setting, taken verbatim from the
+        plugin's manifest.json. Returned inside PluginManifest.settings by
+        GET /api/v1/plugins.
+      required:
+        - type
+      properties:
+        type:
+          type: string
+          enum: [string, number, boolean, enum]
+          description: >
+            Value type. `enum` additionally requires `values`, and the API
+            rejects a saved value that is not one of them.
+        description:
+          type: string
+          description: >
+            Human-readable explanation of what the setting does, written by the
+            plugin author. Optional, and absent when the author did not supply
+            one.
+        default:
+          description: >
+            Value applied when the user has not saved one. Matches `type`.
+            Optional.
+          nullable: true
+        secure:
+          type: boolean
+          default: false
+          description: >
+            When true the value is held in platform credential storage. It is
+            supplied in memory to the plugin's onLoad(settings) but never
+            returned in plaintext by the REST API; GET
+            /api/v1/plugins/{id}/settings reports it as an isSet state object
+            instead.
+        values:
+          type: array
+          items:
+            type: string
+          description: Allowed values. Required when `type` is `enum`, otherwise absent.
+      example:
+        type: boolean
+        description: Upload shots automatically when they finish (opt-in; off by default)
+        default: false
 
     PluginInstallResult:
       type: object
