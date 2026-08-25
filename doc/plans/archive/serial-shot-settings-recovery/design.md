@@ -97,13 +97,16 @@ tests:
 - disconnect during priming abandons it
 - BLE connects issue no serial commands
 
-Hardware verification on a real DE1 over USB (2026-08-24, stock DE1 on
-`/dev/cu.wchusbserial5B1F0919251`, 115200 8N1) refutes the re-arm
-assumption. Across 42s of probing with the app's exact connect sequence
-(`<+N><+M><+Q><+K><+E><+I><+R><B>02`), the machine streamed `[M]`/`[N]`/`[Q]`
-continuously but never pushed a `[K]` frame: not after the connect-time
-`<+K>`, not after two `<-K>`/`<+K>` re-arms, not on a fresh session, and not
-after `<B>02`. It also answered no `<+A>`/`<+J>` one-shot subscribes and no
-`<E>` MMR reads. The recovery is therefore a no-op on this hardware and
-#660 needs a different protocol action; the re-arm loop is kept because it
-is bounded, fenced and cannot regress a machine it does not help.
+Hardware verification on a real field DE1 over USB (2026-08-24, stock DE1
+on `/dev/cu.wchusbserial5B1F0919251`, 115200 8N1, commands newline-terminated
+exactly as `SerialTransport.writeCommand` emits them) refutes the re-arm
+assumption. With the app's connect sequence (`<+N><+M><+Q><+K><+E><+I><+R>`
+then `<B>02`), the machine streamed `[N]`/`[M]`/`[Q]` but never pushed a
+`[K]`: not after the connect-time `<+K>` (5s), not after two `<-K>`/`<+K>`
+re-arms (2x5s), and not on a fresh session. Serial `<E>` MMR reads do answer
+(`[E]0480382864...` for targetSteamFlow), so the link is fully live; the
+machine simply does not retransmit `K` on subscribe or re-arm, and it also
+answered no `<+A>`/`<+J>` one-shot subscribes. The recovery is therefore a
+no-op on this hardware and #660 needs a different protocol action; the
+re-arm loop is kept because it is bounded, fenced and cannot regress a
+machine it does not help.
