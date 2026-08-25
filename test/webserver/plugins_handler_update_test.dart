@@ -16,6 +16,7 @@ void main() {
   group('PUT /api/v1/plugins/<id>/source', () {
     late Directory tempDir;
     late PluginLoaderService service;
+    late FakeKeyValueStoreService kvStore;
     late Handler handler;
 
     Map<String, dynamic> manifestJson(String id, {String version = '1.0.0'}) =>
@@ -40,10 +41,32 @@ function createPlugin() {
 
     const brokenJs = 'function createPlugin() { throw new Error("boom"); }';
 
+    Future<Object?> waitForStorage(
+      String namespace,
+      String key,
+      Object? expected,
+    ) async {
+      for (var i = 0; i < 200; i++) {
+        final value = await kvStore.get(namespace: namespace, key: key);
+        if (value == expected) return value;
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      return kvStore.get(namespace: namespace, key: key);
+    }
+
     Future<Response> put(String id, Object body) async => handler(
       Request(
         'PUT',
         Uri.parse('http://localhost/api/v1/plugins/$id/source'),
+        body: jsonEncode(body),
+        headers: {'content-type': 'application/json'},
+      ),
+    );
+
+    Future<Response> postSettings(String id, Object body) async => handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/v1/plugins/$id/settings'),
         body: jsonEncode(body),
         headers: {'content-type': 'application/json'},
       ),
@@ -71,7 +94,8 @@ function createPlugin() {
             const MethodChannel('plugins.flutter.io/path_provider'),
             (_) async => tempDir.path,
           );
-      service = PluginLoaderService(kvStore: FakeKeyValueStoreService());
+      kvStore = FakeKeyValueStoreService();
+      service = PluginLoaderService(kvStore: kvStore);
       await service.initialize();
       final app = Router().plus;
       PluginsHandler(
@@ -303,6 +327,48 @@ function createPlugin() {
 
       expect(res.statusCode, 400);
       expect(Directory('${tempDir.parent.path}/escape').existsSync(), isFalse);
+    });
+
+    test('POST settings applies via a single service-level reload', () async {
+      const id = 'post-settings.reaplugin';
+      final dir = Directory('${tempDir.path}/source_post_settings')
+        ..createSync(recursive: true);
+      File('${dir.path}/manifest.json').writeAsStringSync(
+        jsonEncode({
+          ...manifestJson(id),
+          'permissions': ['pluginStorage'],
+          'settings': {
+            'Mode': {'type': 'string'},
+          },
+        }),
+      );
+      File('${dir.path}/plugin.js').writeAsStringSync('''
+function createPlugin(host) {
+  return {
+    id: "$id",
+    onLoad(settings) {
+      globalThis.__modeLoads = (globalThis.__modeLoads || 0) + 1;
+      host.storage({type: "write", key: "mode",
+        data: globalThis.__modeLoads + ":" + settings.Mode});
+    }
+  };
+}
+''');
+      await service.addPlugin(dir.path);
+      await service.savePluginSettings(id, {'Mode': 'off'});
+      await service.loadPlugin(id);
+      expect(await waitForStorage(id, 'mode', '1:off'), '1:off');
+
+      final res = await postSettings(id, {'Mode': 'auto'});
+
+      expect(res.statusCode, 200);
+      expect(jsonDecode(await res.readAsString()), {'Mode': 'auto'});
+      expect(service.isPluginLoaded(id), isTrue);
+      expect(
+        await waitForStorage(id, 'mode', '2:auto'),
+        '2:auto',
+        reason: 'REST save must reload the loaded plugin exactly once',
+      );
     });
   });
 }

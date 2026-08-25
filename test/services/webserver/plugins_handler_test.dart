@@ -17,6 +17,7 @@ class _SettingsPluginLoaderService extends Fake implements PluginLoaderService {
     'Password': {'isSet': true},
   };
   Map<String, dynamic>? savedPatch;
+  int reloadCalls = 0;
 
   @override
   Future<Map<String, dynamic>> pluginSettings(String pluginId) async =>
@@ -31,7 +32,9 @@ class _SettingsPluginLoaderService extends Fake implements PluginLoaderService {
   }
 
   @override
-  Future<void> reloadPlugin(String pluginId) async {}
+  Future<void> reloadPlugin(String pluginId) async {
+    reloadCalls += 1;
+  }
 }
 
 void main() {
@@ -124,6 +127,30 @@ void main() {
       });
       expect(response.statusCode, 200);
     });
+
+    test(
+      'POST delegates the reload to the service instead of reloading',
+      () async {
+        final response = await app.call(
+          Request(
+            'POST',
+            Uri.parse('http://localhost/api/v1/plugins/$pluginId/settings'),
+            headers: {'content-type': 'application/json'},
+            body: jsonEncode({'Username': 'new-user'}),
+          ),
+        );
+
+        expect(response.statusCode, 200);
+        expect(pluginService.savedPatch, {'Username': 'new-user'});
+        expect(
+          pluginService.reloadCalls,
+          0,
+          reason:
+              'apply-on-save lives in savePluginSettings; the handler '
+              'must not reload as well',
+        );
+      },
+    );
   });
 
   test('synchronous plugin response completes the request directly', () async {

@@ -104,11 +104,26 @@ void main() {
     late Directory tempDir;
     late PluginLoaderService service;
     late FakeCredentialStore credentialStore;
+    late FakeKvStore kvStore;
     var sourceCounter = 0;
+
+    Future<Object?> waitForStorage(
+      String namespace,
+      String key,
+      Object? expected,
+    ) async {
+      for (var i = 0; i < 200; i++) {
+        final value = await kvStore.get(namespace: namespace, key: key);
+        if (value == expected) return value;
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      return kvStore.get(namespace: namespace, key: key);
+    }
 
     Directory makePluginSource(
       String id, {
       Map<String, Object> settings = const {},
+      List<String> permissions = const [],
       String? jsCode,
     }) {
       final dir = Directory('${tempDir.path}/source_${sourceCounter++}')
@@ -121,7 +136,7 @@ void main() {
           'description': 'Test plugin',
           'version': '1.0.0',
           'apiVersion': 1,
-          'permissions': <String>[],
+          'permissions': permissions,
           'settings': settings,
           'api': <Object>[],
         }),
@@ -146,8 +161,9 @@ function createPlugin() {
             (_) async => tempDir.path,
           );
       credentialStore = FakeCredentialStore();
+      kvStore = FakeKvStore();
       service = PluginLoaderService(
-        kvStore: FakeKvStore(),
+        kvStore: kvStore,
         credentialStore: credentialStore,
       );
       await service.initialize();
@@ -511,6 +527,127 @@ function createPlugin() {
         'Password': {'isSet': true},
       });
     });
+
+    test(
+      'saving settings for a loaded plugin reloads it with the new value',
+      () async {
+        const id = 'live-apply.reaplugin';
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'Mode': {'type': 'string'},
+            },
+            permissions: ['pluginStorage'],
+            jsCode:
+                '''
+function createPlugin(host) {
+  return {
+    id: "$id",
+    onLoad(settings) {
+      globalThis.__modeLoads = (globalThis.__modeLoads || 0) + 1;
+      host.storage({type: "write", key: "mode",
+        data: globalThis.__modeLoads + ":" + settings.Mode});
+    }
+  };
+}
+''',
+          ).path,
+        );
+
+        await service.savePluginSettings(id, {'Mode': 'off'});
+        await service.loadPlugin(id);
+        expect(await waitForStorage(id, 'mode', '1:off'), '1:off');
+
+        await service.savePluginSettings(id, {'Mode': 'auto'});
+
+        expect(service.isPluginLoaded(id), isTrue);
+        expect(
+          await waitForStorage(id, 'mode', '2:auto'),
+          '2:auto',
+          reason: 'save must reload the loaded plugin exactly once ',
+        );
+      },
+    );
+
+    test('saving settings for an unloaded plugin leaves it unloaded', () async {
+      const id = 'unloaded-save.reaplugin';
+      await service.addPlugin(
+        makePluginSource(
+          id,
+          settings: {
+            'Mode': {'type': 'string'},
+          },
+        ).path,
+      );
+
+      await service.savePluginSettings(id, {'Mode': 'auto'});
+
+      expect(service.isPluginLoaded(id), isFalse);
+      expect(await service.pluginSettings(id), {'Mode': 'auto'});
+    });
+
+    test(
+      'concurrent saves on a loaded plugin reload without deadlocking',
+      () async {
+        const id = 'concurrent-loaded.reaplugin';
+        const credentialKey = 'plugin.settings.secure.$id';
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'Username': {'type': 'string'},
+              'Password': {'type': 'string', 'secure': true},
+            },
+            jsCode:
+                '''
+function createPlugin() {
+  return { id: "$id", onLoad() {} };
+}
+''',
+          ).path,
+        );
+        credentialStore.values = {
+          credentialKey: jsonEncode({'Password': 'old-secret'}),
+        };
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(
+          'plugin.settings.$id',
+          jsonEncode({'Username': 'old-user'}),
+        );
+        await service.loadPlugin(id);
+
+        final staleWriteStarted = Completer<void>();
+        final releaseStaleWrite = Completer<void>();
+        credentialStore.blockNextWrite(
+          staleWriteStarted,
+          releaseStaleWrite.future,
+        );
+
+        final usernameUpdate = service.savePluginSettings(id, {
+          'Username': 'new-user',
+        });
+        await staleWriteStarted.future;
+        final passwordUpdate = service.savePluginSettings(id, {
+          'Password': 'new-secret',
+        });
+        await Future<void>.delayed(Duration.zero);
+        releaseStaleWrite.complete();
+        await Future.wait([usernameUpdate, passwordUpdate]);
+
+        expect(service.isPluginLoaded(id), isTrue);
+        expect(jsonDecode(credentialStore.values[credentialKey]!), {
+          'Password': 'new-secret',
+        });
+        expect(jsonDecode(prefs.getString('plugin.settings.$id')!), {
+          'Username': 'new-user',
+        });
+        expect(await service.pluginSettings(id), {
+          'Username': 'new-user',
+          'Password': {'isSet': true},
+        });
+      },
+    );
 
     const unsafeIds = [
       '',
