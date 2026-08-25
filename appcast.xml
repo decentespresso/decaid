@@ -6,6 +6,39 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Decaid</title>
         <item>
+            <title>0.8.2</title>
+            <pubDate>Tue, 25 Aug 2026 08:14:44 +0000</pubDate>
+            <sparkle:version>2453</sparkle:version>
+            <sparkle:shortVersionString>0.8.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* chore(ci): remove download guidance from release notes by @tadelv in https://github.com/decentespresso/decaid/pull/654
+* fix(de1): bound shot-settings reads so steam writes cannot wedge the workflow queue by @allofmeng in https://github.com/decentespresso/decaid/pull/635
+* fix: decode Bengle integrated-scale weight as signed by @ChampionDesigns in https://github.com/decentespresso/decaid/pull/665
+* fix(api): rebind sensor snapshot sockets by @ODevStudio in https://github.com/decentespresso/decaid/pull/640
+* fix(launcher): keep plugins destination visible by @ODevStudio in https://github.com/decentespresso/decaid/pull/648
+* fix: report Bengle virtual scale as connected in device APIs by @ODevStudio in https://github.com/decentespresso/decaid/pull/642
+* fix(skins): ignore subresource load errors by @ODevStudio in https://github.com/decentespresso/decaid/pull/647
+* fix(skins): restore brightness when skin view closes by @ODevStudio in https://github.com/decentespresso/decaid/pull/643
+* feat(api): list bean batches across beans by @ODevStudio in https://github.com/decentespresso/decaid/pull/646
+* feat(plugins): support enum settings by @ODevStudio in https://github.com/decentespresso/decaid/pull/667
+* fix(skins): make Dashboard exit clear and reliable by @ODevStudio in https://github.com/decentespresso/decaid/pull/649
+* feat(account): require native consent for proxy callers by @ODevStudio in https://github.com/decentespresso/decaid/pull/641
+* feat(debug): add DE1 calibration controls by @ODevStudio in https://github.com/decentespresso/decaid/pull/644
+* fix(ble): stop treating a missing GATT attribute as a dead link (gh-656) by @allofmeng in https://github.com/decentespresso/decaid/pull/657
+* fix: restore AtomHeart Eclair BLE reliability by @ODevStudio in https://github.com/decentespresso/decaid/pull/639
+* Fix HDS USB protocol compatibility by @ODevStudio in https://github.com/decentespresso/decaid/pull/673
+* feat(plugins): reconcile missed shot uploads by @ODevStudio in https://github.com/decentespresso/decaid/pull/645
+* chore: debug view & bengle fw update  by @tadelv in https://github.com/decentespresso/decaid/pull/668
+* fix(de1): recover a missing serial shot-settings frame (gh-660, gh-670) by @allofmeng in https://github.com/decentespresso/decaid/pull/672
+
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.8.1...v0.8.2
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.8.2/decaid-macos-0.8.2.zip" length="72823535" type="application/octet-stream" sparkle:edSignature="5re9MQwnPYiVslLXnhOrzIrsAVx3qaE5qJV41+CPyw2x1NhW00szcsboRffobGgkpQJZcO/lWttyPmzGqbwZCA=="/>
+        </item>
+        <item>
             <title>0.8.1</title>
             <pubDate>Thu, 20 Aug 2026 20:27:30 +0000</pubDate>
             <sparkle:version>2397</sparkle:version>
@@ -214,6 +247,6 @@ See `doc/RELEASE.md` for install and verification instructions.
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: AIw4lGxbRSUzRYdKtGVasej/NWpQ8P4rMyIRk8SRkKB3BAPhGG1uc9BraMmSoaf7NDORwuPJKoE97iUTQ4yBCg==
-length: 18204
+edSignature: I+UPgbpzBy+5Ffu2+s1xbxqcOUJfIWDNJsN2G4vbtg8FwmXEatRPf4HzyrpQVpFbtNFl/qOXyVvotE6pIzWxCQ==
+length: 21300
 -->
