@@ -207,14 +207,16 @@ jobs:
             "$BASE_SHA...$HEAD_SHA" -- '*.dart' | \
             xargs -0 -r dart format --output=none --set-exit-if-changed --
 
-      # pubspec references assets/plugins/dye2.reaplugin/ and
-      # assets/bundled_skins/. Both are build outputs, not checked in,
+      # pubspec references external plugin assets and bundled skins. These
+      # are build outputs, not checked in,
       # so populate them before any flutter command that touches assets
       # (analyze emits asset_directory_does_not_exist; test loads the
       # bundled_skins manifest at runtime).
-      - name: Fetch DYE2 plugin
+      - name: Fetch external plugins
         shell: bash
-        run: ./scripts/fetch_dye2_plugin.sh
+        run: |
+          ./scripts/fetch_dye2_plugin.sh
+          ./scripts/fetch_shot_upload_plugin.sh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -296,9 +298,11 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Fetch DYE2 plugin
+      - name: Fetch external plugins
         shell: bash
-        run: ./scripts/fetch_dye2_plugin.sh
+        run: |
+          ./scripts/fetch_dye2_plugin.sh
+          ./scripts/fetch_shot_upload_plugin.sh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

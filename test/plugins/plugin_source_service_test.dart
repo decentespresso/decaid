@@ -767,13 +767,16 @@ function createPlugin() {
         pluginJs: pluginJs(dye2Id),
       );
 
-      Future<void> installBundledCopy({String version = '0.1.4'}) async {
-        final staging = Directory('${tempDir.path}/bundled_$version')
+      Future<void> installBundledCopy({
+        String pluginId = dye2Id,
+        String version = '0.1.4',
+      }) async {
+        final staging = Directory('${tempDir.path}/bundled_$pluginId')
           ..createSync(recursive: true);
-        File(
-          '${staging.path}/manifest.json',
-        ).writeAsStringSync(jsonEncode(manifestJson(dye2Id, version: version)));
-        File('${staging.path}/plugin.js').writeAsStringSync(pluginJs(dye2Id));
+        File('${staging.path}/manifest.json').writeAsStringSync(
+          jsonEncode(manifestJson(pluginId, version: version)),
+        );
+        File('${staging.path}/plugin.js').writeAsStringSync(pluginJs(pluginId));
         await loader.installPluginPackage(staging);
       }
 
@@ -788,6 +791,19 @@ function createPlugin() {
         expect(source.repo, 'decentespresso/dye2');
         expect(source.releaseTag, 'v0.1.4');
         expect(source.includePrerelease, isFalse);
+        expect(source.assetName, isNull);
+      });
+
+      test('bundled shot upload gets its canonical repo', () async {
+        const pluginId = 'shot-upload.reaplugin';
+        await installBundledCopy(pluginId: pluginId, version: '0.2.1');
+
+        service.seedBundledSources();
+
+        final source = service.sourceFor(pluginId)!;
+        expect(source.kind, PluginSourceKind.githubRelease);
+        expect(source.repo, 'decentespresso/shot-upload');
+        expect(source.releaseTag, 'v0.2.1');
         expect(source.assetName, isNull);
       });
 

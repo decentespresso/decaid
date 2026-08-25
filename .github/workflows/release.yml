@@ -79,9 +79,11 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Fetch DYE2 plugin
+      - name: Fetch external plugins
         shell: bash
-        run: ./scripts/fetch_dye2_plugin.sh
+        run: |
+          ./scripts/fetch_dye2_plugin.sh
+          ./scripts/fetch_shot_upload_plugin.sh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -123,9 +125,11 @@ jobs:
           flutter pub get
           brew install automake libtool
 
-      - name: Fetch DYE2 plugin
+      - name: Fetch external plugins
         shell: bash
-        run: ./scripts/fetch_dye2_plugin.sh
+        run: |
+          ./scripts/fetch_dye2_plugin.sh
+          ./scripts/fetch_shot_upload_plugin.sh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -337,9 +341,11 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Fetch DYE2 plugin
+      - name: Fetch external plugins
         shell: bash
-        run: ./scripts/fetch_dye2_plugin.sh
+        run: |
+          ./scripts/fetch_dye2_plugin.sh
+          ./scripts/fetch_shot_upload_plugin.sh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -402,9 +408,11 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Fetch DYE2 plugin
+      - name: Fetch external plugins
         shell: bash
-        run: ./scripts/fetch_dye2_plugin.sh
+        run: |
+          ./scripts/fetch_dye2_plugin.sh
+          ./scripts/fetch_shot_upload_plugin.sh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -465,9 +473,11 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Fetch DYE2 plugin
+      - name: Fetch external plugins
         shell: bash
-        run: ./scripts/fetch_dye2_plugin.sh
+        run: |
+          ./scripts/fetch_dye2_plugin.sh
+          ./scripts/fetch_shot_upload_plugin.sh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -547,9 +557,11 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Fetch DYE2 plugin
+      - name: Fetch external plugins
         shell: bash
-        run: ./scripts/fetch_dye2_plugin.sh
+        run: |
+          ./scripts/fetch_dye2_plugin.sh
+          ./scripts/fetch_shot_upload_plugin.sh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

@@ -443,11 +443,11 @@ it in Decaid UI.
 - No filesystem access beyond the plugin's own directory
 - No network access to localhost/private IPs (except for Decaid API)
 
-## Reference Implementation: DYE2 Plugin
+## External First-Party Plugins
 
-The DYE2 (Describe Your Espresso) plugin ships from its own repo, [decentespresso/dye2](https://github.com/decentespresso/dye2), as a release asset. CI and local setup install it by running `./scripts/fetch_dye2_plugin.sh`, which downloads a pinned release tag (`DYE2_VERSION` in the script), verifies its checksum (`DYE2_SHA256`) and manifest contract (`id`, `version`, `apiVersion`), and unpacks it into `assets/plugins/dye2.reaplugin/`. Bump the pinned version/checksum in a normal PR when DYE2 ships a new release.
+DYE2 ships from [decentespresso/dye2](https://github.com/decentespresso/dye2), and the Decent shot upload plugin ships from [decentespresso/shot-upload](https://github.com/decentespresso/shot-upload). Each repository publishes a `.reaplugin` directory as a release ZIP. CI and local setup run `scripts/fetch_dye2_plugin.sh` and `scripts/fetch_shot_upload_plugin.sh` to download pinned releases, verify their checksums and manifest contracts, and unpack them into `assets/plugins/`. Bump a plugin's pinned version and checksum in a normal PR when its repository publishes a new release.
 
-`packages/dye2-plugin/` still holds the plugin's original TypeScript + Vite source and is useful as a reference for advanced patterns (REST API client, HTML template rendering, Vite dev server — see `packages/dye2-plugin/README.md`), but it is **not** built or bundled by Decaid anymore and is not authoritative for what ships. Treat [decentespresso/dye2](https://github.com/decentespresso/dye2) as the source of truth for the DYE2 plugin; update `packages/dye2-plugin/` only if it's being kept in sync deliberately.
+`packages/dye2-plugin/` still holds the DYE2 plugin's original TypeScript + Vite source and is useful as a reference for advanced patterns (REST API client, HTML template rendering, Vite dev server — see `packages/dye2-plugin/README.md`), but it is **not** built or bundled by Decaid anymore and is not authoritative for what ships. Treat the external repositories as the source of truth; update the in-tree DYE2 copy only if it is being kept in sync deliberately.
 
 ## Distribution and Updates
 
@@ -527,21 +527,18 @@ floor: a newer bundled version replaces an older installed copy, an equal or
 older one does not.
 
 Bundled plugins published from a GitHub repo also take part in normal update
-checks. `bundledPluginRepos` in `plugin_source_service.dart` maps the plugin id
-to its canonical repo - today `dye2.reaplugin` to
-[decentespresso/dye2](https://github.com/decentespresso/dye2) - and the first
-update check or visit to the Plugins screen seeds `.rea_source.json` for it as
-a `github_release` source tagged with the installed manifest version. Existing
-installs from before source tracking are seeded the same way, so DYE2 starts
-receiving releases without a reinstall. The seeder also realigns the recorded
-tag when a newer bundled copy has been laid down, and never touches metadata
-that points somewhere else, so a plugin the user pointed at their own fork or
-branch keeps that source.
+checks. `bundledPluginRepos` in `plugin_source_service.dart` maps DYE2 and shot
+upload to their canonical repositories. The first update check or visit to the
+Plugins screen seeds `.rea_source.json` as a `github_release` source tagged with
+the installed manifest version. Existing installs from before source tracking
+are seeded the same way, so both plugins start receiving releases without a
+reinstall. The seeder also realigns the recorded tag when a newer bundled copy
+has been laid down, and never touches metadata that points somewhere else, so a
+plugin the user pointed at a fork or branch keeps that source.
 
-No asset name is recorded for a bundled seed: DYE2 names its release asset
-after the version (`dye2.reaplugin-<version>.zip`), so pinning today's name
-would break tomorrow's release. The installer picks the release's single
-`.zip`, and a release with several zip assets asks for an explicit choice.
+No asset name is recorded for a bundled seed because release asset names include
+the version. The installer picks the release's single `.zip`, and a release with
+several zip assets asks for an explicit choice.
 
 ### Permission escalation
 
@@ -635,7 +632,9 @@ first read.
 
 The bundled **settings plugin** (`settings.reaplugin`) provides a web UI for plugin management at `/api/v1/plugins/settings.reaplugin/ui`. It includes an enable/disable toggle and remove button for each plugin, with a self-protection guard that prevents disabling itself.
 
-The bundled **Decent shot upload plugin** (`shot-upload.reaplugin`) keeps the
+The bundled **Decent shot upload plugin** (`shot-upload.reaplugin`) is fetched
+from the pinned [decentespresso/shot-upload](https://github.com/decentespresso/shot-upload)
+release; that repository is the source of truth. The plugin keeps the
 `shotStored` fast path and also scans the paginated local shot library in bounded
 batches, newest first, while the machine is idle, scheduled idle, or sleeping.
 It uses `annotations.extras.uploaded_to_decent` as the durable success marker and
