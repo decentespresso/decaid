@@ -97,5 +97,13 @@ tests:
 - disconnect during priming abandons it
 - BLE connects issue no serial commands
 
-Hardware verification on a DE1 over USB is still wanted: the tests pin the
-re-arm behaviour, not the DE1's response to it.
+Hardware verification on a real DE1 over USB (2026-08-24, stock DE1 on
+`/dev/cu.wchusbserial5B1F0919251`, 115200 8N1) refutes the re-arm
+assumption. Across 42s of probing with the app's exact connect sequence
+(`<+N><+M><+Q><+K><+E><+I><+R><B>02`), the machine streamed `[M]`/`[N]`/`[Q]`
+continuously but never pushed a `[K]` frame: not after the connect-time
+`<+K>`, not after two `<-K>`/`<+K>` re-arms, not on a fresh session, and not
+after `<B>02`. It also answered no `<+A>`/`<+J>` one-shot subscribes and no
+`<E>` MMR reads. The recovery is therefore a no-op on this hardware and
+#660 needs a different protocol action; the re-arm loop is kept because it
+is bounded, fenced and cannot regress a machine it does not help.

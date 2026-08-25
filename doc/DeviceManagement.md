@@ -119,7 +119,10 @@ Discovery services are responsible for scanning and creating device instances. E
     before giving up. This is one-time recovery for a missing initial frame,
     not a keepalive: it stops on the first frame, never restarts itself, and
     is abandoned when the cached state resets. `De1Controller` applies the
-    recovered frame through its existing deferred startup defaults.
+    recovered frame through its existing deferred startup defaults. Hardware
+    verification on a stock DE1 over USB showed the re-armed `<+K>` going
+    unanswered, so this recovery is best-effort; a connect-time `K` still
+    needs a different protocol action on such machines.
 
 ### Bengle firmware-synced state (post-connect)
 
