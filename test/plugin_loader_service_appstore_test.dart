@@ -54,6 +54,13 @@ class FakeCredentialStore implements CredentialStore {
 
 class FakeKvStore implements KeyValueStoreService {
   final Map<String, Map<String, Object>> _store = {};
+  Completer<void>? _nextWriteStarted;
+  Future<void>? _nextWriteRelease;
+
+  void blockNextWrite(Completer<void> started, Future<void> release) {
+    _nextWriteStarted = started;
+    _nextWriteRelease = release;
+  }
 
   @override
   Future<void> initialize() async {}
@@ -64,6 +71,14 @@ class FakeKvStore implements KeyValueStoreService {
     required String key,
     required Object value,
   }) async {
+    final started = _nextWriteStarted;
+    if (started != null) {
+      final release = _nextWriteRelease!;
+      _nextWriteStarted = null;
+      _nextWriteRelease = null;
+      started.complete();
+      await release;
+    }
     _store.putIfAbsent(namespace, () => {})[key] = value;
   }
 
@@ -648,6 +663,49 @@ function createPlugin() {
         });
       },
     );
+
+    test('a disable racing a settings save does not fail the save', () async {
+      const id = 'save-disable-race.reaplugin';
+      await service.addPlugin(
+        makePluginSource(
+          id,
+          settings: {
+            'Mode': {'type': 'string'},
+          },
+          permissions: ['pluginStorage'],
+          jsCode:
+              '''
+function createPlugin(host) {
+  return {
+    id: "$id",
+    onUnload() {
+      host.storage({type: "write", key: "unloaded", data: true});
+    }
+  };
+}
+''',
+        ).path,
+      );
+      await service.savePluginSettings(id, {'Mode': 'auto'});
+      await service.loadPlugin(id);
+
+      // Hold the mutation lock inside disable's unload (its onUnload storage
+      // write blocks) while the save persists and then attempts to apply.
+      final unloadStarted = Completer<void>();
+      final releaseUnload = Completer<void>();
+      kvStore.blockNextWrite(unloadStarted, releaseUnload.future);
+
+      final disable = service.disablePlugin(id);
+      await unloadStarted.future;
+      final save = service.savePluginSettings(id, {'Mode': 'fast'});
+      await Future<void>.delayed(Duration.zero);
+      releaseUnload.complete();
+
+      await Future.wait([save, disable]);
+
+      expect(service.isPluginLoaded(id), isFalse);
+      expect(await service.pluginSettings(id), {'Mode': 'fast'});
+    });
 
     const unsafeIds = [
       '',

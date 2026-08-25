@@ -444,15 +444,22 @@ class PluginLoaderService {
       if (!isPluginLoaded(pluginId)) {
         throw Exception('Plugin not loaded: $pluginId');
       }
-
-      _log.info('Reloading plugin: $pluginId');
-
-      await _unloadPlugin(pluginId);
-
-      await _queuedLoad(pluginId);
-
-      _log.info('Plugin reloaded: $pluginId');
+      await _reloadPluginLocked(pluginId);
     });
+  }
+
+  Future<void> _reloadPluginIfLoaded(String pluginId) async {
+    return _withPluginMutationLock(pluginId, () async {
+      if (!isPluginLoaded(pluginId)) return;
+      await _reloadPluginLocked(pluginId);
+    });
+  }
+
+  Future<void> _reloadPluginLocked(String pluginId) async {
+    _log.info('Reloading plugin: $pluginId');
+    await _unloadPlugin(pluginId);
+    await _queuedLoad(pluginId);
+    _log.info('Plugin reloaded: $pluginId');
   }
 
   Future<void> setPluginAutoLoad(String pluginId, bool enabled) {
@@ -565,10 +572,11 @@ class PluginLoaderService {
     });
 
     // Reload only after the settings lock above is released: the load path
-    // re-reads settings under that same lock.
-    if (isPluginLoaded(pluginId)) {
-      await reloadPlugin(pluginId);
-    }
+    // re-reads settings under that same lock. The reload-if-loaded decision
+    // and the reload itself are one serialized mutation operation, so a
+    // concurrent unload cannot fail the save after the settings were
+    // persisted.
+    await _reloadPluginIfLoaded(pluginId);
   }
 
   List<PluginManifest> get availablePlugins {
