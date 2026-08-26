@@ -275,6 +275,98 @@ ProfileStepFlow _flowStep({
 }
 
 void main() {
+  test('step weight exit retries after governor saturation clears', () async {
+    final testDe1 = TestDe1();
+    final devices = DeviceController([_FakeDiscoveryService()]);
+    await devices.initialize();
+    final de1Controller = De1Controller(
+      controller: devices,
+      maxPendingDeviceWrites: 0,
+    );
+    await de1Controller.connectToDe1(testDe1);
+    testDe1.emitShotSettings(
+      De1ShotSettings(
+        steamSetting: 0,
+        targetSteamTemp: 150,
+        targetSteamDuration: 30,
+        targetHotWaterTemp: 75,
+        targetHotWaterVolume: 50,
+        targetHotWaterDuration: 30,
+        targetShotVolume: 36,
+        groupTemp: 94,
+      ),
+    );
+    await de1Controller.initSettled.firstWhere(
+      (generation) => generation != null,
+    );
+    addTearDown(de1Controller.dispose);
+
+    final testScale = TestScale();
+    final scaleController = _TestScaleController(testScale);
+    addTearDown(() {
+      scaleController.dispose();
+      testScale.dispose();
+    });
+    final persistenceController = PersistenceController(
+      storageService: _NullStorageService(),
+    );
+    addTearDown(persistenceController.dispose);
+    final profile = _profileWithSteps([
+      _pressureStep(name: 'retry', weight: 10),
+    ]);
+    scaleController.emitWeight(0);
+    final sequencer = ShotSequencer(
+      scaleController: scaleController,
+      de1controller: de1Controller,
+      persistenceController: persistenceController,
+      targetProfile: profile,
+      targetYield: 200,
+      bypassSAW: false,
+      blockOnNoScale: false,
+      weightFlowMultiplier: 0,
+      volumeFlowMultiplier: 0,
+      stepExitArbiterEnabled: true,
+    );
+    addTearDown(sequencer.dispose);
+
+    testDe1.emitStateAndSubstate(
+      MachineState.espresso,
+      MachineSubstate.preparingForShot,
+    );
+    testDe1.emitStateAndSubstate(
+      MachineState.espresso,
+      MachineSubstate.pouring,
+    );
+
+    final activeStarted = Completer<void>();
+    final activeRelease = Completer<void>();
+    final active = de1Controller.runDeviceWrite((_) async {
+      activeStarted.complete();
+      await activeRelease.future;
+    });
+    await activeStarted.future;
+
+    scaleController.emitWeight(12);
+    testDe1.emitSnapshot(
+      testDe1.snapshotSubject.value.copyWith(profileFrame: 0),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(testDe1.requestedStates, isNot(contains(MachineState.skipStep)));
+
+    activeRelease.complete();
+    await active;
+    final skipped = sequencer.decisions.firstWhere(
+      (decision) => decision.reason == ShotDecisionReason.profileSkip,
+    );
+    testDe1.emitSnapshot(
+      testDe1.snapshotSubject.value.copyWith(profileFrame: 0),
+    );
+    await skipped;
+
+    expect(testDe1.requestedStates, contains(MachineState.skipStep));
+    expect(sequencer.skippedSteps, [0]);
+  });
+
   group('ShotSequencer — scale disconnect during shot', () {
     late TestDe1 testDe1;
     late TestScale testScale;

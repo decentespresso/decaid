@@ -33,6 +33,7 @@ class ShotSequencer {
   final bool _machineHasAutonomousSAW;
 
   List<int> skippedSteps = [];
+  final Set<int> _pendingSkipSteps = {};
   final StepExitArbiter _stepExitArbiter = StepExitArbiter();
   int _lastProfileFrame = -1;
 
@@ -362,6 +363,7 @@ class ShotSequencer {
           _settleSamples = 0;
           _prevStoppingFlow = null;
           skippedSteps.clear();
+          _pendingSkipSteps.clear();
           _stepExitArbiter.reset();
           _lastProfileFrame = -1;
           _maxFrameSeen = -1;
@@ -578,7 +580,8 @@ class ShotSequencer {
       return;
     }
 
-    if (skippedSteps.contains(profileFrame)) {
+    if (skippedSteps.contains(profileFrame) ||
+        _pendingSkipSteps.contains(profileFrame)) {
       return;
     }
 
@@ -598,20 +601,35 @@ class ShotSequencer {
       }
     }
 
-    _emitDecision(
-      ShotDecisionKind.advance,
-      ShotDecisionReason.profileSkip,
-      details:
-          'Step weight ${stepExitWeight}g reached '
-          '(projected: $projectedWeight), skipping frame $profileFrame',
-      data: {
-        'frame': profileFrame,
-        'stepExitWeight': stepExitWeight,
-        'projectedWeight': projectedWeight,
-      },
-    );
-    skippedSteps.add(profileFrame);
-    de1controller.requestMachineState(MachineState.skipStep);
+    _pendingSkipSteps.add(profileFrame);
+    de1controller
+        .requestMachineState(MachineState.skipStep)
+        .then(
+          (_) {
+            _pendingSkipSteps.remove(profileFrame);
+            skippedSteps.add(profileFrame);
+            _emitDecision(
+              ShotDecisionKind.advance,
+              ShotDecisionReason.profileSkip,
+              details:
+                  'Step weight ${stepExitWeight}g reached '
+                  '(projected: $projectedWeight), skipping frame $profileFrame',
+              data: {
+                'frame': profileFrame,
+                'stepExitWeight': stepExitWeight,
+                'projectedWeight': projectedWeight,
+              },
+            );
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            _pendingSkipSteps.remove(profileFrame);
+            _log.warning(
+              'Failed to skip frame $profileFrame',
+              error,
+              stackTrace,
+            );
+          },
+        );
   }
 
   void _enterStopping(WeightSnapshot? scale) {
