@@ -17,6 +17,7 @@ import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/models/device/remembered_device.dart';
+import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/models/wake_schedule.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:rxdart/subjects.dart';
@@ -237,6 +238,13 @@ class _TestDe1Controller extends De1Controller {
 
   void setDe1(De1Interface? de1) {
     _de1Subject.add(de1);
+  }
+
+  @override
+  Future<void> requestMachineState(MachineState state) {
+    final de1 = _de1Subject.valueOrNull;
+    if (de1 == null) throw const DeviceNotConnectedException.machine();
+    return de1.requestState(state);
   }
 }
 

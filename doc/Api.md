@@ -213,11 +213,14 @@ than 30 seconds for execution return `503` without being applied. Machine-write 
 return an error before the controller workflow is committed. Multi-step machine writes may
 be partially applied, and retrying the same request re-attempts the requested settings.
 Request bodies have a 30-second read timeout; body-read failures return `408`
-without poisoning later queued mutations. If the machine disconnects while a
-workflow device write is in flight, the write is retried once on the replacement
-machine (waiting up to 10 seconds for one to appear); if no replacement arrives the
-request returns `503` and the workflow is not committed. A `stopAtTemperature`-only
-workflow change never touches the DE1 directly — the Bengle bridge applies it
+without poisoning later queued mutations. DE1 writes allow one active operation and
+32 pending operations; a full device queue returns `503`. Pending rinse, steam, and
+hot-water settings coalesce by component, and a superseded workflow request returns
+`409`. A replaceable setting may reconcile after reconnect only when the machine
+identity matches; failure to reconnect within the bounded wait returns `503`.
+Imperative writes are not replayed after a disconnect. In each failure case, the
+workflow is not committed. A `stopAtTemperature`-only workflow change never touches
+the DE1 directly — the Bengle bridge applies it
 asynchronously — so it commits even while no machine is connected.
 
 ### Beans

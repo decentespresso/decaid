@@ -358,6 +358,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/MachineStateError"
+        "503":
+          description: DE1 write queue is full for non-idle state changes
   /api/v1/machine/profile:
     post:
       summary: Set Machine Profile
@@ -375,7 +377,7 @@ paths:
         "400":
           description: Malformed JSON body
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: DE1 write queue is full
         "500":
           description: No machine was ever connected
   /api/v1/machine/shotSettings:
@@ -395,7 +397,7 @@ paths:
         "400":
           description: Malformed JSON body
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: DE1 write queue is full
         "500":
           description: No machine was ever connected
   /api/v1/machine/capabilities:
@@ -464,7 +466,7 @@ paths:
         "404":
           description: Machine connected but does not support cup warmer (not a Bengle)
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: DE1 write queue is full
         "500":
           description: No machine was ever connected
   /api/v1/machine/cupWarmer/preheat:
@@ -512,7 +514,7 @@ paths:
         "404":
           description: Machine connected but does not support pre-warm
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: DE1 write queue is full
         "500":
           description: No machine was ever connected
   /api/v1/machine/ledStrip:
@@ -564,7 +566,7 @@ paths:
         "404":
           description: Machine connected but does not support LED strip
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: DE1 write queue is full
         "500":
           description: No machine was ever connected
 
@@ -590,7 +592,7 @@ paths:
         "404":
           description: Machine connected but does not support LED strip
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: DE1 write queue is full
         "500":
           description: No machine was ever connected
 
@@ -621,7 +623,7 @@ paths:
         "404":
           description: Machine connected but does not support LED strip
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait, or firmware read failed
+          description: DE1 write queue is full, or firmware read failed
         "500":
           description: No machine was ever connected
   /api/v1/machine/scaleCalibration:
@@ -684,7 +686,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScaleCalibrationRejected"
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: DE1 write queue is full
         "500":
           description: No machine was ever connected
   /api/v1/machine/settings:
@@ -715,7 +717,7 @@ paths:
         "400":
           description: Malformed JSON body
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: DE1 write queue is full
         "500":
           description: No machine was ever connected
 
@@ -747,7 +749,7 @@ paths:
         "400":
           description: Malformed JSON body
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: DE1 write queue is full
         "500":
           description: No machine was ever connected
 
@@ -763,7 +765,7 @@ paths:
         "202":
           description: Reset accepted (one grouped serialized device write)
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: DE1 write queue is full
         "500":
           description: No DE1 connected
 
@@ -801,7 +803,7 @@ paths:
         "400":
           description: Malformed JSON body
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: DE1 write queue is full
         "500":
           description: No machine was ever connected
 
@@ -878,7 +880,7 @@ paths:
         "400":
           description: Malformed JSON body, unknown target, or invalid values
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: DE1 write queue is full
         "504":
           description: Machine did not acknowledge the calibration write within the response timeout
         "500":
@@ -900,7 +902,7 @@ paths:
         "400":
           description: Malformed JSON body
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: DE1 write queue is full
         "500":
           description: No machine was ever connected
 
@@ -1338,6 +1340,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "409":
+          description: A pending DE1 settings write was superseded by a newer value
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "413":
           description: Request body exceeds the 1 MiB workflow payload limit
           content:
@@ -1359,9 +1367,9 @@ paths:
         "503":
           description: >
             The request waited more than 30 seconds for its turn and was
-            skipped, or the machine disconnected mid-write and no replacement
-            machine appeared within the bounded wait (10 seconds). In both
-            cases the controller workflow is unchanged.
+            skipped, the DE1 write queue was full, or a replaceable setting
+            could not reconnect to the same machine within the bounded wait.
+            In each case the controller workflow is unchanged.
           content:
             application/json:
               schema:

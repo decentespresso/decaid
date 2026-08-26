@@ -105,7 +105,7 @@ class _RealtimeSteamFeatureState extends State<RealtimeSteamFeature> {
         _remainingTime = 0;
       });
 
-      _de1Controller.connectedDe1().requestState(MachineState.idle);
+      _de1Controller.requestMachineState(MachineState.idle);
 
       _stopSteamTimer();
     }
@@ -121,8 +121,10 @@ class _RealtimeSteamFeatureState extends State<RealtimeSteamFeature> {
           .connectedDe1()
           .shotSettings
           .first;
-      await _de1Controller.connectedDe1().updateShotSettings(
-        currentSettings.copyWith(targetSteamDuration: _steamDuration),
+      await _de1Controller.runDeviceWrite(
+        (device) => device.updateShotSettings(
+          currentSettings.copyWith(targetSteamDuration: _steamDuration),
+        ),
       );
     }
   }

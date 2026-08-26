@@ -214,7 +214,7 @@ class _RealtimeShotFeatureState extends State<RealtimeShotFeature> {
             widget.shotSequencer.de1controller.recordStopIntent(
               ShotDecisionReason.appStop,
             );
-            widget.shotSequencer.de1controller.connectedDe1().requestState(
+            widget.shotSequencer.de1controller.requestMachineState(
               MachineState.idle,
             );
           },
@@ -223,7 +223,7 @@ class _RealtimeShotFeatureState extends State<RealtimeShotFeature> {
         ShadButton.secondary(
           enabled: !backEnabled,
           onPressed: () {
-            widget.shotSequencer.de1controller.connectedDe1().requestState(
+            widget.shotSequencer.de1controller.requestMachineState(
               MachineState.skipStep,
             );
           },

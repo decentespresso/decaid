@@ -119,7 +119,7 @@ class FirmwareHandler {
     final de1 = _resolveDe1();
     if (de1 == null) return _machineUnavailable();
 
-    return _streamFirmwareUpload(de1, fwImage);
+    return _streamFirmwareUpload(fwImage);
   }
 
   Future<Response> _applyManaged(Request request) async {
@@ -205,7 +205,7 @@ class FirmwareHandler {
       );
     }
 
-    return _streamFirmwareUpload(de1, image);
+    return _streamFirmwareUpload(image);
   }
 
   Future<Response> _cancelUpdate(Request _) async {
@@ -250,7 +250,7 @@ class FirmwareHandler {
     );
   }
 
-  Response _streamFirmwareUpload(De1Interface de1, Uint8List image) {
+  Response _streamFirmwareUpload(Uint8List image) {
     final progressController = StreamController<List<int>>();
 
     void emit(Map<String, dynamic> event) {
@@ -261,14 +261,15 @@ class FirmwareHandler {
 
     progressController.onCancel = () async {
       _log.warning('firmware upload: client disconnected, cancelling');
-      await de1.cancelFirmwareUpload();
+      await _controller.cancelFirmwareUpload();
     };
 
     var lastProgress = -1.0;
     try {
-      de1
+      _controller
           .updateFirmware(
             image,
+            onStart: () => emit({'status': 'erasing', 'progress': 0.0}),
             onProgress: (progress) {
               if (progress - lastProgress < 0.01) return;
               lastProgress = progress;
@@ -295,8 +296,6 @@ class FirmwareHandler {
         headers: {'Content-Type': 'application/json'},
       );
     }
-
-    emit({'status': 'erasing', 'progress': 0.0});
 
     return Response.ok(
       progressController.stream,

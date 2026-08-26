@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:collection';
+import 'dart:typed_data';
 
 import 'package:clock/clock.dart';
 import 'package:logging/logging.dart';
@@ -10,10 +12,13 @@ import 'package:reaprime/src/models/data/shot_state_event.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/firmware_update_state.dart';
+import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:rxdart/subjects.dart';
 
 part 'de1_controller.defaults.dart';
+part 'de1_controller.governor.dart';
 
 class De1Controller {
   final DeviceController _deviceController;
@@ -97,7 +102,9 @@ class De1Controller {
   final List<StreamSubscription<dynamic>> _subscriptions = [];
   bool _dataInitialized = false;
   Timer? _shotSettingsDebounce;
-  Future<void> _deviceWriteQueue = Future<void>.value();
+  final Queue<_PendingDe1Write<dynamic>> _pendingDeviceWrites = Queue();
+  _PendingDe1Write<dynamic>? _activeDeviceWrite;
+  bool _firmwareUpdatePending = false;
 
   int _connectionGeneration = 0;
 
@@ -110,12 +117,15 @@ class De1Controller {
   int get connectionGeneration => _connectionGeneration;
 
   final Duration machineReplacementTimeout;
+  final int maxPendingDeviceWrites;
 
   De1Controller({
     required DeviceController controller,
     this.machineReplacementTimeout =
         ConnectionTimings.machineReplacementTimeout,
-  }) : _deviceController = controller {
+    this.maxPendingDeviceWrites = 32,
+  }) : assert(maxPendingDeviceWrites >= 0),
+       _deviceController = controller {
     _log.info("checking ${_deviceController.devices}");
   }
 
@@ -377,86 +387,24 @@ class De1Controller {
 
   De1Interface? get connectedDe1OrNull => _de1;
 
+  int get pendingDeviceWriteCount => _pendingDeviceWrites.length;
+
   Future<T> runDeviceWrite<T>(
     Future<T> Function(De1Interface device) write, {
-    bool retryOnReplacement = false,
+    De1ReplayPolicy replayPolicy = De1ReplayPolicy.never,
   }) {
-    final operation = _deviceWriteQueue.then(
-      (_) => _runDeviceWrite(write, retryOnReplacement),
+    return _enqueueDeviceWrite(write, replayPolicy: replayPolicy);
+  }
+
+  Future<void> runReplaceableDeviceWrite(
+    String key,
+    Future<void> Function(De1Interface device) write,
+  ) {
+    return _enqueueDeviceWrite(
+      write,
+      replayPolicy: De1ReplayPolicy.sameMachine,
+      coalescingKey: key,
     );
-    _deviceWriteQueue = operation.then<void>(
-      (_) {},
-      onError: (Object error, StackTrace stackTrace) {},
-    );
-    return operation;
-  }
-
-  Future<T> _runDeviceWrite<T>(
-    Future<T> Function(De1Interface device) write,
-    bool retryOnReplacement,
-  ) async {
-    final attempts = retryOnReplacement ? 2 : 1;
-    for (var attempt = 0; attempt < attempts; attempt++) {
-      De1Interface device;
-      try {
-        device = connectedDe1();
-      } on DeviceNotConnectedException {
-        if (!retryOnReplacement || attempt == 0) rethrow;
-        final replacement = await _waitForMachineReplacement(
-          machineReplacementTimeout,
-        );
-        if (replacement == null) {
-          throw MachineReplacementTimeoutException(machineReplacementTimeout);
-        }
-        device = replacement;
-      }
-      final generation = _connectionGeneration;
-      try {
-        await _waitForInitialization(device, generation);
-        if (generation != _connectionGeneration ||
-            !identical(device, connectedDe1OrNull)) {
-          if (attempt + 1 < attempts) continue;
-          break;
-        }
-        final result = await write(device);
-        if (generation == _connectionGeneration &&
-            identical(device, connectedDe1OrNull)) {
-          return result;
-        }
-      } catch (_) {
-        if (attempt + 1 == attempts ||
-            (generation == _connectionGeneration &&
-                identical(device, connectedDe1OrNull))) {
-          rethrow;
-        }
-      }
-    }
-    throw StateError('Machine changed during device write');
-  }
-
-  Future<De1Interface?> _waitForMachineReplacement(Duration timeout) async {
-    try {
-      return await _de1Controller.stream
-          .firstWhere((de1) => de1 != null)
-          .timeout(timeout);
-    } on TimeoutException {
-      return null;
-    }
-  }
-
-  Future<void> _waitForInitialization(
-    De1Interface device,
-    int generation,
-  ) async {
-    if (_initSettledSubject.valueOrNull == generation) return;
-    await _initSettledSubject.stream
-        .firstWhere(
-          (settled) =>
-              settled == generation ||
-              generation != _connectionGeneration ||
-              !identical(device, connectedDe1OrNull),
-        )
-        .timeout(ConnectionTimings.initialShotSettingsTimeout);
   }
 
   Future<De1ShotSettings> _readShotSettings(De1Interface device) async {
@@ -485,9 +433,9 @@ class De1Controller {
   }
 
   Future<void> updateSteamSettings(SteamFormSettings settings) async {
-    await runDeviceWrite(
+    await runReplaceableDeviceWrite(
+      'workflow.steam',
       (device) => _writeSteamSettings(device, settings),
-      retryOnReplacement: true,
     );
     _publishSteamSettings(settings);
   }
@@ -531,9 +479,9 @@ class De1Controller {
   }
 
   Future<void> updateHotWaterSettings(HotWaterFormSettings settings) async {
-    await runDeviceWrite(
+    await runReplaceableDeviceWrite(
+      'workflow.hotWater',
       (device) => _writeHotWaterSettings(device, settings),
-      retryOnReplacement: true,
     );
     _publishHotWaterSettings(settings);
   }
@@ -565,9 +513,9 @@ class De1Controller {
   }
 
   Future<void> updateFlushSettings(RinseData settings) async {
-    await runDeviceWrite(
+    await runReplaceableDeviceWrite(
+      'workflow.rinse',
       (device) => _writeFlushSettings(device, settings),
-      retryOnReplacement: true,
     );
     _rinseStream.add(settings);
   }
@@ -606,43 +554,25 @@ class De1Controller {
       volume: updated.hotWaterData.volume,
       duration: updated.hotWaterData.duration,
     );
-    await runDeviceWrite((device) async {
-      if (rinseChanged) {
-        await _writeFlushSettings(device, updated.rinseData);
-      }
-      if (steamChanged) {
-        await _writeSteamSettings(device, steam);
-      }
-      if (hotWaterChanged) {
-        await _writeHotWaterSettings(device, hotWater);
-      }
-    }, retryOnReplacement: true);
-    if (rinseChanged) _rinseStream.add(updated.rinseData);
-    if (steamChanged) _publishSteamSettings(steam);
-    if (hotWaterChanged) _publishHotWaterSettings(hotWater);
+    await Future.wait([
+      if (rinseChanged) updateFlushSettings(updated.rinseData),
+      if (steamChanged) updateSteamSettings(steam),
+      if (hotWaterChanged) updateHotWaterSettings(hotWater),
+    ]);
   }
 
   Future<void> setSteamFlow(double newFlow) async {
-    await runDeviceWrite(
-      (device) => device.setSteamFlow(newFlow),
-      retryOnReplacement: true,
-    );
+    await runDeviceWrite((device) => device.setSteamFlow(newFlow));
     _publishSteamFlow(newFlow);
   }
 
   Future<void> setHotWaterFlow(double newFlow) async {
-    await runDeviceWrite(
-      (device) => device.setHotWaterFlow(newFlow),
-      retryOnReplacement: true,
-    );
+    await runDeviceWrite((device) => device.setHotWaterFlow(newFlow));
     _publishHotWaterFlow(newFlow);
   }
 
   Future<void> setFlushFlow(double newFlow) async {
-    await runDeviceWrite(
-      (device) => device.setFlushFlow(newFlow),
-      retryOnReplacement: true,
-    );
+    await runDeviceWrite((device) => device.setFlushFlow(newFlow));
     _publishFlushFlow(newFlow);
   }
 
@@ -669,7 +599,7 @@ class De1Controller {
       if (steamPurgeMode != null) {
         await device.setSteamPurgeMode(steamPurgeMode);
       }
-    }, retryOnReplacement: true);
+    });
     if (flushTemp != null || flushFlow != null || flushTimeout != null) {
       _publishRinseSettings(
         targetTemperature: flushTemp,
@@ -728,6 +658,44 @@ class De1Controller {
         ),
       );
     }
+  }
+
+  Future<void> requestMachineState(MachineState state) {
+    if (state == MachineState.idle) {
+      return connectedDe1().requestState(state);
+    }
+    return runDeviceWrite((device) => device.requestState(state));
+  }
+
+  Future<void> updateFirmware(
+    Uint8List image, {
+    required void Function(double progress) onProgress,
+    void Function()? onStart,
+  }) {
+    if (_firmwareUpdatePending ||
+        connectedDe1().firmwareUpdateState != FirmwareUpdateState.idle) {
+      throw FirmwareUpdateInProgressException();
+    }
+    _firmwareUpdatePending = true;
+    final Future<void> operation;
+    try {
+      operation = runDeviceWrite((device) {
+        onStart?.call();
+        return device.updateFirmware(image, onProgress: onProgress);
+      });
+    } catch (_) {
+      _firmwareUpdatePending = false;
+      rethrow;
+    }
+    operation.then(
+      (_) => _firmwareUpdatePending = false,
+      onError: (Object _, StackTrace _) => _firmwareUpdatePending = false,
+    );
+    return operation;
+  }
+
+  Future<void> cancelFirmwareUpload() {
+    return connectedDe1().cancelFirmwareUpload();
   }
 
   Future<void> dispose() async {

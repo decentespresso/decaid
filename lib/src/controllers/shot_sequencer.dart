@@ -91,8 +91,7 @@ class ShotSequencer {
         details: 'No scale connected, blocking shot',
       );
       de1controller
-          .connectedDe1()
-          .requestState(MachineState.idle)
+          .requestMachineState(MachineState.idle)
           .catchError(
             (error) =>
                 _log.warning("Failed to abort shot for blockOnNoScale: $error"),
@@ -448,7 +447,7 @@ class ShotSequencer {
                 'projectedWeight': projectedWeight,
               },
             );
-            de1controller.connectedDe1().requestState(MachineState.idle);
+            de1controller.requestMachineState(MachineState.idle);
             _enterStopping(scale);
             break;
           }
@@ -472,7 +471,7 @@ class ShotSequencer {
                 'projectedVolume': projectedVolume,
               },
             );
-            de1controller.connectedDe1().requestState(MachineState.idle);
+            de1controller.requestMachineState(MachineState.idle);
             _enterStopping(scale);
             break;
           }
@@ -612,7 +611,7 @@ class ShotSequencer {
       },
     );
     skippedSteps.add(profileFrame);
-    de1controller.connectedDe1().requestState(MachineState.skipStep);
+    de1controller.requestMachineState(MachineState.skipStep);
   }
 
   void _enterStopping(WeightSnapshot? scale) {

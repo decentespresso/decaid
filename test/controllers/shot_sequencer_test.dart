@@ -45,6 +45,11 @@ class _TestDe1Controller extends De1Controller {
 
   @override
   Stream<De1Interface?> get de1 => BehaviorSubject.seeded(testDe1).stream;
+
+  @override
+  Future<void> requestMachineState(MachineState state) {
+    return testDe1.requestState(state);
+  }
 }
 
 class _TestScaleController extends ScaleController {

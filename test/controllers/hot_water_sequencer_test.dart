@@ -48,6 +48,10 @@ class _StubDe1Controller extends De1Controller {
   Stream<De1Interface?> get de1 => _de1subj.stream;
   @override
   Stream<HotWaterData> get hotWaterData => _hw.stream;
+  @override
+  Future<void> requestMachineState(MachineState state) {
+    return _de1subj.value!.requestState(state);
+  }
 
   void emitMachine(De1Interface? d) => _de1subj.add(d);
   void setHotWater(HotWaterData hw) => _hw.add(hw);

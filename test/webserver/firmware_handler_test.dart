@@ -26,6 +26,14 @@ final class _FixedController extends De1Controller {
   De1Interface connectedDe1() {
     return machine ?? (throw const DeviceNotConnectedException.machine());
   }
+
+  @override
+  Future<T> runDeviceWrite<T>(
+    Future<T> Function(De1Interface device) write, {
+    De1ReplayPolicy replayPolicy = De1ReplayPolicy.never,
+  }) {
+    return write(connectedDe1());
+  }
 }
 
 final class _FirmwareDe1 extends MockDe1 {

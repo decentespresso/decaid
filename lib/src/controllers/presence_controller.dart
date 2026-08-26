@@ -266,7 +266,9 @@ class PresenceController {
     final state = _currentMachineState;
     if (state != null && _canSleepFromState(state)) {
       _log.info('Sleep timeout fired, putting machine to sleep');
-      _de1!.requestState(MachineState.sleeping).catchError((Object e) {
+      _de1Controller.requestMachineState(MachineState.sleeping).catchError((
+        Object e,
+      ) {
         _log.warning('Failed to request sleep', e);
       });
     }
@@ -437,9 +439,11 @@ class PresenceController {
             'Schedule ${schedule.id} matched at ${now.hour}:${now.minute}, waking machine',
           );
           _firedScheduleIds.add(schedule.id);
-          _de1!.requestState(MachineState.schedIdle).catchError((Object e) {
-            _log.warning('Failed to request schedIdle', e);
-          });
+          _de1Controller.requestMachineState(MachineState.schedIdle).catchError(
+            (Object e) {
+              _log.warning('Failed to request schedIdle', e);
+            },
+          );
           break;
         }
       }

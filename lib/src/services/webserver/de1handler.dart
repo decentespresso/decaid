@@ -114,7 +114,7 @@ class De1Handler {
           await bengle.setCupWarmerEnabled(true);
         }
         return jsonOk({'status': 'accepted'});
-      }, retryOnReplacement: true);
+      });
     });
 
     app.get('/api/v1/machine/cupWarmer/preheat', (Request _) async {
@@ -168,7 +168,7 @@ class De1Handler {
           leadMinutes: lead ?? current.leadMinutes,
         );
         return jsonOk({'status': 'accepted'});
-      }, retryOnReplacement: true);
+      });
     });
 
     app.get('/ws/v1/machine/snapshot', sws.webSocketHandler(_handleSnapshot));
@@ -215,7 +215,7 @@ class De1Handler {
         if (gate != null) return gate;
         await (de1 as BengleInterface).setLedStrip(state);
         return jsonOk({'status': 'accepted'});
-      }, retryOnReplacement: true);
+      });
     });
 
     app.post('/api/v1/machine/ledStrip/commit', (Request _) async {
@@ -224,7 +224,7 @@ class De1Handler {
         if (gate != null) return gate;
         await (de1 as BengleInterface).commitLedStrip();
         return jsonAccepted();
-      }, retryOnReplacement: true);
+      });
     });
 
     app.post('/api/v1/machine/ledStrip/reset', (Request _) async {
@@ -238,7 +238,7 @@ class De1Handler {
           });
         }
         return jsonOk(state.toJson());
-      }, retryOnReplacement: true);
+      });
     });
 
     app.get('/api/v1/machine/scaleCalibration', (Request _) async {
@@ -303,7 +303,7 @@ class De1Handler {
           'reason': 'machine busy or shot in progress',
           'state': state.toJson(),
         });
-      }, retryOnReplacement: true);
+      });
     });
 
     app.post('/api/v1/machine/waterLevels', (Request r) async {
@@ -324,7 +324,7 @@ class De1Handler {
           await de1.setRefillLevel(refillLevel);
         }
         return jsonAccepted();
-      }, retryOnReplacement: true);
+      });
     });
 
     app.post('/api/v1/machine/settings', (Request r) async {
@@ -445,7 +445,7 @@ class De1Handler {
           await de1.setRefillKitSettings(refillKitSetting);
         }
         return jsonAccepted();
-      }, retryOnReplacement: true);
+      });
     });
 
     app.get('/api/v1/machine/settings/advanced', () async {
@@ -487,7 +487,7 @@ class De1Handler {
           await de1.setFlowEstimation(flowMultiplier);
         }
         return jsonAccepted();
-      }, retryOnReplacement: true);
+      });
     });
 
     app.get('/api/v1/machine/calibration/<target>', (
@@ -575,14 +575,13 @@ class De1Handler {
           return jsonBadRequest({'error': e.toString()});
         }
         return jsonAccepted();
-      }, retryOnReplacement: true);
+      });
     });
 
     app.delete('/api/v1/machine/settings/reset', (Request r) async {
       return _mapDe1WriteErrors(() async {
         await _controller.runDeviceWrite(
           (device) => _controller.applySettingsDefaults(device),
-          retryOnReplacement: true,
         );
         return jsonAccepted();
       });
@@ -592,27 +591,26 @@ class De1Handler {
   De1CalibrationTarget? _parseCalibrationTarget(String target) =>
       De1CalibrationTarget.values.where((t) => t.name == target).firstOrNull;
 
-  Future<Response> withDe1(Future<Response> Function(De1Interface) call) async {
-    try {
-      var de1 = _controller.connectedDe1();
-      return await call(de1);
-    } on MachineReplacementTimeoutException catch (e) {
-      return jsonServiceUnavailable({
-        'error': 'Machine unavailable',
-        'message': '$e',
-      });
-    } on EndpointUnavailableException catch (e) {
-      return jsonGatewayTimeout({'error': e.toString()});
-    } on BleTimeoutException catch (e) {
-      return jsonGatewayTimeout({'error': e.toString()});
-    } catch (e, st) {
-      return jsonError({'error': e.toString(), 'st': st.toString()});
-    }
+  Future<Response> withDe1(Future<Response> Function(De1Interface) call) {
+    return _mapDe1WriteErrors(() async {
+      final de1 = _controller.connectedDe1();
+      return call(de1);
+    });
   }
 
   Future<Response> _mapDe1WriteErrors(Future<Response> Function() call) async {
     try {
       return await call();
+    } on De1WriteQueueFullException catch (e) {
+      return jsonServiceUnavailable({
+        'error': 'Machine write queue is full',
+        'message': '$e',
+      });
+    } on De1WriteSupersededException catch (e) {
+      return jsonConflict({
+        'error': 'Machine write was superseded',
+        'message': '$e',
+      });
     } on MachineReplacementTimeoutException catch (e) {
       return jsonServiceUnavailable({
         'error': 'Machine unavailable',
@@ -637,15 +635,9 @@ class De1Handler {
   }
 
   Future<Response> withQueuedDe1(
-    Future<Response> Function(De1Interface device) call, {
-    bool retryOnReplacement = false,
-  }) {
-    return _mapDe1WriteErrors(
-      () => _controller.runDeviceWrite(
-        call,
-        retryOnReplacement: retryOnReplacement,
-      ),
-    );
+    Future<Response> Function(De1Interface device) call,
+  ) {
+    return _mapDe1WriteErrors(() => _controller.runDeviceWrite(call));
   }
 
   void _withDe1Ws(
@@ -766,7 +758,7 @@ class De1Handler {
       final stoppingActiveShot =
           requestState == MachineState.idle &&
           _controller.currentShotState.state != ShotState.idle;
-      await de1.requestState(requestState);
+      await _controller.requestMachineState(requestState);
       if (stoppingActiveShot) {
         _controller.recordStopIntent(ShotDecisionReason.apiStop);
       }
@@ -785,10 +777,7 @@ class De1Handler {
         return jsonBadRequest({'error': 'Invalid JSON body'});
       }
       Profile profile = Profile.fromJson(json);
-      await _controller.runDeviceWrite(
-        (device) => device.setProfile(profile),
-        retryOnReplacement: true,
-      );
+      await _controller.runDeviceWrite((device) => device.setProfile(profile));
       return jsonOk(null);
     });
   }
@@ -806,7 +795,6 @@ class De1Handler {
       De1ShotSettings settings = De1ShotSettings.fromJson(json);
       await _controller.runDeviceWrite(
         (device) => device.updateShotSettings(settings),
-        retryOnReplacement: true,
       );
       return jsonOk(null);
     });
