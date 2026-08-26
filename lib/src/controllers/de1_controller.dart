@@ -105,6 +105,8 @@ class De1Controller {
   final Queue<_PendingDe1Write<dynamic>> _pendingDeviceWrites = Queue();
   _PendingDe1Write<dynamic>? _activeDeviceWrite;
   bool _firmwareUpdatePending = false;
+  bool _firmwareUpdateStarted = false;
+  bool _firmwareCancellationRequested = false;
   _PendingDe1Write<dynamic>? _pendingFirmwareWrite;
 
   int _connectionGeneration = 0;
@@ -682,32 +684,50 @@ class De1Controller {
       throw De1WriteQueueFullException(maxPendingDeviceWrites);
     }
     _firmwareUpdatePending = true;
+    _firmwareUpdateStarted = false;
+    _firmwareCancellationRequested = false;
     final queued = _activeDeviceWrite != null;
     final Future<void> operation;
     try {
       operation = runDeviceWrite((device) {
         _pendingFirmwareWrite = null;
+        if (_firmwareCancellationRequested) {
+          throw const FirmwareUpdateCancelledException();
+        }
+        _firmwareUpdateStarted = true;
         onStart?.call();
         return device.updateFirmware(image, onProgress: onProgress);
       });
       if (queued) _pendingFirmwareWrite = _pendingDeviceWrites.last;
     } catch (_) {
       _firmwareUpdatePending = false;
+      _firmwareUpdateStarted = false;
+      _firmwareCancellationRequested = false;
       rethrow;
     }
+    void clearState() {
+      _firmwareUpdatePending = false;
+      _firmwareUpdateStarted = false;
+      _firmwareCancellationRequested = false;
+    }
+
     operation.then(
-      (_) => _firmwareUpdatePending = false,
-      onError: (Object _, StackTrace _) => _firmwareUpdatePending = false,
+      (_) => clearState(),
+      onError: (Object _, StackTrace _) => clearState(),
     );
     return operation;
   }
 
   Future<void> cancelFirmwareUpload() {
-    final pending = _pendingFirmwareWrite;
-    _pendingFirmwareWrite = null;
-    if (pending != null && _pendingDeviceWrites.remove(pending)) {
-      _firmwareUpdatePending = false;
-      pending.completer.completeError(const FirmwareUpdateCancelledException());
+    if (_firmwareUpdatePending && !_firmwareUpdateStarted) {
+      _firmwareCancellationRequested = true;
+      final pending = _pendingFirmwareWrite;
+      _pendingFirmwareWrite = null;
+      if (pending != null && _pendingDeviceWrites.remove(pending)) {
+        pending.completer.completeError(
+          const FirmwareUpdateCancelledException(),
+        );
+      }
       return Future.value();
     }
     return connectedDe1().cancelFirmwareUpload();

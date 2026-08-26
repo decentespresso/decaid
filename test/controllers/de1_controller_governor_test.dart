@@ -559,6 +559,36 @@ void main() {
     expect(machine.firmwareStarted!.isCompleted, isFalse);
   });
 
+  test(
+    'active firmware can be cancelled before initialization settles',
+    () async {
+      await controller.dispose();
+      controller = De1Controller(
+        controller: devices,
+        maxPendingDeviceWrites: 2,
+      );
+      machine = _GovernorTestDe1();
+      await controller.connectToDe1(machine);
+      machine.firmwareStarted = Completer<void>();
+
+      final firmware = controller.updateFirmware(
+        Uint8List(1),
+        onProgress: (_) {},
+      );
+      expect(controller.pendingDeviceWriteCount, 0);
+
+      await controller.cancelFirmwareUpload();
+      machine.emitShotSettings(_shotSettings());
+
+      await expectLater(
+        firmware,
+        throwsA(isA<FirmwareUpdateCancelledException>()),
+      );
+      expect(machine.firmwareStarted!.isCompleted, isFalse);
+      expect(machine.firmwareCancelCalls, 0);
+    },
+  );
+
   test('cancelling queued firmware preserves the following write', () async {
     final ordinaryRelease = Completer<void>();
     final ordinaryStarted = Completer<void>();
