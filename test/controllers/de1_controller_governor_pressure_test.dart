@@ -304,18 +304,24 @@ void main() {
     });
     await started.future;
     final activeResult = active.catchError((_) {});
-    final imperative = controller.setFlushFlow(7).catchError((_) {});
-    final replaceable = controller
-        .updateFlushSettings(
-          RinseData(targetTemperature: 92, duration: 7, flow: 8),
-        )
-        .catchError((_) {});
+    final imperative = controller.setFlushFlow(7);
+    final replaceable = controller.updateFlushSettings(
+      RinseData(targetTemperature: 92, duration: 7, flow: 8),
+    );
+    final imperativeResult = expectLater(
+      imperative,
+      throwsA(isA<StateError>()),
+    );
+    final replaceableResult = expectLater(
+      replaceable,
+      throwsA(isA<StateError>()),
+    );
 
     original.setConnectionState(ConnectionState.disconnected);
     await Future<void>.delayed(Duration.zero);
     final replacement = await replace(serialNumber: 'different');
     release.complete();
-    await Future.wait([activeResult, imperative, replaceable]);
+    await Future.wait([activeResult, imperativeResult, replaceableResult]);
 
     expect(replacement.flushFlows, isEmpty);
     expect(controller.pendingDeviceWriteCount, 0);
