@@ -11,14 +11,13 @@ import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/services/firmware/bundled_firmware_catalog.dart';
 import 'package:reaprime/src/services/firmware/firmware_manifest.dart';
 import 'package:reaprime/src/services/firmware/firmware_validator.dart';
+import 'package:reaprime/src/services/webserver/bounded_request_body.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
 const _maxRawFirmwareBodyBytes = 16 * 1024 * 1024;
 const _rawFirmwareBodyReadTimeout = Duration(seconds: 60);
 const _maxManagedFirmwareBodyBytes = 64 * 1024;
 const _managedFirmwareBodyReadTimeout = Duration(seconds: 10);
-
-final class _FirmwarePayloadTooLarge implements Exception {}
 
 class FirmwareHandler {
   final De1Controller _controller;
@@ -122,27 +121,26 @@ class FirmwareHandler {
   Future<Response> _uploadRaw(Request request) async {
     final Uint8List bodyBytes;
     try {
-      bodyBytes = await _readBody(
+      bodyBytes = await readBoundedRequestBody(
         request,
         maxBytes: maxRawBodyBytes,
         timeout: rawBodyReadTimeout,
       );
-    } on _FirmwarePayloadTooLarge {
+    } on RequestBodyReadException catch (error) {
       return Response(
-        413,
-        body: jsonEncode({
-          'error': 'payload_too_large',
-          'message': 'Firmware image exceeds the 16 MiB limit',
-        }),
-        headers: {'Content-Type': 'application/json'},
-      );
-    } on TimeoutException {
-      return Response(
-        408,
-        body: jsonEncode({
-          'error': 'request_timeout',
-          'message': 'Firmware body was not received within the time limit',
-        }),
+        error.statusCode,
+        body: jsonEncode(
+          error.statusCode == 413
+              ? {
+                  'error': 'payload_too_large',
+                  'message': 'Firmware image exceeds the 16 MiB limit',
+                }
+              : {
+                  'error': 'request_timeout',
+                  'message':
+                      'Firmware body was not received within the time limit',
+                },
+        ),
         headers: {'Content-Type': 'application/json'},
       );
     }
@@ -160,63 +158,31 @@ class FirmwareHandler {
     return _streamFirmwareUpload(bodyBytes);
   }
 
-  Future<Uint8List> _readBody(
-    Request request, {
-    required int maxBytes,
-    required Duration timeout,
-  }) async {
-    final declaredLength = int.tryParse(
-      request.headers['content-length'] ?? '',
-    );
-    if (declaredLength != null && declaredLength > maxBytes) {
-      throw _FirmwarePayloadTooLarge();
-    }
-
-    final deadline = Stopwatch()..start();
-    final bytes = BytesBuilder(copy: false);
-    final iterator = StreamIterator<List<int>>(request.read());
-    try {
-      while (true) {
-        final remaining = timeout - deadline.elapsed;
-        if (remaining <= Duration.zero) throw TimeoutException('body read');
-        if (!await iterator.moveNext().timeout(remaining)) break;
-        final chunk = iterator.current;
-        if (bytes.length + chunk.length > maxBytes) {
-          throw _FirmwarePayloadTooLarge();
-        }
-        bytes.add(chunk);
-      }
-      return bytes.takeBytes();
-    } finally {
-      await iterator.cancel();
-    }
-  }
-
   Future<Response> _applyManaged(Request request) async {
     final Object? decoded;
     try {
-      final bytes = await _readBody(
+      final bytes = await readBoundedRequestBody(
         request,
         maxBytes: maxManagedBodyBytes,
         timeout: managedBodyReadTimeout,
       );
       decoded = jsonDecode(utf8.decode(bytes));
-    } on _FirmwarePayloadTooLarge {
+    } on RequestBodyReadException catch (error) {
       return Response(
-        413,
-        body: jsonEncode({
-          'error': 'payload_too_large',
-          'message': 'Managed firmware request exceeds the 64 KiB limit',
-        }),
-        headers: {'Content-Type': 'application/json'},
-      );
-    } on TimeoutException {
-      return Response(
-        408,
-        body: jsonEncode({
-          'error': 'request_timeout',
-          'message': 'Managed firmware request was not received in time',
-        }),
+        error.statusCode,
+        body: jsonEncode(
+          error.statusCode == 413
+              ? {
+                  'error': 'payload_too_large',
+                  'message':
+                      'Managed firmware request exceeds the 64 KiB limit',
+                }
+              : {
+                  'error': 'request_timeout',
+                  'message':
+                      'Managed firmware request was not received in time',
+                },
+        ),
         headers: {'Content-Type': 'application/json'},
       );
     } on FormatException {

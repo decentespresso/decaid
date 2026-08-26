@@ -143,7 +143,17 @@ final class PluginsHandler {
   Future<Response> _handleInstallFromGitHubRelease(Request request) async {
     final Map<String, dynamic> json;
     try {
-      json = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+      json =
+          jsonDecode(
+                await readBoundedRequestBodyString(
+                  request,
+                  maxBytes: smallRequestBodyBytes,
+                  timeout: smallRequestBodyTimeout,
+                ),
+              )
+              as Map<String, dynamic>;
+    } on RequestBodyReadException {
+      rethrow;
     } catch (e) {
       return jsonBadRequest({'error': 'Invalid JSON body: $e'});
     }
@@ -173,7 +183,17 @@ final class PluginsHandler {
   Future<Response> _handleInstallFromGitHubBranch(Request request) async {
     final Map<String, dynamic> json;
     try {
-      json = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+      json =
+          jsonDecode(
+                await readBoundedRequestBodyString(
+                  request,
+                  maxBytes: smallRequestBodyBytes,
+                  timeout: smallRequestBodyTimeout,
+                ),
+              )
+              as Map<String, dynamic>;
+    } on RequestBodyReadException {
+      rethrow;
     } catch (e) {
       return jsonBadRequest({'error': 'Invalid JSON body: $e'});
     }
@@ -217,7 +237,17 @@ final class PluginsHandler {
   Future<Response> _handlePluginSourceWrite(Request request, String id) async {
     final Map<String, dynamic> json;
     try {
-      json = jsonDecode(await request.readAsString()) as Map<String, dynamic>;
+      json =
+          jsonDecode(
+                await readBoundedRequestBodyString(
+                  request,
+                  maxBytes: recordRequestBodyBytes,
+                  timeout: recordRequestBodyTimeout,
+                ),
+              )
+              as Map<String, dynamic>;
+    } on RequestBodyReadException {
+      rethrow;
     } catch (e) {
       return jsonBadRequest({'error': 'Invalid JSON body: $e'});
     }
@@ -357,7 +387,10 @@ final class PluginsHandler {
       headers[name] = values;
     });
 
-    final body = await req.readAsString();
+    final body = await readBoundedRequestBodyString(
+      req,
+      maxBytes: largeRequestBodyBytes,
+    );
 
     final requestId =
         '${id}_${endpoint}_${DateTime.now().millisecondsSinceEpoch}_${_random.nextInt(100000)}';
@@ -415,7 +448,11 @@ final class PluginsHandler {
 
   Future<Response> _handlePluginSettingsPost(Request req) async {
     return _extractPluginId(req, (req, id) async {
-      final body = await req.readAsString();
+      final body = await readBoundedRequestBodyString(
+        req,
+        maxBytes: recordRequestBodyBytes,
+        timeout: recordRequestBodyTimeout,
+      );
       final json = await jsonDecode(body);
       try {
         await pluginService.savePluginSettings(id, json);

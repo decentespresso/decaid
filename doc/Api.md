@@ -19,6 +19,12 @@ and one-second upgrade limits of 128 globally and 32 per client. Rejected upgrad
 use the same `429`/`503` and `Retry-After: 1` contract. Closing a socket releases its
 connection slot.
 
+Endpoints that buffer request bodies enforce byte and read-time limits. Small
+control payloads use 64 KiB and 10 seconds, ordinary JSON payloads use 1 MiB and
+30 seconds, and record/profile/KV/proxy payloads use 64 MiB and 60 seconds.
+Oversized bodies return `413`; bodies that miss their read deadline return `408`.
+Firmware, workflow, and data-transfer endpoints retain their documented limits.
+
 ---
 
 ## Conditional GETs (ETag / If-None-Match)

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/data/grinder.dart';
 import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
+import 'package:reaprime/src/services/webserver/bounded_request_body.dart';
 import 'package:reaprime/src/services/webserver/json_patch.dart';
 import 'package:reaprime/src/services/webserver/json_response.dart';
 import 'package:shelf_plus/shelf_plus.dart';
@@ -51,7 +52,10 @@ class GrindersHandler {
 
   Future<Response> _createGrinder(Request req) async {
     try {
-      final body = await req.body.asString;
+      final body = await readBoundedRequestBodyString(
+        req,
+        maxBytes: largeRequestBodyBytes,
+      );
       final json = jsonDecode(body) as Map<String, dynamic>;
       final grinder = Grinder.create(
         model: json['model'] as String,
@@ -71,6 +75,8 @@ class GrindersHandler {
       );
       await _storage.insertGrinder(grinder);
       return jsonCreated(grinder.toJson());
+    } on RequestBodyReadException {
+      rethrow;
     } catch (e, st) {
       _log.severe('Error creating grinder', e, st);
       return jsonBadRequest({'error': e.toString()});
@@ -85,7 +91,10 @@ class GrindersHandler {
         return jsonNotFound({'error': 'Grinder not found'});
       }
 
-      final body = await req.body.asString;
+      final body = await readBoundedRequestBodyString(
+        req,
+        maxBytes: largeRequestBodyBytes,
+      );
       final json = jsonDecode(body) as Map<String, dynamic>;
 
       rejectExplicitNulls(json, const ['model', 'archived', 'settingType']);
@@ -110,6 +119,8 @@ class GrindersHandler {
 
       await _storage.updateGrinder(updated);
       return jsonOk(updated.toJson());
+    } on RequestBodyReadException {
+      rethrow;
     } on FormatException catch (e) {
       return jsonBadRequest({'error': e.toString()});
     } on TypeError catch (e) {

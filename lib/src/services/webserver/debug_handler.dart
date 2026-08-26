@@ -7,6 +7,7 @@ import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/models/device/impl/mock_scale/mock_scale.dart';
 import 'package:reaprime/src/models/device/impl/replay/mock_replay_de1.dart';
 import 'package:reaprime/src/services/update_check_service.dart';
+import 'package:reaprime/src/services/webserver/bounded_request_body.dart';
 import 'package:reaprime/src/services/webserver/json_response.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
@@ -48,7 +49,13 @@ class DebugHandler {
 
     app.post('/api/v1/debug/flow-smoothing', (request) async {
       try {
-        final body = jsonDecode(await request.readAsString());
+        final body = jsonDecode(
+          await readBoundedRequestBodyString(
+            request,
+            maxBytes: smallRequestBodyBytes,
+            timeout: smallRequestBodyTimeout,
+          ),
+        );
         if (body is! Map<String, dynamic> ||
             body['windowMs'] is! int ||
             body['movingAverageSamples'] is! int) {

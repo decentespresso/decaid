@@ -28,6 +28,7 @@ import 'package:reaprime/src/plugins/plugin_source.dart';
 import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/services/storage/hive_store_service.dart';
 import 'package:reaprime/src/services/webserver/json_response.dart';
+import 'package:reaprime/src/services/webserver/bounded_request_body.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:reaprime/src/services/webserver/data_export_handler.dart';
@@ -480,6 +481,7 @@ Handler _init(
             ? (Handler h) => h
             : proxyAuthMiddleware(proxyTokenService),
       )
+      .addMiddleware(requestBodyReadMiddleware())
       .addMiddleware(apiAdmissionMiddleware(_apiAdmissionGate))
       .addHandler(app.call);
 

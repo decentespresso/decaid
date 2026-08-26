@@ -66,7 +66,10 @@ class SettingsHandler {
       return result;
     });
     app.post('/api/v1/settings', (Request request) async {
-      final payload = await request.readAsString();
+      final payload = await readBoundedRequestBodyString(
+        request,
+        maxBytes: largeRequestBodyBytes,
+      );
       Map<String, dynamic> json = jsonDecode(payload);
       if (json.containsKey('gatewayMode')) {
         final GatewayMode? gatewayMode = GatewayModeFromString.fromString(

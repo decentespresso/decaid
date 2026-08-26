@@ -15,9 +15,9 @@ class DerekHandler {
   }
 
   Future<Response> _handle(Request request) async {
-    final body = await request.read().fold<List<int>>(
-      <int>[],
-      (buffer, chunk) => buffer..addAll(chunk),
+    final body = await readBoundedRequestBody(
+      request,
+      maxBytes: largeRequestBodyBytes,
     );
 
     final upstreamRequest = http.Request('POST', _upstream)

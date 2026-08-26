@@ -32,7 +32,11 @@ final class SensorsHandler {
         return jsonNotFound({'error': 'Sensor not found: $id'});
       }
 
-      final body = await req.readAsString();
+      final body = await readBoundedRequestBodyString(
+        req,
+        maxBytes: smallRequestBodyBytes,
+        timeout: smallRequestBodyTimeout,
+      );
       final jsonBody = jsonDecode(body);
       final cmdId = jsonBody['commandId'] as String;
       final params = jsonBody['params'] as Map<String, dynamic>?;

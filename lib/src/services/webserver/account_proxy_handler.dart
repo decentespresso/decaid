@@ -55,9 +55,10 @@ class AccountProxyHandler {
   }) async {
     final rest = request.params['rest'] ?? '';
     final callerId = proxyCallerOf(request)?.id ?? 'unknown';
-    final bodyBytes = await request.read().fold<List<int>>(
-      <int>[],
-      (buffer, chunk) => buffer..addAll(chunk),
+    final bodyBytes = await readBoundedRequestBody(
+      request,
+      maxBytes: recordRequestBodyBytes,
+      timeout: recordRequestBodyTimeout,
     );
     final contentType = request.headers['content-type'];
 
