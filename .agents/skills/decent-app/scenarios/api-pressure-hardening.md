@@ -30,42 +30,44 @@ websocat "$WS/ws/v1/machine/snapshot" \
   > /tmp/decaid-pressure-snapshot.jsonl &
 WS_PID=$!
 
-for i in $(seq 1 500); do
-  case $((i % 3)) in
-    0) field=steamSettings; key=duration; value=$((10 + i % 40)) ;;
-    1) field=hotWaterData; key=volume; value=$((50 + i % 150)) ;;
-    2) field=rinseData; key=flow; value=$((2 + i % 8)) ;;
-  esac
+(
+  for i in $(seq 1 500); do
+    case $((i % 3)) in
+      0) field=steamSettings; key=duration; value=$((10 + i % 40)) ;;
+      1) field=hotWaterData; key=volume; value=$((50 + i % 150)) ;;
+      2) field=rinseData; key=flow; value=$((2 + i % 8)) ;;
+    esac
 
-  (
-    code=$(curl -s -o /dev/null -w '%{http_code}' \
-      -X PUT "$BASE/api/v1/workflow" \
-      -H 'content-type: application/json' \
-      -d "{\"$field\":{\"$key\":$value}}")
-    printf '%s %s %s %s\n' "$i" "$field" "$value" "$code" \
-      >> /tmp/decaid-pressure-status
-    if ((i % 25 == 0)); then
-      curl -sf "$BASE/api/v1/machine/state" >/dev/null || true
-    fi
-  ) &
-
-  while (( $(jobs -rp | wc -l) >= 64 )); do
-    wait -n || true
-  done
-
-  if ((i == 100)); then
-    idle_ok=false
-    for attempt in $(seq 1 20); do
-      if curl -sf -X PUT "$BASE/api/v1/machine/state/idle" >/dev/null; then
-        idle_ok=true
-        break
+    (
+      code=$(curl -s -o /dev/null -w '%{http_code}' \
+        -X PUT "$BASE/api/v1/workflow" \
+        -H 'content-type: application/json' \
+        -d "{\"$field\":{\"$key\":$value}}")
+      printf '%s %s %s %s\n' "$i" "$field" "$value" "$code" \
+        >> /tmp/decaid-pressure-status
+      if ((i % 25 == 0)); then
+        curl -sf "$BASE/api/v1/machine/state" >/dev/null || true
       fi
-      sleep 1
+    ) &
+
+    while (( $(jobs -rp | wc -l) >= 64 )); do
+      wait -n || true
     done
-    test "$idle_ok" = true
-  fi
-done
-wait
+
+    if ((i == 100)); then
+      idle_ok=false
+      for attempt in $(seq 1 20); do
+        if curl -sf -X PUT "$BASE/api/v1/machine/state/idle" >/dev/null; then
+          idle_ok=true
+          break
+        fi
+        sleep 1
+      done
+      test "$idle_ok" = true
+    fi
+  done
+  wait
+)
 ```
 
 The run is finite. Successful and rejected requests must account for all 500
