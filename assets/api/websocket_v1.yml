@@ -11,11 +11,25 @@ info:
 
     These channels provide live updates from the DE1 espresso machine, scale,
     sensors, and connected devices.
+x-admission-control:
+  windowSeconds: 1
+  globalOpenConnections: 128
+  perClientOpenConnections: 32
+  globalUpgradesPerSecond: 128
+  perClientUpgradesPerSecond: 32
+  maxTrackedClients: 256
+  rejection:
+    perClientStatus: 429
+    globalStatus: 503
+    retryAfterSeconds: 1
 servers:
   production:
     host: '{tablet-ip}:8080'
     protocol: ws
-    description: WebSocket server providing live updates
+    description: >
+      WebSocket server providing live updates. Upgrade and open-connection
+      admission is independent from REST admission. Rejected upgrades return
+      429 for per-client limits or 503 for global limits with Retry-After: 1.
     variables:
       tablet-ip:
         default: localhost

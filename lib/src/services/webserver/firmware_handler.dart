@@ -13,17 +13,26 @@ import 'package:reaprime/src/services/firmware/firmware_manifest.dart';
 import 'package:reaprime/src/services/firmware/firmware_validator.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
+const _maxRawFirmwareBodyBytes = 16 * 1024 * 1024;
+const _rawFirmwareBodyReadTimeout = Duration(seconds: 60);
+
+final class _FirmwarePayloadTooLarge implements Exception {}
+
 class FirmwareHandler {
   final De1Controller _controller;
   final BundledFirmwareCatalog _catalog;
   final FirmwareValidator _validator;
   final Logger _log;
+  final int maxRawBodyBytes;
+  final Duration rawBodyReadTimeout;
 
   FirmwareHandler({
     required De1Controller controller,
     required BundledFirmwareCatalog catalog,
     FirmwareValidator? validator,
     Logger? logger,
+    this.maxRawBodyBytes = _maxRawFirmwareBodyBytes,
+    this.rawBodyReadTimeout = _rawFirmwareBodyReadTimeout,
   }) : _controller = controller,
        _catalog = catalog,
        _validator = validator ?? const FirmwareValidator(),
@@ -105,7 +114,28 @@ class FirmwareHandler {
   }
 
   Future<Response> _uploadRaw(Request request) async {
-    final bodyBytes = await request.read().expand((x) => x).toList();
+    final Uint8List bodyBytes;
+    try {
+      bodyBytes = await _readRawBody(request);
+    } on _FirmwarePayloadTooLarge {
+      return Response(
+        413,
+        body: jsonEncode({
+          'error': 'payload_too_large',
+          'message': 'Firmware image exceeds the 16 MiB limit',
+        }),
+        headers: {'Content-Type': 'application/json'},
+      );
+    } on TimeoutException {
+      return Response(
+        408,
+        body: jsonEncode({
+          'error': 'request_timeout',
+          'message': 'Firmware body was not received within the time limit',
+        }),
+        headers: {'Content-Type': 'application/json'},
+      );
+    }
     if (bodyBytes.isEmpty) {
       return Response.badRequest(
         body: jsonEncode({
@@ -114,12 +144,38 @@ class FirmwareHandler {
         }),
       );
     }
-    final fwImage = Uint8List.fromList(bodyBytes);
-
     final de1 = _resolveDe1();
     if (de1 == null) return _machineUnavailable();
 
-    return _streamFirmwareUpload(fwImage);
+    return _streamFirmwareUpload(bodyBytes);
+  }
+
+  Future<Uint8List> _readRawBody(Request request) async {
+    final declaredLength = int.tryParse(
+      request.headers['content-length'] ?? '',
+    );
+    if (declaredLength != null && declaredLength > maxRawBodyBytes) {
+      throw _FirmwarePayloadTooLarge();
+    }
+
+    final deadline = Stopwatch()..start();
+    final bytes = BytesBuilder(copy: false);
+    final iterator = StreamIterator<List<int>>(request.read());
+    try {
+      while (true) {
+        final remaining = rawBodyReadTimeout - deadline.elapsed;
+        if (remaining <= Duration.zero) throw TimeoutException('body read');
+        if (!await iterator.moveNext().timeout(remaining)) break;
+        final chunk = iterator.current;
+        if (bytes.length + chunk.length > maxRawBodyBytes) {
+          throw _FirmwarePayloadTooLarge();
+        }
+        bytes.add(chunk);
+      }
+      return bytes.takeBytes();
+    } finally {
+      await iterator.cancel();
+    }
   }
 
   Future<Response> _applyManaged(Request request) async {

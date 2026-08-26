@@ -171,17 +171,23 @@ class De1Handler {
       });
     });
 
-    app.get('/ws/v1/machine/snapshot', sws.webSocketHandler(_handleSnapshot));
+    app.get(
+      '/ws/v1/machine/snapshot',
+      admittedWebSocketHandler(_handleSnapshot),
+    );
     app.get(
       '/ws/v1/machine/shotSettings',
-      sws.webSocketHandler(_handleShotSettings),
+      admittedWebSocketHandler(_handleShotSettings),
     );
     app.get(
       '/ws/v1/machine/waterLevels',
-      sws.webSocketHandler(_handleWaterLevels),
+      admittedWebSocketHandler(_handleWaterLevels),
     );
-    app.get('/ws/v1/machine/raw', sws.webSocketHandler(_handleRawSocket));
-    app.get('/ws/v1/machine/shotState', sws.webSocketHandler(_handleShotState));
+    app.get('/ws/v1/machine/raw', admittedWebSocketHandler(_handleRawSocket));
+    app.get(
+      '/ws/v1/machine/shotState',
+      admittedWebSocketHandler(_handleShotState),
+    );
 
     app.get('/api/v1/machine/ledStrip', (Request _) async {
       return withDe1((de1) async {

@@ -24,6 +24,24 @@ Read this when changing REST endpoints, WebSocket topics, API specs, auth proxy,
 - Content-based hash IDs for profile deduplication (`ProfileController`).
 - ETag / `If-None-Match` support on cacheable resources (#203).
 
+### Admission Control
+
+`/api/` requests pass through a process-local gate after authentication and inside
+the existing logging/CORS middleware. Defaults are 128 concurrent and 1024 accepted
+per second globally, 32 concurrent and 256 accepted per second per client, and 256
+tracked clients. Per-client rejection returns `429`; global rejection returns `503`.
+Both include `Retry-After: 1`. `OPTIONS`, static/WebUI, and `/ws/` requests bypass
+this gate.
+
+WebSocket upgrades use an independent gate: 128 open and 128 upgrades per second
+globally, 32 open and 32 upgrades per second per client, and 256 tracked clients.
+Every registered WebSocket uses it. A socket holds its slot until the channel sink
+finishes; rejected upgrades use the same `429`/`503` and `Retry-After: 1` contract.
+
+The raw firmware upload buffers at most 16 MiB and cancels body reading after 60
+seconds. It returns `413` for either a declared or streamed overrun and `408` for a
+stalled body. Workflow PUT retains its smaller semantic bounds.
+
 ### Backup Import and Sync Invariants
 
 - A successful backup import requires at least one recognized selected payload; metadata alone is not payload.

@@ -67,7 +67,10 @@ class DisplayHandler {
   }
 
   Future<Response> _handleWebSocket(Request req) async {
-    return sws.webSocketHandler((WebSocketChannel socket, String? protocol) {
+    return admittedWebSocketHandler((
+      WebSocketChannel socket,
+      String? protocol,
+    ) {
       bool overrideRequested = false;
       StreamSubscription? sub;
 

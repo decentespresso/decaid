@@ -119,6 +119,7 @@ part 'webserver/account_handler.dart';
 part 'webserver/account_proxy_handler.dart';
 part 'webserver/derek_handler.dart';
 part 'webserver/update_handler.dart';
+part 'webserver/admission_control.dart';
 
 const _corsExposedResponseHeaders = [
   'ETag',
@@ -126,9 +127,6 @@ const _corsExposedResponseHeaders = [
   'Content-Disposition',
   'Retry-After',
   'X-Request-Id',
-  'X-RateLimit-Limit',
-  'X-RateLimit-Remaining',
-  'X-RateLimit-Reset',
 ];
 
 final log = Logger("Webservice");
@@ -482,6 +480,7 @@ Handler _init(
             ? (Handler h) => h
             : proxyAuthMiddleware(proxyTokenService),
       )
+      .addMiddleware(apiAdmissionMiddleware(_apiAdmissionGate))
       .addHandler(app.call);
 
   return handler;

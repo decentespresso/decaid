@@ -95,22 +95,23 @@ final class _BlockingFirmwareBundle extends CachingAssetBundle {
   }
 }
 
+late _FixedController _controller;
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late Handler handler;
-  late _FixedController controller;
 
   setUp(() async {
     final devices = DeviceController([MockDeviceDiscoveryService()]);
     await devices.initialize();
-    controller = _FixedController(
+    _controller = _FixedController(
       controller: devices,
       machine: _FirmwareDe1(version: '1358'),
     );
     final app = Router().plus;
     FirmwareHandler(
-      controller: controller,
+      controller: _controller,
       catalog: BundledFirmwareCatalog(bundle: rootBundle),
     ).addRoutes(app);
     handler = app.call;
@@ -120,13 +121,70 @@ void main() {
     final empty = await _raw(handler, const []);
     expect(empty.statusCode, 400);
 
-    controller.machine = null;
+    _controller.machine = null;
     final unavailable = await _raw(handler, const [1]);
     expect(unavailable.statusCode, 503);
   });
 
+  test('raw upload rejects a declared body over the limit', () async {
+    final limited = _firmwareHandler(maxRawBodyBytes: 4);
+    final response = await limited(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/v1/machine/firmware'),
+        headers: {
+          'content-type': 'application/octet-stream',
+          'content-length': '5',
+        },
+        body: Stream<List<int>>.error(StateError('body must not be read')),
+      ),
+    );
+
+    expect(response.statusCode, 413);
+  });
+
+  test('raw upload rejects a streamed body crossing the limit', () async {
+    final limited = _firmwareHandler(maxRawBodyBytes: 4);
+    final response = await limited(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/v1/machine/firmware'),
+        headers: {'content-type': 'application/octet-stream'},
+        body: Stream<List<int>>.fromIterable([
+          [1, 2, 3],
+          [4, 5],
+        ]),
+      ),
+    );
+
+    expect(response.statusCode, 413);
+  });
+
+  test('raw upload returns 408 when the body stalls', () async {
+    final body = StreamController<List<int>>();
+    var cancelled = false;
+    body.onCancel = () => cancelled = true;
+    addTearDown(body.close);
+    final limited = _firmwareHandler(
+      maxRawBodyBytes: 4,
+      rawBodyReadTimeout: const Duration(milliseconds: 1),
+    );
+
+    final response = await limited(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/v1/machine/firmware'),
+        headers: {'content-type': 'application/octet-stream'},
+        body: body.stream,
+      ),
+    );
+
+    expect(response.statusCode, 408);
+    expect(cancelled, isTrue);
+  });
+
   test('raw upload returns pre-stream 409 while an update is active', () async {
-    controller.machine = MockDe1();
+    _controller.machine = MockDe1();
     final first = await _raw(handler, const [1]);
     expect(first.statusCode, 200);
 
@@ -249,7 +307,7 @@ void main() {
       firmwareVerificationTimeout: const Duration(seconds: 1),
     );
     await de1.onConnect();
-    controller.machine = de1;
+    _controller.machine = de1;
     transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
 
     final response = await _raw(handler, List.filled(16, 1));
@@ -279,7 +337,7 @@ void main() {
   });
 
   test('DELETE is idempotent without a machine', () async {
-    controller.machine = null;
+    _controller.machine = null;
     final response = await handler(
       Request('DELETE', Uri.parse('http://localhost/api/v1/machine/firmware')),
     );
@@ -309,7 +367,7 @@ void main() {
   });
 
   test('force allows apply when installed build is unknown', () async {
-    controller.machine = _FirmwareDe1(version: 'unknown');
+    _controller.machine = _FirmwareDe1(version: 'unknown');
     final response = await _apply(
       handler,
       jsonEncode({'artifactId': 'de1-1352', 'force': true}),
@@ -325,7 +383,7 @@ void main() {
 
   test('force cannot bypass bundled firmware model compatibility', () async {
     final bengle = _FirmwareDe1(version: '1351', model: 'Bengle');
-    controller.machine = bengle;
+    _controller.machine = bengle;
 
     final response = await _apply(
       handler,
@@ -375,7 +433,7 @@ void main() {
       firmwareVerificationTimeout: const Duration(milliseconds: 100),
     );
     await de1.onConnect();
-    controller.machine = de1;
+    _controller.machine = de1;
     transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
     transport.queueFirmwareMapResponse([0, 0, 0, 1, 0, 0, 1]);
 
@@ -400,7 +458,7 @@ void main() {
       firmwareVerificationTimeout: const Duration(milliseconds: 100),
     );
     await de1.onConnect();
-    controller.machine = de1;
+    _controller.machine = de1;
     transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
 
     final response = await _raw(handler, List.filled(16, 1));
@@ -427,6 +485,20 @@ void main() {
     expect(body['updateAvailable'], isFalse);
     expect(body['recommendedArtifactId'], isNull);
   });
+}
+
+Handler _firmwareHandler({
+  required int maxRawBodyBytes,
+  Duration rawBodyReadTimeout = const Duration(seconds: 1),
+}) {
+  final app = Router().plus;
+  FirmwareHandler(
+    controller: _controller,
+    catalog: BundledFirmwareCatalog(bundle: rootBundle),
+    maxRawBodyBytes: maxRawBodyBytes,
+    rawBodyReadTimeout: rawBodyReadTimeout,
+  ).addRoutes(app);
+  return app.call;
 }
 
 Future<Response> _raw(Handler handler, List<int> body) async {

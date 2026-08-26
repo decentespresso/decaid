@@ -4,6 +4,17 @@ info:
   version: 1.0.0
   description: |
     This API provides endpoints to retrieve a list of Bluetooth devices, trigger a scan for new devices, manage DE1 espresso machine state and settings, and interact with a connected scale.
+
+    Requests under `/api/` are subject to process-local admission limits. A
+    per-client limit returns 429 and a global limit returns 503; both include
+    `Retry-After: 1`. Saturated requests are rejected rather than queued.
+x-admission-control:
+  windowSeconds: 1
+  globalConcurrent: 128
+  perClientConcurrent: 32
+  globalAcceptedPerSecond: 1024
+  perClientAcceptedPerSecond: 256
+  maxTrackedClients: 256
 servers:
   - url: http://{tablet-ip}:8080
     variables:
@@ -925,9 +936,10 @@ paths:
       summary: Push raw firmware to the machine (developer/recovery)
       description: |
         Send a raw firmware file to the machine. Returns an NDJSON progress
-        stream. Rejects an empty body with 400. Returns 409 if an update is
-        already in progress. Returns 503 if no machine is connected or the
-        machine write queue is full.
+        stream. The body is limited to 16 MiB and must arrive within 60 seconds.
+        Rejects an empty body with 400, a stalled body with 408, and an oversized
+        body with 413. Returns 409 if an update is already in progress. Returns
+        503 if no machine is connected or the machine write queue is full.
 
         A successful stream emits `erasing`, zero or more `uploading` events,
         then `done`. A failed stream emits `erasing`, zero or more `uploading`
@@ -945,6 +957,10 @@ paths:
         required: true
         content:
           application/octet-stream:
+            schema:
+              type: string
+              format: binary
+              maxLength: 16777216
       responses:
         "200":
           description: NDJSON progress stream (see FirmwareProgressEvent)
@@ -954,8 +970,12 @@ paths:
                 $ref: "#/components/schemas/FirmwareProgressEvent"
         "400":
           description: Empty request body
+        "408":
+          description: Request body was not received within 60 seconds
         "409":
           description: Firmware update already in progress
+        "413":
+          description: Request body exceeds 16 MiB
         "503":
           description: No machine connected or machine write queue full
     delete:

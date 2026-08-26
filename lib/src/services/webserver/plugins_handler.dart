@@ -279,7 +279,10 @@ final class PluginsHandler {
       });
     }
 
-    return sws.webSocketHandler((WebSocketChannel socket, String? protocol) {
+    return admittedWebSocketHandler((
+      WebSocketChannel socket,
+      String? protocol,
+    ) {
       StreamSubscription<Map<String, dynamic>>? sub;
       sub = pluginManager.emitStream
           .where((e) {

@@ -303,7 +303,10 @@ class SettingsHandler {
   }
 
   Future<Response> _handleLogsRequest(Request req) async {
-    return sws.webSocketHandler((WebSocketChannel socket, String? protocol) {
+    return admittedWebSocketHandler((
+      WebSocketChannel socket,
+      String? protocol,
+    ) {
       StreamSubscription? sub;
       sub = Logger.root.onRecord.listen((logRecord) {
         socket.sink.add(

@@ -6,6 +6,21 @@ For skin development, see [`doc/Skins.md`](Skins.md). For plugin development, se
 
 ---
 
+## Admission control
+
+Decaid rejects excess local API work rather than queueing it. `/api/` requests
+allow 128 concurrent globally and 32 per client, with fixed one-second accepted
+request limits of 1024 globally and 256 per client. Per-client rejection is `429`;
+global rejection is `503`. Both include `Retry-After: 1`. `OPTIONS`, static/WebUI,
+and `/ws/` requests do not use these API slots.
+
+WebSocket admission is separate: 128 open connections globally, 32 per client,
+and one-second upgrade limits of 128 globally and 32 per client. Rejected upgrades
+use the same `429`/`503` and `Retry-After: 1` contract. Closing a socket releases its
+connection slot.
+
+---
+
 ## Conditional GETs (ETag / If-None-Match)
 
 The following list endpoints set a strong `ETag` on every `200 OK` response and honour `If-None-Match` with `304 Not Modified` (empty body) when the client's tag matches:
@@ -74,11 +89,11 @@ For browser clients on a different origin, `ETag` is exposed via `Access-Control
 
 The catalog endpoint is available offline and without a connected machine. It returns bundled artifact metadata, compatibility and version eligibility, the recommended artifact, tri-state `updateAvailable`, and the shared machine operation state. The bundled Phase 1 artifact is official DE1 firmware build 1352 for `DE1Pro`, `DE1XL`, `DE1XXL`, and `DE1XXXL`.
 
-Managed apply accepts `{"artifactId":"de1-1352","force":false}`. The complete image is checked against its manifest, SHA-256 digest, canonical DE1 header, and connected model before erase. `force` permits reinstall or downgrade, including when the installed build is unknown, but never bypasses integrity or model checks. The raw endpoint retains its developer/recovery role and accepts `application/octet-stream`.
+Managed apply accepts `{"artifactId":"de1-1352","force":false}`. The complete image is checked against its manifest, SHA-256 digest, canonical DE1 header, and connected model before erase. `force` permits reinstall or downgrade, including when the installed build is unknown, but never bypasses integrity or model checks. The raw endpoint retains its developer/recovery role and accepts `application/octet-stream`, capped at 16 MiB with a 60-second body-read timeout.
 
 Raw and managed updates return `application/x-ndjson`. Events are ordered `erasing`, zero or more `uploading`, then `done`; failures after streaming starts terminate with `error`. Upload progress is emitted in approximately one-percent increments. The stream remains open during final machine verification, and `done` is sent only after the DE1 reports `FF FF FD`. Client disconnect and `DELETE` cancel a pending update before it starts or forward cancellation to an active update.
 
-Pre-stream responses are `400` for malformed input, `404` for an unknown artifact, `409` for an active update, `422` for validation or policy rejection, and `503` when apply requires a machine or the DE1 write queue is full. Idempotent cancellation returns `202` with `{"operation":{"state":"idle"}}` when no update remains active.
+Pre-stream responses are `400` for malformed input, `404` for an unknown artifact, `408` when a raw upload body stalls, `409` for an active update, `413` when a raw upload exceeds 16 MiB, `422` for validation or policy rejection, and `503` when apply requires a machine or the DE1 write queue is full. Idempotent cancellation returns `202` with `{"operation":{"state":"idle"}}` when no update remains active.
 
 ### Scale
 

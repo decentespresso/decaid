@@ -256,7 +256,7 @@ class DevicesHandler {
 
     app.put('/api/v1/devices/forget', _handleForget);
 
-    app.get('/ws/v1/devices', sws.webSocketHandler(_handleDevicesSocket));
+    app.get('/ws/v1/devices', admittedWebSocketHandler(_handleDevicesSocket));
   }
 
   Future<List<Map<String, dynamic>>> _deviceList() async {
