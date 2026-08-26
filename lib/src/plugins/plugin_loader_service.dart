@@ -166,6 +166,8 @@ class PluginLoaderService {
         }
       } catch (e) {
         _log.warning('Rolling back failed install of plugin $pluginId', e);
+        // Restore settings before the previous version reloads: the reload
+        // re-reads reconciled settings under the settings lock.
         await _restorePersistedSettings(pluginId, settingsSnapshot);
         if (pluginDir.existsSync()) pluginDir.deleteSync(recursive: true);
         if (hadPrevious) {
@@ -269,6 +271,8 @@ class PluginLoaderService {
         _log.warning('Rolling back failed update of plugin $pluginId', e);
         _deleteQuietly(stagedManifest);
         _deleteQuietly(stagedSource);
+        // Restore settings before the previous version reloads: the reload
+        // re-reads reconciled settings under the settings lock.
         await _restorePersistedSettings(pluginId, settingsSnapshot);
         await _restorePluginSource(
           pluginId: pluginId,
@@ -713,10 +717,6 @@ class PluginLoaderService {
     return (ordinary: migratedOrdinary, secure: secure);
   }
 
-  // Persisted settings are values of the current manifest schema. Keys the
-  // manifest no longer declares are dropped, and values that no longer fit
-  // the schema are reset to a valid manifest default or removed. A manifest
-  // with no settings drops every previously persisted ordinary value.
   Map<String, dynamic> _reconcileOrdinarySettings(
     PluginManifest manifest,
     Map<String, dynamic> ordinary,
@@ -726,8 +726,6 @@ class PluginLoaderService {
     final reconciled = <String, dynamic>{};
     for (final entry in ordinary.entries) {
       if (secureKeys.contains(entry.key)) {
-        // Secure values are migrated to secure storage by the caller; keep
-        // them untouched here so the migration path is unchanged.
         reconciled[entry.key] = entry.value;
         continue;
       }
@@ -739,10 +737,6 @@ class PluginLoaderService {
     return reconciled;
   }
 
-  // Secure values also conform to the current schema (enum values, types).
-  // Reconciliation happens in secure storage only; a value that no longer
-  // fits the schema is reset to a valid manifest default or removed, and is
-  // never written to ordinary storage.
   Map<String, dynamic> _reconcileSecureSettings(
     PluginManifest manifest,
     Map<String, dynamic> secure,
@@ -860,9 +854,6 @@ class PluginLoaderService {
     );
   }
 
-  // Raw persisted settings, taken before an install/update can reconcile
-  // them against a new manifest. Restored verbatim on rollback so a failed
-  // update leaves settings exactly as they were before the attempt.
   Future<({Map<String, dynamic> ordinary, Map<String, dynamic> secure})>
   _capturePersistedSettings(String pluginId) =>
       _withPluginSettingsLock(pluginId, () async {
