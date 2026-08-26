@@ -12,6 +12,12 @@ class DecentAccountNotLinkedException implements Exception {
   String toString() => 'DecentAccountNotLinkedException: no account linked';
 }
 
+class DecentAccountAuthInvalidException implements Exception {
+  @override
+  String toString() =>
+      'DecentAccountAuthInvalidException: stored credentials are known-invalid';
+}
+
 class DecentProxyForbiddenPathException implements Exception {
   final String path;
   DecentProxyForbiddenPathException(this.path);
@@ -47,6 +53,7 @@ class DecentProxyService {
   final RequireAccountConsent _requireConsent;
   final String baseUrl;
   final void Function()? onAuthFailure;
+  final Future<bool> Function()? isAuthKnownInvalid;
 
   final Set<String> allowedPrefixes;
 
@@ -71,6 +78,7 @@ class DecentProxyService {
     this.baseUrl = 'https://decentespresso.com',
     this.allowedPrefixes = const {'support/api/'},
     this.onAuthFailure,
+    this.isAuthKnownInvalid,
   }) : _httpClient = httpClient,
        _store = credentialStore,
        _requireConsent = requireConsent;
@@ -102,6 +110,13 @@ class DecentProxyService {
 
     if (await _credentials() == null) {
       throw DecentAccountNotLinkedException();
+    }
+
+    if (await isAuthKnownInvalid?.call() ?? false) {
+      _log.warning(
+        'caller=$callerId $normalizedMethod /$normalizedPath -> blocked, credentials known-invalid',
+      );
+      throw DecentAccountAuthInvalidException();
     }
 
     if (!await _requireConsent(callerId)) {

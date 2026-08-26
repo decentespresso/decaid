@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:clock/clock.dart';
 import 'package:http/http.dart' as http;
+import 'package:logging/logging.dart';
 
 List<String> parseSerialNumbers(String body) {
   return const LineSplitter()
@@ -29,6 +30,7 @@ class DecentAccountService {
   final CredentialStore _store;
   final String baseUrl;
   final Duration retryInterval;
+  final Logger _log = Logger('DecentAccount');
 
   bool? _authenticated;
   Future<bool>? _validationFuture;
@@ -55,8 +57,10 @@ class DecentAccountService {
       await _store.write(key: 'password', value: response.body.trim());
       _authGeneration++;
       _authenticated = true;
+      _log.info('login -> accepted');
       return true;
     }
+    _log.warning('login -> rejected');
     return false;
   }
 
@@ -98,6 +102,7 @@ class DecentAccountService {
     final email = await _store.read(key: 'email');
     final password = await _store.read(key: 'password');
     if (email == null || password == null) {
+      _log.info('validation -> indeterminate');
       _setAuthenticated(generation, false);
       return false;
     }
@@ -105,14 +110,24 @@ class DecentAccountService {
     try {
       response = await _authedGet(email, password, '/support/api/login_test');
     } catch (_) {
+      _log.info('validation -> indeterminate');
       return _authenticated ?? false;
     }
     final valid = response.statusCode == 200 && response.body.trim() != '0';
     final rejected =
         response.statusCode == 401 ||
         (response.statusCode == 200 && response.body.trim() == '0');
-    if (!valid && !rejected) return _authenticated ?? false;
-    _setAuthenticated(generation, valid);
+    if (!valid && !rejected) {
+      _log.info('validation -> indeterminate');
+      return _authenticated ?? false;
+    }
+    if (valid) {
+      _log.info('validation -> accepted');
+      _setAuthenticated(generation, valid);
+      return _authenticated ?? false;
+    }
+    _log.info('validation -> rejected');
+    _setAuthenticated(generation, false);
     return _authenticated ?? false;
   }
 
@@ -124,6 +139,8 @@ class DecentAccountService {
     _authGeneration++;
     _authenticated = false;
   }
+
+  Future<bool> isAuthKnownInvalid() async => _authenticated == false;
 
   Future<String?> getEmail() async => _store.read(key: 'email');
 

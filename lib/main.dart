@@ -446,6 +446,7 @@ void main(List<String> args) async {
       requireConsent: gate.requireConsent,
       baseUrl: decentBaseUrl,
       onAuthFailure: () => decentAccountService!.reportAuthenticationFailure(),
+      isAuthKnownInvalid: decentAccountService!.isAuthKnownInvalid,
     );
     accountTokensController = AccountTokensController(
       tokenService: proxyTokenService,
