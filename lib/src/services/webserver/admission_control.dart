@@ -1,6 +1,7 @@
 part of '../webserver_service.dart';
 
 const _admissionWindowMs = 1000;
+final _admissionClock = Stopwatch()..start();
 
 enum AdmissionDecision { accepted, perClientLimit, globalLimit }
 
@@ -20,7 +21,7 @@ final class AdmissionGate {
     required this.perClientRate,
     required this.maxTrackedClients,
     int Function()? nowMs,
-  }) : _nowMs = nowMs ?? (() => DateTime.now().millisecondsSinceEpoch),
+  }) : _nowMs = nowMs ?? (() => _admissionClock.elapsedMilliseconds),
        assert(globalConcurrent > 0),
        assert(perClientConcurrent > 0),
        assert(globalRate > 0),
