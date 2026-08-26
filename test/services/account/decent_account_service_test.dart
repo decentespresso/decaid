@@ -254,6 +254,25 @@ void main() {
         expect(serials, ['DE1-0001', 'DE1-0042']);
       });
 
+      test('parses SKU-annotated response from the real backend', () async {
+        httpClient = _mockClient(
+          statusCode: 200,
+          body:
+              '1337 DE-BE1BENGLE220V_15A_3000W_B0-01101\n'
+              '1338 DE-DE1PRO220V7-00533',
+        );
+        service = DecentAccountService(
+          httpClient: httpClient,
+          credentialStore: store,
+          baseUrl: _baseUrl,
+        );
+        await store.write(key: 'email', value: 'test@example.com');
+        await store.write(key: 'password', value: 'cryptpw_abc123');
+
+        final serials = await service.fetchSerialNumbers();
+        expect(serials, ['1337', '1338']);
+      });
+
       test('returns empty list when API responds with empty body', () async {
         httpClient = _mockClient(statusCode: 200, body: '');
         service = DecentAccountService(
@@ -288,9 +307,52 @@ void main() {
       });
     });
 
+    group('parseSerialNumbers', () {
+      test('parses bare serial numbers', () {
+        expect(parseSerialNumbers('1337\n1338'), ['1337', '1338']);
+      });
+
+      test('parses serials with SKU metadata', () {
+        expect(
+          parseSerialNumbers(
+            '1337 DE-BE1BENGLE220V_15A_3000W_B0-01101\n'
+            '1338 DE-DE1PRO220V7-00533',
+          ),
+          ['1337', '1338'],
+        );
+      });
+
+      test('handles CRLF responses', () {
+        expect(parseSerialNumbers('1337\r\n1338\r\n'), ['1337', '1338']);
+      });
+
+      test('handles CR-only responses', () {
+        expect(parseSerialNumbers('1337\r1338\r'), ['1337', '1338']);
+      });
+
+      test('ignores blank lines and surrounding whitespace', () {
+        expect(
+          parseSerialNumbers(
+            '  1337   DE-BE1BENGLE220V_15A_3000W_B0-01101  \n\n'
+            '   1338   DE-DE1PRO220V7-00533   ',
+          ),
+          ['1337', '1338'],
+        );
+      });
+
+      test('deduplicates serial numbers', () {
+        expect(parseSerialNumbers('1337\n1337 DE-SOMETHING'), ['1337']);
+      });
+    });
+
     group('verifyMachineSerial', () {
       test('returns true when serial is in account serials', () async {
-        httpClient = _mockClient(statusCode: 200, body: 'DE1-0001\nDE1-0042');
+        httpClient = _mockClient(
+          statusCode: 200,
+          body:
+              '1337 DE-BE1BENGLE220V_15A_3000W_B0-01101\n'
+              '1338 DE-DE1PRO220V7-00533',
+        );
         service = DecentAccountService(
           httpClient: httpClient,
           credentialStore: store,
@@ -299,7 +361,7 @@ void main() {
         await store.write(key: 'email', value: 'test@example.com');
         await store.write(key: 'password', value: 'cryptpw_abc123');
 
-        final result = await service.verifyMachineSerial('DE1-0042');
+        final result = await service.verifyMachineSerial('1338');
         expect(result, isTrue);
       });
 

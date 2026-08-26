@@ -1,6 +1,17 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
+List<String> parseSerialNumbers(String body) {
+  return const LineSplitter()
+      .convert(body)
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .map((line) => line.split(RegExp(r'\s+')).first)
+      .where((serial) => serial.isNotEmpty)
+      .toSet()
+      .toList();
+}
+
 abstract class CredentialStore {
   Future<String?> read({required String key});
 
@@ -62,13 +73,17 @@ class DecentAccountService {
         'serial fetch failed (${response.statusCode}): ${response.body.trim()}',
       );
     }
-    if (response.body.trim() == '0') {
-      throw StateError("Unexpected response: ${response.body.trim()}");
+    final body = response.body.trim();
+
+    if (body == '0') {
+      throw StateError('Unexpected response: $body');
     }
-    if (response.body.isEmpty) {
+
+    if (body.isEmpty) {
       return [];
     }
-    return response.body.trim().split('\n');
+
+    return parseSerialNumbers(body);
   }
 
   Future<bool> verifyMachineSerial(String serial) async {
