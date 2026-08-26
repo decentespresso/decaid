@@ -616,10 +616,15 @@ void main() {
       spy.setHotWaterFlowCalls.clear();
       spy.setFlushFlowCalls.clear();
 
-      for (final patch in [
-        {
-          'steamSettings': {'duration': 12},
-        },
+      spy.blockedSteamFlow = 1.5;
+      spy.steamFlowEntered = Completer<void>();
+      spy.steamFlowRelease = Completer<void>();
+      final first = put({
+        'steamSettings': {'flow': 1.5},
+      });
+      await spy.steamFlowEntered!.future;
+      workflowController.updateWorkflow(description: 'concurrent revision');
+      final pending = [
         {
           'rinseData': {'flow': 3.0},
         },
@@ -629,14 +634,21 @@ void main() {
         {
           'hotWaterData': {'volume': 120},
         },
-      ]) {
-        expect((await put(patch)).statusCode, 200);
-      }
+      ].map(put).toList();
+      spy.steamFlowRelease!.complete();
+      final responses = await Future.wait([first, ...pending]);
+      expect(
+        responses.map((response) => response.statusCode),
+        everyElement(200),
+      );
 
       final workflow = workflowController.currentWorkflow;
+      expect(workflow.description, 'concurrent revision');
+      expect(workflow.steamSettings.flow, 1.5);
       expect(workflow.steamSettings.duration, 16);
       expect(workflow.rinseData.flow, 3.0);
       expect(workflow.hotWaterData.volume, 120);
+      expect(spy.setSteamFlowCalls.last, 1.5);
       expect(spy.setFlushFlowCalls.last, 3.0);
       expect(spy.updateShotSettingsCalls.last.targetSteamDuration, 16);
       expect(spy.updateShotSettingsCalls.last.targetHotWaterVolume, 120);

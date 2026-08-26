@@ -462,7 +462,22 @@ Handler _init(
     debugHandler.addRoutes(app);
   }
 
-  final handler = const Pipeline()
+  return buildWebServerHandler(
+    app.call,
+    proxyTokenService: proxyTokenService,
+    accountProxyAllowedOrigins: accountProxyAllowedOrigins,
+  );
+}
+
+Set<String> _noAccountProxyOrigins() => const {};
+
+Handler buildWebServerHandler(
+  Handler routes, {
+  ProxyTokenService? proxyTokenService,
+  Set<String> Function() accountProxyAllowedOrigins = _noAccountProxyOrigins,
+  AdmissionGate? admissionGate,
+}) {
+  return const Pipeline()
       .addMiddleware(accountProxyCorsMiddleware(accountProxyAllowedOrigins))
       .addMiddleware(logRequestsWithClientIp())
       .addMiddleware(
@@ -482,10 +497,8 @@ Handler _init(
             : proxyAuthMiddleware(proxyTokenService),
       )
       .addMiddleware(requestBodyReadMiddleware())
-      .addMiddleware(apiAdmissionMiddleware(_apiAdmissionGate))
-      .addHandler(app.call);
-
-  return handler;
+      .addMiddleware(apiAdmissionMiddleware(admissionGate ?? _apiAdmissionGate))
+      .addHandler(routes);
 }
 
 const _shelfConnectionInfoKey = 'shelf.io.connection_info';
