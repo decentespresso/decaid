@@ -143,8 +143,7 @@ class FirmwareHandler {
     }
     final force = forceValue as bool? ?? false;
 
-    final de1 = _resolveDe1();
-    if (de1 == null) return _machineUnavailable();
+    if (_resolveDe1() == null) return _machineUnavailable();
 
     final manifest = await _catalog.loadManifest();
     FirmwareManifestEntry? entry;
@@ -179,6 +178,8 @@ class FirmwareHandler {
       );
     }
 
+    final de1 = _resolveDe1();
+    if (de1 == null) return _machineUnavailable();
     final info = de1.machineInfo;
     final eligibility = _validator.evaluateEligibility(
       entry.artifact,

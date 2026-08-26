@@ -76,6 +76,25 @@ final class _FirmwareDe1 extends MockDe1 {
   }
 }
 
+final class _BlockingFirmwareBundle extends CachingAssetBundle {
+  final Completer<void> imageLoadStarted = Completer<void>();
+  final Completer<void> imageLoadRelease = Completer<void>();
+
+  @override
+  Future<ByteData> load(String key) async {
+    if (key != 'assets/firmware/manifest.json') {
+      imageLoadStarted.complete();
+      await imageLoadRelease.future;
+    }
+    return rootBundle.load(key);
+  }
+
+  @override
+  Future<String> loadString(String key, {bool cache = true}) {
+    return rootBundle.loadString(key, cache: cache);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -320,6 +339,32 @@ void main() {
     expect(bengle.updateCalls, 0);
   });
 
+  test(
+    'managed apply revalidates after the connected machine changes',
+    () async {
+      final bundle = _BlockingFirmwareBundle();
+      final harness = await _governedHandler(bundle: bundle);
+      addTearDown(harness.controller.dispose);
+
+      final applying = _apply(
+        harness.handler,
+        jsonEncode({'artifactId': 'de1-1352', 'force': true}),
+      );
+      await bundle.imageLoadStarted.future;
+
+      harness.machine.simulateDisconnect();
+      await Future<void>.delayed(Duration.zero);
+      final replacement = _FirmwareDe1(version: '1351', model: 'Bengle');
+      await harness.controller.connectToDe1(replacement);
+      bundle.imageLoadRelease.complete();
+
+      final response = await applying;
+      expect(response.statusCode, 422);
+      expect(harness.machine.updateCalls, 0);
+      expect(replacement.updateCalls, 0);
+    },
+  );
+
   test('verification failure emits error and closes without done', () async {
     final transport = FakeBleTransport();
     addTearDown(transport.dispose);
@@ -413,7 +458,7 @@ Future<Response> _delete(Handler handler) async {
 }
 
 Future<({Handler handler, De1Controller controller, _FirmwareDe1 machine})>
-_governedHandler({int maxPendingDeviceWrites = 2}) async {
+_governedHandler({int maxPendingDeviceWrites = 2, AssetBundle? bundle}) async {
   final devices = DeviceController([MockDeviceDiscoveryService()]);
   await devices.initialize();
   final controller = De1Controller(
@@ -425,7 +470,7 @@ _governedHandler({int maxPendingDeviceWrites = 2}) async {
   final app = Router().plus;
   FirmwareHandler(
     controller: controller,
-    catalog: BundledFirmwareCatalog(bundle: rootBundle),
+    catalog: BundledFirmwareCatalog(bundle: bundle ?? rootBundle),
   ).addRoutes(app);
   return (handler: app.call, controller: controller, machine: machine);
 }
