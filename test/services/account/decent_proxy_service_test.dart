@@ -42,12 +42,14 @@ void main() {
     http_testing.MockClientHandler handler, {
     String baseUrl = 'https://decentespresso.com',
     Future<bool> Function(String callerId) requireConsent = _allowConsent,
+    void Function()? onAuthFailure,
   }) {
     return DecentProxyService(
       httpClient: http_testing.MockClient(handler),
       credentialStore: store,
       requireConsent: requireConsent,
       baseUrl: baseUrl,
+      onAuthFailure: onAuthFailure,
     );
   }
 
@@ -473,5 +475,35 @@ void main() {
       ),
       isTrue,
     );
+  });
+
+  test('reports an upstream 401 to the auth-failure hook', () async {
+    await linkAccount();
+    var failures = 0;
+    final service = buildService(
+      (request) async => http.Response('unauthorized', 401),
+      onAuthFailure: () => failures++,
+    );
+
+    final response = await service.proxyGet(
+      callerId: 'skin',
+      path: 'support/api/sn',
+    );
+
+    expect(response.statusCode, 401);
+    expect(failures, 1);
+  });
+
+  test('does not call the auth-failure hook on non-401 responses', () async {
+    await linkAccount();
+    var failures = 0;
+    final service = buildService(
+      (request) async => http.Response('ok', 200),
+      onAuthFailure: () => failures++,
+    );
+
+    await service.proxyGet(callerId: 'skin', path: 'support/api/sn');
+
+    expect(failures, 0);
   });
 }

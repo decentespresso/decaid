@@ -46,6 +46,7 @@ class DecentProxyService {
   final CredentialStore _store;
   final RequireAccountConsent _requireConsent;
   final String baseUrl;
+  final void Function()? onAuthFailure;
 
   final Set<String> allowedPrefixes;
 
@@ -69,6 +70,7 @@ class DecentProxyService {
     required RequireAccountConsent requireConsent,
     this.baseUrl = 'https://decentespresso.com',
     this.allowedPrefixes = const {'support/api/'},
+    this.onAuthFailure,
   }) : _httpClient = httpClient,
        _store = credentialStore,
        _requireConsent = requireConsent;
@@ -138,6 +140,10 @@ class DecentProxyService {
 
     final response = await _httpClient.send(outbound);
     final responseBody = await response.stream.toBytes();
+
+    if (response.statusCode == 401) {
+      onAuthFailure?.call();
+    }
 
     _log.info(
       'caller=$callerId $normalizedMethod /$normalizedPath -> ${response.statusCode}',

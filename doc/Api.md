@@ -448,7 +448,7 @@ archive is also bounded by the 2 GiB import request limit.
 
 | Method | Path | Description | Handler |
 |--------|------|-------------|---------|
-| GET | `/api/v1/account/decent` | Decent account link status: `{loggedIn}` | `account_handler.dart` |
+| GET | `/api/v1/account/decent` | Decent account auth status: `{loggedIn}` (true only when stored credentials are accepted by the backend) | `account_handler.dart` |
 | GET | `/api/v1/account/proxy/<path>` | Auth-enriching proxy to `decentespresso.com/<path>` | `account_proxy_handler.dart` |
 | POST | `/api/v1/account/proxy/<path>` | Auth-enriching write proxy (relays body) | `account_proxy_handler.dart` |
 | PUT | `/api/v1/account/proxy/<path>` | Auth-enriching write proxy (relays body) | `account_proxy_handler.dart` |

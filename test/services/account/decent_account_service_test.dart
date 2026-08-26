@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart' as http_testing;
@@ -42,7 +45,7 @@ void main() {
 
     setUp(() {
       store = FakeCredentialStore();
-      httpClient = _mockClient(statusCode: 200, body: 'cryptpw_abc123');
+      httpClient = _mockClient(statusCode: 200, body: 'cryptpw_abc123\n');
       service = DecentAccountService(
         httpClient: httpClient,
         credentialStore: store,
@@ -76,8 +79,9 @@ void main() {
         expect(result, isTrue);
       });
 
-      test('returns false when API responds with "0"', () async {
-        httpClient = _mockClient(statusCode: 200, body: '0');
+      test('returns false when API responds with "0" (real backend sends '
+          '"0\\n")', () async {
+        httpClient = _mockClient(statusCode: 200, body: '0\n');
         service = DecentAccountService(
           httpClient: httpClient,
           credentialStore: store,
@@ -86,6 +90,7 @@ void main() {
 
         final result = await service.login('test@example.com', 'wrong');
         expect(result, isFalse);
+        expect(store.hasCredentials, isFalse);
       });
 
       test('returns false when API returns non-200 status', () async {
@@ -123,7 +128,7 @@ void main() {
       });
 
       test('does NOT persist credentials on failed login', () async {
-        httpClient = _mockClient(statusCode: 200, body: '0');
+        httpClient = _mockClient(statusCode: 200, body: '0\n');
         service = DecentAccountService(
           httpClient: httpClient,
           credentialStore: store,
@@ -132,6 +137,30 @@ void main() {
 
         await service.login('test@example.com', 'wrong');
         expect(store.hasCredentials, isFalse);
+      });
+
+      test('failed replacement login preserves previously valid stored '
+          'credentials', () async {
+        await store.write(key: 'email', value: 'good@example.com');
+        await store.write(key: 'password', value: 'cryptpw_abc123');
+        final badAuth = base64Encode(utf8.encode('bad@example.com:wrongpw'));
+        httpClient = http_testing.MockClient((request) async {
+          if (request.headers['authorization'] == 'Basic $badAuth') {
+            return http.Response('0\n', 200);
+          }
+          return http.Response('cryptpw_abc123\n', 200);
+        });
+        service = DecentAccountService(
+          httpClient: httpClient,
+          credentialStore: store,
+          baseUrl: _baseUrl,
+        );
+
+        final ok = await service.login('bad@example.com', 'wrongpw');
+        expect(ok, isFalse);
+        expect(await store.read(key: 'email'), 'good@example.com');
+        expect(await store.read(key: 'password'), 'cryptpw_abc123');
+        expect(await service.isLoggedIn(), isTrue);
       });
 
       test('sends correctly-encoded Basic Auth header', () async {
@@ -184,10 +213,42 @@ void main() {
         expect(await service.isLoggedIn(), isTrue);
       });
 
-      test('returns true when credentials are already stored from a '
-          'previous session', () async {
+      test(
+        'returns true when stored credentials validate against the backend',
+        () async {
+          await store.write(key: 'email', value: 'returning@example.com');
+          await store.write(key: 'password', value: 'cryptpw_abc123');
+          service = DecentAccountService(
+            httpClient: httpClient,
+            credentialStore: store,
+            baseUrl: _baseUrl,
+          );
+
+          expect(await service.isLoggedIn(), isTrue);
+        },
+      );
+
+      test('returns false when stored credentials are stale', () async {
         await store.write(key: 'email', value: 'returning@example.com');
-        await store.write(key: 'password', value: 'oldpassword');
+        await store.write(key: 'password', value: 'stale_cryptpw');
+        httpClient = _mockClient(statusCode: 401, body: '');
+        service = DecentAccountService(
+          httpClient: httpClient,
+          credentialStore: store,
+          baseUrl: _baseUrl,
+        );
+
+        expect(await service.isLoggedIn(), isFalse);
+      });
+
+      test('validates only once per session', () async {
+        var calls = 0;
+        httpClient = http_testing.MockClient((request) async {
+          calls++;
+          return http.Response('cryptpw_abc123', 200);
+        });
+        await store.write(key: 'email', value: 'returning@example.com');
+        await store.write(key: 'password', value: 'cryptpw_abc123');
         service = DecentAccountService(
           httpClient: httpClient,
           credentialStore: store,
@@ -195,6 +256,234 @@ void main() {
         );
 
         expect(await service.isLoggedIn(), isTrue);
+        expect(await service.isLoggedIn(), isTrue);
+        expect(calls, 1);
+      });
+
+      test(
+        'retries validation after an indeterminate network failure',
+        () async {
+          var calls = 0;
+          httpClient = http_testing.MockClient((request) async {
+            calls++;
+            if (calls == 1) throw Exception('SocketException');
+            return http.Response('cryptpw_abc123\n', 200);
+          });
+          await store.write(key: 'email', value: 'returning@example.com');
+          await store.write(key: 'password', value: 'cryptpw_abc123');
+          service = DecentAccountService(
+            httpClient: httpClient,
+            credentialStore: store,
+            baseUrl: _baseUrl,
+            retryInterval: Duration.zero,
+          );
+
+          expect(await service.isLoggedIn(), isFalse);
+          expect(await service.isLoggedIn(), isTrue);
+          expect(calls, 2);
+        },
+      );
+
+      test('throttles retries after an indeterminate failure', () async {
+        var calls = 0;
+        httpClient = http_testing.MockClient((request) async {
+          calls++;
+          throw Exception('SocketException');
+        });
+        await store.write(key: 'email', value: 'returning@example.com');
+        await store.write(key: 'password', value: 'cryptpw_abc123');
+        service = DecentAccountService(
+          httpClient: httpClient,
+          credentialStore: store,
+          baseUrl: _baseUrl,
+        );
+
+        expect(await service.isLoggedIn(), isFalse);
+        expect(await service.isLoggedIn(), isFalse);
+        expect(calls, 1);
+      });
+
+      test('does not retry after a definitive rejection', () async {
+        var calls = 0;
+        httpClient = http_testing.MockClient((request) async {
+          calls++;
+          return http.Response('0\n', 200);
+        });
+        await store.write(key: 'email', value: 'returning@example.com');
+        await store.write(key: 'password', value: 'stale_cryptpw');
+        service = DecentAccountService(
+          httpClient: httpClient,
+          credentialStore: store,
+          baseUrl: _baseUrl,
+        );
+
+        expect(await service.isLoggedIn(), isFalse);
+        expect(await service.isLoggedIn(), isFalse);
+        expect(calls, 1);
+      });
+
+      test(
+        'returns false after reportAuthenticationFailure but keeps the link',
+        () async {
+          await service.login('test@example.com', 'hunter2');
+          expect(await service.isLoggedIn(), isTrue);
+
+          service.reportAuthenticationFailure();
+
+          expect(await service.isLoggedIn(), isFalse);
+          expect(await service.hasLinkedAccount(), isTrue);
+          expect(await store.read(key: 'email'), 'test@example.com');
+        },
+      );
+    });
+
+    group('hasLinkedAccount', () {
+      test('returns false when no credentials stored', () async {
+        expect(await service.hasLinkedAccount(), isFalse);
+      });
+
+      test('returns false when only an email is stored', () async {
+        await store.write(key: 'email', value: 'user@example.com');
+        expect(await service.hasLinkedAccount(), isFalse);
+      });
+
+      test('returns true when email and password are stored', () async {
+        await store.write(key: 'email', value: 'user@example.com');
+        await store.write(key: 'password', value: 'cryptpw_abc123');
+        expect(await service.hasLinkedAccount(), isTrue);
+      });
+
+      test('returns false after logout', () async {
+        await store.write(key: 'email', value: 'user@example.com');
+        await store.write(key: 'password', value: 'cryptpw_abc123');
+        await service.logout();
+        expect(await service.hasLinkedAccount(), isFalse);
+      });
+    });
+
+    group('verifyStoredCredentials', () {
+      test('returns true when backend accepts stored credentials', () async {
+        await store.write(key: 'email', value: 'user@example.com');
+        await store.write(key: 'password', value: 'cryptpw_abc123');
+
+        expect(await service.verifyStoredCredentials(), isTrue);
+        expect(await service.isLoggedIn(), isTrue);
+      });
+
+      test(
+        'returns false on a 401 and marks the account not authenticated',
+        () async {
+          httpClient = _mockClient(statusCode: 401, body: '');
+          await store.write(key: 'email', value: 'user@example.com');
+          await store.write(key: 'password', value: 'stale_cryptpw');
+          service = DecentAccountService(
+            httpClient: httpClient,
+            credentialStore: store,
+            baseUrl: _baseUrl,
+          );
+
+          expect(await service.verifyStoredCredentials(), isFalse);
+          expect(await service.isLoggedIn(), isFalse);
+          expect(await service.hasLinkedAccount(), isTrue);
+        },
+      );
+
+      test('returns false when login_test responds with "0"', () async {
+        httpClient = _mockClient(statusCode: 200, body: '0\n');
+        await store.write(key: 'email', value: 'user@example.com');
+        await store.write(key: 'password', value: 'stale_cryptpw');
+        service = DecentAccountService(
+          httpClient: httpClient,
+          credentialStore: store,
+          baseUrl: _baseUrl,
+        );
+
+        expect(await service.verifyStoredCredentials(), isFalse);
+      });
+
+      test('does not clear auth state on a transient server error', () async {
+        await service.login('test@example.com', 'hunter2');
+        expect(await service.isLoggedIn(), isTrue);
+        httpClient = _mockClient(statusCode: 500, body: '');
+        service = DecentAccountService(
+          httpClient: httpClient,
+          credentialStore: store,
+          baseUrl: _baseUrl,
+        );
+
+        expect(await service.verifyStoredCredentials(), isFalse);
+        expect(store.hasCredentials, isTrue);
+      });
+
+      test('does not clear auth state on a network error', () async {
+        await store.write(key: 'email', value: 'user@example.com');
+        await store.write(key: 'password', value: 'cryptpw_abc123');
+        httpClient = http_testing.MockClient(
+          (_) async => throw Exception('SocketException'),
+        );
+        service = DecentAccountService(
+          httpClient: httpClient,
+          credentialStore: store,
+          baseUrl: _baseUrl,
+        );
+
+        expect(await service.verifyStoredCredentials(), isFalse);
+        expect(store.hasCredentials, isTrue);
+      });
+    });
+
+    group('concurrent auth updates', () {
+      test(
+        'stale validation does not clobber a newer successful login',
+        () async {
+          final completer = Completer<http.Response>();
+          final oldAuth = base64Encode(
+            utf8.encode('old@example.com:stale_cryptpw'),
+          );
+          httpClient = http_testing.MockClient((request) {
+            if (request.headers['authorization'] == 'Basic $oldAuth') {
+              return completer.future;
+            }
+            return Future.value(http.Response('newcryptpw\n', 200));
+          });
+          await store.write(key: 'email', value: 'old@example.com');
+          await store.write(key: 'password', value: 'stale_cryptpw');
+          service = DecentAccountService(
+            httpClient: httpClient,
+            credentialStore: store,
+            baseUrl: _baseUrl,
+          );
+
+          final staleValidation = service.verifyStoredCredentials();
+
+          expect(await service.login('new@example.com', 'goodpw'), isTrue);
+          expect(await service.isLoggedIn(), isTrue);
+
+          completer.complete(http.Response('0\n', 200));
+          expect(await staleValidation, isTrue);
+          expect(await service.isLoggedIn(), isTrue);
+          expect(await store.read(key: 'email'), 'new@example.com');
+        },
+      );
+
+      test('in-flight validation does not resurrect auth after an upstream '
+          'failure', () async {
+        final completer = Completer<http.Response>();
+        httpClient = http_testing.MockClient((_) => completer.future);
+        await store.write(key: 'email', value: 'user@example.com');
+        await store.write(key: 'password', value: 'cryptpw_abc123');
+        service = DecentAccountService(
+          httpClient: httpClient,
+          credentialStore: store,
+          baseUrl: _baseUrl,
+        );
+
+        final validation = service.verifyStoredCredentials();
+        service.reportAuthenticationFailure();
+
+        completer.complete(http.Response('cryptpw_abc123\n', 200));
+        expect(await validation, isFalse);
+        expect(await service.isLoggedIn(), isFalse);
       });
     });
 

@@ -1,4 +1,6 @@
 import 'dart:convert';
+
+import 'package:clock/clock.dart';
 import 'package:http/http.dart' as http;
 
 List<String> parseSerialNumbers(String body) {
@@ -26,10 +28,18 @@ class DecentAccountService {
   final http.Client _httpClient;
   final CredentialStore _store;
   final String baseUrl;
+  final Duration retryInterval;
+
+  bool? _authenticated;
+  Future<bool>? _validationFuture;
+  DateTime? _cooldownUntil;
+  int _authGeneration = 0;
+
   DecentAccountService({
     required http.Client httpClient,
     required CredentialStore credentialStore,
     this.baseUrl = "https://decentespresso.com",
+    this.retryInterval = const Duration(seconds: 30),
   }) : _httpClient = httpClient,
        _store = credentialStore;
 
@@ -40,9 +50,11 @@ class DecentAccountService {
       '/support/api/login_test',
     );
 
-    if (response.statusCode == 200 && response.body != '0') {
+    if (response.statusCode == 200 && response.body.trim() != '0') {
       await _store.write(key: 'email', value: email);
       await _store.write(key: 'password', value: response.body.trim());
+      _authGeneration++;
+      _authenticated = true;
       return true;
     }
     return false;
@@ -51,9 +63,67 @@ class DecentAccountService {
   Future<void> logout() async {
     await _store.delete(key: 'email');
     await _store.delete(key: 'password');
+    _authGeneration++;
+    _authenticated = false;
   }
 
-  Future<bool> isLoggedIn() async => await _store.read(key: 'email') != null;
+  Future<bool> hasLinkedAccount() async =>
+      await _store.read(key: 'email') != null &&
+      await _store.read(key: 'password') != null;
+
+  Future<bool> isLoggedIn() async {
+    if (!await hasLinkedAccount()) return false;
+    final cached = _authenticated;
+    if (cached != null) return cached;
+    final pending = _validationFuture;
+    if (pending != null) return pending;
+    final cooldownUntil = _cooldownUntil;
+    if (cooldownUntil != null) {
+      if (clock.now().isBefore(cooldownUntil)) return false;
+      _cooldownUntil = null;
+    }
+    final future = verifyStoredCredentials();
+    _validationFuture = future;
+    future.whenComplete(() {
+      _validationFuture = null;
+      if (_authenticated == null) {
+        _cooldownUntil = clock.now().add(retryInterval);
+      }
+    });
+    return future;
+  }
+
+  Future<bool> verifyStoredCredentials() async {
+    final generation = _authGeneration;
+    final email = await _store.read(key: 'email');
+    final password = await _store.read(key: 'password');
+    if (email == null || password == null) {
+      _setAuthenticated(generation, false);
+      return false;
+    }
+    final http.Response response;
+    try {
+      response = await _authedGet(email, password, '/support/api/login_test');
+    } catch (_) {
+      return _authenticated ?? false;
+    }
+    final valid = response.statusCode == 200 && response.body.trim() != '0';
+    final rejected =
+        response.statusCode == 401 ||
+        (response.statusCode == 200 && response.body.trim() == '0');
+    if (!valid && !rejected) return _authenticated ?? false;
+    _setAuthenticated(generation, valid);
+    return _authenticated ?? false;
+  }
+
+  void _setAuthenticated(int generation, bool value) {
+    if (generation == _authGeneration) _authenticated = value;
+  }
+
+  void reportAuthenticationFailure() {
+    _authGeneration++;
+    _authenticated = false;
+  }
 
   Future<String?> getEmail() async => _store.read(key: 'email');
 

@@ -51,6 +51,10 @@ Gotchas:
 
 Keep these stores independent. A settings reset must not clear account credentials unless explicitly requested.
 
+## Account Auth State (gh#696)
+
+`DecentAccountService` stores `email` + encrypted password (`cryptpw`, returned by `login_test`) in the secure store. Stored credentials mean **linked**, not **authenticated**: `hasLinkedAccount()` is the presence check; `isLoggedIn()` is auth-aware and returns a cached in-memory state, validated against `/support/api/login_test` (memoized while in flight; only definitive results are sticky — an indeterminate network/5xx outcome sets a 30s cooldown (`retryInterval`) so widget rebuilds and status polls cannot hammer `login_test`, and the next check after the cooldown retries). `login_test` accepts `pw` or `cryptpw` and returns `0` (body `"0\n"`, status 200 — always trim before comparing) on rejection, otherwise the cryptpw. A definitive rejection (401 or `"0"`) marks the account not authenticated; 5xx/network errors are indeterminate and leave the cached state untouched. `DecentProxyService` reports upstream 401s via `onAuthFailure` -> `reportAuthenticationFailure()`. Credentials are kept on 401 — a transient backend failure must not destroy the link; the next session re-validates. Auth state carries a generation counter: login success, logout, and reported auth failures bump it, and an in-flight validation only writes its result if its generation is still current, so a stale validation of old credentials cannot clobber a newer successful login (or resurrect auth after a 401). Failed `login()` attempts never touch stored credentials (a bad replacement login cannot erase a working link).
+
 Plugin settings marked `secure` in the manifest are stored through
 `CredentialStore` under a plugin-scoped key. Ordinary plugin settings remain in
 SharedPreferences. Reads exposed to UI and REST clients return only `{isSet}`

@@ -5133,9 +5133,14 @@ paths:
 
   /api/v1/account/decent:
     get:
-      summary: Decent account link status
+      summary: Decent account auth status
       description: >
-        Reports whether a Decent Espresso account is currently linked.
+        Reports whether the linked Decent Espresso account is currently
+        authenticated. `loggedIn` is true only when the stored credentials
+        have been accepted by the Decent backend (validated via
+        `login_test` on first status read per session); a definitive upstream
+        401 invalidates the state until the next successful login or
+        re-validation. Stored credentials being present is not sufficient.
         Linking and unlinking are performed only through the app's native UI,
         not over the network, so no login/logout routes are exposed here. The
         linked email is deliberately omitted — it is PII and this endpoint is
@@ -5143,7 +5148,7 @@ paths:
       tags: [Account]
       responses:
         "200":
-          description: Current link status
+          description: Current auth status
           content:
             application/json:
               schema:
@@ -5152,7 +5157,7 @@ paths:
                 properties:
                   loggedIn:
                     type: boolean
-                    description: True if a Decent account is linked
+                    description: True if the linked Decent account is authenticated
 
   /api/v1/account/proxy/support/api/{endpoint}:
     get:
