@@ -15,7 +15,7 @@ import '../helpers/mock_device_discovery_service.dart';
 import '../helpers/test_de1.dart';
 
 final class _GovernorTestDe1 extends TestDe1 {
-  _GovernorTestDe1({super.serialNumber});
+  _GovernorTestDe1({super.deviceId, super.serialNumber});
 
   final List<double> flushFlows = [];
   final List<double> steamFlows = [];
@@ -117,6 +117,27 @@ void main() {
     expect(controller.pendingDeviceWriteCount, 0);
   });
 
+  test('failed active write does not stall the next write', () async {
+    final release = Completer<void>();
+    final started = Completer<void>();
+    final calls = <String>[];
+    final active = controller.runDeviceWrite((_) async {
+      calls.add('active');
+      started.complete();
+      await release.future;
+      throw StateError('failed');
+    });
+    await started.future;
+    final activeResult = expectLater(active, throwsA(isA<StateError>()));
+    final next = controller.runDeviceWrite((_) async => calls.add('next'));
+
+    release.complete();
+    await Future.wait([activeResult, next]);
+
+    expect(calls, ['active', 'next']);
+    expect(controller.pendingDeviceWriteCount, 0);
+  });
+
   test(
     'coalesces pending rinse writes and applies only the final value',
     () async {
@@ -199,6 +220,68 @@ void main() {
 
     expect(machine.flushFlows, [2]);
     expect(machine.steamFlows, [2]);
+  });
+
+  test('coalescing preserves the pending queue position', () async {
+    final release = Completer<void>();
+    final started = Completer<void>();
+    final calls = <String>[];
+    final active = controller.runDeviceWrite((_) async {
+      started.complete();
+      await release.future;
+    });
+    await started.future;
+
+    final first = controller.runReplaceableDeviceWrite(
+      'workflow.rinse',
+      (_) async => calls.add('first rinse'),
+    );
+    final firstResult = expectLater(
+      first,
+      throwsA(isA<De1WriteSupersededException>()),
+    );
+    final imperative = controller.runDeviceWrite(
+      (_) async => calls.add('imperative'),
+    );
+    final replacement = controller.runReplaceableDeviceWrite(
+      'workflow.rinse',
+      (_) async => calls.add('replacement rinse'),
+    );
+
+    release.complete();
+    await Future.wait([active, firstResult, imperative, replacement]);
+
+    expect(calls, ['replacement rinse', 'imperative']);
+  });
+
+  test('coalescing succeeds while the pending queue is full', () async {
+    final release = Completer<void>();
+    final started = Completer<void>();
+    final active = controller.runDeviceWrite((_) async {
+      started.complete();
+      await release.future;
+    });
+    await started.future;
+
+    final first = controller.runReplaceableDeviceWrite(
+      'workflow.rinse',
+      (_) async {},
+    );
+    final firstResult = expectLater(
+      first,
+      throwsA(isA<De1WriteSupersededException>()),
+    );
+    final imperative = controller.runDeviceWrite((_) async {});
+    expect(controller.pendingDeviceWriteCount, 2);
+
+    final replacement = controller.runReplaceableDeviceWrite(
+      'workflow.rinse',
+      (_) async {},
+    );
+    expect(controller.pendingDeviceWriteCount, 2);
+
+    release.complete();
+    await Future.wait([active, firstResult, imperative, replacement]);
   });
 
   test('caller timeout does not release the active write', () async {
@@ -285,6 +368,69 @@ void main() {
     },
   );
 
+  test('replaceable write does not move to a different machine', () async {
+    final release = Completer<void>();
+    final started = Completer<void>();
+    final active = controller.runDeviceWrite((_) async {
+      started.complete();
+      await release.future;
+    });
+    await started.future;
+    final activeResult = expectLater(active, throwsA(isA<StateError>()));
+
+    var replacementWrites = 0;
+    final pending = controller.runReplaceableDeviceWrite(
+      'workflow.rinse',
+      (_) async => replacementWrites++,
+    );
+    final pendingResult = expectLater(pending, throwsA(isA<StateError>()));
+    machine.setConnectionState(ConnectionState.disconnected);
+    await Future<void>.delayed(Duration.zero);
+    final replacement = _GovernorTestDe1(serialNumber: '2');
+    await _connect(controller, replacement);
+
+    release.complete();
+    await Future.wait([activeResult, pendingResult]);
+    expect(replacementWrites, 0);
+    await machine.dispose();
+    machine = replacement;
+  });
+
+  test('machine identity falls back to device ID', () async {
+    await controller.dispose();
+    machine = _GovernorTestDe1(deviceId: 'fallback-id', serialNumber: '0');
+    controller = De1Controller(controller: devices, maxPendingDeviceWrites: 2);
+    await _connect(controller, machine);
+
+    final release = Completer<void>();
+    final started = Completer<void>();
+    final active = controller.runDeviceWrite((_) async {
+      started.complete();
+      await release.future;
+    });
+    await started.future;
+    final activeResult = expectLater(active, throwsA(isA<StateError>()));
+
+    _GovernorTestDe1? writtenDevice;
+    final pending = controller.runReplaceableDeviceWrite(
+      'workflow.rinse',
+      (device) async => writtenDevice = device as _GovernorTestDe1,
+    );
+    machine.setConnectionState(ConnectionState.disconnected);
+    await Future<void>.delayed(Duration.zero);
+    final replacement = _GovernorTestDe1(
+      deviceId: 'fallback-id',
+      serialNumber: '',
+    );
+    await _connect(controller, replacement);
+
+    release.complete();
+    await Future.wait([activeResult, pending]);
+    expect(writtenDevice, same(replacement));
+    await machine.dispose();
+    machine = replacement;
+  });
+
   test(
     'imperative write does not replay on the same machine identity',
     () async {
@@ -330,6 +476,28 @@ void main() {
 
     release.complete();
     await active;
+  });
+
+  test('idle bypasses a full pending queue', () async {
+    final release = Completer<void>();
+    final started = Completer<void>();
+    final active = controller.runDeviceWrite((_) async {
+      machine.events.add('ordinary');
+      started.complete();
+      await release.future;
+    });
+    await started.future;
+    final pending = List.generate(
+      controller.maxPendingDeviceWrites,
+      (_) => controller.runDeviceWrite((_) async {}),
+    );
+    expect(controller.pendingDeviceWriteCount, 2);
+
+    await controller.requestMachineState(MachineState.idle);
+    expect(machine.events, ['ordinary', 'idle']);
+
+    release.complete();
+    await Future.wait([active, ...pending]);
   });
 
   test('firmware excludes earlier and later ordinary writes', () async {
@@ -389,6 +557,35 @@ void main() {
     ordinaryRelease.complete();
     await ordinary;
     expect(machine.firmwareStarted!.isCompleted, isFalse);
+  });
+
+  test('cancelling queued firmware preserves the following write', () async {
+    final ordinaryRelease = Completer<void>();
+    final ordinaryStarted = Completer<void>();
+    final events = <String>[];
+    final ordinary = controller.runDeviceWrite((_) async {
+      ordinaryStarted.complete();
+      await ordinaryRelease.future;
+    });
+    await ordinaryStarted.future;
+
+    machine.firmwareStarted = Completer<void>();
+    final firmware = controller.updateFirmware(
+      Uint8List(1),
+      onProgress: (_) {},
+    );
+    final firmwareResult = expectLater(
+      firmware,
+      throwsA(isA<FirmwareUpdateCancelledException>()),
+    );
+    final later = controller.runDeviceWrite((_) async => events.add('later'));
+
+    await controller.cancelFirmwareUpload();
+    ordinaryRelease.complete();
+    await Future.wait([ordinary, firmwareResult, later]);
+
+    expect(machine.firmwareStarted!.isCompleted, isFalse);
+    expect(events, ['later']);
   });
 
   test('active firmware cancellation reaches the machine', () async {

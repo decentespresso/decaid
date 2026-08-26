@@ -6,6 +6,7 @@ import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
+import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
 import 'package:shelf_plus/shelf_plus.dart';
@@ -15,9 +16,20 @@ import '../../helpers/mock_settings_service.dart';
 import '../../helpers/test_scale.dart';
 import '../../helpers/test_scale_controller.dart';
 
+final class _RecordingMockDe1 extends MockDe1 {
+  final List<MachineState> requestedStates = [];
+
+  @override
+  Future<void> requestState(MachineState newState) async {
+    requestedStates.add(newState);
+    await super.requestState(newState);
+  }
+}
+
 void main() {
   late Handler handler;
   late De1Controller controller;
+  late _RecordingMockDe1 machine;
 
   tearDown(() async {
     await controller.dispose();
@@ -31,7 +43,8 @@ void main() {
     final deviceController = DeviceController([MockDeviceDiscoveryService()]);
     await deviceController.initialize();
     controller = De1Controller(controller: deviceController);
-    controller.adoptDevice(MockDe1());
+    machine = _RecordingMockDe1();
+    controller.adoptDevice(machine);
     await controller.initSettled.firstWhere((generation) => generation != null);
 
     final mockSettings = MockSettingsService();
@@ -77,6 +90,7 @@ void main() {
       expect(res.statusCode, 400);
       final body = jsonDecode(await res.readAsString());
       expect(body['type'], 'block_no_scale');
+      expect(machine.requestedStates, isEmpty);
     });
 
     test(
@@ -89,6 +103,7 @@ void main() {
         );
         final res = await requestEspresso();
         expect(res.statusCode, 200);
+        expect(machine.requestedStates, [MachineState.espresso]);
       },
     );
   });
