@@ -926,7 +926,8 @@ paths:
       description: |
         Send a raw firmware file to the machine. Returns an NDJSON progress
         stream. Rejects an empty body with 400. Returns 409 if an update is
-        already in progress. Returns 503 if no machine is connected.
+        already in progress. Returns 503 if no machine is connected or the
+        DE1 write queue is full.
 
         A successful stream emits `erasing`, zero or more `uploading` events,
         then `done`. A failed stream emits `erasing`, zero or more `uploading`
@@ -956,7 +957,7 @@ paths:
         "409":
           description: Firmware update already in progress
         "503":
-          description: No machine connected
+          description: No machine connected or DE1 write queue full
     delete:
       summary: Cancel an in-progress firmware update
       description: |
@@ -1011,7 +1012,7 @@ paths:
         "422":
           description: Artifact validation, compatibility, or version-policy failure
         "503":
-          description: No machine connected
+          description: No machine connected or DE1 write queue full
 
   # Scale API
   /api/v1/scale/tare:

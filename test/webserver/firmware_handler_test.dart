@@ -42,6 +42,9 @@ final class _FirmwareDe1 extends MockDe1 {
   final String version;
   final String model;
   var updateCalls = 0;
+  var cancelCalls = 0;
+  Completer<void>? firmwareStarted;
+  Completer<void>? firmwareRelease;
 
   @override
   MachineInfo get machineInfo => MachineInfo(
@@ -58,8 +61,18 @@ final class _FirmwareDe1 extends MockDe1 {
     required void Function(double progress) onProgress,
   }) async {
     updateCalls++;
+    firmwareStarted?.complete();
+    if (firmwareRelease != null) await firmwareRelease!.future;
     await Future<void>.delayed(Duration.zero);
     onProgress(1);
+  }
+
+  @override
+  Future<void> cancelFirmwareUpload() async {
+    cancelCalls++;
+    if (firmwareRelease case final release? when !release.isCompleted) {
+      release.complete();
+    }
   }
 }
 
@@ -104,6 +117,108 @@ void main() {
     final subscription = first.read().listen((_) {});
     await subscription.cancel();
   });
+
+  test(
+    'raw upload returns 503 before streaming when the DE1 queue is full',
+    () async {
+      final harness = await _governedHandler(maxPendingDeviceWrites: 0);
+      addTearDown(harness.controller.dispose);
+      final release = Completer<void>();
+      final started = Completer<void>();
+      final active = harness.controller.runDeviceWrite((_) async {
+        started.complete();
+        await release.future;
+      });
+      await started.future;
+
+      final rejected = await _raw(harness.handler, const [1]);
+      expect(rejected.statusCode, 503);
+      expect(harness.machine.updateCalls, 0);
+
+      release.complete();
+      await active;
+      final accepted = await _raw(harness.handler, const [1]);
+      expect(accepted.statusCode, 200);
+      await _readEvents(accepted);
+      expect(harness.machine.updateCalls, 1);
+    },
+  );
+
+  test('DELETE cancels firmware while pending', () async {
+    final harness = await _governedHandler();
+    addTearDown(harness.controller.dispose);
+    final release = Completer<void>();
+    final started = Completer<void>();
+    final active = harness.controller.runDeviceWrite((_) async {
+      started.complete();
+      await release.future;
+    });
+    await started.future;
+
+    await _raw(harness.handler, const [1]);
+    final cancellation = await _delete(harness.handler);
+    expect(cancellation.statusCode, 202);
+    expect(harness.controller.pendingDeviceWriteCount, 0);
+
+    release.complete();
+    await active;
+    expect(harness.machine.updateCalls, 0);
+    expect(harness.machine.cancelCalls, 0);
+  });
+
+  test('response cancellation cancels firmware while pending', () async {
+    final harness = await _governedHandler();
+    addTearDown(harness.controller.dispose);
+    final release = Completer<void>();
+    final started = Completer<void>();
+    final active = harness.controller.runDeviceWrite((_) async {
+      started.complete();
+      await release.future;
+    });
+    await started.future;
+
+    final response = await _raw(harness.handler, const [1]);
+    final subscription = response.read().listen((_) {});
+    await subscription.cancel();
+    expect(harness.controller.pendingDeviceWriteCount, 0);
+
+    release.complete();
+    await active;
+    expect(harness.machine.updateCalls, 0);
+    expect(harness.machine.cancelCalls, 0);
+  });
+
+  test('DELETE forwards cancellation after firmware starts', () async {
+    final harness = await _governedHandler();
+    addTearDown(harness.controller.dispose);
+    harness.machine.firmwareStarted = Completer<void>();
+    harness.machine.firmwareRelease = Completer<void>();
+
+    final response = await _raw(harness.handler, const [1]);
+    await harness.machine.firmwareStarted!.future;
+    final cancellation = await _delete(harness.handler);
+
+    expect(cancellation.statusCode, 202);
+    expect(harness.machine.cancelCalls, 1);
+    await _readEvents(response);
+  });
+
+  test(
+    'response cancellation forwards cancellation after firmware starts',
+    () async {
+      final harness = await _governedHandler();
+      addTearDown(harness.controller.dispose);
+      harness.machine.firmwareStarted = Completer<void>();
+      harness.machine.firmwareRelease = Completer<void>();
+
+      final response = await _raw(harness.handler, const [1]);
+      await harness.machine.firmwareStarted!.future;
+      final subscription = response.read().listen((_) {});
+      await subscription.cancel();
+
+      expect(harness.machine.cancelCalls, 1);
+    },
+  );
 
   test('NDJSON stays open until successful verification', () async {
     final transport = FakeBleTransport();
@@ -289,6 +404,30 @@ Future<Response> _apply(Handler handler, String body) async {
       body: body,
     ),
   );
+}
+
+Future<Response> _delete(Handler handler) async {
+  return await handler(
+    Request('DELETE', Uri.parse('http://localhost/api/v1/machine/firmware')),
+  );
+}
+
+Future<({Handler handler, De1Controller controller, _FirmwareDe1 machine})>
+_governedHandler({int maxPendingDeviceWrites = 2}) async {
+  final devices = DeviceController([MockDeviceDiscoveryService()]);
+  await devices.initialize();
+  final controller = De1Controller(
+    controller: devices,
+    maxPendingDeviceWrites: maxPendingDeviceWrites,
+  );
+  final machine = _FirmwareDe1(version: '1358');
+  await controller.connectToDe1(machine);
+  final app = Router().plus;
+  FirmwareHandler(
+    controller: controller,
+    catalog: BundledFirmwareCatalog(bundle: rootBundle),
+  ).addRoutes(app);
+  return (handler: app.call, controller: controller, machine: machine);
 }
 
 Future<List<Map<String, dynamic>>> _readEvents(Response response) async {

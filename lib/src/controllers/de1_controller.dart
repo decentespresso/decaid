@@ -105,6 +105,7 @@ class De1Controller {
   final Queue<_PendingDe1Write<dynamic>> _pendingDeviceWrites = Queue();
   _PendingDe1Write<dynamic>? _activeDeviceWrite;
   bool _firmwareUpdatePending = false;
+  _PendingDe1Write<dynamic>? _pendingFirmwareWrite;
 
   int _connectionGeneration = 0;
 
@@ -676,13 +677,20 @@ class De1Controller {
         connectedDe1().firmwareUpdateState != FirmwareUpdateState.idle) {
       throw FirmwareUpdateInProgressException();
     }
+    if (_activeDeviceWrite != null &&
+        _pendingDeviceWrites.length >= maxPendingDeviceWrites) {
+      throw De1WriteQueueFullException(maxPendingDeviceWrites);
+    }
     _firmwareUpdatePending = true;
+    final queued = _activeDeviceWrite != null;
     final Future<void> operation;
     try {
       operation = runDeviceWrite((device) {
+        _pendingFirmwareWrite = null;
         onStart?.call();
         return device.updateFirmware(image, onProgress: onProgress);
       });
+      if (queued) _pendingFirmwareWrite = _pendingDeviceWrites.last;
     } catch (_) {
       _firmwareUpdatePending = false;
       rethrow;
@@ -695,6 +703,13 @@ class De1Controller {
   }
 
   Future<void> cancelFirmwareUpload() {
+    final pending = _pendingFirmwareWrite;
+    _pendingFirmwareWrite = null;
+    if (pending != null && _pendingDeviceWrites.remove(pending)) {
+      _firmwareUpdatePending = false;
+      pending.completer.completeError(const FirmwareUpdateCancelledException());
+      return Future.value();
+    }
     return connectedDe1().cancelFirmwareUpload();
   }
 

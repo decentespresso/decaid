@@ -211,9 +211,8 @@ class FirmwareHandler {
   Future<Response> _cancelUpdate(Request _) async {
     FirmwareUpdateState state = FirmwareUpdateState.idle;
     try {
-      final de1 = _controller.connectedDe1();
-      await de1.cancelFirmwareUpload();
-      state = de1.firmwareUpdateState;
+      await _controller.cancelFirmwareUpload();
+      state = _resolveOperationState();
     } catch (_) {}
     return Response(
       202,
@@ -287,11 +286,22 @@ class FirmwareHandler {
             progressController.close();
           });
     } on FirmwareUpdateInProgressException {
+      unawaited(progressController.close());
       return Response(
         409,
         body: jsonEncode({
           'error': 'firmware_update_in_progress',
           'message': 'A firmware update is already in progress',
+        }),
+        headers: {'Content-Type': 'application/json'},
+      );
+    } on De1WriteQueueFullException catch (e) {
+      unawaited(progressController.close());
+      return Response(
+        503,
+        body: jsonEncode({
+          'error': 'Machine write queue is full',
+          'message': '$e',
         }),
         headers: {'Content-Type': 'application/json'},
       );

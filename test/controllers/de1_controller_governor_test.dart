@@ -22,6 +22,7 @@ final class _GovernorTestDe1 extends TestDe1 {
   final List<String> events = [];
   Completer<void>? firmwareStarted;
   Completer<void>? firmwareRelease;
+  var firmwareCancelCalls = 0;
 
   @override
   Future<void> setFlushFlow(double newFlow) async {
@@ -46,6 +47,12 @@ final class _GovernorTestDe1 extends TestDe1 {
   }) async {
     firmwareStarted?.complete();
     await firmwareRelease?.future;
+  }
+
+  @override
+  Future<void> cancelFirmwareUpload() async {
+    firmwareCancelCalls++;
+    firmwareRelease?.complete();
   }
 }
 
@@ -354,5 +361,48 @@ void main() {
     machine.firmwareRelease!.complete();
     await Future.wait([firmware, later]);
     expect(laterStarted, isTrue);
+  });
+
+  test('pending firmware can be cancelled before it starts', () async {
+    final ordinaryRelease = Completer<void>();
+    final ordinaryStarted = Completer<void>();
+    final ordinary = controller.runDeviceWrite((_) async {
+      ordinaryStarted.complete();
+      await ordinaryRelease.future;
+    });
+    await ordinaryStarted.future;
+
+    machine.firmwareStarted = Completer<void>();
+    final firmware = controller.updateFirmware(
+      Uint8List(1),
+      onProgress: (_) {},
+    );
+
+    await controller.cancelFirmwareUpload();
+    await expectLater(
+      firmware,
+      throwsA(isA<FirmwareUpdateCancelledException>()),
+    );
+    expect(controller.pendingDeviceWriteCount, 0);
+    expect(machine.firmwareCancelCalls, 0);
+
+    ordinaryRelease.complete();
+    await ordinary;
+    expect(machine.firmwareStarted!.isCompleted, isFalse);
+  });
+
+  test('active firmware cancellation reaches the machine', () async {
+    machine.firmwareStarted = Completer<void>();
+    machine.firmwareRelease = Completer<void>();
+    final firmware = controller.updateFirmware(
+      Uint8List(1),
+      onProgress: (_) {},
+    );
+    await machine.firmwareStarted!.future;
+
+    await controller.cancelFirmwareUpload();
+    await firmware;
+
+    expect(machine.firmwareCancelCalls, 1);
   });
 }
