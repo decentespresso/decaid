@@ -141,6 +141,18 @@ void main() {
       },
     );
 
+    test('rejects a refillKitSetting outside 0/1/2 with 400', () async {
+      final de1 = MockDe1();
+      await wireWith(de1);
+
+      final res = await post('/api/v1/machine/settings/advanced', {
+        'refillKitSetting': 7,
+      });
+
+      expect(res.statusCode, 400);
+      expect(await de1.getRefillKitSettings(), De1RefillKitSettings.auto);
+    });
+
     test('returns 500 when no DE1 connected', () async {
       await wireWith(null);
       final res = await post('/api/v1/machine/settings/advanced', {

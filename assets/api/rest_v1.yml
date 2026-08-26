@@ -5541,13 +5541,18 @@ components:
             refillKit:
               type: boolean
               description: >
-                Whether an automatic refill kit is detected on this machine.
+                Whether an automatic refill kit was detected on this machine.
                 Bit 0 of the refill-kit register as read at connect, before
-                Decaid resets that register to auto. Use this, not
-                `refillKitSetting`, to decide whether a machine refills itself:
-                on a plumbed machine in auto mode a low-water check against
+                Decaid writes auto back to that register. This is machine
+                detection, not configuration: writing `refillKitSetting` does
+                not change it, and it is fixed for the lifetime of the
+                connection.
+
+                Use this, not `refillKitSetting`, to decide whether a machine
+                refills itself: on a plumbed machine a low-water check against
                 WaterLevels.refillLevel fires more or less continuously, and
-                this is the only field that tells the two cases apart.
+                this is the only field that tells that case apart from a
+                machine with no kit.
             voltage:
               type: integer
               description: Heater supply voltage in volts, as reported by the machine.
@@ -6134,15 +6139,19 @@ components:
           enum: [120, 230]
         refillKitSetting:
           description: |
-            Refill kit behaviour to write: `2` = auto (default), `1` = force on,
+            Refill kit override: `2` = auto (default), `1` = force on,
             `0` = force off.
 
-            This does not persist. Decaid writes `2` (auto) to the same register
-            on every connect, so a force-on or force-off selection is lost the
-            next time the machine reconnects.
+            Writes the value to the machine's refill-kit register and updates
+            the override Decaid reports back. It does not change
+            `MachineInfo.extra.refillKit`, which is what the machine detected
+            at connect.
 
-            Note that a write and a read do not mean the same thing — see the
-            same field on `De1AdvancedSettingsResponse`.
+            The override is not persisted. Decaid writes `2` (auto) at connect,
+            so a force-on or force-off selection lasts only until the machine is
+            discovered and connected again.
+
+            Any value other than `0`, `1` or `2` is rejected with `400`.
           type: integer
           nullable: true
           enum: [0, 1, 2]
@@ -6170,22 +6179,16 @@ components:
           enum: [120, 230, -1]
         refillKitSetting:
           description: |
-            Refill kit register as last read from the machine. A read is a
-            **detection result**, not the configuration that was written:
-            `1` = a kit is detected, `0` = no kit detected.
+            Refill kit override currently in effect: `2` = auto, `1` = force on,
+            `0` = force off.
 
-            Decaid writes `2` (auto) at connect and the firmware resolves it, so
-            a value read back after connect is the firmware's answer. `2` is
-            only ever returned when a client wrote it during this connection and
-            the register has not been re-read since.
+            This is the configuration, not a detection result. Decaid writes `2`
+            (auto) at connect, so a machine that has not been written to since
+            reports `2` whether or not it has a kit fitted. For detection, read
+            `MachineInfo.extra.refillKit`.
 
-            Building a settings UI that presents `0` / `1` / `2` as three
-            user-chosen modes therefore misrepresents what a read returns.
-            `MachineInfo.extra.refillKit` is the same register's bit 0 and is
-            the clearer field to read for detection.
-
-            A value the app does not recognise (including the register never
-            having been read) is reported as `2`.
+            The value is served from Decaid's cache of the last override
+            written; the register is not re-read.
           type: integer
           enum: [0, 1, 2]
     De1CalibrationRequest:

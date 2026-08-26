@@ -20,10 +20,9 @@ void main() {
     });
 
     test('falls back to auto instead of throwing on an unknown value', () {
-      // -1 is UnifiedDe1._refillKit before the connect-time MMR read lands, and
-      // the register can carry bits beyond the low one — extra.refillKit masks
-      // with 0x01 for exactly that reason. Neither may 500 GET
-      // /api/v1/machine/settings/advanced.
+      // Configuration parsing only: the REST layer rejects an out-of-range
+      // refillKitSetting with 400 before this is reached, and detection never
+      // goes through here. The fallback keeps a stray value from throwing.
       for (final raw in [-1, 3, 0x81, 255]) {
         expect(
           De1RefillKitSettings.fromInt(raw),
@@ -48,12 +47,33 @@ void main() {
     );
   });
 
-  test('a refillKitSetting read is documented as a detection result', () {
+  test('refillKitSetting is documented as an override, not a detection', () {
     final response =
         (_schema('De1AdvancedSettingsResponse')['properties']
                 as YamlMap)['refillKitSetting']
             as YamlMap;
+    final description = response['description'] as String;
 
-    expect(response['description'], contains('detection result'));
+    expect(description, contains('override'));
+    expect(description, contains('not a detection result'));
+    expect(
+      description,
+      contains('MachineInfo.extra.refillKit'),
+      reason: 'a reader sent here for detection needs the field name',
+    );
+  });
+
+  test('MachineInfo.extra.refillKit is documented as detection', () {
+    final refillKit =
+        (((_schema('MachineInfo')['properties'] as YamlMap)['extra']
+                    as YamlMap)['properties']
+                as YamlMap)['refillKit']
+            as YamlMap;
+
+    expect(refillKit['description'], contains('detected'));
+    expect(
+      refillKit['description'],
+      contains('writing `refillKitSetting` does not change it'),
+    );
   });
 }

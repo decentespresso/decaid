@@ -239,7 +239,8 @@ class UnifiedDe1 implements De1Interface {
   @override
   String get name => "DE1";
   int _voltage = -1;
-  int _refillKit = -1;
+  int _refillKitDetected = -1;
+  De1RefillKitSettings _refillKitSetting = De1RefillKitSettings.auto;
   double? _cachedFlowEstimation;
   int? _connectedModelValue;
 
@@ -269,7 +270,9 @@ class UnifiedDe1 implements De1Interface {
     final serial = _unpackMMRInt(await _mmrRead(MMRItem.serialN));
     final firmware = _unpackMMRInt(await _mmrRead(MMRItem.cpuFirmwareBuild));
     _voltage = _unpackMMRInt(await _mmrRead(MMRItem.heaterV));
-    _refillKit = _unpackMMRInt(await _mmrRead(MMRItem.refillKitPresent));
+    _refillKitDetected = _unpackMMRInt(
+      await _mmrRead(MMRItem.refillKitPresent),
+    );
     try {
       _cachedFlowEstimation = await getFlowEstimation();
     } catch (e) {
@@ -281,12 +284,16 @@ class UnifiedDe1 implements De1Interface {
       model: DecentMachineModel.fromInt(model).name,
       serialNumber: "$serial",
       groupHeadControllerPresent: (ghcInfo & 0x04) > 1,
-      extra: {'refillKit': (_refillKit & 0x01) != 0, 'voltage': _voltage},
+      extra: {
+        'refillKit': (_refillKitDetected & 0x01) != 0,
+        'voltage': _voltage,
+      },
     );
 
     _log.info("Info: ${_info!.toJson()}");
 
-    await _mmrWrite(MMRItem.refillKitPresent, [0x02]);
+    await _mmrWrite(MMRItem.refillKitPresent, [De1RefillKitSettings.auto.hex]);
+    _refillKitSetting = De1RefillKitSettings.auto;
 
     await enableUserPresenceFeature();
   }
@@ -779,7 +786,7 @@ class UnifiedDe1 implements De1Interface {
 
   @override
   Future<De1RefillKitSettings> getRefillKitSettings() async {
-    return De1RefillKitSettings.fromInt(_refillKit);
+    return _refillKitSetting;
   }
 
   @override
@@ -791,6 +798,6 @@ class UnifiedDe1 implements De1Interface {
   @override
   Future<void> setRefillKitSettings(De1RefillKitSettings settings) async {
     await _writeMMRInt(MMRItem.refillKitPresent, settings.hex);
-    _refillKit = settings.hex;
+    _refillKitSetting = settings;
   }
 }

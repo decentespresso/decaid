@@ -419,11 +419,20 @@ class De1Handler {
       final heaterVoltage = json['heaterVoltage'] == null
           ? null
           : De1HeaterVoltage.fromInt(parseInt(json['heaterVoltage']));
-      final refillKitSetting = json['refillKitSetting'] == null
+      final refillKitRaw = json['refillKitSetting'] == null
           ? null
-          : De1RefillKitSettings.values.firstWhere(
-              (e) => e.hex == parseInt(json['refillKitSetting']),
-            );
+          : parseInt(json['refillKitSetting']);
+      if (refillKitRaw != null &&
+          !De1RefillKitSettings.values.any((e) => e.hex == refillKitRaw)) {
+        return jsonBadRequest({
+          'error':
+              'refillKitSetting must be 0 (force off), 1 (force on) '
+              'or 2 (auto)',
+        });
+      }
+      final refillKitSetting = refillKitRaw == null
+          ? null
+          : De1RefillKitSettings.fromInt(refillKitRaw);
 
       return withQueuedDe1((de1) async {
         if (heaterPh1Flow != null) {
