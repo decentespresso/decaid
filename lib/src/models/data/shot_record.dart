@@ -6,6 +6,8 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 class ShotRecord {
   final String id;
   final DateTime timestamp;
+  final DateTime createdAt;
+  final DateTime updatedAt;
   final List<ShotSnapshot> measurements;
   final Workflow workflow;
   final ShotAnnotations? annotations;
@@ -20,11 +22,15 @@ class ShotRecord {
     required this.timestamp,
     required this.measurements,
     required this.workflow,
+    DateTime? createdAt,
+    DateTime? updatedAt,
     this.annotations,
     this.stopReason,
     String? shotNotes,
     Map<String, dynamic>? metadata,
-  }) : _shotNotes = annotations != null ? annotations.espressoNotes : shotNotes,
+  }) : createdAt = createdAt ?? timestamp,
+       updatedAt = updatedAt ?? createdAt ?? timestamp,
+       _shotNotes = annotations != null ? annotations.espressoNotes : shotNotes,
        _metadata = annotations != null ? annotations.extras : metadata;
 
   @Deprecated('Use annotations?.espressoNotes instead')
@@ -37,6 +43,8 @@ class ShotRecord {
     return {
       "id": id,
       "timestamp": timestamp.toIso8601String(),
+      "createdAt": createdAt.toIso8601String(),
+      "updatedAt": updatedAt.toIso8601String(),
       "measurements": measurements.map((e) => e.toJson()).toList(),
       "workflow": workflow.toJson(),
       if (annotations != null) "annotations": annotations!.toJson(),
@@ -50,6 +58,8 @@ class ShotRecord {
     return {
       "id": id,
       "timestamp": timestamp.toIso8601String(),
+      "createdAt": createdAt.toIso8601String(),
+      "updatedAt": updatedAt.toIso8601String(),
       "workflow": workflow.toJson(),
       if (annotations != null) "annotations": annotations!.toJson(),
       if (stopReason != null) "stopReason": stopReason,
@@ -72,6 +82,12 @@ class ShotRecord {
     return ShotRecord(
       id: json["id"],
       timestamp: DateTime.parse(json["timestamp"]),
+      createdAt: json["createdAt"] != null
+          ? DateTime.parse(json["createdAt"] as String)
+          : DateTime.parse(json["timestamp"]),
+      updatedAt: json["updatedAt"] != null
+          ? DateTime.parse(json["updatedAt"] as String)
+          : null,
       measurements: (json["measurements"] as List)
           .map((e) => ShotSnapshot.fromJson(e))
           .toList(),
@@ -96,6 +112,8 @@ class ShotRecord {
   ShotRecord copyWith({
     String? id,
     DateTime? timestamp,
+    DateTime? createdAt,
+    DateTime? updatedAt,
     List<ShotSnapshot>? measurements,
     Workflow? workflow,
     ShotAnnotations? annotations,
@@ -106,6 +124,8 @@ class ShotRecord {
     return ShotRecord(
       id: id ?? this.id,
       timestamp: timestamp ?? this.timestamp,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
       measurements: measurements ?? this.measurements,
       workflow: workflow ?? this.workflow,
       annotations: annotations ?? this.annotations,

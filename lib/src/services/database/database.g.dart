@@ -3229,6 +3229,28 @@ class $ShotRecordsTable extends ShotRecords
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: false,
+  );
   @override
   late final GeneratedColumnWithTypeConverter<Map<String, dynamic>, String>
   workflowJson =
@@ -3280,6 +3302,8 @@ class $ShotRecordsTable extends ShotRecords
     enjoyment,
     espressoNotes,
     stopReason,
+    createdAt,
+    updatedAt,
     workflowJson,
     annotationsJson,
     measurementsJson,
@@ -3405,6 +3429,18 @@ class $ShotRecordsTable extends ShotRecords
         stopReason.isAcceptableOrUnknown(data['stop_reason']!, _stopReasonMeta),
       );
     }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    }
     if (data.containsKey('measurements_json')) {
       context.handle(
         _measurementsJsonMeta,
@@ -3481,6 +3517,14 @@ class $ShotRecordsTable extends ShotRecords
         DriftSqlType.string,
         data['${effectivePrefix}stop_reason'],
       ),
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      ),
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      ),
       workflowJson: $ShotRecordsTable.$converterworkflowJson.fromSql(
         attachedDatabase.typeMapping.read(
           DriftSqlType.string,
@@ -3525,10 +3569,9 @@ class ShotRecord extends DataClass implements Insertable<ShotRecord> {
   final double? targetYield;
   final double? enjoyment;
   final String? espressoNotes;
-
-  /// Why the shot ended (ShotDecisionReason.name, open set). Added in schema
-  /// v4; null for shots recorded before then or not sequenced by the app.
   final String? stopReason;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
   final Map<String, dynamic> workflowJson;
   final Map<String, dynamic>? annotationsJson;
   final String measurementsJson;
@@ -3547,6 +3590,8 @@ class ShotRecord extends DataClass implements Insertable<ShotRecord> {
     this.enjoyment,
     this.espressoNotes,
     this.stopReason,
+    this.createdAt,
+    this.updatedAt,
     required this.workflowJson,
     this.annotationsJson,
     required this.measurementsJson,
@@ -3591,6 +3636,12 @@ class ShotRecord extends DataClass implements Insertable<ShotRecord> {
     }
     if (!nullToAbsent || stopReason != null) {
       map['stop_reason'] = Variable<String>(stopReason);
+    }
+    if (!nullToAbsent || createdAt != null) {
+      map['created_at'] = Variable<DateTime>(createdAt);
+    }
+    if (!nullToAbsent || updatedAt != null) {
+      map['updated_at'] = Variable<DateTime>(updatedAt);
     }
     {
       map['workflow_json'] = Variable<String>(
@@ -3646,6 +3697,12 @@ class ShotRecord extends DataClass implements Insertable<ShotRecord> {
       stopReason: stopReason == null && nullToAbsent
           ? const Value.absent()
           : Value(stopReason),
+      createdAt: createdAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(createdAt),
+      updatedAt: updatedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(updatedAt),
       workflowJson: Value(workflowJson),
       annotationsJson: annotationsJson == null && nullToAbsent
           ? const Value.absent()
@@ -3674,6 +3731,8 @@ class ShotRecord extends DataClass implements Insertable<ShotRecord> {
       enjoyment: serializer.fromJson<double?>(json['enjoyment']),
       espressoNotes: serializer.fromJson<String?>(json['espressoNotes']),
       stopReason: serializer.fromJson<String?>(json['stopReason']),
+      createdAt: serializer.fromJson<DateTime?>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime?>(json['updatedAt']),
       workflowJson: serializer.fromJson<Map<String, dynamic>>(
         json['workflowJson'],
       ),
@@ -3701,6 +3760,8 @@ class ShotRecord extends DataClass implements Insertable<ShotRecord> {
       'enjoyment': serializer.toJson<double?>(enjoyment),
       'espressoNotes': serializer.toJson<String?>(espressoNotes),
       'stopReason': serializer.toJson<String?>(stopReason),
+      'createdAt': serializer.toJson<DateTime?>(createdAt),
+      'updatedAt': serializer.toJson<DateTime?>(updatedAt),
       'workflowJson': serializer.toJson<Map<String, dynamic>>(workflowJson),
       'annotationsJson': serializer.toJson<Map<String, dynamic>?>(
         annotationsJson,
@@ -3724,6 +3785,8 @@ class ShotRecord extends DataClass implements Insertable<ShotRecord> {
     Value<double?> enjoyment = const Value.absent(),
     Value<String?> espressoNotes = const Value.absent(),
     Value<String?> stopReason = const Value.absent(),
+    Value<DateTime?> createdAt = const Value.absent(),
+    Value<DateTime?> updatedAt = const Value.absent(),
     Map<String, dynamic>? workflowJson,
     Value<Map<String, dynamic>?> annotationsJson = const Value.absent(),
     String? measurementsJson,
@@ -3750,6 +3813,8 @@ class ShotRecord extends DataClass implements Insertable<ShotRecord> {
         ? espressoNotes.value
         : this.espressoNotes,
     stopReason: stopReason.present ? stopReason.value : this.stopReason,
+    createdAt: createdAt.present ? createdAt.value : this.createdAt,
+    updatedAt: updatedAt.present ? updatedAt.value : this.updatedAt,
     workflowJson: workflowJson ?? this.workflowJson,
     annotationsJson: annotationsJson.present
         ? annotationsJson.value
@@ -3792,6 +3857,8 @@ class ShotRecord extends DataClass implements Insertable<ShotRecord> {
       stopReason: data.stopReason.present
           ? data.stopReason.value
           : this.stopReason,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       workflowJson: data.workflowJson.present
           ? data.workflowJson.value
           : this.workflowJson,
@@ -3821,6 +3888,8 @@ class ShotRecord extends DataClass implements Insertable<ShotRecord> {
           ..write('enjoyment: $enjoyment, ')
           ..write('espressoNotes: $espressoNotes, ')
           ..write('stopReason: $stopReason, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
           ..write('workflowJson: $workflowJson, ')
           ..write('annotationsJson: $annotationsJson, ')
           ..write('measurementsJson: $measurementsJson')
@@ -3844,6 +3913,8 @@ class ShotRecord extends DataClass implements Insertable<ShotRecord> {
     enjoyment,
     espressoNotes,
     stopReason,
+    createdAt,
+    updatedAt,
     workflowJson,
     annotationsJson,
     measurementsJson,
@@ -3866,6 +3937,8 @@ class ShotRecord extends DataClass implements Insertable<ShotRecord> {
           other.enjoyment == this.enjoyment &&
           other.espressoNotes == this.espressoNotes &&
           other.stopReason == this.stopReason &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt &&
           other.workflowJson == this.workflowJson &&
           other.annotationsJson == this.annotationsJson &&
           other.measurementsJson == this.measurementsJson);
@@ -3886,6 +3959,8 @@ class ShotRecordsCompanion extends UpdateCompanion<ShotRecord> {
   final Value<double?> enjoyment;
   final Value<String?> espressoNotes;
   final Value<String?> stopReason;
+  final Value<DateTime?> createdAt;
+  final Value<DateTime?> updatedAt;
   final Value<Map<String, dynamic>> workflowJson;
   final Value<Map<String, dynamic>?> annotationsJson;
   final Value<String> measurementsJson;
@@ -3905,6 +3980,8 @@ class ShotRecordsCompanion extends UpdateCompanion<ShotRecord> {
     this.enjoyment = const Value.absent(),
     this.espressoNotes = const Value.absent(),
     this.stopReason = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
     this.workflowJson = const Value.absent(),
     this.annotationsJson = const Value.absent(),
     this.measurementsJson = const Value.absent(),
@@ -3925,6 +4002,8 @@ class ShotRecordsCompanion extends UpdateCompanion<ShotRecord> {
     this.enjoyment = const Value.absent(),
     this.espressoNotes = const Value.absent(),
     this.stopReason = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
     required Map<String, dynamic> workflowJson,
     this.annotationsJson = const Value.absent(),
     required String measurementsJson,
@@ -3948,6 +4027,8 @@ class ShotRecordsCompanion extends UpdateCompanion<ShotRecord> {
     Expression<double>? enjoyment,
     Expression<String>? espressoNotes,
     Expression<String>? stopReason,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
     Expression<String>? workflowJson,
     Expression<String>? annotationsJson,
     Expression<String>? measurementsJson,
@@ -3968,6 +4049,8 @@ class ShotRecordsCompanion extends UpdateCompanion<ShotRecord> {
       if (enjoyment != null) 'enjoyment': enjoyment,
       if (espressoNotes != null) 'espresso_notes': espressoNotes,
       if (stopReason != null) 'stop_reason': stopReason,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
       if (workflowJson != null) 'workflow_json': workflowJson,
       if (annotationsJson != null) 'annotations_json': annotationsJson,
       if (measurementsJson != null) 'measurements_json': measurementsJson,
@@ -3990,6 +4073,8 @@ class ShotRecordsCompanion extends UpdateCompanion<ShotRecord> {
     Value<double?>? enjoyment,
     Value<String?>? espressoNotes,
     Value<String?>? stopReason,
+    Value<DateTime?>? createdAt,
+    Value<DateTime?>? updatedAt,
     Value<Map<String, dynamic>>? workflowJson,
     Value<Map<String, dynamic>?>? annotationsJson,
     Value<String>? measurementsJson,
@@ -4010,6 +4095,8 @@ class ShotRecordsCompanion extends UpdateCompanion<ShotRecord> {
       enjoyment: enjoyment ?? this.enjoyment,
       espressoNotes: espressoNotes ?? this.espressoNotes,
       stopReason: stopReason ?? this.stopReason,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
       workflowJson: workflowJson ?? this.workflowJson,
       annotationsJson: annotationsJson ?? this.annotationsJson,
       measurementsJson: measurementsJson ?? this.measurementsJson,
@@ -4062,6 +4149,12 @@ class ShotRecordsCompanion extends UpdateCompanion<ShotRecord> {
     if (stopReason.present) {
       map['stop_reason'] = Variable<String>(stopReason.value);
     }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
     if (workflowJson.present) {
       map['workflow_json'] = Variable<String>(
         $ShotRecordsTable.$converterworkflowJson.toSql(workflowJson.value),
@@ -4100,6 +4193,8 @@ class ShotRecordsCompanion extends UpdateCompanion<ShotRecord> {
           ..write('enjoyment: $enjoyment, ')
           ..write('espressoNotes: $espressoNotes, ')
           ..write('stopReason: $stopReason, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
           ..write('workflowJson: $workflowJson, ')
           ..write('annotationsJson: $annotationsJson, ')
           ..write('measurementsJson: $measurementsJson, ')
@@ -7046,6 +7141,8 @@ typedef $$ShotRecordsTableCreateCompanionBuilder =
       Value<double?> enjoyment,
       Value<String?> espressoNotes,
       Value<String?> stopReason,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
       required Map<String, dynamic> workflowJson,
       Value<Map<String, dynamic>?> annotationsJson,
       required String measurementsJson,
@@ -7067,6 +7164,8 @@ typedef $$ShotRecordsTableUpdateCompanionBuilder =
       Value<double?> enjoyment,
       Value<String?> espressoNotes,
       Value<String?> stopReason,
+      Value<DateTime?> createdAt,
+      Value<DateTime?> updatedAt,
       Value<Map<String, dynamic>> workflowJson,
       Value<Map<String, dynamic>?> annotationsJson,
       Value<String> measurementsJson,
@@ -7149,6 +7248,16 @@ class $$ShotRecordsTableFilterComposer
 
   ColumnFilters<String> get stopReason => $composableBuilder(
     column: $table.stopReason,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -7257,6 +7366,16 @@ class $$ShotRecordsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get workflowJson => $composableBuilder(
     column: $table.workflowJson,
     builder: (column) => ColumnOrderings(column),
@@ -7344,6 +7463,12 @@ class $$ShotRecordsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
   GeneratedColumnWithTypeConverter<Map<String, dynamic>, String>
   get workflowJson => $composableBuilder(
     column: $table.workflowJson,
@@ -7407,6 +7532,8 @@ class $$ShotRecordsTableTableManager
                 Value<double?> enjoyment = const Value.absent(),
                 Value<String?> espressoNotes = const Value.absent(),
                 Value<String?> stopReason = const Value.absent(),
+                Value<DateTime?> createdAt = const Value.absent(),
+                Value<DateTime?> updatedAt = const Value.absent(),
                 Value<Map<String, dynamic>> workflowJson = const Value.absent(),
                 Value<Map<String, dynamic>?> annotationsJson =
                     const Value.absent(),
@@ -7427,6 +7554,8 @@ class $$ShotRecordsTableTableManager
                 enjoyment: enjoyment,
                 espressoNotes: espressoNotes,
                 stopReason: stopReason,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
                 workflowJson: workflowJson,
                 annotationsJson: annotationsJson,
                 measurementsJson: measurementsJson,
@@ -7448,6 +7577,8 @@ class $$ShotRecordsTableTableManager
                 Value<double?> enjoyment = const Value.absent(),
                 Value<String?> espressoNotes = const Value.absent(),
                 Value<String?> stopReason = const Value.absent(),
+                Value<DateTime?> createdAt = const Value.absent(),
+                Value<DateTime?> updatedAt = const Value.absent(),
                 required Map<String, dynamic> workflowJson,
                 Value<Map<String, dynamic>?> annotationsJson =
                     const Value.absent(),
@@ -7468,6 +7599,8 @@ class $$ShotRecordsTableTableManager
                 enjoyment: enjoyment,
                 espressoNotes: espressoNotes,
                 stopReason: stopReason,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
                 workflowJson: workflowJson,
                 annotationsJson: annotationsJson,
                 measurementsJson: measurementsJson,

@@ -23,6 +23,8 @@ class ShotMapper {
     return domain.ShotRecord(
       id: row.id,
       timestamp: row.timestamp,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
       measurements: measurements,
       workflow: workflow,
       annotations: annotations,
@@ -35,6 +37,8 @@ class ShotMapper {
     return db.ShotRecordsCompanion(
       id: Value(record.id),
       timestamp: Value(record.timestamp),
+      createdAt: Value(record.createdAt),
+      updatedAt: Value(DateTime.now()),
 
       profileTitle: Value(record.workflow.profile.title),
       grinderId: Value(ctx?.grinderId),
