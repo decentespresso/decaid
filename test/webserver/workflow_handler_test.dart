@@ -609,6 +609,40 @@ void main() {
       );
     });
 
+    test('interleaved partial patches preserve every final field', () async {
+      await _settleHandler(spy);
+      spy.updateShotSettingsCalls.clear();
+      spy.setSteamFlowCalls.clear();
+      spy.setHotWaterFlowCalls.clear();
+      spy.setFlushFlowCalls.clear();
+
+      for (final patch in [
+        {
+          'steamSettings': {'duration': 12},
+        },
+        {
+          'rinseData': {'flow': 3.0},
+        },
+        {
+          'steamSettings': {'duration': 16},
+        },
+        {
+          'hotWaterData': {'volume': 120},
+        },
+      ]) {
+        expect((await put(patch)).statusCode, 200);
+      }
+
+      final workflow = workflowController.currentWorkflow;
+      expect(workflow.steamSettings.duration, 16);
+      expect(workflow.rinseData.flow, 3.0);
+      expect(workflow.hotWaterData.volume, 120);
+      expect(spy.setFlushFlowCalls.last, 3.0);
+      expect(spy.updateShotSettingsCalls.last.targetSteamDuration, 16);
+      expect(spy.updateShotSettingsCalls.last.targetHotWaterVolume, 120);
+      expect(de1Controller.pendingDeviceWriteCount, 0);
+    });
+
     test('no-op PUT (same values) issues no DE1 writes', () async {
       await _settleHandler(spy);
       final snapshot = workflowController.currentWorkflow;
