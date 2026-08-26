@@ -69,7 +69,7 @@ void main() {
 
   test('client tracking stays bounded and expires exactly at the window', () {
     var now = 0;
-    final gate = _gate(nowMs: () => now);
+    final gate = _gate(globalRate: 1000, perClientRate: 1000, nowMs: () => now);
 
     for (var i = 0; i < 100; i++) {
       final key = 'client-$i';
