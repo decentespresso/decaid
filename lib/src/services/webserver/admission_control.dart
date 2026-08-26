@@ -144,6 +144,8 @@ Middleware apiAdmissionMiddleware(AdmissionGate gate) {
 Handler admittedWebSocketHandler(
   void Function(WebSocketChannel channel, String? protocol) onConnection, {
   AdmissionGate? gate,
+  Handler Function(void Function(WebSocketChannel channel, String? protocol))?
+  webSocketHandlerBuilder,
 }) {
   final admissionGate = gate ?? _webSocketAdmissionGate;
   return (request) async {
@@ -160,8 +162,13 @@ Handler admittedWebSocketHandler(
       admissionGate.release(clientKey);
     }
 
-    final handler = sws.webSocketHandler((channel, protocol) {
+    var setupComplete = false;
+    final handler = (webSocketHandlerBuilder ?? sws.webSocketHandler)((
+      channel,
+      protocol,
+    ) {
       channel.sink.done.whenComplete(release);
+      setupComplete = true;
       try {
         onConnection(channel, protocol);
       } catch (_) {
@@ -171,7 +178,15 @@ Handler admittedWebSocketHandler(
     });
 
     try {
-      final response = await handler(request);
+      final setupZone = Zone.current.fork(
+        specification: ZoneSpecification(
+          handleUncaughtError: (self, parent, zone, error, stackTrace) {
+            if (!setupComplete) release();
+            parent.handleUncaughtError(zone, error, stackTrace);
+          },
+        ),
+      );
+      final response = await setupZone.run(() => handler(request));
       release();
       return response;
     } on HijackException {

@@ -15,6 +15,8 @@ import 'package:shelf_plus/shelf_plus.dart';
 
 const _maxRawFirmwareBodyBytes = 16 * 1024 * 1024;
 const _rawFirmwareBodyReadTimeout = Duration(seconds: 60);
+const _maxManagedFirmwareBodyBytes = 64 * 1024;
+const _managedFirmwareBodyReadTimeout = Duration(seconds: 10);
 
 final class _FirmwarePayloadTooLarge implements Exception {}
 
@@ -25,6 +27,8 @@ class FirmwareHandler {
   final Logger _log;
   final int maxRawBodyBytes;
   final Duration rawBodyReadTimeout;
+  final int maxManagedBodyBytes;
+  final Duration managedBodyReadTimeout;
 
   FirmwareHandler({
     required De1Controller controller,
@@ -33,6 +37,8 @@ class FirmwareHandler {
     Logger? logger,
     this.maxRawBodyBytes = _maxRawFirmwareBodyBytes,
     this.rawBodyReadTimeout = _rawFirmwareBodyReadTimeout,
+    this.maxManagedBodyBytes = _maxManagedFirmwareBodyBytes,
+    this.managedBodyReadTimeout = _managedFirmwareBodyReadTimeout,
   }) : _controller = controller,
        _catalog = catalog,
        _validator = validator ?? const FirmwareValidator(),
@@ -116,7 +122,11 @@ class FirmwareHandler {
   Future<Response> _uploadRaw(Request request) async {
     final Uint8List bodyBytes;
     try {
-      bodyBytes = await _readRawBody(request);
+      bodyBytes = await _readBody(
+        request,
+        maxBytes: maxRawBodyBytes,
+        timeout: rawBodyReadTimeout,
+      );
     } on _FirmwarePayloadTooLarge {
       return Response(
         413,
@@ -150,11 +160,15 @@ class FirmwareHandler {
     return _streamFirmwareUpload(bodyBytes);
   }
 
-  Future<Uint8List> _readRawBody(Request request) async {
+  Future<Uint8List> _readBody(
+    Request request, {
+    required int maxBytes,
+    required Duration timeout,
+  }) async {
     final declaredLength = int.tryParse(
       request.headers['content-length'] ?? '',
     );
-    if (declaredLength != null && declaredLength > maxRawBodyBytes) {
+    if (declaredLength != null && declaredLength > maxBytes) {
       throw _FirmwarePayloadTooLarge();
     }
 
@@ -163,11 +177,11 @@ class FirmwareHandler {
     final iterator = StreamIterator<List<int>>(request.read());
     try {
       while (true) {
-        final remaining = rawBodyReadTimeout - deadline.elapsed;
+        final remaining = timeout - deadline.elapsed;
         if (remaining <= Duration.zero) throw TimeoutException('body read');
         if (!await iterator.moveNext().timeout(remaining)) break;
         final chunk = iterator.current;
-        if (bytes.length + chunk.length > maxRawBodyBytes) {
+        if (bytes.length + chunk.length > maxBytes) {
           throw _FirmwarePayloadTooLarge();
         }
         bytes.add(chunk);
@@ -181,7 +195,30 @@ class FirmwareHandler {
   Future<Response> _applyManaged(Request request) async {
     final Object? decoded;
     try {
-      decoded = jsonDecode(await request.readAsString());
+      final bytes = await _readBody(
+        request,
+        maxBytes: maxManagedBodyBytes,
+        timeout: managedBodyReadTimeout,
+      );
+      decoded = jsonDecode(utf8.decode(bytes));
+    } on _FirmwarePayloadTooLarge {
+      return Response(
+        413,
+        body: jsonEncode({
+          'error': 'payload_too_large',
+          'message': 'Managed firmware request exceeds the 64 KiB limit',
+        }),
+        headers: {'Content-Type': 'application/json'},
+      );
+    } on TimeoutException {
+      return Response(
+        408,
+        body: jsonEncode({
+          'error': 'request_timeout',
+          'message': 'Managed firmware request was not received in time',
+        }),
+        headers: {'Content-Type': 'application/json'},
+      );
     } on FormatException {
       return _invalidRequest('Request body must be valid JSON');
     }

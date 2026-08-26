@@ -186,6 +186,35 @@ void main() {
     await nextChannel.sink.done;
     expect(gate.activeCount, 0);
   });
+
+  test('WebSocket admission releases when setup fails after hijack', () async {
+    final gate = _gate(perClientConcurrent: 1);
+    final errors = <Object>[];
+
+    await runZonedGuarded(() async {
+      final handler = admittedWebSocketHandler(
+        (_, _) {},
+        gate: gate,
+        webSocketHandlerBuilder: (_) {
+          return (_) {
+            Future<void>.microtask(
+              () => throw StateError('upgrade setup failed'),
+            );
+            throw const HijackException();
+          };
+        },
+      );
+
+      await expectLater(
+        Future<Response>.sync(() => handler(_request('10.0.0.1'))),
+        throwsA(isA<HijackException>()),
+      );
+      await Future<void>.delayed(Duration.zero);
+    }, (error, _) => errors.add(error));
+
+    expect(errors, [isA<StateError>()]);
+    expect(gate.activeCount, 0);
+  });
 }
 
 AdmissionGate _gate({

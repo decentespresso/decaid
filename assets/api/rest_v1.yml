@@ -998,6 +998,7 @@ paths:
       description: |
         Resolves, loads, and validates a bundled firmware artifact before
         starting the upload. Returns an NDJSON progress stream on success.
+        The JSON body is limited to 64 KiB and must arrive within 10 seconds.
         Accepts optional `force: true` to bypass version-newer policy
         (never bypasses integrity or compatibility checks).
       tags: [Machine]
@@ -1027,8 +1028,12 @@ paths:
           description: Missing or malformed artifactId
         "404":
           description: Unknown artifact ID
+        "408":
+          description: Request body was not received within 10 seconds
         "409":
           description: Firmware update already in progress
+        "413":
+          description: Request body exceeds 64 KiB
         "422":
           description: Artifact validation, compatibility, or version-policy failure
         "503":

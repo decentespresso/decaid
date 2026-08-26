@@ -183,6 +183,60 @@ void main() {
     expect(cancelled, isTrue);
   });
 
+  test('managed apply rejects a declared body over the limit', () async {
+    final limited = _firmwareHandler(maxManagedBodyBytes: 4);
+    final response = await limited(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/v1/machine/firmware/apply'),
+        headers: {'content-type': 'application/json', 'content-length': '5'},
+        body: Stream<List<int>>.error(StateError('body must not be read')),
+      ),
+    );
+
+    expect(response.statusCode, 413);
+  });
+
+  test('managed apply rejects a streamed body crossing the limit', () async {
+    final limited = _firmwareHandler(maxManagedBodyBytes: 4);
+    final response = await limited(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/v1/machine/firmware/apply'),
+        headers: {'content-type': 'application/json'},
+        body: Stream<List<int>>.fromIterable([
+          [1, 2, 3],
+          [4, 5],
+        ]),
+      ),
+    );
+
+    expect(response.statusCode, 413);
+  });
+
+  test('managed apply returns 408 when the body stalls', () async {
+    final body = StreamController<List<int>>();
+    var cancelled = false;
+    body.onCancel = () => cancelled = true;
+    addTearDown(body.close);
+    final limited = _firmwareHandler(
+      maxManagedBodyBytes: 4,
+      managedBodyReadTimeout: const Duration(milliseconds: 1),
+    );
+
+    final response = await limited(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/v1/machine/firmware/apply'),
+        headers: {'content-type': 'application/json'},
+        body: body.stream,
+      ),
+    );
+
+    expect(response.statusCode, 408);
+    expect(cancelled, isTrue);
+  });
+
   test('raw upload returns pre-stream 409 while an update is active', () async {
     _controller.machine = MockDe1();
     final first = await _raw(handler, const [1]);
@@ -488,8 +542,10 @@ void main() {
 }
 
 Handler _firmwareHandler({
-  required int maxRawBodyBytes,
+  int maxRawBodyBytes = 16 * 1024 * 1024,
   Duration rawBodyReadTimeout = const Duration(seconds: 1),
+  int maxManagedBodyBytes = 64 * 1024,
+  Duration managedBodyReadTimeout = const Duration(seconds: 1),
 }) {
   final app = Router().plus;
   FirmwareHandler(
@@ -497,6 +553,8 @@ Handler _firmwareHandler({
     catalog: BundledFirmwareCatalog(bundle: rootBundle),
     maxRawBodyBytes: maxRawBodyBytes,
     rawBodyReadTimeout: rawBodyReadTimeout,
+    maxManagedBodyBytes: maxManagedBodyBytes,
+    managedBodyReadTimeout: managedBodyReadTimeout,
   ).addRoutes(app);
   return app.call;
 }
