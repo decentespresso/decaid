@@ -707,6 +707,616 @@ function createPlugin(host) {
       expect(await service.pluginSettings(id), {'Mode': 'fast'});
     });
 
+    group('settings schema evolution', () {
+      test('drops a removed setting and cleans it from storage', () async {
+        const id = 'evolve-remove.reaplugin';
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'AutoUpload': {'type': 'boolean'},
+              'DrainHistory': {'type': 'boolean'},
+            },
+          ).path,
+        );
+        await service.savePluginSettings(id, {
+          'AutoUpload': true,
+          'DrainHistory': true,
+        });
+        final prefs = await SharedPreferences.getInstance();
+        expect(jsonDecode(prefs.getString('plugin.settings.$id')!), {
+          'AutoUpload': true,
+          'DrainHistory': true,
+        });
+
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'AutoUpload': {'type': 'boolean'},
+            },
+          ).path,
+        );
+
+        expect(await service.pluginSettings(id), {'AutoUpload': true});
+        expect(jsonDecode(prefs.getString('plugin.settings.$id')!), {
+          'AutoUpload': true,
+        });
+
+        await service.savePluginSettings(id, {'AutoUpload': false});
+        expect(await service.pluginSettings(id), {'AutoUpload': false});
+        expect(jsonDecode(prefs.getString('plugin.settings.$id')!), {
+          'AutoUpload': false,
+        });
+      });
+
+      test('reload after a schema change passes only current settings to the '
+          'plugin', () async {
+        const id = 'evolve-load.reaplugin';
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'Mode': {'type': 'string'},
+              'Legacy': {'type': 'string'},
+            },
+            permissions: ['pluginStorage'],
+            jsCode:
+                '''
+function createPlugin(host) {
+  return {
+    id: "$id",
+    onLoad(settings) {
+      host.storage({type: "write", key: "loads",
+        data: JSON.stringify(settings)});
+    }
+  };
+}
+''',
+          ).path,
+        );
+        await service.savePluginSettings(id, {'Mode': 'fast', 'Legacy': 'old'});
+        await service.loadPlugin(id);
+        expect(
+          await waitForStorage(id, 'loads', '{"Mode":"fast","Legacy":"old"}'),
+          '{"Mode":"fast","Legacy":"old"}',
+        );
+
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'Mode': {'type': 'string'},
+            },
+            permissions: ['pluginStorage'],
+            jsCode:
+                '''
+function createPlugin(host) {
+  return {
+    id: "$id",
+    onLoad(settings) {
+      host.storage({type: "write", key: "loads",
+        data: JSON.stringify(settings)});
+    }
+  };
+}
+''',
+          ).path,
+        );
+
+        expect(service.isPluginLoaded(id), isTrue);
+        expect(
+          await waitForStorage(id, 'loads', '{"Mode":"fast"}'),
+          '{"Mode":"fast"}',
+          reason: 'the reload after the update must not see the removed key',
+        );
+      });
+
+      test('resets an obsolete enum value to a valid default', () async {
+        const id = 'evolve-enum.reaplugin';
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'Roast': {
+                'type': 'enum',
+                'values': ['Light', 'Medium', 'Dark'],
+                'default': 'Medium',
+              },
+            },
+          ).path,
+        );
+        await service.savePluginSettings(id, {'Roast': 'Medium'});
+
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'Roast': {
+                'type': 'enum',
+                'values': ['Light', 'Dark'],
+                'default': 'Dark',
+              },
+            },
+          ).path,
+        );
+
+        expect(await service.pluginSettings(id), {'Roast': 'Dark'});
+        final prefs = await SharedPreferences.getInstance();
+        expect(jsonDecode(prefs.getString('plugin.settings.$id')!), {
+          'Roast': 'Dark',
+        });
+      });
+
+      test('removes an enum value with no valid default', () async {
+        const id = 'evolve-enum-null.reaplugin';
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'Roast': {
+                'type': 'enum',
+                'values': ['Light', 'Medium'],
+                'default': 'Medium',
+              },
+            },
+          ).path,
+        );
+        await service.savePluginSettings(id, {'Roast': 'Light'});
+
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'Roast': {
+                'type': 'enum',
+                'values': ['Medium'],
+                'default': 'Light',
+              },
+            },
+          ).path,
+        );
+
+        expect(await service.pluginSettings(id), isEmpty);
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.containsKey('plugin.settings.$id'), isFalse);
+      });
+
+      test('converts an incompatible persisted type via the default', () async {
+        const id = 'evolve-type.reaplugin';
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'Enabled': {'type': 'string'},
+            },
+          ).path,
+        );
+        await service.savePluginSettings(id, {'Enabled': 'yes'});
+
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'Enabled': {'type': 'boolean', 'default': true},
+            },
+          ).path,
+        );
+
+        expect(await service.pluginSettings(id), {'Enabled': true});
+        final prefs = await SharedPreferences.getInstance();
+        expect(jsonDecode(prefs.getString('plugin.settings.$id')!), {
+          'Enabled': true,
+        });
+      });
+
+      test('drops a value incompatible with the new type', () async {
+        const id = 'evolve-type-drop.reaplugin';
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'Level': {'type': 'string'},
+            },
+          ).path,
+        );
+        await service.savePluginSettings(id, {'Level': 'high'});
+
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'Level': {'type': 'number'},
+            },
+          ).path,
+        );
+
+        expect(await service.pluginSettings(id), isEmpty);
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.containsKey('plugin.settings.$id'), isFalse);
+      });
+
+      test('still rejects unknown caller-provided keys', () async {
+        const id = 'evolve-reject.reaplugin';
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'AutoUpload': {'type': 'boolean'},
+            },
+          ).path,
+        );
+
+        await expectLater(
+          service.savePluginSettings(id, {
+            'AutoUpload': true,
+            'DrainHistory': true,
+          }),
+          throwsA(isA<PluginSettingsValidationException>()),
+        );
+      });
+
+      test('migrates a setting that became secure', () async {
+        const id = 'evolve-secure.reaplugin';
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'Token': {'type': 'string'},
+            },
+          ).path,
+        );
+        await service.savePluginSettings(id, {'Token': 'secret'});
+
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'Token': {'type': 'string', 'secure': true},
+            },
+          ).path,
+        );
+
+        expect(await service.pluginSettings(id), {
+          'Token': {'isSet': true},
+        });
+        expect(
+          credentialStore.values.values.single,
+          jsonEncode({'Token': 'secret'}),
+        );
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getString('plugin.settings.$id'), isNull);
+      });
+
+      test('never copies a former secret into ordinary storage', () async {
+        const id = 'evolve-secure-drop.reaplugin';
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'Token': {'type': 'string', 'secure': true},
+            },
+          ).path,
+        );
+        await service.savePluginSettings(id, {'Token': 'secret'});
+
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'Token': {'type': 'string'},
+            },
+          ).path,
+        );
+
+        expect(await service.pluginSettings(id), isEmpty);
+        expect(credentialStore.values, isEmpty);
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getString('plugin.settings.$id'), isNull);
+      });
+
+      test('a manifest with no settings cleans persisted settings', () async {
+        const id = 'evolve-empty.reaplugin';
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'Mode': {'type': 'string'},
+            },
+          ).path,
+        );
+        await service.savePluginSettings(id, {'Mode': 'fast'});
+        final prefs = await SharedPreferences.getInstance();
+        expect(jsonDecode(prefs.getString('plugin.settings.$id')!), {
+          'Mode': 'fast',
+        });
+
+        await service.addPlugin(makePluginSource(id, settings: {}).path);
+
+        expect(await service.pluginSettings(id), isEmpty);
+        expect(prefs.containsKey('plugin.settings.$id'), isFalse);
+      });
+
+      test('a manifest with no settings loads the plugin with none', () async {
+        const id = 'evolve-empty-load.reaplugin';
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'Mode': {'type': 'string'},
+            },
+            permissions: ['pluginStorage'],
+            jsCode:
+                '''
+function createPlugin(host) {
+  return {
+    id: "$id",
+    onLoad(settings) {
+      host.storage({type: "write", key: "loads",
+        data: JSON.stringify(settings)});
+    }
+  };
+}
+''',
+          ).path,
+        );
+        await service.savePluginSettings(id, {'Mode': 'fast'});
+        await service.loadPlugin(id);
+        expect(
+          await waitForStorage(id, 'loads', '{"Mode":"fast"}'),
+          '{"Mode":"fast"}',
+        );
+
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {},
+            permissions: ['pluginStorage'],
+            jsCode:
+                '''
+function createPlugin(host) {
+  return {
+    id: "$id",
+    onLoad(settings) {
+      host.storage({type: "write", key: "loads",
+        data: JSON.stringify(settings)});
+    }
+  };
+}
+''',
+          ).path,
+        );
+
+        expect(service.isPluginLoaded(id), isTrue);
+        expect(
+          await waitForStorage(id, 'loads', '{}'),
+          '{}',
+          reason: 'the reload after the update must not see old settings',
+        );
+        expect(await service.pluginSettings(id), isEmpty);
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.containsKey('plugin.settings.$id'), isFalse);
+      });
+
+      test('a failed update restores the previous settings', () async {
+        const id = 'evolve-rollback.reaplugin';
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'AutoUpload': {'type': 'boolean'},
+              'DrainHistory': {'type': 'boolean'},
+            },
+            permissions: ['pluginStorage'],
+            jsCode:
+                '''
+function createPlugin() {
+  return { id: "$id", onLoad() {} };
+}
+''',
+          ).path,
+        );
+        await service.savePluginSettings(id, {
+          'AutoUpload': true,
+          'DrainHistory': true,
+        });
+        await service.loadPlugin(id);
+        expect(service.isPluginLoaded(id), isTrue);
+
+        await expectLater(
+          service.addPlugin(
+            makePluginSource(
+              id,
+              settings: {
+                'AutoUpload': {'type': 'boolean'},
+              },
+              permissions: ['pluginStorage'],
+              jsCode: 'function createPlugin() { throw new Error("boom"); }',
+            ).path,
+          ),
+          throwsA(anything),
+        );
+
+        expect(service.isPluginLoaded(id), isTrue);
+        expect(await service.pluginSettings(id), {
+          'AutoUpload': true,
+          'DrainHistory': true,
+        });
+        final prefs = await SharedPreferences.getInstance();
+        expect(jsonDecode(prefs.getString('plugin.settings.$id')!), {
+          'AutoUpload': true,
+          'DrainHistory': true,
+        });
+      });
+
+      test(
+        'a failed update restores settings reconciled away by the new schema',
+        () async {
+          const id = 'evolve-rollback-schema.reaplugin';
+          await service.addPlugin(
+            makePluginSource(
+              id,
+              settings: {
+                'Level': {'type': 'string'},
+                'Roast': {
+                  'type': 'enum',
+                  'values': ['Light', 'Medium'],
+                  'default': 'Medium',
+                },
+              },
+              permissions: ['pluginStorage'],
+              jsCode:
+                  '''
+function createPlugin() {
+  return { id: "$id", onLoad() {} };
+}
+''',
+            ).path,
+          );
+          await service.savePluginSettings(id, {
+            'Level': 'high',
+            'Roast': 'Medium',
+          });
+          await service.loadPlugin(id);
+
+          await expectLater(
+            service.addPlugin(
+              makePluginSource(
+                id,
+                settings: {
+                  'Level': {'type': 'number'},
+                  'Roast': {
+                    'type': 'enum',
+                    'values': ['Light'],
+                    'default': 'Light',
+                  },
+                },
+                permissions: ['pluginStorage'],
+                jsCode: 'function createPlugin() { throw new Error("boom"); }',
+              ).path,
+            ),
+            throwsA(anything),
+          );
+
+          expect(await service.pluginSettings(id), {
+            'Level': 'high',
+            'Roast': 'Medium',
+          });
+        },
+      );
+
+      test('a failed update restores a secure migration', () async {
+        const id = 'evolve-rollback-secure.reaplugin';
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'Token': {'type': 'string'},
+            },
+            permissions: ['pluginStorage'],
+            jsCode:
+                '''
+function createPlugin() {
+  return { id: "$id", onLoad() {} };
+}
+''',
+          ).path,
+        );
+        await service.savePluginSettings(id, {'Token': 'secret'});
+        await service.loadPlugin(id);
+
+        await expectLater(
+          service.addPlugin(
+            makePluginSource(
+              id,
+              settings: {
+                'Token': {'type': 'string', 'secure': true},
+              },
+              permissions: ['pluginStorage'],
+              jsCode: 'function createPlugin() { throw new Error("boom"); }',
+            ).path,
+          ),
+          throwsA(anything),
+        );
+
+        expect(await service.pluginSettings(id), {'Token': 'secret'});
+        final prefs = await SharedPreferences.getInstance();
+        expect(jsonDecode(prefs.getString('plugin.settings.$id')!), {
+          'Token': 'secret',
+        });
+        expect(credentialStore.values, isEmpty);
+      });
+
+      test('reconciles a secure value that changed type', () async {
+        const id = 'evolve-secure-type.reaplugin';
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'Enabled': {'type': 'string'},
+            },
+          ).path,
+        );
+        await service.savePluginSettings(id, {'Enabled': 'yes'});
+
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'Enabled': {'type': 'boolean', 'secure': true},
+            },
+          ).path,
+        );
+
+        expect(await service.pluginSettings(id), {
+          'Enabled': {'isSet': false},
+        });
+        expect(credentialStore.values, isEmpty);
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getString('plugin.settings.$id'), isNull);
+      });
+
+      test('resets a secure enum value removed from values', () async {
+        const id = 'evolve-secure-enum.reaplugin';
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'Roast': {
+                'type': 'enum',
+                'secure': true,
+                'values': ['Light', 'Medium'],
+                'default': 'Medium',
+              },
+            },
+          ).path,
+        );
+        await service.savePluginSettings(id, {'Roast': 'Medium'});
+
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            settings: {
+              'Roast': {
+                'type': 'enum',
+                'secure': true,
+                'values': ['Light', 'Dark'],
+                'default': 'Dark',
+              },
+            },
+          ).path,
+        );
+
+        expect(await service.pluginSettings(id), {
+          'Roast': {'isSet': true},
+        });
+        expect(
+          credentialStore.values.values.single,
+          jsonEncode({'Roast': 'Dark'}),
+        );
+      });
+    });
+
     const unsafeIds = [
       '',
       '.',

@@ -121,6 +121,50 @@ omissions — which offset paging cannot guarantee. The page functions are
 built in `main.dart` from the DAOs and carried by `BackupDataSources`; the
 storage service interfaces are unchanged.
 
+## Plugin Settings Schema Reconciliation (issue #655 follow-up)
+
+Persisted plugin settings are values of the **current manifest schema**, not
+an independent schema-less document. Every read path (Flutter settings UI,
+REST GET, plugin load/reload, future frontends) routes through
+`PluginLoaderService._storedSettings()`, which reconciles persisted ordinary
+and secure settings against the current `PluginManifest`:
+
+- Key no longer declared by the manifest -> dropped (a manifest with
+  `settings: {}` therefore drops every previously persisted value).
+- Enum value no longer in `values` -> reset to the manifest `default` when
+  that default is itself a declared value, otherwise dropped.
+- Value incompatible with the declared type (`string`/`number`/`boolean`) ->
+  reset to the manifest `default` when the default matches the type,
+  otherwise dropped.
+- Cleaned state is written back to storage (`plugin.settings.<id>` and the
+  secure store) so stale values do not return.
+- Settings whose schema has no usable `type` are left untouched (cannot be
+  judged).
+- **Secure values are not opaque**: the same enum/type reconciliation applies
+  to values in secure storage. Reconciliation always happens in secure
+  storage only — a value that no longer fits the schema is reset or dropped
+  and is never written to ordinary storage.
+- Keys that are `secure: true` in the current manifest are migrated out of
+  ordinary storage by the legacy migration path. A value whose secure flag
+  was removed is never copied back into plaintext and simply reverts to
+  unset.
+
+**`_validateSettings()` is unchanged**: caller-supplied keys are still
+validated strictly against the current manifest, including the existing
+empty-schema early return (a caller may still write to a plugin whose
+manifest declares no settings, but the next read reconciles those values
+away). Reconciliation only ever touches host-owned persisted state, never
+caller payloads.
+
+**Failed installs/updates are transactional**: `installPluginPackage()` and
+`updatePluginSource()` snapshot raw persisted settings (ordinary + secure)
+before mutating, and `_restorePersistedSettings()` restores them verbatim on
+rollback, before the previous version is reloaded. A failed update leaves
+both the previous plugin version and its settings exactly as they were
+before the attempt.
+
+Renames are not inferred: `OldName -> NewName` behaves as removed + added.
+
 ## Keeping Notes Fresh
 
 Add migration gotchas, storage ownership changes, and data integrity rules. Prune when schema versions are retired.

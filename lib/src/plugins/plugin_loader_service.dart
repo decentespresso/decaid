@@ -141,6 +141,7 @@ class PluginLoaderService {
     return _withPluginMutationLock(pluginId, () async {
       _ensureActive();
       if (!allowDowngrade) _ensureNotDowngrade(manifest);
+      final settingsSnapshot = await _capturePersistedSettings(pluginId);
 
       final pluginDir = Directory('${_pluginsDir.path}/$pluginId');
       final backupDir = Directory('${pluginDir.path}$_backupSuffix');
@@ -165,6 +166,7 @@ class PluginLoaderService {
         }
       } catch (e) {
         _log.warning('Rolling back failed install of plugin $pluginId', e);
+        await _restorePersistedSettings(pluginId, settingsSnapshot);
         if (pluginDir.existsSync()) pluginDir.deleteSync(recursive: true);
         if (hadPrevious) {
           backupDir.renameSync(pluginDir.path);
@@ -221,6 +223,7 @@ class PluginLoaderService {
     return _withPluginMutationLock(pluginId, () async {
       _ensureActive();
       _ensureNotDowngrade(manifest);
+      final settingsSnapshot = await _capturePersistedSettings(pluginId);
 
       final previousManifest = _availablePluginsCache[pluginId];
       final pluginDir = Directory('${_pluginsDir.path}/$pluginId');
@@ -266,6 +269,7 @@ class PluginLoaderService {
         _log.warning('Rolling back failed update of plugin $pluginId', e);
         _deleteQuietly(stagedManifest);
         _deleteQuietly(stagedSource);
+        await _restorePersistedSettings(pluginId, settingsSnapshot);
         await _restorePluginSource(
           pluginId: pluginId,
           pluginDir: pluginDir,
@@ -674,29 +678,110 @@ class PluginLoaderService {
 
   Future<({Map<String, dynamic> ordinary, Map<String, dynamic> secure})>
   _storedSettings(PluginManifest manifest) async {
-    final ordinary = _readOrdinarySettings(manifest.id);
     final secureKeys = _secureSettingKeys(manifest);
     final storedSecure = await _readSecureSettings(manifest.id);
-    final secure = Map.fromEntries(
+    final secureBase = Map.fromEntries(
       storedSecure.entries.where((entry) => secureKeys.contains(entry.key)),
     );
-    if (secure.length != storedSecure.length) {
-      await _writeSecureSettings(manifest.id, secure);
-    }
+
+    final storedOrdinary = _readOrdinarySettings(manifest.id);
+    final ordinary = _reconcileOrdinarySettings(manifest, storedOrdinary);
+
     final legacySecure = Map.fromEntries(
       ordinary.entries.where((entry) => secureKeys.contains(entry.key)),
     );
+    final secure = _reconcileSecureSettings(manifest, {
+      ...legacySecure,
+      ...secureBase,
+    });
+
     if (legacySecure.isEmpty) {
+      if (!mapEquals(storedSecure, secure)) {
+        await _writeSecureSettings(manifest.id, secure);
+      }
+      if (!mapEquals(storedOrdinary, ordinary)) {
+        await _writeOrdinarySettings(manifest.id, ordinary);
+      }
       return (ordinary: ordinary, secure: secure);
     }
 
-    final migratedSecure = {...legacySecure, ...secure};
     final migratedOrdinary = Map.fromEntries(
       ordinary.entries.where((entry) => !secureKeys.contains(entry.key)),
     );
-    await _writeSecureSettings(manifest.id, migratedSecure);
+    await _writeSecureSettings(manifest.id, secure);
     await _writeOrdinarySettings(manifest.id, migratedOrdinary);
-    return (ordinary: migratedOrdinary, secure: migratedSecure);
+    return (ordinary: migratedOrdinary, secure: secure);
+  }
+
+  // Persisted settings are values of the current manifest schema. Keys the
+  // manifest no longer declares are dropped, and values that no longer fit
+  // the schema are reset to a valid manifest default or removed. A manifest
+  // with no settings drops every previously persisted ordinary value.
+  Map<String, dynamic> _reconcileOrdinarySettings(
+    PluginManifest manifest,
+    Map<String, dynamic> ordinary,
+  ) {
+    final manifestSettings = manifest.settings;
+    final secureKeys = _secureSettingKeys(manifest);
+    final reconciled = <String, dynamic>{};
+    for (final entry in ordinary.entries) {
+      if (secureKeys.contains(entry.key)) {
+        // Secure values are migrated to secure storage by the caller; keep
+        // them untouched here so the migration path is unchanged.
+        reconciled[entry.key] = entry.value;
+        continue;
+      }
+      final schema = manifestSettings[entry.key];
+      if (schema == null) continue;
+      final value = _reconciledPersistedValue(entry.key, schema, entry.value);
+      if (value != null) reconciled[entry.key] = value;
+    }
+    return reconciled;
+  }
+
+  // Secure values also conform to the current schema (enum values, types).
+  // Reconciliation happens in secure storage only; a value that no longer
+  // fits the schema is reset to a valid manifest default or removed, and is
+  // never written to ordinary storage.
+  Map<String, dynamic> _reconcileSecureSettings(
+    PluginManifest manifest,
+    Map<String, dynamic> secure,
+  ) {
+    final manifestSettings = manifest.settings;
+    final reconciled = <String, dynamic>{};
+    for (final entry in secure.entries) {
+      final schema = manifestSettings[entry.key];
+      if (schema == null) continue;
+      final value = _reconciledPersistedValue(entry.key, schema, entry.value);
+      if (value != null) reconciled[entry.key] = value;
+    }
+    return reconciled;
+  }
+
+  dynamic _reconciledPersistedValue(String key, dynamic schema, dynamic value) {
+    if (value == null) return null;
+    if (schema is! Map) return value;
+    if (schema['type'] == 'enum') {
+      final enumValues = parsePluginEnumValues(key, schema);
+      if (enumValues.contains(value)) return value;
+      final defaultValue = schema['default'];
+      return enumValues.contains(defaultValue) ? defaultValue : null;
+    }
+    final compatible = switch (schema['type']) {
+      'string' => value is String,
+      'number' => value is num,
+      'boolean' => value is bool,
+      _ => true,
+    };
+    if (compatible) return value;
+    final defaultValue = schema['default'];
+    final defaultCompatible = switch (schema['type']) {
+      'string' => defaultValue is String,
+      'number' => defaultValue is num,
+      'boolean' => defaultValue is bool,
+      _ => false,
+    };
+    return defaultCompatible ? defaultValue : null;
   }
 
   Map<String, dynamic> _readOrdinarySettings(String pluginId) {
@@ -774,6 +859,26 @@ class PluginLoaderService {
       value: jsonEncode(settings),
     );
   }
+
+  // Raw persisted settings, taken before an install/update can reconcile
+  // them against a new manifest. Restored verbatim on rollback so a failed
+  // update leaves settings exactly as they were before the attempt.
+  Future<({Map<String, dynamic> ordinary, Map<String, dynamic> secure})>
+  _capturePersistedSettings(String pluginId) =>
+      _withPluginSettingsLock(pluginId, () async {
+        return (
+          ordinary: _readOrdinarySettings(pluginId),
+          secure: await _readSecureSettings(pluginId),
+        );
+      });
+
+  Future<void> _restorePersistedSettings(
+    String pluginId,
+    ({Map<String, dynamic> ordinary, Map<String, dynamic> secure}) settings,
+  ) => _withPluginSettingsLock(pluginId, () async {
+    await _writeOrdinarySettings(pluginId, settings.ordinary);
+    await _writeSecureSettings(pluginId, settings.secure);
+  });
 
   Future<void> _deleteSecureSettings(String pluginId) async {
     _volatileSecureSettings = Map.fromEntries(

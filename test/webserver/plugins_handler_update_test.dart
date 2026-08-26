@@ -370,5 +370,56 @@ function createPlugin(host) {
         reason: 'REST save must reload the loaded plugin exactly once',
       );
     });
+
+    test(
+      'GET and POST settings after a schema change omit dropped keys',
+      () async {
+        const id = 'evolve-rest.reaplugin';
+        final dir = Directory('${tempDir.path}/source_evolve_rest')
+          ..createSync(recursive: true);
+        File('${dir.path}/manifest.json').writeAsStringSync(
+          jsonEncode({
+            ...manifestJson(id),
+            'settings': {
+              'AutoUpload': {'type': 'boolean'},
+              'DrainHistory': {'type': 'boolean'},
+            },
+          }),
+        );
+        File('${dir.path}/plugin.js').writeAsStringSync(pluginJs(id));
+        await service.addPlugin(dir.path);
+        await service.savePluginSettings(id, {
+          'AutoUpload': true,
+          'DrainHistory': true,
+        });
+
+        final putRes = await put(id, {
+          'manifest': {
+            ...manifestJson(id, version: '2.0.0'),
+            'settings': {
+              'AutoUpload': {'type': 'boolean'},
+            },
+          },
+          'plugin': pluginJs(id),
+        });
+        expect(putRes.statusCode, 200);
+
+        final getRes = await handler(
+          Request(
+            'GET',
+            Uri.parse('http://localhost/api/v1/plugins/$id/settings'),
+          ),
+        );
+        expect(getRes.statusCode, 200);
+        expect(jsonDecode(await getRes.readAsString()), {'AutoUpload': true});
+
+        final postRes = await postSettings(id, {'AutoUpload': false});
+        expect(postRes.statusCode, 200);
+        expect(jsonDecode(await postRes.readAsString()), {'AutoUpload': false});
+
+        final badRes = await postSettings(id, {'DrainHistory': true});
+        expect(badRes.statusCode, 400);
+      },
+    );
   });
 }
