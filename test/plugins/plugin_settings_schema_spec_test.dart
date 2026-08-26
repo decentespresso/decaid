@@ -42,14 +42,14 @@ List<Directory> _bundledPluginDirs() {
       .split('\n')
       .map((line) => line.trim())
       .where((line) => line.startsWith('assets/plugins/') && line.endsWith('/'))
-      .map((line) =>
-          line.substring('assets/plugins/'.length, line.length - 1))
+      .map((line) => line.substring('assets/plugins/'.length, line.length - 1))
       .toSet();
   return Directory('assets/plugins')
       .listSync()
       .whereType<Directory>()
-      .where((dir) =>
-          !ignored.contains(dir.path.split(Platform.pathSeparator).last))
+      .where(
+        (dir) => !ignored.contains(dir.path.split(Platform.pathSeparator).last),
+      )
       .toList();
 }
 
