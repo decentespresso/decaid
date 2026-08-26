@@ -25,10 +25,17 @@ at most 64 concurrent clients. The idle request is made during the burst and
 retried only when generic API admission rejects it.
 
 ```bash
-rm -f /tmp/decaid-pressure-status /tmp/decaid-pressure-snapshot.jsonl
+rm -f /tmp/decaid-pressure-status /tmp/decaid-pressure-probes \
+  /tmp/decaid-pressure-snapshot.jsonl
 websocat "$WS/ws/v1/machine/snapshot" \
   > /tmp/decaid-pressure-snapshot.jsonl &
 WS_PID=$!
+for attempt in $(seq 1 20); do
+  test -s /tmp/decaid-pressure-snapshot.jsonl && break
+  sleep 0.1
+done
+WS_BASELINE=$(wc -l < /tmp/decaid-pressure-snapshot.jsonl)
+test "$WS_BASELINE" -gt 0
 
 (
   for i in $(seq 1 500); do
@@ -46,7 +53,10 @@ WS_PID=$!
       printf '%s %s %s %s\n' "$i" "$field" "$value" "$code" \
         >> /tmp/decaid-pressure-status
       if ((i % 25 == 0)); then
-        curl -sf "$BASE/api/v1/machine/state" >/dev/null || true
+        probe_code=$(curl -s --max-time 2 -o /dev/null -w '%{http_code}' \
+          "$BASE/api/v1/machine/state")
+        printf '%s %s\n' "$i" "$probe_code" \
+          >> /tmp/decaid-pressure-probes
       fi
     ) &
 
@@ -57,17 +67,20 @@ WS_PID=$!
     if ((i == 100)); then
       idle_ok=false
       for attempt in $(seq 1 20); do
-        if curl -sf -X PUT "$BASE/api/v1/machine/state/idle" >/dev/null; then
-          idle_ok=true
-          break
-        fi
-        sleep 1
+        code=$(curl -s --max-time 2 -o /dev/null -w '%{http_code}' \
+          -X PUT "$BASE/api/v1/machine/state/idle")
+        case "$code" in
+          200) idle_ok=true; break ;;
+          429|503) sleep 1 ;;
+          *) printf 'unexpected idle status: %s\n' "$code" >&2; exit 1 ;;
+        esac
       done
       test "$idle_ok" = true
     fi
   done
   wait
 )
+test "$(wc -l < /tmp/decaid-pressure-snapshot.jsonl)" -gt "$WS_BASELINE"
 ```
 
 The run is finite. Successful and rejected requests must account for all 500
@@ -78,6 +91,10 @@ awk '$4 == 200 {ok++} $4 == 429 {limited++} $4 == 503 {busy++}
      END {print "ok=" ok+0, "429=" limited+0, "503=" busy+0;
           exit (ok+limited+busy == 500 ? 0 : 1)}' \
   /tmp/decaid-pressure-status
+awk '$2 == 200 || $2 == 429 || $2 == 503 {valid++}
+     END {print "responsive probes=" valid+0;
+          exit (valid == 20 ? 0 : 1)}' \
+  /tmp/decaid-pressure-probes
 ```
 
 ## Final admitted state
@@ -106,7 +123,6 @@ curl -sf "$BASE/api/v1/workflow" | jq -e '
 curl -sf "$BASE/api/v1/machine/state" | jq -e '.state.state == "idle"'
 curl -sf "$BASE/api/v1/devices" \
   | jq -e '.[] | select(.name == "MockDe1" and .state == "connected")'
-test "$(wc -l < /tmp/decaid-pressure-snapshot.jsonl)" -gt 0
 ```
 
 ## Postconditions
