@@ -115,6 +115,17 @@ class WebUIService {
   @visibleForTesting
   static Future<String?> Function() resolveWifiIP = NetworkInfo().getWifiIP;
 
+  @visibleForTesting
+  static Future<List<InternetAddress>> Function(String host) resolveHost =
+      InternetAddress.lookup;
+
+  // Host-header names resolved during this served generation (host -> ours).
+  // Bounded so a flood of spoofed Hosts can neither grow it without limit nor
+  // re-trigger a DNS lookup per request; cleared whenever serving (re)starts,
+  // since that is also when our own addresses may have changed.
+  static const int _resolvedHostLimit = 128;
+  final Map<String, bool> _resolvedHosts = {};
+
   WebUIService({Future<List<String>> Function()? listLocalAddresses})
     : _listLocalAddresses = listLocalAddresses ?? _listDeviceAddresses;
 
@@ -138,12 +149,34 @@ class WebUIService {
     if (host == 'localhost' || host == '127.0.0.1' || host == '::1') {
       return true;
     }
+    List<String> local;
     try {
-      return (await _listLocalAddresses()).contains(host);
+      local = await _listLocalAddresses();
     } catch (e) {
       _log.fine('Failed to enumerate network interfaces: $e');
       return host == _localIP;
     }
+    if (local.contains(host)) return true;
+    return _resolvesToLocalAddress(host, local);
+  }
+
+  // A LAN name for this device (router DNS, mDNS, a hosts file) is as local as
+  // the literal address it resolves to — without this, the port-3000 entry
+  // redirect and the skin-api injection only answer requests whose Host is a
+  // raw interface IP, and browsing the skin by name 404s.
+  Future<bool> _resolvesToLocalAddress(String host, List<String> local) async {
+    final cached = _resolvedHosts[host];
+    if (cached != null) return cached;
+    bool ours;
+    try {
+      final resolved = await resolveHost(host);
+      ours = resolved.any((address) => local.contains(address.address));
+    } catch (_) {
+      ours = false;
+    }
+    if (_resolvedHosts.length >= _resolvedHostLimit) _resolvedHosts.clear();
+    _resolvedHosts[host] = ours;
+    return ours;
   }
 
   Future<String?> _skinApiUrl(Request request, int port) async {
@@ -163,6 +196,7 @@ class WebUIService {
   Future<void> serveFolderAtPath(String path, {int port = 3000}) async {
     await _server?.close(force: true);
     _server = null;
+    _resolvedHosts.clear();
     final tokenProvider = skinProxyTokenProvider;
     if (tokenProvider != null) _revokeSkinProxyToken();
     _localIP ??= await _resolveLocalIP();
@@ -336,6 +370,7 @@ class WebUIService {
       _path = "";
       _log.info('WebUI server stopped');
     }
+    _resolvedHosts.clear();
     _revokeSkinProxyToken();
   }
 }

@@ -112,6 +112,7 @@ const bodyExample = "</body>";
         await tempDir.delete(recursive: true);
       }
       WebUIService.resolveWifiIP = NetworkInfo().getWifiIP;
+      WebUIService.resolveHost = InternetAddress.lookup;
     });
 
     Future<String> getBodyForHost(String host) async {
@@ -319,6 +320,70 @@ const bodyExample = "</body>";
       expect(body, isNot(contains('reaprime-proxy-token')));
       expect(body, isNot(contains(skinApiScriptPath)));
     });
+
+    test('accepts a LAN hostname that resolves to this device', () async {
+      const lanIp = '10.0.0.7';
+      WebUIService.resolveWifiIP = () async => lanIp;
+      WebUIService.resolveHost = (host) async => host == 'decent'
+          ? [InternetAddress(lanIp)]
+          : throw const SocketException('unresolvable');
+      service = WebUIService(listLocalAddresses: () async => [lanIp]);
+      service.skinProxyToken = token;
+      await service.serveFolderAtPath(tempDir.path, port: 3001);
+
+      final body = await getBodyForHost('decent');
+
+      expect(body, contains('content="$token"'));
+      expect(
+        body,
+        contains(
+          '<script src="http://decent:${service.port}$skinApiScriptPath">'
+          '</script>',
+        ),
+      );
+    });
+
+    test('rejects a hostname that resolves elsewhere', () async {
+      WebUIService.resolveWifiIP = () async => '10.0.0.7';
+      WebUIService.resolveHost = (_) async => [
+        InternetAddress('93.184.216.34'),
+      ];
+      service = WebUIService(listLocalAddresses: () async => ['10.0.0.7']);
+      service.skinProxyToken = token;
+      await service.serveFolderAtPath(tempDir.path, port: 3001);
+
+      final body = await getBodyForHost('rebound.example');
+
+      expect(body, isNot(contains('reaprime-proxy-token')));
+      expect(body, isNot(contains(skinApiScriptPath)));
+    });
+
+    test(
+      'entry redirect follows a LAN hostname that resolves to this device',
+      () async {
+        const lanIp = '10.0.0.7';
+        WebUIService.resolveWifiIP = () async => lanIp;
+        WebUIService.resolveHost = (_) async => [InternetAddress(lanIp)];
+        service = WebUIService(listLocalAddresses: () async => [lanIp]);
+        await service.serveFolderAtPath(tempDir.path, port: 3001);
+
+        final client = HttpClient();
+        addTearDown(client.close);
+        final request = await client.getUrl(
+          Uri.parse('http://localhost:3001/'),
+        );
+        request.followRedirects = false;
+        request.headers.set(HttpHeaders.hostHeader, 'decent:3001');
+        final response = await request.close();
+        await response.drain<void>();
+
+        expect(response.statusCode, HttpStatus.temporaryRedirect);
+        expect(
+          response.headers.value(HttpHeaders.locationHeader),
+          'http://decent:${service.port}/',
+        );
+      },
+    );
 
     test('falls back to localhost when getWifiIP throws (gh#337)', () async {
       WebUIService.resolveWifiIP = () async => throw Exception('no wifi');
