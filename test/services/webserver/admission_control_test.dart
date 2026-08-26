@@ -215,6 +215,45 @@ void main() {
     expect(errors, [isA<StateError>()]);
     expect(gate.activeCount, 0);
   });
+
+  test('WebSocket admission closes after synchronous setup failure', () async {
+    await _expectSetupFailureClosesAndReleases(
+      () => throw StateError('synchronous setup failure'),
+    );
+  });
+
+  test('WebSocket admission closes after asynchronous setup failure', () async {
+    await _expectSetupFailureClosesAndReleases(
+      () => Future<void>.error(StateError('asynchronous setup failure')),
+    );
+  });
+}
+
+Future<void> _expectSetupFailureClosesAndReleases(
+  FutureOr<void> Function() fail,
+) async {
+  final gate = _gate(perClientConcurrent: 1);
+  final connected = Completer<WebSocketChannel>();
+  var attempts = 0;
+  final handler = admittedWebSocketHandler((channel, _) {
+    attempts++;
+    if (attempts == 1) return fail();
+    channel.stream.listen((_) {});
+    connected.complete(channel);
+  }, gate: gate);
+  final server = await shelf_io.serve(handler, 'localhost', 0);
+  addTearDown(() => server.close(force: true));
+  final uri = 'ws://localhost:${server.port}';
+
+  final failed = await WebSocket.connect(uri);
+  await failed.drain<void>().timeout(const Duration(seconds: 2));
+  expect(gate.activeCount, 0);
+
+  final next = await WebSocket.connect(uri);
+  final serverSide = await connected.future.timeout(const Duration(seconds: 2));
+  await next.close();
+  await serverSide.sink.done.timeout(const Duration(seconds: 2));
+  expect(gate.activeCount, 0);
 }
 
 AdmissionGate _gate({

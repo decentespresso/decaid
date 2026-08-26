@@ -142,7 +142,8 @@ Middleware apiAdmissionMiddleware(AdmissionGate gate) {
 }
 
 Handler admittedWebSocketHandler(
-  void Function(WebSocketChannel channel, String? protocol) onConnection, {
+  FutureOr<void> Function(WebSocketChannel channel, String? protocol)
+  onConnection, {
   AdmissionGate? gate,
   Handler Function(void Function(WebSocketChannel channel, String? protocol))?
   webSocketHandlerBuilder,
@@ -167,14 +168,27 @@ Handler admittedWebSocketHandler(
       channel,
       protocol,
     ) {
-      channel.sink.done.whenComplete(release);
+      unawaited(channel.sink.done.whenComplete(release).catchError((_) {}));
       setupComplete = true;
-      try {
-        onConnection(channel, protocol);
-      } catch (_) {
-        release();
-        rethrow;
-      }
+      unawaited(
+        Future.sync(() => onConnection(channel, protocol)).catchError((
+          Object error,
+          StackTrace stackTrace,
+        ) async {
+          log.warning('WebSocket connection setup failed', error, stackTrace);
+          try {
+            await channel.sink.close();
+          } catch (closeError, closeStackTrace) {
+            log.warning(
+              'Failed to close WebSocket after setup failure',
+              closeError,
+              closeStackTrace,
+            );
+          } finally {
+            release();
+          }
+        }),
+      );
     });
 
     try {
