@@ -359,7 +359,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/MachineStateError"
         "503":
-          description: DE1 write queue is full for non-idle state changes
+          description: Machine write queue is full for non-idle state changes
   /api/v1/machine/profile:
     post:
       summary: Set Machine Profile
@@ -377,9 +377,9 @@ paths:
         "400":
           description: Malformed JSON body
         "503":
-          description: DE1 write queue is full
+          description: Machine write queue is full
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
   /api/v1/machine/shotSettings:
     post:
       summary: Update Shot Settings
@@ -397,9 +397,9 @@ paths:
         "400":
           description: Malformed JSON body
         "503":
-          description: DE1 write queue is full
+          description: Machine write queue is full
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
   /api/v1/machine/capabilities:
     get:
       summary: List machine capabilities
@@ -466,9 +466,9 @@ paths:
         "404":
           description: Machine connected but does not support cup warmer (not a Bengle)
         "503":
-          description: DE1 write queue is full
+          description: Machine write queue is full
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
   /api/v1/machine/cupWarmer/preheat:
     get:
       summary: Get scheduled pre-warm state
@@ -514,9 +514,9 @@ paths:
         "404":
           description: Machine connected but does not support pre-warm
         "503":
-          description: DE1 write queue is full
+          description: Machine write queue is full
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
   /api/v1/machine/ledStrip:
     get:
       summary: Get LED strip configuration
@@ -566,9 +566,9 @@ paths:
         "404":
           description: Machine connected but does not support LED strip
         "503":
-          description: DE1 write queue is full
+          description: Machine write queue is full
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
 
   /api/v1/machine/ledStrip/commit:
     post:
@@ -592,9 +592,9 @@ paths:
         "404":
           description: Machine connected but does not support LED strip
         "503":
-          description: DE1 write queue is full
+          description: Machine write queue is full
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
 
   /api/v1/machine/ledStrip/reset:
     post:
@@ -623,9 +623,9 @@ paths:
         "404":
           description: Machine connected but does not support LED strip
         "503":
-          description: DE1 write queue is full, or firmware read failed
+          description: Machine write queue is full, or firmware read failed
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
   /api/v1/machine/scaleCalibration:
     get:
       summary: Get scale-calibration state
@@ -686,9 +686,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScaleCalibrationRejected"
         "503":
-          description: DE1 write queue is full
+          description: Machine write queue is full
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
   /api/v1/machine/settings:
     get:
       summary: Get machine settings
@@ -717,9 +717,9 @@ paths:
         "400":
           description: Malformed JSON body
         "503":
-          description: DE1 write queue is full
+          description: Machine write queue is full
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
 
   /api/v1/machine/settings/advanced:
     get:
@@ -749,9 +749,9 @@ paths:
         "400":
           description: Malformed JSON body
         "503":
-          description: DE1 write queue is full
+          description: Machine write queue is full
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
 
   /api/v1/machine/settings/reset:
     delete:
@@ -765,9 +765,9 @@ paths:
         "202":
           description: Reset accepted (one grouped serialized device write)
         "503":
-          description: DE1 write queue is full
+          description: Machine write queue is full
         "500":
-          description: No DE1 connected
+          description: No machine was connected, the machine changed during the write, or the write failed
 
   /api/v1/machine/calibration:
     get:
@@ -803,9 +803,9 @@ paths:
         "400":
           description: Malformed JSON body
         "503":
-          description: DE1 write queue is full
+          description: Machine write queue is full
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
 
   /api/v1/machine/calibration/{target}:
     get:
@@ -880,11 +880,11 @@ paths:
         "400":
           description: Malformed JSON body, unknown target, or invalid values
         "503":
-          description: DE1 write queue is full
+          description: Machine write queue is full
         "504":
           description: Machine did not acknowledge the calibration write within the response timeout
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
 
   /api/v1/machine/waterLevels:
     post:
@@ -902,9 +902,9 @@ paths:
         "400":
           description: Malformed JSON body
         "503":
-          description: DE1 write queue is full
+          description: Machine write queue is full
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
 
   /api/v1/machine/firmware:
     get:
@@ -927,7 +927,7 @@ paths:
         Send a raw firmware file to the machine. Returns an NDJSON progress
         stream. Rejects an empty body with 400. Returns 409 if an update is
         already in progress. Returns 503 if no machine is connected or the
-        DE1 write queue is full.
+        machine write queue is full.
 
         A successful stream emits `erasing`, zero or more `uploading` events,
         then `done`. A failed stream emits `erasing`, zero or more `uploading`
@@ -957,7 +957,7 @@ paths:
         "409":
           description: Firmware update already in progress
         "503":
-          description: No machine connected or DE1 write queue full
+          description: No machine connected or machine write queue full
     delete:
       summary: Cancel an in-progress firmware update
       description: |
@@ -1012,7 +1012,7 @@ paths:
         "422":
           description: Artifact validation, compatibility, or version-policy failure
         "503":
-          description: No machine connected or DE1 write queue full
+          description: No machine connected or machine write queue full
 
   # Scale API
   /api/v1/scale/tare:
@@ -1368,7 +1368,7 @@ paths:
         "503":
           description: >
             The request waited more than 30 seconds for its turn and was
-            skipped, the DE1 write queue was full, or a replaceable setting
+            skipped, the machine write queue was full, or a replaceable setting
             could not reconnect to the same machine within the bounded wait.
             In each case the controller workflow is unchanged.
           content:
