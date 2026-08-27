@@ -345,7 +345,10 @@ class _MyAppState extends State<MyApp> {
                         (e) => e.deviceId == deviceId,
                       );
                       if (device is De1Interface) {
-                        return De1DebugView(machine: device);
+                        return De1DebugView(
+                          machine: device,
+                          de1Controller: widget.de1Controller,
+                        );
                       }
                       if (device is Scale) {
                         return ScaleDebugView(scale: device);
@@ -363,6 +366,7 @@ class _MyAppState extends State<MyApp> {
                     case DebugItemListView.routeName:
                       return DebugItemListView(
                         controller: widget.deviceController,
+                        de1Controller: widget.de1Controller,
                       );
                     case RealtimeShotFeature.routeName:
                       final args = routeSettings.arguments;

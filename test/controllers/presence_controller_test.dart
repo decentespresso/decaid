@@ -688,6 +688,48 @@ void main() {
   });
 
   group('scheduled wake', () {
+    test('queued wake expires when the matching minute ends', () {
+      fakeAsync((async) {
+        var now = DateTime(2026, 1, 15, 7);
+        settingsController.setWakeSchedules(
+          WakeSchedule.serializeList([
+            const WakeSchedule(
+              id: 'expires',
+              hour: 7,
+              minute: 0,
+              daysOfWeek: {},
+              enabled: true,
+            ),
+          ]),
+        );
+        async.flushMicrotasks();
+        de1Controller.stateRequestEntered = Completer<void>();
+        de1Controller.stateRequestRelease = Completer<void>();
+
+        final controller = PresenceController(
+          de1Controller: de1Controller,
+          settingsController: settingsController,
+          clock: () => now,
+        );
+        controller.initialize();
+        de1Controller.setDe1(testDe1);
+        async.flushMicrotasks();
+        testDe1.emitState(MachineState.sleeping);
+        async.flushMicrotasks();
+
+        async.elapse(const Duration(seconds: 31));
+        async.flushMicrotasks();
+        expect(de1Controller.stateRequestEntered!.isCompleted, isTrue);
+
+        now = DateTime(2026, 1, 15, 7, 1);
+        de1Controller.stateRequestRelease!.complete();
+        async.flushMicrotasks();
+
+        expect(testDe1.requestedStates, isEmpty);
+        controller.dispose();
+      });
+    });
+
     test('queue saturation retries within the matching minute', () {
       fakeAsync((async) {
         settingsController.setWakeSchedules(

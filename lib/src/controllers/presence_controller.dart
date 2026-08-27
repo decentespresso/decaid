@@ -495,12 +495,15 @@ class PresenceController {
   Future<void> _requestScheduledWake(String scheduleId) async {
     final de1 = _de1;
     try {
-      await _de1Controller.requestMachineStateIf(
-        MachineState.schedIdle,
-        () =>
-            identical(de1, _de1) &&
-            _currentMachineState == MachineState.sleeping,
-      );
+      await _de1Controller.requestMachineStateIf(MachineState.schedIdle, () {
+        final now = _clock();
+        return identical(de1, _de1) &&
+            _currentMachineState == MachineState.sleeping &&
+            _wakeSchedules.any(
+              (schedule) =>
+                  schedule.id == scheduleId && schedule.matchesTime(now),
+            );
+      });
     } on De1WriteQueueFullException catch (e, st) {
       _log.warning('Failed to request schedIdle', e, st);
       _firedScheduleIds.remove(scheduleId);

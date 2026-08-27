@@ -3,9 +3,14 @@ import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 class CalibrationDebugCard extends StatefulWidget {
-  const CalibrationDebugCard({super.key, required this.machine});
+  const CalibrationDebugCard({
+    super.key,
+    required this.machine,
+    required this.writeCalibration,
+  });
 
   final De1Interface machine;
+  final Future<void> Function(De1Calibration calibration) writeCalibration;
 
   @override
   State<CalibrationDebugCard> createState() => _CalibrationDebugCardState();
@@ -204,7 +209,7 @@ class _CalibrationDebugCardState extends State<CalibrationDebugCard>
     }
     setState(() => _writing = {target});
     try {
-      await widget.machine.writeCalibration(
+      await widget.writeCalibration(
         De1Calibration(
           target: target,
           de1ReportedValue: reported,
