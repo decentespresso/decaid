@@ -14,7 +14,7 @@ WS=ws://localhost:8080
 Confirm the simulated machine is connected:
 
 ```bash
-curl -sf "$BASE/api/v1/devices" \
+curl -sf --max-time 2 "$BASE/api/v1/devices" \
   | jq -e '.[] | select(.name == "MockDe1" and .state == "connected")'
 ```
 
@@ -46,7 +46,7 @@ test "$WS_BASELINE" -gt 0
     esac
 
     (
-      code=$(curl -s -o /dev/null -w '%{http_code}' \
+      code=$(curl -s --max-time 35 -o /dev/null -w '%{http_code}' \
         -X PUT "$BASE/api/v1/workflow" \
         -H 'content-type: application/json' \
         -d "{\"$field\":{\"$key\":$value}}")
@@ -105,7 +105,7 @@ admission rejection, then prove all three fields reached the workflow.
 ```bash
 final_ok=false
 for attempt in $(seq 1 20); do
-  if curl -sf -X PUT "$BASE/api/v1/workflow" \
+  if curl -sf --max-time 35 -X PUT "$BASE/api/v1/workflow" \
     -H 'content-type: application/json' \
     -d '{"steamSettings":{"duration":47},"hotWaterData":{"volume":121},"rinseData":{"flow":3.25}}' \
     >/dev/null; then
@@ -116,12 +116,12 @@ for attempt in $(seq 1 20); do
 done
 test "$final_ok" = true
 
-curl -sf "$BASE/api/v1/workflow" | jq -e '
+curl -sf --max-time 2 "$BASE/api/v1/workflow" | jq -e '
   .steamSettings.duration == 47 and
   .hotWaterData.volume == 121 and
   .rinseData.flow == 3.25'
-curl -sf "$BASE/api/v1/machine/state" | jq -e '.state.state == "idle"'
-curl -sf "$BASE/api/v1/devices" \
+curl -sf --max-time 2 "$BASE/api/v1/machine/state" | jq -e '.state.state == "idle"'
+curl -sf --max-time 2 "$BASE/api/v1/devices" \
   | jq -e '.[] | select(.name == "MockDe1" and .state == "connected")'
 ```
 
