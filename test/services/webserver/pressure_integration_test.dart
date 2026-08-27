@@ -85,6 +85,7 @@ void main() {
       release.complete();
       await activeWrite;
       expect((await mutation).statusCode, 200);
+      expect(de1Controller.pendingDeviceWriteCount, 0);
       final admitted = await handler(_request('GET', '/api/v1/info'));
       expect(admitted.statusCode, 200);
       expect(gate.activeCount, 0);
