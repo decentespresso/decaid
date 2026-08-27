@@ -80,6 +80,7 @@ test "$WS_BASELINE" -gt 0
   done
   wait
 )
+kill -0 "$WS_PID"
 test "$(wc -l < /tmp/decaid-pressure-snapshot.jsonl)" -gt "$WS_BASELINE"
 ```
 
