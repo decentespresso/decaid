@@ -73,8 +73,8 @@ class SteamsHandler {
     try {
       final body = await readBoundedRequestBodyString(
         req,
-        maxBytes: recordRequestBodyBytes,
-        timeout: recordRequestBodyTimeout,
+        maxBytes: largeRequestBodyBytes,
+        timeout: largeRequestBodyTimeout,
       );
       final json = jsonDecode(body) as Map<String, dynamic>;
 

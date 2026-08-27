@@ -14,7 +14,7 @@ import 'package:reaprime/src/services/firmware/firmware_validator.dart';
 import 'package:reaprime/src/services/webserver/bounded_request_body.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
-const _maxRawFirmwareBodyBytes = 16 * 1024 * 1024;
+const _maxRawFirmwareBodyBytes = 1024 * 1024;
 const _rawFirmwareBodyReadTimeout = Duration(seconds: 60);
 const _maxManagedFirmwareBodyBytes = 64 * 1024;
 const _managedFirmwareBodyReadTimeout = Duration(seconds: 10);
@@ -133,7 +133,7 @@ class FirmwareHandler {
           error.statusCode == 413
               ? {
                   'error': 'payload_too_large',
-                  'message': 'Firmware image exceeds the 16 MiB limit',
+                  'message': 'Firmware image exceeds the 1 MiB limit',
                 }
               : {
                   'error': 'request_timeout',

@@ -114,12 +114,36 @@ void main() {
       expect(response.statusCode, 413);
     });
 
-    test('accepts a profile-sized body under the record limit', () async {
+    test(
+      'accepts a profile-sized body under the ordinary JSON limit',
+      () async {
+        final handler = requestBodyReadMiddleware()((request) async {
+          await readBoundedRequestBodyString(
+            request,
+            maxBytes: largeRequestBodyBytes,
+            timeout: largeRequestBodyTimeout,
+          );
+          return Response.ok('accepted');
+        });
+
+        final response = await handler(
+          Request(
+            'POST',
+            Uri.parse('http://localhost/test'),
+            body: 'x' * (smallRequestBodyBytes + 1),
+          ),
+        );
+
+        expect(response.statusCode, 200);
+      },
+    );
+
+    test('maps an oversized ordinary JSON body to 413', () async {
       final handler = requestBodyReadMiddleware()((request) async {
         await readBoundedRequestBodyString(
           request,
-          maxBytes: recordRequestBodyBytes,
-          timeout: recordRequestBodyTimeout,
+          maxBytes: largeRequestBodyBytes,
+          timeout: largeRequestBodyTimeout,
         );
         return Response.ok('accepted');
       });
@@ -128,11 +152,11 @@ void main() {
         Request(
           'POST',
           Uri.parse('http://localhost/test'),
-          body: 'x' * (smallRequestBodyBytes + 1),
+          body: 'x' * (largeRequestBodyBytes + 1),
         ),
       );
 
-      expect(response.statusCode, 200);
+      expect(response.statusCode, 413);
     });
 
     test('maps a missed body deadline to 408 without sleeping', () async {

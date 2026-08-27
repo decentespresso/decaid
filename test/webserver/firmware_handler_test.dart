@@ -143,6 +143,22 @@ void main() {
     expect(response.statusCode, 413);
   });
 
+  test('raw upload caps buffered firmware at 1 MiB', () async {
+    final response = await handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/v1/machine/firmware'),
+        headers: {
+          'content-type': 'application/octet-stream',
+          'content-length': '${1024 * 1024 + 1}',
+        },
+        body: Stream<List<int>>.error(StateError('body must not be read')),
+      ),
+    );
+
+    expect(response.statusCode, 413);
+  });
+
   test('raw upload rejects a streamed body crossing the limit', () async {
     final limited = _firmwareHandler(maxRawBodyBytes: 4);
     final response = await limited(
@@ -542,7 +558,7 @@ void main() {
 }
 
 Handler _firmwareHandler({
-  int maxRawBodyBytes = 16 * 1024 * 1024,
+  int maxRawBodyBytes = 1024 * 1024,
   Duration rawBodyReadTimeout = const Duration(seconds: 1),
   int maxManagedBodyBytes = 64 * 1024,
   Duration managedBodyReadTimeout = const Duration(seconds: 1),

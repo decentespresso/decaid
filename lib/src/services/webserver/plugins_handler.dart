@@ -241,8 +241,8 @@ final class PluginsHandler {
           jsonDecode(
                 await readBoundedRequestBodyString(
                   request,
-                  maxBytes: recordRequestBodyBytes,
-                  timeout: recordRequestBodyTimeout,
+                  maxBytes: largeRequestBodyBytes,
+                  timeout: largeRequestBodyTimeout,
                 ),
               )
               as Map<String, dynamic>;
@@ -450,8 +450,8 @@ final class PluginsHandler {
     return _extractPluginId(req, (req, id) async {
       final body = await readBoundedRequestBodyString(
         req,
-        maxBytes: recordRequestBodyBytes,
-        timeout: recordRequestBodyTimeout,
+        maxBytes: largeRequestBodyBytes,
+        timeout: largeRequestBodyTimeout,
       );
       final json = await jsonDecode(body);
       try {

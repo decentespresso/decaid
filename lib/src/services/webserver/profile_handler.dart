@@ -102,8 +102,8 @@ class ProfileHandler {
     try {
       final body = await readBoundedRequestBodyString(
         request,
-        maxBytes: recordRequestBodyBytes,
-        timeout: recordRequestBodyTimeout,
+        maxBytes: largeRequestBodyBytes,
+        timeout: largeRequestBodyTimeout,
       );
       final json = jsonDecode(body) as Map<String, dynamic>;
 
@@ -142,8 +142,8 @@ class ProfileHandler {
     try {
       final body = await readBoundedRequestBodyString(
         request,
-        maxBytes: recordRequestBodyBytes,
-        timeout: recordRequestBodyTimeout,
+        maxBytes: largeRequestBodyBytes,
+        timeout: largeRequestBodyTimeout,
       );
       final json = jsonDecode(body) as Map<String, dynamic>;
 
@@ -247,8 +247,8 @@ class ProfileHandler {
     try {
       final body = await readBoundedRequestBodyString(
         request,
-        maxBytes: recordRequestBodyBytes,
-        timeout: recordRequestBodyTimeout,
+        maxBytes: largeRequestBodyBytes,
+        timeout: largeRequestBodyTimeout,
       );
       final json = jsonDecode(body);
 

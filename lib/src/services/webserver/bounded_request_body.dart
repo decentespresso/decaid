@@ -8,10 +8,8 @@ import 'json_response.dart';
 
 const smallRequestBodyBytes = 64 * 1024;
 const largeRequestBodyBytes = 1024 * 1024;
-const recordRequestBodyBytes = 64 * 1024 * 1024;
 const smallRequestBodyTimeout = Duration(seconds: 10);
 const largeRequestBodyTimeout = Duration(seconds: 30);
-const recordRequestBodyTimeout = Duration(seconds: 60);
 
 final class RequestBodyReadException implements Exception {
   final int statusCode;

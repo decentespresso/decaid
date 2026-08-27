@@ -57,8 +57,8 @@ class AccountProxyHandler {
     final callerId = proxyCallerOf(request)?.id ?? 'unknown';
     final bodyBytes = await readBoundedRequestBody(
       request,
-      maxBytes: recordRequestBodyBytes,
-      timeout: recordRequestBodyTimeout,
+      maxBytes: largeRequestBodyBytes,
+      timeout: largeRequestBodyTimeout,
     );
     final contentType = request.headers['content-type'];
 

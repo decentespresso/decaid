@@ -25,9 +25,6 @@ x-buffered-request-bodies:
     ordinary:
       maxBytes: 1048576
       timeoutSeconds: 30
-    record:
-      maxBytes: 67108864
-      timeoutSeconds: 60
 servers:
   - url: http://{tablet-ip}:8080
     variables:
@@ -949,7 +946,7 @@ paths:
       summary: Push raw firmware to the machine (developer/recovery)
       description: |
         Send a raw firmware file to the machine. Returns an NDJSON progress
-        stream. The body is limited to 16 MiB and must arrive within 60 seconds.
+        stream. The body is limited to 1 MiB and must arrive within 60 seconds.
         Rejects an empty body with 400, a stalled body with 408, and an oversized
         body with 413. Returns 409 if an update is already in progress. Returns
         503 if no machine is connected or the machine write queue is full.
@@ -973,7 +970,7 @@ paths:
             schema:
               type: string
               format: binary
-              maxLength: 16777216
+              maxLength: 1048576
       responses:
         "200":
           description: NDJSON progress stream (see FirmwareProgressEvent)
@@ -988,7 +985,7 @@ paths:
         "409":
           description: Firmware update already in progress
         "413":
-          description: Request body exceeds 16 MiB
+          description: Request body exceeds 1 MiB
         "503":
           description: No machine connected or machine write queue full
     delete:

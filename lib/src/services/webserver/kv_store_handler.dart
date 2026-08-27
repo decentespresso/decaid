@@ -39,8 +39,8 @@ final class KvStoreHandler {
       final key = req.params['key'];
       final value = await readBoundedRequestBodyString(
         req,
-        maxBytes: recordRequestBodyBytes,
-        timeout: recordRequestBodyTimeout,
+        maxBytes: largeRequestBodyBytes,
+        timeout: largeRequestBodyTimeout,
       );
       final maybeJson = jsonDecode(value);
       if (namespace == null || key == null) {
