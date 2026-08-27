@@ -106,14 +106,15 @@ admission rejection, then prove all three fields reached the workflow.
 ```bash
 final_ok=false
 for attempt in $(seq 1 20); do
-  if curl -sf --max-time 35 -X PUT "$BASE/api/v1/workflow" \
+  code=$(curl -s --max-time 35 -o /dev/null -w '%{http_code}' \
+    -X PUT "$BASE/api/v1/workflow" \
     -H 'content-type: application/json' \
-    -d '{"steamSettings":{"duration":47},"hotWaterData":{"volume":121},"rinseData":{"flow":3.25}}' \
-    >/dev/null; then
-    final_ok=true
-    break
-  fi
-  sleep 1
+    -d '{"steamSettings":{"duration":47},"hotWaterData":{"volume":121},"rinseData":{"flow":3.25}}')
+  case "$code" in
+    200) final_ok=true; break ;;
+    429|503) sleep 1 ;;
+    *) printf 'unexpected final mutation status: %s\n' "$code" >&2; exit 1 ;;
+  esac
 done
 test "$final_ok" = true
 
