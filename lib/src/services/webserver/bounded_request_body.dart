@@ -84,5 +84,5 @@ Future<String> readBoundedRequestBodyString(
     maxBytes: maxBytes,
     timeout: timeout,
   );
-  return utf8.decode(bytes);
+  return (request.encoding ?? utf8).decode(bytes);
 }

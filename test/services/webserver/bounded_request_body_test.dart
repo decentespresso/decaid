@@ -79,6 +79,17 @@ void main() {
 
       expect(await readBoundedRequestBodyString(request, maxBytes: 3), 'foo');
     });
+
+    test('uses the request charset', () async {
+      final request = Request(
+        'POST',
+        Uri.parse('http://localhost/test'),
+        headers: {'content-type': 'text/plain; charset=iso-8859-1'},
+        body: const [0xe9],
+      );
+
+      expect(await readBoundedRequestBodyString(request, maxBytes: 1), 'é');
+    });
   });
 
   group('requestBodyReadMiddleware', () {
