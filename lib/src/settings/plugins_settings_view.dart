@@ -5,10 +5,12 @@ import 'package:logging/logging.dart';
 import 'package:saf_stream/saf_stream.dart';
 import 'package:saf_util/saf_util.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
+import 'package:reaprime/src/account/account_page.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'package:reaprime/src/plugins/plugin_source.dart';
 import 'package:reaprime/src/plugins/plugin_source_service.dart';
+import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/security_scoped_file.dart';
 
 const _maxPluginSafDepth = 32;
@@ -98,6 +100,7 @@ class PluginsSettingsView extends StatefulWidget {
     super.key,
     required this.pluginLoaderService,
     this.pluginSourceService,
+    this.decentAccountService,
     this.allowInstall = true,
   });
 
@@ -105,6 +108,7 @@ class PluginsSettingsView extends StatefulWidget {
 
   final PluginLoaderService pluginLoaderService;
   final PluginSourceService? pluginSourceService;
+  final DecentAccountService? decentAccountService;
   final bool allowInstall;
 
   @override
@@ -907,6 +911,13 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
       return;
     }
 
+    final usesDecentAccount =
+        manifest.permissions.contains(PluginPermissions.proxyDecentApi) ||
+        manifest.permissions.contains(PluginPermissions.proxyDecentApiWrite);
+    final accountStatus = usesDecentAccount
+        ? widget.decentAccountService?.isLoggedIn()
+        : null;
+
     final secureDrafts = <String, _SecureDraft>{
       for (final entry in settingsSchema.entries)
         if (entry.value is Map && entry.value['secure'] == true)
@@ -923,7 +934,14 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
       builder: (context) => StatefulBuilder(
         builder: (context, setState) {
           return AlertDialog(
-            title: Text('${manifest.name} Settings'),
+            title: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('${manifest.name} Settings'),
+                if (accountStatus != null)
+                  _buildDecentAccountStatus(accountStatus),
+              ],
+            ),
             content: SizedBox(
               width: double.maxFinite,
               child: ListView(
@@ -1149,6 +1167,80 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
           );
         },
       ),
+    );
+  }
+
+  Widget _buildDecentAccountStatus(Future<bool> status) {
+    return FutureBuilder<bool>(
+      future: status,
+      builder: (context, snapshot) {
+        final checking = snapshot.connectionState != ConnectionState.done;
+        final unavailable = snapshot.hasError;
+        final loggedIn = snapshot.data == true;
+        final label = checking
+            ? 'Checking account status'
+            : unavailable
+            ? 'Account status unavailable'
+            : loggedIn
+            ? 'Logged In'
+            : 'Not Logged In';
+
+        return Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Decent account',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  if (checking)
+                    const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  else
+                    Icon(
+                      unavailable
+                          ? LucideIcons.circleX
+                          : loggedIn
+                          ? LucideIcons.circleCheck
+                          : LucideIcons.circleX,
+                      size: 18,
+                      color: loggedIn ? Colors.green : Colors.red,
+                    ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ),
+                ],
+              ),
+              if (!checking && !unavailable && !loggedIn) ...[
+                const SizedBox(height: 8),
+                ShadButton.outline(
+                  onPressed: () => Navigator.of(
+                    context,
+                  ).popAndPushNamed(AccountPage.routeName),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(LucideIcons.settings, size: 16),
+                      SizedBox(width: 6),
+                      Text('Account settings'),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
     );
   }
 

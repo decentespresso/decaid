@@ -444,6 +444,7 @@ class _MyAppState extends State<MyApp> {
                     case PluginsSettingsView.routeName:
                       return PluginsSettingsView(
                         pluginLoaderService: widget.pluginLoaderService,
+                        decentAccountService: widget.decentAccountService,
                       );
                     case DeviceManagementPage.routeName:
                       return DeviceManagementPage(
