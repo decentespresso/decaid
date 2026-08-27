@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:reaprime/src/account/app_log_upload_section.dart';
 import 'package:reaprime/src/account/decent_login_form.dart';
 import 'package:reaprime/src/account/account_tokens_section.dart';
 import 'package:reaprime/src/controllers/account_tokens_controller.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
+import 'package:reaprime/src/services/app_log_upload_service.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 class AccountPage extends StatefulWidget {
@@ -10,18 +12,29 @@ class AccountPage extends StatefulWidget {
     super.key,
     required this.accountService,
     this.tokensController,
+    this.appLogUploadService,
   });
 
   static const routeName = '/account';
 
   final DecentAccountService accountService;
   final AccountTokensController? tokensController;
+  final AppLogUploadService? appLogUploadService;
 
   @override
   State<AccountPage> createState() => _AccountPageState();
 }
 
 class _AccountPageState extends State<AccountPage> {
+  Widget _appLogUploadCard(AppLogUploadService service) {
+    return ShadCard(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: AppLogUploadSection(service: service),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -77,8 +90,14 @@ class _AccountPageState extends State<AccountPage> {
                                 const SizedBox(height: 16),
                                 ShadButton.destructive(
                                   onPressed: () async {
-                                    await widget.accountService.logout();
-                                    setState(() {});
+                                    final uploadService =
+                                        widget.appLogUploadService;
+                                    await Future.wait<void>([
+                                      widget.accountService.logout(),
+                                      if (uploadService != null)
+                                        uploadService.setEnabled(false),
+                                    ]);
+                                    if (mounted) setState(() {});
                                   },
                                   child: const Text('Unlink Account'),
                                 ),
@@ -86,6 +105,10 @@ class _AccountPageState extends State<AccountPage> {
                             ),
                           ),
                         ),
+                        if (widget.appLogUploadService != null) ...[
+                          const SizedBox(height: 16),
+                          _appLogUploadCard(widget.appLogUploadService!),
+                        ],
                         if (widget.tokensController != null) ...[
                           const SizedBox(height: 16),
                           ShadCard(
@@ -103,7 +126,7 @@ class _AccountPageState extends State<AccountPage> {
                 );
               }
 
-              return ShadCard(
+              final loginCard = ShadCard(
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(
@@ -133,6 +156,22 @@ class _AccountPageState extends State<AccountPage> {
                     ],
                   ),
                 ),
+              );
+              final uploadService = widget.appLogUploadService;
+              if (uploadService == null) return loginCard;
+              return FutureBuilder<bool>(
+                future: widget.accountService.hasLinkedAccount(),
+                builder: (context, linkedSnapshot) {
+                  if (linkedSnapshot.data != true) return loginCard;
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      loginCard,
+                      const SizedBox(height: 16),
+                      _appLogUploadCard(uploadService),
+                    ],
+                  );
+                },
               );
             },
           ),

@@ -6,7 +6,9 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart' as http_testing;
 import 'package:reaprime/src/account/account_page.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
+import 'package:reaprime/src/services/app_log_upload_service.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class FakeCredentialStore implements CredentialStore {
   final Map<String, String> _values = {};
@@ -95,6 +97,144 @@ void main() {
 
     expect(find.text('Logged In'), findsOneWidget);
     expect(find.text('Link Your Account'), findsNothing);
+  });
+
+  testWidgets('linked users see app log upload controls', (tester) async {
+    final store = FakeCredentialStore();
+    await store.write(key: 'email', value: 'user@example.com');
+    await store.write(key: 'password', value: 'cryptpw_abc123');
+    final accountService = buildService(
+      store,
+      (_) async => http.Response('cryptpw_abc123', 200),
+    );
+    final uploadService = AppLogUploadService(
+      accountService: accountService,
+      logFilePath: 'unused',
+      machineIdentity: () => const AppLogMachineIdentity(
+        serialNumber: '12345',
+        firmwareVersion: '1337',
+      ),
+      initialDelay: const Duration(days: 1),
+    );
+    addTearDown(uploadService.dispose);
+
+    await tester.pumpWidget(
+      buildTestApp(
+        AccountPage(
+          accountService: accountService,
+          appLogUploadService: uploadService,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('Share app logs with Decent Support'), findsOneWidget);
+    expect(
+      find.text(
+        'Shares the previous 24 hours, then new logs hourly, with this machine serial',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<ShadSwitch>(find.byKey(const Key('app-log-upload-toggle')))
+          .value,
+      isFalse,
+    );
+    expect(
+      tester
+          .widget<ShadButton>(find.byKey(const Key('app-log-upload-now')))
+          .enabled,
+      isFalse,
+    );
+    uploadService.dispose();
+  });
+
+  testWidgets('linked users can disable log sharing while offline', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = FakeCredentialStore();
+    await store.write(key: 'email', value: 'user@example.com');
+    await store.write(key: 'password', value: 'cryptpw_abc123');
+    final accountService = buildService(
+      store,
+      (_) async => throw http.ClientException('offline'),
+    );
+    final uploadService = AppLogUploadService(
+      accountService: accountService,
+      logFilePath: 'unused',
+      machineIdentity: () => const AppLogMachineIdentity(
+        serialNumber: '12345',
+        firmwareVersion: '1337',
+      ),
+      initialDelay: const Duration(days: 1),
+    );
+    addTearDown(uploadService.dispose);
+    await uploadService.initialize();
+    await uploadService.setEnabled(true);
+
+    await tester.pumpWidget(
+      buildTestApp(
+        AccountPage(
+          accountService: accountService,
+          appLogUploadService: uploadService,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Link Your Account'), findsOneWidget);
+    expect(find.text('Share app logs with Decent Support'), findsOneWidget);
+    expect(
+      tester
+          .widget<ShadSwitch>(find.byKey(const Key('app-log-upload-toggle')))
+          .value,
+      isTrue,
+    );
+    await tester.tap(find.byKey(const Key('app-log-upload-toggle')));
+    await tester.pump();
+    expect(uploadService.enabled, isFalse);
+  });
+
+  testWidgets('unlinking disables app log sharing', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final store = FakeCredentialStore();
+    await store.write(key: 'email', value: 'user@example.com');
+    await store.write(key: 'password', value: 'cryptpw_abc123');
+    final accountService = buildService(
+      store,
+      (_) async => http.Response('cryptpw_abc123', 200),
+    );
+    final uploadService = AppLogUploadService(
+      accountService: accountService,
+      logFilePath: 'unused',
+      machineIdentity: () => const AppLogMachineIdentity(
+        serialNumber: '12345',
+        firmwareVersion: '1337',
+      ),
+      initialDelay: const Duration(days: 1),
+    );
+    addTearDown(uploadService.dispose);
+    await uploadService.initialize();
+    await uploadService.setEnabled(true);
+
+    await tester.pumpWidget(
+      buildTestApp(
+        AccountPage(
+          accountService: accountService,
+          appLogUploadService: uploadService,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Unlink Account'));
+    await tester.pumpAndSettle();
+
+    expect(uploadService.enabled, isFalse);
+    expect(await store.read(key: 'email'), isNull);
+    expect(find.text('Link Your Account'), findsOneWidget);
   });
 
   testWidgets('parent rebuilds during an outage do not hammer the backend', (

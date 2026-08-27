@@ -178,6 +178,39 @@ class DecentAccountService {
     return list.contains(serial);
   }
 
+  Future<http.Response> uploadAppLogs(
+    String body, {
+    required bool Function() isAllowed,
+  }) async {
+    final generation = _authGeneration;
+    if (await isAuthKnownInvalid()) {
+      throw StateError('account authentication rejected');
+    }
+    final email = await _store.read(key: 'email');
+    final password = await _store.read(key: 'password');
+    if (email == null || password == null) {
+      throw StateError('not logged in');
+    }
+    if (generation != _authGeneration || !isAllowed()) {
+      throw StateError('upload cancelled');
+    }
+    final basic = base64Encode(
+      utf8.encode('${email.trim()}:${password.trim()}'),
+    );
+    final response = await _httpClient.post(
+      Uri.parse('$baseUrl/support/api/applog_upload'),
+      headers: {
+        'authorization': 'Basic $basic',
+        'content-type': 'application/json; charset=utf-8',
+      },
+      body: body,
+    );
+    if (response.statusCode == 401 && generation == _authGeneration) {
+      reportAuthenticationFailure();
+    }
+    return response;
+  }
+
   Future<void> emailSerialMismatch(String serial) async {
     final email = await _store.read(key: 'email');
     final password = await _store.read(key: 'password');
