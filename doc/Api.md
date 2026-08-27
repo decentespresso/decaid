@@ -95,11 +95,11 @@ For browser clients on a different origin, `ETag` is exposed via `Access-Control
 
 The catalog endpoint is available offline and without a connected machine. It returns bundled artifact metadata, compatibility and version eligibility, the recommended artifact, tri-state `updateAvailable`, and the shared machine operation state. The bundled Phase 1 artifact is official DE1 firmware build 1352 for `DE1Pro`, `DE1XL`, `DE1XXL`, and `DE1XXXL`.
 
-Managed apply accepts `{"artifactId":"de1-1352","force":false}` with a 64 KiB body limit and a 10-second body-read timeout. The complete image is checked against its manifest, SHA-256 digest, canonical DE1 header, and connected model before erase. `force` permits reinstall or downgrade, including when the installed build is unknown, but never bypasses integrity or model checks. The raw endpoint retains its developer/recovery role and accepts `application/octet-stream`, capped at 1 MiB with a 60-second body-read timeout.
+Managed apply accepts `{"artifactId":"de1-1352","force":false}` with a 64 KiB body limit and a 10-second body-read timeout. The complete image is checked against its manifest, SHA-256 digest, canonical DE1 header, and connected model before erase. `force` permits reinstall or downgrade, including when the installed build is unknown, but never bypasses integrity or model checks. The raw endpoint retains its developer/recovery role and accepts `application/octet-stream`, capped at 16 MiB with a 60-second body-read timeout.
 
 Raw and managed updates return `application/x-ndjson`. Events are ordered `erasing`, zero or more `uploading`, then `done`; failures after streaming starts terminate with `error`. Upload progress is emitted in approximately one-percent increments. The stream remains open during final machine verification, and `done` is sent only after the DE1 reports `FF FF FD`. Client disconnect and `DELETE` cancel a pending update before it starts or forward cancellation to an active update.
 
-Pre-stream responses are `400` for malformed input, `404` for an unknown artifact, `408` when a request body stalls, `409` for an active update, `413` when a raw upload exceeds 1 MiB or a managed request exceeds 64 KiB, `422` for validation or policy rejection, and `503` when apply requires a machine or the machine write queue is full. Idempotent cancellation returns `202` with `{"operation":{"state":"idle"}}` when no update remains active.
+Pre-stream responses are `400` for malformed input, `404` for an unknown artifact, `408` when a request body stalls, `409` for an active update, `413` when a raw upload exceeds 16 MiB or a managed request exceeds 64 KiB, `422` for validation or policy rejection, and `503` when apply requires a machine or the machine write queue is full. Idempotent cancellation returns `202` with `{"operation":{"state":"idle"}}` when no update remains active.
 
 ### Scale
 
@@ -443,7 +443,8 @@ returns an error and no partial ZIP.
 one selected entry at a time to a bounded temporary JSON file for incremental
 parsing. Every selected entry is structurally validated before the record-import
 pass begins. ZIP bombs, duplicate names, encrypted/unsupported entries, CRC
-failures, truncation, Zip64, and malformed JSON all fail safely.
+failures, truncation, Zip64, and malformed JSON all fail safely. A 30-second
+idle request body is cancelled with `408`.
 - **Sync** pulls stream the remote response into a temporary ZIP; pushes
 export locally and stream the file with a known content length.
 - **Native transfer** downloads the localhost export into a temporary file
@@ -454,8 +455,8 @@ picked files into the import request.
 Limits (documented in `assets/api/rest_v1.yml`): request body 2 GiB, entry
 count 4096, per-entry uncompressed 1 GiB, total uncompressed 2 GiB,
 metadata 64 KiB, per-record 64 MiB (measured in UTF-8 bytes), ZIP header
-fields 256 B/64 KiB/64 KiB; sync request body 1 MiB, target response
-8 MiB; connection 10 s (TCP establishment only — server-side
+fields 256 B/64 KiB/64 KiB; sync request body 1 MiB with a 30-second read
+deadline, target response 8 MiB; connection 10 s (TCP establishment only — server-side
 export/import processing is not counted against it), idle 30 s, and one
 deadline (10 min) per phase covering the network stages (upload/download
 and response). Timeouts abort the request at the transport level: a

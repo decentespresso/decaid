@@ -946,7 +946,7 @@ paths:
       summary: Push raw firmware to the machine (developer/recovery)
       description: |
         Send a raw firmware file to the machine. Returns an NDJSON progress
-        stream. The body is limited to 1 MiB and must arrive within 60 seconds.
+        stream. The body is limited to 16 MiB and must arrive within 60 seconds.
         Rejects an empty body with 400, a stalled body with 408, and an oversized
         body with 413. Returns 409 if an update is already in progress. Returns
         503 if no machine is connected or the machine write queue is full.
@@ -970,7 +970,7 @@ paths:
             schema:
               type: string
               format: binary
-              maxLength: 1048576
+              maxLength: 16777216
       responses:
         "200":
           description: NDJSON progress stream (see FirmwareProgressEvent)
@@ -985,7 +985,7 @@ paths:
         "409":
           description: Firmware update already in progress
         "413":
-          description: Request body exceeds 1 MiB
+          description: Request body exceeds 16 MiB
         "503":
           description: No machine connected or machine write queue full
     delete:
@@ -4572,7 +4572,8 @@ paths:
         is not rolled back when another section fails.
 
         The request body is streamed into a temporary file; the whole archive
-        is never buffered in memory. Imports are bounded by the following
+        is never buffered in memory. If no body bytes arrive for 30 seconds,
+        the request is cancelled with 408. Imports are bounded by the following
         limits (exceeding any of them returns 400 with `Invalid backup
         archive`):
 
@@ -4656,6 +4657,8 @@ paths:
                     type: string
                   message:
                     type: string
+        "408":
+          description: Import request body stopped arriving for 30 seconds
         "500":
           description: Internal server error
   /api/v1/data/sync:
@@ -4679,8 +4682,9 @@ paths:
 
         Pull responses are streamed to a temporary ZIP before import; push
         requests stream a locally built temporary ZIP with a known content
-        length. The sync request body is limited to 1 MiB, and target
-        responses to 8 MiB. Transfers apply a connection timeout (10 s,
+        length. The sync request body is limited to 1 MiB and must arrive
+        within 30 seconds; target responses are limited to 8 MiB. Transfers
+        apply a connection timeout (10 s,
         connect establishment only), an idle timeout (30 s between stream
         events), and one deadline (10 min) per phase covering the network
         stages (upload/download and response). Timeouts abort the request
@@ -4770,6 +4774,10 @@ paths:
                     type: string
                   message:
                     type: string
+        "408":
+          description: Sync request body was not received within 30 seconds
+        "413":
+          description: Sync request body exceeds 1 MiB
         "502":
           description: Unsuccessful single-direction synchronization or two-way synchronization with no complete or partial phase
           content:

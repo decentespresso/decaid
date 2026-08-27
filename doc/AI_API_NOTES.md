@@ -38,7 +38,7 @@ globally, 32 open and 32 upgrades per second per client, and 256 tracked clients
 Every registered WebSocket uses it. A socket holds its slot until the channel sink
 finishes; rejected upgrades use the same `429`/`503` and `Retry-After: 1` contract.
 
-The raw firmware upload buffers at most 1 MiB and cancels body reading after 60
+The raw firmware upload buffers at most 16 MiB and cancels body reading after 60
 seconds. It returns `413` for either a declared or streamed overrun and `408` for a
 stalled body. Workflow PUT retains its smaller semantic bounds.
 
@@ -189,7 +189,9 @@ of records and one JSON record, never with backup size. Rationale and traps:
   for tests: request body 2 GiB, entry count 4096, per-entry uncompressed
   1 GiB, total uncompressed 2 GiB, metadata 64 KiB, per-record 64 MiB, ZIP
   header fields 256 B/64 KiB/64 KiB, sync request 1 MiB, target response
-  8 MiB; timeouts 10 s connection (TCP establishment only) / 30 s idle /
+  8 MiB; import request bodies have a 30 s idle timeout and sync command bodies
+  have a 30 s read deadline; transfer timeouts are 10 s connection (TCP
+  establishment only) / 30 s idle /
   10 min deadline per phase covering the NETWORK stages only (upload/
   download + response); local export and the pull-side import run to
   completion and report their actual results. Timeouts abort the request
