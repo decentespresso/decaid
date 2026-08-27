@@ -38,7 +38,7 @@ globally, 32 open and 32 upgrades per second per client, and 256 tracked clients
 Every registered WebSocket uses it. A socket holds its slot until the channel sink
 finishes; rejected upgrades use the same `429`/`503` and `Retry-After: 1` contract.
 
-The raw firmware upload buffers at most 16 MiB and cancels body reading after 60
+The raw firmware upload buffers at most 1 MiB and cancels body reading after 60
 seconds. It returns `413` for either a declared or streamed overrun and `408` for a
 stalled body. Workflow PUT retains its smaller semantic bounds.
 

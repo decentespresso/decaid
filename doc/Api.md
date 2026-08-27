@@ -99,7 +99,7 @@ Managed apply accepts `{"artifactId":"de1-1352","force":false}` with a 64 KiB bo
 
 Raw and managed updates return `application/x-ndjson`. Events are ordered `erasing`, zero or more `uploading`, then `done`; failures after streaming starts terminate with `error`. Upload progress is emitted in approximately one-percent increments. The stream remains open during final machine verification, and `done` is sent only after the DE1 reports `FF FF FD`. Client disconnect and `DELETE` cancel a pending update before it starts or forward cancellation to an active update.
 
-Pre-stream responses are `400` for malformed input, `404` for an unknown artifact, `408` when a request body stalls, `409` for an active update, `413` when a raw upload exceeds 1 MiB or a managed request exceeds 64 KiB, `422` for validation or policy rejection, and `503` when apply requires a machine or the DE1 write queue is full. Idempotent cancellation returns `202` with `{"operation":{"state":"idle"}}` when no update remains active.
+Pre-stream responses are `400` for malformed input, `404` for an unknown artifact, `408` when a request body stalls, `409` for an active update, `413` when a raw upload exceeds 1 MiB or a managed request exceeds 64 KiB, `422` for validation or policy rejection, and `503` when apply requires a machine or the machine write queue is full. Idempotent cancellation returns `202` with `{"operation":{"state":"idle"}}` when no update remains active.
 
 ### Scale
 

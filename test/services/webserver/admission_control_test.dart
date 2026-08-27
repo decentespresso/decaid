@@ -60,6 +60,20 @@ void main() {
       expect(global.acquire('b'), AdmissionDecision.globalLimit);
     });
 
+    test('resets the global accepted-request rate after one second', () {
+      var now = 0;
+      final gate = _gate(globalRate: 2, perClientRate: 10, nowMs: () => now);
+
+      expect(gate.acquire('a'), AdmissionDecision.accepted);
+      gate.release('a');
+      expect(gate.acquire('b'), AdmissionDecision.accepted);
+      gate.release('b');
+      expect(gate.acquire('c'), AdmissionDecision.globalLimit);
+
+      now = 1000;
+      expect(gate.acquire('c'), AdmissionDecision.accepted);
+    });
+
     test('bounds clients and removes expired inactive entries', () {
       var now = 0;
       final gate = _gate(maxTrackedClients: 2, nowMs: () => now);

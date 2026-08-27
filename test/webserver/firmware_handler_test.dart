@@ -95,23 +95,22 @@ final class _BlockingFirmwareBundle extends CachingAssetBundle {
   }
 }
 
-late _FixedController _controller;
-
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late Handler handler;
+  late _FixedController controller;
 
   setUp(() async {
     final devices = DeviceController([MockDeviceDiscoveryService()]);
     await devices.initialize();
-    _controller = _FixedController(
+    controller = _FixedController(
       controller: devices,
       machine: _FirmwareDe1(version: '1358'),
     );
     final app = Router().plus;
     FirmwareHandler(
-      controller: _controller,
+      controller: controller,
       catalog: BundledFirmwareCatalog(bundle: rootBundle),
     ).addRoutes(app);
     handler = app.call;
@@ -121,13 +120,13 @@ void main() {
     final empty = await _raw(handler, const []);
     expect(empty.statusCode, 400);
 
-    _controller.machine = null;
+    controller.machine = null;
     final unavailable = await _raw(handler, const [1]);
     expect(unavailable.statusCode, 503);
   });
 
   test('raw upload rejects a declared body over the limit', () async {
-    final limited = _firmwareHandler(maxRawBodyBytes: 4);
+    final limited = _firmwareHandler(controller, maxRawBodyBytes: 4);
     final response = await limited(
       Request(
         'POST',
@@ -160,7 +159,7 @@ void main() {
   });
 
   test('raw upload rejects a streamed body crossing the limit', () async {
-    final limited = _firmwareHandler(maxRawBodyBytes: 4);
+    final limited = _firmwareHandler(controller, maxRawBodyBytes: 4);
     final response = await limited(
       Request(
         'POST',
@@ -182,6 +181,7 @@ void main() {
     body.onCancel = () => cancelled = true;
     addTearDown(body.close);
     final limited = _firmwareHandler(
+      controller,
       maxRawBodyBytes: 4,
       rawBodyReadTimeout: const Duration(milliseconds: 1),
     );
@@ -200,7 +200,7 @@ void main() {
   });
 
   test('managed apply rejects a declared body over the limit', () async {
-    final limited = _firmwareHandler(maxManagedBodyBytes: 4);
+    final limited = _firmwareHandler(controller, maxManagedBodyBytes: 4);
     final response = await limited(
       Request(
         'POST',
@@ -214,7 +214,7 @@ void main() {
   });
 
   test('managed apply rejects a streamed body crossing the limit', () async {
-    final limited = _firmwareHandler(maxManagedBodyBytes: 4);
+    final limited = _firmwareHandler(controller, maxManagedBodyBytes: 4);
     final response = await limited(
       Request(
         'POST',
@@ -236,6 +236,7 @@ void main() {
     body.onCancel = () => cancelled = true;
     addTearDown(body.close);
     final limited = _firmwareHandler(
+      controller,
       maxManagedBodyBytes: 4,
       managedBodyReadTimeout: const Duration(milliseconds: 1),
     );
@@ -254,7 +255,7 @@ void main() {
   });
 
   test('raw upload returns pre-stream 409 while an update is active', () async {
-    _controller.machine = MockDe1();
+    controller.machine = MockDe1();
     final first = await _raw(handler, const [1]);
     expect(first.statusCode, 200);
 
@@ -377,7 +378,7 @@ void main() {
       firmwareVerificationTimeout: const Duration(seconds: 1),
     );
     await de1.onConnect();
-    _controller.machine = de1;
+    controller.machine = de1;
     transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
 
     final response = await _raw(handler, List.filled(16, 1));
@@ -407,7 +408,7 @@ void main() {
   });
 
   test('DELETE is idempotent without a machine', () async {
-    _controller.machine = null;
+    controller.machine = null;
     final response = await handler(
       Request('DELETE', Uri.parse('http://localhost/api/v1/machine/firmware')),
     );
@@ -437,7 +438,7 @@ void main() {
   });
 
   test('force allows apply when installed build is unknown', () async {
-    _controller.machine = _FirmwareDe1(version: 'unknown');
+    controller.machine = _FirmwareDe1(version: 'unknown');
     final response = await _apply(
       handler,
       jsonEncode({'artifactId': 'de1-1352', 'force': true}),
@@ -453,7 +454,7 @@ void main() {
 
   test('force cannot bypass bundled firmware model compatibility', () async {
     final bengle = _FirmwareDe1(version: '1351', model: 'Bengle');
-    _controller.machine = bengle;
+    controller.machine = bengle;
 
     final response = await _apply(
       handler,
@@ -503,7 +504,7 @@ void main() {
       firmwareVerificationTimeout: const Duration(milliseconds: 100),
     );
     await de1.onConnect();
-    _controller.machine = de1;
+    controller.machine = de1;
     transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
     transport.queueFirmwareMapResponse([0, 0, 0, 1, 0, 0, 1]);
 
@@ -528,7 +529,7 @@ void main() {
       firmwareVerificationTimeout: const Duration(milliseconds: 100),
     );
     await de1.onConnect();
-    _controller.machine = de1;
+    controller.machine = de1;
     transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
 
     final response = await _raw(handler, List.filled(16, 1));
@@ -557,7 +558,8 @@ void main() {
   });
 }
 
-Handler _firmwareHandler({
+Handler _firmwareHandler(
+  _FixedController controller, {
   int maxRawBodyBytes = 1024 * 1024,
   Duration rawBodyReadTimeout = const Duration(seconds: 1),
   int maxManagedBodyBytes = 64 * 1024,
@@ -565,7 +567,7 @@ Handler _firmwareHandler({
 }) {
   final app = Router().plus;
   FirmwareHandler(
-    controller: _controller,
+    controller: controller,
     catalog: BundledFirmwareCatalog(bundle: rootBundle),
     maxRawBodyBytes: maxRawBodyBytes,
     rawBodyReadTimeout: rawBodyReadTimeout,
