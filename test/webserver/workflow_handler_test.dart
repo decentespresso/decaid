@@ -424,6 +424,36 @@ void main() {
       await Future.wait([active, ...pending]);
     });
 
+    test('rejects a multi-group update before admitting any writes', () async {
+      await _settleHandler(spy);
+      spy.setSteamFlowCalls.clear();
+      spy.setFlushFlowCalls.clear();
+      final release = Completer<void>();
+      final started = Completer<void>();
+      final active = de1Controller.runDeviceWrite((_) async {
+        started.complete();
+        await release.future;
+      });
+      await started.future;
+      final pending = List.generate(
+        de1Controller.maxPendingDeviceWrites - 1,
+        (_) => de1Controller.runDeviceWrite((_) async {}),
+      );
+
+      final response = await put({
+        'rinseData': {'flow': 5.5},
+        'steamSettings': {'flow': 3.5},
+      });
+
+      expect(response.statusCode, 503);
+      expect(spy.setFlushFlowCalls, isEmpty);
+      expect(spy.setSteamFlowCalls, isEmpty);
+      release.complete();
+      await Future.wait([active, ...pending]);
+      expect(spy.setFlushFlowCalls, isEmpty);
+      expect(spy.setSteamFlowCalls, isEmpty);
+    });
+
     test('returns 409 when a pending DE1 setting is superseded', () async {
       await _settleHandler(spy);
       final release = Completer<void>();

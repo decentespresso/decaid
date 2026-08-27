@@ -376,4 +376,46 @@ void main() {
     expect(bengle.sawWrites, [42.0]);
     await bridge.dispose();
   });
+
+  test(
+    'reconnect replaces a saturated retry with the new generation',
+    () async {
+      await de1Controller.dispose();
+      de1Controller = De1Controller(
+        controller: deviceController,
+        maxPendingDeviceWrites: 0,
+      );
+      final first = _RecordingBengle();
+      await connectBengle(first);
+      final bridge = BengleSawBridge(
+        workflowController: workflow,
+        de1Controller: de1Controller,
+        debounce: _debounce,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      final started = Completer<void>();
+      final release = Completer<void>();
+      final active = de1Controller.runDeviceWrite((_) async {
+        started.complete();
+        await release.future;
+      });
+      final activeResult = expectLater(active, throwsA(isA<StateError>()));
+      await started.future;
+      final context =
+          workflow.currentWorkflow.context ?? const WorkflowContext();
+      workflow.updateWorkflow(context: context.copyWith(targetYield: 42.0));
+      await pumpDebounce();
+
+      final replacement = _RecordingBengle();
+      await connectBengle(replacement);
+      await pumpDebounce();
+      release.complete();
+      await activeResult;
+      await pumpDebounce();
+
+      expect(replacement.sawWrites, [42.0]);
+      await bridge.dispose();
+    },
+  );
 }

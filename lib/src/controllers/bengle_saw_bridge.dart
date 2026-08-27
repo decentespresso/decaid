@@ -65,6 +65,8 @@ class BengleSawBridge {
       if (_pushing) _restartAfterDrain = true;
       return;
     }
+    _retryTimer?.cancel();
+    _retryTimer = null;
     _debounceTimer?.cancel();
     _debounceTimer = null;
     _desired = _currentTargetYield();

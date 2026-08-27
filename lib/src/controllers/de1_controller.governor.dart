@@ -21,6 +21,21 @@ final class _PendingDe1Write<T> {
 }
 
 extension De1Governor on De1Controller {
+  void _ensureReplaceableDeviceWriteCapacity(Iterable<String> keys) {
+    final pendingKeys = _pendingDeviceWrites
+        .map((pending) => pending.coalescingKey)
+        .whereType<String>()
+        .toSet();
+    final requiredSlots = keys.toSet().difference(pendingKeys).length;
+    final availableSlots =
+        maxPendingDeviceWrites -
+        _pendingDeviceWrites.length +
+        (_activeDeviceWrite == null ? 1 : 0);
+    if (requiredSlots > availableSlots) {
+      throw De1WriteQueueFullException(maxPendingDeviceWrites);
+    }
+  }
+
   Future<T> _enqueueDeviceWrite<T>(
     Future<T> Function(De1Interface device) write, {
     required De1ReplayPolicy replayPolicy,

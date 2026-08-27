@@ -24,6 +24,7 @@ final class _GovernorTestDe1 extends TestDe1 {
   Completer<void>? firmwareStarted;
   Completer<void>? firmwareRelease;
   var firmwareCancelCalls = 0;
+  var userPresentCalls = 0;
 
   @override
   Future<void> setFlushFlow(double newFlow) async {
@@ -59,6 +60,11 @@ final class _GovernorTestDe1 extends TestDe1 {
   Future<void> cancelFirmwareUpload() async {
     firmwareCancelCalls++;
     firmwareRelease?.complete();
+  }
+
+  @override
+  Future<void> sendUserPresent() async {
+    userPresentCalls++;
   }
 }
 
@@ -142,6 +148,24 @@ void main() {
 
     expect(calls, ['active', 'next']);
     expect(controller.pendingDeviceWriteCount, 0);
+  });
+
+  test('user-present writes wait behind the active machine write', () async {
+    final release = Completer<void>();
+    final started = Completer<void>();
+    final active = controller.runDeviceWrite((_) async {
+      started.complete();
+      await release.future;
+    });
+    await started.future;
+
+    final presence = controller.sendUserPresent();
+    await Future<void>.delayed(Duration.zero);
+    expect(machine.userPresentCalls, 0);
+
+    release.complete();
+    await Future.wait([active, presence]);
+    expect(machine.userPresentCalls, 1);
   });
 
   test(

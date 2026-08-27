@@ -557,6 +557,11 @@ class De1Controller {
       volume: updated.hotWaterData.volume,
       duration: updated.hotWaterData.duration,
     );
+    _ensureReplaceableDeviceWriteCapacity([
+      if (rinseChanged) 'workflow.rinse',
+      if (steamChanged) 'workflow.steam',
+      if (hotWaterChanged) 'workflow.hotWater',
+    ]);
     await Future.wait([
       if (rinseChanged) updateFlushSettings(updated.rinseData),
       if (steamChanged) updateSteamSettings(steam),
@@ -681,12 +686,23 @@ class De1Controller {
     return runDeviceWrite((device) => device.requestState(state));
   }
 
-  Future<bool> requestShotStepSkip(bool Function() stillApplicable) {
+  Future<bool> requestMachineStateIf(
+    MachineState state,
+    bool Function() stillApplicable,
+  ) {
     return runDeviceWrite((device) async {
       if (!stillApplicable()) return false;
-      await device.requestState(MachineState.skipStep);
+      await device.requestState(state);
       return true;
     });
+  }
+
+  Future<void> sendUserPresent() {
+    return runDeviceWrite((device) => device.sendUserPresent());
+  }
+
+  Future<bool> requestShotStepSkip(bool Function() stillApplicable) {
+    return requestMachineStateIf(MachineState.skipStep, stillApplicable);
   }
 
   Future<void> updateFirmware(

@@ -33,6 +33,7 @@ class PresenceController {
   Timer? _pendingUserPresentTimer;
 
   Timer? _sleepTimer;
+  int _activityGeneration = 0;
 
   Timer? _scheduleTimer;
   Timer? _scheduleRetryTimer;
@@ -104,6 +105,7 @@ class PresenceController {
       return -1;
     }
 
+    _activityGeneration++;
     _sendPresenceThrottled();
 
     _resetSleepTimer();
@@ -121,6 +123,7 @@ class PresenceController {
     _scheduleRetryTimer?.cancel();
     _scheduleRetryTimer = null;
     _currentMachineState = null;
+    _activityGeneration++;
     _lastPresenceSent = null;
 
     _pendingUserPresent = false;
@@ -144,6 +147,10 @@ class PresenceController {
   void _onSnapshot(MachineSnapshot snapshot) {
     final newState = snapshot.state.state;
 
+    if (_isActiveState(newState) && newState != _currentMachineState) {
+      _activityGeneration++;
+    }
+
     if (_currentMachineState == MachineState.sleeping &&
         (newState == MachineState.idle || newState == MachineState.schedIdle)) {
       if (_pendingUserPresent) {
@@ -151,9 +158,7 @@ class PresenceController {
         _pendingUserPresentTimer?.cancel();
         _pendingUserPresentTimer = null;
         _lastPresenceSent = null;
-        _de1?.sendUserPresent().catchError((Object e) {
-          _log.warning('Failed to send deferred user present on wake', e);
-        });
+        unawaited(_sendUserPresent());
         _lastPresenceSent = _clock();
       }
     }
@@ -232,9 +237,17 @@ class PresenceController {
       return;
     }
 
-    _de1?.sendUserPresent().catchError((Object e) {
-      _log.warning('Failed to send user present', e);
-    });
+    unawaited(_sendUserPresent());
+  }
+
+  Future<void> _sendUserPresent() async {
+    try {
+      await _de1Controller.sendUserPresent();
+    } on De1WriteQueueFullException catch (e, st) {
+      _log.warning('User-present write dropped because queue is full', e, st);
+    } catch (e, st) {
+      _log.warning('Failed to send user present', e, st);
+    }
   }
 
   void _resetSleepTimer() {
@@ -278,8 +291,17 @@ class PresenceController {
 
   Future<void> _requestSleep() async {
     final de1 = _de1;
+    final activityGeneration = _activityGeneration;
     try {
-      await _de1Controller.requestMachineState(MachineState.sleeping);
+      await _de1Controller.requestMachineStateIf(MachineState.sleeping, () {
+        final state = _currentMachineState;
+        return identical(de1, _de1) &&
+            activityGeneration == _activityGeneration &&
+            _settingsController.userPresenceEnabled &&
+            state != null &&
+            _canSleepFromState(state) &&
+            _activeKeepAwakeOccurrence == null;
+      });
     } catch (e, st) {
       _log.warning('Failed to request sleep', e, st);
       final state = _currentMachineState;
@@ -471,8 +493,14 @@ class PresenceController {
   }
 
   Future<void> _requestScheduledWake(String scheduleId) async {
+    final de1 = _de1;
     try {
-      await _de1Controller.requestMachineState(MachineState.schedIdle);
+      await _de1Controller.requestMachineStateIf(
+        MachineState.schedIdle,
+        () =>
+            identical(de1, _de1) &&
+            _currentMachineState == MachineState.sleeping,
+      );
     } on De1WriteQueueFullException catch (e, st) {
       _log.warning('Failed to request schedIdle', e, st);
       _firedScheduleIds.remove(scheduleId);
