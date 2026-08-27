@@ -102,6 +102,22 @@ void main() {
     expect(gate.activeCount, 0);
   });
 
+  test('global accepted-request budget resets independently', () {
+    var now = 0;
+    final gate = _gate(globalRate: 2, perClientRate: 10, nowMs: () => now);
+
+    expect(gate.acquire('a'), AdmissionDecision.accepted);
+    gate.release('a');
+    expect(gate.acquire('b'), AdmissionDecision.accepted);
+    gate.release('b');
+    expect(gate.acquire('c'), AdmissionDecision.globalLimit);
+
+    now = 1000;
+    expect(gate.acquire('c'), AdmissionDecision.accepted);
+    gate.release('c');
+    expect(gate.activeCount, 0);
+  });
+
   test('WebSocket connection and handshake limits are exact', () async {
     var now = 0;
     final gate = _gate(
@@ -167,10 +183,21 @@ void main() {
       nowMs: () => now,
     );
     final rateConnected = StreamController<WebSocketChannel>.broadcast();
-    final rateHandler = admittedWebSocketHandler((channel, _) {
+    final rateAdmitted = admittedWebSocketHandler((channel, _) {
       channel.stream.listen((_) {});
       rateConnected.add(channel);
     }, gate: rateGate);
+    FutureOr<Response> rateHandler(Request request) {
+      final client = request.requestedUri.queryParameters['client'] ?? '1';
+      return rateAdmitted(
+        request.change(
+          context: {
+            'shelf.io.connection_info': _ConnectionInfo('10.0.1.$client'),
+          },
+        ),
+      );
+    }
+
     final rateServer = await shelf_io.serve(rateHandler, 'localhost', 0);
     addTearDown(() async {
       await rateConnected.close();
@@ -178,20 +205,29 @@ void main() {
     });
     final rateBase = 'ws://localhost:${rateServer.port}';
 
-    Future<(WebSocket, WebSocketChannel)> openRate() async {
+    Future<(WebSocket, WebSocketChannel)> openRate(String client) async {
       final serverSide = rateConnected.stream.first;
-      final socket = await WebSocket.connect(rateBase);
+      final socket = await WebSocket.connect('$rateBase?client=$client');
       return (socket, await serverSide);
     }
 
-    final rate1 = await openRate();
+    final rate1 = await openRate('1');
     await close(rate1);
-    final rate2 = await openRate();
+    final rate2 = await openRate('1');
     await close(rate2);
-    await _expectWebSocketRejection(rateBase, 429);
+    await _expectWebSocketRejection('$rateBase?client=1', 429);
     now = 1000;
-    final reset = await openRate();
+    final reset = await openRate('1');
     await close(reset);
+
+    final global2 = await openRate('2');
+    await close(global2);
+    final global3 = await openRate('3');
+    await close(global3);
+    await _expectWebSocketRejection('$rateBase?client=4', 503);
+    now = 2000;
+    final globalReset = await openRate('4');
+    await close(globalReset);
     expect(rateGate.activeCount, 0);
   });
 }
