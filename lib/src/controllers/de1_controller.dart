@@ -569,6 +569,17 @@ class De1Controller {
     _publishSteamFlow(newFlow);
   }
 
+  Future<int> extendSteamDuration(int seconds) {
+    return runDeviceWrite((device) async {
+      final settings = await _readShotSettings(device);
+      final duration = settings.targetSteamDuration + seconds;
+      await device.updateShotSettings(
+        settings.copyWith(targetSteamDuration: duration),
+      );
+      return duration;
+    });
+  }
+
   Future<void> setHotWaterFlow(double newFlow) async {
     await runDeviceWrite((device) => device.setHotWaterFlow(newFlow));
     _publishHotWaterFlow(newFlow);
@@ -668,6 +679,14 @@ class De1Controller {
       return connectedDe1().requestState(state);
     }
     return runDeviceWrite((device) => device.requestState(state));
+  }
+
+  Future<bool> requestShotStepSkip(bool Function() stillApplicable) {
+    return runDeviceWrite((device) async {
+      if (!stillApplicable()) return false;
+      await device.requestState(MachineState.skipStep);
+      return true;
+    });
   }
 
   Future<void> updateFirmware(

@@ -6,6 +6,7 @@ import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/machine.dart';
+import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/models/firmware_wake_window.dart';
 import 'package:reaprime/src/models/keep_awake_occurrence.dart';
 import 'package:reaprime/src/models/wake_schedule.dart';
@@ -34,6 +35,7 @@ class PresenceController {
   Timer? _sleepTimer;
 
   Timer? _scheduleTimer;
+  Timer? _scheduleRetryTimer;
 
   final Set<String> _firedScheduleIds = {};
   int? _lastCheckedMinute;
@@ -88,6 +90,8 @@ class PresenceController {
     _sleepTimer = null;
     _scheduleTimer?.cancel();
     _scheduleTimer = null;
+    _scheduleRetryTimer?.cancel();
+    _scheduleRetryTimer = null;
     _pendingUserPresent = false;
     _pendingUserPresentTimer?.cancel();
     _pendingUserPresentTimer = null;
@@ -114,6 +118,8 @@ class PresenceController {
     _snapshotSubscription = null;
     _sleepTimer?.cancel();
     _sleepTimer = null;
+    _scheduleRetryTimer?.cancel();
+    _scheduleRetryTimer = null;
     _currentMachineState = null;
     _lastPresenceSent = null;
 
@@ -266,11 +272,23 @@ class PresenceController {
     final state = _currentMachineState;
     if (state != null && _canSleepFromState(state)) {
       _log.info('Sleep timeout fired, putting machine to sleep');
-      _de1Controller.requestMachineState(MachineState.sleeping).catchError((
-        Object e,
-      ) {
-        _log.warning('Failed to request sleep', e);
-      });
+      unawaited(_requestSleep());
+    }
+  }
+
+  Future<void> _requestSleep() async {
+    final de1 = _de1;
+    try {
+      await _de1Controller.requestMachineState(MachineState.sleeping);
+    } catch (e, st) {
+      _log.warning('Failed to request sleep', e, st);
+      final state = _currentMachineState;
+      if (identical(de1, _de1) &&
+          _settingsController.userPresenceEnabled &&
+          state != null &&
+          _canSleepFromState(state)) {
+        _resetSleepTimer();
+      }
     }
   }
 
@@ -345,13 +363,17 @@ class PresenceController {
     final windows = enabled
         ? translateWakeSchedules(keepAwakeSchedulesFromJson(schedulesJson))
         : const <FirmwareWakeWindow>[];
-    final secondsSinceSunday = localSecondsSinceSunday(_clock());
-    await de1.setInactivitySleepTimeout(timeout);
-    await de1.pushFirmwareWakeSchedule(
-      secondsSinceSundayLocal: secondsSinceSunday,
-      windows: windows,
-    );
-    if (_de1 == de1) {
+    var pushed = false;
+    await _de1Controller.runDeviceWrite((device) async {
+      if (!identical(device, de1)) return;
+      await de1.setInactivitySleepTimeout(timeout);
+      await de1.pushFirmwareWakeSchedule(
+        secondsSinceSundayLocal: localSecondsSinceSunday(_clock()),
+        windows: windows,
+      );
+      pushed = true;
+    });
+    if (pushed && _de1 == de1) {
       _lastPushedDevice = de1;
       _lastPushedMasterEnabled = enabled;
       _lastPushedSleepTimeout = timeout;
@@ -439,16 +461,27 @@ class PresenceController {
             'Schedule ${schedule.id} matched at ${now.hour}:${now.minute}, waking machine',
           );
           _firedScheduleIds.add(schedule.id);
-          _de1Controller.requestMachineState(MachineState.schedIdle).catchError(
-            (Object e) {
-              _log.warning('Failed to request schedIdle', e);
-            },
-          );
+          unawaited(_requestScheduledWake(schedule.id));
           break;
         }
       }
     } catch (e) {
       _log.warning('Failed to parse wake schedules', e);
+    }
+  }
+
+  Future<void> _requestScheduledWake(String scheduleId) async {
+    try {
+      await _de1Controller.requestMachineState(MachineState.schedIdle);
+    } on De1WriteQueueFullException catch (e, st) {
+      _log.warning('Failed to request schedIdle', e, st);
+      _firedScheduleIds.remove(scheduleId);
+      _scheduleRetryTimer ??= Timer(_firmwareSyncRetryDelay, () {
+        _scheduleRetryTimer = null;
+        _checkSchedules();
+      });
+    } catch (e, st) {
+      _log.warning('Failed to request schedIdle', e, st);
     }
   }
 }

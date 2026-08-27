@@ -233,6 +233,9 @@ class _TestDe1Controller extends De1Controller {
 
   _TestDe1Controller({required super.controller});
 
+  int failNextStateRequests = 0;
+  int stateRequestAttempts = 0;
+
   @override
   Stream<De1Interface?> get de1 => _de1Subject.stream;
 
@@ -242,6 +245,11 @@ class _TestDe1Controller extends De1Controller {
 
   @override
   Future<void> requestMachineState(MachineState state) {
+    stateRequestAttempts++;
+    if (failNextStateRequests > 0) {
+      failNextStateRequests--;
+      return Future.error(const De1WriteQueueFullException(0));
+    }
     final de1 = _de1Subject.valueOrNull;
     if (de1 == null) throw const DeviceNotConnectedException.machine();
     return de1.requestState(state);
@@ -313,6 +321,36 @@ void main() {
   });
 
   group('sleep timeout', () {
+    test('queue saturation re-arms the sleep timer', () {
+      fakeAsync((async) {
+        settingsController.setSleepTimeoutMinutes(5);
+        async.flushMicrotasks();
+        de1Controller.failNextStateRequests = 1;
+
+        final controller = PresenceController(
+          de1Controller: de1Controller,
+          settingsController: settingsController,
+          clock: () => clock.now(),
+        );
+        controller.initialize();
+        de1Controller.setDe1(testDe1);
+        async.flushMicrotasks();
+        testDe1.emitState(MachineState.idle);
+        async.flushMicrotasks();
+
+        controller.heartbeat();
+        async.elapse(const Duration(minutes: 5, seconds: 1));
+        async.flushMicrotasks();
+        expect(testDe1.requestedStates, isEmpty);
+
+        async.elapse(const Duration(minutes: 5, seconds: 1));
+        async.flushMicrotasks();
+        expect(testDe1.requestedStates, [MachineState.sleeping]);
+        expect(de1Controller.stateRequestAttempts, 2);
+        controller.dispose();
+      });
+    });
+
     test(
       'heartbeat resets sleep timer - no sleep if heartbeat before timeout',
       () {
@@ -592,6 +630,45 @@ void main() {
   });
 
   group('scheduled wake', () {
+    test('queue saturation retries within the matching minute', () {
+      fakeAsync((async) {
+        settingsController.setWakeSchedules(
+          WakeSchedule.serializeList([
+            const WakeSchedule(
+              id: 'retry',
+              hour: 7,
+              minute: 0,
+              daysOfWeek: {},
+              enabled: true,
+            ),
+          ]),
+        );
+        async.flushMicrotasks();
+        de1Controller.failNextStateRequests = 1;
+
+        final controller = PresenceController(
+          de1Controller: de1Controller,
+          settingsController: settingsController,
+          clock: () => DateTime(2026, 1, 15, 7),
+        );
+        controller.initialize();
+        de1Controller.setDe1(testDe1);
+        async.flushMicrotasks();
+        testDe1.emitState(MachineState.sleeping);
+        async.flushMicrotasks();
+
+        async.elapse(const Duration(seconds: 31));
+        async.flushMicrotasks();
+        expect(testDe1.requestedStates, isEmpty);
+
+        async.elapse(const Duration(seconds: 2));
+        async.flushMicrotasks();
+        expect(testDe1.requestedStates, [MachineState.schedIdle]);
+        expect(de1Controller.stateRequestAttempts, 2);
+        controller.dispose();
+      });
+    });
+
     test('wakes sleeping machine at matching schedule time', () {
       fakeAsync((async) {
         final schedule = WakeSchedule(

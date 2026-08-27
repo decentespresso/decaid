@@ -50,6 +50,13 @@ class _TestDe1Controller extends De1Controller {
   Future<void> requestMachineState(MachineState state) {
     return testDe1.requestState(state);
   }
+
+  @override
+  Future<bool> requestShotStepSkip(bool Function() stillApplicable) async {
+    if (!stillApplicable()) return false;
+    await testDe1.requestState(MachineState.skipStep);
+    return true;
+  }
 }
 
 class _TestScaleController extends ScaleController {
@@ -365,6 +372,104 @@ void main() {
 
     expect(testDe1.requestedStates, contains(MachineState.skipStep));
     expect(sequencer.skippedSteps, [0]);
+  });
+
+  test('admitted step skip is dropped after the frame advances', () async {
+    final testDe1 = TestDe1();
+    final devices = DeviceController([_FakeDiscoveryService()]);
+    await devices.initialize();
+    final de1Controller = De1Controller(
+      controller: devices,
+      maxPendingDeviceWrites: 1,
+    );
+    await de1Controller.connectToDe1(testDe1);
+    testDe1.emitShotSettings(
+      De1ShotSettings(
+        steamSetting: 0,
+        targetSteamTemp: 150,
+        targetSteamDuration: 30,
+        targetHotWaterTemp: 75,
+        targetHotWaterVolume: 50,
+        targetHotWaterDuration: 30,
+        targetShotVolume: 36,
+        groupTemp: 94,
+      ),
+    );
+    await de1Controller.initSettled.firstWhere(
+      (generation) => generation != null,
+    );
+    addTearDown(de1Controller.dispose);
+
+    final testScale = TestScale();
+    final scaleController = _TestScaleController(testScale);
+    addTearDown(() {
+      scaleController.dispose();
+      testScale.dispose();
+    });
+    final persistenceController = PersistenceController(
+      storageService: _NullStorageService(),
+    );
+    addTearDown(persistenceController.dispose);
+    scaleController.emitWeight(0);
+    final sequencer = ShotSequencer(
+      scaleController: scaleController,
+      de1controller: de1Controller,
+      persistenceController: persistenceController,
+      targetProfile: _profileWithSteps([
+        _pressureStep(name: 'first', weight: 10),
+        _pressureStep(name: 'second', weight: 20),
+      ]),
+      targetYield: 200,
+      bypassSAW: false,
+      blockOnNoScale: false,
+      weightFlowMultiplier: 0,
+      volumeFlowMultiplier: 0,
+      stepExitArbiterEnabled: true,
+    );
+    addTearDown(sequencer.dispose);
+    final decisions = <ShotDecision>[];
+    final decisionSubscription = sequencer.decisions.listen(decisions.add);
+    addTearDown(decisionSubscription.cancel);
+    testDe1.emitStateAndSubstate(
+      MachineState.espresso,
+      MachineSubstate.preparingForShot,
+    );
+    testDe1.emitStateAndSubstate(
+      MachineState.espresso,
+      MachineSubstate.pouring,
+    );
+
+    final activeStarted = Completer<void>();
+    final activeRelease = Completer<void>();
+    final active = de1Controller.runDeviceWrite((_) async {
+      activeStarted.complete();
+      await activeRelease.future;
+    });
+    await activeStarted.future;
+
+    scaleController.emitWeight(12);
+    testDe1.emitSnapshot(
+      testDe1.snapshotSubject.value.copyWith(profileFrame: 0),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(de1Controller.pendingDeviceWriteCount, 1);
+
+    testDe1.emitSnapshot(
+      testDe1.snapshotSubject.value.copyWith(profileFrame: 1),
+    );
+    await Future<void>.delayed(Duration.zero);
+    activeRelease.complete();
+    await active;
+    await Future<void>.delayed(Duration.zero);
+
+    expect(testDe1.requestedStates, isNot(contains(MachineState.skipStep)));
+    expect(sequencer.skippedSteps, isEmpty);
+    expect(
+      decisions.where(
+        (decision) => decision.reason == ShotDecisionReason.profileSkip,
+      ),
+      isEmpty,
+    );
   });
 
   group('ShotSequencer — scale disconnect during shot', () {

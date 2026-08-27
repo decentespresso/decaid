@@ -603,10 +603,14 @@ class ShotSequencer {
 
     _pendingSkipSteps.add(profileFrame);
     de1controller
-        .requestMachineState(MachineState.skipStep)
+        .requestShotStepSkip(
+          () =>
+              _state == ShotState.pouring && _lastProfileFrame == profileFrame,
+        )
         .then(
-          (_) {
+          (skipped) {
             _pendingSkipSteps.remove(profileFrame);
+            if (!skipped) return;
             skippedSteps.add(profileFrame);
             _emitDecision(
               ShotDecisionKind.advance,

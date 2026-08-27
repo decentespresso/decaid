@@ -20,6 +20,7 @@ final class _GovernorTestDe1 extends TestDe1 {
   final List<double> flushFlows = [];
   final List<double> steamFlows = [];
   final List<String> events = [];
+  De1ShotSettings? writtenShotSettings;
   Completer<void>? firmwareStarted;
   Completer<void>? firmwareRelease;
   var firmwareCancelCalls = 0;
@@ -38,6 +39,11 @@ final class _GovernorTestDe1 extends TestDe1 {
   Future<void> requestState(MachineState newState) async {
     events.add(newState.name);
     await super.requestState(newState);
+  }
+
+  @override
+  Future<void> updateShotSettings(De1ShotSettings newSettings) async {
+    writtenShotSettings = newSettings;
   }
 
   @override
@@ -137,6 +143,35 @@ void main() {
     expect(calls, ['active', 'next']);
     expect(controller.pendingDeviceWriteCount, 0);
   });
+
+  test(
+    'steam extension reads and writes settings inside its queue turn',
+    () async {
+      final release = Completer<void>();
+      final started = Completer<void>();
+      final active = controller.runDeviceWrite((_) async {
+        started.complete();
+        await release.future;
+      });
+      await started.future;
+
+      final extension = controller.extendSteamDuration(10);
+      machine.emitShotSettings(
+        _shotSettings().copyWith(
+          targetSteamTemp: 160,
+          targetSteamDuration: 40,
+          targetHotWaterTemp: 82,
+        ),
+      );
+      release.complete();
+      await active;
+
+      expect(await extension, 50);
+      expect(machine.writtenShotSettings?.targetSteamDuration, 50);
+      expect(machine.writtenShotSettings?.targetSteamTemp, 160);
+      expect(machine.writtenShotSettings?.targetHotWaterTemp, 82);
+    },
+  );
 
   test(
     'coalesces pending rinse writes and applies only the final value',

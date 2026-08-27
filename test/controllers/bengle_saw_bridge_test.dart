@@ -339,4 +339,41 @@ void main() {
     expect(bengle.sawWrites, [0.0]);
     await bridge.dispose();
   });
+
+  test('queue saturation retries the current target', () async {
+    await de1Controller.dispose();
+    de1Controller = De1Controller(
+      controller: deviceController,
+      maxPendingDeviceWrites: 0,
+    );
+    final bengle = _RecordingBengle();
+    await connectBengle(bengle);
+    final bridge = BengleSawBridge(
+      workflowController: workflow,
+      de1Controller: de1Controller,
+      debounce: _debounce,
+    );
+    await Future<void>.delayed(Duration.zero);
+    bengle.sawWrites.clear();
+
+    final started = Completer<void>();
+    final release = Completer<void>();
+    final active = de1Controller.runDeviceWrite((_) async {
+      started.complete();
+      await release.future;
+    });
+    await started.future;
+
+    final context = workflow.currentWorkflow.context ?? const WorkflowContext();
+    workflow.updateWorkflow(context: context.copyWith(targetYield: 42.0));
+    await pumpDebounce();
+    expect(bengle.sawWrites, isEmpty);
+
+    release.complete();
+    await active;
+    await pumpDebounce();
+
+    expect(bengle.sawWrites, [42.0]);
+    await bridge.dispose();
+  });
 }

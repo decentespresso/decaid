@@ -111,20 +111,17 @@ class _RealtimeSteamFeatureState extends State<RealtimeSteamFeature> {
     }
   }
 
-  void _extendSteam() async {
-    if (_steamActive) {
-      setState(() {
-        _steamDuration += 10;
-      });
-
-      final currentSettings = await _de1Controller
-          .connectedDe1()
-          .shotSettings
-          .first;
-      await _de1Controller.runDeviceWrite(
-        (device) => device.updateShotSettings(
-          currentSettings.copyWith(targetSteamDuration: _steamDuration),
-        ),
+  Future<void> _extendSteam() async {
+    if (!_steamActive) return;
+    try {
+      final duration = await _de1Controller.extendSteamDuration(10);
+      if (!mounted) return;
+      setState(() => _steamDuration = duration);
+    } catch (e, st) {
+      _log.warning('Failed to extend steam duration', e, st);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to extend steam duration')),
       );
     }
   }

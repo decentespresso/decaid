@@ -26,6 +26,7 @@ class BengleSteamStopBridge {
 
   StreamSubscription<De1Interface?>? _de1Sub;
   Timer? _debounceTimer;
+  Timer? _retryTimer;
   double? _lastPushed;
   int? _lastPushedGeneration;
   double? _desired;
@@ -113,6 +114,14 @@ class BengleSteamStopBridge {
             _desiredGeneration = null;
           }
           _log.info('Stop-at-temperature target written: $celsius°C');
+        } on De1WriteQueueFullException catch (e, st) {
+          _log.warning('Steam-stop write queue full', e, st);
+          if (_isCurrent(machine, generation) &&
+              _desired == celsius &&
+              _desiredGeneration == generation) {
+            _scheduleRetry(celsius, generation);
+          }
+          return;
         } on DeviceNotConnectedException {
           _log.fine('Steam-stop write aborted — machine disconnected mid-call');
           if (!_isCurrent(machine, generation) ||
@@ -146,11 +155,26 @@ class BengleSteamStopBridge {
     }
   }
 
+  void _scheduleRetry(double celsius, int generation) {
+    if (_retryTimer != null) return;
+    _retryTimer = Timer(debounce, () {
+      _retryTimer = null;
+      if (!_disposed &&
+          _desired == celsius &&
+          _desiredGeneration == generation &&
+          _de1.connectedDe1OrNull is BengleInterface) {
+        unawaited(_drain());
+      }
+    });
+  }
+
   Future<void> dispose() async {
     _disposed = true;
     _workflow.removeListener(_onWorkflowChange);
     _debounceTimer?.cancel();
     _debounceTimer = null;
+    _retryTimer?.cancel();
+    _retryTimer = null;
     _desired = null;
     _desiredGeneration = null;
     _restartAfterDrain = false;

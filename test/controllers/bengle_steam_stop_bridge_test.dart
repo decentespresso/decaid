@@ -315,4 +315,40 @@ void main() {
 
     expect(bengle.stopAtTempWrites, isEmpty);
   });
+
+  test('queue saturation retries the current target', () async {
+    await de1Controller.dispose();
+    de1Controller = De1Controller(
+      controller: deviceController,
+      maxPendingDeviceWrites: 0,
+    );
+    final bengle = _RecordingBengle();
+    await connectBengle(bengle);
+    final bridge = BengleSteamStopBridge(
+      workflowController: workflow,
+      de1Controller: de1Controller,
+      debounce: _debounce,
+    );
+    await Future<void>.delayed(Duration.zero);
+    bengle.stopAtTempWrites.clear();
+
+    final started = Completer<void>();
+    final release = Completer<void>();
+    final active = de1Controller.runDeviceWrite((_) async {
+      started.complete();
+      await release.future;
+    });
+    await started.future;
+
+    setStopAtTemp(72.0);
+    await pumpDebounce();
+    expect(bengle.stopAtTempWrites, isEmpty);
+
+    release.complete();
+    await active;
+    await pumpDebounce();
+
+    expect(bengle.stopAtTempWrites, [72.0]);
+    await bridge.dispose();
+  });
 }
