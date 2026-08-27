@@ -24,6 +24,16 @@ class SkinOverride {
 
 enum SkinSource { registry, path, id }
 
+@immutable
+class _ResolvedHost {
+  const _ResolvedHost(this.addresses, this.expiresAt);
+
+  final List<String> addresses;
+  final DateTime expiresAt;
+
+  bool get isFresh => DateTime.now().isBefore(expiresAt);
+}
+
 const skinApiScriptPath = '/__decent/skin-api.js';
 const skinExitDashboardPath = '/__decent/exit-dashboard';
 const skinExitDashboardUrl = 'http://localhost:3000$skinExitDashboardPath';
@@ -119,12 +129,11 @@ class WebUIService {
   static Future<List<InternetAddress>> Function(String host) resolveHost =
       InternetAddress.lookup;
 
-  // Host-header names resolved during this served generation (host -> ours).
-  // Bounded so a flood of spoofed Hosts can neither grow it without limit nor
-  // re-trigger a DNS lookup per request; cleared whenever serving (re)starts,
-  // since that is also when our own addresses may have changed.
+  @visibleForTesting
+  static Duration hostResolutionTtl = const Duration(seconds: 30);
+
   static const int _resolvedHostLimit = 128;
-  final Map<String, bool> _resolvedHosts = {};
+  final Map<String, _ResolvedHost> _resolvedHosts = {};
 
   WebUIService({Future<List<String>> Function()? listLocalAddresses})
     : _listLocalAddresses = listLocalAddresses ?? _listDeviceAddresses;
@@ -145,38 +154,48 @@ class WebUIService {
   String? Function(String path)? skinProxyTokenProvider;
   void Function()? skinProxyTokenRevoker;
 
-  Future<bool> _isLocalHost(String host) async {
+  Future<bool> _isDeviceAddress(String host) async {
     if (host == 'localhost' || host == '127.0.0.1' || host == '::1') {
       return true;
     }
+    try {
+      return (await _listLocalAddresses()).contains(host);
+    } catch (e) {
+      _log.fine('Failed to enumerate network interfaces: $e');
+      return host == _localIP;
+    }
+  }
+
+  Future<bool> _isDeviceHost(String host) async {
+    if (await _isDeviceAddress(host)) return true;
     List<String> local;
     try {
       local = await _listLocalAddresses();
     } catch (e) {
       _log.fine('Failed to enumerate network interfaces: $e');
-      return host == _localIP;
+      return false;
     }
-    if (local.contains(host)) return true;
-    return _resolvesToLocalAddress(host, local);
+    return (await _resolvedAddresses(host)).any(local.contains);
   }
 
-  // A LAN name for this device (router DNS, mDNS, a hosts file) is as local as
-  // the literal address it resolves to — without this, the port-3000 entry
-  // redirect and the skin-api injection only answer requests whose Host is a
-  // raw interface IP, and browsing the skin by name 404s.
-  Future<bool> _resolvesToLocalAddress(String host, List<String> local) async {
+  Future<List<String>> _resolvedAddresses(String host) async {
     final cached = _resolvedHosts[host];
-    if (cached != null) return cached;
-    bool ours;
+    if (cached != null && cached.isFresh) return cached.addresses;
+    List<String> addresses;
     try {
-      final resolved = await resolveHost(host);
-      ours = resolved.any((address) => local.contains(address.address));
-    } catch (_) {
-      ours = false;
+      addresses = [
+        for (final address in await resolveHost(host)) address.address,
+      ];
+    } catch (e) {
+      _log.fine('Failed to resolve host $host: $e');
+      addresses = const [];
     }
     if (_resolvedHosts.length >= _resolvedHostLimit) _resolvedHosts.clear();
-    _resolvedHosts[host] = ours;
-    return ours;
+    _resolvedHosts[host] = _ResolvedHost(
+      addresses,
+      DateTime.now().add(hostResolutionTtl),
+    );
+    return addresses;
   }
 
   Future<String?> _skinApiUrl(Request request, int port) async {
@@ -184,7 +203,7 @@ class WebUIService {
     if (uri.scheme != 'http' || uri.port != port || uri.userInfo.isNotEmpty) {
       return null;
     }
-    if (!await _isLocalHost(uri.host)) return null;
+    if (!await _isDeviceHost(uri.host)) return null;
     return Uri(
       scheme: 'http',
       host: uri.host,
@@ -260,13 +279,16 @@ class WebUIService {
         }
         final scriptUrl = await _skinApiUrl(request, this.port);
         if (scriptUrl == null) return response;
+        final token = await _isDeviceAddress(request.requestedUri.host)
+            ? skinProxyToken
+            : null;
         final encoding = response.encoding ?? utf8;
         final body = await response.read().expand((chunk) => chunk).toList();
         final injected = injectSkinApiScriptTagBytes(
           body,
           encoding,
           scriptUrl: scriptUrl,
-          token: skinProxyToken,
+          token: token,
         );
         return response.change(
           body: injected,
@@ -327,7 +349,7 @@ class WebUIService {
         final uri = request.requestedUri;
         if (uri.scheme != 'http' ||
             uri.userInfo.isNotEmpty ||
-            !await _isLocalHost(uri.host)) {
+            !await _isDeviceHost(uri.host)) {
           return Response.notFound('Not found');
         }
         return Response(

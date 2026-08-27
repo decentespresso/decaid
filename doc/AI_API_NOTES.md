@@ -60,7 +60,9 @@ Read this when changing REST endpoints, WebSocket topics, API specs, auth proxy,
 - Plugins: must declare `proxy.decent_api` permission.
 - Consent prompt (#300): pending, client consent over active view.
 
-**Skin token bridge:** HTML served on port 3000 receives the account-proxy token only when the request host is loopback or an IP currently assigned to a local network interface. The live interface list is authoritative to avoid retaining stale DHCP addresses in the allowlist and to support Ethernet or multiple adapters. The WiFi IP cached for display is accepted only when interface enumeration fails. Hostnames remain rejected to preserve the DNS-rebinding boundary.
+**Skin token bridge:** HTML served on port 3000 receives the account-proxy token only when the request host is loopback or an IP currently assigned to a local network interface. The live interface list is authoritative to avoid retaining stale DHCP addresses in the allowlist and to support Ethernet or multiple adapters. The WiFi IP cached for display is accepted only when interface enumeration fails. Hostnames never receive the token, which is what preserves the DNS-rebinding boundary: a rebound name resolves to a device address by construction, so honouring one for the token would hand it to the attacker's origin.
+
+A hostname that resolves to a device address does pass the port-3000 entry redirect and receive the tokenless script tag (issue #699). The redirect only echoes the requested host on the current generation's port, and before 0.8.2 the entry served those requests as static files anyway; `window.decentApp` carries no secret and no-ops outside the embedded webview. Resolutions are cached per served generation under a short TTL and re-checked against the live interface list on every request, so a lookup that recovers, an address that moves, or an interface that disappears reclassifies without waiting for a restart. The cache is bounded so spoofed Host headers cannot grow it without limit or force a lookup per request.
 
 ## Decent Binary Protocol
 
