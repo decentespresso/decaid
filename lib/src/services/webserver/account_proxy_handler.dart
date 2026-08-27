@@ -34,6 +34,10 @@ class AccountProxyHandler {
       );
     } on DecentAccountNotLinkedException {
       return jsonUnauthorized({'error': 'Decent account not linked'});
+    } on DecentAccountAuthInvalidException {
+      return jsonUnauthorized({
+        'error': 'Decent account credentials are invalid',
+      });
     } on DecentProxyForbiddenPathException {
       return jsonForbidden({'error': 'Path not allowed'});
     } on DecentProxyConsentDeniedException {
@@ -77,6 +81,10 @@ class AccountProxyHandler {
       );
     } on DecentAccountNotLinkedException {
       return jsonUnauthorized({'error': 'Decent account not linked'});
+    } on DecentAccountAuthInvalidException {
+      return jsonUnauthorized({
+        'error': 'Decent account credentials are invalid',
+      });
     } on DecentProxyForbiddenPathException {
       return jsonForbidden({'error': 'Path not allowed'});
     } on DecentProxyConsentDeniedException {

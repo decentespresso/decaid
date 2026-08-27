@@ -543,12 +543,27 @@ void main() {
   );
 
   test('successful login restores proxy access after a block', () async {
-    await linkAccount();
-    var authInvalid = true;
+    await store.write(key: 'email', value: 'old@example.com');
+    await store.write(key: 'password', value: 'stale_cryptpw');
+    final oldAuth = base64Encode(utf8.encode('old@example.com:stale_cryptpw'));
+    final accountService = DecentAccountService(
+      httpClient: http_testing.MockClient((request) async {
+        if (request.headers['authorization'] == 'Basic $oldAuth') {
+          return http.Response('0\n', 200); // rejected
+        }
+        return http.Response('newcryptpw\n', 200); // accepted
+      }),
+      credentialStore: store,
+    );
+
+    // Stale stored credentials are rejected by validation: auth is
+    // known-invalid and the proxy blocks locally.
+    expect(await accountService.verifyStoredCredentials(), isFalse);
+    expect(await accountService.isAuthKnownInvalid(), isTrue);
 
     final service = buildService(
       (request) async => http.Response('ok', 200),
-      isAuthKnownInvalid: () async => authInvalid,
+      isAuthKnownInvalid: () => accountService.isAuthKnownInvalid(),
     );
 
     await expectLater(
@@ -556,7 +571,9 @@ void main() {
       throwsA(isA<DecentAccountAuthInvalidException>()),
     );
 
-    authInvalid = false;
+    // A successful login flips the real auth state; proxy traffic flows again.
+    expect(await accountService.login('new@example.com', 'goodpw'), isTrue);
+    expect(await accountService.isAuthKnownInvalid(), isFalse);
 
     final response = await service.proxyGet(
       callerId: 'skin',

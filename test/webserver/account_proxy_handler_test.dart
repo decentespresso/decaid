@@ -115,6 +115,68 @@ void main() {
     expect(upstream, isNull);
   });
 
+  test('known-invalid credentials through GET proxy return 401', () async {
+    await linkAccount();
+    final app = Router().plus;
+    final proxy = DecentProxyService(
+      requireConsent: (_) async => true,
+      httpClient: http_testing.MockClient((request) async {
+        upstream = request;
+        return http.Response('SN001\nSN002', 200);
+      }),
+      credentialStore: store,
+      isAuthKnownInvalid: () async => true,
+    );
+    AccountProxyHandler(proxy: proxy).addRoutes(app);
+    handler = const Pipeline()
+        .addMiddleware(proxyAuthMiddleware(tokens))
+        .addHandler(app.call);
+
+    final response = await get(
+      '/api/v1/account/proxy/support/api/sn',
+      token: 'skin-token',
+    );
+
+    expect(response.statusCode, 401);
+    final body = jsonDecode(await response.readAsString());
+    expect(body['error'], contains('credentials are invalid'));
+    expect(upstream, isNull);
+  });
+
+  test('known-invalid credentials through write proxy return 401', () async {
+    await linkAccount();
+    registerWriteToken();
+    final app = Router().plus;
+    final proxy = DecentProxyService(
+      requireConsent: (_) async => true,
+      httpClient: http_testing.MockClient((request) async {
+        upstream = request;
+        return http.Response('SN001\nSN002', 200);
+      }),
+      credentialStore: store,
+      isAuthKnownInvalid: () async => true,
+    );
+    AccountProxyHandler(proxy: proxy, enableWrites: true).addRoutes(app);
+    handler = const Pipeline()
+        .addMiddleware(proxyAuthMiddleware(tokens))
+        .addHandler(app.call);
+
+    for (final method in ['POST', 'PUT']) {
+      final response = await send(
+        method,
+        '/api/v1/account/proxy/support/api/email',
+        token: 'write-token',
+        body: '{"subject":"hi"}',
+        contentType: 'application/json',
+      );
+
+      expect(response.statusCode, 401);
+      final body = jsonDecode(await response.readAsString());
+      expect(body['error'], contains('credentials are invalid'));
+      expect(upstream, isNull);
+    }
+  });
+
   test(
     'authenticated + linked forwards with Basic auth and relays body',
     () async {

@@ -102,7 +102,7 @@ class DecentAccountService {
     final email = await _store.read(key: 'email');
     final password = await _store.read(key: 'password');
     if (email == null || password == null) {
-      _log.info('validation -> indeterminate');
+      _log.info('validation -> no stored credentials (account not linked)');
       _setAuthenticated(generation, false);
       return false;
     }
