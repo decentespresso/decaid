@@ -276,6 +276,28 @@ void main() {
     expect(accountService.verificationCallCount, 1);
   });
 
+  testWidgets('caps the settings dialog width on large screens', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1920, 1200);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    await openAccountProxySettings(
+      tester,
+      status: DecentAccountStatus.authenticated,
+    );
+
+    final content = find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.byType(ListView),
+    );
+    expect(tester.getSize(content).width, lessThanOrEqualTo(800));
+  });
+
   testWidgets('logged-out account action opens Account without saving', (
     tester,
   ) async {

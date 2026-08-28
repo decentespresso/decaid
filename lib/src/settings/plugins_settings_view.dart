@@ -935,6 +935,7 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
       builder: (context) => StatefulBuilder(
         builder: (context, setState) {
           return AlertDialog(
+            constraints: const BoxConstraints(maxWidth: 800),
             title: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
