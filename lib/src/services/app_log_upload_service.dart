@@ -6,6 +6,7 @@ import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/build_info.dart';
+import 'package:reaprime/src/services/account/account_consent_store.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -32,6 +33,7 @@ enum AppLogUploadResult {
 final class AppLogUploadService extends ChangeNotifier {
   AppLogUploadService({
     required DecentAccountService accountService,
+    required AccountConsentStore consentStore,
     required String logFilePath,
     required AppLogMachineIdentity? Function() machineIdentity,
     SharedPreferences? preferences,
@@ -43,11 +45,12 @@ final class AppLogUploadService extends ChangeNotifier {
     this.hardLimitBytes = 950000,
     @visibleForTesting this.beforeLogSnapshotValidation,
   }) : _accountService = accountService,
+       _consentStore = consentStore,
        _logFilePath = logFilePath,
        _machineIdentity = machineIdentity,
        _preferences = preferences;
 
-  static const _enabledKey = 'appLogUpload.enabled';
+  static const _consentKey = 'appLogUpload';
   static const _cursorKey = 'appLogUpload.cursor';
   static const _lastResultKey = 'appLogUpload.lastResult';
   static const _requestLimitBytes = 1000000;
@@ -62,6 +65,7 @@ final class AppLogUploadService extends ChangeNotifier {
   );
 
   final DecentAccountService _accountService;
+  final AccountConsentStore _consentStore;
   final String _logFilePath;
   final AppLogMachineIdentity? Function() _machineIdentity;
   SharedPreferences? _preferences;
@@ -92,7 +96,14 @@ final class AppLogUploadService extends ChangeNotifier {
 
   Future<void> initialize() async {
     _preferences ??= await SharedPreferences.getInstance();
-    _enabled = _prefs.getBool(_enabledKey) ?? false;
+    try {
+      _enabled =
+          await _consentStore.read(_consentKey) ==
+          AccountConsentDecision.allowed;
+    } catch (error, stackTrace) {
+      _enabled = false;
+      _log.warning('Failed to read app log sharing consent', error, stackTrace);
+    }
     _lastResult = _prefs.getString(_lastResultKey);
     if (_enabled) {
       var linked = false;
@@ -114,6 +125,9 @@ final class AppLogUploadService extends ChangeNotifier {
 
   Future<void> setEnabled(bool value) async {
     if (_enabled == value) return;
+    if (value) {
+      await _consentStore.write(_consentKey, AccountConsentDecision.allowed);
+    }
     _consentGeneration++;
     _enabled = value;
     _morePending = false;
@@ -124,8 +138,10 @@ final class AppLogUploadService extends ChangeNotifier {
       _timer = null;
     }
     _notify();
-    await _prefs.setBool(_enabledKey, value);
-    if (!value) await _prefs.remove(_cursorKey);
+    if (!value) {
+      await _consentStore.write(_consentKey, AccountConsentDecision.denied);
+      await _prefs.remove(_cursorKey);
+    }
   }
 
   Future<AppLogUploadResult> uploadNow() async {

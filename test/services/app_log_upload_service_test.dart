@@ -6,6 +6,7 @@ import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart' as http_testing;
+import 'package:reaprime/src/services/account/account_consent_store.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/app_log_upload_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -75,6 +76,7 @@ Future<AppLogUploadResult> upload(
 void main() {
   late Directory tempDir;
   late _CredentialStore credentials;
+  late AccountConsentStore consentStore;
   late List<http.Request> requests;
   late int responseStatus;
   late DecentAccountService accountService;
@@ -85,6 +87,7 @@ void main() {
     credentials = _CredentialStore();
     await credentials.write(key: 'email', value: 'user@example.com');
     await credentials.write(key: 'password', value: 'cryptpw');
+    consentStore = AccountConsentStore(credentialStore: credentials);
     requests = [];
     responseStatus = 200;
     accountService = DecentAccountService(
@@ -113,6 +116,7 @@ void main() {
   }) {
     return AppLogUploadService(
       accountService: accountService,
+      consentStore: consentStore,
       logFilePath: '${tempDir.path}${Platform.pathSeparator}log.txt',
       machineIdentity: () => identity,
       initialDelay: initialDelay,
@@ -206,6 +210,7 @@ void main() {
     var rotations = 0;
     final service = AppLogUploadService(
       accountService: accountService,
+      consentStore: consentStore,
       logFilePath: path,
       machineIdentity: () => const AppLogMachineIdentity(
         serialNumber: '12345',
@@ -365,7 +370,6 @@ void main() {
     'disabled startup clears a cursor left by an interrupted opt-out',
     () async {
       SharedPreferences.setMockInitialValues({
-        'appLogUpload.enabled': false,
         'appLogUpload.cursor': jsonEncode([
           DateTime(2026, 8, 27, 9).microsecondsSinceEpoch,
           1,
@@ -391,11 +395,11 @@ void main() {
   );
 
   test('enabled startup without an account persistently opts out', () async {
-    SharedPreferences.setMockInitialValues({
-      'appLogUpload.enabled': true,
-      'appLogUpload.cursor': '[1,0]',
-    });
-    credentials.values.clear();
+    SharedPreferences.setMockInitialValues({'appLogUpload.cursor': '[1,0]'});
+    await consentStore.write('appLogUpload', AccountConsentDecision.allowed);
+    await credentials.delete(key: 'email');
+    await credentials.delete(key: 'password');
+    consentStore = AccountConsentStore(credentialStore: credentials);
     final service = buildService();
     addTearDown(service.dispose);
 
@@ -403,23 +407,25 @@ void main() {
 
     final preferences = await SharedPreferences.getInstance();
     expect(service.enabled, isFalse);
-    expect(preferences.getBool('appLogUpload.enabled'), isFalse);
+    expect(
+      await consentStore.read('appLogUpload'),
+      AccountConsentDecision.denied,
+    );
     expect(preferences.containsKey('appLogUpload.cursor'), isFalse);
   });
 
   test(
     'enabled startup fails closed when credentials cannot be read',
     () async {
-      SharedPreferences.setMockInitialValues({'appLogUpload.enabled': true});
+      credentials.values['account_proxy_consent'] =
+          '{"appLogUpload":"allowed"}';
       credentials.throwOnRead = true;
       final service = buildService();
       addTearDown(service.dispose);
 
       await service.initialize();
 
-      final preferences = await SharedPreferences.getInstance();
       expect(service.enabled, isFalse);
-      expect(preferences.getBool('appLogUpload.enabled'), isFalse);
     },
   );
 
@@ -432,9 +438,11 @@ void main() {
 
     expect(await upload(service), AppLogUploadResult.notLinked);
 
-    final preferences = await SharedPreferences.getInstance();
     expect(service.enabled, isFalse);
-    expect(preferences.getBool('appLogUpload.enabled'), isFalse);
+    expect(
+      await consentStore.read('appLogUpload'),
+      AccountConsentDecision.denied,
+    );
   });
 
   test('ignores timestamp-shaped text inside continuation lines', () async {

@@ -65,6 +65,7 @@ import 'package:reaprime/src/controllers/account_tokens_controller.dart';
 import 'package:reaprime/src/services/account/credential_store_factory.dart';
 import 'package:reaprime/src/services/app_log_upload_service.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 import 'package:reaprime/src/services/storage/hive_store_service.dart';
 import 'package:reaprime/src/services/universal_ble_discovery_service.dart';
 import 'package:reaprime/src/services/simulated_device_service.dart';
@@ -427,8 +428,9 @@ void main(List<String> args) async {
     final consentPrompter = AccountConsentPrompter(
       navigatorKey: NavigationService.navigatorKey,
     );
+    final consentStore = AccountConsentStore(credentialStore: credentialStore);
     final gate = AccountConsentGate(
-      store: AccountConsentStore(credentialStore: credentialStore),
+      store: consentStore,
       prompt: consentPrompter.prompt,
       trustedConsentKeys: cliArgs.trustedConsentKeys,
       trustAllConsent: cliArgs.trustAllConsent,
@@ -439,7 +441,9 @@ void main(List<String> args) async {
       defaultValue: 'https://decentespresso.com',
     );
     decentAccountService = DecentAccountService(
-      httpClient: http.Client(),
+      httpClient: IOClient(
+        HttpClient()..connectionTimeout = const Duration(seconds: 30),
+      ),
       credentialStore: credentialStore,
       baseUrl: decentBaseUrl,
     );
@@ -460,6 +464,7 @@ void main(List<String> args) async {
 
     appLogUploadService = AppLogUploadService(
       accountService: decentAccountService,
+      consentStore: consentStore,
       logFilePath: '$logDir/log.txt',
       machineIdentity: () {
         final machine = de1Controller.connectedDe1OrNull;

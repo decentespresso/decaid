@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart' as http_testing;
 import 'package:reaprime/src/account/account_page.dart';
+import 'package:reaprime/src/services/account/account_consent_store.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/app_log_upload_service.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
@@ -111,6 +112,7 @@ void main() {
     );
     final uploadService = AppLogUploadService(
       accountService: accountService,
+      consentStore: AccountConsentStore(credentialStore: store),
       logFilePath: 'unused',
       machineIdentity: () => const AppLogMachineIdentity(
         serialNumber: '12345',
@@ -166,6 +168,7 @@ void main() {
     );
     final uploadService = AppLogUploadService(
       accountService: accountService,
+      consentStore: AccountConsentStore(credentialStore: store),
       logFilePath: 'unused',
       machineIdentity: () => const AppLogMachineIdentity(
         serialNumber: '12345',
@@ -208,8 +211,10 @@ void main() {
       store,
       (_) async => http.Response('cryptpw_abc123', 200),
     );
+    final consentStore = AccountConsentStore(credentialStore: store);
     final uploadService = AppLogUploadService(
       accountService: accountService,
+      consentStore: consentStore,
       logFilePath: 'unused',
       machineIdentity: () => const AppLogMachineIdentity(
         serialNumber: '12345',
@@ -221,8 +226,10 @@ void main() {
     await uploadService.initialize();
     await uploadService.setEnabled(true);
     store.beforeDelete = () async {
-      final preferences = await SharedPreferences.getInstance();
-      expect(preferences.getBool('appLogUpload.enabled'), isFalse);
+      expect(
+        await consentStore.read('appLogUpload'),
+        AccountConsentDecision.denied,
+      );
     };
 
     await tester.pumpWidget(

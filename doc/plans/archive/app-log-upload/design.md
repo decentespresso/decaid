@@ -35,7 +35,9 @@ endpoint so linked users can opt in to hourly support-log uploads.
   opt-out persistence before a later opt-in.
 - Persist opt-out before deleting linked-account credentials, and fail closed
   when an enabled service cannot find or read them.
-- Abort timed-out HTTP requests before allowing a retry.
+- Persist consent in the encrypted account consent store.
+- Bound connection establishment and abort timed-out HTTP requests before
+  allowing a retry.
 - Send only Decaid log text and the endpoint's required app and machine
   metadata.
 - Keep request bodies below the server's existing upload limit.
