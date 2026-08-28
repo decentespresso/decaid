@@ -32,7 +32,11 @@ final class SensorsHandler {
         return jsonNotFound({'error': 'Sensor not found: $id'});
       }
 
-      final body = await req.readAsString();
+      final body = await readBoundedRequestBodyString(
+        req,
+        maxBytes: smallRequestBodyBytes,
+        timeout: smallRequestBodyTimeout,
+      );
       final jsonBody = jsonDecode(body);
       final cmdId = jsonBody['commandId'] as String;
       final params = jsonBody['params'] as Map<String, dynamic>?;
@@ -49,7 +53,7 @@ final class SensorsHandler {
     _log.info("Handling: $req");
     final id = req.params['id'];
     _log.info("got id: $id");
-    return sws.webSocketHandler((socket, protocol) {
+    return admittedWebSocketHandler((socket, protocol) {
       _log.info("upgraded to socket");
       final sensor = _controller.sensors[id];
       if (sensor == null) {

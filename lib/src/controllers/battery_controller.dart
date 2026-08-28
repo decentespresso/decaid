@@ -46,8 +46,7 @@ class BatteryController {
         _log.fine('Skipping USB charger mode update during BLE scan');
         return;
       }
-      final de1 = _de1Controller.connectedDe1OrNull;
-      if (de1 == null) {
+      if (_de1Controller.connectedDe1OrNull == null) {
         _log.fine('No machine connected, skipping USB charger mode update');
         _lastAppliedCharge = null;
         return;
@@ -92,7 +91,9 @@ class BatteryController {
         reassertInterval: _dischargeReassertInterval,
       )) {
         try {
-          await de1.setUsbChargerMode(decision.shouldCharge);
+          await _de1Controller.runDeviceWrite(
+            (device) => device.setUsbChargerMode(decision.shouldCharge),
+          );
           _lastAppliedCharge = decision.shouldCharge;
           _lastChargeWrite = now;
         } catch (e) {

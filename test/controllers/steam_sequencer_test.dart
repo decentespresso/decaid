@@ -39,6 +39,10 @@ class _StubDe1Controller extends De1Controller {
 
   @override
   Stream<De1Interface?> get de1 => _subj.stream;
+  @override
+  Future<void> requestMachineState(MachineState state) {
+    return _subj.value!.requestState(state);
+  }
 
   void emit(De1Interface? device) => _subj.add(device);
 }

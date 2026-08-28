@@ -66,7 +66,10 @@ class SettingsHandler {
       return result;
     });
     app.post('/api/v1/settings', (Request request) async {
-      final payload = await request.readAsString();
+      final payload = await readBoundedRequestBodyString(
+        request,
+        maxBytes: largeRequestBodyBytes,
+      );
       Map<String, dynamic> json = jsonDecode(payload);
       if (json.containsKey('gatewayMode')) {
         final GatewayMode? gatewayMode = GatewayModeFromString.fromString(
@@ -303,7 +306,10 @@ class SettingsHandler {
   }
 
   Future<Response> _handleLogsRequest(Request req) async {
-    return sws.webSocketHandler((WebSocketChannel socket, String? protocol) {
+    return admittedWebSocketHandler((
+      WebSocketChannel socket,
+      String? protocol,
+    ) {
       StreamSubscription? sub;
       sub = Logger.root.onRecord.listen((logRecord) {
         socket.sink.add(

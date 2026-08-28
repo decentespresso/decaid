@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/feedback/feedback_request.dart';
 import 'package:reaprime/src/services/feedback_service.dart';
+import 'package:reaprime/src/services/webserver/bounded_request_body.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
 import 'json_response.dart';
@@ -27,7 +28,10 @@ class FeedbackHandler {
         });
       }
 
-      final body = await request.readAsString();
+      final body = await readBoundedRequestBodyString(
+        request,
+        maxBytes: largeRequestBodyBytes,
+      );
       final json = jsonDecode(body) as Map<String, dynamic>;
 
       if (!json.containsKey('description') ||
@@ -46,6 +50,8 @@ class FeedbackHandler {
       } else {
         return jsonError(result.toJson());
       }
+    } on RequestBodyReadException {
+      rethrow;
     } catch (e, st) {
       _log.severe('Error in _handleSubmitFeedback', e, st);
       return jsonError({'error': 'Internal server error', 'message': '$e'});

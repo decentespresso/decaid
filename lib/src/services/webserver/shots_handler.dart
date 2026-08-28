@@ -4,6 +4,7 @@ import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
 import 'package:reaprime/src/plugins/plugin_manager.dart';
 import 'package:reaprime/src/services/storage/bean_storage_service.dart';
+import 'package:reaprime/src/services/webserver/bounded_request_body.dart';
 import 'package:reaprime/src/services/webserver/json_response.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
@@ -190,7 +191,11 @@ class ShotsHandler {
   Future<Response> _updateShot(Request req, String id) async {
     id = Uri.decodeComponent(id);
     try {
-      final body = await req.body.asString;
+      final body = await readBoundedRequestBodyString(
+        req,
+        maxBytes: largeRequestBodyBytes,
+        timeout: largeRequestBodyTimeout,
+      );
       final json = jsonDecode(body) as Map<String, dynamic>;
 
       if (json['id'] != null && json['id'] != id) {
@@ -221,6 +226,8 @@ class ShotsHandler {
       });
 
       return jsonOk(updatedShot.toJson());
+    } on RequestBodyReadException {
+      rethrow;
     } catch (e, st) {
       _log.severe("Error updating shot $id", e, st);
       return jsonError({"error": e.toString()});

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -407,7 +408,9 @@ class DataExportHandler {
       final raf = await zipFile.open(mode: FileMode.write);
       var received = 0;
       try {
-        await for (final chunk in request.read()) {
+        await for (final chunk in request.read().timeout(
+          _limits.syncIdleTimeout,
+        )) {
           received += chunk.length;
           if (received > _limits.maxImportRequestBytes) {
             throw const InvalidBackupException(
@@ -430,6 +433,11 @@ class DataExportHandler {
       return jsonBadRequest({
         'error': 'Invalid backup archive',
         'message': e.message,
+      });
+    } on TimeoutException {
+      return jsonRequestTimeout({
+        'error': 'Request body timed out',
+        'message': 'The import body stopped arriving.',
       });
     } catch (e, st) {
       _log.severe('Error in _handleImport', e, st);

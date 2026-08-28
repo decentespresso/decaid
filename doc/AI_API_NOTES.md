@@ -24,6 +24,24 @@ Read this when changing REST endpoints, WebSocket topics, API specs, auth proxy,
 - Content-based hash IDs for profile deduplication (`ProfileController`).
 - ETag / `If-None-Match` support on cacheable resources (#203).
 
+### Admission Control
+
+`/api/` requests pass through a process-local gate after authentication and inside
+the existing logging/CORS middleware. Defaults are 128 concurrent and 1024 accepted
+per second globally, 32 concurrent and 256 accepted per second per client, and 256
+tracked clients. Per-client rejection returns `429`; global rejection returns `503`.
+Both include `Retry-After: 1`. `OPTIONS`, static/WebUI, and `/ws/` requests bypass
+this gate.
+
+WebSocket upgrades use an independent gate: 128 open and 128 upgrades per second
+globally, 32 open and 32 upgrades per second per client, and 256 tracked clients.
+Every registered WebSocket uses it. A socket holds its slot until the channel sink
+finishes; rejected upgrades use the same `429`/`503` and `Retry-After: 1` contract.
+
+The raw firmware upload buffers at most 16 MiB and cancels body reading after 60
+seconds. It returns `413` for either a declared or streamed overrun and `408` for a
+stalled body. Workflow PUT retains its smaller semantic bounds.
+
 ### Backup Import and Sync Invariants
 
 - A successful backup import requires at least one recognized selected payload; metadata alone is not payload.
@@ -60,7 +78,9 @@ Read this when changing REST endpoints, WebSocket topics, API specs, auth proxy,
 - Plugins: must declare `proxy.decent_api` permission.
 - Consent prompt (#300): pending, client consent over active view.
 
-**Skin token bridge:** HTML served on port 3000 receives the account-proxy token only when the request host is loopback or an IP currently assigned to a local network interface. The live interface list is authoritative to avoid retaining stale DHCP addresses in the allowlist and to support Ethernet or multiple adapters. The WiFi IP cached for display is accepted only when interface enumeration fails. Hostnames remain rejected to preserve the DNS-rebinding boundary.
+**Skin token bridge:** HTML served on port 3000 receives the account-proxy token only when the request host is loopback or an IP currently assigned to a local network interface. The live interface list is authoritative to avoid retaining stale DHCP addresses in the allowlist and to support Ethernet or multiple adapters. The WiFi IP cached for display is accepted only when interface enumeration fails. Hostnames never receive the token, which is what preserves the DNS-rebinding boundary: a rebound name resolves to a device address by construction, so honouring one for the token would hand it to the attacker's origin.
+
+A hostname that resolves to a device address does pass the port-3000 entry redirect and receive the tokenless script tag (issue #699). The redirect only echoes the requested host on the current generation's port, and before 0.8.2 the entry served those requests as static files anyway; `window.decentApp` carries no secret and no-ops outside the embedded webview. Resolutions are cached per served generation under a short TTL and re-checked against the live interface list on every request, so a lookup that recovers, an address that moves, or an interface that disappears reclassifies without waiting for a restart. The cache is bounded so spoofed Host headers cannot grow it without limit or force a lookup per request.
 
 ## Decent Binary Protocol
 
@@ -171,7 +191,9 @@ of records and one JSON record, never with backup size. Rationale and traps:
   for tests: request body 2 GiB, entry count 4096, per-entry uncompressed
   1 GiB, total uncompressed 2 GiB, metadata 64 KiB, per-record 64 MiB, ZIP
   header fields 256 B/64 KiB/64 KiB, sync request 1 MiB, target response
-  8 MiB; timeouts 10 s connection (TCP establishment only) / 30 s idle /
+  8 MiB; import request bodies have a 30 s idle timeout and sync command bodies
+  have a 30 s read deadline; transfer timeouts are 10 s connection (TCP
+  establishment only) / 30 s idle /
   10 min deadline per phase covering the NETWORK stages only (upload/
   download + response); local export and the pull-side import run to
   completion and report their actual results. Timeouts abort the request
@@ -202,15 +224,14 @@ of records and one JSON record, never with backup size. Rationale and traps:
 ## Workflow PUT Queue
 
 `PUT /api/v1/workflow` operations are serialized through one queue owned by
-`WorkflowHandler`. One HTTP request is exactly one queue entry. Separate requests
-must not be coalesced without a future explicit client or session contract. The
-handler reads the workflow base when a queue entry reaches execution, then applies
-only that request's deep merge. Machine side effects from workflow PUTs, profile
-sync, and Bengle workflow bridges share the `De1Controller` device-write queue.
-Each entry captures one machine and connection generation; workflow setting writes
-retry once on a replacement machine after that generation's startup initialization
-settles. Startup defaults finish before the generation barrier releases. A failure
-must not poison the queue tail.
+`WorkflowHandler`. One HTTP request is exactly one handler queue entry. The handler
+reads the workflow base when that entry reaches execution, then applies only that
+request's deep merge. Machine side effects from workflow PUTs, profile sync, Bengle
+workflow bridges, and other callers share the `De1Controller` governor: one active
+DE1 operation plus at most 32 pending operations. Pending rinse, steam, and hot-water
+workflow setting writes coalesce by setting group; the displaced caller receives
+`409 Conflict`, while unrelated and imperative writes remain FIFO. A failure must
+not poison either queue tail.
 Request bodies are read with a 30-second timeout before their queued operation
 executes; body-read failures are observed immediately and do not poison the queue.
 The body stream subscription is cancelled on completion, error, size rejection, or
@@ -228,29 +249,31 @@ remains the owner of asynchronous profile upload after controller changes.
 
 ### Device-Write Retry and Machine Replacement
 
-`De1Controller.runDeviceWrite()` is the single serialization point for all REST
-machine writes (workflow PUTs, profile, shot settings, machine settings). The write
-callback receives the machine acquired inside the retry loop, so a disconnected
-interval (controller holding no machine) is handled by waiting — bounded by
-`ConnectionTimings.machineReplacementTimeout` (10 s) — for a non-null replacement and
-that generation's startup initialization to settle, then re-running the complete
-grouped write once on the replacement. The old machine is never acquired for a new
-write after the generation changes (an already-running write may still finish on it,
-see below). If no replacement appears within the bound, the handler returns
-`503 Machine unavailable`; if there was never a machine at all, the first attempt
-fails fast with `500` (unchanged behavior). The first attempt never waits: the bounded
-wait only applies to retries after a mid-write disconnect.
+`De1Controller.runDeviceWrite()` is the single serialized boundary for imperative
+DE1 operations. It captures the connection generation and physical-machine identity
+when admitted. Imperative operations never replay: a generation change before or
+during execution fails the operation after any in-flight native write settles.
 
-A machine generation change cannot cancel an in-flight native write: the old machine
-may receive a partial or complete attempt. Only after that attempt finishes does the
-post-write generation check reject it, and the retry then re-runs the complete grouped
-operation from the start on the replacement.
+Only `runReplaceableDeviceWrite()` operations for rinse, steam, and hot-water
+workflow settings may reconcile once after a disconnect. Reconciliation waits up to
+`ConnectionTimings.machineReplacementTimeout` (10 s), then requires the replacement
+to have the same physical identity and its startup initialization to settle. Identity
+uses the machine serial number when available and otherwise the device ID. A different
+machine is rejected rather than receiving stale work. If the same machine does not
+return within the bound, the handler returns `503 Machine unavailable`.
+
+Caller cancellation or timeout does not release an active physical operation. The
+governor advances only after that operation actually settles. Firmware upload uses
+the same serialized boundary for its full duration; firmware cancellation remains a
+direct command.
 
 ### REST Route Serialization Audit
 
-All mutating machine routes in `de1handler.dart` route their physical writes through
-`runDeviceWrite` (one HTTP request = one queue entry, parse-then-write, controller
-streams published only after the grouped write succeeds):
+Mutating machine routes in `de1handler.dart` route physical writes through the DE1
+governor. Ordinary REST machine mutations enter as imperative operations; workflow
+updates use replaceable setting groups. Bodies are parsed before admission and
+controller streams are published only after the grouped write succeeds. The idle
+safety path is the exception documented below:
 
 - `PUT /api/v1/workflow` (workflow handler, device writes via `updateWorkflowSettings`)
 - `POST /api/v1/machine/profile`
@@ -263,19 +286,19 @@ streams published only after the grouped write succeeds):
 - `PUT /api/v1/machine/cupWarmer`, `PUT /api/v1/machine/ledStrip`,
   `POST /api/v1/machine/ledStrip/commit`, `POST /api/v1/machine/ledStrip/reset`
 
-Every endpoint above can return `503` when the machine disconnects mid-write and no
-replacement appears within the bounded wait, and `400` for malformed JSON bodies
+Every endpoint above can return `503` when the 32-entry pending queue is full and
+`400` for malformed JSON bodies
 (machine settings, advanced, calibration, waterLevels, cupWarmer, ledStrip,
 profile, and shot settings parse their complete body before reserving a queue entry).
 Machine-write failures otherwise map to `500`.
 
 Documented bypasses:
 
-- `PUT /api/v1/machine/state/<newState>`: latency-sensitive machine commands (a stop
-  request must not queue behind a settings or profile write) that target the state
-  characteristic, not the settings/MMR registers the queue serializes.
+- `PUT /api/v1/machine/state/<newState>` routes non-idle requests through the governor.
+  Only `idle` bypasses it so stop remains serviceable behind saturated or stalled work.
 - Raw low-level MMR commands via `/ws/v1/machine/raw`: intentionally unqueued (see
   the machine WebSocket re-bind section); a delayed raw read/write could be stale.
+- Diagnostic UI commands remain intentionally unqueued.
 
 ### Machine Disconnect Simulation (debug only)
 
@@ -293,7 +316,8 @@ behavior is documented.
 | 200 | Workflow updated and committed |
 | 400 | Malformed or invalid JSON |
 | 408 | Client did not finish sending the body within the timeout |
+| 409 | A pending replaceable workflow setting write was superseded by a newer value |
 | 413 | Body exceeds 1 MiB limit |
 | 429 | Admission capacity full (8 active or queued requests) |
 | 500 | A required direct machine write failed, or no machine was ever connected |
-| 503 | Mutation timed out waiting for its execution turn, or no replacement machine appeared within the bounded wait |
+| 503 | Mutation timed out waiting for its execution turn, the 32-entry DE1 pending queue is full, or the same machine did not return within the bounded wait for a replaceable workflow write |

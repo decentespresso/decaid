@@ -4,6 +4,27 @@ info:
   version: 1.0.0
   description: |
     This API provides endpoints to retrieve a list of Bluetooth devices, trigger a scan for new devices, manage DE1 espresso machine state and settings, and interact with a connected scale.
+
+    Requests under `/api/` are subject to process-local admission limits. A
+    per-client limit returns 429 and a global limit returns 503; both include
+    `Retry-After: 1`. Saturated requests are rejected rather than queued.
+x-admission-control:
+  windowSeconds: 1
+  globalConcurrent: 128
+  perClientConcurrent: 32
+  globalAcceptedPerSecond: 1024
+  perClientAcceptedPerSecond: 256
+  maxTrackedClients: 256
+x-buffered-request-bodies:
+  timeoutStatus: 408
+  oversizedStatus: 413
+  limits:
+    control:
+      maxBytes: 65536
+      timeoutSeconds: 10
+    ordinary:
+      maxBytes: 1048576
+      timeoutSeconds: 30
 servers:
   - url: http://{tablet-ip}:8080
     variables:
@@ -358,6 +379,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/MachineStateError"
+        "503":
+          description: Machine write queue is full for non-idle state changes
   /api/v1/machine/profile:
     post:
       summary: Set Machine Profile
@@ -375,9 +398,9 @@ paths:
         "400":
           description: Malformed JSON body
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: Machine write queue is full
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
   /api/v1/machine/shotSettings:
     post:
       summary: Update Shot Settings
@@ -395,9 +418,9 @@ paths:
         "400":
           description: Malformed JSON body
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: Machine write queue is full
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
   /api/v1/machine/capabilities:
     get:
       summary: List machine capabilities
@@ -464,9 +487,9 @@ paths:
         "404":
           description: Machine connected but does not support cup warmer (not a Bengle)
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: Machine write queue is full
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
   /api/v1/machine/cupWarmer/preheat:
     get:
       summary: Get scheduled pre-warm state
@@ -512,9 +535,9 @@ paths:
         "404":
           description: Machine connected but does not support pre-warm
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: Machine write queue is full
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
   /api/v1/machine/ledStrip:
     get:
       summary: Get LED strip configuration
@@ -564,9 +587,9 @@ paths:
         "404":
           description: Machine connected but does not support LED strip
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: Machine write queue is full
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
 
   /api/v1/machine/ledStrip/commit:
     post:
@@ -590,9 +613,9 @@ paths:
         "404":
           description: Machine connected but does not support LED strip
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: Machine write queue is full
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
 
   /api/v1/machine/ledStrip/reset:
     post:
@@ -621,9 +644,9 @@ paths:
         "404":
           description: Machine connected but does not support LED strip
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait, or firmware read failed
+          description: Machine write queue is full, or firmware read failed
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
   /api/v1/machine/scaleCalibration:
     get:
       summary: Get scale-calibration state
@@ -684,9 +707,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScaleCalibrationRejected"
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: Machine write queue is full
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
   /api/v1/machine/settings:
     get:
       summary: Get machine settings
@@ -715,9 +738,9 @@ paths:
         "400":
           description: Malformed JSON body
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: Machine write queue is full
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
 
   /api/v1/machine/settings/advanced:
     get:
@@ -747,9 +770,9 @@ paths:
         "400":
           description: Malformed JSON body
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: Machine write queue is full
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
 
   /api/v1/machine/settings/reset:
     delete:
@@ -763,9 +786,9 @@ paths:
         "202":
           description: Reset accepted (one grouped serialized device write)
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: Machine write queue is full
         "500":
-          description: No DE1 connected
+          description: No machine was connected, the machine changed during the write, or the write failed
 
   /api/v1/machine/calibration:
     get:
@@ -801,9 +824,9 @@ paths:
         "400":
           description: Malformed JSON body
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: Machine write queue is full
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
 
   /api/v1/machine/calibration/{target}:
     get:
@@ -878,11 +901,11 @@ paths:
         "400":
           description: Malformed JSON body, unknown target, or invalid values
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: Machine write queue is full
         "504":
           description: Machine did not acknowledge the calibration write within the response timeout
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
 
   /api/v1/machine/waterLevels:
     post:
@@ -900,9 +923,9 @@ paths:
         "400":
           description: Malformed JSON body
         "503":
-          description: Machine disconnected mid-write and no replacement appeared within the bounded wait
+          description: Machine write queue is full
         "500":
-          description: No machine was ever connected
+          description: No machine was connected, the machine changed during the write, or the write failed
 
   /api/v1/machine/firmware:
     get:
@@ -923,8 +946,10 @@ paths:
       summary: Push raw firmware to the machine (developer/recovery)
       description: |
         Send a raw firmware file to the machine. Returns an NDJSON progress
-        stream. Rejects an empty body with 400. Returns 409 if an update is
-        already in progress. Returns 503 if no machine is connected.
+        stream. The body is limited to 16 MiB and must arrive within 60 seconds.
+        Rejects an empty body with 400, a stalled body with 408, and an oversized
+        body with 413. Returns 409 if an update is already in progress. Returns
+        503 if no machine is connected or the machine write queue is full.
 
         A successful stream emits `erasing`, zero or more `uploading` events,
         then `done`. A failed stream emits `erasing`, zero or more `uploading`
@@ -942,6 +967,10 @@ paths:
         required: true
         content:
           application/octet-stream:
+            schema:
+              type: string
+              format: binary
+              maxLength: 16777216
       responses:
         "200":
           description: NDJSON progress stream (see FirmwareProgressEvent)
@@ -951,10 +980,14 @@ paths:
                 $ref: "#/components/schemas/FirmwareProgressEvent"
         "400":
           description: Empty request body
+        "408":
+          description: Request body was not received within 60 seconds
         "409":
           description: Firmware update already in progress
+        "413":
+          description: Request body exceeds 16 MiB
         "503":
-          description: No machine connected
+          description: No machine connected or machine write queue full
     delete:
       summary: Cancel an in-progress firmware update
       description: |
@@ -975,6 +1008,7 @@ paths:
       description: |
         Resolves, loads, and validates a bundled firmware artifact before
         starting the upload. Returns an NDJSON progress stream on success.
+        The JSON body is limited to 64 KiB and must arrive within 10 seconds.
         Accepts optional `force: true` to bypass version-newer policy
         (never bypasses integrity or compatibility checks).
       tags: [Machine]
@@ -1004,12 +1038,16 @@ paths:
           description: Missing or malformed artifactId
         "404":
           description: Unknown artifact ID
+        "408":
+          description: Request body was not received within 10 seconds
         "409":
           description: Firmware update already in progress
+        "413":
+          description: Request body exceeds 64 KiB
         "422":
           description: Artifact validation, compatibility, or version-policy failure
         "503":
-          description: No machine connected
+          description: No machine connected or machine write queue full
 
   # Scale API
   /api/v1/scale/tare:
@@ -1338,6 +1376,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "409":
+          description: A pending DE1 settings write was superseded by a newer value
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "413":
           description: Request body exceeds the 1 MiB workflow payload limit
           content:
@@ -1359,9 +1403,9 @@ paths:
         "503":
           description: >
             The request waited more than 30 seconds for its turn and was
-            skipped, or the machine disconnected mid-write and no replacement
-            machine appeared within the bounded wait (10 seconds). In both
-            cases the controller workflow is unchanged.
+            skipped, the machine write queue was full, or a replaceable setting
+            could not reconnect to the same machine within the bounded wait.
+            In each case the controller workflow is unchanged.
           content:
             application/json:
               schema:
@@ -4528,7 +4572,8 @@ paths:
         is not rolled back when another section fails.
 
         The request body is streamed into a temporary file; the whole archive
-        is never buffered in memory. Imports are bounded by the following
+        is never buffered in memory. If no body bytes arrive for 30 seconds,
+        the request is cancelled with 408. Imports are bounded by the following
         limits (exceeding any of them returns 400 with `Invalid backup
         archive`):
 
@@ -4612,6 +4657,8 @@ paths:
                     type: string
                   message:
                     type: string
+        "408":
+          description: Import request body stopped arriving for 30 seconds
         "500":
           description: Internal server error
   /api/v1/data/sync:
@@ -4635,8 +4682,9 @@ paths:
 
         Pull responses are streamed to a temporary ZIP before import; push
         requests stream a locally built temporary ZIP with a known content
-        length. The sync request body is limited to 1 MiB, and target
-        responses to 8 MiB. Transfers apply a connection timeout (10 s,
+        length. The sync request body is limited to 1 MiB and must arrive
+        within 30 seconds; target responses are limited to 8 MiB. Transfers
+        apply a connection timeout (10 s,
         connect establishment only), an idle timeout (30 s between stream
         events), and one deadline (10 min) per phase covering the network
         stages (upload/download and response). Timeouts abort the request
@@ -4726,6 +4774,10 @@ paths:
                     type: string
                   message:
                     type: string
+        "408":
+          description: Sync request body was not received within 30 seconds
+        "413":
+          description: Sync request body exceeds 1 MiB
         "502":
           description: Unsuccessful single-direction synchronization or two-way synchronization with no complete or partial phase
           content:

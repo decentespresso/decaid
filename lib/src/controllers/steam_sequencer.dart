@@ -146,10 +146,9 @@ class SteamSequencer {
     if (temp < target) return;
     _appSideStopRequested = true;
     _log.info('App-side stop: probe $temp°C ≥ target $target°C');
-    final machine = _machine;
-    if (machine != null) {
+    if (_machine != null) {
       // ignore: discarded_futures
-      machine.requestState(MachineState.idle);
+      _de1.requestMachineState(MachineState.idle);
     }
   }
 

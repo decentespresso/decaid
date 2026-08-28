@@ -29,6 +29,19 @@ class RealtimeShotFeature extends StatefulWidget {
 }
 
 class _RealtimeShotFeatureState extends State<RealtimeShotFeature> {
+  Future<void> _skipStep() async {
+    try {
+      await widget.shotSequencer.de1controller.requestMachineState(
+        MachineState.skipStep,
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Unable to skip step: $error')));
+    }
+  }
+
   late ShotSequencer _shotSequencer;
   final List<ShotSnapshot> _shotSnapshots = [];
   late StreamSubscription<ShotSnapshot> _shotSubscription;
@@ -214,7 +227,7 @@ class _RealtimeShotFeatureState extends State<RealtimeShotFeature> {
             widget.shotSequencer.de1controller.recordStopIntent(
               ShotDecisionReason.appStop,
             );
-            widget.shotSequencer.de1controller.connectedDe1().requestState(
+            widget.shotSequencer.de1controller.requestMachineState(
               MachineState.idle,
             );
           },
@@ -222,11 +235,7 @@ class _RealtimeShotFeatureState extends State<RealtimeShotFeature> {
         ),
         ShadButton.secondary(
           enabled: !backEnabled,
-          onPressed: () {
-            widget.shotSequencer.de1controller.connectedDe1().requestState(
-              MachineState.skipStep,
-            );
-          },
+          onPressed: _skipStep,
           trailing: Icon(LucideIcons.fastForward),
           child: Text('Skip Step'),
         ),

@@ -33,6 +33,7 @@ class ShotSequencer {
   final bool _machineHasAutonomousSAW;
 
   List<int> skippedSteps = [];
+  final Set<int> _pendingSkipSteps = {};
   final StepExitArbiter _stepExitArbiter = StepExitArbiter();
   int _lastProfileFrame = -1;
 
@@ -91,8 +92,7 @@ class ShotSequencer {
         details: 'No scale connected, blocking shot',
       );
       de1controller
-          .connectedDe1()
-          .requestState(MachineState.idle)
+          .requestMachineState(MachineState.idle)
           .catchError(
             (error) =>
                 _log.warning("Failed to abort shot for blockOnNoScale: $error"),
@@ -363,6 +363,7 @@ class ShotSequencer {
           _settleSamples = 0;
           _prevStoppingFlow = null;
           skippedSteps.clear();
+          _pendingSkipSteps.clear();
           _stepExitArbiter.reset();
           _lastProfileFrame = -1;
           _maxFrameSeen = -1;
@@ -448,7 +449,7 @@ class ShotSequencer {
                 'projectedWeight': projectedWeight,
               },
             );
-            de1controller.connectedDe1().requestState(MachineState.idle);
+            de1controller.requestMachineState(MachineState.idle);
             _enterStopping(scale);
             break;
           }
@@ -472,7 +473,7 @@ class ShotSequencer {
                 'projectedVolume': projectedVolume,
               },
             );
-            de1controller.connectedDe1().requestState(MachineState.idle);
+            de1controller.requestMachineState(MachineState.idle);
             _enterStopping(scale);
             break;
           }
@@ -579,7 +580,8 @@ class ShotSequencer {
       return;
     }
 
-    if (skippedSteps.contains(profileFrame)) {
+    if (skippedSteps.contains(profileFrame) ||
+        _pendingSkipSteps.contains(profileFrame)) {
       return;
     }
 
@@ -599,20 +601,39 @@ class ShotSequencer {
       }
     }
 
-    _emitDecision(
-      ShotDecisionKind.advance,
-      ShotDecisionReason.profileSkip,
-      details:
-          'Step weight ${stepExitWeight}g reached '
-          '(projected: $projectedWeight), skipping frame $profileFrame',
-      data: {
-        'frame': profileFrame,
-        'stepExitWeight': stepExitWeight,
-        'projectedWeight': projectedWeight,
-      },
-    );
-    skippedSteps.add(profileFrame);
-    de1controller.connectedDe1().requestState(MachineState.skipStep);
+    _pendingSkipSteps.add(profileFrame);
+    de1controller
+        .requestShotStepSkip(
+          () =>
+              _state == ShotState.pouring && _lastProfileFrame == profileFrame,
+        )
+        .then(
+          (skipped) {
+            _pendingSkipSteps.remove(profileFrame);
+            if (!skipped) return;
+            skippedSteps.add(profileFrame);
+            _emitDecision(
+              ShotDecisionKind.advance,
+              ShotDecisionReason.profileSkip,
+              details:
+                  'Step weight ${stepExitWeight}g reached '
+                  '(projected: $projectedWeight), skipping frame $profileFrame',
+              data: {
+                'frame': profileFrame,
+                'stepExitWeight': stepExitWeight,
+                'projectedWeight': projectedWeight,
+              },
+            );
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            _pendingSkipSteps.remove(profileFrame);
+            _log.warning(
+              'Failed to skip frame $profileFrame',
+              error,
+              stackTrace,
+            );
+          },
+        );
   }
 
   void _enterStopping(WeightSnapshot? scale) {

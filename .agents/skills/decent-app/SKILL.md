@@ -49,6 +49,7 @@ Pick the scenario that matches the task, run it verbatim, and finish before call
 | Account-proxy write forwarding + write-scope gate | `scenarios/account-proxy-write.md` |
 | Account-proxy native consent gate | `scenarios/account-proxy-consent.md` |
 | Plugin Decent-account proxy bridge (host.decentProxy) | `scenarios/plugin-decent-proxy.md` |
+| API pressure hardening | `scenarios/api-pressure-hardening.md` |
 
 ## Authoritative sources
 

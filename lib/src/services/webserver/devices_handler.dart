@@ -256,7 +256,7 @@ class DevicesHandler {
 
     app.put('/api/v1/devices/forget', _handleForget);
 
-    app.get('/ws/v1/devices', sws.webSocketHandler(_handleDevicesSocket));
+    app.get('/ws/v1/devices', admittedWebSocketHandler(_handleDevicesSocket));
   }
 
   Future<List<Map<String, dynamic>>> _deviceList() async {
@@ -273,7 +273,13 @@ class DevicesHandler {
   Future<String?> _extractDeviceId(Request req) async {
     String body;
     try {
-      body = await req.readAsString();
+      body = await readBoundedRequestBodyString(
+        req,
+        maxBytes: smallRequestBodyBytes,
+        timeout: smallRequestBodyTimeout,
+      );
+    } on RequestBodyReadException {
+      rethrow;
     } catch (e, st) {
       _log.warning('failed to read request body', e, st);
       return req.requestedUri.queryParameters['deviceId'];

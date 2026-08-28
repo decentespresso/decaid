@@ -8,7 +8,7 @@ class UpdateHandler {
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/update', _getUpdate);
-    app.get('/ws/v1/update', sws.webSocketHandler(_handleSocket));
+    app.get('/ws/v1/update', admittedWebSocketHandler(_handleSocket));
   }
 
   Response _getUpdate(Request request) {
