@@ -41,6 +41,7 @@ final class AppLogUploadService extends ChangeNotifier {
     this.requestTimeout = const Duration(seconds: 30),
     this.softLimitBytes = 700000,
     this.hardLimitBytes = 950000,
+    @visibleForTesting this.beforeLogSnapshotValidation,
   }) : _accountService = accountService,
        _logFilePath = logFilePath,
        _machineIdentity = machineIdentity,
@@ -72,6 +73,7 @@ final class AppLogUploadService extends ChangeNotifier {
   final Duration requestTimeout;
   final int softLimitBytes;
   final int hardLimitBytes;
+  final Future<void> Function()? beforeLogSnapshotValidation;
 
   Timer? _timer;
   Future<AppLogUploadResult>? _uploadFuture;
@@ -93,7 +95,17 @@ final class AppLogUploadService extends ChangeNotifier {
     _enabled = _prefs.getBool(_enabledKey) ?? false;
     _lastResult = _prefs.getString(_lastResultKey);
     if (_enabled) {
-      _schedule(initialDelay);
+      var linked = false;
+      try {
+        linked = await _accountService.hasLinkedAccount();
+      } catch (error, stackTrace) {
+        _log.warning('Failed to read linked account', error, stackTrace);
+      }
+      if (linked) {
+        _schedule(initialDelay);
+      } else {
+        await setEnabled(false);
+      }
     } else if (_prefs.containsKey(_cursorKey)) {
       await _prefs.remove(_cursorKey);
     }
@@ -159,6 +171,7 @@ final class AppLogUploadService extends ChangeNotifier {
     _morePending = false;
     if (!uploadAllowed()) return AppLogUploadResult.disabled;
     if (!await _accountService.hasLinkedAccount()) {
+      await setEnabled(false);
       await _setLastResult('Link a Decent account before uploading logs');
       return AppLogUploadResult.notLinked;
     }
@@ -176,7 +189,7 @@ final class AppLogUploadService extends ChangeNotifier {
 
     final now = clock.now();
     final cursor = _readCursor(now);
-    final batch = await _collectLogs(cursor);
+    final batch = await _collectStableLogs(cursor);
     if (batch.count == 0) {
       await _setLastResult('No new logs to upload');
       return AppLogUploadResult.noLogs;
@@ -199,9 +212,11 @@ final class AppLogUploadService extends ChangeNotifier {
     }
 
     try {
-      final response = await _accountService
-          .uploadAppLogs(body, isAllowed: uploadAllowed)
-          .timeout(requestTimeout);
+      final response = await _accountService.uploadAppLogs(
+        body,
+        isAllowed: uploadAllowed,
+        timeout: requestTimeout,
+      );
       if (response.statusCode >= 200 && response.statusCode < 300) {
         if (!uploadAllowed()) return AppLogUploadResult.disabled;
         await _saveCursor(batch.cursor);
@@ -230,6 +245,33 @@ final class AppLogUploadService extends ChangeNotifier {
       await _setLastResult('Link a valid Decent account before uploading logs');
       return AppLogUploadResult.notLinked;
     }
+  }
+
+  Future<_AppLogBatch> _collectStableLogs(_AppLogCursor cursor) async {
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final before = await _rotatedLogGeneration();
+      final batch = await _collectLogs(cursor);
+      await beforeLogSnapshotValidation?.call();
+      final after = await _rotatedLogGeneration();
+      if (listEquals(before, after)) return batch;
+    }
+    throw StateError('Log files kept rotating during collection');
+  }
+
+  Future<List<Object>> _rotatedLogGeneration() async {
+    final generation = <Object>[];
+    for (var i = 1; i <= _maxRotatedFiles; i++) {
+      final file = File('$_logFilePath.$i');
+      final stat = await file.stat();
+      generation.add((
+        path: file.path,
+        type: stat.type,
+        size: stat.size,
+        modified: stat.modified.microsecondsSinceEpoch,
+        changed: stat.changed.microsecondsSinceEpoch,
+      ));
+    }
+    return generation;
   }
 
   Future<_AppLogBatch> _collectLogs(_AppLogCursor cursor) async {

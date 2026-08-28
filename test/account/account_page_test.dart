@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class FakeCredentialStore implements CredentialStore {
   final Map<String, String> _values = {};
+  Future<void> Function()? beforeDelete;
 
   @override
   Future<String?> read({required String key}) async => _values[key];
@@ -23,6 +24,7 @@ class FakeCredentialStore implements CredentialStore {
 
   @override
   Future<void> delete({required String key}) async {
+    await beforeDelete?.call();
     _values.remove(key);
   }
 }
@@ -174,7 +176,6 @@ void main() {
     addTearDown(uploadService.dispose);
     await uploadService.initialize();
     await uploadService.setEnabled(true);
-
     await tester.pumpWidget(
       buildTestApp(
         AccountPage(
@@ -219,6 +220,10 @@ void main() {
     addTearDown(uploadService.dispose);
     await uploadService.initialize();
     await uploadService.setEnabled(true);
+    store.beforeDelete = () async {
+      final preferences = await SharedPreferences.getInstance();
+      expect(preferences.getBool('appLogUpload.enabled'), isFalse);
+    };
 
     await tester.pumpWidget(
       buildTestApp(

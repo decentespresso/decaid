@@ -92,11 +92,10 @@ class _AccountPageState extends State<AccountPage> {
                                   onPressed: () async {
                                     final uploadService =
                                         widget.appLogUploadService;
-                                    await Future.wait<void>([
-                                      widget.accountService.logout(),
-                                      if (uploadService != null)
-                                        uploadService.setEnabled(false),
-                                    ]);
+                                    if (uploadService != null) {
+                                      await uploadService.setEnabled(false);
+                                    }
+                                    await widget.accountService.logout();
                                     if (mounted) setState(() {});
                                   },
                                   child: const Text('Unlink Account'),

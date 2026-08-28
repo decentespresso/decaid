@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:clock/clock.dart';
@@ -181,6 +182,7 @@ class DecentAccountService {
   Future<http.Response> uploadAppLogs(
     String body, {
     required bool Function() isAllowed,
+    required Duration timeout,
   }) async {
     final generation = _authGeneration;
     if (await isAuthKnownInvalid()) {
@@ -197,14 +199,27 @@ class DecentAccountService {
     final basic = base64Encode(
       utf8.encode('${email.trim()}:${password.trim()}'),
     );
-    final response = await _httpClient.post(
-      Uri.parse('$baseUrl/support/api/applog_upload'),
-      headers: {
-        'authorization': 'Basic $basic',
-        'content-type': 'application/json; charset=utf-8',
-      },
-      body: body,
-    );
+    final abort = Completer<void>();
+    final timer = Timer(timeout, abort.complete);
+    final request =
+        http.AbortableRequest(
+            'POST',
+            Uri.parse('$baseUrl/support/api/applog_upload'),
+            abortTrigger: abort.future,
+          )
+          ..headers.addAll({
+            'authorization': 'Basic $basic',
+            'content-type': 'application/json; charset=utf-8',
+          })
+          ..bodyBytes = utf8.encode(body);
+    final http.Response response;
+    try {
+      response = await http.Response.fromStream(
+        await _httpClient.send(request),
+      );
+    } finally {
+      timer.cancel();
+    }
     if (response.statusCode == 401 && generation == _authGeneration) {
       reportAuthenticationFailure();
     }

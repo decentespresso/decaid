@@ -44,12 +44,25 @@ class _BlockingUploadAccountService extends DecentAccountService {
   Future<http.Response> uploadAppLogs(
     String body, {
     required bool Function() isAllowed,
+    required Duration timeout,
   }) async {
     if (!uploadStarted.isCompleted) {
       uploadStarted.complete();
       await releaseUpload.future;
     }
-    return super.uploadAppLogs(body, isAllowed: isAllowed);
+    return super.uploadAppLogs(body, isAllowed: isAllowed, timeout: timeout);
+  }
+}
+
+class _AbortAwareClient extends http.BaseClient {
+  final aborted = Completer<void>();
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final abortable = request as http.AbortableRequest;
+    await abortable.abortTrigger;
+    aborted.complete();
+    throw http.RequestAbortedException(request.url);
   }
 }
 
@@ -177,6 +190,48 @@ void main() {
       body.indexOf('older rotated log'),
       lessThan(body.indexOf('current log')),
     );
+  });
+
+  test('retries collection when logs rotate before validation', () async {
+    final path = '${tempDir.path}${Platform.pathSeparator}log.txt';
+    await File(
+      '$path.2',
+    ).writeAsString('[main] 2026-08-27 08:00:00.000001 INFO Main - oldest\n');
+    await File('$path.1').writeAsString(
+      '[main] 2026-08-27 09:00:00.000001 INFO Main - unread rotated chunk\n',
+    );
+    await File(
+      path,
+    ).writeAsString('[main] 2026-08-27 10:00:00.000001 INFO Main - old live\n');
+    var rotations = 0;
+    final service = AppLogUploadService(
+      accountService: accountService,
+      logFilePath: path,
+      machineIdentity: () => const AppLogMachineIdentity(
+        serialNumber: '12345',
+        firmwareVersion: '1337',
+      ),
+      initialDelay: const Duration(days: 1),
+      beforeLogSnapshotValidation: () async {
+        if (rotations++ != 0) return;
+        await File('$path.2').rename('$path.3');
+        await File('$path.1').rename('$path.2');
+        await File(path).rename('$path.1');
+        await File(path).writeAsString(
+          '[main] 2026-08-27 11:00:00.000001 INFO Main - new live\n',
+        );
+      },
+    );
+    addTearDown(service.dispose);
+    await service.initialize();
+    await service.setEnabled(true);
+
+    expect(await upload(service), AppLogUploadResult.uploaded);
+
+    final body = requests.single.body;
+    expect(body, contains('unread rotated chunk'));
+    expect(body, contains('new live'));
+    expect(rotations, 2);
   });
 
   test('reads native logs with an isolate prefix', () async {
@@ -335,6 +390,53 @@ void main() {
     },
   );
 
+  test('enabled startup without an account persistently opts out', () async {
+    SharedPreferences.setMockInitialValues({
+      'appLogUpload.enabled': true,
+      'appLogUpload.cursor': '[1,0]',
+    });
+    credentials.values.clear();
+    final service = buildService();
+    addTearDown(service.dispose);
+
+    await service.initialize();
+
+    final preferences = await SharedPreferences.getInstance();
+    expect(service.enabled, isFalse);
+    expect(preferences.getBool('appLogUpload.enabled'), isFalse);
+    expect(preferences.containsKey('appLogUpload.cursor'), isFalse);
+  });
+
+  test(
+    'enabled startup fails closed when credentials cannot be read',
+    () async {
+      SharedPreferences.setMockInitialValues({'appLogUpload.enabled': true});
+      credentials.throwOnRead = true;
+      final service = buildService();
+      addTearDown(service.dispose);
+
+      await service.initialize();
+
+      final preferences = await SharedPreferences.getInstance();
+      expect(service.enabled, isFalse);
+      expect(preferences.getBool('appLogUpload.enabled'), isFalse);
+    },
+  );
+
+  test('missing account during preflight persistently opts out', () async {
+    final service = buildService();
+    addTearDown(service.dispose);
+    await service.initialize();
+    await service.setEnabled(true);
+    credentials.values.clear();
+
+    expect(await upload(service), AppLogUploadResult.notLinked);
+
+    final preferences = await SharedPreferences.getInstance();
+    expect(service.enabled, isFalse);
+    expect(preferences.getBool('appLogUpload.enabled'), isFalse);
+  });
+
   test('ignores timestamp-shaped text inside continuation lines', () async {
     final logFile = File('${tempDir.path}${Platform.pathSeparator}log.txt');
     const continuation =
@@ -439,11 +541,10 @@ void main() {
         credentialStore: credentials,
       );
       accountService = blockingService;
+      final timestamp = DateTime.now().toIso8601String().replaceFirst('T', ' ');
       await File(
         '${tempDir.path}${Platform.pathSeparator}log.txt',
-      ).writeAsString(
-        '[main] 2026-08-27 10:00:00.000001 INFO Main - private log\n',
-      );
+      ).writeAsString('[main] $timestamp INFO Main - private log\n');
       final service = buildService(
         initialDelay: const Duration(milliseconds: 50),
         uploadInterval: const Duration(days: 1),
@@ -476,11 +577,10 @@ void main() {
     expect(service.uploading, isFalse);
   });
 
-  test('times out stalled requests', () async {
+  test('aborts stalled requests before reporting failure', () async {
+    final client = _AbortAwareClient();
     accountService = DecentAccountService(
-      httpClient: http_testing.MockClient(
-        (_) => Completer<http.Response>().future,
-      ),
+      httpClient: client,
       credentialStore: credentials,
     );
     await File('${tempDir.path}${Platform.pathSeparator}log.txt').writeAsString(
@@ -492,6 +592,7 @@ void main() {
     await service.setEnabled(true);
 
     expect(await upload(service), AppLogUploadResult.failed);
+    expect(client.aborted.isCompleted, isTrue);
     expect(service.uploading, isFalse);
   });
 }

@@ -11,6 +11,8 @@ endpoint so linked users can opt in to hourly support-log uploads.
 - Add an `AppLogUploadService` that reads current and rotated logs in
   chronological order, uploads only lines newer than a persisted watermark,
   and drains large backlogs in bounded chunks.
+- Retry collection when rotated-file metadata changes so a rename cannot move
+  unread content behind the collector.
 - Recognize only Decaid's isolate-prefixed record headers. Other lines inherit
   the preceding record timestamp, so embedded timestamp or log-shaped text
   cannot poison the cursor.
@@ -31,6 +33,9 @@ endpoint so linked users can opt in to hourly support-log uploads.
   ignore authentication failures from requests that predate a newer login.
 - Clear stale cursors whenever the service starts disabled, covering interrupted
   opt-out persistence before a later opt-in.
+- Persist opt-out before deleting linked-account credentials, and fail closed
+  when an enabled service cannot find or read them.
+- Abort timed-out HTTP requests before allowing a retry.
 - Send only Decaid log text and the endpoint's required app and machine
   metadata.
 - Keep request bodies below the server's existing upload limit.

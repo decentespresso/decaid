@@ -507,7 +507,11 @@ void main() {
         await store.write(key: 'email', value: 'old@example.com');
         await store.write(key: 'password', value: 'old_cryptpw');
 
-        final upload = service.uploadAppLogs('{}', isAllowed: () => true);
+        final upload = service.uploadAppLogs(
+          '{}',
+          isAllowed: () => true,
+          timeout: const Duration(seconds: 30),
+        );
         await uploadStarted.future;
         expect(await service.login('new@example.com', 'new-password'), isTrue);
         releaseUpload.complete();
