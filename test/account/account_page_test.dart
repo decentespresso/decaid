@@ -103,6 +103,7 @@ void main() {
   });
 
   testWidgets('linked users see app log upload controls', (tester) async {
+    SharedPreferences.setMockInitialValues({});
     final store = FakeCredentialStore();
     await store.write(key: 'email', value: 'user@example.com');
     await store.write(key: 'password', value: 'cryptpw_abc123');
@@ -113,6 +114,7 @@ void main() {
     final uploadService = AppLogUploadService(
       accountService: accountService,
       consentStore: AccountConsentStore(credentialStore: store),
+      preferences: await SharedPreferences.getInstance(),
       logFilePath: 'unused',
       machineIdentity: () => const AppLogMachineIdentity(
         serialNumber: '12345',
@@ -169,6 +171,7 @@ void main() {
     final uploadService = AppLogUploadService(
       accountService: accountService,
       consentStore: AccountConsentStore(credentialStore: store),
+      preferences: await SharedPreferences.getInstance(),
       logFilePath: 'unused',
       machineIdentity: () => const AppLogMachineIdentity(
         serialNumber: '12345',
@@ -215,6 +218,7 @@ void main() {
     final uploadService = AppLogUploadService(
       accountService: accountService,
       consentStore: consentStore,
+      preferences: await SharedPreferences.getInstance(),
       logFilePath: 'unused',
       machineIdentity: () => const AppLogMachineIdentity(
         serialNumber: '12345',

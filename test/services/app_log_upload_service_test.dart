@@ -14,6 +14,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 class _CredentialStore implements CredentialStore {
   final Map<String, String> values = {};
   bool throwOnRead = false;
+  bool failNextWrite = false;
+  Completer<void>? writeStarted;
+  Completer<void>? releaseWrite;
 
   @override
   Future<String?> read({required String key}) async {
@@ -23,6 +26,17 @@ class _CredentialStore implements CredentialStore {
 
   @override
   Future<void> write({required String key, required String value}) async {
+    final release = releaseWrite;
+    if (release != null) {
+      writeStarted?.complete();
+      await release.future;
+      writeStarted = null;
+      releaseWrite = null;
+    }
+    if (failNextWrite) {
+      failNextWrite = false;
+      throw StateError('credential write failed');
+    }
     values[key] = value;
   }
 
@@ -77,12 +91,14 @@ void main() {
   late Directory tempDir;
   late _CredentialStore credentials;
   late AccountConsentStore consentStore;
+  late SharedPreferences preferences;
   late List<http.Request> requests;
   late int responseStatus;
   late DecentAccountService accountService;
 
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
+    preferences = await SharedPreferences.getInstance();
     tempDir = await Directory.systemTemp.createTemp('app_log_upload_test');
     credentials = _CredentialStore();
     await credentials.write(key: 'email', value: 'user@example.com');
@@ -117,6 +133,7 @@ void main() {
     return AppLogUploadService(
       accountService: accountService,
       consentStore: consentStore,
+      preferences: preferences,
       logFilePath: '${tempDir.path}${Platform.pathSeparator}log.txt',
       machineIdentity: () => identity,
       initialDelay: initialDelay,
@@ -211,6 +228,7 @@ void main() {
     final service = AppLogUploadService(
       accountService: accountService,
       consentStore: consentStore,
+      preferences: preferences,
       logFilePath: path,
       machineIdentity: () => const AppLogMachineIdentity(
         serialNumber: '12345',
@@ -364,6 +382,43 @@ void main() {
     expect(requests, hasLength(2));
     expect(requests[1].body, isNot(contains('old opt-out log')));
     expect(requests[1].body, contains('recent log'));
+  });
+
+  test('overlapping enable and disable persists the final denial', () async {
+    final service = buildService();
+    addTearDown(service.dispose);
+    await service.initialize();
+    credentials.writeStarted = Completer<void>();
+    credentials.releaseWrite = Completer<void>();
+
+    final enable = service.setEnabled(true);
+    await credentials.writeStarted!.future;
+    final disable = service.setEnabled(false);
+    credentials.releaseWrite!.complete();
+    await Future.wait([enable, disable]);
+
+    expect(service.enabled, isFalse);
+    expect(
+      await consentStore.read('appLogUpload'),
+      AccountConsentDecision.denied,
+    );
+  });
+
+  test('failed denial can be retried', () async {
+    final service = buildService();
+    addTearDown(service.dispose);
+    await service.initialize();
+    await service.setEnabled(true);
+    credentials.failNextWrite = true;
+
+    await expectLater(service.setEnabled(false), throwsStateError);
+    await service.setEnabled(false);
+
+    expect(service.enabled, isFalse);
+    expect(
+      await consentStore.read('appLogUpload'),
+      AccountConsentDecision.denied,
+    );
   });
 
   test(

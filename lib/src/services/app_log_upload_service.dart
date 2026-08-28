@@ -36,7 +36,7 @@ final class AppLogUploadService extends ChangeNotifier {
     required AccountConsentStore consentStore,
     required String logFilePath,
     required AppLogMachineIdentity? Function() machineIdentity,
-    SharedPreferences? preferences,
+    required SharedPreferences preferences,
     this.initialDelay = const Duration(minutes: 1),
     this.uploadInterval = const Duration(hours: 1),
     this.backlogDelay = const Duration(minutes: 1),
@@ -68,7 +68,7 @@ final class AppLogUploadService extends ChangeNotifier {
   final AccountConsentStore _consentStore;
   final String _logFilePath;
   final AppLogMachineIdentity? Function() _machineIdentity;
-  SharedPreferences? _preferences;
+  final SharedPreferences _preferences;
   final Logger _log = Logger('AppLogUploadService');
 
   final Duration initialDelay;
@@ -81,6 +81,7 @@ final class AppLogUploadService extends ChangeNotifier {
 
   Timer? _timer;
   Future<AppLogUploadResult>? _uploadFuture;
+  Future<void> _consentTransitionTail = Future<void>.value();
   bool _enabled = false;
   bool _uploading = false;
   bool _morePending = false;
@@ -88,14 +89,13 @@ final class AppLogUploadService extends ChangeNotifier {
   int _consentGeneration = 0;
   String? _lastResult;
 
-  SharedPreferences get _prefs => _preferences!;
+  SharedPreferences get _prefs => _preferences;
 
   bool get enabled => _enabled;
   bool get uploading => _uploading;
   String? get lastResult => _lastResult;
 
   Future<void> initialize() async {
-    _preferences ??= await SharedPreferences.getInstance();
     try {
       _enabled =
           await _consentStore.read(_consentKey) ==
@@ -123,8 +123,17 @@ final class AppLogUploadService extends ChangeNotifier {
     _notify();
   }
 
-  Future<void> setEnabled(bool value) async {
-    if (_enabled == value) return;
+  Future<void> setEnabled(bool value) {
+    final transition = _consentTransitionTail.then((_) => _applyEnabled(value));
+    _consentTransitionTail = transition.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return transition;
+  }
+
+  Future<void> _applyEnabled(bool value) async {
+    if (value && _enabled) return;
     if (value) {
       await _consentStore.write(_consentKey, AccountConsentDecision.allowed);
     }

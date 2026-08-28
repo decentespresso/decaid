@@ -14,6 +14,7 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:logging/logging.dart';
 import 'package:logging_appenders/logging_appenders.dart';
 import 'package:reaprime/build_info.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:reaprime/src/account/account_consent_prompter.dart';
 import 'package:reaprime/src/controllers/battery_controller.dart';
 import 'package:reaprime/src/controllers/bengle_probe_bridge.dart';
@@ -465,6 +466,7 @@ void main(List<String> args) async {
     appLogUploadService = AppLogUploadService(
       accountService: decentAccountService,
       consentStore: consentStore,
+      preferences: await SharedPreferences.getInstance(),
       logFilePath: '$logDir/log.txt',
       machineIdentity: () {
         final machine = de1Controller.connectedDe1OrNull;
