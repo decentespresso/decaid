@@ -882,7 +882,11 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
     final settings = await widget.pluginLoaderService.pluginSettings(pluginId);
     final settingsSchema = manifest.settings;
 
-    if (settingsSchema.isEmpty) {
+    final usesDecentAccount =
+        manifest.permissions.contains(PluginPermissions.proxyDecentApi) ||
+        manifest.permissions.contains(PluginPermissions.proxyDecentApiWrite);
+
+    if (settingsSchema.isEmpty && !usesDecentAccount) {
       if (context.mounted) {
         _showSnackBar(context, 'This plugin has no configurable settings');
       }
@@ -911,11 +915,8 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
       return;
     }
 
-    final usesDecentAccount =
-        manifest.permissions.contains(PluginPermissions.proxyDecentApi) ||
-        manifest.permissions.contains(PluginPermissions.proxyDecentApiWrite);
     final accountStatus = usesDecentAccount
-        ? widget.decentAccountService?.isLoggedIn()
+        ? widget.decentAccountService?.verifyStoredCredentialsStatus()
         : null;
 
     final secureDrafts = <String, _SecureDraft>{
@@ -1121,48 +1122,49 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
             actions: [
               ShadButton.secondary(
                 onPressed: () => Navigator.pop(context),
-                child: const Text('Cancel'),
+                child: Text(settingsSchema.isEmpty ? 'Close' : 'Cancel'),
               ),
-              ShadButton(
-                onPressed: () async {
-                  try {
-                    final outgoing = Map<String, dynamic>.from(newSettings);
-                    for (final entry in secureDrafts.entries) {
-                      final draft = entry.value;
-                      if (draft.clearRequested) {
-                        outgoing[entry.key] = null;
-                      } else if (draft.text.isEmpty) {
-                        outgoing[entry.key] = {'isSet': draft.originalIsSet};
-                      } else {
-                        outgoing[entry.key] =
-                            parseValue(draft.text, draft.type ?? 'string') ??
-                            {'isSet': draft.originalIsSet};
+              if (settingsSchema.isNotEmpty)
+                ShadButton(
+                  onPressed: () async {
+                    try {
+                      final outgoing = Map<String, dynamic>.from(newSettings);
+                      for (final entry in secureDrafts.entries) {
+                        final draft = entry.value;
+                        if (draft.clearRequested) {
+                          outgoing[entry.key] = null;
+                        } else if (draft.text.isEmpty) {
+                          outgoing[entry.key] = {'isSet': draft.originalIsSet};
+                        } else {
+                          outgoing[entry.key] =
+                              parseValue(draft.text, draft.type ?? 'string') ??
+                              {'isSet': draft.originalIsSet};
+                        }
+                      }
+                      await widget.pluginLoaderService.savePluginSettings(
+                        pluginId,
+                        outgoing,
+                      );
+                      if (context.mounted == false) {
+                        return;
+                      }
+                      _showSnackBar(context, 'Settings saved');
+                      Navigator.pop(context);
+                    } catch (e, st) {
+                      Logger(
+                        'PluginsSettingsView',
+                      ).warning('Failed to save settings', e, st);
+                      if (context.mounted) {
+                        _showSnackBar(
+                          context,
+                          'Failed to save settings: $e',
+                          isError: true,
+                        );
                       }
                     }
-                    await widget.pluginLoaderService.savePluginSettings(
-                      pluginId,
-                      outgoing,
-                    );
-                    if (context.mounted == false) {
-                      return;
-                    }
-                    _showSnackBar(context, 'Settings saved');
-                    Navigator.pop(context);
-                  } catch (e, st) {
-                    Logger(
-                      'PluginsSettingsView',
-                    ).warning('Failed to save settings', e, st);
-                    if (context.mounted) {
-                      _showSnackBar(
-                        context,
-                        'Failed to save settings: $e',
-                        isError: true,
-                      );
-                    }
-                  }
-                },
-                child: const Text('Save'),
-              ),
+                  },
+                  child: const Text('Save'),
+                ),
             ],
           );
         },
@@ -1170,13 +1172,15 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
     );
   }
 
-  Widget _buildDecentAccountStatus(Future<bool> status) {
-    return FutureBuilder<bool>(
+  Widget _buildDecentAccountStatus(Future<DecentAccountStatus> status) {
+    return FutureBuilder<DecentAccountStatus>(
       future: status,
       builder: (context, snapshot) {
         final checking = snapshot.connectionState != ConnectionState.done;
-        final unavailable = snapshot.hasError;
-        final loggedIn = snapshot.data == true;
+        final unavailable =
+            snapshot.hasError ||
+            snapshot.data == DecentAccountStatus.indeterminate;
+        final loggedIn = snapshot.data == DecentAccountStatus.authenticated;
         final label = checking
             ? 'Checking account status'
             : unavailable

@@ -23,6 +23,8 @@ abstract class CredentialStore {
   Future<void> delete({required String key});
 }
 
+enum DecentAccountStatus { authenticated, unauthenticated, indeterminate }
+
 class DecentAccountService {
   static const bool kEnableSerialVerification = true;
 
@@ -98,20 +100,25 @@ class DecentAccountService {
   }
 
   Future<bool> verifyStoredCredentials() async {
+    await verifyStoredCredentialsStatus();
+    return _authenticated ?? false;
+  }
+
+  Future<DecentAccountStatus> verifyStoredCredentialsStatus() async {
     final generation = _authGeneration;
     final email = await _store.read(key: 'email');
     final password = await _store.read(key: 'password');
     if (email == null || password == null) {
       _log.info('validation -> no stored credentials (account not linked)');
       _setAuthenticated(generation, false);
-      return false;
+      return _accountStatus;
     }
     final http.Response response;
     try {
       response = await _authedGet(email, password, '/support/api/login_test');
     } catch (_) {
       _log.info('validation -> indeterminate');
-      return _authenticated ?? false;
+      return DecentAccountStatus.indeterminate;
     }
     final valid = response.statusCode == 200 && response.body.trim() != '0';
     final rejected =
@@ -119,17 +126,23 @@ class DecentAccountService {
         (response.statusCode == 200 && response.body.trim() == '0');
     if (!valid && !rejected) {
       _log.info('validation -> indeterminate');
-      return _authenticated ?? false;
+      return DecentAccountStatus.indeterminate;
     }
     if (valid) {
       _log.info('validation -> accepted');
       _setAuthenticated(generation, valid);
-      return _authenticated ?? false;
+      return _accountStatus;
     }
     _log.info('validation -> rejected');
     _setAuthenticated(generation, false);
-    return _authenticated ?? false;
+    return _accountStatus;
   }
+
+  DecentAccountStatus get _accountStatus => switch (_authenticated) {
+    true => DecentAccountStatus.authenticated,
+    false => DecentAccountStatus.unauthenticated,
+    null => DecentAccountStatus.indeterminate,
+  };
 
   void _setAuthenticated(int generation, bool value) {
     if (generation == _authGeneration) _authenticated = value;

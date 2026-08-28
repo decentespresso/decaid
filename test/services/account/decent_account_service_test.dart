@@ -362,16 +362,19 @@ void main() {
     });
 
     group('verifyStoredCredentials', () {
-      test('returns true when backend accepts stored credentials', () async {
+      test('reports authenticated when backend accepts credentials', () async {
         await store.write(key: 'email', value: 'user@example.com');
         await store.write(key: 'password', value: 'cryptpw_abc123');
 
-        expect(await service.verifyStoredCredentials(), isTrue);
+        expect(
+          await service.verifyStoredCredentialsStatus(),
+          DecentAccountStatus.authenticated,
+        );
         expect(await service.isLoggedIn(), isTrue);
       });
 
       test(
-        'returns false on a 401 and marks the account not authenticated',
+        'reports unauthenticated on a 401 and marks the account invalid',
         () async {
           httpClient = _mockClient(statusCode: 401, body: '');
           await store.write(key: 'email', value: 'user@example.com');
@@ -382,7 +385,10 @@ void main() {
             baseUrl: _baseUrl,
           );
 
-          expect(await service.verifyStoredCredentials(), isFalse);
+          expect(
+            await service.verifyStoredCredentialsStatus(),
+            DecentAccountStatus.unauthenticated,
+          );
           expect(await service.isLoggedIn(), isFalse);
           expect(await service.hasLinkedAccount(), isTrue);
         },
@@ -429,6 +435,24 @@ void main() {
 
         expect(await service.verifyStoredCredentials(), isFalse);
         expect(store.hasCredentials, isTrue);
+      });
+
+      test('reports an indeterminate status on a network error', () async {
+        await store.write(key: 'email', value: 'user@example.com');
+        await store.write(key: 'password', value: 'cryptpw_abc123');
+        httpClient = http_testing.MockClient(
+          (_) async => throw Exception('SocketException'),
+        );
+        service = DecentAccountService(
+          httpClient: httpClient,
+          credentialStore: store,
+          baseUrl: _baseUrl,
+        );
+
+        expect(
+          await service.verifyStoredCredentialsStatus(),
+          DecentAccountStatus.indeterminate,
+        );
       });
     });
 

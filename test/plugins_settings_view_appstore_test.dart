@@ -62,15 +62,15 @@ class FakePluginLoaderService extends Fake implements PluginLoaderService {
 }
 
 class FakeDecentAccountService extends Fake implements DecentAccountService {
-  FakeDecentAccountService(this.loggedIn);
+  FakeDecentAccountService(this.status);
 
-  final bool loggedIn;
-  int isLoggedInCallCount = 0;
+  final DecentAccountStatus status;
+  int verificationCallCount = 0;
 
   @override
-  Future<bool> isLoggedIn() async {
-    isLoggedInCallCount++;
-    return loggedIn;
+  Future<DecentAccountStatus> verifyStoredCredentialsStatus() async {
+    verificationCallCount++;
+    return status;
   }
 }
 
@@ -211,27 +211,31 @@ void main() {
     expect(find.text('proxyDecentApi'), findsNothing);
   });
 
-  PluginManifest accountProxyManifest() => PluginManifest(
-    id: 'account.reaplugin',
-    name: 'Account Plugin',
-    author: 'Test',
-    description: 'Test plugin',
-    version: '1.0.0',
-    apiVersion: 1,
-    permissions: {PluginPermissions.proxyDecentApiWrite},
-    settings: {
-      'AutoUpload': {'type': 'boolean', 'default': false},
-    },
-    api: PluginApi(endpoints: []),
-  );
+  PluginManifest accountProxyManifest({bool hasSettings = true}) =>
+      PluginManifest(
+        id: 'account.reaplugin',
+        name: 'Account Plugin',
+        author: 'Test',
+        description: 'Test plugin',
+        version: '1.0.0',
+        apiVersion: 1,
+        permissions: {PluginPermissions.proxyDecentApiWrite},
+        settings: hasSettings
+            ? {
+                'AutoUpload': {'type': 'boolean', 'default': false},
+              }
+            : {},
+        api: PluginApi(endpoints: []),
+      );
 
   Future<FakeDecentAccountService> openAccountProxySettings(
     WidgetTester tester, {
-    required bool loggedIn,
+    required DecentAccountStatus status,
+    bool hasSettings = true,
   }) async {
-    final accountService = FakeDecentAccountService(loggedIn);
+    final accountService = FakeDecentAccountService(status);
     fakePluginLoaderService = FakePluginLoaderService(
-      plugins: [accountProxyManifest()],
+      plugins: [accountProxyManifest(hasSettings: hasSettings)],
     );
     await tester.pumpWidget(
       ShadApp(
@@ -263,13 +267,13 @@ void main() {
   ) async {
     final accountService = await openAccountProxySettings(
       tester,
-      loggedIn: true,
+      status: DecentAccountStatus.authenticated,
     );
 
     expect(find.text('Decent account'), findsOneWidget);
     expect(find.text('Logged In'), findsOneWidget);
     expect(find.text('Account settings'), findsNothing);
-    expect(accountService.isLoggedInCallCount, 1);
+    expect(accountService.verificationCallCount, 1);
   });
 
   testWidgets('logged-out account action opens Account without saving', (
@@ -277,7 +281,7 @@ void main() {
   ) async {
     final accountService = await openAccountProxySettings(
       tester,
-      loggedIn: false,
+      status: DecentAccountStatus.unauthenticated,
     );
 
     expect(find.text('Not Logged In'), findsOneWidget);
@@ -294,7 +298,35 @@ void main() {
     expect(find.text('Account page'), findsOneWidget);
     expect(find.byType(AlertDialog), findsNothing);
     expect(fakePluginLoaderService.saveCallCount, 0);
-    expect(accountService.isLoggedInCallCount, 1);
+    expect(accountService.verificationCallCount, 1);
+  });
+
+  testWidgets('shows unavailable when account validation is indeterminate', (
+    tester,
+  ) async {
+    final accountService = await openAccountProxySettings(
+      tester,
+      status: DecentAccountStatus.indeterminate,
+    );
+
+    expect(find.text('Account status unavailable'), findsOneWidget);
+    expect(find.text('Not Logged In'), findsNothing);
+    expect(find.text('Account settings'), findsNothing);
+    expect(accountService.verificationCallCount, 1);
+  });
+
+  testWidgets('shows account status when proxy plugin has no settings', (
+    tester,
+  ) async {
+    await openAccountProxySettings(
+      tester,
+      status: DecentAccountStatus.authenticated,
+      hasSettings: false,
+    );
+
+    expect(find.text('Decent account'), findsOneWidget);
+    expect(find.text('Logged In'), findsOneWidget);
+    expect(find.text('This plugin has no configurable settings'), findsNothing);
   });
 
   PluginManifest enumManifest({bool includeDefault = true}) => PluginManifest(
