@@ -24,6 +24,16 @@ class SkinOverride {
 
 enum SkinSource { registry, path, id }
 
+@immutable
+class _ResolvedHost {
+  const _ResolvedHost(this.addresses, this.expiresAt);
+
+  final List<String> addresses;
+  final DateTime expiresAt;
+
+  bool get isFresh => DateTime.now().isBefore(expiresAt);
+}
+
 const skinApiScriptPath = '/__decent/skin-api.js';
 const skinExitDashboardPath = '/__decent/exit-dashboard';
 const skinExitDashboardUrl = 'http://localhost:3000$skinExitDashboardPath';
@@ -115,6 +125,16 @@ class WebUIService {
   @visibleForTesting
   static Future<String?> Function() resolveWifiIP = NetworkInfo().getWifiIP;
 
+  @visibleForTesting
+  static Future<List<InternetAddress>> Function(String host) resolveHost =
+      InternetAddress.lookup;
+
+  @visibleForTesting
+  static Duration hostResolutionTtl = const Duration(seconds: 30);
+
+  static const int _resolvedHostLimit = 128;
+  final Map<String, _ResolvedHost> _resolvedHosts = {};
+
   WebUIService({Future<List<String>> Function()? listLocalAddresses})
     : _listLocalAddresses = listLocalAddresses ?? _listDeviceAddresses;
 
@@ -134,7 +154,7 @@ class WebUIService {
   String? Function(String path)? skinProxyTokenProvider;
   void Function()? skinProxyTokenRevoker;
 
-  Future<bool> _isLocalHost(String host) async {
+  Future<bool> _isDeviceAddress(String host) async {
     if (host == 'localhost' || host == '127.0.0.1' || host == '::1') {
       return true;
     }
@@ -146,12 +166,44 @@ class WebUIService {
     }
   }
 
+  Future<bool> _isDeviceHost(String host) async {
+    if (await _isDeviceAddress(host)) return true;
+    List<String> local;
+    try {
+      local = await _listLocalAddresses();
+    } catch (e) {
+      _log.fine('Failed to enumerate network interfaces: $e');
+      return false;
+    }
+    return (await _resolvedAddresses(host)).any(local.contains);
+  }
+
+  Future<List<String>> _resolvedAddresses(String host) async {
+    final cached = _resolvedHosts[host];
+    if (cached != null && cached.isFresh) return cached.addresses;
+    List<String> addresses;
+    try {
+      addresses = [
+        for (final address in await resolveHost(host)) address.address,
+      ];
+    } catch (e) {
+      _log.fine('Failed to resolve host $host: $e');
+      addresses = const [];
+    }
+    if (_resolvedHosts.length >= _resolvedHostLimit) _resolvedHosts.clear();
+    _resolvedHosts[host] = _ResolvedHost(
+      addresses,
+      DateTime.now().add(hostResolutionTtl),
+    );
+    return addresses;
+  }
+
   Future<String?> _skinApiUrl(Request request, int port) async {
     final uri = request.requestedUri;
     if (uri.scheme != 'http' || uri.port != port || uri.userInfo.isNotEmpty) {
       return null;
     }
-    if (!await _isLocalHost(uri.host)) return null;
+    if (!await _isDeviceHost(uri.host)) return null;
     return Uri(
       scheme: 'http',
       host: uri.host,
@@ -163,6 +215,7 @@ class WebUIService {
   Future<void> serveFolderAtPath(String path, {int port = 3000}) async {
     await _server?.close(force: true);
     _server = null;
+    _resolvedHosts.clear();
     final tokenProvider = skinProxyTokenProvider;
     if (tokenProvider != null) _revokeSkinProxyToken();
     _localIP ??= await _resolveLocalIP();
@@ -226,13 +279,16 @@ class WebUIService {
         }
         final scriptUrl = await _skinApiUrl(request, this.port);
         if (scriptUrl == null) return response;
+        final token = await _isDeviceAddress(request.requestedUri.host)
+            ? skinProxyToken
+            : null;
         final encoding = response.encoding ?? utf8;
         final body = await response.read().expand((chunk) => chunk).toList();
         final injected = injectSkinApiScriptTagBytes(
           body,
           encoding,
           scriptUrl: scriptUrl,
-          token: skinProxyToken,
+          token: token,
         );
         return response.change(
           body: injected,
@@ -293,7 +349,7 @@ class WebUIService {
         final uri = request.requestedUri;
         if (uri.scheme != 'http' ||
             uri.userInfo.isNotEmpty ||
-            !await _isLocalHost(uri.host)) {
+            !await _isDeviceHost(uri.host)) {
           return Response.notFound('Not found');
         }
         return Response(
@@ -336,6 +392,7 @@ class WebUIService {
       _path = "";
       _log.info('WebUI server stopped');
     }
+    _resolvedHosts.clear();
     _revokeSkinProxyToken();
   }
 }

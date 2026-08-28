@@ -8,6 +8,7 @@ import 'package:logging/logging.dart';
 import 'package:reaprime/src/services/webserver/data_export/data_export_section.dart';
 import 'package:reaprime/src/services/webserver/data_export/data_transfer_result.dart';
 import 'package:reaprime/src/services/webserver/data_export_handler.dart';
+import 'package:reaprime/src/services/webserver/bounded_request_body.dart';
 import 'package:reaprime/src/services/webserver/json_response.dart';
 import 'package:reaprime/src/util/temp_archive_files.dart';
 import 'package:shelf_plus/shelf_plus.dart';
@@ -52,13 +53,23 @@ class DataSyncHandler {
   Future<Response> _handleSync(Request request) async {
     final dynamic decoded;
     try {
-      final body = await _readRequestBody(request);
+      final limits = _exportHandler.limits;
+      final body = await readBoundedRequestBodyString(
+        request,
+        maxBytes: limits.maxSyncRequestBytes,
+        timeout: limits.syncIdleTimeout,
+      );
       decoded = jsonDecode(body);
-    } on SyncBodyTooLarge {
-      return jsonPayloadTooLarge({
-        'error': 'Request body too large',
-        'message': 'The sync request body exceeds the size limit.',
-      });
+    } on RequestBodyReadException catch (error) {
+      return error.statusCode == 413
+          ? jsonPayloadTooLarge({
+              'error': 'Request body too large',
+              'message': 'The sync request body exceeds the size limit.',
+            })
+          : jsonRequestTimeout({
+              'error': 'Request body timed out',
+              'message': 'The sync request body was not received in time.',
+            });
     } catch (_) {
       return jsonBadRequest({'error': 'Invalid JSON'});
     }
@@ -489,18 +500,6 @@ class DataSyncHandler {
     );
   }
 
-  Future<String> _readRequestBody(Request request) async {
-    final limits = _exportHandler.limits;
-    final builder = BytesBuilder(copy: false);
-    await for (final chunk in request.read()) {
-      builder.add(chunk);
-      if (builder.length > limits.maxSyncRequestBytes) {
-        throw const SyncBodyTooLarge();
-      }
-    }
-    return utf8.decode(builder.takeBytes());
-  }
-
   Future<String> _readBoundedResponse(
     Stream<List<int>> stream,
     int maxBytes,
@@ -599,10 +598,6 @@ class DataSyncHandler {
     'overwrite' => ConflictStrategy.overwrite,
     _ => null,
   };
-}
-
-class SyncBodyTooLarge implements Exception {
-  const SyncBodyTooLarge();
 }
 
 class _SectionsResult {

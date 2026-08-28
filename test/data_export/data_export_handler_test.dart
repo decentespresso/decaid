@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -562,6 +563,35 @@ void main() {
         final body = jsonDecode(await response.readAsString());
         expect(body['message'], contains('size limit'));
         expect(shotsSection.importCalls, 0);
+      });
+
+      test('returns 408 and cancels a stalled import body', () async {
+        final stalledHandler = DataExportHandler(
+          sections: [shotsSection],
+          limits: const DataTransferLimits(
+            syncIdleTimeout: Duration(milliseconds: 10),
+          ),
+        );
+        final app = Router().plus;
+        stalledHandler.addRoutes(app);
+        final cancelled = Completer<void>();
+        final body = StreamController<List<int>>(onCancel: cancelled.complete);
+        addTearDown(body.close);
+
+        final response = await Future<Response>.sync(
+          () => app.call(
+            Request(
+              'POST',
+              Uri.parse('http://localhost/api/v1/data/import'),
+              body: body.stream,
+              headers: {'content-type': 'application/octet-stream'},
+            ),
+          ),
+        ).timeout(const Duration(seconds: 1));
+
+        expect(response.statusCode, 408);
+        await cancelled.future.timeout(const Duration(seconds: 1));
+        expect(body.hasListener, isFalse);
       });
 
       test('rejects an archive exceeding the entry count limit', () async {

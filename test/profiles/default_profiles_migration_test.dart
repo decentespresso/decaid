@@ -195,4 +195,34 @@ void main() {
       );
     },
   );
+
+  test(
+    'P1: a bundled profile with a parent_id gets its parentId linked',
+    () async {
+      final storage = InMemoryProfileStorage();
+      final controller = ProfileController(storage: storage);
+      await controller.initialize();
+
+      final v2 = Profile.fromJson(await _bundledJson('best_practice.json'));
+      final v3 = Profile.fromJson(await _bundledJson('best_practice_v3.json'));
+      final v2Id = ProfileRecord.create(profile: v2).id;
+      final v3Id = ProfileRecord.create(profile: v3).id;
+      expect(v2Id == v3Id, isFalse, reason: 'precondition: v3 differs from v2');
+
+      final v3Json = await _bundledJson('best_practice_v3.json');
+      expect(
+        v3Json['parent_id'],
+        v2Id,
+        reason: 'bundled parent_id must match v2\'s immutable content hash',
+      );
+
+      expect(storage.records[v3Id]!.parentId, v2Id);
+
+      final lineage = await controller.getLineage(v3Id);
+      expect(lineage.map((r) => r.id).toList(), [
+        v2Id,
+        v3Id,
+      ], reason: 'lineage walks from v3 back to its v2 parent');
+    },
+  );
 }

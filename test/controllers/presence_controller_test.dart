@@ -17,6 +17,7 @@ import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/models/device/remembered_device.dart';
+import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/models/wake_schedule.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:rxdart/subjects.dart';
@@ -232,11 +233,54 @@ class _TestDe1Controller extends De1Controller {
 
   _TestDe1Controller({required super.controller});
 
+  int failNextStateRequests = 0;
+  int stateRequestAttempts = 0;
+  Completer<void>? stateRequestEntered;
+  Completer<void>? stateRequestRelease;
+
   @override
   Stream<De1Interface?> get de1 => _de1Subject.stream;
 
   void setDe1(De1Interface? de1) {
     _de1Subject.add(de1);
+  }
+
+  @override
+  Future<void> requestMachineState(MachineState state) {
+    stateRequestAttempts++;
+    if (failNextStateRequests > 0) {
+      failNextStateRequests--;
+      return Future.error(const De1WriteQueueFullException(0));
+    }
+    final de1 = _de1Subject.valueOrNull;
+    if (de1 == null) throw const DeviceNotConnectedException.machine();
+    return de1.requestState(state);
+  }
+
+  @override
+  Future<bool> requestMachineStateIf(
+    MachineState state,
+    bool Function() stillApplicable,
+  ) async {
+    stateRequestAttempts++;
+    if (failNextStateRequests > 0) {
+      failNextStateRequests--;
+      throw const De1WriteQueueFullException(0);
+    }
+    stateRequestEntered?.complete();
+    await stateRequestRelease?.future;
+    if (!stillApplicable()) return false;
+    final de1 = _de1Subject.valueOrNull;
+    if (de1 == null) throw const DeviceNotConnectedException.machine();
+    await de1.requestState(state);
+    return true;
+  }
+
+  @override
+  Future<void> sendUserPresent() async {
+    final de1 = _de1Subject.valueOrNull;
+    if (de1 == null) throw const DeviceNotConnectedException.machine();
+    await de1.sendUserPresent();
   }
 }
 
@@ -305,6 +349,66 @@ void main() {
   });
 
   group('sleep timeout', () {
+    test('heartbeat cancels an admitted sleep request', () {
+      fakeAsync((async) {
+        settingsController.setSleepTimeoutMinutes(5);
+        async.flushMicrotasks();
+        de1Controller.stateRequestEntered = Completer<void>();
+        de1Controller.stateRequestRelease = Completer<void>();
+        final controller = PresenceController(
+          de1Controller: de1Controller,
+          settingsController: settingsController,
+          clock: () => clock.now(),
+        );
+        controller.initialize();
+        de1Controller.setDe1(testDe1);
+        async.flushMicrotasks();
+        testDe1.emitState(MachineState.idle);
+        controller.heartbeat();
+
+        async.elapse(const Duration(minutes: 5, seconds: 1));
+        async.flushMicrotasks();
+        expect(de1Controller.stateRequestEntered!.isCompleted, isTrue);
+
+        controller.heartbeat();
+        de1Controller.stateRequestRelease!.complete();
+        async.flushMicrotasks();
+
+        expect(testDe1.requestedStates, isEmpty);
+        controller.dispose();
+      });
+    });
+
+    test('queue saturation re-arms the sleep timer', () {
+      fakeAsync((async) {
+        settingsController.setSleepTimeoutMinutes(5);
+        async.flushMicrotasks();
+        de1Controller.failNextStateRequests = 1;
+
+        final controller = PresenceController(
+          de1Controller: de1Controller,
+          settingsController: settingsController,
+          clock: () => clock.now(),
+        );
+        controller.initialize();
+        de1Controller.setDe1(testDe1);
+        async.flushMicrotasks();
+        testDe1.emitState(MachineState.idle);
+        async.flushMicrotasks();
+
+        controller.heartbeat();
+        async.elapse(const Duration(minutes: 5, seconds: 1));
+        async.flushMicrotasks();
+        expect(testDe1.requestedStates, isEmpty);
+
+        async.elapse(const Duration(minutes: 5, seconds: 1));
+        async.flushMicrotasks();
+        expect(testDe1.requestedStates, [MachineState.sleeping]);
+        expect(de1Controller.stateRequestAttempts, 2);
+        controller.dispose();
+      });
+    });
+
     test(
       'heartbeat resets sleep timer - no sleep if heartbeat before timeout',
       () {
@@ -584,6 +688,87 @@ void main() {
   });
 
   group('scheduled wake', () {
+    test('queued wake expires when the matching minute ends', () {
+      fakeAsync((async) {
+        var now = DateTime(2026, 1, 15, 7);
+        settingsController.setWakeSchedules(
+          WakeSchedule.serializeList([
+            const WakeSchedule(
+              id: 'expires',
+              hour: 7,
+              minute: 0,
+              daysOfWeek: {},
+              enabled: true,
+            ),
+          ]),
+        );
+        async.flushMicrotasks();
+        de1Controller.stateRequestEntered = Completer<void>();
+        de1Controller.stateRequestRelease = Completer<void>();
+
+        final controller = PresenceController(
+          de1Controller: de1Controller,
+          settingsController: settingsController,
+          clock: () => now,
+        );
+        controller.initialize();
+        de1Controller.setDe1(testDe1);
+        async.flushMicrotasks();
+        testDe1.emitState(MachineState.sleeping);
+        async.flushMicrotasks();
+
+        async.elapse(const Duration(seconds: 31));
+        async.flushMicrotasks();
+        expect(de1Controller.stateRequestEntered!.isCompleted, isTrue);
+
+        now = DateTime(2026, 1, 15, 7, 1);
+        de1Controller.stateRequestRelease!.complete();
+        async.flushMicrotasks();
+
+        expect(testDe1.requestedStates, isEmpty);
+        controller.dispose();
+      });
+    });
+
+    test('queue saturation retries within the matching minute', () {
+      fakeAsync((async) {
+        settingsController.setWakeSchedules(
+          WakeSchedule.serializeList([
+            const WakeSchedule(
+              id: 'retry',
+              hour: 7,
+              minute: 0,
+              daysOfWeek: {},
+              enabled: true,
+            ),
+          ]),
+        );
+        async.flushMicrotasks();
+        de1Controller.failNextStateRequests = 1;
+
+        final controller = PresenceController(
+          de1Controller: de1Controller,
+          settingsController: settingsController,
+          clock: () => DateTime(2026, 1, 15, 7),
+        );
+        controller.initialize();
+        de1Controller.setDe1(testDe1);
+        async.flushMicrotasks();
+        testDe1.emitState(MachineState.sleeping);
+        async.flushMicrotasks();
+
+        async.elapse(const Duration(seconds: 31));
+        async.flushMicrotasks();
+        expect(testDe1.requestedStates, isEmpty);
+
+        async.elapse(const Duration(seconds: 2));
+        async.flushMicrotasks();
+        expect(testDe1.requestedStates, [MachineState.schedIdle]);
+        expect(de1Controller.stateRequestAttempts, 2);
+        controller.dispose();
+      });
+    });
+
     test('wakes sleeping machine at matching schedule time', () {
       fakeAsync((async) {
         final schedule = WakeSchedule(

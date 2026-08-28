@@ -24,7 +24,10 @@ class WebViewLogsHandler {
   }
 
   Future<Response> _handleWebSocketLogs(Request req) async {
-    return sws.webSocketHandler((WebSocketChannel socket, String? protocol) {
+    return admittedWebSocketHandler((
+      WebSocketChannel socket,
+      String? protocol,
+    ) {
       StreamSubscription? sub;
       sub = _webViewLogService.stream.listen((entry) {
         socket.sink.add(entry);

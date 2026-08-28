@@ -55,7 +55,11 @@ class PresenceHandler {
 
   Future<Response> _updateSettingsHandler(Request request) async {
     try {
-      final body = await request.readAsString();
+      final body = await readBoundedRequestBodyString(
+        request,
+        maxBytes: smallRequestBodyBytes,
+        timeout: smallRequestBodyTimeout,
+      );
       final decoded = jsonDecode(body);
       if (decoded is! Map<String, dynamic>) {
         return jsonBadRequest({'error': 'Request body must be a JSON object'});
@@ -95,6 +99,8 @@ class PresenceHandler {
         'userPresenceEnabled': _settingsController.userPresenceEnabled,
         'sleepTimeoutMinutes': _settingsController.sleepTimeoutMinutes,
       });
+    } on RequestBodyReadException {
+      rethrow;
     } on FormatException {
       return jsonBadRequest({'error': 'Malformed JSON'});
     } catch (e, st) {
@@ -120,7 +126,11 @@ class PresenceHandler {
 
   Future<Response> _addScheduleHandler(Request request) async {
     try {
-      final body = await request.readAsString();
+      final body = await readBoundedRequestBodyString(
+        request,
+        maxBytes: smallRequestBodyBytes,
+        timeout: smallRequestBodyTimeout,
+      );
       final json = jsonDecode(body) as Map<String, dynamic>;
 
       final keepAwakeFor = json['keepAwakeFor'] as int?;
@@ -170,6 +180,8 @@ class PresenceHandler {
       );
 
       return jsonCreated(schedule.toJson());
+    } on RequestBodyReadException {
+      rethrow;
     } catch (e, st) {
       log.severe('Error in add schedule handler', e, st);
       return jsonError({'error': e.toString()});
@@ -189,7 +201,11 @@ class PresenceHandler {
         return jsonNotFound({'error': 'Schedule not found', 'id': id});
       }
 
-      final body = await request.readAsString();
+      final body = await readBoundedRequestBodyString(
+        request,
+        maxBytes: smallRequestBodyBytes,
+        timeout: smallRequestBodyTimeout,
+      );
       final json = jsonDecode(body) as Map<String, dynamic>;
       final existing = schedules[index];
 
@@ -249,6 +265,8 @@ class PresenceHandler {
       );
 
       return jsonOk(updated.toJson());
+    } on RequestBodyReadException {
+      rethrow;
     } catch (e, st) {
       log.severe('Error in update schedule handler', e, st);
       return jsonError({'error': e.toString()});

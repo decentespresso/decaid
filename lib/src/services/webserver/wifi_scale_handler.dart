@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/services/webserver/json_response.dart';
+import 'package:reaprime/src/services/webserver/bounded_request_body.dart';
 import 'package:reaprime/src/services/wifi/wifi_scale_discovery_service.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
@@ -55,7 +56,13 @@ class WifiScaleHandler {
   Future<String?> _extractHost(Request req) async {
     String body;
     try {
-      body = await req.readAsString();
+      body = await readBoundedRequestBodyString(
+        req,
+        maxBytes: smallRequestBodyBytes,
+        timeout: smallRequestBodyTimeout,
+      );
+    } on RequestBodyReadException {
+      rethrow;
     } catch (e, st) {
       _log.warning('failed to read request body', e, st);
       return req.requestedUri.queryParameters['host']?.trim();

@@ -28,6 +28,7 @@ import 'package:reaprime/src/plugins/plugin_source.dart';
 import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/services/storage/hive_store_service.dart';
 import 'package:reaprime/src/services/webserver/json_response.dart';
+import 'package:reaprime/src/services/webserver/bounded_request_body.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:reaprime/src/services/webserver/data_export_handler.dart';
@@ -119,6 +120,7 @@ part 'webserver/account_handler.dart';
 part 'webserver/account_proxy_handler.dart';
 part 'webserver/derek_handler.dart';
 part 'webserver/update_handler.dart';
+part 'webserver/admission_control.dart';
 
 const _corsExposedResponseHeaders = [
   'ETag',
@@ -126,9 +128,6 @@ const _corsExposedResponseHeaders = [
   'Content-Disposition',
   'Retry-After',
   'X-Request-Id',
-  'X-RateLimit-Limit',
-  'X-RateLimit-Remaining',
-  'X-RateLimit-Reset',
 ];
 
 final log = Logger("Webservice");
@@ -463,7 +462,22 @@ Handler _init(
     debugHandler.addRoutes(app);
   }
 
-  final handler = const Pipeline()
+  return buildWebServerHandler(
+    app.call,
+    proxyTokenService: proxyTokenService,
+    accountProxyAllowedOrigins: accountProxyAllowedOrigins,
+  );
+}
+
+Set<String> _noAccountProxyOrigins() => const {};
+
+Handler buildWebServerHandler(
+  Handler routes, {
+  ProxyTokenService? proxyTokenService,
+  Set<String> Function() accountProxyAllowedOrigins = _noAccountProxyOrigins,
+  AdmissionGate? admissionGate,
+}) {
+  return const Pipeline()
       .addMiddleware(accountProxyCorsMiddleware(accountProxyAllowedOrigins))
       .addMiddleware(logRequestsWithClientIp())
       .addMiddleware(
@@ -482,9 +496,9 @@ Handler _init(
             ? (Handler h) => h
             : proxyAuthMiddleware(proxyTokenService),
       )
-      .addHandler(app.call);
-
-  return handler;
+      .addMiddleware(requestBodyReadMiddleware())
+      .addMiddleware(apiAdmissionMiddleware(admissionGate ?? _apiAdmissionGate))
+      .addHandler(routes);
 }
 
 const _shelfConnectionInfoKey = 'shelf.io.connection_info';

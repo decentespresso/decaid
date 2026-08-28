@@ -184,6 +184,16 @@ class WorkflowHandler {
           return jsonOk(updatedWorkflow.toJson());
         }
       }
+    } on De1WriteQueueFullException catch (e) {
+      return jsonServiceUnavailable({
+        'error': 'Machine write queue is full',
+        'message': '$e',
+      });
+    } on De1WriteSupersededException catch (e) {
+      return jsonConflict({
+        'error': 'Workflow update was superseded',
+        'message': '$e',
+      });
     } on MachineReplacementTimeoutException catch (e) {
       return jsonServiceUnavailable({
         'error': 'Machine unavailable',

@@ -96,6 +96,25 @@ class MachineReplacementTimeoutException implements Exception {
       'within $timeout';
 }
 
+class De1WriteQueueFullException implements Exception {
+  final int maxPendingWrites;
+
+  const De1WriteQueueFullException(this.maxPendingWrites);
+
+  @override
+  String toString() =>
+      'De1WriteQueueFullException: maximum $maxPendingWrites pending writes';
+}
+
+class De1WriteSupersededException implements Exception {
+  final String key;
+
+  const De1WriteSupersededException(this.key);
+
+  @override
+  String toString() => 'De1WriteSupersededException: $key was superseded';
+}
+
 class FirmwareUpdateInProgressException implements Exception {
   @override
   String toString() =>

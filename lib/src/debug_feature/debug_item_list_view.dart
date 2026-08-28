@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart' as dev;
@@ -8,11 +9,16 @@ import 'package:reaprime/src/debug_feature/scale_debug_view.dart';
 import 'package:shadcn_ui/shadcn_ui.dart' hide Scale;
 
 class DebugItemListView extends StatelessWidget {
-  const DebugItemListView({super.key, required this.controller});
+  const DebugItemListView({
+    super.key,
+    required this.controller,
+    required this.de1Controller,
+  });
 
   static const routeName = '/debug';
 
   final DeviceController controller;
+  final De1Controller de1Controller;
 
   @override
   Widget build(BuildContext context) {
@@ -227,7 +233,10 @@ class DebugItemListView extends StatelessWidget {
     if (device is De1Interface) {
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => De1DebugView(machine: device)),
+        MaterialPageRoute(
+          builder: (_) =>
+              De1DebugView(machine: device, de1Controller: de1Controller),
+        ),
       );
     } else if (device is Scale) {
       Navigator.push(

@@ -69,7 +69,7 @@ class ScaleHandler {
         return jsonError({'error': e.toString()});
       }
     });
-    app.get('/ws/v1/scale/snapshot', sws.webSocketHandler(_handleSnapshot));
+    app.get('/ws/v1/scale/snapshot', admittedWebSocketHandler(_handleSnapshot));
   }
 
   Future<void> _handleSnapshot(

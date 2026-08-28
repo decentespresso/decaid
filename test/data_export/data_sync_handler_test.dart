@@ -677,6 +677,33 @@ void main() {
         );
         expect(response.statusCode, 413);
       });
+
+      test('returns 408 and cancels a stalled sync request body', () async {
+        final handler = buildSyncHandler(
+          http_testing.MockClient((_) async => http.Response('{}', 500)),
+          limits: const DataTransferLimits(
+            syncIdleTimeout: Duration(milliseconds: 10),
+          ),
+        );
+        final cancelled = Completer<void>();
+        final body = StreamController<List<int>>(onCancel: cancelled.complete);
+        addTearDown(body.close);
+
+        final response = await Future<Response>.sync(
+          () => handler(
+            Request(
+              'POST',
+              Uri.parse('http://localhost/api/v1/data/sync'),
+              body: body.stream,
+              headers: {'content-type': 'application/json'},
+            ),
+          ),
+        ).timeout(const Duration(seconds: 1));
+
+        expect(response.statusCode, 408);
+        await cancelled.future.timeout(const Duration(seconds: 1));
+        expect(body.hasListener, isFalse);
+      });
     });
 
     group('pull', () {

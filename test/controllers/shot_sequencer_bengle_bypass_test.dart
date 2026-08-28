@@ -133,6 +133,11 @@ class _BengleDe1Controller extends De1Controller {
 
   @override
   Stream<De1Interface?> get de1 => BehaviorSubject.seeded(bengle).stream;
+
+  @override
+  Future<void> requestMachineState(MachineState state) {
+    return bengle.requestState(state);
+  }
 }
 
 class _TestScaleController extends ScaleController {

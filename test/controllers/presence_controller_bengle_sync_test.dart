@@ -13,8 +13,10 @@ import 'package:reaprime/src/models/firmware_wake_window.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/models/device/led_strip.dart';
+import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/scale_calibration.dart';
+import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/models/wake_schedule.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:rxdart/subjects.dart';
@@ -141,11 +143,33 @@ class _TestDe1Controller extends De1Controller {
 
   _TestDe1Controller({required super.controller});
 
+  int deviceWriteCalls = 0;
+  Future<void> Function()? beforeDeviceWrite;
+
   @override
   Stream<De1Interface?> get de1 => _de1Subject.stream;
 
   void setDe1(De1Interface? de1) {
     _de1Subject.add(de1);
+  }
+
+  @override
+  Future<T> runDeviceWrite<T>(
+    Future<T> Function(De1Interface device) write, {
+    De1ReplayPolicy replayPolicy = De1ReplayPolicy.never,
+  }) async {
+    deviceWriteCalls++;
+    await beforeDeviceWrite?.call();
+    final de1 = _de1Subject.valueOrNull;
+    if (de1 == null) throw const DeviceNotConnectedException.machine();
+    return write(de1);
+  }
+
+  @override
+  Future<void> requestMachineState(MachineState state) {
+    final de1 = _de1Subject.valueOrNull;
+    if (de1 == null) throw const DeviceNotConnectedException.machine();
+    return de1.requestState(state);
   }
 }
 
@@ -196,6 +220,29 @@ void main() {
         const FirmwareWakeWindow(dow: 0, startMin: 450, endMin: 495),
       ]);
 
+      controller.dispose();
+    });
+  });
+
+  test('firmware sync is one governed write and computes clock when run', () {
+    fakeAsync((async) {
+      var now = DateTime(2026, 1, 15, 6);
+      de1Controller.beforeDeviceWrite = () async {
+        now = DateTime(2026, 1, 15, 7);
+      };
+      final controller = PresenceController(
+        de1Controller: de1Controller,
+        settingsController: settingsController,
+        clock: () => now,
+      );
+      controller.initialize();
+      de1Controller.setDe1(bengle);
+      async.flushMicrotasks();
+
+      expect(de1Controller.deviceWriteCalls, 1);
+      expect(bengle.pushedClockSeconds, [
+        localSecondsSinceSunday(DateTime(2026, 1, 15, 7)),
+      ]);
       controller.dispose();
     });
   });
