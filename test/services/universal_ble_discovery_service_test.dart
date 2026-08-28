@@ -410,9 +410,11 @@ void main() {
         final prefixes = platform.startScanCalls
             .map((c) => c.filter?.withNamePrefix ?? const <String>[])
             .toList();
-        expect(prefixes.first, [
-          'Decent Scale',
-        ], reason: 'the raced watch start settles before the burst starts');
+        expect(
+          prefixes.first,
+          ['Decent Scale'],
+          reason: 'the raced watch start settles before the burst starts',
+        );
         expect(
           prefixes[1],
           isEmpty,

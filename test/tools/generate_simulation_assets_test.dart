@@ -206,101 +206,105 @@ void main() {
     );
   });
 
-  test('regenerate bundled simulation shots', () {
-    Directory(outputDir).createSync(recursive: true);
+  test(
+    'regenerate bundled simulation shots',
+    () {
+      Directory(outputDir).createSync(recursive: true);
 
-    (String, double) convert(File source) {
-      final stem = source.uri.pathSegments.last.replaceAll('.shot', '');
-      final content = source.readAsStringSync();
-      final map = TclParser.parse(content);
-      final parsed = TclShotParser.parse(content);
-      final framed = _withFrames(
-        parsed.shot.measurements,
-        map['espresso_state_change'],
-      );
-      final resampled = _resampleTo10Hz(framed);
-      final originalDuration = _durationSeconds(resampled);
-      final shot = parsed.shot.copyWith(
-        measurements: _extendTo(resampled, _targetDurationSeconds),
-      );
-
-      final json = shot.toJson();
-      json['id'] = 'sim-$stem';
-      final workflow = json['workflow'];
-      if (workflow is Map) {
-        workflow['id'] = 'sim-$stem-workflow';
-        final first = shot.measurements.first.machine;
-        final durationSeconds =
-            shot.measurements.last.machine.timestamp
-                .difference(first.timestamp)
-                .inMilliseconds /
-            1000.0;
-        final replayStep = ProfileStepPressure(
-          name: 'Replay',
-          transition: TransitionType.fast,
-          volume: 0,
-          seconds: durationSeconds,
-          temperature: first.targetGroupTemperature > 0
-              ? first.targetGroupTemperature
-              : 90,
-          sensor: TemperatureSensor.coffee,
-          pressure: first.targetPressure > 0 ? first.targetPressure : 9,
+      (String, double) convert(File source) {
+        final stem = source.uri.pathSegments.last.replaceAll('.shot', '');
+        final content = source.readAsStringSync();
+        final map = TclParser.parse(content);
+        final parsed = TclShotParser.parse(content);
+        final framed = _withFrames(
+          parsed.shot.measurements,
+          map['espresso_state_change'],
         );
-        final profile = workflow['profile'];
-        if (profile is Map) {
-          profile['steps'] = [replayStep.toJson()];
+        final resampled = _resampleTo10Hz(framed);
+        final originalDuration = _durationSeconds(resampled);
+        final shot = parsed.shot.copyWith(
+          measurements: _extendTo(resampled, _targetDurationSeconds),
+        );
+
+        final json = shot.toJson();
+        json['id'] = 'sim-$stem';
+        final workflow = json['workflow'];
+        if (workflow is Map) {
+          workflow['id'] = 'sim-$stem-workflow';
+          final first = shot.measurements.first.machine;
+          final durationSeconds =
+              shot.measurements.last.machine.timestamp
+                  .difference(first.timestamp)
+                  .inMilliseconds /
+              1000.0;
+          final replayStep = ProfileStepPressure(
+            name: 'Replay',
+            transition: TransitionType.fast,
+            volume: 0,
+            seconds: durationSeconds,
+            temperature: first.targetGroupTemperature > 0
+                ? first.targetGroupTemperature
+                : 90,
+            sensor: TemperatureSensor.coffee,
+            pressure: first.targetPressure > 0 ? first.targetPressure : 9,
+          );
+          final profile = workflow['profile'];
+          if (profile is Map) {
+            profile['steps'] = [replayStep.toJson()];
+          }
         }
+
+        final roundTripped = ShotRecord.fromJson(
+          jsonDecode(jsonEncode(json)) as Map<String, dynamic>,
+        );
+        expect(roundTripped.measurements, isNotEmpty);
+
+        // Compact (unindented) — these are generated, machine-read data files;
+        // indentation would roughly double the bundled size.
+        File('$outputDir/$stem.json').writeAsStringSync(jsonEncode(json));
+        return ('$stem.json', originalDuration);
       }
 
-      final roundTripped = ShotRecord.fromJson(
-        jsonDecode(jsonEncode(json)) as Map<String, dynamic>,
+      List<File> shotsIn(String dir) => Directory(dir).existsSync()
+          ? (Directory(dir)
+                .listSync()
+                .whereType<File>()
+                .where((f) => f.path.endsWith('.shot'))
+                .toList()
+              ..sort((a, b) => a.path.compareTo(b.path)))
+          : <File>[];
+
+      final fallbackSources = shotsIn(sourceDir);
+      expect(fallbackSources, isNotEmpty, reason: 'no fallback .shot sources');
+      final fallback = fallbackSources.map((s) {
+        final (file, original) = convert(s);
+        return {'file': file, 'originalDurationSeconds': original};
+      }).toList();
+
+      final profiles = <Map<String, dynamic>>[];
+      for (final source in shotsIn(profileDir)) {
+        final stem = source.uri.pathSegments.last.replaceAll('.shot', '');
+        final bundledProfile = File('assets/defaultProfiles/$stem.json');
+        final title = bundledProfile.existsSync()
+            ? (jsonDecode(bundledProfile.readAsStringSync())
+                      as Map<String, dynamic>)['title']
+                  as String
+            : TclShotParser.parse(source.readAsStringSync()).shot.workflow.name;
+        final (file, original) = convert(source);
+        profiles.add({
+          'file': file,
+          'profileTitle': title,
+          'profileFile': '$stem.json',
+          'originalDurationSeconds': original,
+        });
+      }
+
+      File('$outputDir/manifest.json').writeAsStringSync(
+        const JsonEncoder.withIndent(
+          '  ',
+        ).convert({'fallback': fallback, 'profiles': profiles}),
       );
-      expect(roundTripped.measurements, isNotEmpty);
-
-      // Compact (unindented) — these are generated, machine-read data files;
-      // indentation would roughly double the bundled size.
-      File('$outputDir/$stem.json').writeAsStringSync(jsonEncode(json));
-      return ('$stem.json', originalDuration);
-    }
-
-    List<File> shotsIn(String dir) => Directory(dir).existsSync()
-        ? (Directory(dir)
-              .listSync()
-              .whereType<File>()
-              .where((f) => f.path.endsWith('.shot'))
-              .toList()
-            ..sort((a, b) => a.path.compareTo(b.path)))
-        : <File>[];
-
-    final fallbackSources = shotsIn(sourceDir);
-    expect(fallbackSources, isNotEmpty, reason: 'no fallback .shot sources');
-    final fallback = fallbackSources.map((s) {
-      final (file, original) = convert(s);
-      return {'file': file, 'originalDurationSeconds': original};
-    }).toList();
-
-    final profiles = <Map<String, dynamic>>[];
-    for (final source in shotsIn(profileDir)) {
-      final stem = source.uri.pathSegments.last.replaceAll('.shot', '');
-      final bundledProfile = File('assets/defaultProfiles/$stem.json');
-      final title = bundledProfile.existsSync()
-          ? (jsonDecode(bundledProfile.readAsStringSync())
-                    as Map<String, dynamic>)['title']
-                as String
-          : TclShotParser.parse(source.readAsStringSync()).shot.workflow.name;
-      final (file, original) = convert(source);
-      profiles.add({
-        'file': file,
-        'profileTitle': title,
-        'profileFile': '$stem.json',
-        'originalDurationSeconds': original,
-      });
-    }
-
-    File('$outputDir/manifest.json').writeAsStringSync(
-      const JsonEncoder.withIndent(
-        '  ',
-      ).convert({'fallback': fallback, 'profiles': profiles}),
-    );
-  }, skip: regenerate ? false : 'set REGEN_SIM_ASSETS=1 to rebuild assets');
+    },
+    skip: regenerate ? false : 'set REGEN_SIM_ASSETS=1 to rebuild assets',
+  );
 }
