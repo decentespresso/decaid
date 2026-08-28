@@ -82,6 +82,7 @@ The implementation follows REA's standard layered architecture with clear separa
 **ProfileController** (`lib/src/controllers/profile_controller.dart`)
 - Business logic and validation layer
 - Auto-loads default profiles from `assets/defaultProfiles/` on every startup (idempotent: seeds new ones, skips existing by content hash). Seeding **preserves the stored visibility** of an existing default, so a default the user hid stays hidden across restarts (re-show it with `POST /api/v1/profiles/restore/{filename}`)
+- **Bundled provenance**: a default profile JSON may carry `"parent": "<other-bundled-filename>"`; seeding then sets that record's `parentId` to the parent file's content-hash id (after content seeding, idempotent), so e.g. `best_practice_v3.json` links back to `best_practice.json` and both appear in the v3 lineage
 - **Curation upkeep** (so edits to bundled defaults reach existing installs): refreshes a default's presentation fields (title/author/notes) when the bundled `metadataHash` changes but content is unchanged; and `_retireStaleDefaults` hides any default whose `metadata.filename` left the manifest, or whose stored id no longer matches the current bundled version (content changed). Retired defaults are hidden, never deleted
 - Enforces default profile protection (cannot be deleted, only hidden; cannot modify execution fields)
 - Validates parent profile existence before creating children

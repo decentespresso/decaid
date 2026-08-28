@@ -1,0 +1,148 @@
+{
+  "version": "2",
+  "title": "Adaptive v3",
+  "author": "Decent",
+  "parent": "best_practice.json",
+  "notes": "This profile aims to unite the best practices in espresso extraction that we have learned so far with the Decent. It unites Brakel's Londonium, Rao's Blooming and Gagn\u00e9's Adaptive profiles. The flow rate during extraction will automatically adjust itself from the flow rate actually happening during the Pressurize step and then gently increase it from there.  A 15g dose is typical.  Aim for a flow rate around 1.5 ml/s at the Pressurize step. 15g in, 33g out, in 32 seconds is a typical recipe for a medium roast.  Grind fine enough to keep dripping during preinfusion to around 4g. If you have a bluetooth scale, you can keep track of how much dripping into the cup there is before the ramp stage.  4 grams of total dripping, within 1 gram, seems to give the best tasting results. Try adusting your grind and dose to get that amount of dripping, and see if you like how it tastes.",
+  "beverage_type": "espresso",
+  "steps": [
+    {
+      "name": "Prefill",
+      "pump": "flow",
+      "transition": "fast",
+      "temperature": "93.0",
+      "sensor": "coffee",
+      "seconds": "5.0",
+      "volume": "100.0",
+      "weight": "0.0",
+      "flow": "8.0",
+      "pressure": "3.0",
+      "limiter": {
+        "value": "0.0",
+        "range": "0.6"
+      }
+    },
+    {
+      "name": "Fill",
+      "pump": "flow",
+      "transition": "fast",
+      "temperature": "93.0",
+      "sensor": "coffee",
+      "seconds": "12.0",
+      "volume": "100.0",
+      "weight": "0.0",
+      "flow": "8.0",
+      "pressure": "3.0",
+      "exit": {
+        "type": "pressure",
+        "condition": "over",
+        "value": "3.0"
+      },
+      "limiter": {
+        "value": "0.0",
+        "range": "0.6"
+      }
+    },
+    {
+      "name": "Compressing",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "88.0",
+      "sensor": "coffee",
+      "seconds": "12.0",
+      "volume": "100.0",
+      "weight": "0.0",
+      "pressure": "3.0",
+      "flow": "6.8",
+      "exit": {
+        "type": "flow",
+        "condition": "under",
+        "value": "3.0"
+      },
+      "limiter": {
+        "value": "0.0",
+        "range": "0.6"
+      }
+    },
+    {
+      "name": "Dripping",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "88.0",
+      "sensor": "coffee",
+      "seconds": "6.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "pressure": "0.1",
+      "flow": "6.8",
+      "limiter": {
+        "value": "0.0",
+        "range": "0.6"
+      }
+    },
+    {
+      "name": "Pressurize",
+      "pump": "pressure",
+      "transition": "smooth",
+      "temperature": "88.0",
+      "sensor": "coffee",
+      "seconds": "6.0",
+      "volume": "100.0",
+      "weight": "0.0",
+      "pressure": "11.0",
+      "flow": "0.0",
+      "exit": {
+        "type": "pressure",
+        "condition": "over",
+        "value": "7.7"
+      },
+      "limiter": {
+        "value": "3.5",
+        "range": "0.6"
+      }
+    },
+    {
+      "name": "Extraction start",
+      "pump": "flow",
+      "transition": "fast",
+      "temperature": "88.0",
+      "sensor": "coffee",
+      "seconds": "0.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "1.5",
+      "pressure": "3.0",
+      "exit": {
+        "type": "pressure",
+        "condition": "over",
+        "value": "0.0"
+      },
+      "limiter": {
+        "value": "8.6",
+        "range": "0.6"
+      }
+    },
+    {
+      "name": "Extraction",
+      "pump": "flow",
+      "transition": "smooth",
+      "temperature": "88.0",
+      "sensor": "coffee",
+      "seconds": "60.0",
+      "volume": "100.0",
+      "weight": "0.0",
+      "flow": "3.5",
+      "pressure": "3.0",
+      "limiter": {
+        "value": "8.6",
+        "range": "0.6"
+      }
+    }
+  ],
+  "tank_temperature": "0.0",
+  "target_weight": "36.0",
+  "target_volume": "36.0",
+  "target_volume_count_start": "3",
+  "type": "advanced",
+  "hidden": "0"
+}
