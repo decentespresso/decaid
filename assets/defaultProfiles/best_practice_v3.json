@@ -2,7 +2,7 @@
   "version": "2",
   "title": "Adaptive v3",
   "author": "Decent",
-  "parent": "best_practice.json",
+  "parent_id": "profile:b73ce54592d667d00b31",
   "notes": "This profile aims to unite the best practices in espresso extraction that we have learned so far with the Decent. It unites Brakel's Londonium, Rao's Blooming and Gagn\u00e9's Adaptive profiles. The flow rate during extraction will automatically adjust itself from the flow rate actually happening during the Pressurize step and then gently increase it from there.  A 15g dose is typical.  Aim for a flow rate around 1.5 ml/s at the Pressurize step. 15g in, 33g out, in 32 seconds is a typical recipe for a medium roast.  Grind fine enough to keep dripping during preinfusion to around 4g. If you have a bluetooth scale, you can keep track of how much dripping into the cup there is before the ramp stage.  4 grams of total dripping, within 1 gram, seems to give the best tasting results. Try adusting your grind and dose to get that amount of dripping, and see if you like how it tastes.",
   "beverage_type": "espresso",
   "steps": [

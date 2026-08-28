@@ -113,13 +113,19 @@ class ProfileController {
                   ),
                 )
                 as Map<String, dynamic>;
-        final parentFile = profileJson['parent'] as String?;
-        if (parentFile == null) continue;
+        final parentId = profileJson['parent_id'] as String?;
+        if (parentId == null) continue;
 
         final id = currentIdByFilename[filename];
-        final parentId = currentIdByFilename[parentFile];
-        if (id == null || parentId == null || id == parentId) continue;
+        if (id == null || id == parentId) continue;
 
+        final parent = await _storage.get(parentId);
+        if (parent == null) {
+          _log.warning(
+            'Parent for default profile not found: $filename -> $parentId',
+          );
+          continue;
+        }
         final record = await _storage.get(id);
         if (record == null || record.parentId == parentId) continue;
         await _storage.update(record.copyWith(parentId: parentId));
