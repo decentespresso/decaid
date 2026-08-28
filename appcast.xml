@@ -6,6 +6,33 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Decaid</title>
         <item>
+            <title>0.8.3</title>
+            <pubDate>Fri, 28 Aug 2026 08:41:15 +0000</pubDate>
+            <sparkle:version>2506</sparkle:version>
+            <sparkle:shortVersionString>0.8.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* feat(plugins): apply plugin settings immediately after save (gh-655) by @tadelv in https://github.com/decentespresso/decaid/pull/685
+* chore(plugins): extract shot upload plugin by @tadelv in https://github.com/decentespresso/decaid/pull/689
+* fix(account): parse serial numbers tolerantly (SKU-annotated responses) by @tadelv in https://github.com/decentespresso/decaid/pull/691
+* fix(de1): separate refill-kit detection from override by @allofmeng in https://github.com/decentespresso/decaid/pull/684
+* feat(plugins): document the settings schema and add per-setting labels by @allofmeng in https://github.com/decentespresso/decaid/pull/682
+* fix(plugins): reconcile persisted settings against the current manifest schema by @tadelv in https://github.com/decentespresso/decaid/pull/692
+* fix(account): verify stored Decent credentials and invalidate stale auth state by @tadelv in https://github.com/decentespresso/decaid/pull/698
+* fix(account): block proxy traffic when stored credentials are known-invalid by @tadelv in https://github.com/decentespresso/decaid/pull/705
+* fix(webui): accept LAN hostnames that resolve to this device by @giladger in https://github.com/decentespresso/decaid/pull/700
+* fix(de1): bound transport operations by @ODevStudio in https://github.com/decentespresso/decaid/pull/693
+* fix(api): bound request and websocket admission by @ODevStudio in https://github.com/decentespresso/decaid/pull/694
+* test(hardening): cover pressure regressions by @ODevStudio in https://github.com/decentespresso/decaid/pull/695
+* feat(profiles): bundle Adaptive v3 profile linked to v2 parent by @tadelv in https://github.com/decentespresso/decaid/pull/718
+
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.8.2...v0.8.3
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.8.3/decaid-macos-0.8.3.zip" length="71158903" type="application/octet-stream" sparkle:edSignature="CFWqyeneP/FsjroqpDXwu6dajqTgZtLV42OJv5gEzG15WYzWxELCR/mxm+fC6f3+9NplBgloIWgCpVOT+VL/BA=="/>
+        </item>
+        <item>
             <title>0.8.2</title>
             <pubDate>Tue, 25 Aug 2026 08:14:44 +0000</pubDate>
             <sparkle:version>2453</sparkle:version>
@@ -247,6 +274,6 @@ See `doc/RELEASE.md` for install and verification instructions.
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: I+UPgbpzBy+5Ffu2+s1xbxqcOUJfIWDNJsN2G4vbtg8FwmXEatRPf4HzyrpQVpFbtNFl/qOXyVvotE6pIzWxCQ==
-length: 21300
+edSignature: Upv96VUCaeRSYIkZr1+tGkCjRIgfwhMMJxpigkW+dgZFPSX2m6PkUxuYQxyBnr2G4yzDw+VP8QXhPYp+h/f4AA==
+length: 23771
 -->
