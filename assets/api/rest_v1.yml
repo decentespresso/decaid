@@ -2663,6 +2663,231 @@ paths:
         "500":
           description: Internal Server Error
 
+  # Equipment API
+  #
+  # Prep equipment that isn't a grinder: baskets, portafilters, drippers, and
+  # anything else via `other`. A single resource with a `type` discriminator,
+  # rather than one endpoint per equipment kind, since they share the same
+  # shape (name/style/notes/archived) and most clients just want "everything
+  # that isn't a grinder" or one filtered slice of it.
+  /api/v1/equipment:
+    get:
+      summary: List all equipment
+      description: Returns all equipment, optionally filtered by type and/or including archived ones.
+      tags: [Equipment]
+      parameters:
+        - name: includeArchived
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Include archived equipment in results
+        - name: type
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [basket, portafilter, dripper, other]
+          description: Filter by equipment type
+      responses:
+        "200":
+          description: Array of equipment
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: |
+                Strong entity tag derived from the response body. Echo back as
+                `If-None-Match` on subsequent requests for conditional GET.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Equipment"
+        "304":
+          description: Not Modified — client's `If-None-Match` matched the current ETag.
+        "500":
+          description: Internal Server Error
+    post:
+      summary: Create a new equipment entry
+      description: Creates a new equipment entry. Requires name; type defaults to "other" if omitted.
+      tags: [Equipment]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                type:
+                  type: string
+                  enum: [basket, portafilter, dripper, other]
+                  default: "other"
+                name:
+                  type: string
+                  description: Equipment name
+                style:
+                  type: string
+                  nullable: true
+                  description: "Free-text variant descriptor (e.g. double, bottomless, precision)"
+                diameterMm:
+                  type: number
+                  format: double
+                  nullable: true
+                  description: Diameter in mm, mainly for baskets/portafilters
+                notes:
+                  type: string
+                  nullable: true
+                tools:
+                  type: array
+                  items:
+                    type: string
+                  nullable: true
+                  description: Sub-items associated with this equipment (e.g. WDT tool, puck screen)
+                extras:
+                  type: object
+                  nullable: true
+                  additionalProperties: true
+            examples:
+              basket:
+                summary: A precision basket
+                value:
+                  type: "basket"
+                  name: "IMS Superfine 18g"
+                  style: "double"
+                  diameterMm: 58.0
+              portafilter:
+                summary: A bottomless portafilter
+                value:
+                  type: "portafilter"
+                  name: "Bottomless Portafilter"
+                  style: "bottomless"
+      responses:
+        "201":
+          description: Equipment created successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Equipment"
+        "400":
+          description: Bad Request (missing required fields)
+        "500":
+          description: Internal Server Error
+
+  /api/v1/equipment/{id}:
+    get:
+      summary: Get equipment by ID
+      tags: [Equipment]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Equipment ID (UUID)
+      responses:
+        "200":
+          description: Equipment found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Equipment"
+        "404":
+          description: Equipment not found
+        "500":
+          description: Internal Server Error
+    put:
+      summary: Update equipment
+      description: |
+        Updates an existing equipment entry. Omitted fields preserve their current values,
+        explicit `null` clears nullable fields, and supplied values replace them.
+        Explicit `null` for a non-nullable field returns `400`.
+      tags: [Equipment]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Equipment ID (UUID)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum: [basket, portafilter, dripper, other]
+                name:
+                  type: string
+                style:
+                  type: string
+                  nullable: true
+                diameterMm:
+                  type: number
+                  format: double
+                  nullable: true
+                notes:
+                  type: string
+                  nullable: true
+                archived:
+                  type: boolean
+                tools:
+                  type: array
+                  items:
+                    type: string
+                  nullable: true
+                extras:
+                  type: object
+                  nullable: true
+                  additionalProperties: true
+      responses:
+        "200":
+          description: Equipment updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Equipment"
+        "400":
+          description: Bad Request
+        "404":
+          description: Equipment not found
+        "500":
+          description: Internal Server Error
+    delete:
+      summary: Delete equipment
+      description: Permanently deletes an equipment entry.
+      tags: [Equipment]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Equipment ID (UUID)
+      responses:
+        "200":
+          description: Equipment deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  id:
+                    type: string
+        "404":
+          description: Equipment not found
+        "500":
+          description: Internal Server Error
+
   # REA Key-Value Store for clients
   /api/v1/store/{namespace}:
     get:
@@ -7923,6 +8148,69 @@ components:
           type: string
           format: date-time
           description: When the grinder was last updated
+        extras:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: Arbitrary key-value pairs for custom data
+
+    Equipment:
+      type: object
+      required:
+        - id
+        - type
+        - name
+        - archived
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          description: Unique equipment identifier (UUID)
+          example: "880e8400-e29b-41d4-a716-446655440003"
+        type:
+          type: string
+          enum: [basket, portafilter, dripper, other]
+          description: Equipment category
+          default: "other"
+        name:
+          type: string
+          description: Equipment name
+          example: "IMS Superfine 18g"
+        style:
+          type: string
+          nullable: true
+          description: "Free-text variant descriptor (e.g. double, bottomless, precision)"
+          example: "double"
+        diameterMm:
+          type: number
+          format: double
+          nullable: true
+          description: Diameter in millimeters, mainly for baskets/portafilters
+          example: 58.0
+        notes:
+          type: string
+          nullable: true
+          description: Notes about the equipment
+        archived:
+          type: boolean
+          description: Whether this equipment is archived
+          default: false
+        tools:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: Sub-items associated with this equipment
+          example: ["WDT tool", "Puck screen"]
+        createdAt:
+          type: string
+          format: date-time
+          description: When the equipment was created
+        updatedAt:
+          type: string
+          format: date-time
+          description: When the equipment was last updated
         extras:
           type: object
           nullable: true

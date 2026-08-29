@@ -44,11 +44,13 @@ import 'package:reaprime/src/services/webserver/data_export/kv_store_export_sect
 import 'package:reaprime/src/services/webserver/data_export/bean_export_section.dart';
 import 'package:reaprime/src/services/webserver/data_export/grinder_export_section.dart';
 import 'package:reaprime/src/services/webserver/beans_handler.dart';
+import 'package:reaprime/src/services/webserver/equipment_handler.dart';
 import 'package:reaprime/src/services/webserver/grinders_handler.dart';
 import 'package:reaprime/src/services/webserver/shots_handler.dart';
 import 'package:reaprime/src/services/webserver/steams_handler.dart';
 import 'package:reaprime/src/services/webserver/workflow_handler.dart';
 import 'package:reaprime/src/services/storage/bean_storage_service.dart';
+import 'package:reaprime/src/services/storage/equipment_storage_service.dart';
 import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
 import 'package:reaprime/src/settings/gateway_mode.dart';
 import 'package:reaprime/src/settings/scale_power_mode.dart';
@@ -151,6 +153,7 @@ Future<void> startWebServer(
   DisplayController? displayController, {
   BeanStorageService? beanStorage,
   GrinderStorageService? grinderStorage,
+  EquipmentStorageService? equipmentStorage,
   required ConnectionManager connectionManager,
   required BackupDataSources backupSources,
   WifiScaleDiscoveryService? wifiScaleDiscoveryService,
@@ -262,6 +265,11 @@ Future<void> startWebServer(
     grindersHandler = GrindersHandler(storage: grinderStorage);
   }
 
+  EquipmentHandler? equipmentHandler;
+  if (equipmentStorage != null) {
+    equipmentHandler = EquipmentHandler(storage: equipmentStorage);
+  }
+
   final kvStoreHandler = KvStoreHandler();
   await kvStoreHandler.store.initialize();
 
@@ -369,6 +377,7 @@ Future<void> startWebServer(
       dataSyncHandler,
       beansHandler,
       grindersHandler,
+      equipmentHandler,
       infoHandler,
       debugHandler,
       wifiScaleHandler,
@@ -410,6 +419,7 @@ Handler _init(
   DataSyncHandler dataSyncHandler,
   BeansHandler? beansHandler,
   GrindersHandler? grindersHandler,
+  EquipmentHandler? equipmentHandler,
   InfoHandler infoHandler,
   DebugHandler? debugHandler,
   WifiScaleHandler? wifiScaleHandler,
@@ -455,6 +465,9 @@ Handler _init(
   }
   if (grindersHandler != null) {
     grindersHandler.addRoutes(app);
+  }
+  if (equipmentHandler != null) {
+    equipmentHandler.addRoutes(app);
   }
   infoHandler.addRoutes(app);
   updateHandler?.addRoutes(app);
