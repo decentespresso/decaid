@@ -55,6 +55,9 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 /android/app/.cxx
+/android/key.properties
+/android/app/*.jks
+/android/app/*.keystore
 
 # Externally released plugin build outputs
 assets/plugins/dye2.reaplugin/

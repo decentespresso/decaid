@@ -41,7 +41,7 @@
 
     <application
         android:usesCleartextTraffic="true"
-        android:label="Decaid"
+        android:label="${appLabel}"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -125,5 +125,4 @@
     </queries>
 
 </manifest>
-
 

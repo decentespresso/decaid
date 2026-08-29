@@ -1,0 +1,23 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <!-- Personal builds never initialize the upstream Firebase app. -->
+        <provider
+            android:name="com.google.firebase.provider.FirebaseInitProvider"
+            tools:node="remove" />
+
+        <!-- Defense in depth if a Firebase component is initialized manually. -->
+        <meta-data
+            android:name="firebase_analytics_collection_deactivated"
+            android:value="true" />
+        <meta-data
+            android:name="google_analytics_adid_collection_enabled"
+            android:value="false" />
+        <meta-data
+            android:name="firebase_crashlytics_collection_enabled"
+            android:value="false" />
+        <meta-data
+            android:name="firebase_performance_collection_deactivated"
+            android:value="true" />
+    </application>
+</manifest>

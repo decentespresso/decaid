@@ -23,12 +23,15 @@ abstract class TelemetryService {
 
   String getLogBuffer();
 
-  static TelemetryService create({required LogBuffer logBuffer}) {
+  static TelemetryService create({
+    required LogBuffer logBuffer,
+    bool personalBuild = const bool.fromEnvironment('PERSONAL_BUILD'),
+  }) {
     final isDebugMode = kDebugMode;
     final isSimulateMode = const bool.hasEnvironment('simulate');
     final isLinuxOrWindows = Platform.isLinux || Platform.isWindows;
 
-    if (isDebugMode || isSimulateMode || isLinuxOrWindows) {
+    if (personalBuild || isDebugMode || isSimulateMode || isLinuxOrWindows) {
       return NoOpTelemetryService();
     }
 

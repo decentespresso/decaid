@@ -237,7 +237,11 @@ void main(List<String> args) async {
 
   final isDebugOrSimulate =
       kDebugMode || const String.fromEnvironment("simulate").isNotEmpty;
-  if (!Platform.isLinux && !Platform.isWindows && !isDebugOrSimulate) {
+  const personalBuild = bool.fromEnvironment('PERSONAL_BUILD');
+  if (!Platform.isLinux &&
+      !Platform.isWindows &&
+      !isDebugOrSimulate &&
+      !personalBuild) {
     try {
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
