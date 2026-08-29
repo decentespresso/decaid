@@ -32,4 +32,30 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('makes read-only acceptance mode visible', (tester) async {
+    final de1Controller = MockDe1Controller(controller: DeviceController([]));
+    final scaleController = MockScaleController();
+
+    await tester.pumpWidget(
+      ShadApp(
+        home: Scaffold(
+          body: StatusBar(
+            de1Controller: de1Controller,
+            scaleController: scaleController,
+            webUIService: WebUIService(),
+            readOnly: true,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.text(
+        'LOCAL FORK · ${BuildInfo.branch}@${BuildInfo.commitShort} · READ ONLY',
+      ),
+      findsOneWidget,
+    );
+  });
 }

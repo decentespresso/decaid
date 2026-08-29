@@ -238,6 +238,17 @@ void main(List<String> args) async {
   final isDebugOrSimulate =
       kDebugMode || const String.fromEnvironment("simulate").isNotEmpty;
   const personalBuild = bool.fromEnvironment('PERSONAL_BUILD');
+  const personalReadOnlyRequested = bool.fromEnvironment('PERSONAL_READ_ONLY');
+  const personalReadOnly = personalBuild && personalReadOnlyRequested;
+  if (personalReadOnly) {
+    Logger.root.warning(
+      'PERSONAL_READ_ONLY active: all explicit BLE writes will be blocked',
+    );
+  } else if (personalReadOnlyRequested) {
+    Logger.root.warning(
+      'Ignoring PERSONAL_READ_ONLY because this is not a PERSONAL_BUILD',
+    );
+  }
   if (!Platform.isLinux &&
       !Platform.isWindows &&
       !isDebugOrSimulate &&
@@ -283,7 +294,9 @@ void main(List<String> args) async {
 
   final List<DeviceDiscoveryService> services = [];
 
-  final bleDiscoveryService = UniversalBleDiscoveryService();
+  final bleDiscoveryService = UniversalBleDiscoveryService(
+    readOnly: personalReadOnly,
+  );
   if (!cliArgs.serial) {
     services.add(bleDiscoveryService);
   } else {

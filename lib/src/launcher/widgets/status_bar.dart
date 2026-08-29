@@ -20,6 +20,9 @@ class StatusBar extends StatelessWidget {
     required this.webUIService,
     this.batteryController,
     this.onQrTap,
+    this.readOnly =
+        const bool.fromEnvironment('PERSONAL_BUILD') &&
+        const bool.fromEnvironment('PERSONAL_READ_ONLY'),
   });
 
   final De1Controller de1Controller;
@@ -27,6 +30,7 @@ class StatusBar extends StatelessWidget {
   final BatteryController? batteryController;
   final WebUIService webUIService;
   final VoidCallback? onQrTap;
+  final bool readOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -52,7 +56,8 @@ class StatusBar extends StatelessWidget {
                     _StatusChip(
                       icon: LucideIcons.wrench,
                       label:
-                          'LOCAL FORK · ${BuildInfo.branch}@${BuildInfo.commitShort}',
+                          'LOCAL FORK · ${BuildInfo.branch}@${BuildInfo.commitShort}'
+                          '${readOnly ? ' · READ ONLY' : ''}',
                     ),
                     _MachineStatus(de1Controller: de1Controller),
                     _ScaleStatus(scaleController: scaleController),

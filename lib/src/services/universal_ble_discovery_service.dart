@@ -8,6 +8,7 @@ import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/models/device/scan_filter.dart' as domain;
 import 'package:reaprime/src/services/ble/ble_discovery_service.dart';
 import 'package:reaprime/src/services/ble/ble_lifecycle_gate.dart';
+import 'package:reaprime/src/services/ble/read_only_ble_transport.dart';
 import 'package:reaprime/src/services/ble/universal_ble_transport.dart';
 import 'package:reaprime/src/services/device_factory.dart';
 import 'package:reaprime/src/services/device_matcher.dart';
@@ -32,10 +33,12 @@ typedef BleTransportFactory =
 class UniversalBleDiscoveryService extends BleDiscoveryService
     implements DeviceWatchCapable {
   UniversalBleDiscoveryService({
+    bool readOnly = false,
     bool Function()? watchSupportGate,
     bool Function()? requestLargeMtuNonAndroid,
     BleTransportFactory? transportFactory,
-  }) : _watchSupportGate = watchSupportGate ?? (() => Platform.isAndroid),
+  }) : _readOnly = readOnly,
+       _watchSupportGate = watchSupportGate ?? (() => Platform.isAndroid),
        requestLargeMtuNonAndroid = requestLargeMtuNonAndroid ?? (() => false),
        _transportFactory = transportFactory ?? _defaultTransportFactory;
 
@@ -54,18 +57,20 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
   }
 
   final bool Function() _watchSupportGate;
+  final bool _readOnly;
   final BleTransportFactory _transportFactory;
   final BleLifecycleGate _lifecycleGate = BleLifecycleGate();
 
   bool Function() requestLargeMtuNonAndroid;
 
   BLETransport _createTransport(BleDevice device) {
-    return _transportFactory(
+    final transport = _transportFactory(
       device: device,
       stopScan: _stopScanForConnect,
       requestLargeMtuNonAndroid: requestLargeMtuNonAndroid(),
       lifecycleGate: _lifecycleGate,
     );
+    return _readOnly ? ReadOnlyBleTransport(transport) : transport;
   }
 
   @override
