@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/widget_previews.dart';
+import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/controllers/battery_controller.dart';
 import 'package:reaprime/src/controllers/charging_logic.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
@@ -48,6 +49,11 @@ class StatusBar extends StatelessWidget {
                 child: Row(
                   spacing: 16,
                   children: [
+                    _StatusChip(
+                      icon: LucideIcons.wrench,
+                      label:
+                          'LOCAL FORK · ${BuildInfo.branch}@${BuildInfo.commitShort}',
+                    ),
                     _MachineStatus(de1Controller: de1Controller),
                     _ScaleStatus(scaleController: scaleController),
                     if (batteryController != null)
