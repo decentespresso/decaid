@@ -50,6 +50,22 @@ void main() {
     expect(delegate.writes, isEmpty);
   });
 
+  test('delegates writes explicitly classified as read-only queries', () async {
+    final delegate = _RecordingBleTransport();
+    final transport = ReadOnlyBleTransport(
+      delegate,
+      allowWrite: (service, characteristic, data) =>
+          service == 'A000' && characteristic == 'A005' && data.length == 20,
+    );
+    final query = Uint8List(20);
+
+    await transport.write('A000', 'A005', query);
+    await transport.write('A000', 'A006', query);
+
+    expect(delegate.calls, ['write']);
+    expect(delegate.writes, [query]);
+  });
+
   test('delegates subscription operations', () async {
     final delegate = _RecordingBleTransport();
     final transport = ReadOnlyBleTransport(delegate);

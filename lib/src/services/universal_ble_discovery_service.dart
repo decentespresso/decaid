@@ -70,7 +70,15 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
       requestLargeMtuNonAndroid: requestLargeMtuNonAndroid(),
       lifecycleGate: _lifecycleGate,
     );
-    return _readOnly ? ReadOnlyBleTransport(transport) : transport;
+    return _readOnly
+        ? ReadOnlyBleTransport(
+            transport,
+            allowWrite: (serviceUUID, characteristicUUID, data) =>
+                serviceUUID == de1ServiceUUID &&
+                characteristicUUID == Endpoint.readFromMMR.uuid &&
+                data.length == 20,
+          )
+        : transport;
   }
 
   @override
