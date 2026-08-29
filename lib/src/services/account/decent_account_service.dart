@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:clock/clock.dart';
@@ -193,6 +194,53 @@ class DecentAccountService {
   Future<bool> verifyMachineSerial(String serial) async {
     final list = await fetchSerialNumbers();
     return list.contains(serial);
+  }
+
+  Future<http.Response> uploadAppLogs(
+    String body, {
+    required bool Function() isAllowed,
+    required Duration timeout,
+  }) async {
+    final generation = _authGeneration;
+    if (await isAuthKnownInvalid()) {
+      throw StateError('account authentication rejected');
+    }
+    final email = await _store.read(key: 'email');
+    final password = await _store.read(key: 'password');
+    if (email == null || password == null) {
+      throw StateError('not logged in');
+    }
+    if (generation != _authGeneration || !isAllowed()) {
+      throw StateError('upload cancelled');
+    }
+    final basic = base64Encode(
+      utf8.encode('${email.trim()}:${password.trim()}'),
+    );
+    final abort = Completer<void>();
+    final timer = Timer(timeout, abort.complete);
+    final request =
+        http.AbortableRequest(
+            'POST',
+            Uri.parse('$baseUrl/support/api/applog_upload'),
+            abortTrigger: abort.future,
+          )
+          ..headers.addAll({
+            'authorization': 'Basic $basic',
+            'content-type': 'application/json; charset=utf-8',
+          })
+          ..bodyBytes = utf8.encode(body);
+    final http.Response response;
+    try {
+      response = await http.Response.fromStream(
+        await _httpClient.send(request),
+      );
+    } finally {
+      timer.cancel();
+    }
+    if (response.statusCode == 401 && generation == _authGeneration) {
+      reportAuthenticationFailure();
+    }
+    return response;
   }
 
   Future<void> emailSerialMismatch(String serial) async {

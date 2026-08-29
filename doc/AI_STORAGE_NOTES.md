@@ -93,6 +93,15 @@ Settings persist via `SharedPreferencesSettingsService`. Key prefixes are flat s
 
 **First feature flag foundation (PR #371):** "Smart Step Advance" — the pattern for all future feature flags. Flag enum, settings service get/set, controller wrapper, UI toggle in Advanced Settings.
 
+App log sharing consent is stored by `AccountConsentStore` under
+`appLogUpload`. The `appLogUpload.` SharedPreferences prefix contains only
+presentation state and the cursor. The cursor stores the last uploaded log
+timestamp plus its line ordinal as one JSON value. Keep the timestamp and
+ordinal atomic so capped uploads cannot skip later lines with the same timestamp.
+Opting out clears the cursor, so a later opt-in starts with only the previous 24
+hours instead of uploading the opt-out gap. Disabled startup also removes a
+stale cursor left by an interrupted opt-out.
+
 ## Workflow Dual Representation
 
 `Workflow.fromJson()` backfills `WorkflowContext` from legacy fields (`grinderData`, `coffeeData`, `doseData`). UI reads from `context`; API clients can write to either. Always keep both in sync when modifying serialization.

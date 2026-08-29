@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:logging/logging.dart' as logging;
@@ -223,17 +224,27 @@ class Skale2Scale implements Scale {
   }
 
   void _parseWeightNotification(List<int> data) {
-    if (data.length < 4) return;
-
-    final byteData = ByteData(4);
-    byteData.setUint8(0, data[0] & 0xFF);
-    byteData.setUint8(1, data[1] & 0xFF);
-    byteData.setUint8(2, data[2] & 0xFF);
-    byteData.setUint8(3, data[3] & 0xFF);
-    final rawValue = byteData.getInt32(0, Endian.little);
-
-    final weight = rawValue / 2560.0;
-
+    double? weight;
+    if (data.length == 5) {
+      var mantissa =
+          (data[1] & 0xFF) | ((data[2] & 0xFF) << 8) | ((data[3] & 0xFF) << 16);
+      if (mantissa & 0x800000 != 0) {
+        mantissa -= 0x1000000;
+      }
+      final rawExponent = data[4];
+      final exponent = rawExponent >= 0x80 ? rawExponent - 256 : rawExponent;
+      weight = mantissa * math.pow(10, exponent).toDouble();
+    } else if (data.length == 4) {
+      final byteData = ByteData(4);
+      byteData.setUint8(0, data[0] & 0xFF);
+      byteData.setUint8(1, data[1] & 0xFF);
+      byteData.setUint8(2, data[2] & 0xFF);
+      byteData.setUint8(3, data[3] & 0xFF);
+      final rawValue = byteData.getInt32(0, Endian.little);
+      weight = rawValue / 2560.0;
+    } else {
+      return;
+    }
     _streamController.add(
       ScaleSnapshot(
         timestamp: DateTime.now(),

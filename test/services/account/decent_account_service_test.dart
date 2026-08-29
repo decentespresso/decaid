@@ -530,6 +530,40 @@ void main() {
       });
     });
 
+    group('uploadAppLogs', () {
+      test('stale rejection does not invalidate a newer login', () async {
+        final uploadStarted = Completer<void>();
+        final releaseUpload = Completer<void>();
+        httpClient = http_testing.MockClient((request) async {
+          if (request.method == 'POST') {
+            uploadStarted.complete();
+            await releaseUpload.future;
+            return http.Response('', 401);
+          }
+          return http.Response('new_cryptpw', 200);
+        });
+        service = DecentAccountService(
+          httpClient: httpClient,
+          credentialStore: store,
+          baseUrl: _baseUrl,
+        );
+        await store.write(key: 'email', value: 'old@example.com');
+        await store.write(key: 'password', value: 'old_cryptpw');
+
+        final upload = service.uploadAppLogs(
+          '{}',
+          isAllowed: () => true,
+          timeout: const Duration(seconds: 30),
+        );
+        await uploadStarted.future;
+        expect(await service.login('new@example.com', 'new-password'), isTrue);
+        releaseUpload.complete();
+
+        expect((await upload).statusCode, 401);
+        expect(await service.isAuthKnownInvalid(), isFalse);
+      });
+    });
+
     group('fetchSerialNumbers', () {
       late http.BaseRequest capturedRequest;
 
