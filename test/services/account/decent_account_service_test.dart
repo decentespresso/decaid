@@ -454,6 +454,25 @@ void main() {
           DecentAccountStatus.indeterminate,
         );
       });
+
+      test('preserves known invalid status on a network error', () async {
+        await store.write(key: 'email', value: 'user@example.com');
+        await store.write(key: 'password', value: 'cryptpw_abc123');
+        httpClient = http_testing.MockClient(
+          (_) async => throw Exception('SocketException'),
+        );
+        service = DecentAccountService(
+          httpClient: httpClient,
+          credentialStore: store,
+          baseUrl: _baseUrl,
+        );
+        service.reportAuthenticationFailure();
+
+        expect(
+          await service.verifyStoredCredentialsStatus(),
+          DecentAccountStatus.unauthenticated,
+        );
+      });
     });
 
     group('concurrent auth updates', () {

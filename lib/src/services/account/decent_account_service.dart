@@ -118,7 +118,9 @@ class DecentAccountService {
       response = await _authedGet(email, password, '/support/api/login_test');
     } catch (_) {
       _log.info('validation -> indeterminate');
-      return DecentAccountStatus.indeterminate;
+      return _authenticated == false
+          ? DecentAccountStatus.unauthenticated
+          : DecentAccountStatus.indeterminate;
     }
     final valid = response.statusCode == 200 && response.body.trim() != '0';
     final rejected =
@@ -126,7 +128,9 @@ class DecentAccountService {
         (response.statusCode == 200 && response.body.trim() == '0');
     if (!valid && !rejected) {
       _log.info('validation -> indeterminate');
-      return DecentAccountStatus.indeterminate;
+      return _authenticated == false
+          ? DecentAccountStatus.unauthenticated
+          : DecentAccountStatus.indeterminate;
     }
     if (valid) {
       _log.info('validation -> accepted');
