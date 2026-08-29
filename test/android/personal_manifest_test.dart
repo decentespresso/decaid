@@ -14,5 +14,15 @@ void main() {
     expect(manifest, contains('firebase_analytics_collection_deactivated'));
     expect(manifest, contains('firebase_crashlytics_collection_enabled'));
     expect(manifest, contains('firebase_performance_collection_deactivated'));
+    expect(manifest, contains('com.google.android.gms.permission.AD_ID'));
+    expect(manifest, contains('android.permission.ACCESS_ADSERVICES_AD_ID'));
+    expect(
+      manifest,
+      contains('android.permission.ACCESS_ADSERVICES_ATTRIBUTION'),
+    );
+    expect(
+      manifest,
+      contains('com.google.android.finsky.permission.BIND_GET_INSTALL_REFERRER_SERVICE'),
+    );
   });
 }
