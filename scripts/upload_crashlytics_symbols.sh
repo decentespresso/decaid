@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+if [ "${PERSONAL_BUILD:-}" = "true" ]; then
+  echo "Skipping Crashlytics symbol upload for personal build."
+  exit 0
+fi
+
 PATH="${PATH}:$FLUTTER_ROOT/bin:${PUB_CACHE}/bin:$HOME/.pub-cache/bin"
 
 PATH_TO_CRASHLYTICS_UPLOAD_SCRIPT=""

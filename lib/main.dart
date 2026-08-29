@@ -612,7 +612,7 @@ void main(List<String> args) async {
     };
   });
   await settingsController.loadSettings();
-  if (macosUpdater != null) {
+  if (!personalBuild && macosUpdater != null) {
     try {
       await macosUpdater.configure(
         automaticChecks: settingsController.automaticUpdateCheck,
