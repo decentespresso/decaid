@@ -529,5 +529,18 @@ void main() {
 
       await sub.cancel();
     });
+
+    test('maps circle and square button notifications', () async {
+      final buttons = <ScaleButton>[];
+      final sub = scale.buttonPresses.listen(buttons.add);
+
+      transport.simulateButtonNotification([1]);
+      transport.simulateButtonNotification([2]);
+      transport.simulateButtonNotification([99]);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(buttons, [ScaleButton.circle, ScaleButton.square]);
+      await sub.cancel();
+    });
   });
 }
