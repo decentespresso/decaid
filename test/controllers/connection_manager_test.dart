@@ -1018,43 +1018,41 @@ void main() {
           },
         );
 
-        test(
-          'simulated preferred devices emitted together early-connect '
-          'and stop the scan',
-          () async {
-            settingsController.enableSimulatedDevicesForSession({
-              SimulatedDevicesTypes.machine,
-              SimulatedDevicesTypes.scale,
-            });
+        test('simulated preferred devices emitted together early-connect '
+            'and stop the scan', () async {
+          settingsController.enableSimulatedDevicesForSession({
+            SimulatedDevicesTypes.machine,
+            SimulatedDevicesTypes.scale,
+          });
 
-            mockScanner.scanCompleter = Completer<void>();
+          mockScanner.scanCompleter = Completer<void>();
 
-            final fakeDe1 = _FakeSimulatedDe1(deviceId: 'MockDe1');
-            final fakeScale = _FakeSimulatedScale(deviceId: 'MockScale');
-            mockScanner.queuedScanResults.add([fakeDe1, fakeScale]);
+          final fakeDe1 = _FakeSimulatedDe1(deviceId: 'MockDe1');
+          final fakeScale = _FakeSimulatedScale(deviceId: 'MockScale');
+          mockScanner.queuedScanResults.add([fakeDe1, fakeScale]);
 
-            final connectFuture = connectionManager.connect();
-            await mockScanner.scanningStream.firstWhere((s) => s);
-            await Future.delayed(Duration.zero);
-            await Future.delayed(Duration.zero);
+          final connectFuture = connectionManager.connect();
+          await mockScanner.scanningStream.firstWhere((s) => s);
+          await Future.delayed(Duration.zero);
+          await Future.delayed(Duration.zero);
 
-            expect(mockDe1Controller.lastConnectedDe1, same(fakeDe1));
-            expect(mockScaleController.connectCalls, hasLength(1));
-            expect(mockScaleController.connectCalls.first, same(fakeScale));
-            expect(
-              mockScanner.stopScanCallCount,
-              1,
-              reason: 'both simulated preferred devices are connected; '
-                  'the scan must stop while still pending',
-            );
+          expect(mockDe1Controller.lastConnectedDe1, same(fakeDe1));
+          expect(mockScaleController.connectCalls, hasLength(1));
+          expect(mockScaleController.connectCalls.first, same(fakeScale));
+          expect(
+            mockScanner.stopScanCallCount,
+            1,
+            reason:
+                'both simulated preferred devices are connected; '
+                'the scan must stop while still pending',
+          );
 
-            mockScanner.completeScan();
-            await connectFuture;
+          mockScanner.completeScan();
+          await connectFuture;
 
-            expect(mockScaleController.connectCalls, hasLength(1));
-            expect(connectionManager.currentStatus.phase, ConnectionPhase.ready);
-          },
-        );
+          expect(mockScaleController.connectCalls, hasLength(1));
+          expect(connectionManager.currentStatus.phase, ConnectionPhase.ready);
+        });
 
         test(
           'only preferred machine set → calls stopScan on machine connect',

@@ -30,6 +30,7 @@ import 'package:reaprime/src/models/device/device_scanner.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/scan_filter.dart';
+import 'package:reaprime/src/models/device/simulated_device.dart';
 import 'package:reaprime/src/models/device/usb_attach_probe.dart';
 import 'package:reaprime/src/models/scan_report.dart';
 import 'package:reaprime/src/settings/scale_power_mode.dart';
@@ -1187,6 +1188,7 @@ class ConnectionManager {
 
   void _checkEarlyStop(bool earlyStopEnabled) {
     if (!earlyStopEnabled) return;
+    if (_earlyStopFired) return;
     final preferredMachineId = settingsController.preferredMachineId;
     final preferredScaleId = settingsController.preferredScaleId;
     if (preferredMachineId != null && preferredScaleId != null) {
@@ -1880,7 +1882,7 @@ class ConnectionManager {
       );
       return;
     }
-    if (_shouldDeferEarlyScaleConnect()) {
+    if (_shouldDeferEarlyScaleConnect(scale)) {
       _log.fine(
         'Deferring external scale early-connect until machine resolves',
       );
@@ -1889,8 +1891,9 @@ class ConnectionManager {
     await _connectScaleTracked(scale, scanReport);
   }
 
-  bool _shouldDeferEarlyScaleConnect() {
+  bool _shouldDeferEarlyScaleConnect(Scale scale) {
     if (_isBengleAboutToBeMachine()) return true;
+    if (scale is SimulatedDevice) return false;
     final preferredMachineId = settingsController.preferredMachineId;
     final machineResolved = _disconnectSupervisor.latestMachine != null;
     if (preferredMachineId != null && !machineResolved) return true;
