@@ -208,7 +208,7 @@ class De1StateManager with WidgetsBindingObserver {
     _snapshotSubscription?.cancel();
     _snapshotSubscription = null;
     _identityPromptedMachines.clear();
-    if (machine == null) _latestSnapshot = null;
+    _latestSnapshot = null;
 
     if (machine != null) {
       _logger.info('DE1 connected, starting to listen for state changes');
