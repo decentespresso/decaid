@@ -738,6 +738,36 @@ void main() {
           );
         }
       });
+
+      test('invalidates cached authentication after a 401', () async {
+        var requestCount = 0;
+        final supportService = DecentAccountService(
+          httpClient: http_testing.MockClient((request) async {
+            requestCount++;
+            return requestCount == 1
+                ? http.Response('cryptpw_abc123', 200)
+                : http.Response('unauthorized', 401);
+          }),
+          credentialStore: store,
+          baseUrl: _baseUrl,
+        );
+
+        expect(
+          await supportService.login('test@example.com', 'password'),
+          isTrue,
+        );
+        await expectLater(
+          supportService.sendSupportMessage(subject: 'subject', body: 'body'),
+          throwsA(isA<Exception>()),
+        );
+
+        expect(await supportService.isLoggedIn(), isFalse);
+        await expectLater(
+          supportService.sendSupportMessage(subject: 'subject', body: 'body'),
+          throwsA(isA<StateError>()),
+        );
+        expect(requestCount, 2);
+      });
     });
 
     group('parseSerialNumbers', () {

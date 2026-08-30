@@ -247,11 +247,19 @@ class DecentAccountService {
   Future<String> sendSupportMessage({
     required String subject,
     required String body,
+    Future<void>? abortTrigger,
   }) async {
+    final generation = _authGeneration;
+    if (await isAuthKnownInvalid()) {
+      throw StateError('account authentication rejected');
+    }
     final email = await _store.read(key: 'email');
     final password = await _store.read(key: 'password');
     if (email == null || password == null) {
       throw StateError('not logged in');
+    }
+    if (generation != _authGeneration) {
+      throw StateError('account authentication changed');
     }
     final query = Uri(
       queryParameters: {'subject': subject, 'body': body},
@@ -260,7 +268,11 @@ class DecentAccountService {
       email,
       password,
       '/support/api/email?$query',
+      abortTrigger: abortTrigger,
     );
+    if (response.statusCode == 401 && generation == _authGeneration) {
+      reportAuthenticationFailure();
+    }
     final contactId = response.body.trim();
     if (response.statusCode != 200 ||
         contactId.isEmpty ||
@@ -287,11 +299,20 @@ class DecentAccountService {
   Future<http.Response> _authedGet(
     String email,
     String password,
-    String path,
-  ) async {
+    String path, {
+    Future<void>? abortTrigger,
+  }) async {
     final basic = base64Encode(
       utf8.encode("${email.trim()}:${password.trim()}"),
     );
+    if (abortTrigger != null) {
+      final request = http.AbortableRequest(
+        'GET',
+        Uri.parse('$baseUrl$path'),
+        abortTrigger: abortTrigger,
+      )..headers['authorization'] = "Basic $basic";
+      return http.Response.fromStream(await _httpClient.send(request));
+    }
     return _httpClient.get(
       Uri.parse('$baseUrl$path'),
       headers: {'authorization': "Basic $basic"},

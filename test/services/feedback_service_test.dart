@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -74,10 +75,13 @@ void main() {
   });
 
   test(
-    'links native feedback to Decent Support and patches contact id',
+    'preserves the current GitHub body when patching the contact id',
     () async {
       const issueUrl = 'https://github.com/decentespresso/decaid/issues/728';
       const contactId = 'GhwAHSEAAAAAAAAGBgAdAxAcCUgGCgQ=';
+      const currentBody =
+          '## Description\nThe steam control stopped responding.\n\n'
+          'Bot-added triage details.\n';
       final requests = <http.Request>[];
 
       Future<http.Response> handle(http.Request request) async {
@@ -88,7 +92,8 @@ void main() {
             201,
           ),
           2 => http.Response(contactId, 200),
-          3 => http.Response('{}', 200),
+          3 => http.Response(jsonEncode({'body': currentBody}), 200),
+          4 => http.Response('{}', 200),
           _ => http.Response('unexpected request', 500),
         };
       }
@@ -124,6 +129,7 @@ void main() {
       expect(requests.map((request) => request.method), [
         'POST',
         'GET',
+        'GET',
         'PATCH',
       ]);
       expect(requests[0].url.path, '/repos/decentespresso/decaid/issues');
@@ -140,9 +146,11 @@ void main() {
       expect(requests[1].headers['authorization'], startsWith('Basic '));
 
       expect(requests[2].url.path, '/repos/decentespresso/decaid/issues/728');
-      final update = jsonDecode(requests[2].body) as Map<String, dynamic>;
+      expect(requests[3].url.path, '/repos/decentespresso/decaid/issues/728');
+      final update = jsonDecode(requests[3].body) as Map<String, dynamic>;
       expect(update['body'], contains('---\n**Contact:** `$contactId`\n'));
-      expect(update['body'], contains('The steam control stopped responding.'));
+      expect(update['body'], startsWith(currentBody));
+      expect(update['body'], contains('Bot-added triage details.'));
     },
   );
 
@@ -190,5 +198,59 @@ void main() {
     expect(result.issueNumber, 729);
     expect(result.issueUrl, issueUrl);
     expect(requests.map((request) => request.method), ['POST', 'GET']);
+  });
+
+  test('does not patch after Decent Support times out', () async {
+    const issueUrl = 'https://github.com/decentespresso/decaid/issues/730';
+    final supportResponse = Completer<http.Response>();
+    final supportRequested = Completer<void>();
+    final githubRequests = <http.Request>[];
+
+    final accountService = DecentAccountService(
+      httpClient: http_testing.MockClient((request) {
+        supportRequested.complete();
+        return supportResponse.future;
+      }),
+      credentialStore: _MemoryCredentialStore({
+        'email': 'test@example.com',
+        'password': 'cryptpw_abc123',
+      }),
+    );
+    final service = FeedbackService(
+      githubToken: 'github-token',
+      currentSerialNumbers: () => const [],
+      accountService: accountService,
+      supportLinkTimeout: const Duration(milliseconds: 10),
+    );
+
+    final submission = http.runWithClient(
+      () => service.submitFeedback(
+        FeedbackRequest(
+          description: 'Support takes too long.',
+          type: FeedbackType.bug,
+          includeLogs: false,
+          includeSystemInfo: false,
+        ),
+      ),
+      () => http_testing.MockClient((request) async {
+        githubRequests.add(request);
+        if (request.method == 'POST') {
+          return http.Response(
+            jsonEncode({'number': 730, 'html_url': issueUrl}),
+            201,
+          );
+        }
+        return http.Response('unexpected request', 500);
+      }),
+    );
+
+    await supportRequested.future;
+    final result = await submission;
+    supportResponse.complete(http.Response('late.contact', 200));
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(result.success, isTrue);
+    expect(result.issueNumber, 730);
+    expect(githubRequests.map((request) => request.method), ['POST']);
   });
 }
