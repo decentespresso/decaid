@@ -175,7 +175,9 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
       title: const Text('Send Feedback'),
       description: const Text(
         'Feedback will be submitted as a public GitHub issue. When a Decent '
-        'account is linked, Decent Support also receives the issue link.',
+        'account is linked, Decent Support receives the issue link, and a '
+        'support contact ID associated with that account is added to the '
+        'public issue.',
       ),
       actions: _buildActions(context),
       child: _buildContent(context),
