@@ -8,6 +8,7 @@ import 'package:reaprime/src/controllers/connection_manager.dart';
 import 'package:reaprime/src/controllers/remembered_devices_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/models/device/remembered_device.dart';
+import 'package:reaprime/src/models/device/simulated_device.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/models/adapter_state.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
@@ -20,6 +21,7 @@ import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/models/scan_report.dart';
 import 'package:reaprime/src/settings/scale_power_mode.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
+import 'package:reaprime/src/settings/settings_service.dart';
 
 import '../helpers/mock_de1_controller.dart';
 import '../helpers/mock_device_discovery_service.dart';
@@ -90,6 +92,14 @@ class _FakeDe1 implements De1Interface {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class _FakeSimulatedDe1 extends _FakeDe1 implements SimulatedDevice {
+  _FakeSimulatedDe1({super.deviceId = 'MockDe1'});
+}
+
+class _FakeSimulatedScale extends TestScale implements SimulatedDevice {
+  _FakeSimulatedScale({super.deviceId = 'MockScale'});
 }
 
 class _TrackingScale extends TestScale {
@@ -1005,6 +1015,44 @@ void main() {
             await connectFuture;
 
             expect(mockScanner.stopScanCallCount, 1);
+          },
+        );
+
+        test(
+          'simulated preferred devices emitted together early-connect '
+          'and stop the scan',
+          () async {
+            settingsController.enableSimulatedDevicesForSession({
+              SimulatedDevicesTypes.machine,
+              SimulatedDevicesTypes.scale,
+            });
+
+            mockScanner.scanCompleter = Completer<void>();
+
+            final fakeDe1 = _FakeSimulatedDe1(deviceId: 'MockDe1');
+            final fakeScale = _FakeSimulatedScale(deviceId: 'MockScale');
+            mockScanner.queuedScanResults.add([fakeDe1, fakeScale]);
+
+            final connectFuture = connectionManager.connect();
+            await mockScanner.scanningStream.firstWhere((s) => s);
+            await Future.delayed(Duration.zero);
+            await Future.delayed(Duration.zero);
+
+            expect(mockDe1Controller.lastConnectedDe1, same(fakeDe1));
+            expect(mockScaleController.connectCalls, hasLength(1));
+            expect(mockScaleController.connectCalls.first, same(fakeScale));
+            expect(
+              mockScanner.stopScanCallCount,
+              1,
+              reason: 'both simulated preferred devices are connected; '
+                  'the scan must stop while still pending',
+            );
+
+            mockScanner.completeScan();
+            await connectFuture;
+
+            expect(mockScaleController.connectCalls, hasLength(1));
+            expect(connectionManager.currentStatus.phase, ConnectionPhase.ready);
           },
         );
 
