@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:reaprime/src/controllers/feedback_controller.dart';
 import 'package:reaprime/src/models/feedback/feedback_request.dart';
+import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/feedback_service.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -16,22 +17,28 @@ void showFeedbackDialog(
   BuildContext context, {
   required String githubToken,
   required List<String> Function() serialNumbers,
+  required DecentAccountService? accountService,
 }) {
   showShadDialog(
     context: context,
-    builder: (context) =>
-        FeedbackDialog(githubToken: githubToken, serialNumbers: serialNumbers),
+    builder: (context) => FeedbackDialog(
+      githubToken: githubToken,
+      serialNumbers: serialNumbers,
+      accountService: accountService,
+    ),
   );
 }
 
 class FeedbackDialog extends StatefulWidget {
   final String githubToken;
   final List<String> Function() serialNumbers;
+  final DecentAccountService? accountService;
 
   const FeedbackDialog({
     super.key,
     required this.githubToken,
     required this.serialNumbers,
+    required this.accountService,
   });
 
   @override
@@ -57,6 +64,7 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
     _service = FeedbackService(
       githubToken: widget.githubToken,
       currentSerialNumbers: widget.serialNumbers,
+      accountService: widget.accountService,
     );
     _controller = FeedbackController(service: _service);
     _controller.addListener(_onControllerChanged);
@@ -166,7 +174,8 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
     return ShadDialog(
       title: const Text('Send Feedback'),
       description: const Text(
-        'Feedback will be submitted as a public GitHub issue.',
+        'Feedback will be submitted as a public GitHub issue. When a Decent '
+        'account is linked, Decent Support also receives the issue link.',
       ),
       actions: _buildActions(context),
       child: _buildContent(context),

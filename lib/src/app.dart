@@ -463,6 +463,7 @@ class _MyAppState extends State<MyApp> {
                         controller: widget.settingsController,
                         persistenceController: widget.persistenceController,
                         de1Controller: widget.de1Controller,
+                        decentAccountService: widget.decentAccountService,
                         profileStorageService: widget.profileStorageService,
                         beanStorageService: widget.beanStorage,
                         grinderStorageService: widget.grinderStorage,

@@ -9,6 +9,7 @@ import 'package:logging/logging.dart';
 import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/models/feedback/feedback_request.dart';
 import 'package:reaprime/src/models/feedback/feedback_result.dart';
+import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/storage/app_directories.dart';
 import 'package:reaprime/src/services/telemetry/anonymization.dart';
 
@@ -16,17 +17,21 @@ class FeedbackService {
   final String _githubToken;
   final String _repo;
   final List<String> Function() _currentSerialNumbers;
+  final DecentAccountService? _accountService;
   final Logger _log = Logger('FeedbackService');
 
   static const String _githubApiBase = 'https://api.github.com';
+  static const Duration _supportLinkTimeout = Duration(seconds: 30);
 
   FeedbackService({
     required String githubToken,
     String repo = 'decentespresso/decaid',
     required List<String> Function() currentSerialNumbers,
+    DecentAccountService? accountService,
   }) : _githubToken = githubToken,
        _repo = repo,
-       _currentSerialNumbers = currentSerialNumbers;
+       _currentSerialNumbers = currentSerialNumbers,
+       _accountService = accountService;
 
   bool get isConfigured => _githubToken.isNotEmpty;
 
@@ -73,6 +78,18 @@ class FeedbackService {
 
       final issueNumber = issueResult['number'] as int;
       final issueUrl = issueResult['html_url'] as String;
+
+      try {
+        await _linkFeedbackToSupport(
+          request: request,
+          systemInfo: systemInfo,
+          gistUrl: gistUrl,
+          issueNumber: issueNumber,
+          issueUrl: issueUrl,
+        ).timeout(_supportLinkTimeout);
+      } catch (e, st) {
+        _log.warning('Could not link feedback to Decent support', e, st);
+      }
 
       _log.info('Feedback submitted successfully as issue #$issueNumber');
       return FeedbackSubmissionResult.succeeded(
@@ -263,12 +280,19 @@ class FeedbackService {
     required FeedbackRequest request,
     required String systemInfo,
     String? gistUrl,
+    String? contactId,
   }) {
     final body = StringBuffer();
 
     body.writeln('## Description');
     body.writeln(request.description);
     body.writeln();
+
+    if (contactId != null) {
+      body.writeln('---');
+      body.writeln('**Contact:** `$contactId`');
+      body.writeln();
+    }
 
     if (systemInfo.isNotEmpty) {
       body.writeln('## System Info');
@@ -317,6 +341,45 @@ class FeedbackService {
     } catch (e) {
       _log.severe('Failed to create GitHub issue', e);
       return null;
+    }
+  }
+
+  Future<void> _linkFeedbackToSupport({
+    required FeedbackRequest request,
+    required String systemInfo,
+    required String? gistUrl,
+    required int issueNumber,
+    required String issueUrl,
+  }) async {
+    final accountService = _accountService;
+    if (accountService == null || !await accountService.hasLinkedAccount()) {
+      return;
+    }
+    final contactId = await accountService.sendSupportMessage(
+      subject: 'Decaid feedback #$issueNumber',
+      body: issueUrl,
+    );
+    await _updateGitHubIssueBody(
+      issueNumber,
+      _buildIssueBody(
+        request: request,
+        systemInfo: systemInfo,
+        gistUrl: gistUrl,
+        contactId: contactId,
+      ),
+    );
+  }
+
+  Future<void> _updateGitHubIssueBody(int issueNumber, String body) async {
+    final response = await http.patch(
+      Uri.parse('$_githubApiBase/repos/$_repo/issues/$issueNumber'),
+      headers: _authHeaders,
+      body: jsonEncode({'body': body}),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Failed to update GitHub issue #$issueNumber (${response.statusCode})',
+      );
     }
   }
 
