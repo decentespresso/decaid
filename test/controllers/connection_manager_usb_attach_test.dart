@@ -615,6 +615,45 @@ void main() {
       },
     );
 
+    test('attach probe reports connectingMachine while the USB connection '
+        'is in progress', () async {
+      probeScanner.probeResult = AttachProbeConnected(
+        _FakeDe1(deviceId: 'usb-machine-id'),
+      );
+      probeScanner.probeGate = Completer<void>();
+      // Seed a retryable machine error so the stale-Retry symptom is
+      // reproducible: entering connectingMachine must clear it.
+      manager.reportError(
+        ConnectionError(
+          kind: ConnectionErrorKind.machineConnectFailed,
+          severity: ConnectionErrorSeverity.error,
+          timestamp: DateTime.now().toUtc(),
+          deviceId: 'usb-machine-id',
+          deviceName: 'DE1',
+          message: 'Attached machine DE1 failed to connect.',
+        ),
+      );
+      expect(manager.currentStatus.error, isNotNull);
+
+      probeScanner.attach();
+      await probeScanner.probeStarted.future;
+
+      // The USB probe is still inside connectAttachedMachine() (the gate
+      // is unresolved); the public status must already say a machine
+      // connection is in progress and the stale Retry error must be gone.
+      expect(manager.currentStatus.phase, ConnectionPhase.connectingMachine);
+      expect(manager.currentStatus.error, isNull);
+
+      probeScanner.probeGate!.complete();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(probeScanner.probeCallCount, 1);
+      expect(probeScanner.scanCallCount, 0);
+      expect(probeScanner.quickConnectCallCount, 0);
+      expect(settings.preferredMachineId, 'usb-machine-id');
+      expect(manager.currentStatus.phase, ConnectionPhase.ready);
+    });
+
     test('unavailable probe falls back to preferred-machine policy', () async {
       await settings.setPreferredMachineId('ble-machine-id');
       probeScanner.probeResult = const AttachProbeUnavailable();

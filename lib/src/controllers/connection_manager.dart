@@ -435,9 +435,22 @@ class ConnectionManager {
     if (_machineConnected) return true;
     _isConnecting = true;
     _attachProbeInFlight = true;
+    var adopted = false;
     try {
       final probe = _attachProbe;
       if (probe == null) return false;
+      // The probe is committed to connecting the attached machine; publish
+      // the public progress phase before the (potentially slow) USB
+      // open/handshake so the discovery UI shows the connection in
+      // progress instead of a stale idle/error state. The concrete
+      // transport is not known until the probe result is available.
+      _publishStatus(
+        currentStatus.copyWith(
+          phase: ConnectionPhase.connectingMachine,
+          pendingAmbiguity: () => null,
+          activeTargetTransport: () => null,
+        ),
+      );
       final AttachProbeResult result;
       try {
         result = await probe.connectAttachedMachine(event);
@@ -463,6 +476,7 @@ class ConnectionManager {
             _log.warning('Adopting the attached machine failed', e, st);
             return false;
           }
+          adopted = true;
           return true;
         case AttachProbeUnsupported():
           _log.fine(
@@ -503,6 +517,14 @@ class ConnectionManager {
     } finally {
       _attachProbeInFlight = false;
       _isConnecting = false;
+      // If the probe published connectingMachine but did not hand off to an
+      // adopted machine (unsupported/failed/unavailable/exception/adoption
+      // failure), leave that transient phase unless a newer status already
+      // replaced it.
+      if (!adopted &&
+          currentStatus.phase == ConnectionPhase.connectingMachine) {
+        _publishStatus(currentStatus.copyWith(phase: ConnectionPhase.idle));
+      }
     }
   }
 

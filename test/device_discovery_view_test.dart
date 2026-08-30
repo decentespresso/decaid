@@ -281,5 +281,48 @@ void main() {
         );
       });
     });
+
+    testWidgets('shows machine connection progress for connectingMachine '
+        'status', (tester) async {
+      final origOnError = FlutterError.onError;
+      FlutterError.onError = (details) {
+        if (details.toString().contains('overflowed') ||
+            details.toString().contains('deactivated')) {
+          return;
+        }
+        origOnError?.call(details);
+      };
+      addTearDown(() => FlutterError.onError = origOnError);
+
+      final fakeCm = FakeConnectionManager();
+      addTearDown(fakeCm.dispose);
+      fakeCm.emitStatus(
+        const ConnectionStatus(phase: ConnectionPhase.connectingMachine),
+      );
+
+      Widget view() => MediaQuery(
+        data: MediaQueryData(size: Size(1024, 768)),
+        child: ShadApp(
+          home: Scaffold(
+            body: DeviceDiscoveryView(
+              connectionManager: fakeCm,
+              deviceController: deviceController,
+              settingsController: settingsController,
+              webUIService: webUIService,
+              webUIStorage: webUIStorage,
+              logger: Logger('test'),
+            ),
+          ),
+        ),
+      );
+
+      await tester.runAsync(() async {
+        await tester.pumpWidget(view());
+        await tester.pump();
+
+        expect(find.text('Connecting to your machine...'), findsOneWidget);
+        expect(find.text('Retry'), findsNothing);
+      });
+    });
   });
 }
