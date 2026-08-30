@@ -66,16 +66,19 @@ class SerialServiceAndroid
   @override
   Future<void> initialize() async {
     try {
-      final devices = await _listDevices();
-      _log.info("found $devices");
-    } catch (e, st) {
-      _log.warning('USB enumeration unavailable during initialization', e, st);
-    }
-    if (_disposed) return;
-    try {
       _usbEventSubscription = _usbEventStream()?.listen(handleUsbEvent);
     } catch (e, st) {
       _log.warning('USB event stream unavailable', e, st);
+    }
+    if (_disposed) return;
+    try {
+      final devices = await _listDevices();
+      _log.info("found $devices");
+      if (devices.isNotEmpty && !_disposed) {
+        _announceAttach(null);
+      }
+    } catch (e, st) {
+      _log.warning('USB enumeration unavailable during initialization', e, st);
     }
   }
 

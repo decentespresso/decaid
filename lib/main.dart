@@ -462,6 +462,7 @@ void main(List<String> args) async {
       callerLabelRegistrar: gate.registerCallerLabel,
     );
     await accountTokensController.initialize();
+    await decentAccountService.initialize();
 
     appLogUploadService = AppLogUploadService(
       accountService: decentAccountService,
@@ -667,6 +668,7 @@ void main(List<String> args) async {
       de1Controller: de1Controller,
       displayController: displayController,
       pluginLoaderService: pluginService,
+      connectionManager: connectionManager,
       appLogUploadService: appLogUploadService,
     ),
   );
@@ -714,6 +716,7 @@ class AppLifecycleObserver with WidgetsBindingObserver {
   final De1Controller? de1Controller;
   final DisplayController? displayController;
   final PluginLoaderService? pluginLoaderService;
+  final ConnectionManager? connectionManager;
   final AppLogUploadService? appLogUploadService;
 
   late Timer _memTimer;
@@ -728,6 +731,7 @@ class AppLifecycleObserver with WidgetsBindingObserver {
     this.de1Controller,
     this.displayController,
     this.pluginLoaderService,
+    this.connectionManager,
     this.appLogUploadService,
   }) {
     _memTimer = Timer.periodic(Duration(minutes: 5), (t) {
@@ -817,6 +821,11 @@ class AppLifecycleObserver with WidgetsBindingObserver {
       await stateSubscription?.cancel();
     } catch (error, stackTrace) {
       _log.warning('State subscription detach failed', error, stackTrace);
+    }
+    try {
+      await connectionManager?.shutdown();
+    } catch (error, stackTrace) {
+      _log.warning('Connection shutdown failed', error, stackTrace);
     }
     try {
       await pluginLoaderService?.dispose();

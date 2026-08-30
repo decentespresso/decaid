@@ -17,6 +17,25 @@ import '../helpers/test_de1.dart';
 final class _GovernorTestDe1 extends TestDe1 {
   _GovernorTestDe1({super.deviceId, super.serialNumber});
 
+  String _resolvedSerial = '';
+
+  void resolveSerial(String serial) {
+    _resolvedSerial = serial;
+  }
+
+  @override
+  MachineInfo get machineInfo {
+    final info = super.machineInfo;
+    if (_resolvedSerial.isEmpty) return info;
+    return MachineInfo(
+      version: info.version,
+      model: info.model,
+      serialNumber: _resolvedSerial,
+      groupHeadControllerPresent: info.groupHeadControllerPresent,
+      extra: info.extra,
+    );
+  }
+
   final List<double> flushFlows = [];
   final List<double> steamFlows = [];
   final List<String> events = [];
@@ -488,6 +507,34 @@ void main() {
     expect(writtenDevice, same(replacement));
     await machine.dispose();
     machine = replacement;
+  });
+
+  test('writes queued before serial resolution still drain', () async {
+    await controller.dispose();
+    machine = _GovernorTestDe1(deviceId: 'legacy-de1', serialNumber: '0');
+    controller = De1Controller(controller: devices, maxPendingDeviceWrites: 2);
+    await _connect(controller, machine);
+
+    final release = Completer<void>();
+    final started = Completer<void>();
+    controller.runDeviceWrite((_) async {
+      started.complete();
+      await release.future;
+    });
+    await started.future;
+
+    var drained = 0;
+    final pending = controller.runDeviceWrite((device) async {
+      drained++;
+    });
+    final pendingResult = expectLater(pending, completes);
+
+    machine.resolveSerial('1338');
+
+    release.complete();
+    await pendingResult;
+    expect(drained, 1);
+    await machine.dispose();
   });
 
   test(

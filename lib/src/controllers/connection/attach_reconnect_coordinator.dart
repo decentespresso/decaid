@@ -7,6 +7,8 @@ class AttachReconnectCoordinator {
   final bool Function() shouldAttempt;
   final Future<bool> Function(DeviceAttachedEvent event) attempt;
   final FutureOr<void> Function() recover;
+  final void Function()? onLatched;
+  final void Function()? onSettled;
 
   late final StreamSubscription<DeviceAttachedEvent> _subscription;
   Timer? _settleTimer;
@@ -21,6 +23,8 @@ class AttachReconnectCoordinator {
     required this.shouldAttempt,
     required this.attempt,
     required this.recover,
+    this.onLatched,
+    this.onSettled,
   }) {
     _subscription = attachEvents.listen(_onAttach);
   }
@@ -30,9 +34,14 @@ class AttachReconnectCoordinator {
     _pendingEvent = event;
     if (_settleTimer != null) return;
     if (!shouldAttempt()) return;
+    onLatched?.call();
     _settleTimer = Timer(settleDelay, () {
       _settleTimer = null;
-      if (_disposed || _inFlight || !shouldAttempt()) return;
+      if (_disposed || _inFlight) return;
+      if (!shouldAttempt()) {
+        onSettled?.call();
+        return;
+      }
       final event = _pendingEvent;
       if (event == null) return;
       _inFlight = true;

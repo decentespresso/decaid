@@ -103,6 +103,16 @@ class DeviceController
 
     for (var service in _services) {
       try {
+        if (service case final DeviceAttachNotifier notifier) {
+          final attachSub = notifier.deviceAttached.listen((event) {
+            _attachOrigins[event] = service;
+            _log.info("device attached on $service: $event");
+            if (!_deviceAttachedStream.isClosed) {
+              _deviceAttachedStream.add(event);
+            }
+          });
+          _serviceSubscriptions.add(attachSub);
+        }
         await service.initialize();
         if (_disposed) return;
         final subscription = service.devices.listen(
@@ -116,16 +126,6 @@ class DeviceController
             }
           });
           _serviceSubscriptions.add(adapterSub);
-        }
-        if (service case final DeviceAttachNotifier notifier) {
-          final attachSub = notifier.deviceAttached.listen((event) {
-            _attachOrigins[event] = service;
-            _log.info("device attached on $service: $event");
-            if (!_deviceAttachedStream.isClosed) {
-              _deviceAttachedStream.add(event);
-            }
-          });
-          _serviceSubscriptions.add(attachSub);
         }
       } catch (e) {
         _log.warning("Service $service failed to init:", e);

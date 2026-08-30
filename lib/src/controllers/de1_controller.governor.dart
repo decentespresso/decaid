@@ -41,12 +41,12 @@ extension De1Governor on De1Controller {
     required De1ReplayPolicy replayPolicy,
     String? coalescingKey,
   }) {
-    final device = connectedDe1();
+    connectedDe1();
     final completer = Completer<T>();
     final operation = _PendingDe1Write<T>(
       call: write,
       completer: completer,
-      targetMachineIdentity: _machineIdentity(device),
+      targetMachineIdentity: _connectionMachineIdentity,
       connectionGeneration: _connectionGeneration,
       replayPolicy: replayPolicy,
       coalescingKey: coalescingKey,
@@ -157,7 +157,7 @@ extension De1Governor on De1Controller {
         throw MachineReplacementTimeoutException(machineReplacementTimeout);
       }
     }
-    if (_machineIdentity(device) != operation.targetMachineIdentity) {
+    if (_connectionMachineIdentity != operation.targetMachineIdentity) {
       throw StateError('Machine changed before device write');
     }
     return device;

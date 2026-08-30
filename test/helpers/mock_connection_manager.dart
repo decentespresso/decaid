@@ -99,7 +99,10 @@ class MockConnectionManager extends ConnectionManager {
   }
 
   @override
-  Future<ConnectionResult> connectMachine(De1Interface machine) async {
+  Future<ConnectionResult> connectMachine(
+    De1Interface machine, {
+    bool automatic = false,
+  }) async {
     if (shouldFailMachineConnect) {
       final error = ConnectionError(
         kind: ConnectionErrorKind.machineConnectFailed,

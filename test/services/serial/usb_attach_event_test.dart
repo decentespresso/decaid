@@ -174,4 +174,70 @@ void main() {
       await service.dispose();
     },
   );
+
+  test(
+    'initialization emits one generic hint for a non-empty enumeration',
+    () async {
+      final usbEvents = StreamController<UsbEvent>.broadcast();
+      service = SerialServiceAndroid(
+        listDevices: () async => [_device(), _device(serial: 'OTHER')],
+        usbEventStream: () => usbEvents.stream,
+      );
+      final events = <DeviceAttachedEvent>[];
+      final subscription = service.deviceAttached.listen(events.add);
+
+      await service.initialize();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(events, hasLength(1));
+      expect(events.single.deviceId, isNull);
+      await subscription.cancel();
+      await usbEvents.close();
+    },
+  );
+
+  test('initialization emits no hint for an empty enumeration', () async {
+    final usbEvents = StreamController<UsbEvent>.broadcast();
+    service = SerialServiceAndroid(
+      listDevices: () async => const [],
+      usbEventStream: () => usbEvents.stream,
+    );
+    final events = <DeviceAttachedEvent>[];
+    final subscription = service.deviceAttached.listen(events.add);
+
+    await service.initialize();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(events, isEmpty);
+    await subscription.cancel();
+    await usbEvents.close();
+  });
+
+  test(
+    'platform listener is established before enumeration completes',
+    () async {
+      final listedDevices = Completer<List<UsbDevice>>();
+      final usbEvents = StreamController<UsbEvent>.broadcast();
+      service = SerialServiceAndroid(
+        listDevices: () => listedDevices.future,
+        usbEventStream: () => usbEvents.stream,
+      );
+      final events = <DeviceAttachedEvent>[];
+      final subscription = service.deviceAttached.listen(events.add);
+
+      final initializing = service.initialize();
+      await Future<void>.delayed(Duration.zero);
+      expect(usbEvents.hasListener, isTrue);
+      usbEvents.add(_event(UsbEvent.ACTION_USB_ATTACHED, device: _device()));
+      listedDevices.complete([_device(serial: 'OTHER')]);
+      await initializing;
+      await Future<void>.delayed(Duration.zero);
+
+      expect(events, hasLength(2));
+      expect(events[0].deviceId, 'usb-2e8a-a-8549628789ABCDEF');
+      expect(events[1].deviceId, isNull);
+      await subscription.cancel();
+      await usbEvents.close();
+    },
+  );
 }

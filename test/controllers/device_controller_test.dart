@@ -123,8 +123,12 @@ class _AttachNotifyingDiscoveryService
   final _controller = BehaviorSubject<List<Device>>.seeded(const []);
   final _attached = PublishSubject<DeviceAttachedEvent>();
   final Future<void>? initialization;
+  final bool emitAttachInInitialize;
 
-  _AttachNotifyingDiscoveryService({this.initialization});
+  _AttachNotifyingDiscoveryService({
+    this.initialization,
+    this.emitAttachInInitialize = false,
+  });
 
   bool get hasAttachListener => _attached.hasListener;
 
@@ -137,6 +141,11 @@ class _AttachNotifyingDiscoveryService
   @override
   Future<void> initialize() async {
     await initialization;
+    if (emitAttachInInitialize) {
+      _attached.add(
+        const DeviceAttachedEvent(deviceId: 'startup-usb', name: 'DE1'),
+      );
+    }
   }
 
   @override
@@ -378,6 +387,22 @@ void main() {
         expect(notifier.hasAttachListener, isFalse);
       },
     );
+
+    test('an attach emitted during a service initialize is not lost', () async {
+      final notifier = _AttachNotifyingDiscoveryService(
+        emitAttachInInitialize: true,
+      );
+      final controller = DeviceController([notifier]);
+      final seen = <DeviceAttachedEvent>[];
+      final sub = controller.deviceAttached.listen(seen.add);
+
+      await controller.initialize();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(seen, hasLength(1));
+      expect(seen.single.deviceId, 'startup-usb');
+      await sub.cancel();
+    });
   });
 
   group('disconnect tracking keys (comms-harden #20)', () {

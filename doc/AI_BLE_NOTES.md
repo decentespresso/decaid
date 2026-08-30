@@ -24,6 +24,12 @@ The single BLE transport is `UniversalBleTransport` in `lib/src/services/ble/uni
 
 `UnifiedDe1Transport` wraps `UniversalBleTransport` and adds MMR read/write on top of raw characteristic I/O. It provides `rawData` stream, `readMmr()`, `writeMmr()`, and typed connection guards (`DeviceNotConnectedException.machine()` on read/write when disconnected).
 
+## Terminal Lifecycle Teardown
+
+`AppLifecycleObserver` treats `detached` and `didRequestAppExit()` as best-effort terminal events. It cancels its state subscriptions, awaits `ConnectionManager.shutdown()`, then disposes the plugin loader before the app-log upload service. Shutdown rejects new connection work, stops discovery and recovery sources, releases queued requests, waits for in-flight work, then disconnects the machine and scale in order while isolating cleanup failures. `paused` and `hidden` preserve active connections.
+
+Android does not guarantee any Dart, activity, application, or Flutter-engine callback for Settings Force stop, SIGKILL, or other abrupt process death. Those paths can skip cleanup entirely and must not be described as supported. Decaid still pins `universal_ble` 2.2.6, whose Android `onDetachedFromEngine()` does not close active central GATT clients, so native engine-detach cleanup is not shipped with this lifecycle change.
+
 ## Connection Flow
 
 `ConnectionManager` supports three distinct connection intents, selected via
@@ -253,6 +259,33 @@ failed attachments preserve the previous preference and return control to the
 existing preferred-machine recovery policy (or surface the normal connection
 failure). A connected machine is never replaced.
 
+USB intent is latched on the attach event, before the 500 ms settle delay, and
+automatic preferred-machine selection is paused while latched:
+`AttachReconnectCoordinator.onLatched` cancels the machine reconnect timer and
+supersedes an in-flight automatic/adapter-recovery attempt (generation bump +
+`stopScan`). Automatic connects are refused at `connectMachine` and deferred at
+`_executeConnect` while latched; explicit direct connects, explicit scans, and
+scale-only work are untouched. The `_activeAutomaticMachineAttempt` gate
+requires an active `_isConnecting` operation with automatic/adapter-recovery
+intent, so the sticky default status intent cannot misclassify a direct REST or
+picker connect. A machine connected by the superseded attempt inside the
+settle window is released through the intentional `disconnectMachine()` path
+(both the tracked-connect and remembered quick-connect routes) before the
+queued probe runs, so a BLE connect that finishes mid-window cannot win.
+`_shouldAttemptAttachReconnect` treats that transient machine as
+not-established so settle expiry queues the attach instead of skipping it. A
+single completion helper clears the latch, consumes the supersession marker,
+and resumes whatever the latch interrupted — replaying a deferred automatic
+connect or re-arming recovery.
+
+Startup ordering matters: `ConnectionManager` (and the coordinator
+subscription) is constructed before onboarding initializes `DeviceController`,
+and `DeviceController` subscribes to each service's attach stream before
+awaiting its `initialize()`. `SerialServiceAndroid.initialize()` therefore
+emits one metadata-free startup hint for a non-empty enumeration, and the hint
+flows through the existing latch → settle → probe → adopt path before the
+onboarding scan step calls `connect()`.
+
 Attach attempts never run in parallel with another connect. An attach arriving
 while an automatic/recovery connect is in flight supersedes that scan via the
 existing generation mechanism and runs one coalesced probe as soon as the
@@ -287,6 +320,30 @@ physical connection. On Android/Linux/Windows, direct
 
 The identity check happens during `onConnect()` — for machines, `v13Model`
 is read and compared against the expected `DeviceImplementation`.
+
+## DE1 MMR model mapping (`DecentMachineModel`)
+
+`v13Model` (MMR `0x0080000C`) is the machine model read on connect. For the
+DE1 family the raw value is 0 (unset) through 7, per de1app:
+
+| value | model     |
+|-------|-----------|
+| 0     | Unknown   |
+| 1     | DE1       |
+| 2     | DE1+      |
+| 3     | DE1PRO    |
+| 4     | DE1XL     |
+| 5     | DE1CAFE   |
+| 6     | DE1XXL    |
+| 7     | DE1XXXL   |
+| >=128 | Bengle    |
+
+The 5/6/7 rows were previously collapsed to DE1XXL/DE1XXXL/Unknown. The
+corrected mapping matches the firmware values used by de1app and is the
+canonical conversion for both raw MMR reads (`DecentMachineModel.fromInt`)
+and API SKU parsing (`parseSkuModel`), so firmware values and SKU tokens
+agree. Bengle values (>= 128) are outside the legacy DE1 identity-resolution
+flow.
 
 ## Focused Tests
 

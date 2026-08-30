@@ -110,6 +110,7 @@ class De1Controller {
   _PendingDe1Write<dynamic>? _pendingFirmwareWrite;
 
   int _connectionGeneration = 0;
+  String _connectionMachineIdentity = '';
 
   final BehaviorSubject<int?> _initSettledSubject = BehaviorSubject.seeded(
     null,
@@ -152,6 +153,7 @@ class De1Controller {
       rethrow;
     }
     _de1 = de1Interface;
+    _connectionMachineIdentity = _machineIdentity(de1Interface);
     _de1Controller.add(_de1);
 
     _subscriptions.add(
@@ -188,6 +190,7 @@ class De1Controller {
     }
     _onDisconnect();
     _de1 = de1Interface;
+    _connectionMachineIdentity = _machineIdentity(de1Interface);
     _de1Controller.add(_de1);
 
     _subscriptions.add(
@@ -218,6 +221,12 @@ class De1Controller {
     } catch (_) {
       return;
     }
+    if (serial.isNotEmpty && serial != '0') {
+      _seenSerials.add(serial);
+    }
+  }
+
+  void recordResolvedSerial(String serial) {
     if (serial.isNotEmpty && serial != '0') {
       _seenSerials.add(serial);
     }

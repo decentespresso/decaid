@@ -99,11 +99,20 @@ class MockSettingsService extends SettingsService {
   @override
   Future<void> setStopHotWaterAtWeight(bool value) async =>
       _stopHotWaterAtWeight = value;
+  final List<String?> preferredMachineIdWrites = [];
+  bool failSetPreferredMachineId = false;
+
   @override
   Future<String?> preferredMachineId() async => _preferredMachineId;
   @override
-  Future<void> setPreferredMachineId(String? machineId) async =>
-      _preferredMachineId = machineId;
+  Future<void> setPreferredMachineId(String? machineId) async {
+    preferredMachineIdWrites.add(machineId);
+    if (failSetPreferredMachineId) {
+      throw Exception('simulated preference persist failure');
+    }
+    _preferredMachineId = machineId;
+  }
+
   @override
   Future<String?> preferredScaleId() async => _preferredScaleId;
   @override
