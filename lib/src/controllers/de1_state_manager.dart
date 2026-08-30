@@ -251,9 +251,15 @@ class De1StateManager with WidgetsBindingObserver {
   Future<void> _toggleEspressoFromScaleButton() async {
     _scaleButtonActionInFlight = true;
     try {
+      if (_settingsController.gatewayMode == GatewayMode.full) return;
       final state = _latestSnapshot?.state.state;
       final machine = _de1Controller.connectedDe1OrNull;
       if (machine == null) return;
+      if (_latestSnapshot == null ||
+          !identical(machine, _de1Controller.connectedDe1OrNull) ||
+          _latestSnapshot?.state.state != state) {
+        return;
+      }
       if (state == MachineState.espresso) {
         _de1Controller.recordStopIntent(ShotDecisionReason.appStop);
         await machine.requestState(MachineState.idle);

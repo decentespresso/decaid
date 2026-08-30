@@ -536,10 +536,12 @@ void main() {
 
       transport.simulateButtonNotification([1]);
       transport.simulateButtonNotification([2]);
+      transport.simulateButtonNotification([]);
+      transport.simulateButtonNotification([1, 99]);
       transport.simulateButtonNotification([99]);
       await Future<void>.delayed(Duration.zero);
 
-      expect(buttons, [ScaleButton.circle, ScaleButton.square]);
+      expect(buttons, [ScaleButton.circle, ScaleButton.square, ScaleButton.circle]);
       await sub.cancel();
     });
   });

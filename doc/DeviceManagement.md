@@ -185,6 +185,9 @@ square button is opt-in (`scaleButtonStartsEspresso`, default off), and only
 requests espresso from machine idle or requests idle while espresso is active.
 Notifications are serialized and ignored after scale disconnect or replacement;
 other machine states and missing machines have no action.
+When enabled, these physical-button actions remain active while Decaid's app
+service is connected, including when the app is in the background; gateway mode
+`full` remains excluded because the skin owns machine actions.
 
 ### Device Matching
 
