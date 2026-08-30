@@ -1028,9 +1028,12 @@ void main() {
         final supportService = DecentAccountService(
           httpClient: http_testing.MockClient((request) async {
             requestCount++;
-            return requestCount == 1
-                ? http.Response('cryptpw_abc123', 200)
-                : http.Response('unauthorized', 401);
+            return switch (request.url.path) {
+              '/support/api/login_test' => http.Response('cryptpw_abc123', 200),
+              '/support/api/sn' => http.Response('', 200),
+              '/support/api/email' => http.Response('unauthorized', 401),
+              _ => http.Response('not found', 404),
+            };
           }),
           credentialStore: store,
           baseUrl: _baseUrl,
@@ -1050,7 +1053,7 @@ void main() {
           supportService.sendSupportMessage(subject: 'subject', body: 'body'),
           throwsA(isA<StateError>()),
         );
-        expect(requestCount, 2);
+        expect(requestCount, 3);
       });
     });
 
