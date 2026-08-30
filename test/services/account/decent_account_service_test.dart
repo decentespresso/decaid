@@ -673,6 +673,73 @@ void main() {
       });
     });
 
+    group('sendSupportMessage', () {
+      test(
+        'sends an authenticated request and returns the contact id',
+        () async {
+          late http.Request capturedRequest;
+          final client = http_testing.MockClient((request) async {
+            capturedRequest = request;
+            return http.Response('  GhwAHSEAAAAAAAAGBgAdAxAcCUgGCgQ=\n', 200);
+          });
+          final supportService = DecentAccountService(
+            httpClient: client,
+            credentialStore: store,
+            baseUrl: _baseUrl,
+          );
+          await store.write(key: 'email', value: 'test@example.com');
+          await store.write(key: 'password', value: 'cryptpw_abc123');
+
+          final contactId = await supportService.sendSupportMessage(
+            subject: 'Decaid feedback #728 & details',
+            body: 'https://github.com/decentespresso/decaid/issues/728?a=1&b=2',
+          );
+
+          expect(contactId, 'GhwAHSEAAAAAAAAGBgAdAxAcCUgGCgQ=');
+          expect(capturedRequest.method, 'GET');
+          expect(capturedRequest.url.path, '/support/api/email');
+          expect(capturedRequest.url.queryParameters, {
+            'subject': 'Decaid feedback #728 & details',
+            'body':
+                'https://github.com/decentespresso/decaid/issues/728?a=1&b=2',
+          });
+          expect(
+            capturedRequest.headers['authorization'],
+            'Basic dGVzdEBleGFtcGxlLmNvbTpjcnlwdHB3X2FiYzEyMw==',
+          );
+        },
+      );
+
+      test('rejects failed and unsafe responses', () async {
+        final responses = [
+          (statusCode: 500, body: 'failed'),
+          (statusCode: 200, body: ''),
+          (statusCode: 200, body: '0'),
+          (statusCode: 200, body: 'bad\ncontact'),
+          (statusCode: 200, body: 'bad`contact'),
+          (statusCode: 200, body: List.filled(257, 'x').join()),
+        ];
+        await store.write(key: 'email', value: 'test@example.com');
+        await store.write(key: 'password', value: 'cryptpw_abc123');
+
+        for (final response in responses) {
+          final supportService = DecentAccountService(
+            httpClient: _mockClient(
+              statusCode: response.statusCode,
+              body: response.body,
+            ),
+            credentialStore: store,
+            baseUrl: _baseUrl,
+          );
+
+          await expectLater(
+            supportService.sendSupportMessage(subject: 'subject', body: 'body'),
+            throwsA(isA<Exception>()),
+          );
+        }
+      });
+    });
+
     group('parseSerialNumbers', () {
       test('parses bare serial numbers', () {
         expect(parseSerialNumbers('1337\n1338'), ['1337', '1338']);

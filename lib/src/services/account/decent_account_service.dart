@@ -28,6 +28,7 @@ enum DecentAccountStatus { authenticated, unauthenticated, indeterminate }
 
 class DecentAccountService {
   static const bool kEnableSerialVerification = true;
+  static const int _maxContactIdLength = 256;
 
   final http.Client _httpClient;
   final CredentialStore _store;
@@ -243,30 +244,44 @@ class DecentAccountService {
     return response;
   }
 
-  Future<void> emailSerialMismatch(String serial) async {
+  Future<String> sendSupportMessage({
+    required String subject,
+    required String body,
+  }) async {
     final email = await _store.read(key: 'email');
     final password = await _store.read(key: 'password');
     if (email == null || password == null) {
       throw StateError('not logged in');
     }
-    final subject = Uri.encodeComponent(
-      'My machine serial number #$serial is not associated with my login',
-    );
-    final body = Uri.encodeComponent(
-      'I linked my de1app to my Decent account, and found that this '
-      'account does not list the machine #$serial I am connected to.',
-    );
+    final query = Uri(
+      queryParameters: {'subject': subject, 'body': body},
+    ).query;
     final response = await _authedGet(
       email,
       password,
-      '/support/api/email?subject=$subject&body=$body',
+      '/support/api/email?$query',
     );
-    final responseBody = response.body.trim();
-    if (response.statusCode != 200 || responseBody == '0') {
-      throw Exception(
-        'email serial mismatch failed (${response.statusCode}): ${response.body}',
-      );
+    final contactId = response.body.trim();
+    if (response.statusCode != 200 ||
+        contactId.isEmpty ||
+        contactId == '0' ||
+        contactId.length > _maxContactIdLength ||
+        contactId.contains('\r') ||
+        contactId.contains('\n') ||
+        contactId.contains('`')) {
+      throw Exception('support message failed (${response.statusCode})');
     }
+    return contactId;
+  }
+
+  Future<void> emailSerialMismatch(String serial) async {
+    await sendSupportMessage(
+      subject:
+          'My machine serial number #$serial is not associated with my login',
+      body:
+          'I linked my de1app to my Decent account, and found that this '
+          'account does not list the machine #$serial I am connected to.',
+    );
   }
 
   Future<http.Response> _authedGet(
