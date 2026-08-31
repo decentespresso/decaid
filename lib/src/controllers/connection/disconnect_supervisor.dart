@@ -30,6 +30,22 @@ class DisconnectSupervisor {
   device.ConnectionState _latestScaleState = device.ConnectionState.discovered;
   String? _lastKnownMachineId;
 
+  Completer<void>? _machineSeenCompleter;
+  String? _awaitedMachineId;
+
+  /// Resolves once this supervisor's own machine-stream listener has
+  /// processed a non-null device with the given [deviceId]. Unlike
+  /// subscribing separately to the machine stream, this is driven by the
+  /// listener already registered in [_start], so it cannot race a fresh
+  /// subscription against events already queued for this one.
+  Future<void> waitForMachine(String deviceId) {
+    if (_latestDe1?.deviceId == deviceId) return Future<void>.value();
+    final completer = Completer<void>();
+    _awaitedMachineId = deviceId;
+    _machineSeenCompleter = completer;
+    return completer.future;
+  }
+
   StreamSubscription<De1Interface?>? _machineSub;
   StreamSubscription<device.ConnectionState>? _scaleSub;
 
@@ -80,6 +96,11 @@ class DisconnectSupervisor {
       _latestDe1 = de1;
       if (de1 != null) {
         _lastKnownMachineId = de1.deviceId;
+        if (de1.deviceId == _awaitedMachineId) {
+          _awaitedMachineId = null;
+          _machineSeenCompleter?.complete();
+          _machineSeenCompleter = null;
+        }
         _onMachineConnected?.call();
         return;
       }
@@ -173,5 +194,8 @@ class DisconnectSupervisor {
     _scaleSub?.cancel();
     _machineSub = null;
     _scaleSub = null;
+    _awaitedMachineId = null;
+    _machineSeenCompleter?.complete();
+    _machineSeenCompleter = null;
   }
 }
