@@ -30,6 +30,7 @@ class SettingsExportSection implements DataExportSection {
           'blockOnNoScale': _controller.blockOnNoScale,
           'blockTareDuringShot': _controller.blockTareDuringShot,
           'stopHotWaterAtWeight': _controller.stopHotWaterAtWeight,
+          'scaleButtonStartsEspresso': _controller.scaleButtonStartsEspresso,
           'defaultSkinId': _controller.defaultSkinId,
           'automaticUpdateCheck': _controller.automaticUpdateCheck,
           'chargingMode': _controller.chargingMode.name,
@@ -141,6 +142,16 @@ class SettingsExportSection implements DataExportSection {
             settings['stopHotWaterAtWeight'] as bool,
           );
           imported++;
+        }
+
+        if (settings.containsKey('scaleButtonStartsEspresso')) {
+          final value = settings['scaleButtonStartsEspresso'];
+          if (value is bool) {
+            await _controller.setScaleButtonStartsEspresso(value);
+            imported++;
+          } else {
+            errors.add('Invalid scaleButtonStartsEspresso: $value');
+          }
         }
 
         if (settings.containsKey('defaultSkinId')) {

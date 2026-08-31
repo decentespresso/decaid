@@ -21,6 +21,7 @@ import 'package:reaprime/src/models/device/device.dart' as device;
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
 import 'package:reaprime/src/models/device/machine.dart';
+import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/realtime_shot_feature/realtime_shot_feature.dart';
 import 'package:reaprime/src/realtime_steam_feature/realtime_steam_feature.dart';
 import 'package:reaprime/src/launcher/launcher_view.dart';
@@ -46,6 +47,7 @@ class De1StateManager with WidgetsBindingObserver {
   final GlobalKey<NavigatorState> _navigatorKey;
 
   StreamSubscription<Machine?>? _de1Subscription;
+  StreamSubscription<ScaleButton>? _scaleButtonSubscription;
   StreamSubscription<void>? _accountIdentitySubscription;
   final _emailedSerials = <String>{};
   final LegacyDe1IdentityResolver _identityResolver =
@@ -83,6 +85,7 @@ class De1StateManager with WidgetsBindingObserver {
 
   bool _appIsInForeground = true;
   bool _navigationContextReady = false;
+  bool _scaleButtonActionInFlight = false;
 
   De1StateManager({
     required De1Controller de1Controller,
@@ -128,6 +131,9 @@ class De1StateManager with WidgetsBindingObserver {
     _accountIdentitySubscription = _accountService?.identityAuthorityChanges
         .listen(_handleIdentityAuthorityChange);
     _de1Subscription = _de1Controller.de1.listen(_handleDe1Change);
+    _scaleButtonSubscription = _scaleController.buttonPresses.listen(
+      _handleScaleButton,
+    );
 
     WidgetsBinding.instance.addPostFrameCallback(
       _retryIdentityWhenNavigationReady,
@@ -203,6 +209,7 @@ class De1StateManager with WidgetsBindingObserver {
     _snapshotSubscription?.cancel();
     _snapshotSubscription = null;
     _identityPromptedMachines.clear();
+    _latestSnapshot = null;
 
     if (machine != null) {
       _logger.info('DE1 connected, starting to listen for state changes');
@@ -219,6 +226,51 @@ class De1StateManager with WidgetsBindingObserver {
     } else {
       _logger.info('DE1 disconnected');
       _cleanupShotSequencer();
+    }
+  }
+
+  void _handleScaleButton(ScaleButton button) {
+    if (_disposed || _scaleButtonActionInFlight) return;
+    if (button == ScaleButton.circle) {
+      unawaited(_tareFromScaleButton());
+    } else if (_settingsController.scaleButtonStartsEspresso) {
+      unawaited(_toggleEspressoFromScaleButton());
+    }
+  }
+
+  Future<void> _tareFromScaleButton() async {
+    _scaleButtonActionInFlight = true;
+    try {
+      await _scaleController.tare();
+    } catch (e, st) {
+      _logger.warning('Skale circle-button tare failed', e, st);
+    } finally {
+      _scaleButtonActionInFlight = false;
+    }
+  }
+
+  Future<void> _toggleEspressoFromScaleButton() async {
+    _scaleButtonActionInFlight = true;
+    try {
+      if (_settingsController.gatewayMode == GatewayMode.full) return;
+      final state = _latestSnapshot?.state.state;
+      final machine = _de1Controller.connectedDe1OrNull;
+      if (machine == null) return;
+      if (_latestSnapshot == null ||
+          !identical(machine, _de1Controller.connectedDe1OrNull) ||
+          _latestSnapshot?.state.state != state) {
+        return;
+      }
+      if (state == MachineState.espresso) {
+        _de1Controller.recordStopIntent(ShotDecisionReason.appStop);
+        await machine.requestState(MachineState.idle);
+      } else if (state == MachineState.idle) {
+        await machine.requestState(MachineState.espresso);
+      }
+    } catch (e, st) {
+      _logger.warning('Skale square-button espresso toggle failed', e, st);
+    } finally {
+      _scaleButtonActionInFlight = false;
     }
   }
 
@@ -1039,6 +1091,9 @@ class De1StateManager with WidgetsBindingObserver {
 
     _de1Subscription?.cancel();
     _de1Subscription = null;
+
+    _scaleButtonSubscription?.cancel();
+    _scaleButtonSubscription = null;
 
     _accountIdentitySubscription?.cancel();
     _accountIdentitySubscription = null;

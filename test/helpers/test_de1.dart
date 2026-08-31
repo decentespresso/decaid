@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:reaprime/src/models/data/profile.dart';
@@ -69,6 +70,7 @@ class TestDe1 implements De1Interface {
   }
 
   final List<MachineState> requestedStates = [];
+  Completer<void>? requestStateGate;
 
   void emitSnapshot(MachineSnapshot snapshot) {
     snapshotSubject.add(snapshot);
@@ -112,6 +114,7 @@ class TestDe1 implements De1Interface {
   @override
   Future<void> requestState(MachineState newState) async {
     requestedStates.add(newState);
+    await requestStateGate?.future;
   }
 
   @override

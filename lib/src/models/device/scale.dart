@@ -18,6 +18,12 @@ abstract interface class TransportHandoffScale {
   Future<void> disconnectForHandoff();
 }
 
+enum ScaleButton { circle, square }
+
+abstract interface class ScaleButtonCapable {
+  Stream<ScaleButton> get buttonPresses;
+}
+
 class ScaleSnapshot {
   final DateTime timestamp;
   final double weight;

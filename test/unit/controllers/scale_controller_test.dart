@@ -86,7 +86,64 @@ class _FailingScale extends _TrackingScale {
   );
 }
 
+class _ButtonScale extends _TrackingScale implements ScaleButtonCapable {
+  _ButtonScale(super.deviceId);
+
+  final _buttons = StreamController<ScaleButton>.broadcast();
+
+  @override
+  Stream<ScaleButton> get buttonPresses => _buttons.stream;
+
+  void press(ScaleButton button) => _buttons.add(button);
+}
+
 void main() {
+  test('forwards button notifications only from the active scale', () async {
+    final controller = ScaleController();
+    final first = _ButtonScale('first');
+    final second = _ButtonScale('second');
+    final buttons = <ScaleButton>[];
+    final subscription = controller.buttonPresses.listen(buttons.add);
+
+    await controller.connectToScale(first);
+    first.press(ScaleButton.circle);
+    await Future<void>.delayed(Duration.zero);
+    await controller.connectToScale(second);
+    first.press(ScaleButton.square);
+    second.press(ScaleButton.square);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(buttons, [ScaleButton.circle, ScaleButton.square]);
+    await subscription.cancel();
+    controller.dispose();
+  });
+
+  test(
+    'does not forward non-capable buttons and resubscribes after reconnect',
+    () async {
+      final controller = ScaleController();
+      final plain = _TrackingScale('plain');
+      final capable = _ButtonScale('capable');
+      final buttons = <ScaleButton>[];
+      final subscription = controller.buttonPresses.listen(buttons.add);
+
+      await controller.connectToScale(plain);
+      await controller.connectToScale(capable);
+      capable.press(ScaleButton.circle);
+      await Future<void>.delayed(Duration.zero);
+      await capable.disconnect();
+      capable.press(ScaleButton.square);
+      await Future<void>.delayed(Duration.zero);
+      await controller.connectToScale(capable);
+      capable.press(ScaleButton.square);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(buttons, [ScaleButton.circle, ScaleButton.square]);
+      await subscription.cancel();
+      controller.dispose();
+    },
+  );
+
   test(
     'device-provided flow feeds display while control stays estimator-derived',
     () async {

@@ -177,6 +177,18 @@ Machine replacement/disconnect resets the push state so the new machine gets
 - **Construction:** Like the USB HDS path, the service constructs `HDSWifi` **directly**, bypassing the BLE-coupled `DeviceMatcher`.
 - **Platform config:** iOS/macOS `Info.plist` declare `NSBonjourServices` (`_decentscale._tcp`) + `NSLocalNetworkUsageDescription` (without these, Apple silently returns no results); macOS already grants the `com.apple.security.network.client` entitlement. Linux discovery requires the **Avahi daemon** running; otherwise use manual entry.
 
+### Skale button actions
+
+Skale button notifications are exposed through `ScaleButtonCapable` and
+forwarded by `ScaleController`. The circle button always requests a tare. The
+square button is opt-in (`scaleButtonStartsEspresso`, default off), and only
+requests espresso from machine idle or requests idle while espresso is active.
+Notifications are serialized and ignored after scale disconnect or replacement;
+other machine states and missing machines have no action.
+When enabled, these physical-button actions remain active while Decaid's app
+service is connected, including when the app is in the background; gateway mode
+`full` remains excluded because the skin owns machine actions.
+
 ### Device Matching
 
 Discovery services use name-based matching via `DeviceMatcher` to create appropriate device instances from BLE advertisement names:

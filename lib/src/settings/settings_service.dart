@@ -30,6 +30,8 @@ abstract class SettingsService {
   Future<void> setBlockTareDuringShot(bool value);
   Future<bool> stopHotWaterAtWeight();
   Future<void> setStopHotWaterAtWeight(bool value);
+  Future<bool> scaleButtonStartsEspresso();
+  Future<void> setScaleButtonStartsEspresso(bool value);
   Future<String?> preferredMachineId();
   Future<void> setPreferredMachineId(String? machineId);
   Future<String?> preferredScaleId();
@@ -211,6 +213,17 @@ class SharedPreferencesSettingsService extends SettingsService {
   @override
   Future<bool> stopHotWaterAtWeight() async {
     return await prefs.getBool(SettingsKeys.stopHotWaterAtWeight.name) ?? true;
+  }
+
+  @override
+  Future<bool> scaleButtonStartsEspresso() async {
+    return await prefs.getBool(SettingsKeys.scaleButtonStartsEspresso.name) ??
+        false;
+  }
+
+  @override
+  Future<void> setScaleButtonStartsEspresso(bool value) async {
+    await prefs.setBool(SettingsKeys.scaleButtonStartsEspresso.name, value);
   }
 
   @override
@@ -534,6 +547,7 @@ enum SettingsKeys {
   blockOnNoScale,
   blockTareDuringShot,
   stopHotWaterAtWeight,
+  scaleButtonStartsEspresso,
   preferredMachineId,
   preferredScaleId,
   defaultSkinId,

@@ -29,6 +29,7 @@ class SettingsHandler {
       final blockOnNoScale = _controller.blockOnNoScale;
       final blockTareDuringShot = _controller.blockTareDuringShot;
       final stopHotWaterAtWeight = _controller.stopHotWaterAtWeight;
+      final scaleButtonStartsEspresso = _controller.scaleButtonStartsEspresso;
       final preferredMachineId = _controller.preferredMachineId;
       final preferredScaleId = _controller.preferredScaleId;
       final defaultSkinId = _controller.defaultSkinId;
@@ -44,6 +45,7 @@ class SettingsHandler {
         'blockOnNoScale': blockOnNoScale,
         'blockTareDuringShot': blockTareDuringShot,
         'stopHotWaterAtWeight': stopHotWaterAtWeight,
+        'scaleButtonStartsEspresso': scaleButtonStartsEspresso,
         'preferredMachineId': preferredMachineId,
         'preferredScaleId': preferredScaleId,
         'defaultSkinId': defaultSkinId,
@@ -159,6 +161,16 @@ class SettingsHandler {
         } else {
           return jsonBadRequest({
             'message': 'stopHotWaterAtWeight must be a boolean',
+          });
+        }
+      }
+      if (json.containsKey('scaleButtonStartsEspresso')) {
+        final value = json['scaleButtonStartsEspresso'];
+        if (value is bool) {
+          await _controller.setScaleButtonStartsEspresso(value);
+        } else {
+          return jsonBadRequest({
+            'message': 'scaleButtonStartsEspresso must be a boolean',
           });
         }
       }

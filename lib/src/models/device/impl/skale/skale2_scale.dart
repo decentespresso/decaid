@@ -14,7 +14,7 @@ import 'package:reaprime/src/models/device/device.dart';
 
 import '../../scale.dart';
 
-class Skale2Scale implements Scale {
+class Skale2Scale implements Scale, ScaleButtonCapable {
   static final BleServiceIdentifier serviceIdentifier =
       BleServiceIdentifier.short('ff08');
   static final BleServiceIdentifier weightCharacteristic =
@@ -44,6 +44,9 @@ class Skale2Scale implements Scale {
 
   bool _buttonSubscribed = false;
 
+  final StreamController<ScaleButton> _buttonController =
+      StreamController.broadcast();
+
   static const _initStepDelay = Duration(milliseconds: 1000);
 
   Skale2Scale({
@@ -57,6 +60,9 @@ class Skale2Scale implements Scale {
 
   @override
   Stream<ScaleSnapshot> get currentSnapshot => _streamController.stream;
+
+  @override
+  Stream<ScaleButton> get buttonPresses => _buttonController.stream;
 
   @override
   String get deviceId => _deviceId;
@@ -254,7 +260,17 @@ class Skale2Scale implements Scale {
     );
   }
 
-  void _parseButtonNotification(List<int> data) {}
+  void _parseButtonNotification(List<int> data) {
+    if (data.isEmpty) return;
+    switch (data.first) {
+      case 1:
+        _buttonController.add(ScaleButton.circle);
+      case 2:
+        _buttonController.add(ScaleButton.square);
+      default:
+        _log.fine('Ignoring unknown Skale button value ${data.first}');
+    }
+  }
 
   @override
   Future<void> startTimer() async {

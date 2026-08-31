@@ -1,7 +1,14 @@
-import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/src/services/webserver_service.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/settings/settings_service.dart';
+import 'package:reaprime/src/webui_support/webui_service.dart';
+import 'package:reaprime/src/webui_support/webui_storage.dart';
+import 'package:shelf_plus/shelf_plus.dart';
 
 import '../helpers/mock_settings_service.dart';
 
@@ -77,6 +84,73 @@ void main() {
       await controller.setStopHotWaterAtWeight(false);
       expect(controller.stopHotWaterAtWeight, isFalse);
       expect(await mockService.stopHotWaterAtWeight(), isFalse);
+    });
+  });
+
+  group('scaleButtonStartsEspresso', () {
+    test('defaults off', () {
+      expect(controller.scaleButtonStartsEspresso, isFalse);
+    });
+
+    test('persists changes', () async {
+      await controller.setScaleButtonStartsEspresso(true);
+      expect(controller.scaleButtonStartsEspresso, isTrue);
+      expect(await mockService.scaleButtonStartsEspresso(), isTrue);
+    });
+  });
+
+  group('scaleButtonStartsEspresso settings API', () {
+    late RouterPlus app;
+    late WebUIStorage storage;
+    late Directory tempDir;
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('decaid-settings-');
+      storage = WebUIStorage(controller);
+      storage.debugInitWithWebUIDir(tempDir);
+      app = Router().plus;
+      SettingsHandler(
+        controller: controller,
+        service: WebUIService(listLocalAddresses: () async => []),
+        webUIStorage: storage,
+      ).addRoutes(app);
+    });
+
+    tearDown(() async {
+      if (tempDir.existsSync()) await tempDir.delete(recursive: true);
+    });
+
+    test('GET reports default and POST persists valid value', () async {
+      final get = await app.call(
+        Request('GET', Uri.parse('http://localhost/api/v1/settings')),
+      );
+      expect(
+        (jsonDecode(await get.readAsString())
+            as Map)['scaleButtonStartsEspresso'],
+        isFalse,
+      );
+
+      final post = await app.call(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/api/v1/settings'),
+          body: jsonEncode({'scaleButtonStartsEspresso': true}),
+        ),
+      );
+      expect(post.statusCode, 200);
+      expect(controller.scaleButtonStartsEspresso, isTrue);
+    });
+
+    test('POST rejects invalid value', () async {
+      final response = await app.call(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/api/v1/settings'),
+          body: jsonEncode({'scaleButtonStartsEspresso': 'yes'}),
+        ),
+      );
+      expect(response.statusCode, 400);
+      expect(controller.scaleButtonStartsEspresso, isFalse);
     });
   });
 
