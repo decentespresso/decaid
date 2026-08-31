@@ -871,6 +871,17 @@ components:
             /api/v1/devices/forget endpoint. Availability does not imply command
             ownership; controller-owned devices may be inventory-only.
           example: true
+        deviceInfo:
+          $ref: '#/components/schemas/DeviceInformation'
+
+    DeviceInformation:
+      type: object
+      description: Optional metadata reported for the current device connection.
+      properties:
+        firmwareVersion:
+          type: string
+          description: Opaque firmware revision reported by the connected device.
+          example: R029
 
     DeviceConnectResult:
       type: object
@@ -973,4 +984,3 @@ components:
           minimum: 0
           maximum: 100
           description: Brightness value (required when command is setBrightness).
-
