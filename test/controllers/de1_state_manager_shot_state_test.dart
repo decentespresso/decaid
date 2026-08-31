@@ -331,8 +331,9 @@ void main() {
     () async {
       await settingsController.setScaleButtonStartsEspresso(true);
       for (final state in MachineState.values) {
-        if (state == MachineState.idle || state == MachineState.espresso)
+        if (state == MachineState.idle || state == MachineState.espresso) {
           continue;
+        }
         testDe1.emitStateAndSubstate(state, MachineSubstate.idle);
         await pump();
         buttonScale.press(ScaleButton.square);
