@@ -21,6 +21,25 @@ abstract class Device {
   Stream<ConnectionState> get connectionState;
 }
 
+class DeviceInformation {
+  final String? firmwareVersion;
+  final int? batteryLevel;
+
+  const DeviceInformation({this.firmwareVersion, this.batteryLevel});
+
+  bool get isEmpty => firmwareVersion == null && batteryLevel == null;
+
+  Map<String, dynamic> toJson() => {
+    if (firmwareVersion != null) 'firmwareVersion': firmwareVersion,
+    if (batteryLevel != null) 'batteryLevel': batteryLevel,
+  };
+}
+
+abstract interface class DeviceInformationCapable {
+  DeviceInformation? get currentDeviceInformation;
+  Stream<DeviceInformation?> get deviceInformation;
+}
+
 enum ConnectionState {
   discovered,
   connecting,
