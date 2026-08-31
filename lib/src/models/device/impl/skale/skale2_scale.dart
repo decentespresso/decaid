@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -14,7 +15,7 @@ import 'package:reaprime/src/models/device/device.dart';
 
 import '../../scale.dart';
 
-class Skale2Scale implements Scale {
+class Skale2Scale implements Scale, DeviceInformationCapable {
   static final BleServiceIdentifier serviceIdentifier =
       BleServiceIdentifier.short('ff08');
   static final BleServiceIdentifier weightCharacteristic =
@@ -28,6 +29,10 @@ class Skale2Scale implements Scale {
   );
   static final BleServiceIdentifier batteryCharacteristic =
       BleServiceIdentifier.short('2a19');
+  static final BleServiceIdentifier deviceInformationService =
+      BleServiceIdentifier.short('180a');
+  static final BleServiceIdentifier firmwareRevisionCharacteristic =
+      BleServiceIdentifier.short('2a26');
 
   final String _deviceId;
 
@@ -43,6 +48,14 @@ class Skale2Scale implements Scale {
   bool _weightSubscribed = false;
 
   bool _buttonSubscribed = false;
+
+  int _connectionGeneration = 0;
+  StreamSubscription<ConnectionState>? _transportDisconnectSubscription;
+  String? _firmwareVersion;
+  bool _deviceInformationActive = false;
+
+  final BehaviorSubject<DeviceInformation?> _deviceInformationController =
+      BehaviorSubject<DeviceInformation?>.seeded(null);
 
   static const _initStepDelay = Duration(milliseconds: 1000);
 
@@ -70,7 +83,7 @@ class Skale2Scale implements Scale {
   @override
   String get name => "Skale2";
 
-  final StreamController<ConnectionState> _connectionStateController =
+  final BehaviorSubject<ConnectionState> _connectionStateController =
       BehaviorSubject.seeded(ConnectionState.discovered);
 
   @override
@@ -78,24 +91,40 @@ class Skale2Scale implements Scale {
       _connectionStateController.stream;
 
   @override
+  DeviceInformation? get currentDeviceInformation =>
+      _deviceInformationController.value;
+
+  @override
+  Stream<DeviceInformation?> get deviceInformation =>
+      _deviceInformationController.stream;
+
+  @override
   Future<void> onConnect() async {
-    if (await _transport.connectionState.first == ConnectionState.connected) {
+    final transportState = await _transport.connectionState.first;
+    if (transportState == ConnectionState.connected &&
+        _connectionStateController.value == ConnectionState.connected) {
       return;
     }
+
+    final generation = ++_connectionGeneration;
+    _clearDeviceInformation();
     _connectionStateController.add(ConnectionState.connecting);
 
-    StreamSubscription<ConnectionState>? disconnectSub;
-
     try {
-      await _transport.connect();
+      if (transportState != ConnectionState.connected) {
+        await _transport.connect();
+      }
 
-      disconnectSub = _transport.connectionState
+      await _transportDisconnectSubscription?.cancel();
+      _transportDisconnectSubscription = _transport.connectionState
           .where((state) => state == ConnectionState.disconnected)
           .listen((_) {
+            if (generation != _connectionGeneration) return;
+            _connectionGeneration++;
             _connectionStateController.add(ConnectionState.disconnected);
             _weightSubscribed = false;
             _buttonSubscribed = false;
-            disconnectSub?.cancel();
+            _clearDeviceInformation();
           });
 
       final services = await _transport.discoverServices();
@@ -105,11 +134,19 @@ class Skale2Scale implements Scale {
           'Discovered services: $services',
         );
       }
-      await _initScale();
+
+      _deviceInformationActive = true;
+      await _initScale(services, generation);
+      if (!await _isConnectionActive(generation)) return;
       _connectionStateController.add(ConnectionState.connected);
-    } catch (e) {
+    } catch (e, st) {
+      if (generation != _connectionGeneration) return;
       _log.warning('Connect failed: $e');
-      disconnectSub?.cancel();
+      _log.fine('Skale connection failure details', e, st);
+      _connectionGeneration++;
+      await _transportDisconnectSubscription?.cancel();
+      _transportDisconnectSubscription = null;
+      _clearDeviceInformation();
       _connectionStateController.add(ConnectionState.disconnected);
       try {
         await _transport.disconnect();
@@ -118,28 +155,46 @@ class Skale2Scale implements Scale {
   }
 
   @override
-  disconnect() async {
-    await _transport.disconnect();
+  Future<void> disconnect() async {
+    _connectionGeneration++;
+    _clearDeviceInformation();
+    try {
+      await _transport.disconnect();
+    } finally {
+      await _transportDisconnectSubscription?.cancel();
+      _transportDisconnectSubscription = null;
+      _weightSubscribed = false;
+      _buttonSubscribed = false;
+      _connectionStateController.add(ConnectionState.disconnected);
+    }
   }
 
   @override
   DeviceType get type => DeviceType.scale;
 
-  Future<void> _initScale() async {
+  Future<void> _initScale(List<String> services, int generation) async {
     await _sendDisplayOn();
     await _sendDisplayWeight();
 
     await Future.delayed(_initStepDelayOverride);
+    if (!await _isConnectionActive(generation)) return;
     await _subscribeWeight();
 
     await Future.delayed(_initStepDelayOverride);
+    if (!await _isConnectionActive(generation)) return;
     await _subscribeButton();
+
+    if (deviceInformationService.matchesAny(services)) {
+      await _readFirmwareVersion(generation);
+    }
+    if (!await _isConnectionActive(generation)) return;
 
     try {
       final batteryData = await _transport.read(
         batteryService.long,
         batteryCharacteristic.long,
       );
+      if (!await _isConnectionActive(generation)) return;
       if (batteryData.isNotEmpty) {
         _batteryLevel = batteryData[0];
       }
@@ -149,6 +204,50 @@ class Skale2Scale implements Scale {
     await _sendDisplayOn();
     await _sendDisplayWeight();
     await _safeWrite(Uint8List.fromList([0x03]));
+  }
+
+  Future<void> _readFirmwareVersion(int generation) async {
+    try {
+      final data = await _transport.read(
+        deviceInformationService.long,
+        firmwareRevisionCharacteristic.long,
+      );
+      if (!await _isConnectionActive(generation) || data.isEmpty) return;
+
+      var contentLength = data.length;
+      while (contentLength > 0 && data[contentLength - 1] == 0) {
+        contentLength--;
+      }
+      final value = utf8.decode(data.sublist(0, contentLength)).trim();
+      if (value.isEmpty ||
+          value.runes.any((rune) => rune < 0x20 || rune == 0x7F)) {
+        return;
+      }
+
+      _firmwareVersion = value;
+      _publishDeviceInformation();
+    } on FormatException catch (e) {
+      _log.fine('Ignoring malformed Skale firmware revision: $e');
+    } catch (e) {
+      _log.fine('Skale firmware revision unavailable: $e');
+    }
+  }
+
+  Future<bool> _isConnectionActive(int generation) async {
+    if (generation != _connectionGeneration) return false;
+    return await _transport.connectionState.first == ConnectionState.connected;
+  }
+
+  void _publishDeviceInformation() {
+    if (!_deviceInformationActive) return;
+    final information = DeviceInformation(firmwareVersion: _firmwareVersion);
+    _deviceInformationController.add(information.isEmpty ? null : information);
+  }
+
+  void _clearDeviceInformation() {
+    _firmwareVersion = null;
+    _deviceInformationActive = false;
+    _deviceInformationController.add(null);
   }
 
   Future<void> _subscribeWeight() async {
