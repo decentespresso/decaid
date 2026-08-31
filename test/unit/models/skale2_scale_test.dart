@@ -23,11 +23,14 @@ class _RecordableBleTransport extends BLETransport {
   final Map<String, void Function(Uint8List)> _notifyCallbacks = {};
 
   Uint8List firmwareValue = Uint8List.fromList('R029'.codeUnits);
-  Uint8List batteryValue = Uint8List.fromList([82]);
   Object? firmwareError;
   Completer<Uint8List>? firmwareReadCompleter;
   int firmwareReadCount = 0;
   ConnectionState? connectionStateOverride;
+  Uint8List batteryValue = Uint8List.fromList([80]);
+  Object? batteryError;
+  Completer<Uint8List>? batteryReadCompleter;
+  int batteryReadCount = 0;
 
   _RecordableBleTransport();
 
@@ -88,7 +91,12 @@ class _RecordableBleTransport extends BLETransport {
       }
       return firmwareValue;
     }
-    if (shortUuid == '2a19') return batteryValue;
+    if (shortUuid == '2a19') {
+      batteryReadCount++;
+      if (batteryError != null) throw batteryError!;
+      if (batteryReadCompleter != null) return batteryReadCompleter!.future;
+      return batteryValue;
+    }
     return Uint8List(0);
   }
 
@@ -414,7 +422,6 @@ void main() {
       );
 
       expect(snapshot.weight, closeTo(100.0, 0.1));
-      expect(snapshot.batteryLevel, 82);
 
       await sub.cancel();
     });
@@ -554,6 +561,10 @@ void main() {
 
     setUp(() async {
       transport = _RecordableBleTransport();
+      transport.serviceUUIDs = const [
+        '0000ff08-0000-1000-8000-00805f9b34fb',
+        '0000180a-0000-1000-8000-00805f9b34fb',
+      ];
       scale = Skale2Scale(transport: transport, initStepDelay: Duration.zero);
       await transport.emitConnectionState(ConnectionState.discovered);
     });
@@ -686,5 +697,133 @@ void main() {
       expect(scale.currentDeviceInformation?.firmwareVersion, 'R030');
       expect(await scale.connectionState.first, ConnectionState.connected);
     });
+  });
+
+  group('Skale2Scale battery information', () {
+    late _RecordableBleTransport transport;
+    late Skale2Scale scale;
+
+    setUp(() async {
+      transport = _RecordableBleTransport();
+      transport.serviceUUIDs = const [
+        '0000ff08-0000-1000-8000-00805f9b34fb',
+        '0000180f-0000-1000-8000-00805f9b34fb',
+      ];
+      scale = Skale2Scale(
+        transport: transport,
+        initStepDelay: Duration.zero,
+        batteryRefreshInterval: const Duration(milliseconds: 10),
+      );
+      await transport.emitConnectionState(ConnectionState.discovered);
+    });
+
+    tearDown(() async {
+      await scale.disconnect();
+      await transport.dispose();
+    });
+
+    test('publishes valid zero and full battery values', () async {
+      for (final value in [0, 100]) {
+        transport.batteryValue = Uint8List.fromList([value]);
+        await scale.onConnect();
+        expect(scale.currentDeviceInformation?.batteryLevel, value);
+        await scale.disconnect();
+        await transport.emitConnectionState(ConnectionState.discovered);
+      }
+    });
+
+    test('invalid and failed reads publish no battery percentage', () async {
+      for (final value in [
+        Uint8List(0),
+        Uint8List.fromList([101]),
+        Uint8List.fromList([1, 2]),
+      ]) {
+        transport.batteryValue = value;
+        await scale.onConnect();
+        expect(scale.currentDeviceInformation, isNull);
+        await scale.disconnect();
+        await transport.emitConnectionState(ConnectionState.discovered);
+      }
+
+      transport.batteryError = StateError('unsupported');
+      await scale.onConnect();
+      expect(scale.currentDeviceInformation, isNull);
+    });
+
+    test('a later invalid refresh clears the previous percentage', () async {
+      transport.batteryValue = Uint8List.fromList([82]);
+      await scale.onConnect();
+      expect(scale.currentDeviceInformation?.batteryLevel, 82);
+
+      transport.batteryValue = Uint8List.fromList([101]);
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(scale.currentDeviceInformation?.batteryLevel, isNull);
+      expect(transport.batteryReadCount, greaterThanOrEqualTo(2));
+    });
+
+    test('refresh reads do not overlap', () async {
+      await scale.onConnect();
+      final read = Completer<Uint8List>();
+      transport.batteryReadCompleter = read;
+      await Future<void>.delayed(const Duration(milliseconds: 35));
+      expect(transport.batteryReadCount, 2);
+      read.complete(Uint8List.fromList([80]));
+      await Future<void>.delayed(Duration.zero);
+    });
+
+    test('does not poll when the Battery Service is absent', () async {
+      transport.serviceUUIDs = const ['0000ff08-0000-1000-8000-00805f9b34fb'];
+      await scale.onConnect();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(transport.batteryReadCount, 0);
+      expect(scale.currentDeviceInformation, isNull);
+    });
+
+    test('stops refresh polling after disconnect', () async {
+      await scale.onConnect();
+      expect(transport.batteryReadCount, 1);
+      await scale.disconnect();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(transport.batteryReadCount, 1);
+    });
+
+    test(
+      'a reconnect can read while the previous generation is pending',
+      () async {
+        final firstRead = Completer<Uint8List>();
+        transport.batteryReadCompleter = firstRead;
+        final firstConnect = scale.onConnect();
+        while (transport.batteryReadCount == 0) {
+          await Future<void>.delayed(Duration.zero);
+        }
+
+        await scale.disconnect();
+        transport.batteryReadCompleter = null;
+        transport.batteryValue = Uint8List.fromList([82]);
+        await scale.onConnect();
+        expect(scale.currentDeviceInformation?.batteryLevel, 82);
+
+        firstRead.complete(Uint8List.fromList([12]));
+        await firstConnect;
+        await Future<void>.delayed(Duration.zero);
+        expect(scale.currentDeviceInformation?.batteryLevel, 82);
+      },
+    );
+
+    test(
+      'disconnect prevents a stale in-flight read from repopulating',
+      () async {
+        final read = Completer<Uint8List>();
+        transport.batteryReadCompleter = read;
+        final connecting = scale.onConnect();
+        while (transport.batteryReadCount == 0) {
+          await Future<void>.delayed(Duration.zero);
+        }
+        await scale.disconnect();
+        read.complete(Uint8List.fromList([82]));
+        await connecting;
+        expect(scale.currentDeviceInformation, isNull);
+      },
+    );
   });
 }

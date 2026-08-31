@@ -882,6 +882,13 @@ components:
           type: string
           description: Opaque firmware revision reported by the connected device.
           example: R029
+        batteryLevel:
+          type: integer
+          minimum: 0
+          maximum: 100
+          nullable: true
+          description: Device-reported battery percentage, when available.
+          example: 82
 
     DeviceConnectResult:
       type: object
