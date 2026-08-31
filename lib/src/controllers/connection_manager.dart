@@ -513,21 +513,26 @@ class ConnectionManager {
         activeTargetTransport: () => machine.transportType,
       ),
     );
-    de1Controller.adoptDevice(machine);
-    await de1Controller.de1.firstWhere(
-      (connected) => connected == machine,
-      orElse: () => machine,
-    );
-    await settingsController.setPreferredMachineId(machine.deviceId);
-    _log.info('Attach probe: machine adopted (${machine.deviceId})');
-    if (machine is BengleInterface) {
-      await _attachBengleVirtualScale(machine);
-    } else if (!_scaleConnected) {
-      if (settingsController.preferredScaleId != null) {
-        _ensureScaleReacquisition();
-      } else {
-        _armPostQuickConnectScaleScan();
+    _isConnectingMachine = true;
+    try {
+      de1Controller.adoptDevice(machine);
+      await de1Controller.de1.firstWhere(
+        (connected) => connected == machine,
+        orElse: () => machine,
+      );
+      await settingsController.setPreferredMachineId(machine.deviceId);
+      _log.info('Attach probe: machine adopted (${machine.deviceId})');
+      if (machine is BengleInterface) {
+        await _attachBengleVirtualScale(machine);
+      } else if (!_scaleConnected) {
+        if (settingsController.preferredScaleId != null) {
+          _ensureScaleReacquisition();
+        } else {
+          _armPostQuickConnectScaleScan();
+        }
       }
+    } finally {
+      _isConnectingMachine = false;
     }
     _publishStatus(currentStatus.copyWith(phase: ConnectionPhase.ready));
   }
@@ -958,6 +963,10 @@ class ConnectionManager {
       final device = await deviceScanner.tryQuickConnect(remembered);
       if (device is De1Interface) {
         de1Controller.adoptDevice(device);
+        await de1Controller.de1.firstWhere(
+          (connected) => connected == device,
+          orElse: () => device,
+        );
         _log.info('Quick-connect: machine adopted (${device.deviceId})');
         return device;
       }
@@ -999,7 +1008,13 @@ class ConnectionManager {
       _publishStatus(
         currentStatus.copyWith(phase: ConnectionPhase.connectingMachine),
       );
-      final qcMachine = await _tryQuickConnectMachine();
+      final De1Interface? qcMachine;
+      _isConnectingMachine = true;
+      try {
+        qcMachine = await _tryQuickConnectMachine();
+      } finally {
+        _isConnectingMachine = false;
+      }
       if (qcMachine != null) {
         if (await _releaseSupersededAutomaticMachine()) return;
         _log.info('Quick-connect: machine connected, proceeding to ready');
