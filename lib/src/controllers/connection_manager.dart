@@ -436,6 +436,10 @@ class ConnectionManager {
     _isConnecting = true;
     _attachProbeInFlight = true;
     var adopted = false;
+    // Preserve the interrupted picker so a probe that does not adopt a
+    // machine can restore it instead of dropping the user into the generic
+    // results view.
+    final interruptedAmbiguity = currentStatus.pendingAmbiguity;
     try {
       final probe = _attachProbe;
       if (probe == null) return false;
@@ -472,7 +476,8 @@ class ConnectionManager {
           } catch (e, st) {
             // A failed adoption (e.g. preference persistence) must not
             // leave the latch set forever; fall back like an unavailable
-            // probe so the lifecycle completes.
+            // probe so the lifecycle completes and recovery/replay
+            // scheduling stays ungated.
             _log.warning('Adopting the attached machine failed', e, st);
             return false;
           }
@@ -523,7 +528,19 @@ class ConnectionManager {
       // replaced it.
       if (!adopted &&
           currentStatus.phase == ConnectionPhase.connectingMachine) {
-        _publishStatus(currentStatus.copyWith(phase: ConnectionPhase.idle));
+        if (_machineConnected) {
+          // The machine connected even though a later adoption step (e.g.
+          // preference persistence) failed; surface the connected state
+          // rather than dropping it, so onboarding/discovery advances.
+          _publishStatus(currentStatus.copyWith(phase: ConnectionPhase.ready));
+        } else {
+          _publishStatus(
+            currentStatus.copyWith(
+              phase: ConnectionPhase.idle,
+              pendingAmbiguity: () => interruptedAmbiguity,
+            ),
+          );
+        }
       }
     }
   }

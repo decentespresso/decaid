@@ -654,6 +654,60 @@ void main() {
       expect(manager.currentStatus.phase, ConnectionPhase.ready);
     });
 
+    test('unsupported probe restores an interrupted machine picker', () async {
+      probeScanner.addDevice(_FakeDe1(deviceId: 'de1-a'));
+      probeScanner.addDevice(_FakeDe1(deviceId: 'de1-b'));
+      probeScanner.probeResult = const AttachProbeUnsupported();
+
+      await manager.connect();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        manager.currentStatus.pendingAmbiguity,
+        AmbiguityReason.machinePicker,
+      );
+
+      probeScanner.attach();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(probeScanner.probeCallCount, 1);
+      expect(manager.currentStatus.phase, ConnectionPhase.idle);
+      expect(
+        manager.currentStatus.pendingAmbiguity,
+        AmbiguityReason.machinePicker,
+      );
+    });
+
+    test('adoption failure after the machine connected settles to ready, '
+        'not idle', () async {
+      probeScanner.probeResult = AttachProbeConnected(
+        _FakeDe1(deviceId: 'usb-machine-id'),
+      );
+      settingsService.failSetPreferredMachineId = true;
+
+      final phases = <ConnectionPhase>[];
+      var seenConnecting = false;
+      final sub = manager.status.listen((s) {
+        if (s.phase == ConnectionPhase.connectingMachine) {
+          seenConnecting = true;
+        }
+        if (seenConnecting) phases.add(s.phase);
+      });
+
+      await attachAndSettle();
+      // The failed adoption falls back to the preferred-machine attempt
+      // (see 'an adoption failure still completes the latch lifecycle');
+      // neither that nor the probe's own cleanup may drop a genuinely
+      // connected machine back to idle.
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+
+      expect(probeScanner.probeCallCount, 1);
+      expect(phases, isNot(contains(ConnectionPhase.idle)));
+      expect(manager.currentStatus.phase, ConnectionPhase.ready);
+      expect(manager.currentStatus.pendingAmbiguity, isNull);
+    });
+
     test('unavailable probe falls back to preferred-machine policy', () async {
       await settings.setPreferredMachineId('ble-machine-id');
       probeScanner.probeResult = const AttachProbeUnavailable();
