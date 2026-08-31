@@ -773,6 +773,20 @@ of vanishing. Cross-transport (BLE/USB/WiFi) by construction.
   path). Moving a USB device to a different physical port yields a new id (new
   remembered entry); Forget removes the stale one.
 
+### Connected-session device information
+
+Devices may implement the optional `DeviceInformationCapable` interface for
+connected-session metadata. The devices REST and WebSocket inventories follow
+that stream and include a nested `deviceInfo` object when data is available.
+The Devices page follows the same stream and replaces subscriptions when a
+same-ID device instance is rebuilt during reconnect.
+
+Skale reads the standard Device Information Firmware Revision String
+(`0x180A` / `0x2A26`) as best-effort metadata after service discovery. Missing,
+empty, malformed, late, or failed reads do not fail the scale connection. The
+opaque revision is cleared on disconnect and is display-only; Decaid does not
+download or install Skale firmware.
+
 ### Bengle integrated scale
 
 When a Bengle is the connected machine, its integrated scale is auto-attached

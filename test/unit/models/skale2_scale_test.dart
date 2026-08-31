@@ -9,8 +9,10 @@ import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:rxdart/rxdart.dart';
 
 class _RecordableBleTransport extends BLETransport {
-  final List<String> serviceUUIDs = const [
+  List<String> serviceUUIDs = const [
     '0000ff08-0000-1000-8000-00805f9b34fb',
+    '0000180a-0000-1000-8000-00805f9b34fb',
+    '0000180f-0000-1000-8000-00805f9b34fb',
   ];
 
   final List<String> operations = [];
@@ -19,6 +21,13 @@ class _RecordableBleTransport extends BLETransport {
       BehaviorSubject.seeded(ConnectionState.disconnected);
 
   final Map<String, void Function(Uint8List)> _notifyCallbacks = {};
+
+  Uint8List firmwareValue = Uint8List.fromList('R029'.codeUnits);
+  Uint8List batteryValue = Uint8List.fromList([82]);
+  Object? firmwareError;
+  Completer<Uint8List>? firmwareReadCompleter;
+  int firmwareReadCount = 0;
+  ConnectionState? connectionStateOverride;
 
   _RecordableBleTransport();
 
@@ -29,7 +38,8 @@ class _RecordableBleTransport extends BLETransport {
   String get name => 'Test Skale2';
 
   @override
-  Stream<ConnectionState> get connectionState => _connectionState.stream;
+  Stream<ConnectionState> get connectionState =>
+      _connectionState.stream.map((state) => connectionStateOverride ?? state);
 
   Future<void> emitConnectionState(ConnectionState state) async {
     _connectionState.add(state);
@@ -70,9 +80,15 @@ class _RecordableBleTransport extends BLETransport {
   }) async {
     final shortUuid = characteristicUUID.substring(4, 8).toLowerCase();
     operations.add('read:$shortUuid');
-    if (shortUuid == '2a19') {
-      return Uint8List.fromList([80]);
+    if (shortUuid == '2a26') {
+      firmwareReadCount++;
+      if (firmwareError != null) throw firmwareError!;
+      if (firmwareReadCompleter != null) {
+        return firmwareReadCompleter!.future;
+      }
+      return firmwareValue;
     }
+    if (shortUuid == '2a19') return batteryValue;
     return Uint8List(0);
   }
 
@@ -398,6 +414,7 @@ void main() {
       );
 
       expect(snapshot.weight, closeTo(100.0, 0.1));
+      expect(snapshot.batteryLevel, 82);
 
       await sub.cancel();
     });
@@ -528,6 +545,146 @@ void main() {
       expect(emissions, 0);
 
       await sub.cancel();
+    });
+  });
+
+  group('Skale2Scale firmware information', () {
+    late _RecordableBleTransport transport;
+    late Skale2Scale scale;
+
+    setUp(() async {
+      transport = _RecordableBleTransport();
+      scale = Skale2Scale(transport: transport, initStepDelay: Duration.zero);
+      await transport.emitConnectionState(ConnectionState.discovered);
+    });
+
+    test('publishes the connected Skale firmware revision', () async {
+      transport.firmwareValue = Uint8List.fromList(' R029\u0000'.codeUnits);
+
+      await scale.onConnect();
+
+      expect(scale.currentDeviceInformation?.firmwareVersion, 'R029');
+      expect(transport.firmwareReadCount, 1);
+    });
+
+    test(
+      'initializes metadata when the transport is already connected',
+      () async {
+        await transport.emitConnectionState(ConnectionState.connected);
+
+        await scale.onConnect();
+
+        expect(scale.currentDeviceInformation?.firmwareVersion, 'R029');
+        expect(transport.isSubscribed('ef81'), isTrue);
+        expect(await scale.connectionState.first, ConnectionState.connected);
+      },
+    );
+
+    test('skips firmware read when Device Information is absent', () async {
+      transport.serviceUUIDs = const ['0000ff08-0000-1000-8000-00805f9b34fb'];
+
+      await scale.onConnect();
+
+      expect(transport.firmwareReadCount, 0);
+      expect(scale.currentDeviceInformation, isNull);
+      expect(await scale.connectionState.first, ConnectionState.connected);
+    });
+
+    test('ignores empty and malformed firmware values', () async {
+      for (final value in [
+        Uint8List(0),
+        Uint8List.fromList([0xFF]),
+        Uint8List.fromList('R0\u000029'.codeUnits),
+      ]) {
+        transport.firmwareValue = value;
+        await scale.onConnect();
+
+        expect(scale.currentDeviceInformation, isNull);
+
+        await scale.disconnect();
+        await transport.emitConnectionState(ConnectionState.discovered);
+      }
+    });
+
+    test('firmware read failure does not fail connection', () async {
+      transport.firmwareError = StateError('unsupported');
+
+      await scale.onConnect();
+
+      expect(scale.currentDeviceInformation, isNull);
+      expect(await scale.connectionState.first, ConnectionState.connected);
+    });
+
+    test('disconnect clears connected-session firmware', () async {
+      await scale.onConnect();
+      expect(scale.currentDeviceInformation?.firmwareVersion, 'R029');
+
+      await scale.disconnect();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(scale.currentDeviceInformation, isNull);
+      expect(await scale.connectionState.first, ConnectionState.disconnected);
+    });
+
+    test(
+      'disconnect during firmware read cannot restore stale metadata',
+      () async {
+        final firmwareRead = Completer<Uint8List>();
+        transport.firmwareReadCompleter = firmwareRead;
+
+        final connecting = scale.onConnect();
+        while (transport.firmwareReadCount == 0) {
+          await Future<void>.delayed(Duration.zero);
+        }
+
+        await transport.emitConnectionState(ConnectionState.disconnected);
+        firmwareRead.complete(Uint8List.fromList('R029'.codeUnits));
+        await connecting;
+
+        expect(scale.currentDeviceInformation, isNull);
+        expect(await scale.connectionState.first, ConnectionState.disconnected);
+      },
+    );
+
+    test(
+      'does not publish after transport disconnects before its event arrives',
+      () async {
+        final firmwareRead = Completer<Uint8List>();
+        transport.firmwareReadCompleter = firmwareRead;
+
+        final connecting = scale.onConnect();
+        while (transport.firmwareReadCount == 0) {
+          await Future<void>.delayed(Duration.zero);
+        }
+
+        transport.connectionStateOverride = ConnectionState.disconnected;
+        firmwareRead.complete(Uint8List.fromList('R029'.codeUnits));
+        await connecting;
+
+        expect(scale.currentDeviceInformation, isNull);
+      },
+    );
+
+    test('late firmware read cannot overwrite a reconnected session', () async {
+      final firstRead = Completer<Uint8List>();
+      transport.firmwareReadCompleter = firstRead;
+
+      final firstConnection = scale.onConnect();
+      while (transport.firmwareReadCount == 0) {
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      await transport.emitConnectionState(ConnectionState.disconnected);
+      transport.firmwareReadCompleter = null;
+      transport.firmwareValue = Uint8List.fromList('R030'.codeUnits);
+      await transport.emitConnectionState(ConnectionState.discovered);
+      await scale.onConnect();
+
+      firstRead.complete(Uint8List.fromList('R029'.codeUnits));
+      await firstConnection;
+
+      expect(scale.currentDeviceInformation?.firmwareVersion, 'R030');
+      expect(await scale.connectionState.first, ConnectionState.connected);
     });
   });
 }
