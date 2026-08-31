@@ -6,6 +6,32 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Decaid</title>
         <item>
+            <title>0.8.4</title>
+            <pubDate>Mon, 31 Aug 2026 18:48:28 +0000</pubDate>
+            <sparkle:version>2600</sparkle:version>
+            <sparkle:shortVersionString>0.8.4</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* fix(profiles): give A-Flow Pause a 15s timeout after 2nd Fill (#580) by @tadelv in https://github.com/decentespresso/decaid/pull/720
+* fix(skale2): parse Atomax EF81 5-byte weight notifications by @tadelv in https://github.com/decentespresso/decaid/pull/722
+* feat(account): add opt-in app log uploads by @ODevStudio in https://github.com/decentespresso/decaid/pull/710
+* feat(plugins): show Decent account status by @ODevStudio in https://github.com/decentespresso/decaid/pull/709
+* fix: disconnect BLE devices on terminal lifecycle events by @ODevStudio in https://github.com/decentespresso/decaid/pull/711
+* fix(attach): USB machine intent wins over preferred BLE during automatic connection (#659) by @tadelv in https://github.com/decentespresso/decaid/pull/723
+* feat(identity): resolve legacy DE1 serial/model from linked account by @tadelv in https://github.com/decentespresso/decaid/pull/726
+* feat(feedback): link native feedback to Decent support by @ODevStudio in https://github.com/decentespresso/decaid/pull/732
+* fix: keep onboarding and SkinView usable offline by @ODevStudio in https://github.com/decentespresso/decaid/pull/733
+* fix(connection): early-connect simulated scale in demo mode by @tadelv in https://github.com/decentespresso/decaid/pull/735
+* fix: publish connectingMachine during USB attach probe (#738) by @tadelv in https://github.com/decentespresso/decaid/pull/740
+* fix(connection): stop adoptDevice() emitting an interim null on re-adopt by @allofmeng in https://github.com/decentespresso/decaid/pull/746
+
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.8.3...v0.8.4
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.8.4/decaid-macos-0.8.4.zip" length="71277646" type="application/octet-stream" sparkle:edSignature="4mYPuC8zXBpTLxEIpMBBLXRpASKRtvxFWmCkRjLdcW/BgbDlsXWniT39SXqYmVJkhchT538ta8Qi/BeGe1wJDg=="/>
+        </item>
+        <item>
             <title>0.8.3</title>
             <pubDate>Fri, 28 Aug 2026 08:41:15 +0000</pubDate>
             <sparkle:version>2506</sparkle:version>
@@ -274,6 +300,6 @@ See `doc/RELEASE.md` for install and verification instructions.
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: Upv96VUCaeRSYIkZr1+tGkCjRIgfwhMMJxpigkW+dgZFPSX2m6PkUxuYQxyBnr2G4yzDw+VP8QXhPYp+h/f4AA==
-length: 23771
+edSignature: LrSJ+p39kqk0pI8ufVp0KbIBsKdLD5uJoKDu15m+RF7b2rXufxvJoEmUVb0Y2jJeh7EgbQDKdr9iBzrBSZGzCg==
+length: 26110
 -->
