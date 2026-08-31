@@ -118,28 +118,31 @@ void main() {
     controller.dispose();
   });
 
-  test('does not forward non-capable buttons and resubscribes after reconnect', () async {
-    final controller = ScaleController();
-    final plain = _TrackingScale('plain');
-    final capable = _ButtonScale('capable');
-    final buttons = <ScaleButton>[];
-    final subscription = controller.buttonPresses.listen(buttons.add);
+  test(
+    'does not forward non-capable buttons and resubscribes after reconnect',
+    () async {
+      final controller = ScaleController();
+      final plain = _TrackingScale('plain');
+      final capable = _ButtonScale('capable');
+      final buttons = <ScaleButton>[];
+      final subscription = controller.buttonPresses.listen(buttons.add);
 
-    await controller.connectToScale(plain);
-    await controller.connectToScale(capable);
-    capable.press(ScaleButton.circle);
-    await Future<void>.delayed(Duration.zero);
-    await capable.disconnect();
-    capable.press(ScaleButton.square);
-    await Future<void>.delayed(Duration.zero);
-    await controller.connectToScale(capable);
-    capable.press(ScaleButton.square);
-    await Future<void>.delayed(Duration.zero);
+      await controller.connectToScale(plain);
+      await controller.connectToScale(capable);
+      capable.press(ScaleButton.circle);
+      await Future<void>.delayed(Duration.zero);
+      await capable.disconnect();
+      capable.press(ScaleButton.square);
+      await Future<void>.delayed(Duration.zero);
+      await controller.connectToScale(capable);
+      capable.press(ScaleButton.square);
+      await Future<void>.delayed(Duration.zero);
 
-    expect(buttons, [ScaleButton.circle, ScaleButton.square]);
-    await subscription.cancel();
-    controller.dispose();
-  });
+      expect(buttons, [ScaleButton.circle, ScaleButton.square]);
+      await subscription.cancel();
+      controller.dispose();
+    },
+  );
 
   test(
     'device-provided flow feeds display while control stays estimator-derived',

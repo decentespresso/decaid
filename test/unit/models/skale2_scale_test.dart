@@ -541,7 +541,11 @@ void main() {
       transport.simulateButtonNotification([99]);
       await Future<void>.delayed(Duration.zero);
 
-      expect(buttons, [ScaleButton.circle, ScaleButton.square, ScaleButton.circle]);
+      expect(buttons, [
+        ScaleButton.circle,
+        ScaleButton.square,
+        ScaleButton.circle,
+      ]);
       await sub.cancel();
     });
   });

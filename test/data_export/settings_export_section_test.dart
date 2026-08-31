@@ -175,6 +175,21 @@ void main() {
       expect(result.errors[1], contains('Invalid scalePowerMode'));
     });
 
+    test('rejects a non-boolean scale button setting', () async {
+      final result = await importSectionJson(
+        section,
+        '{"settings":{"scaleButtonStartsEspresso":"yes"}}',
+        ConflictStrategy.overwrite,
+      );
+
+      expect(controller.scaleButtonStartsEspresso, isFalse);
+      expect(result.errors, hasLength(1));
+      expect(
+        result.errors.single,
+        contains('Invalid scaleButtonStartsEspresso'),
+      );
+    });
+
     test('counts settings imported before a later field fails', () async {
       final result = await importSectionJson(
         section,

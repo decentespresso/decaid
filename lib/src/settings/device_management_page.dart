@@ -91,19 +91,22 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                   ),
                   ShadCard(
                     padding: const EdgeInsets.all(16),
-                    child: SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Scale button starts espresso'),
-                      subtitle: const Text(
-                        'Allow the Skale square button to start or stop espresso. The circle button always tares.',
+                    child: Material(
+                      color: Colors.transparent,
+                      child: SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Scale button starts espresso'),
+                        subtitle: const Text(
+                          'Allow the Skale square button to start or stop espresso. The circle button always tares.',
+                        ),
+                        value:
+                            widget.settingsController.scaleButtonStartsEspresso,
+                        onChanged: (value) async {
+                          await widget.settingsController
+                              .setScaleButtonStartsEspresso(value);
+                          if (mounted) _showSavedSnackbar();
+                        },
                       ),
-                      value:
-                          widget.settingsController.scaleButtonStartsEspresso,
-                      onChanged: (value) async {
-                        await widget.settingsController
-                            .setScaleButtonStartsEspresso(value);
-                        if (mounted) _showSavedSnackbar();
-                      },
                     ),
                   ),
                 ],
@@ -135,9 +138,9 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
               Expanded(
                 child: Text(
                   title,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ],

@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
@@ -124,7 +124,11 @@ void main() {
       final get = await app.call(
         Request('GET', Uri.parse('http://localhost/api/v1/settings')),
       );
-      expect((jsonDecode(await get.readAsString()) as Map)['scaleButtonStartsEspresso'], isFalse);
+      expect(
+        (jsonDecode(await get.readAsString())
+            as Map)['scaleButtonStartsEspresso'],
+        isFalse,
+      );
 
       final post = await app.call(
         Request(

@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/settings/device_management_page.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
+import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../helpers/mock_device_discovery_service.dart';
 import '../helpers/mock_settings_service.dart';
@@ -18,10 +19,13 @@ void main() {
     await devices.initialize();
 
     await tester.pumpWidget(
-      MaterialApp(
-        home: DeviceManagementPage(
-          settingsController: settings,
-          deviceController: devices,
+      ShadApp(
+        builder: (_, child) => ScaffoldMessenger(child: child!),
+        home: Scaffold(
+          body: DeviceManagementPage(
+            settingsController: settings,
+            deviceController: devices,
+          ),
         ),
       ),
     );

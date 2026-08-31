@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:flutter/widgets.dart';
+import 'package:flutter/widgets.dart' hide ConnectionState;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
@@ -52,6 +52,9 @@ class _TestDe1Controller extends De1Controller {
     return de1;
   }
 
+  @override
+  De1Interface? get connectedDe1OrNull => current;
+
   void connect(De1Interface de1) {
     current = de1;
     de1Subject.add(de1);
@@ -100,6 +103,7 @@ class _ButtonScale implements Scale, ScaleButtonCapable {
     final pending = tareCompleter;
     if (pending != null) await pending.future;
   }
+
   @override
   Future<void> sleepDisplay() async {}
   @override
@@ -266,46 +270,55 @@ void main() {
     await pump();
   }
 
-  test('circle button tares and rapid actions serialize with recovery', () async {
-    buttonScale.press(ScaleButton.circle);
-    await pump();
-    expect(buttonScale.tareCount, 1);
+  test(
+    'circle button tares and rapid actions serialize with recovery',
+    () async {
+      buttonScale.press(ScaleButton.circle);
+      await pump();
+      expect(buttonScale.tareCount, 1);
 
-    final pending = Completer<void>();
-    buttonScale.tareCompleter = pending;
-    buttonScale.press(ScaleButton.circle);
-    buttonScale.press(ScaleButton.circle);
-    await pump();
-    expect(buttonScale.tareCount, 2);
-    pending.complete();
-    await pump();
+      final pending = Completer<void>();
+      buttonScale.tareCompleter = pending;
+      buttonScale.press(ScaleButton.circle);
+      buttonScale.press(ScaleButton.circle);
+      await pump();
+      expect(buttonScale.tareCount, 2);
+      pending.complete();
+      await pump();
 
-    buttonScale.tareCompleter = null;
-    buttonScale.failTare = true;
-    buttonScale.press(ScaleButton.circle);
-    await pump();
-    buttonScale.failTare = false;
-    buttonScale.press(ScaleButton.circle);
-    await pump();
-    expect(buttonScale.tareCount, 4);
-  });
+      buttonScale.tareCompleter = null;
+      buttonScale.failTare = true;
+      buttonScale.press(ScaleButton.circle);
+      await pump();
+      buttonScale.failTare = false;
+      buttonScale.press(ScaleButton.circle);
+      await pump();
+      expect(buttonScale.tareCount, 4);
+    },
+  );
 
-  test('square button is off by default and starts only from idle when opted in', () async {
-    buttonScale.press(ScaleButton.square);
-    await pump();
-    expect(testDe1.requestedStates, isEmpty);
+  test(
+    'square button is off by default and starts only from idle when opted in',
+    () async {
+      buttonScale.press(ScaleButton.square);
+      await pump();
+      expect(testDe1.requestedStates, isEmpty);
 
-    await settingsController.setScaleButtonStartsEspresso(true);
-    testDe1.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
-    await pump();
-    buttonScale.press(ScaleButton.square);
-    await pump();
-    expect(testDe1.requestedStates, [MachineState.espresso]);
-  });
+      await settingsController.setScaleButtonStartsEspresso(true);
+      testDe1.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
+      await pump();
+      buttonScale.press(ScaleButton.square);
+      await pump();
+      expect(testDe1.requestedStates, [MachineState.espresso]);
+    },
+  );
 
   test('square button stops espresso and records app stop intent', () async {
     await settingsController.setScaleButtonStartsEspresso(true);
-    testDe1.emitStateAndSubstate(MachineState.espresso, MachineSubstate.pouring);
+    testDe1.emitStateAndSubstate(
+      MachineState.espresso,
+      MachineSubstate.pouring,
+    );
     await pump();
     buttonScale.press(ScaleButton.square);
     await pump();
@@ -313,33 +326,37 @@ void main() {
     expect(de1Controller.consumeStopIntent(), ShotDecisionReason.appStop);
   });
 
-  test('square button is ignored for non-action states, full gateway, and no machine', () async {
-    await settingsController.setScaleButtonStartsEspresso(true);
-    for (final state in MachineState.values) {
-      if (state == MachineState.idle || state == MachineState.espresso) continue;
-      testDe1.emitStateAndSubstate(state, MachineSubstate.idle);
+  test(
+    'square button is ignored for non-action states, full gateway, and no machine',
+    () async {
+      await settingsController.setScaleButtonStartsEspresso(true);
+      for (final state in MachineState.values) {
+        if (state == MachineState.idle || state == MachineState.espresso)
+          continue;
+        testDe1.emitStateAndSubstate(state, MachineSubstate.idle);
+        await pump();
+        buttonScale.press(ScaleButton.square);
+        await pump();
+      }
+      expect(testDe1.requestedStates, isEmpty);
+
+      await settingsController.updateGatewayMode(GatewayMode.full);
+      testDe1.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
       await pump();
       buttonScale.press(ScaleButton.square);
       await pump();
-    }
-    expect(testDe1.requestedStates, isEmpty);
+      expect(testDe1.requestedStates, isEmpty);
 
-    await settingsController.updateGatewayMode(GatewayMode.full);
-    testDe1.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
-    await pump();
-    buttonScale.press(ScaleButton.square);
-    await pump();
-    expect(testDe1.requestedStates, isEmpty);
+      await settingsController.updateGatewayMode(GatewayMode.disabled);
+      de1Controller.disconnect();
+      await pump();
+      buttonScale.press(ScaleButton.square);
+      await pump();
+      expect(testDe1.requestedStates, isEmpty);
+    },
+  );
 
-    await settingsController.updateGatewayMode(GatewayMode.disabled);
-    de1Controller.disconnect();
-    await pump();
-    buttonScale.press(ScaleButton.square);
-    await pump();
-    expect(testDe1.requestedStates, isEmpty);
-  });
-
-  test('does not act on a stale pending action after machine replacement', () async {
+  test('serializes a pending action across machine replacement', () async {
     await settingsController.setScaleButtonStartsEspresso(true);
     testDe1.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
     await pump();
@@ -352,11 +369,15 @@ void main() {
     final replacement = TestDe1(deviceId: 'replacement-de1');
     de1Controller.connect(replacement);
     await pump();
+    buttonScale.press(ScaleButton.square);
+    await pump();
+    expect(replacement.requestedStates, isEmpty);
+
     gate.complete();
     await pump();
     buttonScale.press(ScaleButton.square);
     await pump();
-    expect(replacement.requestedStates, isEmpty);
+    expect(replacement.requestedStates, [MachineState.espresso]);
     await replacement.dispose();
   });
 
