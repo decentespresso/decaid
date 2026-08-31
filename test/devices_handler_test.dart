@@ -419,7 +419,7 @@ void main() {
           name: 'Skale',
         );
         scale.emitDeviceInformation(
-          const DeviceInformation(firmwareVersion: 'R029'),
+          const DeviceInformation(firmwareVersion: 'R029', batteryLevel: 82),
         );
         mockDiscovery.addDevice(scale);
         await Future<void>.delayed(Duration.zero);
@@ -428,7 +428,10 @@ void main() {
         expect(response.statusCode, 200);
         final body = jsonDecode(await response.readAsString()) as List;
 
-        expect(body.single['deviceInfo'], {'firmwareVersion': 'R029'});
+        expect(body.single['deviceInfo'], {
+          'firmwareVersion': 'R029',
+          'batteryLevel': 82,
+        });
       });
 
       test('returns a connected scale that is outside discovery', () async {

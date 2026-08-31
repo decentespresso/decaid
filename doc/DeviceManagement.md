@@ -787,6 +787,12 @@ empty, malformed, late, or failed reads do not fail the scale connection. The
 opaque revision is cleared on disconnect and is display-only; Decaid does not
 download or install Skale firmware.
 
+Skale also reads the standard Battery Level characteristic (`0x180F` / `0x2A19`)
+on connect and every 30 minutes while connected. Only a single-byte value in
+the device-reported `0..100` range is published; unavailable or invalid reads
+clear the connected-session value. Battery metadata is nullable and appears in
+the Devices UI and nested REST/WebSocket `deviceInfo` object when available.
+
 ### Bengle integrated scale
 
 When a Bengle is the connected machine, its integrated scale is auto-attached

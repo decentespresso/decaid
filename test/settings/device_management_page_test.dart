@@ -12,11 +12,20 @@ import '../helpers/mock_settings_service.dart';
 import '../helpers/test_scale.dart';
 
 class _InformationScale extends TestScale implements DeviceInformationCapable {
-  _InformationScale({required super.deviceId, required String firmwareVersion})
-    : _information = DeviceInformation(firmwareVersion: firmwareVersion),
-      _informationSubject = BehaviorSubject<DeviceInformation?>.seeded(
-        DeviceInformation(firmwareVersion: firmwareVersion),
-      );
+  _InformationScale({
+    required super.deviceId,
+    required String firmwareVersion,
+    int? batteryLevel,
+  }) : _information = DeviceInformation(
+         firmwareVersion: firmwareVersion,
+         batteryLevel: batteryLevel,
+       ),
+       _informationSubject = BehaviorSubject<DeviceInformation?>.seeded(
+         DeviceInformation(
+           firmwareVersion: firmwareVersion,
+           batteryLevel: batteryLevel,
+         ),
+       );
 
   DeviceInformation? _information;
   final BehaviorSubject<DeviceInformation?> _informationSubject;
@@ -47,6 +56,7 @@ void main() {
     final first = _InformationScale(
       deviceId: 'skale-device',
       firmwareVersion: 'R029',
+      batteryLevel: 82,
     );
     discovery.addDevice(first);
 
@@ -61,6 +71,10 @@ void main() {
     await tester.pump();
 
     expect(find.textContaining('Firmware: R029'), findsOneWidget);
+    expect(
+      find.textContaining('Battery: 82% (device-reported)'),
+      findsOneWidget,
+    );
 
     discovery.clear();
     final replacement = _InformationScale(
