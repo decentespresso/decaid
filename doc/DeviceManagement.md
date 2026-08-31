@@ -793,6 +793,14 @@ the device-reported `0..100` range is published; unavailable or invalid reads
 clear the connected-session value. Battery metadata is nullable and appears in
 the Devices UI and nested REST/WebSocket `deviceInfo` object when available.
 
+The Devices page also provides an opt-in `skalePoweredByUsb` override, which
+defaults to `false` and is persisted and exported. This is a manual power-source
+declaration for Skale devices; while enabled, battery reads and refresh polling
+stop, the battery value is cleared, and metadata reports `powerSource: usb` with
+`powerSourceProvenance: manualOverride`. Disabling it immediately resumes a
+battery read and the normal refresh interval. Other scale implementations are
+unaffected.
+
 ### Bengle integrated scale
 
 When a Bengle is the connected machine, its integrated scale is auto-attached

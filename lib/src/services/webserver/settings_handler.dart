@@ -31,6 +31,7 @@ class SettingsHandler {
       final stopHotWaterAtWeight = _controller.stopHotWaterAtWeight;
       final preferredMachineId = _controller.preferredMachineId;
       final preferredScaleId = _controller.preferredScaleId;
+      final skalePoweredByUsb = _controller.skalePoweredByUsb;
       final defaultSkinId = _controller.defaultSkinId;
       final automaticUpdateCheck = _controller.automaticUpdateCheck;
       final result = <String, dynamic>{
@@ -46,6 +47,7 @@ class SettingsHandler {
         'stopHotWaterAtWeight': stopHotWaterAtWeight,
         'preferredMachineId': preferredMachineId,
         'preferredScaleId': preferredScaleId,
+        'skalePoweredByUsb': skalePoweredByUsb,
         'defaultSkinId': defaultSkinId,
         'automaticUpdateCheck': automaticUpdateCheck,
         'chargingMode': _controller.chargingMode.name,
@@ -261,6 +263,16 @@ class SettingsHandler {
           await _controller.setKeepAwake(value);
         } else {
           return jsonBadRequest({'message': 'keepAwake must be a boolean'});
+        }
+      }
+      if (json.containsKey('skalePoweredByUsb')) {
+        final value = json['skalePoweredByUsb'];
+        if (value is bool) {
+          await _controller.setSkalePoweredByUsb(value);
+        } else {
+          return jsonBadRequest({
+            'message': 'skalePoweredByUsb must be a boolean',
+          });
         }
       }
       if (json.containsKey('simulatedDevices')) {

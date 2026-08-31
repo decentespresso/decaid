@@ -1,4 +1,4 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/models/device/device.dart';
@@ -11,7 +11,8 @@ import '../helpers/mock_device_discovery_service.dart';
 import '../helpers/mock_settings_service.dart';
 import '../helpers/test_scale.dart';
 
-class _InformationScale extends TestScale implements DeviceInformationCapable {
+class _InformationScale extends TestScale
+    implements DeviceInformationCapable, UsbPowerConfigurable {
   _InformationScale({
     required super.deviceId,
     required String firmwareVersion,
@@ -29,6 +30,15 @@ class _InformationScale extends TestScale implements DeviceInformationCapable {
 
   DeviceInformation? _information;
   final BehaviorSubject<DeviceInformation?> _informationSubject;
+  bool poweredByUsb = false;
+
+  @override
+  bool get usbPowered => poweredByUsb;
+
+  @override
+  Future<void> setUsbPowered(bool value) async {
+    poweredByUsb = value;
+  }
 
   @override
   DeviceInformation? get currentDeviceInformation => _information;
@@ -48,10 +58,12 @@ void main() {
     tester,
   ) async {
     final discovery = MockDeviceDiscoveryService();
-    final deviceController = DeviceController([discovery]);
-    await deviceController.initialize();
     final settingsController = SettingsController(MockSettingsService());
     await settingsController.loadSettings();
+    final deviceController = DeviceController([
+      discovery,
+    ], settingsController: settingsController);
+    await deviceController.initialize();
 
     final first = _InformationScale(
       deviceId: 'skale-device',
@@ -75,6 +87,11 @@ void main() {
       find.textContaining('Battery: 82% (device-reported)'),
       findsOneWidget,
     );
+    final switchFinder = find.byType(SwitchListTile);
+    expect(switchFinder, findsOneWidget);
+    await tester.tap(switchFinder);
+    await tester.pump();
+    expect(settingsController.skalePoweredByUsb, isTrue);
 
     discovery.clear();
     final replacement = _InformationScale(

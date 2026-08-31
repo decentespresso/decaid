@@ -59,6 +59,7 @@ void main() {
       expect(settings['sleepTimeoutMinutes'], 30);
       expect(settings['lowBatteryBrightnessLimit'], isFalse);
       expect(settings['keepAwake'], isTrue);
+      expect(settings['skalePoweredByUsb'], isFalse);
       expect(map['wakeSchedules'], '[]');
 
       final devicePrefs = map['devicePreferences'] as Map<String, dynamic>;
@@ -90,6 +91,7 @@ void main() {
       await controller.setBlockTareDuringShot(true);
       await controller.setLowBatteryBrightnessLimit(true);
       await controller.setKeepAwake(false);
+      await controller.setSkalePoweredByUsb(true);
       final exported = await exportSettings(section);
 
       await controller.updateGatewayMode(GatewayMode.disabled);
@@ -116,6 +118,7 @@ void main() {
       expect(controller.blockTareDuringShot, isTrue);
       expect(controller.lowBatteryBrightnessLimit, isTrue);
       expect(controller.keepAwake, isFalse);
+      expect(controller.skalePoweredByUsb, isTrue);
     });
 
     test('imports device preferences', () async {
@@ -169,6 +172,18 @@ void main() {
       expect(result.errors, hasLength(2));
       expect(result.errors[0], contains('Invalid gatewayMode'));
       expect(result.errors[1], contains('Invalid scalePowerMode'));
+    });
+
+    test('reports an error for an invalid USB power setting', () async {
+      final result = await importSectionJson(
+        section,
+        jsonEncode({
+          'settings': {'skalePoweredByUsb': 'yes'},
+        }),
+        ConflictStrategy.overwrite,
+      );
+      expect(result.errors, [contains('Invalid skalePoweredByUsb')]);
+      expect(controller.skalePoweredByUsb, isFalse);
     });
 
     test('counts settings imported before a later field fails', () async {

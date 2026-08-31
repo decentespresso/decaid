@@ -889,6 +889,14 @@ components:
           nullable: true
           description: Device-reported battery percentage, when available.
           example: 82
+        powerSource:
+          type: string
+          enum: [battery, usb, external, unknown]
+          description: Current power source, when known.
+        powerSourceProvenance:
+          type: string
+          enum: [deviceReported, manualOverride]
+          description: Whether the power source was reported by the device or selected manually.
 
     DeviceConnectResult:
       type: object

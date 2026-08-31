@@ -34,6 +34,8 @@ abstract class SettingsService {
   Future<void> setPreferredMachineId(String? machineId);
   Future<String?> preferredScaleId();
   Future<void> setPreferredScaleId(String? scaleId);
+  Future<bool> skalePoweredByUsb();
+  Future<void> setSkalePoweredByUsb(bool value);
   Future<String> defaultSkinId();
   Future<void> setDefaultSkinId(String skinId);
   Future<bool> automaticUpdateCheck();
@@ -249,6 +251,15 @@ class SharedPreferencesSettingsService extends SettingsService {
     } else {
       await prefs.setString(SettingsKeys.preferredScaleId.name, scaleId);
     }
+  }
+
+  @override
+  Future<bool> skalePoweredByUsb() async =>
+      await prefs.getBool(SettingsKeys.skalePoweredByUsb.name) ?? false;
+
+  @override
+  Future<void> setSkalePoweredByUsb(bool value) async {
+    await prefs.setBool(SettingsKeys.skalePoweredByUsb.name, value);
   }
 
   @override
@@ -536,6 +547,7 @@ enum SettingsKeys {
   stopHotWaterAtWeight,
   preferredMachineId,
   preferredScaleId,
+  skalePoweredByUsb,
   defaultSkinId,
   automaticUpdateCheck,
   updateChannel,

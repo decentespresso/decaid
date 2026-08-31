@@ -99,6 +99,17 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                       if (mounted) _showSavedSnackbar();
                     },
                   ),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Skale is powered by USB'),
+                    subtitle: const Text(
+                      'Enable only when the connected Skale has external power. '
+                      'Battery reporting is suppressed while enabled.',
+                    ),
+                    value: widget.settingsController.skalePoweredByUsb,
+                    onChanged: (value) =>
+                        widget.settingsController.setSkalePoweredByUsb(value),
+                  ),
                 ],
               ),
             ),
@@ -198,6 +209,10 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
       final batteryLevel = capable.currentDeviceInformation?.batteryLevel;
       if (batteryLevel != null) {
         lines.add('Battery: $batteryLevel% (device-reported)');
+      }
+      final powerSource = capable.currentDeviceInformation?.powerSource;
+      if (powerSource == DevicePowerSource.usb) {
+        lines.add('Power: USB (manual setting)');
       }
     }
     return lines.join(' · ');

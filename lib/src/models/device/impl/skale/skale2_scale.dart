@@ -15,7 +15,8 @@ import 'package:reaprime/src/models/device/device.dart';
 
 import '../../scale.dart';
 
-class Skale2Scale implements Scale, DeviceInformationCapable {
+class Skale2Scale
+    implements Scale, DeviceInformationCapable, UsbPowerConfigurable {
   static final BleServiceIdentifier serviceIdentifier =
       BleServiceIdentifier.short('ff08');
   static final BleServiceIdentifier weightCharacteristic =
@@ -42,7 +43,9 @@ class Skale2Scale implements Scale, DeviceInformationCapable {
   final BLETransport _transport;
 
   int? _batteryLevel;
-  int? _batteryReadGeneration;
+  final Map<int, Future<void>> _batteryReads = {};
+  bool _usbPowered = false;
+  int _powerSourceGeneration = 0;
   Timer? _batteryRefreshTimer;
 
   final _log = logging.Logger('Skale2Scale');
@@ -106,6 +109,38 @@ class Skale2Scale implements Scale, DeviceInformationCapable {
       _deviceInformationController.stream;
 
   @override
+  bool get usbPowered => _usbPowered;
+
+  @override
+  Future<void> setUsbPowered(bool value) async {
+    if (value == _usbPowered) return;
+    _usbPowered = value;
+    final powerSourceGeneration = ++_powerSourceGeneration;
+    if (value) {
+      _stopBatteryRefresh();
+      _batteryLevel = null;
+      _publishDeviceInformation();
+      return;
+    }
+
+    final connectionGeneration = _connectionGeneration;
+    final pendingRead = _batteryReads[connectionGeneration];
+    if (pendingRead != null) await pendingRead;
+    if (powerSourceGeneration != _powerSourceGeneration ||
+        _usbPowered ||
+        !_batterySupported ||
+        !await _isConnectionActive(connectionGeneration)) {
+      return;
+    }
+    await _readBatteryLevel(connectionGeneration);
+    if (powerSourceGeneration == _powerSourceGeneration &&
+        !_usbPowered &&
+        await _isConnectionActive(connectionGeneration)) {
+      _startBatteryRefresh(connectionGeneration);
+    }
+  }
+
+  @override
   Future<void> onConnect() async {
     final transportState = await _transport.connectionState.first;
     if (transportState == ConnectionState.connected &&
@@ -147,10 +182,12 @@ class Skale2Scale implements Scale, DeviceInformationCapable {
       }
 
       _deviceInformationActive = true;
+      _batterySupported = batteryService.matchesAny(services);
+      if (_usbPowered) _publishDeviceInformation();
       await _initScale(services, generation);
       if (!await _isConnectionActive(generation)) return;
       _connectionStateController.add(ConnectionState.connected);
-      _startBatteryRefresh(generation);
+      if (!_usbPowered) _startBatteryRefresh(generation);
     } catch (e, st) {
       if (generation != _connectionGeneration) return;
       _log.warning('Connect failed: $e');
@@ -205,8 +242,7 @@ class Skale2Scale implements Scale, DeviceInformationCapable {
     }
     if (!await _isConnectionActive(generation)) return;
 
-    _batterySupported = batteryService.matchesAny(services);
-    if (_batterySupported) {
+    if (_batterySupported && !_usbPowered) {
       await _readBatteryLevel(generation);
     }
     if (!await _isConnectionActive(generation)) return;
@@ -217,42 +253,52 @@ class Skale2Scale implements Scale, DeviceInformationCapable {
     await _safeWrite(Uint8List.fromList([0x03]));
   }
 
-  Future<void> _readBatteryLevel(int generation) async {
-    if (_batteryReadGeneration == generation ||
+  Future<void> _readBatteryLevel(int generation) {
+    if (_usbPowered ||
         generation != _connectionGeneration ||
         !_batterySupported) {
+      return Future.value();
+    }
+    final existing = _batteryReads[generation];
+    if (existing != null) return existing;
+
+    late final Future<void> read;
+    read = _performBatteryRead(generation).whenComplete(() {
+      if (identical(_batteryReads[generation], read)) {
+        _batteryReads.remove(generation);
+      }
+    });
+    _batteryReads[generation] = read;
+    return read;
+  }
+
+  Future<void> _performBatteryRead(int generation) async {
+    final powerSourceGeneration = _powerSourceGeneration;
+    int? level;
+    try {
+      final data = await _transport.read(
+        batteryService.long,
+        batteryCharacteristic.long,
+      );
+      if (data.length == 1 && data[0] <= 100) {
+        level = data[0];
+      }
+    } catch (e) {
+      _log.fine('Skale battery level unavailable: $e');
+    }
+    if (generation != _connectionGeneration ||
+        powerSourceGeneration != _powerSourceGeneration ||
+        _usbPowered ||
+        await _transport.connectionState.first != ConnectionState.connected) {
       return;
     }
-    _batteryReadGeneration = generation;
-    try {
-      int? level;
-      try {
-        final data = await _transport.read(
-          batteryService.long,
-          batteryCharacteristic.long,
-        );
-        if (data.length == 1 && data[0] <= 100) {
-          level = data[0];
-        }
-      } catch (e) {
-        _log.fine('Skale battery level unavailable: $e');
-      }
-      if (generation != _connectionGeneration ||
-          await _transport.connectionState.first != ConnectionState.connected) {
-        return;
-      }
-      _batteryLevel = level;
-      _publishDeviceInformation();
-    } finally {
-      if (_batteryReadGeneration == generation) {
-        _batteryReadGeneration = null;
-      }
-    }
+    _batteryLevel = level;
+    _publishDeviceInformation();
   }
 
   void _startBatteryRefresh(int generation) {
+    if (!_batterySupported || _usbPowered) return;
     _batteryRefreshTimer?.cancel();
-    if (!_batterySupported) return;
     _batteryRefreshTimer = Timer.periodic(_batteryRefreshIntervalOverride, (_) {
       _readBatteryLevel(generation);
     });
@@ -299,7 +345,11 @@ class Skale2Scale implements Scale, DeviceInformationCapable {
     if (!_deviceInformationActive) return;
     final information = DeviceInformation(
       firmwareVersion: _firmwareVersion,
-      batteryLevel: _batteryLevel,
+      batteryLevel: _usbPowered ? null : _batteryLevel,
+      powerSource: _usbPowered ? DevicePowerSource.usb : null,
+      powerSourceProvenance: _usbPowered
+          ? DevicePowerSourceProvenance.manualOverride
+          : null,
     );
     _deviceInformationController.add(information.isEmpty ? null : information);
   }

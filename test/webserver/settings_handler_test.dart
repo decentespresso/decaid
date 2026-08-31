@@ -68,6 +68,23 @@ void main() {
     });
   });
 
+  group('skalePoweredByUsb', () {
+    test('defaults to disabled and persists changes', () async {
+      expect(controller.skalePoweredByUsb, isFalse);
+      await controller.setSkalePoweredByUsb(true);
+      expect(controller.skalePoweredByUsb, isTrue);
+      expect(await mockService.skalePoweredByUsb(), isTrue);
+    });
+
+    test('loads the persisted value', () async {
+      await mockService.setSkalePoweredByUsb(true);
+      final loaded = SettingsController(mockService);
+      await loaded.loadSettings();
+      expect(loaded.skalePoweredByUsb, isTrue);
+      loaded.dispose();
+    });
+  });
+
   group('stopHotWaterAtWeight', () {
     test('defaults to true', () {
       expect(controller.stopHotWaterAtWeight, isTrue);

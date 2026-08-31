@@ -5425,6 +5425,14 @@ components:
           nullable: true
           description: Device-reported battery percentage, when available.
           example: 82
+        powerSource:
+          type: string
+          enum: [battery, usb, external, unknown]
+          description: Current power source, when known.
+        powerSourceProvenance:
+          type: string
+          enum: [deviceReported, manualOverride]
+          description: Whether the power source was reported by the device or selected manually.
 
     FlowSmoothingConfig:
       type: object
@@ -6421,6 +6429,9 @@ components:
           type: string
           nullable: true
           example: "AA:BB:CC:DD:EE:FF"
+        skalePoweredByUsb:
+          description: Manual opt-in declaration that Skale is powered by USB. Defaults to false; suppresses battery reads and reports the USB source with manual provenance.
+          type: boolean
         defaultSkinId:
           description: ID of the default WebUI skin to serve
           type: string
@@ -6519,6 +6530,9 @@ components:
           type: string
           nullable: true
           example: "AA:BB:CC:DD:EE:FF"
+        skalePoweredByUsb:
+          description: Whether the user has manually declared that Skale is powered by USB.
+          type: boolean
         defaultSkinId:
           description: ID of the default WebUI skin being served
           type: string

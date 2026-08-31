@@ -667,6 +667,42 @@ void main() {
       });
     });
 
+    test('serializes manual USB power provenance', () async {
+      final scale = _DeviceInformationTestScale(
+        deviceId: 'scale-usb-info',
+        name: 'Skale',
+      );
+      mockDiscovery.addDevice(scale);
+      await aggregator.stateStream
+          .where((s) => (s['devices'] as List).isNotEmpty)
+          .first
+          .timeout(const Duration(seconds: 2));
+
+      scale.emitDeviceInformation(
+        const DeviceInformation(
+          powerSource: DevicePowerSource.usb,
+          powerSourceProvenance: DevicePowerSourceProvenance.manualOverride,
+        ),
+      );
+      final state = await aggregator.stateStream
+          .where(
+            (s) => (s['devices'] as List).any(
+              (d) =>
+                  d['id'] == 'scale-usb-info' &&
+                  d['deviceInfo']?['powerSource'] == 'usb',
+            ),
+          )
+          .first
+          .timeout(const Duration(seconds: 2));
+      expect(
+        ((state['devices'] as List).firstWhere(
+              (d) => d['id'] == 'scale-usb-info',
+            )
+            as Map)['deviceInfo'],
+        {'powerSource': 'usb', 'powerSourceProvenance': 'manualOverride'},
+      );
+    });
+
     test('device information follows a same-ID replacement instance', () async {
       final first = _DeviceInformationTestScale(
         deviceId: 'scale-info',
