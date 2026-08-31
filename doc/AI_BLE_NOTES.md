@@ -321,6 +321,22 @@ physical connection. On Android/Linux/Windows, direct
 The identity check happens during `onConnect()` — for machines, `v13Model`
 is read and compared against the expected `DeviceImplementation`.
 
+### Cross-listener ordering after adopt (PR #746)
+
+`De1Controller.adoptDevice()` emits exactly one event on the `de1` stream
+when replacing an already-connected device — no interim null — so
+`DisconnectSupervisor` has nothing to misread as a disconnect. Do not
+"flush" the supervisor with a fresh `de1.firstWhere(...)` subscription
+instead: the `de1` stream is a default-async `BehaviorSubject` (async
+broadcast), and Dart gives no delivery-ordering guarantee across
+independently scheduled listeners, so the fresh subscription can see the
+new device while the supervisor's own listener still has the earlier
+value queued. When a caller must know the supervisor has caught up
+(e.g. `_tryQuickConnectMachine` reading `_machineConnected` right after
+adopt), use `DisconnectSupervisor.waitForMachine(deviceId)` — it resolves
+from inside the supervisor's own pre-existing listener, so ordering is
+correct by construction.
+
 ## DE1 MMR model mapping (`DecentMachineModel`)
 
 `v13Model` (MMR `0x0080000C`) is the machine model read on connect. For the
