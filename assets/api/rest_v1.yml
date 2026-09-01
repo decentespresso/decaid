@@ -1629,7 +1629,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ShotRecord"
+              $ref: "#/components/schemas/ShotUpdateRequest"
             examples:
               updateNotes:
                 summary: Update only espresso notes
@@ -1651,7 +1651,10 @@ paths:
               schema:
                 $ref: "#/components/schemas/ShotRecord"
         "400":
-          description: Bad Request (ID mismatch)
+          description: |
+            Bad Request. Covers an ID in the body that does not match the
+            path ID, a body containing `measurements`, and a body containing
+            the system-managed fields `createdAt` or `updatedAt`.
           content:
             application/json:
               schema:
@@ -6871,6 +6874,24 @@ components:
           type: string
         timestamp:
           type: string
+        createdAt:
+          type: string
+          format: date-time
+          description: |
+            ISO-8601 UTC instant when the shot entered local storage
+            (always ends in `Z`). System-managed: rejected with 400 if
+            supplied to PUT /api/v1/shots/{id}. Falls back to `timestamp`
+            for legacy records that predate the field.
+        updatedAt:
+          type: string
+          format: date-time
+          description: |
+            ISO-8601 UTC instant of the last meaningful content change
+            (always ends in `Z`). System-managed: rejected with 400 if
+            supplied to PUT /api/v1/shots/{id}. Does not advance for writes
+            confined to the bookkeeping keys `uploaded_to_decent` and
+            `visualizerId` inside annotations.extras. Falls back to
+            `createdAt`, then `timestamp`, for legacy records.
         measurements:
           type: array
           items:
@@ -6904,6 +6925,34 @@ components:
           deprecated: true
           description: "Deprecated request alias for annotations.extras; response value mirrors the canonical field"
 
+    ShotUpdateRequest:
+      type: object
+      description: |
+        Partial-update payload for PUT /api/v1/shots/{id}. Only the fields
+        included in the body are changed; all other fields are preserved from
+        the existing record. `measurements`, `createdAt`, and `updatedAt` are
+        not editable and are rejected with 400. The `uploaded_to_decent` and
+        `visualizerId` keys inside annotations.extras are reserved bookkeeping:
+        writes confined to them persist without advancing `updatedAt`.
+      properties:
+        annotations:
+          $ref: "#/components/schemas/ShotAnnotations"
+        stopReason:
+          type: string
+          nullable: true
+          description: Why the shot ended (open set — tolerate unknown values). See ShotRecord.stopReason.
+        shotNotes:
+          type: string
+          nullable: true
+          deprecated: true
+          description: "Deprecated request alias for annotations.espressoNotes; response value mirrors the canonical field"
+        metadata:
+          type: object
+          nullable: true
+          additionalProperties: true
+          deprecated: true
+          description: "Deprecated request alias for annotations.extras; response value mirrors the canonical field"
+
     ShotRecordSummary:
       type: object
       description: |
@@ -6914,6 +6963,18 @@ components:
           type: string
         timestamp:
           type: string
+        createdAt:
+          type: string
+          format: date-time
+          description: |
+            ISO-8601 UTC instant when the shot entered local storage
+            (always ends in `Z`). See ShotRecord.createdAt.
+        updatedAt:
+          type: string
+          format: date-time
+          description: |
+            ISO-8601 UTC instant of the last meaningful content change
+            (always ends in `Z`). See ShotRecord.updatedAt.
         workflow:
           $ref: "#/components/schemas/WorkflowRequest"
         annotations:

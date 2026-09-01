@@ -376,6 +376,148 @@ void main() {
         );
       }
     });
+
+    test('first uploaded_to_decent write on a shot with no annotations '
+        'preserves updatedAt', () async {
+      await persistence.persistShot(makeShot(id: 'clean'));
+      final before = await decode(await sendGet('/api/v1/shots/clean'));
+
+      final (putJson, getJson) = await putAndGet('clean', {
+        'annotations': {
+          'extras': {'uploaded_to_decent': 1767230000},
+        },
+      });
+
+      for (final json in [putJson, getJson]) {
+        expect(json['annotations']['extras'], {
+          'uploaded_to_decent': 1767230000,
+        });
+        expect(
+          DateTime.parse(json['updatedAt'] as String),
+          DateTime.parse(before['updatedAt'] as String),
+        );
+      }
+    });
+
+    test('first bookkeeping write on annotations with no extras '
+        'preserves updatedAt', () async {
+      await persistence.persistShot(
+        makeShot(
+          id: 'notes-only',
+          annotations: const ShotAnnotations(espressoNotes: 'hi'),
+        ),
+      );
+      final before = await decode(await sendGet('/api/v1/shots/notes-only'));
+
+      final (putJson, getJson) = await putAndGet('notes-only', {
+        'annotations': {
+          'extras': {'visualizerId': 'viz-1'},
+        },
+      });
+
+      for (final json in [putJson, getJson]) {
+        expect(json['annotations']['extras'], {'visualizerId': 'viz-1'});
+        expect(
+          DateTime.parse(json['updatedAt'] as String),
+          DateTime.parse(before['updatedAt'] as String),
+        );
+      }
+    });
+
+    test(
+      'changing an existing bookkeeping value preserves updatedAt',
+      () async {
+        await persistAnnotatedShot();
+        await putAndGet('annotated', {
+          'annotations': {
+            'extras': {'uploaded_to_decent': 100},
+          },
+        });
+        final before = await decode(await sendGet('/api/v1/shots/annotated'));
+
+        final (putJson, getJson) = await putAndGet('annotated', {
+          'annotations': {
+            'extras': {'uploaded_to_decent': 200},
+          },
+        });
+
+        for (final json in [putJson, getJson]) {
+          expect(json['annotations']['extras']['uploaded_to_decent'], 200);
+          expect(json['annotations']['extras']['favorite'], false);
+          expect(
+            DateTime.parse(json['updatedAt'] as String),
+            DateTime.parse(before['updatedAt'] as String),
+          );
+        }
+      },
+    );
+
+    test(
+      'visualizerId-only write on annotated shot preserves updatedAt',
+      () async {
+        await persistAnnotatedShot();
+        final before = await decode(await sendGet('/api/v1/shots/annotated'));
+
+        final (putJson, getJson) = await putAndGet('annotated', {
+          'annotations': {
+            'extras': {'visualizerId': 'viz-9'},
+          },
+        });
+
+        for (final json in [putJson, getJson]) {
+          expect(json['annotations']['extras']['visualizerId'], 'viz-9');
+          expect(
+            DateTime.parse(json['updatedAt'] as String),
+            DateTime.parse(before['updatedAt'] as String),
+          );
+        }
+      },
+    );
+
+    test(
+      'mixed bookkeeping plus meaningful extra advances updatedAt',
+      () async {
+        await persistAnnotatedShot();
+        final before = await decode(await sendGet('/api/v1/shots/annotated'));
+
+        final (putJson, getJson) = await putAndGet('annotated', {
+          'annotations': {
+            'extras': {'uploaded_to_decent': 1, 'favorite': true},
+          },
+        });
+
+        for (final json in [putJson, getJson]) {
+          expect(json['annotations']['extras']['uploaded_to_decent'], 1);
+          expect(json['annotations']['extras']['favorite'], true);
+          expect(
+            DateTime.parse(
+              json['updatedAt'],
+            ).isAfter(DateTime.parse(before['updatedAt'] as String)),
+            isTrue,
+          );
+        }
+      },
+    );
+
+    test(
+      'PUT with createdAt or updatedAt is rejected and leaves values intact',
+      () async {
+        await persistAnnotatedShot();
+        final before = await decode(await sendGet('/api/v1/shots/annotated'));
+
+        for (final field in ['createdAt', 'updatedAt']) {
+          final response = await sendPut('annotated', {
+            field: '2000-01-01T00:00:00Z',
+          });
+          expect(response.statusCode, 400);
+          expect((await decode(response))['error'], contains(field));
+        }
+
+        final after = await decode(await sendGet('/api/v1/shots/annotated'));
+        expect(after['createdAt'], before['createdAt']);
+        expect(after['updatedAt'], before['updatedAt']);
+      },
+    );
   });
 }
 

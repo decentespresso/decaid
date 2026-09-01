@@ -71,6 +71,123 @@ void main() {
     expect(serialized.containsKey('shotNotes'), isFalse);
     expect(serialized.containsKey('metadata'), isFalse);
   });
+
+  test('serialization always emits UTC for createdAt and updatedAt', () {
+    final record = ShotRecord(
+      id: 'shot-1',
+      timestamp: DateTime.utc(2026, 7, 23),
+      createdAt: DateTime(2026, 7, 23, 10, 30),
+      updatedAt: DateTime(2026, 7, 23, 10, 31),
+      measurements: const [],
+      workflow: WorkflowController().currentWorkflow,
+    );
+
+    expect(record.toJson()['createdAt'], endsWith('Z'));
+    expect(record.toJson()['updatedAt'], endsWith('Z'));
+    expect(record.toJsonWithoutMeasurements()['createdAt'], endsWith('Z'));
+    expect(record.toJsonWithoutMeasurements()['updatedAt'], endsWith('Z'));
+  });
+
+  test('fromJson normalizes non-UTC and legacy-fallback timestamps to UTC', () {
+    final json = _baseJson()
+      ..['createdAt'] = '2026-07-23T10:30:00'
+      ..['updatedAt'] = '2026-07-23T10:31:00';
+
+    final record = ShotRecord.fromJson(json);
+    expect(record.createdAt!.isUtc, isTrue);
+    expect(record.updatedAt!.isUtc, isTrue);
+    expect(record.toJson()['createdAt'], endsWith('Z'));
+    expect(record.toJson()['updatedAt'], endsWith('Z'));
+
+    final legacy = ShotRecord.fromJson(_baseJson());
+    expect(legacy.createdAt!.isUtc, isTrue);
+    expect(legacy.updatedAt!.isUtc, isTrue);
+    expect(legacy.createdAt, legacy.timestamp.toUtc());
+    expect(legacy.updatedAt, legacy.timestamp.toUtc());
+  });
+
+  group('sameContent', () {
+    final workflow = WorkflowController().currentWorkflow;
+
+    ShotRecord record({Map<String, dynamic>? extras, String? notes}) =>
+        ShotRecord(
+          id: 'shot-1',
+          timestamp: DateTime.utc(2026, 7, 23),
+          createdAt: DateTime.utc(2026, 7, 23, 9),
+          updatedAt: DateTime.utc(2026, 7, 23, 9, 30),
+          measurements: const [],
+          workflow: workflow,
+          annotations: ShotAnnotations(espressoNotes: notes, extras: extras),
+        );
+
+    test('bookkeeping-only differences are not content', () {
+      final base = record(extras: {'favorite': true});
+      final withMarker = record(
+        extras: {'favorite': true, 'uploaded_to_decent': 1767230000},
+      );
+      final changedMarker = record(
+        extras: {'favorite': true, 'uploaded_to_decent': 1767230001},
+      );
+      final visualizerOnly = record(
+        extras: {'favorite': true, 'visualizerId': 'viz-1'},
+      );
+
+      expect(base.sameContent(withMarker), isTrue);
+      expect(base.sameContent(changedMarker), isTrue);
+      expect(base.sameContent(visualizerOnly), isTrue);
+    });
+
+    test('empty extras compares equal to absent extras', () {
+      final noExtras = record(notes: 'hi');
+      final emptyExtras = record(notes: 'hi', extras: {});
+      final markerOnly = record(notes: 'hi', extras: {'uploaded_to_decent': 1});
+
+      expect(noExtras.sameContent(emptyExtras), isTrue);
+      expect(noExtras.sameContent(markerOnly), isTrue);
+    });
+
+    test('empty annotations compares equal to absent annotations', () {
+      final bare = ShotRecord(
+        id: 'shot-1',
+        timestamp: DateTime.utc(2026, 7, 23),
+        measurements: const [],
+        workflow: workflow,
+      );
+      final markerOnly = record(extras: {'visualizerId': 'viz-1'});
+
+      expect(bare.sameContent(markerOnly), isTrue);
+    });
+
+    test('meaningful extras differences are content', () {
+      final base = record(extras: {'favorite': true});
+      final changed = record(extras: {'favorite': false});
+      final added = record(extras: {'favorite': true, 'origin': 'x'});
+
+      expect(base.sameContent(changed), isFalse);
+      expect(base.sameContent(added), isFalse);
+    });
+
+    test('notes differences are content', () {
+      expect(record(notes: 'a').sameContent(record(notes: 'b')), isFalse);
+    });
+
+    test('system-managed timestamps never count as content', () {
+      final a = record();
+      final b = record();
+      final c = ShotRecord(
+        id: 'shot-1',
+        timestamp: DateTime.utc(2026, 7, 23),
+        createdAt: DateTime.utc(2026, 7, 23, 8),
+        updatedAt: DateTime.utc(2026, 7, 23, 8, 45),
+        measurements: const [],
+        workflow: workflow,
+        annotations: const ShotAnnotations(),
+      );
+
+      expect(a.sameContent(b), isTrue);
+      expect(a.sameContent(c), isTrue);
+    });
+  });
 }
 
 Map<String, dynamic> _baseJson() => ShotRecord(

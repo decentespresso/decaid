@@ -9,8 +9,6 @@ import 'package:reaprime/src/services/webserver/json_response.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
 class ShotsHandler {
-  static const _bookkeepingExtrasKeys = {'uploaded_to_decent', 'visualizerId'};
-
   final PersistenceController _controller;
   final BeanStorageService? _beanStorage;
   final PluginManager? _pluginManager;
@@ -212,6 +210,14 @@ class ShotsHandler {
         });
       }
 
+      if (json.containsKey('createdAt') || json.containsKey('updatedAt')) {
+        return jsonBadRequest({
+          "error":
+              "createdAt and updatedAt are system-managed and cannot be "
+              "modified via this endpoint",
+        });
+      }
+
       final existingShot = await _controller.storageService.getShot(id);
       if (existingShot == null) {
         return jsonNotFound({"error": "Shot not found"});
@@ -224,10 +230,9 @@ class ShotsHandler {
       _synchronizeLegacyAnnotationAliases(merged);
       merged['id'] = id;
 
-      final contentChanged = !_contentEquals(
+      final contentChanged = !ShotRecord.fromJson(
         merged,
-        existingShot.toJsonWithoutMeasurements(),
-      );
+      ).sameContent(existingShot);
       merged['updatedAt'] =
           (contentChanged
                   ? DateTime.now().toUtc()
@@ -339,31 +344,5 @@ class ShotsHandler {
       }
     }
     return result;
-  }
-
-  bool _contentEquals(
-    Map<String, dynamic> merged,
-    Map<String, dynamic> existing,
-  ) {
-    return jsonEncode(_contentOnly(merged)) ==
-        jsonEncode(_contentOnly(existing));
-  }
-
-  Map<String, dynamic> _contentOnly(Map<String, dynamic> json) {
-    final copy = Map<String, dynamic>.from(json)
-      ..remove('updatedAt')
-      ..remove('measurements')
-      ..remove('metadata');
-    final annotations = copy['annotations'];
-    if (annotations is Map<String, dynamic>) {
-      final normalized = Map<String, dynamic>.from(annotations);
-      final extras = normalized['extras'];
-      if (extras is Map<String, dynamic>) {
-        normalized['extras'] = Map<String, dynamic>.from(extras)
-          ..removeWhere((key, _) => _bookkeepingExtrasKeys.contains(key));
-      }
-      copy['annotations'] = normalized;
-    }
-    return copy;
   }
 }

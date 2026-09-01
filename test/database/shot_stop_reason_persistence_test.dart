@@ -70,9 +70,33 @@ void main() {
     expect(restored.updatedAt, isNotNull);
     expect(restored.createdAt!.isUtc, isTrue);
     expect(restored.updatedAt!.isUtc, isTrue);
+    expect(restored.createdAt, restored.updatedAt);
     expect(
       DateTime.now().toUtc().difference(restored.updatedAt!).inSeconds,
       lessThan(10),
     );
   });
+
+  test(
+    'legacy rows without timestamps expose the extraction-time fallback',
+    () async {
+      final workflow = WorkflowController().currentWorkflow;
+      await db
+          .into(db.shotRecords)
+          .insert(
+            ShotRecordsCompanion.insert(
+              id: 'legacy-1',
+              timestamp: DateTime.utc(2025, 3, 1, 12),
+              workflowJson: workflow.toJson(),
+              measurementsJson: '[]',
+            ),
+          );
+
+      final row = await db.shotDao.getShotById('legacy-1');
+      final restored = ShotMapper.fromRow(row!);
+
+      expect(restored.createdAt, DateTime.utc(2025, 3, 1, 12));
+      expect(restored.updatedAt, DateTime.utc(2025, 3, 1, 12));
+    },
+  );
 }

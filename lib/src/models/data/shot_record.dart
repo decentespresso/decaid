@@ -1,9 +1,15 @@
+import 'dart:convert';
+
 import 'package:reaprime/src/models/data/shot_annotations.dart';
 import 'package:reaprime/src/models/data/shot_snapshot.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 class ShotRecord {
+  /// Keys in `annotations.extras` reserved for plugin sync state. Writes
+  /// confined to these keys do not count as content changes.
+  static const bookkeepingExtrasKeys = {'uploaded_to_decent', 'visualizerId'};
+
   final String id;
   final DateTime timestamp;
   final DateTime? createdAt;
@@ -41,8 +47,8 @@ class ShotRecord {
     return {
       "id": id,
       "timestamp": timestamp.toIso8601String(),
-      "createdAt": createdAt?.toIso8601String(),
-      "updatedAt": updatedAt?.toIso8601String(),
+      "createdAt": createdAt?.toUtc().toIso8601String(),
+      "updatedAt": updatedAt?.toUtc().toIso8601String(),
       "measurements": measurements.map((e) => e.toJson()).toList(),
       "workflow": workflow.toJson(),
       if (annotations != null) "annotations": annotations!.toJson(),
@@ -56,8 +62,8 @@ class ShotRecord {
     return {
       "id": id,
       "timestamp": timestamp.toIso8601String(),
-      "createdAt": createdAt?.toIso8601String(),
-      "updatedAt": updatedAt?.toIso8601String(),
+      "createdAt": createdAt?.toUtc().toIso8601String(),
+      "updatedAt": updatedAt?.toUtc().toIso8601String(),
       "workflow": workflow.toJson(),
       if (annotations != null) "annotations": annotations!.toJson(),
       if (stopReason != null) "stopReason": stopReason,
@@ -79,17 +85,17 @@ class ShotRecord {
 
     final legacyTime = DateTime.parse(json["timestamp"]);
     final parsedCreatedAt = json["createdAt"] != null
-        ? DateTime.parse(json["createdAt"] as String)
+        ? DateTime.parse(json["createdAt"] as String).toUtc()
         : null;
     final parsedUpdatedAt = json["updatedAt"] != null
-        ? DateTime.parse(json["updatedAt"] as String)
+        ? DateTime.parse(json["updatedAt"] as String).toUtc()
         : null;
 
     return ShotRecord(
       id: json["id"],
       timestamp: legacyTime,
-      createdAt: parsedCreatedAt ?? legacyTime,
-      updatedAt: parsedUpdatedAt ?? parsedCreatedAt ?? legacyTime,
+      createdAt: parsedCreatedAt ?? legacyTime.toUtc(),
+      updatedAt: parsedUpdatedAt ?? parsedCreatedAt ?? legacyTime.toUtc(),
       measurements: (json["measurements"] as List)
           .map((e) => ShotSnapshot.fromJson(e))
           .toList(),
@@ -104,6 +110,45 @@ class ShotRecord {
           : json["metadata"] as Map<String, dynamic>?,
     );
   }
+
+  /// Canonical JSON of the user-meaningful content, used to decide whether a
+  /// write is a real content change. Excludes the system-managed timestamps,
+  /// measurements, and the deprecated `metadata` mirror; bookkeeping extras are
+  /// dropped, and an `extras` map emptied by that exclusion compares equal to
+  /// no `extras` (likewise for `annotations`).
+  Map<String, dynamic> contentSignature() {
+    final json = toJsonWithoutMeasurements()
+      ..remove('createdAt')
+      ..remove('updatedAt')
+      ..remove('metadata');
+    final annotations = json['annotations'];
+    if (annotations is Map<String, dynamic>) {
+      final normalized = Map<String, dynamic>.from(annotations);
+      final extras = normalized['extras'];
+      if (extras is Map<String, dynamic>) {
+        final cleaned = Map<String, dynamic>.from(extras)
+          ..removeWhere(
+            (key, _) => ShotRecord.bookkeepingExtrasKeys.contains(key),
+          );
+        if (cleaned.isEmpty) {
+          normalized.remove('extras');
+        } else {
+          normalized['extras'] = cleaned;
+        }
+      }
+      if (normalized.isEmpty) {
+        json.remove('annotations');
+      } else {
+        json['annotations'] = normalized;
+      }
+    }
+    return json;
+  }
+
+  /// True when both records carry identical user-meaningful content, ignoring
+  /// system-managed timestamps and bookkeeping extras.
+  bool sameContent(ShotRecord other) =>
+      jsonEncode(contentSignature()) == jsonEncode(other.contentSignature());
 
   String shotTime() {
     final dateFormat = DateFormat.yMd();

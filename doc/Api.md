@@ -176,17 +176,26 @@ fields. Consumers must not infer missing capture-time identity from the machine
 that happens to be connected when a record is read.
 
 **Modification tracking.** Every shot carries `createdAt` and `updatedAt`
-(ISO-8601 UTC). `createdAt` is set when the shot enters local storage; the
-extraction `timestamp` is the fallback for legacy records that predate the
-field. `updatedAt` advances only when shot *content* changes:
-`PUT /api/v1/shots/:id` bumps it iff the merged record differs outside the
-bookkeeping keys. The bookkeeping keys are `uploaded_to_decent` and
-`visualizerId` inside `annotations.extras` (the reserved scratch space for
-plugin sync state). Writes confined to those keys persist without touching
-`updatedAt`, so consumers can reconcile edits by comparing `updatedAt`
-against their own sync marker without feedback loops. All other `extras`
+(ISO-8601 UTC, always serialized with a trailing `Z`). `createdAt` is set
+when the shot enters local storage; the extraction `timestamp` is the fallback
+for legacy records that predate the field. Both fields are system-managed: a
+`PUT /api/v1/shots/:id` body containing either is rejected with 400, so
+clients cannot spoof revision metadata. `updatedAt` advances only when shot
+*content* changes: `PUT /api/v1/shots/:id` bumps it iff the merged record
+differs outside the bookkeeping keys. The bookkeeping keys are
+`uploaded_to_decent` and `visualizerId` inside `annotations.extras` (the
+reserved scratch space for plugin sync state). Writes confined to those keys
+persist without touching `updatedAt`, so consumers can reconcile edits by
+comparing `updatedAt` against their own sync marker without feedback loops.
+An `extras` map emptied by that exclusion compares equal to no `extras`, and
+an `annotations` map emptied by it compares equal to no `annotations`, so the
+first-ever sync marker on a clean shot does not dirty it. All other `extras`
 keys count as content. `measurements` is not editable through this endpoint:
-a PUT body containing it is rejected with 400.
+a PUT body containing it is rejected with 400. Sync import with
+`onConflict: overwrite` follows the same rule: the existing `createdAt` is
+preserved, and `updatedAt` advances only when the imported content differs
+from the stored record, so a no-op re-import cannot move a consumer's cursor
+backwards.
 
 ### Steams
 

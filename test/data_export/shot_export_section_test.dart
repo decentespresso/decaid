@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
+import 'package:reaprime/src/models/data/shot_annotations.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
 import 'package:reaprime/src/models/data/steam_record.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
@@ -256,6 +257,123 @@ void main() {
       expect(result.imported, 1);
       expect(storage.updated, 1);
     });
+
+    test(
+      'overwrite preserves createdAt and bumps updatedAt on content change',
+      () async {
+        final storage = _TestShotStorage();
+        final existing = makeShot(1).copyWith(
+          createdAt: DateTime.utc(2024, 1, 1, 8),
+          updatedAt: DateTime.utc(2024, 1, 1, 8, 30),
+          annotations: const ShotAnnotations(espressoNotes: 'old'),
+        );
+        storage.shots['shot-1'] = existing.toJson();
+        final section = ShotExportSection(
+          controller: PersistenceController(storageService: storage.service),
+          pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) async =>
+              [],
+        );
+
+        final edited = makeShot(1).copyWith(
+          createdAt: DateTime.utc(2020, 1, 1),
+          updatedAt: DateTime.utc(2020, 1, 1),
+          annotations: const ShotAnnotations(espressoNotes: 'new'),
+        );
+        final result = await importSectionJson(
+          section,
+          jsonEncode([edited.toJson()]),
+          ConflictStrategy.overwrite,
+        );
+        expect(result.imported, 1);
+
+        final stored = storage.shots['shot-1']!;
+        expect(
+          stored['createdAt'],
+          existing.createdAt!.toUtc().toIso8601String(),
+        );
+        expect(stored['annotations']['espressoNotes'], 'new');
+        expect(stored['updatedAt'], endsWith('Z'));
+        expect(
+          DateTime.parse(
+            stored['updatedAt'] as String,
+          ).isAfter(DateTime.utc(2024, 1, 1, 8, 30)),
+          isTrue,
+        );
+      },
+    );
+
+    test('no-op overwrite preserves updatedAt', () async {
+      final storage = _TestShotStorage();
+      final existing = makeShot(1).copyWith(
+        createdAt: DateTime.utc(2024, 1, 1, 8),
+        updatedAt: DateTime.utc(2024, 1, 1, 8, 30),
+        annotations: const ShotAnnotations(espressoNotes: 'same'),
+      );
+      storage.shots['shot-1'] = existing.toJson();
+      final section = ShotExportSection(
+        controller: PersistenceController(storageService: storage.service),
+        pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) async =>
+            [],
+      );
+
+      final result = await importSectionJson(
+        section,
+        jsonEncode([existing.toJson()]),
+        ConflictStrategy.overwrite,
+      );
+      expect(result.imported, 1);
+
+      final stored = storage.shots['shot-1']!;
+      expect(
+        stored['createdAt'],
+        existing.createdAt!.toUtc().toIso8601String(),
+      );
+      expect(
+        stored['updatedAt'],
+        existing.updatedAt!.toUtc().toIso8601String(),
+      );
+    });
+
+    test(
+      'overwrite confined to bookkeeping extras does not advance updatedAt',
+      () async {
+        final storage = _TestShotStorage();
+        final existing = makeShot(1).copyWith(
+          createdAt: DateTime.utc(2024, 1, 1, 8),
+          updatedAt: DateTime.utc(2024, 1, 1, 8, 30),
+          annotations: const ShotAnnotations(
+            extras: {'favorite': true, 'uploaded_to_decent': 1},
+          ),
+        );
+        storage.shots['shot-1'] = existing.toJson();
+        final section = ShotExportSection(
+          controller: PersistenceController(storageService: storage.service),
+          pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) async =>
+              [],
+        );
+
+        final reimported = makeShot(1).copyWith(
+          createdAt: DateTime.utc(2020, 1, 1),
+          updatedAt: DateTime.utc(2020, 1, 1),
+          annotations: const ShotAnnotations(
+            extras: {'favorite': true, 'uploaded_to_decent': 2},
+          ),
+        );
+        final result = await importSectionJson(
+          section,
+          jsonEncode([reimported.toJson()]),
+          ConflictStrategy.overwrite,
+        );
+        expect(result.imported, 1);
+
+        final stored = storage.shots['shot-1']!;
+        expect(stored['annotations']['extras']['uploaded_to_decent'], 2);
+        expect(
+          stored['updatedAt'],
+          existing.updatedAt!.toUtc().toIso8601String(),
+        );
+      },
+    );
 
     test('individually invalid records keep partial-result behavior', () async {
       final storage = _TestShotStorage();
