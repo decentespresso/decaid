@@ -155,8 +155,10 @@ temporary real-hardware tuning builds where debug endpoints must be reachable.
 
 ## Bengle EBus tap (hardware verification)
 
-Decaid identifies the tap by VID `0x2e8a`, PID `0x000a`, and logical USB
-interface `2`; it never relies on unstable device paths. Interface `0` remains
+Decaid identifies the tap by VID `0x2e8a`, PID `0x000a`, the exact USB
+product name `Bengle`, and logical USB interface `2`; it never relies on
+unstable device paths. VID/PID are shared Pico SDK identifiers, so the product
+name is required to reject other Pico boards. Interface `0` remains
 the Bengle machine with its existing stable ID. Discovery must not probe or
 write to the tap.
 

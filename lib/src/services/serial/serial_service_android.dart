@@ -515,9 +515,9 @@ class SerialServiceAndroid
 
   /// Detects the Bengle EBus tap on a composite Bengle device.
   ///
-  /// Gated only on VID/PID plus interface count — never on product name and
-  /// never by probing or writing to the interface. The tap is opened through
-  /// the Android bulk-data interface 3 (the usb_serial fork derives the
+  /// Gated on VID/PID, interface count, and the exact product name — never
+  /// by probing or writing to the interface. The tap is opened through the
+  /// Android bulk-data interface 3 (the usb_serial fork derives the
   /// control interface as `iface - 1`), while the logical identity and ID
   /// keep denoting interface 2 (`-if02`). Identical-serial boards are
   /// disambiguated by the physical `UsbDevice.deviceId` in the tap ID.
@@ -526,6 +526,7 @@ class SerialServiceAndroid
       vid: device.vid,
       pid: device.pid,
       interfaceCount: device.interfaceCount,
+      productName: device.productName,
     )) {
       return null;
     }

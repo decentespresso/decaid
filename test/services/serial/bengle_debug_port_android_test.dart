@@ -23,12 +23,13 @@ UsbDevice _composite({
   String? serial = _serial,
   int? deviceId = 1002,
   int? interfaceCount = 4,
+  String? productName = 'Bengle',
 }) {
   return UsbDevice(
     '/dev/bus/usb/001/002',
     vid,
     pid,
-    'Bengle',
+    productName,
     'Decent Espresso',
     deviceId,
     serial,
@@ -188,6 +189,30 @@ void main() {
 
     final devices = await service.devices.first;
     expect(devices, isEmpty);
+    expect(requestedInterface, isNull);
+  });
+
+  test(
+    'matching vid/pid/interface but wrong product name yields no tap',
+    () async {
+      // VID/PID are shared Pico SDK identifiers; only the exact product name
+      // `Bengle` exposes the tap. A Pico board with the same IDs and interface
+      // layout must not open the tap data interface.
+      listed = [_composite(productName: 'Pico')];
+      await service.scanForDevices();
+
+      final devices = await service.devices.first;
+      expect(devices.map((d) => d.deviceId), [_machineId]);
+      expect(requestedInterface, isNull);
+    },
+  );
+
+  test('null product name yields no tap', () async {
+    listed = [_composite(productName: null)];
+    await service.scanForDevices();
+
+    final devices = await service.devices.first;
+    expect(devices.map((d) => d.deviceId), [_machineId]);
     expect(requestedInterface, isNull);
   });
 

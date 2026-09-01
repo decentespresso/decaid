@@ -749,9 +749,11 @@ Bengle composite devices (VID `0x2e8a`, PID `0x000a`) may expose a second CDC
 function as the `Bengle EBus Tap` Sensor
 (`lib/src/models/device/impl/sensor/bengle_debug_port.dart`).
 
-- **Identity.** The tap is identified by VID/PID and logical USB interface `2`,
-  never by unstable device paths. Its ID appends `-if02` to the machine's USB
-  stable ID; interface `0` retains the existing machine ID. Android opens the
+- **Identity.** The tap is identified by VID/PID, the exact USB product name
+  `Bengle`, and logical USB interface `2`, never by unstable device paths.
+  VID/PID alone are shared Pico SDK identifiers, so the product name is
+  required to reject other Pico boards. Its ID appends `-if02` to the
+  machine's USB stable ID; interface `0` retains the existing machine ID. Android opens the
   paired bulk-data interface `3` while preserving logical `if02` identity.
 - **Duplicate descriptors.** When multiple physical Bengle devices report the
   same USB descriptors, Android appends `UsbDevice.deviceId` to each tap ID for

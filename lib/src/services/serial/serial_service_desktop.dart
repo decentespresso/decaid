@@ -384,6 +384,7 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
     int? vid;
     int? pid;
     int? interfaceNumber;
+    String? productName;
     try {
       vid = port.vendorId;
     } catch (_) {}
@@ -393,12 +394,24 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
     try {
       interfaceNumber = port.interfaceNumber;
     } catch (_) {}
-    if (isBengleEbusTap(vid: vid, pid: pid, interfaceNumber: interfaceNumber)) {
+    try {
+      productName = port.productName;
+    } catch (_) {}
+    if (isBengleEbusTap(
+      vid: vid,
+      pid: pid,
+      interfaceNumber: interfaceNumber,
+      productName: productName,
+    )) {
       _log.info(
         "Bengle EBus tap on interface $interfaceNumber ($id)"
         " — no protocol probe",
       );
-      final transport = _DesktopSerialPort(port: port, dtrOn: true);
+      final transport = _DesktopSerialPort(
+        port: port,
+        dtrOn: true,
+        decodeUtf8Text: false,
+      );
       _portPathToTransport[id] = transport;
       final device = BengleDebugPort(transport: transport);
       _portPathToDeviceId[id] = device.deviceId;
@@ -559,6 +572,7 @@ const int _serialWriteTimeoutMs = 500;
 class _DesktopSerialPort implements SerialTransport {
   final SerialPort _port;
   final bool _dtrOn;
+  final bool _decodeUtf8Text;
   late Logger _log;
   final BehaviorSubject<ConnectionState> _open = BehaviorSubject.seeded(
     ConnectionState.discovered,
@@ -570,9 +584,13 @@ class _DesktopSerialPort implements SerialTransport {
   late final String _cachedId = _computeId();
   late final String _cachedName = _safePortName() ?? "Unknown port";
 
-  _DesktopSerialPort({required SerialPort port, bool dtrOn = false})
-    : _port = port,
-      _dtrOn = dtrOn {
+  _DesktopSerialPort({
+    required SerialPort port,
+    bool dtrOn = false,
+    bool decodeUtf8Text = true,
+  }) : _port = port,
+       _dtrOn = dtrOn,
+       _decodeUtf8Text = decodeUtf8Text {
     _log = Logger("SerialPort:${port.name}");
     _cachedId;
     _cachedName;
@@ -729,6 +747,7 @@ class _DesktopSerialPort implements SerialTransport {
       _portSubscription = reader.stream.listen(
         (data) {
           _rawStreamController.add(data);
+          if (!_decodeUtf8Text) return;
           try {
             final input = utf8.decode(data);
             _log.finest("received serial input: $input");

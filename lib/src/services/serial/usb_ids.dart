@@ -27,6 +27,13 @@ UsbDeviceModel? matchUsbDevice(
 const int bengleEbusTapVid = 0x2e8a;
 const int bengleEbusTapPid = 0x000a;
 
+/// USB product name string of the Bengle machine and its EBus tap.
+///
+/// VID/PID are shared Pico SDK identifiers, so the exact product name is
+/// required in addition to the IDs and interface before anything is treated
+/// as the tap.
+const String bengleUsbProductName = 'Bengle';
+
 /// Logical USB interface of the Bengle EBus tap (Linux CDC control
 /// interface). ReaPrime's identity, stable ID, and docs all use `if02`.
 const int bengleEbusTapInterface = 2;
@@ -40,22 +47,35 @@ const int bengleEbusTapInterface = 2;
 /// interface, which has no bulk endpoints and makes `UsbPort.open()` fail.
 const int bengleEbusAndroidDataInterface = 3;
 
-/// True only for the Bengle EBus tap: VID 0x2e8a, PID 0x000a, interface 2.
-/// Everything else — interface 0, missing metadata, and devices without
-/// interface 2 — is false.
-bool isBengleEbusTap({int? vid, int? pid, int? interfaceNumber}) {
+/// True only for the Bengle EBus tap: VID 0x2e8a, PID 0x000a, interface 2,
+/// and the exact product name `Bengle`. Everything else — interface 0,
+/// missing metadata, other products, and devices without interface 2 — is
+/// false.
+bool isBengleEbusTap({
+  int? vid,
+  int? pid,
+  int? interfaceNumber,
+  required String? productName,
+}) {
   return vid == bengleEbusTapVid &&
       pid == bengleEbusTapPid &&
-      interfaceNumber == bengleEbusTapInterface;
+      interfaceNumber == bengleEbusTapInterface &&
+      productName == bengleUsbProductName;
 }
 
 /// True when a Bengle composite device reports enough interfaces to contain
-/// the EBus tap. Android exposes the interface count, not a per-interface
-/// number, so presence of the tap's bulk-data interface 3 is inferred from
-/// `interfaceCount > 3`.
-bool isBengleCompositeWithTap({int? vid, int? pid, int? interfaceCount}) {
+/// the EBus tap and carries the exact product name `Bengle`. Android exposes
+/// the interface count, not a per-interface number, so presence of the tap's
+/// bulk-data interface 3 is inferred from `interfaceCount > 3`.
+bool isBengleCompositeWithTap({
+  int? vid,
+  int? pid,
+  int? interfaceCount,
+  required String? productName,
+}) {
   return vid == bengleEbusTapVid &&
       pid == bengleEbusTapPid &&
       interfaceCount != null &&
-      interfaceCount > bengleEbusAndroidDataInterface;
+      interfaceCount > bengleEbusAndroidDataInterface &&
+      productName == bengleUsbProductName;
 }
