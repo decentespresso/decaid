@@ -271,6 +271,13 @@ void main() {
         DeviceFactory.createBle(DeviceImplementation.sensorBasket, transport),
         isNull,
       );
+      expect(
+        DeviceFactory.createBle(
+          DeviceImplementation.bengleDebugPort,
+          transport,
+        ),
+        isNull,
+      );
     });
   });
 
@@ -303,6 +310,16 @@ void main() {
       );
       expect(device, isNotNull);
       expect(device!.implementation, DeviceImplementation.sensorBasket);
+    });
+
+    test('bengleDebugPort returns BengleDebugPort', () {
+      final device = DeviceFactory.createSerial(
+        DeviceImplementation.bengleDebugPort,
+        transport,
+      );
+      expect(device, isNotNull);
+      expect(device!.implementation, DeviceImplementation.bengleDebugPort);
+      expect(device.transportType, TransportType.serial);
     });
 
     test('unifiedDe1 returns UnifiedDe1 (serial DE1)', () {

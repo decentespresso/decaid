@@ -14,6 +14,7 @@ import 'package:reaprime/src/models/device/impl/difluid/difluid_scale.dart';
 import 'package:reaprime/src/models/device/impl/eureka/eureka_scale.dart';
 import 'package:reaprime/src/models/device/impl/felicita/arc.dart';
 import 'package:reaprime/src/models/device/impl/hiroia/hiroia_scale.dart';
+import 'package:reaprime/src/models/device/impl/sensor/bengle_debug_port.dart';
 import 'package:reaprime/src/models/device/impl/sensor/debug_port.dart';
 import 'package:reaprime/src/models/device/impl/sensor/sensor_basket.dart';
 import 'package:reaprime/src/models/device/impl/skale/skale2_scale.dart';
@@ -62,6 +63,7 @@ class DeviceFactory {
       DeviceImplementation.hdsWifi => null,
       DeviceImplementation.debugPort => null,
       DeviceImplementation.sensorBasket => null,
+      DeviceImplementation.bengleDebugPort => null,
     };
   }
 
@@ -73,6 +75,9 @@ class DeviceFactory {
       DeviceImplementation.hdsSerial => HDSSerial(transport: transport),
       DeviceImplementation.debugPort => DebugPort(transport: transport),
       DeviceImplementation.sensorBasket => SensorBasket(transport: transport),
+      DeviceImplementation.bengleDebugPort => BengleDebugPort(
+        transport: transport,
+      ),
       DeviceImplementation.unifiedDe1 => UnifiedDe1(transport: transport),
       _ => null,
     };

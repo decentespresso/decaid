@@ -23,3 +23,39 @@ UsbDeviceModel? matchUsbDevice(
   }
   return null;
 }
+
+const int bengleEbusTapVid = 0x2e8a;
+const int bengleEbusTapPid = 0x000a;
+
+/// Logical USB interface of the Bengle EBus tap (Linux CDC control
+/// interface). ReaPrime's identity, stable ID, and docs all use `if02`.
+const int bengleEbusTapInterface = 2;
+
+/// Android bulk-data interface for the Bengle EBus tap.
+///
+/// The installed usb_serial fork treats the requested interface as the CDC
+/// bulk-data interface and derives the control interface as `iface - 1`.
+/// The tap's Android bulk-data interface is therefore 3 (Linux control
+/// interface 2). Do NOT change this back to 2 — interface 2 is the control
+/// interface, which has no bulk endpoints and makes `UsbPort.open()` fail.
+const int bengleEbusAndroidDataInterface = 3;
+
+/// True only for the Bengle EBus tap: VID 0x2e8a, PID 0x000a, interface 2.
+/// Everything else — interface 0, missing metadata, and devices without
+/// interface 2 — is false.
+bool isBengleEbusTap({int? vid, int? pid, int? interfaceNumber}) {
+  return vid == bengleEbusTapVid &&
+      pid == bengleEbusTapPid &&
+      interfaceNumber == bengleEbusTapInterface;
+}
+
+/// True when a Bengle composite device reports enough interfaces to contain
+/// the EBus tap. Android exposes the interface count, not a per-interface
+/// number, so presence of the tap's bulk-data interface 3 is inferred from
+/// `interfaceCount > 3`.
+bool isBengleCompositeWithTap({int? vid, int? pid, int? interfaceCount}) {
+  return vid == bengleEbusTapVid &&
+      pid == bengleEbusTapPid &&
+      interfaceCount != null &&
+      interfaceCount > bengleEbusAndroidDataInterface;
+}

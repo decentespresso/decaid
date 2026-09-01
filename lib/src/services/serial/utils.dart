@@ -51,8 +51,24 @@ Future<void> drainWithTimeout({
   }
 }
 
-String? computeUsbStableId({int? vid, int? pid, String? serial}) {
+String? computeUsbStableId({
+  int? vid,
+  int? pid,
+  String? serial,
+  int? interfaceNumber,
+}) {
   if (vid == null || pid == null) return null;
   final s = (serial != null && serial.isNotEmpty) ? serial : 'unknown';
-  return 'usb-${vid.toRadixString(16)}-${pid.toRadixString(16)}-$s';
+  final id = 'usb-${vid.toRadixString(16)}-${pid.toRadixString(16)}-$s';
+  if (interfaceNumber == null || interfaceNumber <= 0) return id;
+  return '$id-if${interfaceNumber.toRadixString(16).padLeft(2, '0')}';
+}
+
+/// Strips a trailing `-ifNN` (optionally followed by a physical-instance
+/// `-<deviceId>`) suffix from a USB stable ID, so a composite device's
+/// machine and tap logical IDs map back to one physical device. IDs without
+/// a suffix are returned unchanged.
+String withoutUsbInterfaceSuffix(String stableId) {
+  final match = RegExp(r'-if[0-9a-fA-F]+(?:-[0-9]+)?$').firstMatch(stableId);
+  return match == null ? stableId : stableId.substring(0, match.start);
 }

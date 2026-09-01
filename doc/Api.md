@@ -371,6 +371,44 @@ same request prevent all fields from being stored (validation is atomic).
 | GET | `/api/v1/sensors/:id` | Get sensor manifest | |
 | POST | `/api/v1/sensors/:id/execute` | Execute sensor command | |
 
+#### `Bengle EBus Tap` sensor
+
+The Bengle EBus tap (USB interface `2` of a composite Bengle, VID `0x2e8a` /
+PID `0x000a`) is exposed through the generic Sensors surface — no new REST
+path. Manifest:
+
+```json
+{
+  "name": "Bengle EBus Tap",
+  "vendor": "Decent Espresso",
+  "data": [{"key": "bytes", "type": "string", "unit": "base64"}],
+  "commands": [{"id": "write", "paramsSchema": {"bytes": "string"}}]
+}
+```
+
+`GET /api/v1/sensors` lists the tap under its stable ID
+`usb-2e8a-a-<serial>-if02`. Each frame on `/ws/v1/sensors/<id>/snapshot` is one
+serial read chunk:
+
+```json
+{"timestamp": "2026-08-31T12:34:56.789Z", "bytes": "tp4..."}
+```
+
+`bytes` is standard base64; concatenating decoded chunks reproduces the exact
+serial byte stream. Chunk boundaries carry no protocol meaning.
+
+Raw write base64-decodes `bytes`, writes exactly those bytes to the tap, and
+returns the byte count written:
+
+```text
+POST /api/v1/sensors/usb-2e8a-a-<serial>-if02/execute
+{"commandId": "write", "params": {"bytes": "AO4A"}}
+→ {"status": "ok", "result": {"bytesWritten": 3}}
+```
+
+Malformed or missing base64 is rejected before any write. The tap is
+single-owner: no other reader may hold the port while Decaid owns it.
+
 ### Key-Value Store
 
 | Method | Path | Description | Handler |

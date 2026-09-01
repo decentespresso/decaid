@@ -743,6 +743,31 @@ sensor is connected, skins can call the `measure` command through the existing
 Sensors API and read TDS, temperature, refractive index, and status values from
 the sensor data stream.
 
+### Bengle EBus tap
+
+Bengle composite devices (VID `0x2e8a`, PID `0x000a`) may expose a second CDC
+function as the `Bengle EBus Tap` Sensor
+(`lib/src/models/device/impl/sensor/bengle_debug_port.dart`).
+
+- **Identity.** The tap is identified by VID/PID and logical USB interface `2`,
+  never by unstable device paths. Its ID appends `-if02` to the machine's USB
+  stable ID; interface `0` retains the existing machine ID. Android opens the
+  paired bulk-data interface `3` while preserving logical `if02` identity.
+- **Duplicate descriptors.** When multiple physical Bengle devices report the
+  same USB descriptors, Android appends `UsbDevice.deviceId` to each tap ID for
+  session-level disambiguation and emits at most one machine for the shared
+  stable ID.
+- **Raw tunnel.** Each serial read chunk becomes one snapshot with `bytes`
+  encoded as base64. Decoded chunks reproduce the serial stream exactly;
+  `write` sends the decoded bytes unchanged. ReaPrime adds no framing,
+  capture, compression, or upload behavior.
+- **Transport ownership.** The tap transport asserts DTR and permits one reader.
+  Transport errors leave the Sensor disconnected rather than reconnecting it
+  internally. Other serial-device DTR defaults are unchanged.
+
+Hardware verification steps:
+[`doc/AI_BUILD_NOTES.md`](AI_BUILD_NOTES.md#bengle-ebus-tap-hardware-verification).
+
 ### RememberedDevicesController
 
 **File:** `lib/src/controllers/remembered_devices_controller.dart`

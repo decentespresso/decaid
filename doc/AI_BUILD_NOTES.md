@@ -153,6 +153,27 @@ temporary real-hardware tuning builds where debug endpoints must be reachable.
 
 **Fix:** Finite 500ms per-chunk write timeout + bail on zero-progress, `drainWithTimeout` polling `bytesToWrite`.
 
+## Bengle EBus tap (hardware verification)
+
+Decaid identifies the tap by VID `0x2e8a`, PID `0x000a`, and logical USB
+interface `2`; it never relies on unstable device paths. Interface `0` remains
+the Bengle machine with its existing stable ID. Discovery must not probe or
+write to the tap.
+
+The Sensor behavior contract — raw bytes, DTR, and single-reader ownership —
+lives in [`doc/DeviceManagement.md`](DeviceManagement.md#bengle-ebus-tap).
+
+**Hardware checks not covered by unit tests:**
+
+1. The machine and tap appear with distinct IDs and connect concurrently.
+2. Unplug removes only the detached physical device's logical entries; replug
+   rediscovers them.
+3. Android opens bulk-data interface `3` for logical interface `2`; devices
+   with duplicate USB descriptors receive distinct session IDs.
+4. Raw Sensor snapshots remain byte-exact and discovery performs no writes.
+
+Platform results must be observed independently on each claimed platform.
+
 ## Footgun #3: `codesign --deep` destroys Sparkle's Installer XPC
 
 **Symptom:** After a signed/notarized update, Sparkle's "Update failed" alert or a silent failure to relaunch. The app builds and notarizes fine.

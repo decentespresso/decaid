@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/device/device.dart';
@@ -13,6 +12,7 @@ import 'package:reaprime/src/models/device/impl/bengle/bengle.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
 import 'package:reaprime/src/models/device/impl/decent_scale/scale_serial.dart';
+import 'package:reaprime/src/models/device/impl/sensor/bengle_debug_port.dart';
 import 'package:reaprime/src/models/device/impl/sensor/debug_port.dart';
 import 'package:reaprime/src/models/device/impl/sensor/sensor_basket.dart';
 import 'package:reaprime/src/models/device/transport/serial_port.dart';
@@ -33,6 +33,7 @@ class SerialServiceAndroid
   final Future<List<UsbDevice>> Function() _listDevices;
   final Stream<UsbEvent>? Function() _usbEventStream;
   final Future<Device?> Function(UsbDevice device)? _detectOverride;
+  final Future<UsbPort?> Function(UsbDevice device, int iface)? _createTapPort;
 
   final List<Device> _devices = [];
   StreamSubscription<UsbEvent>? _usbEventSubscription;
@@ -42,11 +43,20 @@ class SerialServiceAndroid
     Future<List<UsbDevice>> Function()? listDevices,
     Stream<UsbEvent>? Function()? usbEventStream,
     Future<Device?> Function(UsbDevice device)? detectDevice,
+    Future<UsbPort?> Function(UsbDevice device, int iface)? createTapPort,
   }) : _listDevices = listDevices ?? UsbSerial.listDevices,
        _usbEventStream = usbEventStream ?? (() => UsbSerial.usbEventStream),
-       _detectOverride = detectDevice;
+       _detectOverride = detectDevice,
+       _createTapPort = createTapPort;
 
   final Map<String, AndroidSerialPort> _transportForDeviceId = {};
+
+  /// Logical device ID -> physical `UsbDevice.deviceId` it was created from.
+  ///
+  /// Identical-serial Bengle boards share VID/PID/serial, so stable IDs
+  /// cannot distinguish them; detach and cleanup follow physical-instance
+  /// ownership instead.
+  final Map<String, int> _logicalToPhysicalDeviceId = {};
 
   bool _isScanning = false;
   Future<void>? _currentScan;
@@ -83,7 +93,7 @@ class SerialServiceAndroid
   }
 
   @visibleForTesting
-  void handleUsbEvent(UsbEvent data) {
+  Future<void> handleUsbEvent(UsbEvent data) async {
     if (_disposed) return;
     switch (data.event) {
       case UsbEvent.ACTION_USB_DETACHED:
@@ -99,25 +109,31 @@ class SerialServiceAndroid
             pid: pid,
             serial: data.device!.serial,
           );
-          final vidPidPrefix = (vid != null && pid != null)
-              ? 'usb-${vid.toRadixString(16)}-${pid.toRadixString(16)}-'
-              : null;
           _log.info(
             "USB_DETACHED: stableId=${detachedStableId ?? 'none'}, "
-            "prefix=$vidPidPrefix",
+            "physical=${data.device!.deviceId}",
           );
-          final match = _devices.firstWhereOrNull(
-            (d) =>
-                d.deviceId == detachedStableId ||
-                (vidPidPrefix != null && d.deviceId.startsWith(vidPidPrefix)) ||
-                d.deviceId == "${data.device!.deviceId}",
-          );
-          if (match != null) {
-            _log.info(
-              "USB_DETACHED: disconnecting ${match.name}(${match.deviceId})",
-            );
-            match.disconnect();
-            _devices.remove(match);
+          final detachedPhysicalId = data.device!.deviceId;
+          final matches = _devices.where((d) {
+            if (detachedPhysicalId != null) {
+              return _logicalToPhysicalDeviceId[d.deviceId] ==
+                      detachedPhysicalId ||
+                  d.deviceId == "$detachedPhysicalId";
+            }
+            // No physical ID on the detach event: fall back to the stable
+            // machine ID. Indistinguishable same-serial devices without a
+            // physical ID cannot be separated.
+            return withoutUsbInterfaceSuffix(d.deviceId) == detachedStableId;
+          }).toList();
+          if (matches.isNotEmpty) {
+            for (final match in matches) {
+              _log.info(
+                "USB_DETACHED: disconnecting ${match.name}(${match.deviceId})",
+              );
+              await match.disconnect();
+              _devices.remove(match);
+            }
+            await _releaseDisconnected(matches);
           } else {
             _log.warning("USB_DETACHED: no matching device in $_devices");
           }
@@ -247,10 +263,12 @@ class SerialServiceAndroid
       );
     }
     _devices.add(machine);
+    _recordPhysicalOwnership(machine.deviceId, device);
     machine.connectionState.listen((state) {
       if (state == ConnectionState.disconnected) {
         _devices.remove(machine);
         _machineSubject.add(_devices);
+        _logicalToPhysicalDeviceId.remove(machine.deviceId);
         final t = _transportForDeviceId.remove(machine.deviceId);
         try {
           t?.dispose();
@@ -323,10 +341,12 @@ class SerialServiceAndroid
         await device.onConnect().timeout(const Duration(seconds: 10));
         final connected = device;
         _devices.add(connected);
+        _recordPhysicalOwnership(connected.deviceId, d);
         connected.connectionState.listen((state) {
           if (state == ConnectionState.disconnected) {
             _devices.remove(connected);
             _machineSubject.add(_devices);
+            _logicalToPhysicalDeviceId.remove(connected.deviceId);
             final t = _transportForDeviceId.remove(connected.deviceId);
             try {
               t?.dispose();
@@ -369,6 +389,28 @@ class SerialServiceAndroid
     }
   }
 
+  void _recordPhysicalOwnership(String logicalDeviceId, UsbDevice physical) {
+    final physicalId = physical.deviceId;
+    if (physicalId != null) {
+      _logicalToPhysicalDeviceId[logicalDeviceId] = physicalId;
+    }
+  }
+
+  /// Removes ownership and transport mappings for [devices] that left the
+  /// registry and disposes their adapters, so a later redetection does not
+  /// overwrite the map entry and leak the old `UsbDeviceConnection`.
+  Future<void> _releaseDisconnected(List<Device> devices) async {
+    for (final d in devices) {
+      _logicalToPhysicalDeviceId.remove(d.deviceId);
+      final t = _transportForDeviceId.remove(d.deviceId);
+      try {
+        await t?.dispose();
+      } catch (e, st) {
+        _log.fine('transport dispose failed for ${d.deviceId}', e, st);
+      }
+    }
+  }
+
   Future<void> _performScan() async {
     List<Device> connected = [];
     final devicesCopy = List<Device>.from(_devices);
@@ -387,6 +429,7 @@ class SerialServiceAndroid
       );
     }
     _devices.removeWhere((d) => connected.contains(d) == false);
+    await _releaseDisconnected(removed);
     if (connected.isNotEmpty) {
       _log.fine(
         "Keeping ${connected.length} connected: "
@@ -400,17 +443,34 @@ class SerialServiceAndroid
       "(${devices.map((d) => '${d.productName ?? d.deviceName}[${computeUsbStableId(vid: d.vid, pid: d.pid, serial: d.serial) ?? d.deviceId}]').join(', ')})",
     );
 
-    final enumeratedIds = devices
+    final enumeratedPhysicalIds = devices
+        .map((d) => d.deviceId)
+        .whereType<int>()
+        .toSet();
+    final enumeratedStableIds = devices
         .map(
           (d) =>
               computeUsbStableId(vid: d.vid, pid: d.pid, serial: d.serial) ??
               "${d.deviceId}",
         )
         .toSet();
-    final orphans = connected
-        .where((d) => !enumeratedIds.contains(d.deviceId))
-        .toList();
-    for (final orphan in orphans) {
+
+    // Devices with recorded physical ownership are reconciled against the
+    // enumerated physical IDs — identical-serial boards reduce to the same
+    // stable base, so only physical ownership can tell them apart. Devices
+    // without ownership fall back to the stable base ID.
+    bool isOrphan(Device d) {
+      final physicalId = _logicalToPhysicalDeviceId[d.deviceId];
+      if (physicalId != null) {
+        return !enumeratedPhysicalIds.contains(physicalId);
+      }
+      return !enumeratedStableIds.contains(
+        withoutUsbInterfaceSuffix(d.deviceId),
+      );
+    }
+
+    final orphan = connected.where(isOrphan).toList();
+    for (final orphan in orphan) {
       _log.warning(
         "Orphan GC: ${orphan.name}(${orphan.deviceId}) not in USB enumeration, forcing disconnect",
       );
@@ -418,41 +478,103 @@ class SerialServiceAndroid
       connected.remove(orphan);
       _devices.remove(orphan);
     }
-
-    devices.removeWhere((d) {
-      final usbStableId = computeUsbStableId(
-        vid: d.vid,
-        pid: d.pid,
-        serial: d.serial,
-      );
-      final isDuplicate = usbStableId != null
-          ? _devices.any((t) => t.deviceId == usbStableId)
-          : _devices.any((t) => t.deviceId == "${d.deviceId}");
-      if (isDuplicate) {
-        _log.fine(
-          "Skipping ${d.productName ?? d.deviceName}: "
-          "already connected as ${usbStableId ?? d.deviceId}",
-        );
-      }
-      return isDuplicate;
-    });
+    await _releaseDisconnected(orphan);
 
     _log.info("${devices.length} new devices to detect");
+    final seenMachineIds = <String>{};
     final results = await Future.wait(
       devices.map((d) async {
+        final found = <Device>[];
         try {
-          final device = await _runDetection(d);
-          _log.info("Port $d -> ${device ?? 'no device'}");
-          return device;
+          final machineId =
+              computeUsbStableId(vid: d.vid, pid: d.pid, serial: d.serial) ??
+              '${d.deviceId}';
+          if (!_devices.any((t) => t.deviceId == machineId) &&
+              seenMachineIds.add(machineId)) {
+            final device = await _runDetection(d);
+            if (device != null) {
+              found.add(device);
+              _recordPhysicalOwnership(device.deviceId, d);
+            }
+          }
         } catch (e, st) {
           _log.warning("Error detecting device on $d", e, st);
-          return null;
         }
+        try {
+          final tap = await _detectTap(d);
+          if (tap != null) found.add(tap);
+        } catch (e, st) {
+          _log.warning("Error detecting Bengle tap on $d", e, st);
+        }
+        return found;
       }),
     );
-    _devices.addAll(results.whereType<Device>());
+    _devices.addAll(results.expand((e) => e));
     _machineSubject.add(_devices);
   }
+
+  /// Detects the Bengle EBus tap on a composite Bengle device.
+  ///
+  /// Gated only on VID/PID plus interface count — never on product name and
+  /// never by probing or writing to the interface. The tap is opened through
+  /// the Android bulk-data interface 3 (the usb_serial fork derives the
+  /// control interface as `iface - 1`), while the logical identity and ID
+  /// keep denoting interface 2 (`-if02`). Identical-serial boards are
+  /// disambiguated by the physical `UsbDevice.deviceId` in the tap ID.
+  Future<Device?> _detectTap(UsbDevice device) async {
+    if (!isBengleCompositeWithTap(
+      vid: device.vid,
+      pid: device.pid,
+      interfaceCount: device.interfaceCount,
+    )) {
+      return null;
+    }
+    final tapStableId = computeUsbStableId(
+      vid: device.vid,
+      pid: device.pid,
+      serial: device.serial,
+      interfaceNumber: bengleEbusTapInterface,
+    );
+    final physicalId = device.deviceId;
+    final tapId = tapStableId == null
+        ? null
+        : physicalId == null
+        ? tapStableId
+        : '$tapStableId-$physicalId';
+    if (tapId != null && _devices.any((d) => d.deviceId == tapId)) {
+      return null;
+    }
+    final port = await (_createTapPort ?? _defaultCreateTapPort)(
+      device,
+      bengleEbusAndroidDataInterface,
+    );
+    if (port == null) {
+      _log.warning(
+        "failed to open Bengle tap data interface "
+        "$bengleEbusAndroidDataInterface on $device",
+      );
+      return null;
+    }
+    final transport = AndroidSerialPort(
+      device: device,
+      port: port,
+      interfaceNumber: bengleEbusTapInterface,
+      physicalInstanceId: physicalId,
+      dtrOn: true,
+      // The tap is binary-only: never enter the UTF-8/text log path.
+      decodeUtf8Text: false,
+    );
+    _transportForDeviceId[transport.id] = transport;
+    _recordPhysicalOwnership(transport.id, device);
+    _log.info(
+      "Bengle EBus tap on interface $bengleEbusTapInterface"
+      " (${transport.id})",
+    );
+    return BengleDebugPort(transport: transport);
+  }
+
+  static Future<UsbPort?> _defaultCreateTapPort(UsbDevice device, int iface) =>
+      device.create(UsbSerial.CDC, iface);
 
   Future<Device?> _detectDevice(UsbDevice device) async {
     _log.info("device name: ${device.productName}");
@@ -606,6 +728,7 @@ class SerialServiceAndroid
       await transport.dispose();
     }
     _transportForDeviceId.clear();
+    _logicalToPhysicalDeviceId.clear();
     await _attachedSubject.close();
     await _machineSubject.close();
   }
@@ -614,7 +737,12 @@ class SerialServiceAndroid
 class AndroidSerialPort implements SerialTransport {
   final UsbDevice _device;
   final UsbPort _port;
+  final int? _interfaceNumber;
+  final int? _physicalInstanceId;
+  final bool _dtrOn;
+  final bool _decodeUtf8Text;
   late Logger _log;
+  bool _disposed = false;
   final BehaviorSubject<ConnectionState> _open = BehaviorSubject.seeded(
     ConnectionState.discovered,
   );
@@ -622,15 +750,26 @@ class AndroidSerialPort implements SerialTransport {
   @override
   Stream<ConnectionState> get connectionState => _open.asBroadcastStream();
 
-  AndroidSerialPort({required UsbDevice device, required UsbPort port})
-    : _device = device,
-      _port = port {
+  AndroidSerialPort({
+    required UsbDevice device,
+    required UsbPort port,
+    int? interfaceNumber,
+    int? physicalInstanceId,
+    bool dtrOn = false,
+    bool decodeUtf8Text = true,
+  }) : _device = device,
+       _port = port,
+       _interfaceNumber = interfaceNumber,
+       _physicalInstanceId = physicalInstanceId,
+       _dtrOn = dtrOn,
+       _decodeUtf8Text = decodeUtf8Text {
     _log = Logger("Serial:${_device.deviceName}");
   }
   @override
   Future<void> disconnect() async {
+    if (_disposed) return;
     _log.info("disconnecting (id=$id, path=${_device.deviceName})");
-    _open.add(ConnectionState.disconnected);
+    if (!_open.isClosed) _open.add(ConnectionState.disconnected);
     _portSubscription?.cancel();
     await _port.close();
   }
@@ -641,8 +780,11 @@ class AndroidSerialPort implements SerialTransport {
       vid: _device.vid,
       pid: _device.pid,
       serial: _device.serial,
+      interfaceNumber: _interfaceNumber,
     );
-    return stable ?? "${_device.deviceId}";
+    final base = stable ?? "${_device.deviceId}";
+    final instance = _physicalInstanceId;
+    return instance == null ? base : "$base-$instance";
   }
 
   @override
@@ -662,7 +804,7 @@ class AndroidSerialPort implements SerialTransport {
       throw "Failed to open port";
     }
 
-    await _port.setDTR(false);
+    await _port.setDTR(_dtrOn);
     await _port.setRTS(false);
 
     _port.setPortParameters(
@@ -679,6 +821,7 @@ class AndroidSerialPort implements SerialTransport {
     _portSubscription = inputStream?.listen(
       (Uint8List event) {
         _rawController.add(event);
+        if (!_decodeUtf8Text) return;
         try {
           final input = utf8.decode(event);
           _log.finest("received serial input: $input");
@@ -727,8 +870,15 @@ class AndroidSerialPort implements SerialTransport {
 
   @override
   Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
     await _portSubscription?.cancel();
     _portSubscription = null;
+    try {
+      await _port.close();
+    } catch (e, st) {
+      _log.warning("dispose: _port.close failed", e, st);
+    }
     if (!_open.isClosed) _open.close();
     if (!_rawController.isClosed) _rawController.close();
     if (!_outputController.isClosed) _outputController.close();

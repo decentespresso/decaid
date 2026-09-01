@@ -47,7 +47,7 @@ void main() {
 
   test('attach emits a non-replaying hint with available metadata', () async {
     final event = service.deviceAttached.first;
-    service.handleUsbEvent(
+    await service.handleUsbEvent(
       _event(UsbEvent.ACTION_USB_ATTACHED, device: _device()),
     );
 
@@ -68,16 +68,16 @@ void main() {
       final events = <DeviceAttachedEvent>[];
       final subscription = service.deviceAttached.listen(events.add);
 
-      service.handleUsbEvent(
+      await service.handleUsbEvent(
         _event(UsbEvent.ACTION_USB_ATTACHED, device: _device(serial: null)),
       );
-      service.handleUsbEvent(
+      await service.handleUsbEvent(
         _event(
           UsbEvent.ACTION_USB_ATTACHED,
           device: _device(vid: null, pid: null, serial: null),
         ),
       );
-      service.handleUsbEvent(_event(UsbEvent.ACTION_USB_ATTACHED));
+      await service.handleUsbEvent(_event(UsbEvent.ACTION_USB_ATTACHED));
       await Future<void>.delayed(Duration.zero);
 
       expect(events, hasLength(3));
@@ -89,7 +89,7 @@ void main() {
 
   test('device support is not filtered by the attach notifier', () async {
     final event = service.deviceAttached.first;
-    service.handleUsbEvent(
+    await service.handleUsbEvent(
       _event(
         UsbEvent.ACTION_USB_ATTACHED,
         device: UsbDevice(
@@ -112,10 +112,10 @@ void main() {
     final events = <DeviceAttachedEvent>[];
     final subscription = service.deviceAttached.listen(events.add);
 
-    service.handleUsbEvent(
+    await service.handleUsbEvent(
       _event(UsbEvent.ACTION_USB_DETACHED, device: _device()),
     );
-    service.handleUsbEvent(_event('unknown'));
+    await service.handleUsbEvent(_event('unknown'));
     await Future<void>.delayed(Duration.zero);
 
     expect(events, isEmpty);
