@@ -959,6 +959,156 @@ void main() {
       },
     );
 
+    test(
+      'a plugin cannot monkey-patch Map.prototype to capture another plugin token',
+      () async {
+        final server = await startWsServer((ws) {
+          ws.listen((data) {
+            try {
+              ws.add(data);
+            } catch (_) {}
+          });
+        });
+        final armed = Completer<void>();
+        final capture = Completer<String>();
+        final echo = Completer<String>();
+        final sub = manager.emitStream.listen((e) {
+          if (e['event'] == 'armed' && !armed.isCompleted) armed.complete();
+          if (e['event'] == 'capture' && !capture.isCompleted) {
+            capture.complete(e['payload'] as String);
+          }
+          if (e['event'] == 'echo' && !echo.isCompleted) {
+            echo.complete(e['payload'] as String);
+          }
+        });
+        addTearDown(sub.cancel);
+
+        await manager.loadPlugin(
+          id: 'attacker.plugin',
+          manifest: testManifest(
+            'attacker.plugin',
+            permissions: const {
+              PluginPermissions.emit,
+              PluginPermissions.networkWebsocket,
+            },
+          ),
+          settings: {},
+          jsCode: '''
+          function createPlugin(host) {
+            return {
+              id: "attacker.plugin",
+              onLoad() {
+                const captured = [];
+                const sniff = (value) => {
+                  if (value && typeof value === "object" &&
+                      typeof value.resolve === "function" &&
+                      typeof value.reject === "function" &&
+                      typeof value.bridgeToken === "string") {
+                    captured.push("token:" + value.bridgeToken);
+                    captured.push("resolve");
+                    captured.push("reject");
+                  }
+                  return value;
+                };
+                const native = {
+                  set: Map.prototype.set,
+                  get: Map.prototype.get,
+                  delete: Map.prototype.delete,
+                  clear: Map.prototype.clear,
+                  forEach: Map.prototype.forEach,
+                  has: Map.prototype.has,
+                  values: Map.prototype.values,
+                  entries: Map.prototype.entries,
+                  keys: Map.prototype.keys,
+                  iterator: Map.prototype[Symbol.iterator]
+                };
+                Map.prototype.set = function (key, value) {
+                  sniff(value);
+                  return native.set.call(this, key, value);
+                };
+                Map.prototype.get = function (key) {
+                  return native.get.call(this, key);
+                };
+                Map.prototype.delete = function (key) {
+                  return native.delete.call(this, key);
+                };
+                Map.prototype.clear = function () {
+                  return native.clear.call(this);
+                };
+                Map.prototype.forEach = function (callback, thisArg) {
+                  return native.forEach.call(this, function (value, key, map) {
+                    sniff(value);
+                    return callback.call(thisArg, value, key, map);
+                  }, thisArg);
+                };
+                Map.prototype.has = function (key) {
+                  return native.has.call(this, key);
+                };
+                Map.prototype.values = function () {
+                  return native.values.call(this);
+                };
+                Map.prototype.entries = function () {
+                  return native.entries.call(this);
+                };
+                Map.prototype.keys = function () {
+                  return native.keys.call(this);
+                };
+                Map.prototype[Symbol.iterator] = function () {
+                  return native.iterator.call(this);
+                };
+                setTimeout(() => host.emit("capture", captured.join(",")), 500);
+                host.emit("armed", true);
+              }
+            };
+          }
+        ''',
+        );
+        await armed.future.timeout(const Duration(seconds: 5));
+
+        await manager.loadPlugin(
+          id: 'victim.plugin',
+          manifest: testManifest(
+            'victim.plugin',
+            permissions: const {
+              PluginPermissions.emit,
+              PluginPermissions.networkWebsocket,
+            },
+          ),
+          settings: {},
+          jsCode:
+              '''
+          function createPlugin(host) {
+            return {
+              id: "victim.plugin",
+              onLoad() {
+                host.transport.open({
+                  kind: "websocket",
+                  url: "ws://127.0.0.1:${server.port}/echo"
+                }).then((opened) => {
+                  host.transport.onEvent(opened.handle, (event) => {
+                    if (event.type === "data") {
+                      host.emit("echo", event.data);
+                    }
+                  });
+                  host.transport.send(opened.handle, { type: "text", data: "victim ping" });
+                });
+              }
+            };
+          }
+        ''',
+        );
+        expect(
+          await echo.future.timeout(const Duration(seconds: 5)),
+          'victim ping',
+        );
+        await manager.unloadPlugin('victim.plugin');
+        expect(
+          await capture.future.timeout(const Duration(seconds: 5)),
+          isEmpty,
+        );
+      },
+    );
+
     test('a handle cannot be reused by a newer plugin generation', () async {
       final server = await startWsServer((ws) {
         ws.listen((data) {

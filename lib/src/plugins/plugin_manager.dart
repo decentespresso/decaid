@@ -270,6 +270,8 @@ class PluginManager {
         const __nativeMapGet = Map.prototype.get;
         const __nativeMapSet = Map.prototype.set;
         const __nativeMapDelete = Map.prototype.delete;
+        const __nativeMapClear = Map.prototype.clear;
+        const __nativeMapForEach = Map.prototype.forEach;
 
         const __pendingDecentProxyRequests = new Map();
         let __decentProxySeq = 0;
@@ -290,6 +292,14 @@ class PluginManager {
 
         function __mapDelete(map, key) {
           return __nativeReflectApply(__nativeMapDelete, map, [key]);
+        }
+
+        function __mapClear(map) {
+          return __nativeReflectApply(__nativeMapClear, map, []);
+        }
+
+        function __mapForEach(map, callback) {
+          return __nativeReflectApply(__nativeMapForEach, map, [callback]);
         }
 
         function __pendingDecentProxyByPlugin(pluginId) {
@@ -577,18 +587,18 @@ class PluginManager {
           });
         });
         __frozenTransportGlobal("__transportRegister", function (requestId, entry) {
-          __transportPending.set(requestId, entry);
+          __mapSet(__transportPending, requestId, entry);
         });
         __frozenTransportGlobal("__transportSetListener", function (handle, pluginId, listener) {
-          __transportListeners.set(handle, { pluginId: pluginId, listener: listener });
+          __mapSet(__transportListeners, handle, { pluginId: pluginId, listener: listener });
         });
         __frozenTransportGlobal("__transportRemoveListener", function (handle) {
-          __transportListeners.delete(handle);
+          __mapDelete(__transportListeners, handle);
         });
         __frozenTransportGlobal("__handleTransportReply", function (msg) {
-          const pending = __transportPending.get(msg.requestId);
+          const pending = __mapGet(__transportPending, msg.requestId);
           if (!pending || pending.bridgeToken !== msg.bridgeToken) return;
-          __transportPending.delete(msg.requestId);
+          __mapDelete(__transportPending, msg.requestId);
           if (msg.error) {
             const error = new __NativeError(msg.error);
             if (msg.code) error.code = msg.code;
@@ -598,7 +608,7 @@ class PluginManager {
           pending.resolve(msg.result || {});
         });
         __frozenTransportGlobal("__dispatchTransportEvent", function (pluginId, handle, event) {
-          const record = __transportListeners.get(handle);
+          const record = __mapGet(__transportListeners, handle);
           if (!record || record.pluginId !== pluginId || !record.listener) return;
           try {
             record.listener(event);
@@ -607,25 +617,25 @@ class PluginManager {
           }
         });
         __frozenTransportGlobal("__rejectTransportPendingForToken", function (bridgeToken, error) {
-          for (const [requestId, pending] of __transportPending) {
-            if (pending.bridgeToken !== bridgeToken) continue;
-            __transportPending.delete(requestId);
+          __mapForEach(__transportPending, (pending, requestId) => {
+            if (pending.bridgeToken !== bridgeToken) return;
+            __mapDelete(__transportPending, requestId);
             pending.reject(new __NativeError(error));
-          }
+          });
         });
         __frozenTransportGlobal("__rejectAllTransportPending", function (error) {
-          for (const pending of __transportPending.values()) {
+          __mapForEach(__transportPending, (pending) => {
             pending.reject(new __NativeError(error));
-          }
-          __transportPending.clear();
+          });
+          __mapClear(__transportPending);
         });
         __frozenTransportGlobal("__clearTransportListenersForPlugin", function (pluginId) {
-          for (const [handle, record] of __transportListeners) {
-            if (record.pluginId === pluginId) __transportListeners.delete(handle);
-          }
+          __mapForEach(__transportListeners, (record, handle) => {
+            if (record.pluginId === pluginId) __mapDelete(__transportListeners, handle);
+          });
         });
         __frozenTransportGlobal("__clearAllTransportListeners", function () {
-          __transportListeners.clear();
+          __mapClear(__transportListeners);
         });
 
         Object.defineProperty(globalThis, "host", {
