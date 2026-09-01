@@ -224,16 +224,9 @@ class Skale2Scale implements Scale {
   }
 
   void _parseWeightNotification(List<int> data) {
-    double? weight;
-    if (data.length >= 5) {
-      var mantissa =
-          (data[1] & 0xFF) | ((data[2] & 0xFF) << 8) | ((data[3] & 0xFF) << 16);
-      if (mantissa & 0x800000 != 0) {
-        mantissa -= 0x1000000;
-      }
-      final rawExponent = data[4];
-      final exponent = rawExponent >= 0x80 ? rawExponent - 256 : rawExponent;
-      weight = mantissa * math.pow(10, exponent).toDouble();
+    double weight;
+    if (data.length == 5 || data.length == 9) {
+      weight = _decodeFirstWeightBlock(data);
     } else if (data.length == 4) {
       final byteData = ByteData(4);
       byteData.setUint8(0, data[0] & 0xFF);
@@ -252,6 +245,17 @@ class Skale2Scale implements Scale {
         batteryLevel: _batteryLevel,
       ),
     );
+  }
+
+  double _decodeFirstWeightBlock(List<int> data) {
+    var mantissa =
+        (data[1] & 0xFF) | ((data[2] & 0xFF) << 8) | ((data[3] & 0xFF) << 16);
+    if (mantissa & 0x800000 != 0) {
+      mantissa -= 0x1000000;
+    }
+    final rawExponent = data[4];
+    final exponent = rawExponent >= 0x80 ? rawExponent - 256 : rawExponent;
+    return mantissa * math.pow(10, exponent).toDouble();
   }
 
   void _parseButtonNotification(List<int> data) {}
