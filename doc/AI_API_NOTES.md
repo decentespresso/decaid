@@ -14,7 +14,7 @@ Read this when changing REST endpoints, WebSocket topics, API specs, auth proxy,
 
 - Update the spec file in the same commit as endpoint changes. The spec is authoritative — stale spec = stale agent knowledge.
 - Every handler has `addRoutes()`, registered in `webserver_service.dart` `_init()`.
-- Most handlers use `part of webserver_service.dart`. Standalone imports: `shots_handler`, `beans_handler`, `grinders_handler`, `workflow_handler`, `data_export_handler`, `data_sync_handler`, `info_handler`.
+- Most handlers use `part of webserver_service.dart`. Standalone imports: `shots_handler`, `beans_handler`, `grinders_handler`, `equipment_handler`, `workflow_handler`, `data_export_handler`, `data_sync_handler`, `info_handler`.
 - API docs served on port 4001. REST on port 8080.
 
 ## REST API Conventions

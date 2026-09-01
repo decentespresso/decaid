@@ -50,6 +50,7 @@ import 'package:reaprime/src/services/database/mappers/bean_mapper.dart';
 import 'package:reaprime/src/services/database/mappers/grinder_mapper.dart';
 import 'package:reaprime/src/services/storage/app_directories.dart';
 import 'package:reaprime/src/services/storage/drift_bean_storage.dart';
+import 'package:reaprime/src/services/storage/drift_equipment_storage.dart';
 import 'package:reaprime/src/services/storage/drift_grinder_storage.dart';
 import 'package:reaprime/src/services/storage/drift_profile_storage.dart';
 import 'package:reaprime/src/services/storage/bean_storage_service.dart';
@@ -310,6 +311,7 @@ void main(List<String> args) async {
 
   final beanStorage = DriftBeanStorageService(appDatabase);
   final grinderStorage = DriftGrinderStorageService(appDatabase);
+  final equipmentStorage = DriftEquipmentStorageService(appDatabase);
   final profileStorage = DriftProfileStorageService(appDatabase);
 
   final WorkflowController workflowController = WorkflowController();
@@ -552,6 +554,7 @@ void main(List<String> args) async {
       displayController,
       beanStorage: beanStorage,
       grinderStorage: grinderStorage,
+      equipmentStorage: equipmentStorage,
       connectionManager: connectionManager,
       backupSources: BackupDataSources(
         pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) async {

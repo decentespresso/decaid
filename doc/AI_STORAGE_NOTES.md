@@ -44,7 +44,7 @@ Gotchas:
 
 | Store | Owner | Purpose |
 |-------|-------|---------|
-| Drift DB | `AppDatabase` | Shots, workflows, beans, grinders, profiles, settings |
+| Drift DB | `AppDatabase` | Shots, workflows, beans, grinders, equipment, profiles, settings |
 | `SharedPreferences` | `SharedPreferencesSettingsService` | App settings (telemetry consent, feature flags, preferences) |
 | Secure store | `DecentAccountService`, `PluginLoaderService` | Account credentials, API tokens, secure plugin settings |
 | File system | `StorageService` | Data export, log files, skin assets |
@@ -67,7 +67,7 @@ libsecret.
 
 Persistence uses Drift (SQLite) via `AppDatabase`. DAOs in `lib/src/daos/`, mappers in `lib/src/mappers/`.
 
-**Key tables:** `shots`, `steams`, `workflows`, `profiles`, `beans`, `bean_batches`, `grinders`, `settings`.
+**Key tables:** `shots`, `steams`, `workflows`, `profiles`, `beans`, `bean_batches`, `grinders`, `equipment_records`, `settings`.
 
 **Schema migration:** The `@Database` annotation's `version` field is the schema version. Migrations run in `onUpgrade` callback. Each version bump needs a corresponding migration step.
 

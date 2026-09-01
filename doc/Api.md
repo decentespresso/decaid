@@ -34,6 +34,7 @@ The following list endpoints set a strong `ETag` on every `200 OK` response and 
 - `GET /api/v1/beans`
 - `GET /api/v1/beans/{beanId}/batches`
 - `GET /api/v1/grinders`
+- `GET /api/v1/equipment`
 - `GET /api/v1/profiles`
 - `GET /api/v1/shots` (per query-param combination — filters and pagination are part of the tag)
 
@@ -274,6 +275,18 @@ supplied values replace them. Explicit `null` for non-nullable fields returns
 | GET | `/api/v1/grinders/:id` | Get grinder | |
 | PUT | `/api/v1/grinders/:id` | Update grinder | |
 | DELETE | `/api/v1/grinders/:id` | Delete grinder | |
+
+### Equipment
+
+Baskets, portafilters, drippers, and other prep equipment that isn't a grinder. Filter the list with `?type=basket|portafilter|dripper|other`.
+
+| Method | Path | Description | Handler |
+|--------|------|-------------|---------|
+| GET | `/api/v1/equipment` | List all equipment, optionally filtered by `type` | `equipment_handler.dart` |
+| POST | `/api/v1/equipment` | Create equipment | |
+| GET | `/api/v1/equipment/:id` | Get equipment | |
+| PUT | `/api/v1/equipment/:id` | Update equipment | |
+| DELETE | `/api/v1/equipment/:id` | Delete equipment | |
 
 ### Settings
 

@@ -3071,6 +3071,664 @@ class GrindersCompanion extends UpdateCompanion<Grinder> {
   }
 }
 
+class $EquipmentRecordsTable extends EquipmentRecords
+    with TableInfo<$EquipmentRecordsTable, EquipmentRecord> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $EquipmentRecordsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _typeMeta = const VerificationMeta('type');
+  @override
+  late final GeneratedColumn<String> type = GeneratedColumn<String>(
+    'type',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('other'),
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _styleMeta = const VerificationMeta('style');
+  @override
+  late final GeneratedColumn<String> style = GeneratedColumn<String>(
+    'style',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _diameterMmMeta = const VerificationMeta(
+    'diameterMm',
+  );
+  @override
+  late final GeneratedColumn<double> diameterMm = GeneratedColumn<double>(
+    'diameter_mm',
+    aliasedName,
+    true,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _notesMeta = const VerificationMeta('notes');
+  @override
+  late final GeneratedColumn<String> notes = GeneratedColumn<String>(
+    'notes',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _archivedMeta = const VerificationMeta(
+    'archived',
+  );
+  @override
+  late final GeneratedColumn<bool> archived = GeneratedColumn<bool>(
+    'archived',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("archived" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  @override
+  late final GeneratedColumnWithTypeConverter<List<String>?, String> tools =
+      GeneratedColumn<String>(
+        'tools',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      ).withConverter<List<String>?>($EquipmentRecordsTable.$convertertools);
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  @override
+  late final GeneratedColumnWithTypeConverter<Map<String, dynamic>?, String>
+  extras =
+      GeneratedColumn<String>(
+        'extras',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      ).withConverter<Map<String, dynamic>?>(
+        $EquipmentRecordsTable.$converterextras,
+      );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    type,
+    name,
+    style,
+    diameterMm,
+    notes,
+    archived,
+    tools,
+    createdAt,
+    updatedAt,
+    extras,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'equipment_records';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<EquipmentRecord> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('type')) {
+      context.handle(
+        _typeMeta,
+        type.isAcceptableOrUnknown(data['type']!, _typeMeta),
+      );
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('style')) {
+      context.handle(
+        _styleMeta,
+        style.isAcceptableOrUnknown(data['style']!, _styleMeta),
+      );
+    }
+    if (data.containsKey('diameter_mm')) {
+      context.handle(
+        _diameterMmMeta,
+        diameterMm.isAcceptableOrUnknown(data['diameter_mm']!, _diameterMmMeta),
+      );
+    }
+    if (data.containsKey('notes')) {
+      context.handle(
+        _notesMeta,
+        notes.isAcceptableOrUnknown(data['notes']!, _notesMeta),
+      );
+    }
+    if (data.containsKey('archived')) {
+      context.handle(
+        _archivedMeta,
+        archived.isAcceptableOrUnknown(data['archived']!, _archivedMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  EquipmentRecord map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return EquipmentRecord(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      type: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}type'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      style: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}style'],
+      ),
+      diameterMm: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}diameter_mm'],
+      ),
+      notes: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}notes'],
+      ),
+      archived: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}archived'],
+      )!,
+      tools: $EquipmentRecordsTable.$convertertools.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.string,
+          data['${effectivePrefix}tools'],
+        ),
+      ),
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+      extras: $EquipmentRecordsTable.$converterextras.fromSql(
+        attachedDatabase.typeMapping.read(
+          DriftSqlType.string,
+          data['${effectivePrefix}extras'],
+        ),
+      ),
+    );
+  }
+
+  @override
+  $EquipmentRecordsTable createAlias(String alias) {
+    return $EquipmentRecordsTable(attachedDatabase, alias);
+  }
+
+  static TypeConverter<List<String>?, String?> $convertertools =
+      const NullableStringListConverter();
+  static TypeConverter<Map<String, dynamic>?, String?> $converterextras =
+      const NullableJsonMapConverter();
+}
+
+class EquipmentRecord extends DataClass implements Insertable<EquipmentRecord> {
+  final String id;
+  final String type;
+  final String name;
+  final String? style;
+  final double? diameterMm;
+  final String? notes;
+  final bool archived;
+  final List<String>? tools;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  final Map<String, dynamic>? extras;
+  const EquipmentRecord({
+    required this.id,
+    required this.type,
+    required this.name,
+    this.style,
+    this.diameterMm,
+    this.notes,
+    required this.archived,
+    this.tools,
+    required this.createdAt,
+    required this.updatedAt,
+    this.extras,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['type'] = Variable<String>(type);
+    map['name'] = Variable<String>(name);
+    if (!nullToAbsent || style != null) {
+      map['style'] = Variable<String>(style);
+    }
+    if (!nullToAbsent || diameterMm != null) {
+      map['diameter_mm'] = Variable<double>(diameterMm);
+    }
+    if (!nullToAbsent || notes != null) {
+      map['notes'] = Variable<String>(notes);
+    }
+    map['archived'] = Variable<bool>(archived);
+    if (!nullToAbsent || tools != null) {
+      map['tools'] = Variable<String>(
+        $EquipmentRecordsTable.$convertertools.toSql(tools),
+      );
+    }
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    if (!nullToAbsent || extras != null) {
+      map['extras'] = Variable<String>(
+        $EquipmentRecordsTable.$converterextras.toSql(extras),
+      );
+    }
+    return map;
+  }
+
+  EquipmentRecordsCompanion toCompanion(bool nullToAbsent) {
+    return EquipmentRecordsCompanion(
+      id: Value(id),
+      type: Value(type),
+      name: Value(name),
+      style: style == null && nullToAbsent
+          ? const Value.absent()
+          : Value(style),
+      diameterMm: diameterMm == null && nullToAbsent
+          ? const Value.absent()
+          : Value(diameterMm),
+      notes: notes == null && nullToAbsent
+          ? const Value.absent()
+          : Value(notes),
+      archived: Value(archived),
+      tools: tools == null && nullToAbsent
+          ? const Value.absent()
+          : Value(tools),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+      extras: extras == null && nullToAbsent
+          ? const Value.absent()
+          : Value(extras),
+    );
+  }
+
+  factory EquipmentRecord.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return EquipmentRecord(
+      id: serializer.fromJson<String>(json['id']),
+      type: serializer.fromJson<String>(json['type']),
+      name: serializer.fromJson<String>(json['name']),
+      style: serializer.fromJson<String?>(json['style']),
+      diameterMm: serializer.fromJson<double?>(json['diameterMm']),
+      notes: serializer.fromJson<String?>(json['notes']),
+      archived: serializer.fromJson<bool>(json['archived']),
+      tools: serializer.fromJson<List<String>?>(json['tools']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      extras: serializer.fromJson<Map<String, dynamic>?>(json['extras']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'type': serializer.toJson<String>(type),
+      'name': serializer.toJson<String>(name),
+      'style': serializer.toJson<String?>(style),
+      'diameterMm': serializer.toJson<double?>(diameterMm),
+      'notes': serializer.toJson<String?>(notes),
+      'archived': serializer.toJson<bool>(archived),
+      'tools': serializer.toJson<List<String>?>(tools),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'extras': serializer.toJson<Map<String, dynamic>?>(extras),
+    };
+  }
+
+  EquipmentRecord copyWith({
+    String? id,
+    String? type,
+    String? name,
+    Value<String?> style = const Value.absent(),
+    Value<double?> diameterMm = const Value.absent(),
+    Value<String?> notes = const Value.absent(),
+    bool? archived,
+    Value<List<String>?> tools = const Value.absent(),
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    Value<Map<String, dynamic>?> extras = const Value.absent(),
+  }) => EquipmentRecord(
+    id: id ?? this.id,
+    type: type ?? this.type,
+    name: name ?? this.name,
+    style: style.present ? style.value : this.style,
+    diameterMm: diameterMm.present ? diameterMm.value : this.diameterMm,
+    notes: notes.present ? notes.value : this.notes,
+    archived: archived ?? this.archived,
+    tools: tools.present ? tools.value : this.tools,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+    extras: extras.present ? extras.value : this.extras,
+  );
+  EquipmentRecord copyWithCompanion(EquipmentRecordsCompanion data) {
+    return EquipmentRecord(
+      id: data.id.present ? data.id.value : this.id,
+      type: data.type.present ? data.type.value : this.type,
+      name: data.name.present ? data.name.value : this.name,
+      style: data.style.present ? data.style.value : this.style,
+      diameterMm: data.diameterMm.present
+          ? data.diameterMm.value
+          : this.diameterMm,
+      notes: data.notes.present ? data.notes.value : this.notes,
+      archived: data.archived.present ? data.archived.value : this.archived,
+      tools: data.tools.present ? data.tools.value : this.tools,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      extras: data.extras.present ? data.extras.value : this.extras,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('EquipmentRecord(')
+          ..write('id: $id, ')
+          ..write('type: $type, ')
+          ..write('name: $name, ')
+          ..write('style: $style, ')
+          ..write('diameterMm: $diameterMm, ')
+          ..write('notes: $notes, ')
+          ..write('archived: $archived, ')
+          ..write('tools: $tools, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('extras: $extras')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    type,
+    name,
+    style,
+    diameterMm,
+    notes,
+    archived,
+    tools,
+    createdAt,
+    updatedAt,
+    extras,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is EquipmentRecord &&
+          other.id == this.id &&
+          other.type == this.type &&
+          other.name == this.name &&
+          other.style == this.style &&
+          other.diameterMm == this.diameterMm &&
+          other.notes == this.notes &&
+          other.archived == this.archived &&
+          other.tools == this.tools &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt &&
+          other.extras == this.extras);
+}
+
+class EquipmentRecordsCompanion extends UpdateCompanion<EquipmentRecord> {
+  final Value<String> id;
+  final Value<String> type;
+  final Value<String> name;
+  final Value<String?> style;
+  final Value<double?> diameterMm;
+  final Value<String?> notes;
+  final Value<bool> archived;
+  final Value<List<String>?> tools;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<Map<String, dynamic>?> extras;
+  final Value<int> rowid;
+  const EquipmentRecordsCompanion({
+    this.id = const Value.absent(),
+    this.type = const Value.absent(),
+    this.name = const Value.absent(),
+    this.style = const Value.absent(),
+    this.diameterMm = const Value.absent(),
+    this.notes = const Value.absent(),
+    this.archived = const Value.absent(),
+    this.tools = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.extras = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  EquipmentRecordsCompanion.insert({
+    required String id,
+    this.type = const Value.absent(),
+    required String name,
+    this.style = const Value.absent(),
+    this.diameterMm = const Value.absent(),
+    this.notes = const Value.absent(),
+    this.archived = const Value.absent(),
+    this.tools = const Value.absent(),
+    required DateTime createdAt,
+    required DateTime updatedAt,
+    this.extras = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       name = Value(name),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<EquipmentRecord> custom({
+    Expression<String>? id,
+    Expression<String>? type,
+    Expression<String>? name,
+    Expression<String>? style,
+    Expression<double>? diameterMm,
+    Expression<String>? notes,
+    Expression<bool>? archived,
+    Expression<String>? tools,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<String>? extras,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (type != null) 'type': type,
+      if (name != null) 'name': name,
+      if (style != null) 'style': style,
+      if (diameterMm != null) 'diameter_mm': diameterMm,
+      if (notes != null) 'notes': notes,
+      if (archived != null) 'archived': archived,
+      if (tools != null) 'tools': tools,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (extras != null) 'extras': extras,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  EquipmentRecordsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? type,
+    Value<String>? name,
+    Value<String?>? style,
+    Value<double?>? diameterMm,
+    Value<String?>? notes,
+    Value<bool>? archived,
+    Value<List<String>?>? tools,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? updatedAt,
+    Value<Map<String, dynamic>?>? extras,
+    Value<int>? rowid,
+  }) {
+    return EquipmentRecordsCompanion(
+      id: id ?? this.id,
+      type: type ?? this.type,
+      name: name ?? this.name,
+      style: style ?? this.style,
+      diameterMm: diameterMm ?? this.diameterMm,
+      notes: notes ?? this.notes,
+      archived: archived ?? this.archived,
+      tools: tools ?? this.tools,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      extras: extras ?? this.extras,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (type.present) {
+      map['type'] = Variable<String>(type.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (style.present) {
+      map['style'] = Variable<String>(style.value);
+    }
+    if (diameterMm.present) {
+      map['diameter_mm'] = Variable<double>(diameterMm.value);
+    }
+    if (notes.present) {
+      map['notes'] = Variable<String>(notes.value);
+    }
+    if (archived.present) {
+      map['archived'] = Variable<bool>(archived.value);
+    }
+    if (tools.present) {
+      map['tools'] = Variable<String>(
+        $EquipmentRecordsTable.$convertertools.toSql(tools.value),
+      );
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (extras.present) {
+      map['extras'] = Variable<String>(
+        $EquipmentRecordsTable.$converterextras.toSql(extras.value),
+      );
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('EquipmentRecordsCompanion(')
+          ..write('id: $id, ')
+          ..write('type: $type, ')
+          ..write('name: $name, ')
+          ..write('style: $style, ')
+          ..write('diameterMm: $diameterMm, ')
+          ..write('notes: $notes, ')
+          ..write('archived: $archived, ')
+          ..write('tools: $tools, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('extras: $extras, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $ShotRecordsTable extends ShotRecords
     with TableInfo<$ShotRecordsTable, ShotRecord> {
   @override
@@ -3525,9 +4183,6 @@ class ShotRecord extends DataClass implements Insertable<ShotRecord> {
   final double? targetYield;
   final double? enjoyment;
   final String? espressoNotes;
-
-  /// Why the shot ended (ShotDecisionReason.name, open set). Added in schema
-  /// v4; null for shots recorded before then or not sequenced by the app.
   final String? stopReason;
   final Map<String, dynamic> workflowJson;
   final Map<String, dynamic>? annotationsJson;
@@ -5411,12 +6066,16 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $BeansTable beans = $BeansTable(this);
   late final $BeanBatchesTable beanBatches = $BeanBatchesTable(this);
   late final $GrindersTable grinders = $GrindersTable(this);
+  late final $EquipmentRecordsTable equipmentRecords = $EquipmentRecordsTable(
+    this,
+  );
   late final $ShotRecordsTable shotRecords = $ShotRecordsTable(this);
   late final $SteamRecordsTable steamRecords = $SteamRecordsTable(this);
   late final $WorkflowsTable workflows = $WorkflowsTable(this);
   late final $ProfileRecordsTable profileRecords = $ProfileRecordsTable(this);
   late final BeanDao beanDao = BeanDao(this as AppDatabase);
   late final GrinderDao grinderDao = GrinderDao(this as AppDatabase);
+  late final EquipmentDao equipmentDao = EquipmentDao(this as AppDatabase);
   late final ShotDao shotDao = ShotDao(this as AppDatabase);
   late final SteamDao steamDao = SteamDao(this as AppDatabase);
   late final WorkflowDao workflowDao = WorkflowDao(this as AppDatabase);
@@ -5429,6 +6088,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     beans,
     beanBatches,
     grinders,
+    equipmentRecords,
     shotRecords,
     steamRecords,
     workflows,
@@ -7030,6 +7690,334 @@ typedef $$GrindersTableProcessedTableManager =
       Grinder,
       PrefetchHooks Function()
     >;
+typedef $$EquipmentRecordsTableCreateCompanionBuilder =
+    EquipmentRecordsCompanion Function({
+      required String id,
+      Value<String> type,
+      required String name,
+      Value<String?> style,
+      Value<double?> diameterMm,
+      Value<String?> notes,
+      Value<bool> archived,
+      Value<List<String>?> tools,
+      required DateTime createdAt,
+      required DateTime updatedAt,
+      Value<Map<String, dynamic>?> extras,
+      Value<int> rowid,
+    });
+typedef $$EquipmentRecordsTableUpdateCompanionBuilder =
+    EquipmentRecordsCompanion Function({
+      Value<String> id,
+      Value<String> type,
+      Value<String> name,
+      Value<String?> style,
+      Value<double?> diameterMm,
+      Value<String?> notes,
+      Value<bool> archived,
+      Value<List<String>?> tools,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+      Value<Map<String, dynamic>?> extras,
+      Value<int> rowid,
+    });
+
+class $$EquipmentRecordsTableFilterComposer
+    extends Composer<_$AppDatabase, $EquipmentRecordsTable> {
+  $$EquipmentRecordsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get type => $composableBuilder(
+    column: $table.type,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get style => $composableBuilder(
+    column: $table.style,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get diameterMm => $composableBuilder(
+    column: $table.diameterMm,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get notes => $composableBuilder(
+    column: $table.notes,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get archived => $composableBuilder(
+    column: $table.archived,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnWithTypeConverterFilters<List<String>?, List<String>, String>
+  get tools => $composableBuilder(
+    column: $table.tools,
+    builder: (column) => ColumnWithTypeConverterFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnWithTypeConverterFilters<
+    Map<String, dynamic>?,
+    Map<String, dynamic>,
+    String
+  >
+  get extras => $composableBuilder(
+    column: $table.extras,
+    builder: (column) => ColumnWithTypeConverterFilters(column),
+  );
+}
+
+class $$EquipmentRecordsTableOrderingComposer
+    extends Composer<_$AppDatabase, $EquipmentRecordsTable> {
+  $$EquipmentRecordsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get type => $composableBuilder(
+    column: $table.type,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get style => $composableBuilder(
+    column: $table.style,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get diameterMm => $composableBuilder(
+    column: $table.diameterMm,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get notes => $composableBuilder(
+    column: $table.notes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get archived => $composableBuilder(
+    column: $table.archived,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get tools => $composableBuilder(
+    column: $table.tools,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get extras => $composableBuilder(
+    column: $table.extras,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$EquipmentRecordsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $EquipmentRecordsTable> {
+  $$EquipmentRecordsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get type =>
+      $composableBuilder(column: $table.type, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get style =>
+      $composableBuilder(column: $table.style, builder: (column) => column);
+
+  GeneratedColumn<double> get diameterMm => $composableBuilder(
+    column: $table.diameterMm,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get notes =>
+      $composableBuilder(column: $table.notes, builder: (column) => column);
+
+  GeneratedColumn<bool> get archived =>
+      $composableBuilder(column: $table.archived, builder: (column) => column);
+
+  GeneratedColumnWithTypeConverter<List<String>?, String> get tools =>
+      $composableBuilder(column: $table.tools, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumnWithTypeConverter<Map<String, dynamic>?, String> get extras =>
+      $composableBuilder(column: $table.extras, builder: (column) => column);
+}
+
+class $$EquipmentRecordsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $EquipmentRecordsTable,
+          EquipmentRecord,
+          $$EquipmentRecordsTableFilterComposer,
+          $$EquipmentRecordsTableOrderingComposer,
+          $$EquipmentRecordsTableAnnotationComposer,
+          $$EquipmentRecordsTableCreateCompanionBuilder,
+          $$EquipmentRecordsTableUpdateCompanionBuilder,
+          (
+            EquipmentRecord,
+            BaseReferences<
+              _$AppDatabase,
+              $EquipmentRecordsTable,
+              EquipmentRecord
+            >,
+          ),
+          EquipmentRecord,
+          PrefetchHooks Function()
+        > {
+  $$EquipmentRecordsTableTableManager(
+    _$AppDatabase db,
+    $EquipmentRecordsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$EquipmentRecordsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$EquipmentRecordsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$EquipmentRecordsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> type = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<String?> style = const Value.absent(),
+                Value<double?> diameterMm = const Value.absent(),
+                Value<String?> notes = const Value.absent(),
+                Value<bool> archived = const Value.absent(),
+                Value<List<String>?> tools = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<Map<String, dynamic>?> extras = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => EquipmentRecordsCompanion(
+                id: id,
+                type: type,
+                name: name,
+                style: style,
+                diameterMm: diameterMm,
+                notes: notes,
+                archived: archived,
+                tools: tools,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                extras: extras,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                Value<String> type = const Value.absent(),
+                required String name,
+                Value<String?> style = const Value.absent(),
+                Value<double?> diameterMm = const Value.absent(),
+                Value<String?> notes = const Value.absent(),
+                Value<bool> archived = const Value.absent(),
+                Value<List<String>?> tools = const Value.absent(),
+                required DateTime createdAt,
+                required DateTime updatedAt,
+                Value<Map<String, dynamic>?> extras = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => EquipmentRecordsCompanion.insert(
+                id: id,
+                type: type,
+                name: name,
+                style: style,
+                diameterMm: diameterMm,
+                notes: notes,
+                archived: archived,
+                tools: tools,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                extras: extras,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$EquipmentRecordsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $EquipmentRecordsTable,
+      EquipmentRecord,
+      $$EquipmentRecordsTableFilterComposer,
+      $$EquipmentRecordsTableOrderingComposer,
+      $$EquipmentRecordsTableAnnotationComposer,
+      $$EquipmentRecordsTableCreateCompanionBuilder,
+      $$EquipmentRecordsTableUpdateCompanionBuilder,
+      (
+        EquipmentRecord,
+        BaseReferences<_$AppDatabase, $EquipmentRecordsTable, EquipmentRecord>,
+      ),
+      EquipmentRecord,
+      PrefetchHooks Function()
+    >;
 typedef $$ShotRecordsTableCreateCompanionBuilder =
     ShotRecordsCompanion Function({
       required String id,
@@ -8209,6 +9197,8 @@ class $AppDatabaseManager {
       $$BeanBatchesTableTableManager(_db, _db.beanBatches);
   $$GrindersTableTableManager get grinders =>
       $$GrindersTableTableManager(_db, _db.grinders);
+  $$EquipmentRecordsTableTableManager get equipmentRecords =>
+      $$EquipmentRecordsTableTableManager(_db, _db.equipmentRecords);
   $$ShotRecordsTableTableManager get shotRecords =>
       $$ShotRecordsTableTableManager(_db, _db.shotRecords);
   $$SteamRecordsTableTableManager get steamRecords =>
