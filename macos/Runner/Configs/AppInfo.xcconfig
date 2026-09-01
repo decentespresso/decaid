@@ -5,10 +5,10 @@
 // 'flutter create' template.
 
 // The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = Decaid
+PRODUCT_NAME = reaprime
 
 // The application's bundle identifier
 PRODUCT_BUNDLE_IDENTIFIER = net.tadel.reaprime
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2025 net.tadel. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 net.tadel. All rights reserved.

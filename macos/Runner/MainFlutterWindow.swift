@@ -10,10 +10,6 @@ class MainFlutterWindow: NSWindow {
 
     RegisterGeneratedPlugins(registry: flutterViewController)
 
-    if let appDelegate = NSApplication.shared.delegate as? AppDelegate {
-      appDelegate.macosUpdater = MacOSUpdater.register(with: flutterViewController)
-    }
-
     super.awakeFromNib()
   }
 }
