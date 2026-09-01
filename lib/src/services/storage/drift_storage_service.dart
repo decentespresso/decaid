@@ -14,7 +14,15 @@ class DriftStorageService implements StorageService {
 
   @override
   Future<void> storeShot(domain.ShotRecord record) {
-    return _db.shotDao.insertShot(ShotMapper.toCompanion(record));
+    final now = DateTime.now().toUtc();
+    return _db.shotDao.insertShot(
+      ShotMapper.toCompanion(
+        record.copyWith(
+          createdAt: record.createdAt ?? now,
+          updatedAt: record.updatedAt ?? now,
+        ),
+      ),
+    );
   }
 
   @override

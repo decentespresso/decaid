@@ -9,6 +9,8 @@ import 'package:reaprime/src/services/webserver/json_response.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
 class ShotsHandler {
+  static const _bookkeepingExtrasKeys = {'uploaded_to_decent', 'visualizerId'};
+
   final PersistenceController _controller;
   final BeanStorageService? _beanStorage;
   final PluginManager? _pluginManager;
@@ -204,6 +206,12 @@ class ShotsHandler {
         });
       }
 
+      if (json.containsKey('measurements')) {
+        return jsonBadRequest({
+          "error": "measurements is not editable via this endpoint",
+        });
+      }
+
       final existingShot = await _controller.storageService.getShot(id);
       if (existingShot == null) {
         return jsonNotFound({"error": "Shot not found"});
@@ -221,7 +229,11 @@ class ShotsHandler {
         existingShot.toJsonWithoutMeasurements(),
       );
       merged['updatedAt'] =
-          (contentChanged ? DateTime.now() : existingShot.updatedAt)
+          (contentChanged
+                  ? DateTime.now().toUtc()
+                  : existingShot.updatedAt ??
+                        existingShot.createdAt ??
+                        existingShot.timestamp)
               .toIso8601String();
 
       final updatedShot = ShotRecord.fromJson(merged);
@@ -344,8 +356,13 @@ class ShotsHandler {
       ..remove('metadata');
     final annotations = copy['annotations'];
     if (annotations is Map<String, dynamic>) {
-      copy['annotations'] = Map<String, dynamic>.from(annotations)
-        ..remove('extras');
+      final normalized = Map<String, dynamic>.from(annotations);
+      final extras = normalized['extras'];
+      if (extras is Map<String, dynamic>) {
+        normalized['extras'] = Map<String, dynamic>.from(extras)
+          ..removeWhere((key, _) => _bookkeepingExtrasKeys.contains(key));
+      }
+      copy['annotations'] = normalized;
     }
     return copy;
   }

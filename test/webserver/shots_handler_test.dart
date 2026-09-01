@@ -328,6 +328,35 @@ void main() {
       }
     });
 
+    test('non-bookkeeping extras change advances updatedAt', () async {
+      await persistAnnotatedShot();
+
+      final before = await decode(await sendGet('/api/v1/shots/annotated'));
+
+      final (putJson, getJson) = await putAndGet('annotated', {
+        'annotations': {
+          'extras': {'favorite': true},
+        },
+      });
+
+      for (final json in [putJson, getJson]) {
+        expect(
+          DateTime.parse(
+            json['updatedAt'],
+          ).isAfter(DateTime.parse(before['updatedAt'] as String)),
+          isTrue,
+        );
+      }
+    });
+
+    test('PUT with measurements is rejected', () async {
+      await persistAnnotatedShot();
+
+      final response = await sendPut('annotated', {'measurements': []});
+      expect(response.statusCode, 400);
+      expect((await decode(response))['error'], contains('measurements'));
+    });
+
     test('content patch advances updatedAt', () async {
       await persistAnnotatedShot();
 
@@ -338,6 +367,7 @@ void main() {
       });
 
       for (final json in [putJson, getJson]) {
+        expect(json['updatedAt'], endsWith('Z'));
         expect(
           DateTime.parse(
             json['updatedAt'],

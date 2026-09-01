@@ -23,8 +23,8 @@ class ShotMapper {
     return domain.ShotRecord(
       id: row.id,
       timestamp: row.timestamp,
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
+      createdAt: row.createdAt ?? row.timestamp,
+      updatedAt: row.updatedAt ?? row.createdAt ?? row.timestamp,
       measurements: measurements,
       workflow: workflow,
       annotations: annotations,

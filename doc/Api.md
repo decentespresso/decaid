@@ -176,15 +176,17 @@ fields. Consumers must not infer missing capture-time identity from the machine
 that happens to be connected when a record is read.
 
 **Modification tracking.** Every shot carries `createdAt` and `updatedAt`
-(ISO-8601 UTC). `updatedAt` advances only when shot *content* changes:
+(ISO-8601 UTC). `createdAt` is set when the shot enters local storage; the
+extraction `timestamp` is the fallback for legacy records that predate the
+field. `updatedAt` advances only when shot *content* changes:
 `PUT /api/v1/shots/:id` bumps it iff the merged record differs outside the
-bookkeeping area. The bookkeeping area is `annotations.extras` (plus its
-legacy alias `metadata`) — the reserved scratch space for plugin sync state
-such as `uploaded_to_decent` or `visualizerId`. Writes confined to that area
-persist without touching `updatedAt`, so consumers can reconcile edits by
-comparing `updatedAt` against their own sync marker without feedback loops.
-`measurements` is also excluded from the comparison; the PUT patch mechanism
-is not a measurements editing surface.
+bookkeeping keys. The bookkeeping keys are `uploaded_to_decent` and
+`visualizerId` inside `annotations.extras` (the reserved scratch space for
+plugin sync state). Writes confined to those keys persist without touching
+`updatedAt`, so consumers can reconcile edits by comparing `updatedAt`
+against their own sync marker without feedback loops. All other `extras`
+keys count as content. `measurements` is not editable through this endpoint:
+a PUT body containing it is rejected with 400.
 
 ### Steams
 

@@ -4,6 +4,7 @@ import 'package:reaprime/src/controllers/workflow_controller.dart';
 import 'package:reaprime/src/models/data/shot_record.dart' as domain;
 import 'package:reaprime/src/services/database/database.dart';
 import 'package:reaprime/src/services/database/mappers/shot_mapper.dart';
+import 'package:reaprime/src/services/storage/drift_storage_service.dart';
 
 void main() {
   late AppDatabase db;
@@ -56,5 +57,22 @@ void main() {
 
     final row = await db.shotDao.getShotById('shot-1');
     expect(ShotMapper.fromRow(row!).updatedAt, editedAt);
+  });
+
+  test('storeShot stamps createdAt and updatedAt at insertion', () async {
+    final storage = DriftStorageService(db);
+    await storage.storeShot(makeRecord());
+
+    final row = await db.shotDao.getShotById('shot-1');
+    final restored = ShotMapper.fromRow(row!);
+
+    expect(restored.createdAt, isNotNull);
+    expect(restored.updatedAt, isNotNull);
+    expect(restored.createdAt!.isUtc, isTrue);
+    expect(restored.updatedAt!.isUtc, isTrue);
+    expect(
+      DateTime.now().toUtc().difference(restored.updatedAt!).inSeconds,
+      lessThan(10),
+    );
   });
 }
