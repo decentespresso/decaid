@@ -225,11 +225,10 @@ jobs:
       # bundler here — it makes 4+ unauthenticated api.github.com calls per
       # run and contributes nothing to test coverage. Develop/release
       # workflows still run the real bundler via flutter_with_commit.sh.
-      - name: Stub bundled_skins (CI only)
+      - name: Generate bundled_skins manifest
+        shell: bash
         run: |
-          mkdir -p assets/bundled_skins
-          printf '["stub-skin"]\n' > assets/bundled_skins/manifest.json
-          : > assets/bundled_skins/stub-skin.zip
+          ./scripts/generate_bundled_skins_manifest.sh
 
       - name: Flutter analyze
         run: flutter analyze --no-pub
