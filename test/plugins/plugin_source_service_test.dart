@@ -807,6 +807,19 @@ function createPlugin() {
         expect(source.assetName, isNull);
       });
 
+      test('bundled dcamp gets its canonical repo', () async {
+        const pluginId = 'dcamp.reaplugin';
+        await installBundledCopy(pluginId: pluginId, version: '0.1.0');
+
+        service.seedBundledSources();
+
+        final source = service.sourceFor(pluginId)!;
+        expect(source.kind, PluginSourceKind.githubRelease);
+        expect(source.repo, 'decentespresso/decaid-dcamp-plugin');
+        expect(source.releaseTag, 'v0.1.0');
+        expect(source.assetName, isNull);
+      });
+
       test('an existing DYE2 without metadata is migrated', () async {
         await installBundledCopy();
         expect(service.sourceFor(dye2Id), isNull);

@@ -27,6 +27,7 @@ final _releaseTagPattern = RegExp(r'^v?\d+\.\d+\.\d+$');
 const bundledPluginRepos = <String, String>{
   'dye2.reaplugin': 'decentespresso/dye2',
   'shot-upload.reaplugin': 'decentespresso/shot-upload',
+  'dcamp.reaplugin': 'decentespresso/decaid-dcamp-plugin',
 };
 
 class PluginSourceService {

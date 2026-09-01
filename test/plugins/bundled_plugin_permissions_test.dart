@@ -24,6 +24,7 @@ void main() {
     },
     'settings.reaplugin': {PluginPermissions.log, PluginPermissions.api},
     'dye2.reaplugin': {PluginPermissions.log, PluginPermissions.api},
+    'dcamp.reaplugin': {PluginPermissions.log, PluginPermissions.api},
     'decent-profile.reaplugin': {
       PluginPermissions.log,
       PluginPermissions.api,

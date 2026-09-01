@@ -59,6 +59,7 @@ app.*.map.json
 # Externally released plugin build outputs
 assets/plugins/dye2.reaplugin/
 assets/plugins/shot-upload.reaplugin/
+assets/plugins/dcamp.reaplugin/
 
 # Skin bundling
 .skin_cache/
