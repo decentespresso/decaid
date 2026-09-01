@@ -216,6 +216,14 @@ class ShotsHandler {
       _synchronizeLegacyAnnotationAliases(merged);
       merged['id'] = id;
 
+      final contentChanged = !_contentEquals(
+        merged,
+        existingShot.toJsonWithoutMeasurements(),
+      );
+      merged['updatedAt'] =
+          (contentChanged ? DateTime.now() : existingShot.updatedAt)
+              .toIso8601String();
+
       final updatedShot = ShotRecord.fromJson(merged);
       await _controller.updateShot(updatedShot);
       _log.info("Broadcasting shotUpdated for ${updatedShot.id}");
@@ -319,5 +327,26 @@ class ShotsHandler {
       }
     }
     return result;
+  }
+
+  bool _contentEquals(
+    Map<String, dynamic> merged,
+    Map<String, dynamic> existing,
+  ) {
+    return jsonEncode(_contentOnly(merged)) ==
+        jsonEncode(_contentOnly(existing));
+  }
+
+  Map<String, dynamic> _contentOnly(Map<String, dynamic> json) {
+    final copy = Map<String, dynamic>.from(json)
+      ..remove('updatedAt')
+      ..remove('measurements')
+      ..remove('metadata');
+    final annotations = copy['annotations'];
+    if (annotations is Map<String, dynamic>) {
+      copy['annotations'] = Map<String, dynamic>.from(annotations)
+        ..remove('extras');
+    }
+    return copy;
   }
 }

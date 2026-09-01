@@ -308,6 +308,44 @@ void main() {
         expect(json['metadata'], json['annotations']['extras']);
       }
     });
+
+    test('bookkeeping-only patch preserves updatedAt', () async {
+      await persistAnnotatedShot();
+
+      final before = await decode(await sendGet('/api/v1/shots/annotated'));
+
+      final (putJson, getJson) = await putAndGet('annotated', {
+        'annotations': {
+          'extras': {'uploaded_to_decent': 1767230000},
+        },
+      });
+
+      for (final json in [putJson, getJson]) {
+        expect(
+          DateTime.parse(json['updatedAt']),
+          DateTime.parse(before['updatedAt'] as String),
+        );
+      }
+    });
+
+    test('content patch advances updatedAt', () async {
+      await persistAnnotatedShot();
+
+      final before = await decode(await sendGet('/api/v1/shots/annotated'));
+
+      final (putJson, getJson) = await putAndGet('annotated', {
+        'annotations': {'espressoNotes': 'edited'},
+      });
+
+      for (final json in [putJson, getJson]) {
+        expect(
+          DateTime.parse(
+            json['updatedAt'],
+          ).isAfter(DateTime.parse(before['updatedAt'] as String)),
+          isTrue,
+        );
+      }
+    });
   });
 }
 

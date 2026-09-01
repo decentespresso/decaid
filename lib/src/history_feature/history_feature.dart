@@ -989,6 +989,7 @@ class _HistoryFeatureState extends State<HistoryFeature> {
                     );
                 final updatedShot = record.copyWith(
                   annotations: updatedAnnotations,
+                  updatedAt: DateTime.now(),
                 );
                 await widget.persistenceController.updateShot(updatedShot);
                 if (!context.mounted) return;

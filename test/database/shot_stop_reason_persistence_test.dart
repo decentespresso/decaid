@@ -43,4 +43,18 @@ void main() {
     final row = await db.shotDao.getShotById('shot-1');
     expect(ShotMapper.fromRow(row!).stopReason, isNull);
   });
+
+  test('updateShot persists the record updatedAt, not a fresh now()', () async {
+    await db.shotDao.insertShot(ShotMapper.toCompanion(makeRecord()));
+
+    final editedAt = DateTime.utc(2026, 6, 17, 10, 30);
+    await db.shotDao.updateShot(
+      ShotMapper.toCompanion(
+        makeRecord(stopReason: 'manual').copyWith(updatedAt: editedAt),
+      ),
+    );
+
+    final row = await db.shotDao.getShotById('shot-1');
+    expect(ShotMapper.fromRow(row!).updatedAt, editedAt);
+  });
 }
