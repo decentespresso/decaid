@@ -149,10 +149,20 @@ class PluginTransportService {
       final socket = record.socket!;
       _reserveOutbound(record, bytes.length);
       socket.add(bytes);
+      final write = Completer<void>();
+      record.tcpFlushes.add(write.future);
       unawaited(
         socket.flush().then<void>(
-          (_) => _releaseOutbound(record, bytes.length),
-          onError: (Object _) => _releaseOutbound(record, bytes.length),
+          (_) {
+            _releaseOutbound(record, bytes.length);
+            record.tcpFlushes.remove(write.future);
+            if (!write.isCompleted) write.complete();
+          },
+          onError: (Object _) {
+            _releaseOutbound(record, bytes.length);
+            record.tcpFlushes.remove(write.future);
+            if (!write.isCompleted) write.complete();
+          },
         ),
       );
       return;
@@ -165,6 +175,8 @@ class PluginTransportService {
   Future<void> close(String pluginId, int generation, String handle) async {
     final record = _recordFor(pluginId, generation, handle);
     _checkOpen(record);
+    record.closing = true;
+    await _awaitOutbound(record);
     final ws = record.webSocket;
     if (ws != null) {
       try {
@@ -288,9 +300,15 @@ class PluginTransportService {
     unawaited(_drainOutbound(record));
   }
 
-  Future<void> _drainOutbound(_TransportRecord record) async {
-    if (record.outboundWriting) return;
-    record.outboundWriting = true;
+  Future<void> _drainOutbound(_TransportRecord record) {
+    final existing = record.outboundDrain;
+    if (existing != null) return existing;
+    final drain = _runOutboundDrain(record);
+    record.outboundDrain = drain;
+    return drain;
+  }
+
+  Future<void> _runOutboundDrain(_TransportRecord record) async {
     try {
       while (!record.terminal && record.outboundQueue.isNotEmpty) {
         final frame = record.outboundQueue.first;
@@ -305,8 +323,25 @@ class PluginTransportService {
         _releaseOutbound(record, frame.size);
       }
     } finally {
-      record.outboundWriting = false;
+      record.outboundDrain = null;
     }
+  }
+
+  Future<void> _awaitOutbound(_TransportRecord record) async {
+    final ws = record.webSocket;
+    if (ws != null) {
+      final drain = record.outboundDrain;
+      if (drain == null) return;
+      try {
+        await drain.timeout(_closeTimeout);
+      } catch (_) {}
+      return;
+    }
+    final pending = record.tcpFlushes.toList();
+    if (pending.isEmpty) return;
+    try {
+      await Future.wait(pending).timeout(_closeTimeout);
+    } catch (_) {}
   }
 
   String _hostOption(Map<String, dynamic> options) {
@@ -423,17 +458,25 @@ class PluginTransportService {
   void _closeNative(_TransportRecord record) {
     final ws = record.webSocket;
     if (ws != null) {
-      unawaited(
-        ws.close(1000).timeout(_closeTimeout).catchError((Object _) {}),
-      );
+      unawaited(_awaitOutbound(record).then((_) => _closeWebSocket(record)));
       return;
     }
     final socket = record.socket;
     if (socket != null) {
-      try {
-        socket.destroy();
-      } catch (_) {}
+      unawaited(
+        _awaitOutbound(record).then((_) {
+          try {
+            socket.destroy();
+          } catch (_) {}
+        }),
+      );
     }
+  }
+
+  void _closeWebSocket(_TransportRecord record) {
+    final ws = record.webSocket;
+    if (ws == null) return;
+    unawaited(ws.close(1000).timeout(_closeTimeout).catchError((Object _) {}));
   }
 
   Map<String, dynamic> _closeEvent(_TransportRecord record) {
@@ -464,7 +507,7 @@ class PluginTransportService {
   }
 
   void _checkOpen(_TransportRecord record) {
-    if (record.terminal) {
+    if (record.terminal || record.closing) {
       throw const PluginTransportException('Transport already closed');
     }
   }
@@ -534,9 +577,11 @@ class _TransportRecord {
   Socket? socket;
   bool delivering = false;
   bool terminal = false;
+  bool closing = false;
   int outboundBytes = 0;
   final Queue<_OutboundFrame> outboundQueue = Queue();
-  bool outboundWriting = false;
+  Future<void>? outboundDrain;
+  final List<Future<void>> tcpFlushes = [];
   final Queue<_QueuedEvent> inboundQueue = Queue();
   int inboundBytes = 0;
 }

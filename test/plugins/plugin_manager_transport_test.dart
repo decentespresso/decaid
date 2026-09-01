@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/plugins/plugin_manager.dart';
@@ -78,8 +79,10 @@ Future<ServerSocket> startTcpServer(
   return server;
 }
 
-class _BlockingWebSocket implements WebSocket {
+class _GatedWebSocket implements WebSocket {
   final List<Object> written = [];
+  final List<Completer<void>> addStreamGates = [];
+  bool closed = false;
   @override
   int readyState = WebSocket.open;
   @override
@@ -99,11 +102,14 @@ class _BlockingWebSocket implements WebSocket {
   @override
   Future<void> addStream(Stream<dynamic> stream) {
     stream.listen((data) => written.add(data));
-    return Completer<void>().future;
+    final gate = Completer<void>();
+    addStreamGates.add(gate);
+    return gate.future;
   }
 
   @override
   Future<void> close([int? code, String? reason]) async {
+    closed = true;
     closeCode = code;
     closeReason = reason;
     readyState = WebSocket.closed;
@@ -121,6 +127,65 @@ class _BlockingWebSocket implements WebSocket {
     onDone: onDone,
     cancelOnError: cancelOnError,
   );
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _RecordingSocket implements Socket {
+  _RecordingSocket(this._inner);
+
+  final Socket _inner;
+  final List<String> calls = [];
+  final List<Completer<void>> flushGates = [];
+
+  Future<void> releaseFlush() async {
+    final gate = flushGates.removeAt(0);
+    gate.complete();
+    await _inner.flush();
+  }
+
+  @override
+  void add(List<int> data) {
+    calls.add('add');
+    _inner.add(data);
+  }
+
+  @override
+  Future<void> flush() {
+    calls.add('flush');
+    final gate = Completer<void>();
+    flushGates.add(gate);
+    return gate.future;
+  }
+
+  @override
+  Future<void> close() {
+    calls.add('close');
+    return _inner.close();
+  }
+
+  @override
+  void destroy() {
+    calls.add('destroy');
+    _inner.destroy();
+  }
+
+  @override
+  StreamSubscription<Uint8List> listen(
+    void Function(Uint8List event)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) {
+    calls.add('listen');
+    return _inner.listen(
+      onData,
+      onError: onError,
+      onDone: onDone,
+      cancelOnError: cancelOnError,
+    );
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -430,6 +495,65 @@ void main() {
       expect(result, 'closed');
       await closed.future.timeout(const Duration(seconds: 5));
     });
+
+    test(
+      'close waits for an accepted write before closing the socket',
+      () async {
+        final ws = _GatedWebSocket();
+        final manager = PluginManager(
+          kvStore: FakeKeyValueStoreService(),
+          fetchTimeout: const Duration(seconds: 2),
+          connectWebSocket: (url, {protocols}) async => ws,
+        );
+        addTearDown(manager.dispose);
+        final sent = Completer<void>();
+        final result = Completer<Object?>();
+        final sub = manager.emitStream.listen((e) {
+          if (e['event'] == 'sent' && !sent.isCompleted) sent.complete();
+          if (e['event'] == 'result' && !result.isCompleted) {
+            result.complete(e['payload']);
+          }
+        });
+        addTearDown(sub.cancel);
+        await manager.loadPlugin(
+          id: 'closera.plugin',
+          manifest: testManifest(
+            'closera.plugin',
+            permissions: const {
+              PluginPermissions.emit,
+              PluginPermissions.networkWebsocket,
+            },
+          ),
+          settings: {},
+          jsCode: '''
+          function createPlugin(host) {
+            return {
+              id: "closera.plugin",
+              onLoad() {
+                host.transport.open({
+                  kind: "websocket",
+                  url: "ws://127.0.0.1:1/x"
+                }).then((opened) => {
+                  return host.transport.send(opened.handle, { type: "text", data: "accepted" })
+                    .then(() => { host.emit("sent", 1); return host.transport.close(opened.handle); });
+                }).then(() => host.emit("result", "closed"));
+              }
+            };
+          }
+        ''',
+        );
+        await sent.future.timeout(const Duration(seconds: 5));
+        expect(ws.addStreamGates, hasLength(1));
+        expect(ws.closed, isFalse);
+        ws.addStreamGates.single.complete();
+        expect(
+          await result.future.timeout(const Duration(seconds: 5)),
+          'closed',
+        );
+        expect(ws.closed, isTrue);
+        expect(ws.written, ['accepted']);
+      },
+    );
   });
 
   group('tcp', () {
@@ -501,6 +625,76 @@ void main() {
       expect(error['message'], contains('Text frames'));
       expect(error['code'], 'transport_error');
     });
+
+    test(
+      'close waits for accepted tcp writes to flush before closing',
+      () async {
+        final server = await startTcpServer((socket) {
+          socket.listen((chunk) {}, onError: (Object _) {});
+        });
+        late _RecordingSocket recording;
+        final manager = PluginManager(
+          kvStore: FakeKeyValueStoreService(),
+          fetchTimeout: const Duration(seconds: 2),
+          connectSocket: (host, port) async {
+            final inner = await Socket.connect(host, port);
+            recording = _RecordingSocket(inner);
+            return recording;
+          },
+        );
+        addTearDown(manager.dispose);
+        final sent = Completer<void>();
+        final result = Completer<Object?>();
+        final sub = manager.emitStream.listen((e) {
+          if (e['event'] == 'sent' && !sent.isCompleted) sent.complete();
+          if (e['event'] == 'result' && !result.isCompleted) {
+            result.complete(e['payload']);
+          }
+        });
+        addTearDown(sub.cancel);
+        await manager.loadPlugin(
+          id: 'tcpclose.plugin',
+          manifest: testManifest(
+            'tcpclose.plugin',
+            permissions: const {
+              PluginPermissions.emit,
+              PluginPermissions.networkTcp,
+            },
+          ),
+          settings: {},
+          jsCode:
+              '''
+          function createPlugin(host) {
+            return {
+              id: "tcpclose.plugin",
+              onLoad() {
+                host.transport.open({
+                  kind: "tcp",
+                  host: "127.0.0.1",
+                  port: ${server.port}
+                }).then((opened) => {
+                  return host.transport.send(opened.handle, { type: "binary", data: "AQID" })
+                    .then(() => { host.emit("sent", 1); return host.transport.close(opened.handle); });
+                }).then(() => host.emit("result", "closed"));
+              }
+            };
+          }
+        ''',
+        );
+        await sent.future.timeout(const Duration(seconds: 5));
+        expect(recording.flushGates, hasLength(1));
+        expect(recording.calls, isNot(contains('close')));
+        await recording.releaseFlush();
+        expect(
+          await result.future.timeout(const Duration(seconds: 5)),
+          'closed',
+        );
+        expect(
+          recording.calls.indexOf('close'),
+          greaterThan(recording.calls.indexOf('flush')),
+        );
+      },
+    );
   });
 
   group('lifecycle and isolation', () {
@@ -864,7 +1058,7 @@ void main() {
     test(
       'multiple sub-limit websocket sends accumulate pending outbound bytes',
       () async {
-        final ws = _BlockingWebSocket();
+        final ws = _GatedWebSocket();
         final manager = PluginManager(
           kvStore: FakeKeyValueStoreService(),
           fetchTimeout: const Duration(seconds: 2),

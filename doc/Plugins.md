@@ -413,9 +413,10 @@ enqueued or silently dropped.
 ### `host.transport.close(handle)`
 
 Returns a Promise that resolves after the native transport is closed and the
-handle has been released. Closing an already-closed or stale handle may reject
-with a normal transport error; it never affects another plugin or another
-generation of the same plugin.
+handle has been released. Already-accepted outbound frames are written before
+the connection is closed; new sends after `close()` reject. Closing an
+already-closed or stale handle may reject with a normal transport error; it
+never affects another plugin or another generation of the same plugin.
 
 ### Resource bounds
 
