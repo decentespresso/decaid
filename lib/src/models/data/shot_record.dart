@@ -8,7 +8,11 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 class ShotRecord {
   /// Keys in `annotations.extras` reserved for plugin sync state. Writes
   /// confined to these keys do not count as content changes.
-  static const bookkeepingExtrasKeys = {'uploaded_to_decent', 'visualizerId'};
+  static const bookkeepingExtrasKeys = {
+    'uploaded_to_decent',
+    'decent_upload_rejected',
+    'visualizerId',
+  };
 
   final String id;
   final DateTime timestamp;

@@ -309,14 +309,16 @@ void main() {
       }
     });
 
-    test('bookkeeping-only patch preserves updatedAt', () async {
+    test('decent upload rejection marker preserves updatedAt', () async {
       await persistAnnotatedShot();
 
       final before = await decode(await sendGet('/api/v1/shots/annotated'));
 
       final (putJson, getJson) = await putAndGet('annotated', {
         'annotations': {
-          'extras': {'uploaded_to_decent': 1767230000},
+          'extras': {
+            'decent_upload_rejected': {'status': 422, 'timestamp': 1767230000},
+          },
         },
       });
 

@@ -6889,8 +6889,9 @@ components:
             ISO-8601 UTC instant of the last meaningful content change
             (always ends in `Z`). System-managed: rejected with 400 if
             supplied to PUT /api/v1/shots/{id}. Does not advance for writes
-            confined to the bookkeeping keys `uploaded_to_decent` and
-            `visualizerId` inside annotations.extras. Falls back to
+            confined to the bookkeeping keys `uploaded_to_decent`,
+            `decent_upload_rejected`, and `visualizerId` inside
+            annotations.extras. Falls back to
             `createdAt`, then `timestamp`, for legacy records.
         measurements:
           type: array
@@ -6931,8 +6932,9 @@ components:
         Partial-update payload for PUT /api/v1/shots/{id}. Only the fields
         included in the body are changed; all other fields are preserved from
         the existing record. `measurements`, `createdAt`, and `updatedAt` are
-        not editable and are rejected with 400. The `uploaded_to_decent` and
-        `visualizerId` keys inside annotations.extras are reserved bookkeeping:
+        not editable and are rejected with 400. The `uploaded_to_decent`,
+        `decent_upload_rejected`, and `visualizerId` keys inside
+        annotations.extras are reserved bookkeeping:
         writes confined to them persist without advancing `updatedAt`.
       properties:
         annotations:

@@ -131,10 +131,17 @@ void main() {
       final visualizerOnly = record(
         extras: {'favorite': true, 'visualizerId': 'viz-1'},
       );
+      final rejectedOnly = record(
+        extras: {
+          'favorite': true,
+          'decent_upload_rejected': {'status': 422},
+        },
+      );
 
       expect(base.sameContent(withMarker), isTrue);
       expect(base.sameContent(changedMarker), isTrue);
       expect(base.sameContent(visualizerOnly), isTrue);
+      expect(base.sameContent(rejectedOnly), isTrue);
     });
 
     test('empty extras compares equal to absent extras', () {

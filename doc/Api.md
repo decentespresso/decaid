@@ -183,10 +183,11 @@ for legacy records that predate the field. Both fields are system-managed: a
 clients cannot spoof revision metadata. `updatedAt` advances only when shot
 *content* changes: `PUT /api/v1/shots/:id` bumps it iff the merged record
 differs outside the bookkeeping keys. The bookkeeping keys are
-`uploaded_to_decent` and `visualizerId` inside `annotations.extras` (the
-reserved scratch space for plugin sync state). Writes confined to those keys
-persist without touching `updatedAt`, so consumers can reconcile edits by
-comparing `updatedAt` against their own sync marker without feedback loops.
+`uploaded_to_decent`, `decent_upload_rejected`, and `visualizerId` inside
+`annotations.extras` (the reserved scratch space for plugin sync state).
+Writes confined to those keys persist without touching `updatedAt`, so
+consumers can reconcile edits by comparing `updatedAt` against their own sync
+marker without feedback loops.
 An `extras` map emptied by that exclusion compares equal to no `extras`, and
 an `annotations` map emptied by it compares equal to no `annotations`, so the
 first-ever sync marker on a clean shot does not dirty it. All other `extras`
