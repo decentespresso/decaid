@@ -20,6 +20,7 @@ class MockSettingsService extends SettingsService {
   bool _stopHotWaterAtWeight = true;
   String? _preferredMachineId;
   String? _preferredScaleId;
+  bool _skalePoweredByUsb = false;
   String _defaultSkinId = 'streamline.js';
   bool _automaticUpdateCheck = true;
   UpdateChannel _updateChannel = UpdateChannel.stable;
@@ -118,6 +119,11 @@ class MockSettingsService extends SettingsService {
   @override
   Future<void> setPreferredScaleId(String? scaleId) async =>
       _preferredScaleId = scaleId;
+  @override
+  Future<bool> skalePoweredByUsb() async => _skalePoweredByUsb;
+  @override
+  Future<void> setSkalePoweredByUsb(bool value) async =>
+      _skalePoweredByUsb = value;
   @override
   Future<String> defaultSkinId() async => _defaultSkinId;
   @override

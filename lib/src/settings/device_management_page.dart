@@ -24,17 +24,24 @@ class DeviceManagementPage extends StatefulWidget {
 
 class _DeviceManagementPageState extends State<DeviceManagementPage> {
   late StreamSubscription<List<Device>> _deviceSubscription;
+  final Map<
+    String,
+    (DeviceInformationCapable, StreamSubscription<DeviceInformation?>)
+  >
+  _deviceInformationSubscriptions = {};
   List<Device> _devices = [];
 
   @override
   void initState() {
     super.initState();
     _devices = widget.deviceController.devices;
+    _syncDeviceInformationSubscriptions();
     _deviceSubscription = widget.deviceController.deviceStream.listen((
       devices,
     ) {
       if (mounted) {
         setState(() => _devices = devices);
+        _syncDeviceInformationSubscriptions();
       }
     });
   }
@@ -42,6 +49,9 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
   @override
   void dispose() {
     _deviceSubscription.cancel();
+    for (final entry in _deviceInformationSubscriptions.values) {
+      entry.$2.cancel();
+    }
     super.dispose();
   }
 
@@ -88,6 +98,17 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                       await widget.settingsController.setPreferredScaleId(id);
                       if (mounted) _showSavedSnackbar();
                     },
+                  ),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Skale is powered by USB'),
+                    subtitle: const Text(
+                      'Enable only when the connected Skale has external power. '
+                      'Battery reporting is suppressed while enabled.',
+                    ),
+                    value: widget.settingsController.skalePoweredByUsb,
+                    onChanged: (value) =>
+                        widget.settingsController.setSkalePoweredByUsb(value),
                   ),
                 ],
               ),
@@ -146,7 +167,7 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
             ...devices.map(
               (device) => _buildDeviceRadio(
                 name: device.name,
-                subtitle: _truncatedId(device.deviceId),
+                subtitle: _deviceSubtitle(device),
                 isSelected: selectedId == device.deviceId,
                 onTap: () => onSelected(device.deviceId),
               ),
@@ -154,6 +175,47 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
         ],
       ),
     );
+  }
+
+  void _syncDeviceInformationSubscriptions() {
+    final capable = {
+      for (final device in _devices.whereType<DeviceInformationCapable>())
+        (device as Device).deviceId: device,
+    };
+    final stale = _deviceInformationSubscriptions.keys
+        .where((id) => !capable.containsKey(id))
+        .toList();
+    for (final id in stale) {
+      _deviceInformationSubscriptions.remove(id)?.$2.cancel();
+    }
+    for (final entry in capable.entries) {
+      final existing = _deviceInformationSubscriptions[entry.key];
+      if (existing != null && identical(existing.$1, entry.value)) continue;
+      existing?.$2.cancel();
+      final subscription = entry.value.deviceInformation.skip(1).listen((_) {
+        if (mounted) setState(() {});
+      });
+      _deviceInformationSubscriptions[entry.key] = (entry.value, subscription);
+    }
+  }
+
+  String _deviceSubtitle(Device device) {
+    final lines = <String>[_truncatedId(device.deviceId)];
+    if (device case DeviceInformationCapable capable) {
+      final firmwareVersion = capable.currentDeviceInformation?.firmwareVersion;
+      if (firmwareVersion != null) {
+        lines.add('Firmware: $firmwareVersion');
+      }
+      final batteryLevel = capable.currentDeviceInformation?.batteryLevel;
+      if (batteryLevel != null) {
+        lines.add('Battery: $batteryLevel% (device-reported)');
+      }
+      final powerSource = capable.currentDeviceInformation?.powerSource;
+      if (powerSource == DevicePowerSource.usb) {
+        lines.add('Power: USB (manual setting)');
+      }
+    }
+    return lines.join(' · ');
   }
 
   Widget _buildDeviceRadio({

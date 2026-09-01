@@ -41,6 +41,7 @@ class SettingsController with ChangeNotifier {
   String? _preferredMachineId;
 
   String? _preferredScaleId;
+  bool _skalePoweredByUsb = false;
 
   String _defaultSkinId = 'streamline.js';
 
@@ -87,6 +88,7 @@ class SettingsController with ChangeNotifier {
   bool get stopHotWaterAtWeight => _stopHotWaterAtWeight;
   String? get preferredMachineId => _preferredMachineId;
   String? get preferredScaleId => _preferredScaleId;
+  bool get skalePoweredByUsb => _skalePoweredByUsb;
   String get defaultSkinId => _defaultSkinId;
   bool get automaticUpdateCheck => _automaticUpdateCheck;
   UpdateChannel get updateChannel => _updateChannel;
@@ -127,6 +129,7 @@ class SettingsController with ChangeNotifier {
     _stopHotWaterAtWeight = await _settingsService.stopHotWaterAtWeight();
     _preferredMachineId = await _settingsService.preferredMachineId();
     _preferredScaleId = await _settingsService.preferredScaleId();
+    _skalePoweredByUsb = await _settingsService.skalePoweredByUsb();
     _defaultSkinId = await _settingsService.defaultSkinId();
     _automaticUpdateCheck = await _settingsService.automaticUpdateCheck();
     _updateChannel = await _settingsService.updateChannel();
@@ -317,6 +320,13 @@ class SettingsController with ChangeNotifier {
     }
     _preferredScaleId = scaleId;
     await _settingsService.setPreferredScaleId(scaleId);
+    notifyListeners();
+  }
+
+  Future<void> setSkalePoweredByUsb(bool value) async {
+    if (value == _skalePoweredByUsb) return;
+    _skalePoweredByUsb = value;
+    await _settingsService.setSkalePoweredByUsb(value);
     notifyListeners();
   }
 

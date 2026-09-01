@@ -27,6 +27,7 @@ class SettingsExportSection implements DataExportSection {
           'volumeFlowMultiplier': _controller.volumeFlowMultiplier,
           'hotWaterFlowMultiplier': _controller.hotWaterFlowMultiplier,
           'scalePowerMode': _controller.scalePowerMode.name,
+          'skalePoweredByUsb': _controller.skalePoweredByUsb,
           'blockOnNoScale': _controller.blockOnNoScale,
           'blockTareDuringShot': _controller.blockTareDuringShot,
           'stopHotWaterAtWeight': _controller.stopHotWaterAtWeight,
@@ -119,6 +120,16 @@ class SettingsExportSection implements DataExportSection {
             imported++;
           } else {
             errors.add('Invalid scalePowerMode: ${settings['scalePowerMode']}');
+          }
+        }
+
+        if (settings.containsKey('skalePoweredByUsb')) {
+          final value = settings['skalePoweredByUsb'];
+          if (value is bool) {
+            await _controller.setSkalePoweredByUsb(value);
+            imported++;
+          } else {
+            errors.add('Invalid skalePoweredByUsb: $value');
           }
         }
 
