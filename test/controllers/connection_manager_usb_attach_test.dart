@@ -615,6 +615,99 @@ void main() {
       },
     );
 
+    test('attach probe reports connectingMachine while the USB connection '
+        'is in progress', () async {
+      probeScanner.probeResult = AttachProbeConnected(
+        _FakeDe1(deviceId: 'usb-machine-id'),
+      );
+      probeScanner.probeGate = Completer<void>();
+      // Seed a retryable machine error so the stale-Retry symptom is
+      // reproducible: entering connectingMachine must clear it.
+      manager.reportError(
+        ConnectionError(
+          kind: ConnectionErrorKind.machineConnectFailed,
+          severity: ConnectionErrorSeverity.error,
+          timestamp: DateTime.now().toUtc(),
+          deviceId: 'usb-machine-id',
+          deviceName: 'DE1',
+          message: 'Attached machine DE1 failed to connect.',
+        ),
+      );
+      expect(manager.currentStatus.error, isNotNull);
+
+      probeScanner.attach();
+      await probeScanner.probeStarted.future;
+
+      // The USB probe is still inside connectAttachedMachine() (the gate
+      // is unresolved); the public status must already say a machine
+      // connection is in progress and the stale Retry error must be gone.
+      expect(manager.currentStatus.phase, ConnectionPhase.connectingMachine);
+      expect(manager.currentStatus.error, isNull);
+
+      probeScanner.probeGate!.complete();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(probeScanner.probeCallCount, 1);
+      expect(probeScanner.scanCallCount, 0);
+      expect(probeScanner.quickConnectCallCount, 0);
+      expect(settings.preferredMachineId, 'usb-machine-id');
+      expect(manager.currentStatus.phase, ConnectionPhase.ready);
+    });
+
+    test('unsupported probe restores an interrupted machine picker', () async {
+      probeScanner.addDevice(_FakeDe1(deviceId: 'de1-a'));
+      probeScanner.addDevice(_FakeDe1(deviceId: 'de1-b'));
+      probeScanner.probeResult = const AttachProbeUnsupported();
+
+      await manager.connect();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        manager.currentStatus.pendingAmbiguity,
+        AmbiguityReason.machinePicker,
+      );
+
+      probeScanner.attach();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(probeScanner.probeCallCount, 1);
+      expect(manager.currentStatus.phase, ConnectionPhase.idle);
+      expect(
+        manager.currentStatus.pendingAmbiguity,
+        AmbiguityReason.machinePicker,
+      );
+    });
+
+    test('adoption failure after the machine connected settles to ready, '
+        'not idle', () async {
+      probeScanner.probeResult = AttachProbeConnected(
+        _FakeDe1(deviceId: 'usb-machine-id'),
+      );
+      settingsService.failSetPreferredMachineId = true;
+
+      final phases = <ConnectionPhase>[];
+      var seenConnecting = false;
+      final sub = manager.status.listen((s) {
+        if (s.phase == ConnectionPhase.connectingMachine) {
+          seenConnecting = true;
+        }
+        if (seenConnecting) phases.add(s.phase);
+      });
+
+      await attachAndSettle();
+      // The failed adoption falls back to the preferred-machine attempt
+      // (see 'an adoption failure still completes the latch lifecycle');
+      // neither that nor the probe's own cleanup may drop a genuinely
+      // connected machine back to idle.
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+
+      expect(probeScanner.probeCallCount, 1);
+      expect(phases, isNot(contains(ConnectionPhase.idle)));
+      expect(manager.currentStatus.phase, ConnectionPhase.ready);
+      expect(manager.currentStatus.pendingAmbiguity, isNull);
+    });
+
     test('unavailable probe falls back to preferred-machine policy', () async {
       await settings.setPreferredMachineId('ble-machine-id');
       probeScanner.probeResult = const AttachProbeUnavailable();

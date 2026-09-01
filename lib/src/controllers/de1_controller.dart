@@ -188,7 +188,8 @@ class De1Controller {
       _log.fine('adoptDevice: already connected to this device, exit early');
       return;
     }
-    _onDisconnect();
+    _log.info('adopting de1 (${de1Interface.deviceId})');
+    _resetForNewDevice();
     _de1 = de1Interface;
     _connectionMachineIdentity = _machineIdentity(de1Interface);
     _de1Controller.add(_de1);
@@ -232,11 +233,8 @@ class De1Controller {
     }
   }
 
-  void _onDisconnect() {
-    _log.info("resetting de1");
+  void _resetForNewDevice() {
     _connectionGeneration++;
-    _de1 = null;
-    _de1Controller.add(_de1);
     _dataInitialized = false;
     _initSettledSubject.add(null);
     _shotSettingsDebounce?.cancel();
@@ -245,6 +243,13 @@ class De1Controller {
       sub.cancel();
     }
     _subscriptions.clear();
+  }
+
+  void _onDisconnect() {
+    _log.info("resetting de1");
+    _resetForNewDevice();
+    _de1 = null;
+    _de1Controller.add(_de1);
   }
 
   Future<void> _initializeData() async {
