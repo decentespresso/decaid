@@ -1,0 +1,891 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:math';
+
+import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/src/plugins/plugin_manager.dart';
+import 'package:reaprime/src/plugins/plugin_manifest.dart';
+
+import 'plugin_test_helpers.dart';
+
+/// Loads a plugin whose onLoad runs [jsBody] and resolves with the first
+/// `host.emit("result", payload)` payload.
+Future<Object?> runPluginResult(
+  PluginManager manager, {
+  required String id,
+  required String jsBody,
+  Set<PluginPermissions>? permissions,
+  Duration timeout = const Duration(seconds: 10),
+}) async {
+  final result = Completer<Object?>();
+  final sub = manager.emitStream.listen((e) {
+    if (!result.isCompleted) result.complete(e['payload']);
+  });
+  addTearDown(sub.cancel);
+  await manager.loadPlugin(
+    id: id,
+    manifest: permissions == null
+        ? testManifest(id)
+        : testManifest(id, permissions: permissions),
+    settings: {},
+    jsCode:
+        '''
+      function createPlugin(host) {
+        return {
+          id: "$id",
+          onLoad() {
+            $jsBody
+          }
+        };
+      }
+    ''',
+  );
+  return result.future.timeout(timeout);
+}
+
+Future<HttpServer> startWsServer(
+  FutureOr<void> Function(WebSocket ws) handler, {
+  String? Function(List<String>)? protocolSelector,
+}) async {
+  final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+  server.listen((req) async {
+    try {
+      if (WebSocketTransformer.isUpgradeRequest(req)) {
+        final ws = await WebSocketTransformer.upgrade(
+          req,
+          protocolSelector: protocolSelector,
+        );
+        await handler(ws);
+      } else {
+        req.response.statusCode = 404;
+        await req.response.close();
+      }
+    } catch (_) {}
+  });
+  addTearDown(() async => server.close(force: true));
+  return server;
+}
+
+Future<ServerSocket> startTcpServer(
+  void Function(Socket socket) handler,
+) async {
+  final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+  server.listen((socket) {
+    try {
+      handler(socket);
+    } catch (_) {}
+  });
+  addTearDown(() async => server.close());
+  return server;
+}
+
+void main() {
+  late PluginManager manager;
+
+  setUp(() {
+    manager = PluginManager(
+      kvStore: FakeKeyValueStoreService(),
+      fetchTimeout: const Duration(seconds: 2),
+    );
+  });
+
+  tearDown(() async => manager.dispose());
+
+  group('permissions', () {
+    test(
+      'websocket open without network.websocket is rejected before connect',
+      () async {
+        var connections = 0;
+        final server = await startWsServer((ws) {
+          connections += 1;
+        });
+        final result = await runPluginResult(
+          manager,
+          id: 'perm.plugin',
+          permissions: const {PluginPermissions.emit},
+          jsBody:
+              '''
+          host.transport.open({
+            kind: "websocket",
+            url: "ws://127.0.0.1:${server.port}/x"
+          }).then(
+            () => host.emit("result", "unexpected"),
+            (e) => host.emit("result", JSON.stringify({ name: e.name, message: e.message }))
+          );
+        ''',
+        );
+
+        final error = jsonDecode(result as String) as Map<String, dynamic>;
+        expect(error['name'], 'PluginPermissionError');
+        expect(error['message'], contains('network.websocket'));
+        expect(connections, 0);
+      },
+    );
+
+    test('tls open without network.tls is rejected before connect', () async {
+      var connections = 0;
+      final server = await startTcpServer((socket) {
+        connections += 1;
+      });
+      final result = await runPluginResult(
+        manager,
+        id: 'perm.plugin',
+        permissions: const {PluginPermissions.emit},
+        jsBody:
+            '''
+          host.transport.open({
+            kind: "tls",
+            host: "127.0.0.1",
+            port: ${server.port}
+          }).then(
+            () => host.emit("result", "unexpected"),
+            (e) => host.emit("result", JSON.stringify({ name: e.name, message: e.message }))
+          );
+        ''',
+      );
+
+      final error = jsonDecode(result as String) as Map<String, dynamic>;
+      expect(error['name'], 'PluginPermissionError');
+      expect(error['message'], contains('network.tls'));
+      expect(connections, 0);
+    });
+
+    test(
+      'Dart rejects direct transport bridge open without permission',
+      () async {
+        var connections = 0;
+        final server = await startTcpServer((socket) {
+          connections += 1;
+        });
+        final result = await runPluginResult(
+          manager,
+          id: 'perm.plugin',
+          permissions: const {PluginPermissions.emit},
+          jsBody:
+              '''
+          __transportRegister("direct_1", {
+            bridgeToken: pluginBridgeToken,
+            resolve: (r) => host.emit("result", "unexpected"),
+            reject: (e) => host.emit("result", JSON.stringify({ name: e.name, message: e.message, code: e.code }))
+          });
+          globalThis.__reaprimePluginHostBridge.transportRequest(
+            pluginBridgeToken, 1, "direct_1", "open",
+            { kind: "tcp", host: "127.0.0.1", port: ${server.port} }
+          );
+        ''',
+        );
+
+        final error = jsonDecode(result as String) as Map<String, dynamic>;
+        expect(error['message'], contains('PluginPermissionError'));
+        expect(error['message'], contains('network.tcp'));
+        expect(connections, 0);
+      },
+    );
+
+    test('unknown transport kind is rejected', () async {
+      final result = await runPluginResult(
+        manager,
+        id: 'kind.plugin',
+        permissions: const {PluginPermissions.emit},
+        jsBody: '''
+          host.transport.open({ kind: "udp" }).then(
+            () => host.emit("result", "unexpected"),
+            (e) => host.emit("result", JSON.stringify({ message: e.message }))
+          );
+        ''',
+      );
+
+      final error = jsonDecode(result as String) as Map<String, dynamic>;
+      expect(error['message'], contains('unknown transport kind'));
+    });
+  });
+
+  group('websocket', () {
+    test('text frame round-trips with dataType text', () async {
+      final server = await startWsServer((ws) {
+        ws.listen((data) {
+          try {
+            ws.add(data);
+          } catch (_) {}
+        });
+      });
+      final result = await runPluginResult(
+        manager,
+        id: 'ws.plugin',
+        permissions: const {
+          PluginPermissions.emit,
+          PluginPermissions.networkWebsocket,
+        },
+        jsBody:
+            '''
+          host.transport.open({
+            kind: "websocket",
+            url: "ws://127.0.0.1:${server.port}/echo"
+          }).then((opened) => {
+            host.transport.onEvent(opened.handle, (event) => {
+              if (event.type === "data") {
+                host.emit("result", JSON.stringify(event));
+              }
+            });
+            host.transport.send(opened.handle, { type: "text", data: "hello echo" });
+          }).catch((e) => host.emit("result", JSON.stringify({ error: e.message })));
+        ''',
+      );
+
+      final event = jsonDecode(result as String) as Map<String, dynamic>;
+      expect(event['type'], 'data');
+      expect(event['dataType'], 'text');
+      expect(event['data'], 'hello echo');
+    });
+
+    test('binary frame round-trips random bytes as base64', () async {
+      final random = Random(42);
+      final original = List<int>.generate(512, (_) => random.nextInt(256));
+      final b64 = base64Encode(original);
+      final server = await startWsServer((ws) {
+        ws.listen((data) {
+          try {
+            ws.add(data);
+          } catch (_) {}
+        });
+      });
+      final result = await runPluginResult(
+        manager,
+        id: 'ws.plugin',
+        permissions: const {
+          PluginPermissions.emit,
+          PluginPermissions.networkWebsocket,
+        },
+        jsBody:
+            '''
+          host.transport.open({
+            kind: "websocket",
+            url: "ws://127.0.0.1:${server.port}/echo"
+          }).then((opened) => {
+            host.transport.onEvent(opened.handle, (event) => {
+              if (event.type === "data") {
+                host.emit("result", JSON.stringify(event));
+              }
+            });
+            host.transport.send(opened.handle, { type: "binary", data: "$b64" });
+          }).catch((e) => host.emit("result", JSON.stringify({ error: e.message })));
+        ''',
+      );
+
+      final event = jsonDecode(result as String) as Map<String, dynamic>;
+      expect(event['dataType'], 'binary');
+      expect(base64Decode(event['data'] as String), original);
+    });
+
+    test('subprotocol negotiation returns negotiated protocol', () async {
+      final server = await startWsServer(
+        (ws) {
+          ws.listen((data) {
+            try {
+              ws.add(data);
+            } catch (_) {}
+          });
+        },
+        protocolSelector: (protocols) =>
+            protocols.contains('mqtt') ? 'mqtt' : null,
+      );
+      final result = await runPluginResult(
+        manager,
+        id: 'ws.plugin',
+        permissions: const {
+          PluginPermissions.emit,
+          PluginPermissions.networkWebsocket,
+        },
+        jsBody:
+            '''
+          host.transport.open({
+            kind: "websocket",
+            url: "ws://127.0.0.1:${server.port}/mqtt",
+            protocols: ["mqtt"]
+          }).then((opened) => {
+            host.emit("result", JSON.stringify({ protocol: opened.protocol, handle: opened.handle }));
+          }).catch((e) => host.emit("result", JSON.stringify({ error: e.message })));
+        ''',
+      );
+
+      final opened = jsonDecode(result as String) as Map<String, dynamic>;
+      expect(opened['protocol'], 'mqtt');
+      expect(opened['handle'], isNotEmpty);
+    });
+
+    test(
+      'receives text JSON from the loopback sensor snapshot endpoint',
+      () async {
+        final server = await startWsServer((ws) {
+          ws.add(jsonEncode({'groupTemperature': 93.5, 'sensor': 'sensor-1'}));
+          ws.listen((data) {});
+        });
+        final result = await runPluginResult(
+          manager,
+          id: 'ws.plugin',
+          permissions: const {
+            PluginPermissions.emit,
+            PluginPermissions.networkWebsocket,
+          },
+          jsBody:
+              '''
+          host.transport.open({
+            kind: "websocket",
+            url: "ws://127.0.0.1:${server.port}/ws/v1/sensors/sensor-1/snapshot"
+          }).then((opened) => {
+            host.transport.onEvent(opened.handle, (event) => {
+              if (event.type === "data") {
+                host.emit("result", JSON.stringify(event));
+              }
+            });
+          }).catch((e) => host.emit("result", JSON.stringify({ error: e.message })));
+        ''',
+        );
+
+        final event = jsonDecode(result as String) as Map<String, dynamic>;
+        expect(event['dataType'], 'text');
+        final snapshot =
+            jsonDecode(event['data'] as String) as Map<String, dynamic>;
+        expect(snapshot['groupTemperature'], 93.5);
+        expect(snapshot['sensor'], 'sensor-1');
+      },
+    );
+
+    test('plugin-initiated close resolves and closes the connection', () async {
+      final closed = Completer<void>();
+      final server = await startWsServer((ws) {
+        ws.listen(
+          (data) {},
+          onDone: () {
+            if (!closed.isCompleted) closed.complete();
+          },
+        );
+      });
+      final result = await runPluginResult(
+        manager,
+        id: 'ws.plugin',
+        permissions: const {
+          PluginPermissions.emit,
+          PluginPermissions.networkWebsocket,
+        },
+        jsBody:
+            '''
+          host.transport.open({
+            kind: "websocket",
+            url: "ws://127.0.0.1:${server.port}/x"
+          }).then((opened) => {
+            return host.transport.close(opened.handle);
+          }).then(() => host.emit("result", "closed"))
+            .catch((e) => host.emit("result", "err:" + e.message));
+        ''',
+      );
+
+      expect(result, 'closed');
+      await closed.future.timeout(const Duration(seconds: 5));
+    });
+  });
+
+  group('tcp', () {
+    test('binary bytes round-trip through a TCP echo server', () async {
+      final random = Random(7);
+      final original = List<int>.generate(1024, (_) => random.nextInt(256));
+      final b64 = base64Encode(original);
+      final server = await startTcpServer((socket) {
+        socket.listen((chunk) {
+          try {
+            socket.add(chunk);
+          } catch (_) {}
+        });
+      });
+      final result = await runPluginResult(
+        manager,
+        id: 'tcp.plugin',
+        permissions: const {
+          PluginPermissions.emit,
+          PluginPermissions.networkTcp,
+        },
+        jsBody:
+            '''
+          host.transport.open({
+            kind: "tcp",
+            host: "127.0.0.1",
+            port: ${server.port}
+          }).then((opened) => {
+            host.transport.onEvent(opened.handle, (event) => {
+              if (event.type === "data") {
+                host.emit("result", JSON.stringify(event));
+              }
+            });
+            host.transport.send(opened.handle, { type: "binary", data: "$b64" });
+          }).catch((e) => host.emit("result", JSON.stringify({ error: e.message })));
+        ''',
+      );
+
+      final event = jsonDecode(result as String) as Map<String, dynamic>;
+      expect(event['dataType'], 'binary');
+      expect(base64Decode(event['data'] as String), original);
+    });
+
+    test('text sends are rejected on TCP', () async {
+      final server = await startTcpServer((socket) {
+        socket.listen((chunk) {});
+      });
+      final result = await runPluginResult(
+        manager,
+        id: 'tcp.plugin',
+        permissions: const {
+          PluginPermissions.emit,
+          PluginPermissions.networkTcp,
+        },
+        jsBody:
+            '''
+          host.transport.open({
+            kind: "tcp",
+            host: "127.0.0.1",
+            port: ${server.port}
+          }).then((opened) => {
+            return host.transport.send(opened.handle, { type: "text", data: "nope" });
+          }).then(() => host.emit("result", "unexpected"))
+            .catch((e) => host.emit("result", JSON.stringify({ message: e.message, code: e.code })));
+        ''',
+      );
+
+      final error = jsonDecode(result as String) as Map<String, dynamic>;
+      expect(error['message'], contains('Text frames'));
+      expect(error['code'], 'transport_error');
+    });
+  });
+
+  group('lifecycle and isolation', () {
+    test(
+      'events arriving before onEvent registration are delivered in order',
+      () async {
+        final server = await startWsServer((ws) {
+          for (final frame in ['first', 'second', 'third']) {
+            ws.add(frame);
+          }
+          ws.listen((data) {});
+        });
+        final result = await runPluginResult(
+          manager,
+          id: 'order.plugin',
+          permissions: const {
+            PluginPermissions.emit,
+            PluginPermissions.networkWebsocket,
+          },
+          jsBody:
+              '''
+          host.transport.open({
+            kind: "websocket",
+            url: "ws://127.0.0.1:${server.port}/x"
+          }).then((opened) => {
+            setTimeout(() => {
+              const received = [];
+              host.transport.onEvent(opened.handle, (event) => {
+                if (event.type !== "data") return;
+                received.push(event.data);
+                if (received.length === 3) {
+                  host.emit("result", JSON.stringify(received));
+                }
+              });
+            }, 300);
+          }).catch((e) => host.emit("result", JSON.stringify({ error: e.message })));
+        ''',
+        );
+
+        expect(jsonDecode(result as String), ['first', 'second', 'third']);
+      },
+    );
+
+    test('a handle cannot be used by another plugin', () async {
+      final server = await startWsServer((ws) {
+        ws.listen((data) {
+          try {
+            ws.add(data);
+          } catch (_) {}
+        });
+      });
+      final handle = Completer<String>();
+      final echo = Completer<String>();
+      final sub = manager.emitStream.listen((e) {
+        if (e['event'] == 'handle' && !handle.isCompleted) {
+          handle.complete(e['payload'] as String);
+        }
+        if (e['event'] == 'echo' && !echo.isCompleted) {
+          echo.complete(e['payload'] as String);
+        }
+      });
+      addTearDown(sub.cancel);
+
+      await manager.loadPlugin(
+        id: 'a.plugin',
+        manifest: testManifest(
+          'a.plugin',
+          permissions: const {
+            PluginPermissions.emit,
+            PluginPermissions.networkWebsocket,
+          },
+        ),
+        settings: {},
+        jsCode:
+            '''
+          function createPlugin(host) {
+            return {
+              id: "a.plugin",
+              onLoad() {
+                host.transport.open({
+                  kind: "websocket",
+                  url: "ws://127.0.0.1:${server.port}/echo"
+                }).then((opened) => {
+                  host.emit("handle", opened.handle);
+                  host.transport.onEvent(opened.handle, (event) => {
+                    if (event.type === "data") host.emit("echo", JSON.stringify(event));
+                  });
+                  host.transport.send(opened.handle, { type: "text", data: "ping-A" });
+                });
+              }
+            };
+          }
+        ''',
+      );
+      final aHandle = await handle.future.timeout(const Duration(seconds: 5));
+
+      final result = await runPluginResult(
+        manager,
+        id: 'b.plugin',
+        permissions: const {
+          PluginPermissions.emit,
+          PluginPermissions.networkWebsocket,
+        },
+        jsBody:
+            '''
+          host.transport.send(${jsonEncode(aHandle)}, { type: "text", data: "nope" })
+            .then(() => host.emit("result", "unexpected"))
+            .catch((e) => host.emit("result", JSON.stringify({ message: e.message })));
+        ''',
+      );
+
+      final error = jsonDecode(result as String) as Map<String, dynamic>;
+      expect(error['message'], contains('not owned'));
+      final aEcho =
+          jsonDecode(await echo.future.timeout(const Duration(seconds: 5)))
+              as Map<String, dynamic>;
+      expect(aEcho['data'], 'ping-A');
+    });
+
+    test('a handle cannot be reused by a newer plugin generation', () async {
+      final server = await startWsServer((ws) {
+        ws.listen((data) {
+          try {
+            ws.add(data);
+          } catch (_) {}
+        });
+      });
+      final handle = Completer<String>();
+      final sub = manager.emitStream.listen((e) {
+        if (!handle.isCompleted) handle.complete(e['payload'] as String);
+      });
+      addTearDown(sub.cancel);
+
+      await manager.loadPlugin(
+        id: 'gen.plugin',
+        manifest: testManifest(
+          'gen.plugin',
+          permissions: const {
+            PluginPermissions.emit,
+            PluginPermissions.networkWebsocket,
+          },
+        ),
+        settings: {},
+        jsCode:
+            '''
+          function createPlugin(host) {
+            return {
+              id: "gen.plugin",
+              onLoad() {
+                host.transport.open({
+                  kind: "websocket",
+                  url: "ws://127.0.0.1:${server.port}/x"
+                }).then((opened) => host.emit("handle", opened.handle));
+              }
+            };
+          }
+        ''',
+      );
+      final oldHandle = await handle.future.timeout(const Duration(seconds: 5));
+      await manager.unloadPlugin('gen.plugin');
+
+      final result = await runPluginResult(
+        manager,
+        id: 'gen.plugin',
+        permissions: const {
+          PluginPermissions.emit,
+          PluginPermissions.networkWebsocket,
+        },
+        jsBody:
+            '''
+          host.transport.send(${jsonEncode(oldHandle)}, { type: "text", data: "stale" })
+            .then(() => host.emit("result", "unexpected"))
+            .catch((e) => host.emit("result", JSON.stringify({ message: e.message })));
+        ''',
+      );
+
+      final error = jsonDecode(result as String) as Map<String, dynamic>;
+      expect(error['message'], contains('not owned'));
+    });
+
+    test('plugin unload closes all owned connections', () async {
+      final wsClosed = Completer<void>();
+      final tcpClosed = Completer<void>();
+      final wsServer = await startWsServer((ws) {
+        ws.listen(
+          (data) {},
+          onDone: () {
+            if (!wsClosed.isCompleted) wsClosed.complete();
+          },
+        );
+      });
+      final tcpServer = await startTcpServer((socket) {
+        socket.listen(
+          (chunk) {},
+          onDone: () {
+            if (!tcpClosed.isCompleted) tcpClosed.complete();
+          },
+        );
+      });
+
+      await manager.loadPlugin(
+        id: 'unload.plugin',
+        manifest: testManifest(
+          'unload.plugin',
+          permissions: const {
+            PluginPermissions.emit,
+            PluginPermissions.networkWebsocket,
+            PluginPermissions.networkTcp,
+          },
+        ),
+        settings: {},
+        jsCode:
+            '''
+          function createPlugin(host) {
+            return {
+              id: "unload.plugin",
+              onLoad() {
+                host.transport.open({
+                  kind: "websocket",
+                  url: "ws://127.0.0.1:${wsServer.port}/x"
+                });
+                host.transport.open({
+                  kind: "tcp",
+                  host: "127.0.0.1",
+                  port: ${tcpServer.port}
+                });
+              }
+            };
+          }
+        ''',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(manager.liveTransportCount, 2);
+
+      await manager.unloadPlugin('unload.plugin');
+
+      await wsClosed.future.timeout(const Duration(seconds: 5));
+      await tcpClosed.future.timeout(const Duration(seconds: 5));
+      expect(manager.liveTransportCount, 0);
+    });
+
+    test('manager disposal closes all remaining transports', () async {
+      final closed = Completer<void>();
+      final server = await startTcpServer((socket) {
+        socket.listen(
+          (chunk) {},
+          onDone: () {
+            if (!closed.isCompleted) closed.complete();
+          },
+        );
+      });
+
+      await manager.loadPlugin(
+        id: 'dispose.plugin',
+        manifest: testManifest(
+          'dispose.plugin',
+          permissions: const {
+            PluginPermissions.emit,
+            PluginPermissions.networkTcp,
+          },
+        ),
+        settings: {},
+        jsCode:
+            '''
+          function createPlugin(host) {
+            return {
+              id: "dispose.plugin",
+              onLoad() {
+                host.transport.open({
+                  kind: "tcp",
+                  host: "127.0.0.1",
+                  port: ${server.port}
+                });
+              }
+            };
+          }
+        ''',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      expect(manager.liveTransportCount, 1);
+
+      await manager.dispose();
+
+      await closed.future.timeout(const Duration(seconds: 5));
+      expect(manager.liveTransportCount, 0);
+    });
+  });
+
+  group('resource limits', () {
+    test(
+      'a ninth live transport is rejected with transport_resource_limit',
+      () async {
+        final server = await startWsServer((ws) {
+          ws.listen((data) {}, onError: (Object _) {});
+        });
+        final result = await runPluginResult(
+          manager,
+          id: 'limit.plugin',
+          permissions: const {
+            PluginPermissions.emit,
+            PluginPermissions.networkWebsocket,
+          },
+          jsBody:
+              '''
+          const opens = [0,1,2,3,4,5,6,7].reduce(
+            (p) => p.then(() => host.transport.open({
+              kind: "websocket",
+              url: "ws://127.0.0.1:${server.port}/x"
+            })),
+            Promise.resolve()
+          );
+          opens.then(() => host.transport.open({
+            kind: "websocket",
+            url: "ws://127.0.0.1:${server.port}/x"
+          })).then(
+            () => host.emit("result", "unexpected"),
+            (e) => host.emit("result", JSON.stringify({ code: e.code, message: e.message }))
+          );
+        ''',
+        );
+
+        final error = jsonDecode(result as String) as Map<String, dynamic>;
+        expect(error['code'], 'transport_resource_limit');
+        expect(manager.liveTransportCount, 8);
+      },
+    );
+
+    test('an oversize send is rejected atomically without writing', () async {
+      var received = 0;
+      final server = await startTcpServer((socket) {
+        socket.listen((chunk) {
+          received += chunk.length;
+        });
+      });
+      final big = base64Encode(List<int>.filled(1048576 + 1, 0x41));
+      final result = await runPluginResult(
+        manager,
+        id: 'out.plugin',
+        permissions: const {
+          PluginPermissions.emit,
+          PluginPermissions.networkTcp,
+        },
+        jsBody:
+            '''
+          host.transport.open({
+            kind: "tcp",
+            host: "127.0.0.1",
+            port: ${server.port}
+          }).then((opened) => {
+            return host.transport.send(opened.handle, { type: "binary", data: "$big" });
+          }).then(() => host.emit("result", "unexpected"))
+            .catch((e) => host.emit("result", JSON.stringify({ code: e.code })));
+        ''',
+      );
+
+      final error = jsonDecode(result as String) as Map<String, dynamic>;
+      expect(error['code'], 'transport_resource_limit');
+      expect(received, 0);
+    });
+
+    test(
+      'inbound overflow closes the transport with a resource limit error',
+      () async {
+        final chunk = List<int>.filled(64 * 1024, 0x42);
+        final server = await startWsServer((ws) {
+          for (var i = 0; i < 32; i++) {
+            ws.add(chunk);
+          }
+          ws.listen((data) {}, onError: (Object _) {});
+        });
+        final errorResult = Completer<String>();
+        final closeResult = Completer<String>();
+        final sub = manager.emitStream.listen((e) {
+          if (e['event'] == 'result' && !errorResult.isCompleted) {
+            errorResult.complete(e['payload'] as String);
+          }
+          if (e['event'] == 'result2' && !closeResult.isCompleted) {
+            closeResult.complete(e['payload'] as String);
+          }
+        });
+        addTearDown(sub.cancel);
+
+        await manager.loadPlugin(
+          id: 'in.plugin',
+          manifest: testManifest(
+            'in.plugin',
+            permissions: const {
+              PluginPermissions.emit,
+              PluginPermissions.networkWebsocket,
+            },
+          ),
+          settings: {},
+          jsCode:
+              '''
+          function createPlugin(host) {
+            return {
+              id: "in.plugin",
+              onLoad() {
+                host.transport.open({
+                  kind: "websocket",
+                  url: "ws://127.0.0.1:${server.port}/flood"
+                }).then((opened) => {
+                  setTimeout(() => {
+                    host.transport.onEvent(opened.handle, (event) => {
+                      if (event.type === "error") {
+                        host.emit("result", JSON.stringify({ code: event.code }));
+                      } else if (event.type === "close") {
+                        host.emit("result2", JSON.stringify({ closed: true }));
+                      }
+                    });
+                  }, 400);
+                });
+              }
+            };
+          }
+        ''',
+        );
+
+        final error =
+            jsonDecode(
+                  await errorResult.future.timeout(const Duration(seconds: 10)),
+                )
+                as Map<String, dynamic>;
+        expect(error['code'], 'transport_resource_limit');
+        final closed =
+            jsonDecode(
+                  await closeResult.future.timeout(const Duration(seconds: 10)),
+                )
+                as Map<String, dynamic>;
+        expect(closed['closed'], true);
+      },
+    );
+  });
+}
