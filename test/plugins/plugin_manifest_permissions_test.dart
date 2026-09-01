@@ -17,6 +17,9 @@ void main() {
         'events.shots',
         'proxy.decent_api',
         'proxy.decent_api.write',
+        'network.websocket',
+        'network.tcp',
+        'network.tls',
       ],
       'settings': <String, dynamic>{},
       'api': <dynamic>[],
@@ -31,6 +34,9 @@ void main() {
       manifest.permissions,
       contains(PluginPermissions.proxyDecentApiWrite),
     );
+    expect(manifest.permissions, contains(PluginPermissions.networkWebsocket));
+    expect(manifest.permissions, contains(PluginPermissions.networkTcp));
+    expect(manifest.permissions, contains(PluginPermissions.networkTls));
   });
 
   test('rejects unknown manifest permissions', () {

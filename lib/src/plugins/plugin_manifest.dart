@@ -83,7 +83,10 @@ enum PluginPermissions {
   eventsMachine('events.machine'),
   eventsShots('events.shots'),
   proxyDecentApi('proxy.decent_api'),
-  proxyDecentApiWrite('proxy.decent_api.write');
+  proxyDecentApiWrite('proxy.decent_api.write'),
+  networkWebsocket('network.websocket'),
+  networkTcp('network.tcp'),
+  networkTls('network.tls');
 
   final String wireName;
 
