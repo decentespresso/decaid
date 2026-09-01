@@ -44,6 +44,7 @@ class PluginTransportService {
     this.maxTransportsPerGeneration = 8,
     this.maxPendingOutboundBytes = 1 << 20,
     this.maxQueuedInboundBytes = 1 << 20,
+    this.closeTimeout = const Duration(seconds: 5),
     WebSocketConnector? connectWebSocket,
     SocketConnector? connectSocket,
     SecureSocketConnector? connectSecureSocket,
@@ -55,11 +56,11 @@ class PluginTransportService {
   final int maxTransportsPerGeneration;
   final int maxPendingOutboundBytes;
   final int maxQueuedInboundBytes;
+  final Duration closeTimeout;
   final WebSocketConnector connectWebSocket;
   final SocketConnector connectSocket;
   final SecureSocketConnector connectSecureSocket;
 
-  static const Duration _closeTimeout = Duration(seconds: 5);
   static const String _resourceLimitCode = 'transport_resource_limit';
 
   final Map<String, _TransportRecord> _records = {};
@@ -176,32 +177,16 @@ class PluginTransportService {
     final record = _recordFor(pluginId, generation, handle);
     _checkOpen(record);
     record.closing = true;
-    await _awaitOutbound(record);
-    final ws = record.webSocket;
-    if (ws != null) {
-      try {
-        await ws.close(1000).timeout(_closeTimeout);
-      } catch (_) {}
-      _terminate(record);
-      _records.remove(record.handle);
-      return;
-    }
-    final socket = record.socket;
-    if (socket != null) {
-      try {
-        await socket.close().timeout(_closeTimeout);
-      } catch (_) {
-        socket.destroy();
-      }
-      _terminate(record);
-      _records.remove(record.handle);
-      return;
+    if (!await _closeNative(record)) {
+      throw const PluginTransportException(
+        'Transport could not be closed; outbound write did not drain',
+      );
     }
     _terminate(record);
     _records.remove(record.handle);
   }
 
-  void closeAllForPlugin(String pluginId, int generation) {
+  Future<void> closeAllForPlugin(String pluginId, int generation) async {
     final owned = _records.values
         .where(
           (record) =>
@@ -212,15 +197,15 @@ class PluginTransportService {
       _records.remove(record.handle);
       if (record.terminal) continue;
       record.terminal = true;
-      _closeNative(record);
+      await _closeNative(record);
     }
   }
 
-  void dispose() {
+  Future<void> dispose() async {
     for (final record in _records.values) {
       if (record.terminal) continue;
       record.terminal = true;
-      _closeNative(record);
+      await _closeNative(record);
     }
     _records.clear();
   }
@@ -248,9 +233,7 @@ class PluginTransportService {
     }
     final ws = await connectWebSocket(url, protocols: protocols);
     if (record.terminal) {
-      unawaited(
-        ws.close(1000).timeout(_closeTimeout).catchError((Object _) {}),
-      );
+      unawaited(ws.close(1000).timeout(closeTimeout).catchError((Object _) {}));
       throw const PluginTransportException('Plugin unloaded during connect');
     }
     record.webSocket = ws;
@@ -314,10 +297,17 @@ class PluginTransportService {
         final frame = record.outboundQueue.first;
         final ws = record.webSocket;
         if (ws == null) break;
+        final controller = StreamController<dynamic>();
+        record.pendingWrite = controller;
         try {
-          await ws.addStream(Stream<dynamic>.value(frame.data));
+          final write = ws.addStream(controller.stream);
+          controller.add(frame.data);
+          await controller.close();
+          await write;
         } on Object {
           break;
+        } finally {
+          record.pendingWrite = null;
         }
         record.outboundQueue.removeFirst();
         _releaseOutbound(record, frame.size);
@@ -327,21 +317,26 @@ class PluginTransportService {
     }
   }
 
-  Future<void> _awaitOutbound(_TransportRecord record) async {
+  Future<bool> _awaitOutbound(_TransportRecord record) async {
     final ws = record.webSocket;
     if (ws != null) {
       final drain = record.outboundDrain;
-      if (drain == null) return;
+      if (drain == null) return true;
       try {
-        await drain.timeout(_closeTimeout);
-      } catch (_) {}
-      return;
+        await drain.timeout(closeTimeout);
+        return true;
+      } on TimeoutException {
+        return false;
+      }
     }
     final pending = record.tcpFlushes.toList();
-    if (pending.isEmpty) return;
+    if (pending.isEmpty) return true;
     try {
-      await Future.wait(pending).timeout(_closeTimeout);
-    } catch (_) {}
+      await Future.wait(pending).timeout(closeTimeout);
+      return true;
+    } on TimeoutException {
+      return false;
+    }
   }
 
   String _hostOption(Map<String, dynamic> options) {
@@ -452,31 +447,49 @@ class PluginTransportService {
     }
     record.inboundQueue.add(_QueuedEvent(_closeEvent(record), 0));
     _drain(record);
-    _closeNative(record);
+    unawaited(_closeNative(record));
   }
 
-  void _closeNative(_TransportRecord record) {
+  Future<bool> _closeNative(_TransportRecord record) async {
+    var graceful = await _awaitOutbound(record);
+    if (!graceful) {
+      record.terminal = true;
+      final controller = record.pendingWrite;
+      if (controller != null && !controller.isClosed) {
+        await controller.close();
+      }
+      final drain = record.outboundDrain;
+      if (drain != null) {
+        try {
+          await drain.timeout(const Duration(milliseconds: 100));
+        } catch (_) {}
+      }
+    }
     final ws = record.webSocket;
     if (ws != null) {
-      unawaited(_awaitOutbound(record).then((_) => _closeWebSocket(record)));
-      return;
+      try {
+        await ws.close(1000).timeout(closeTimeout);
+        return true;
+      } on Object {
+        return false;
+      }
     }
     final socket = record.socket;
     if (socket != null) {
-      unawaited(
-        _awaitOutbound(record).then((_) {
-          try {
-            socket.destroy();
-          } catch (_) {}
-        }),
-      );
+      if (graceful) {
+        try {
+          await socket.close().timeout(closeTimeout);
+        } catch (_) {
+          socket.destroy();
+        }
+      } else {
+        try {
+          socket.destroy();
+        } catch (_) {}
+      }
+      return true;
     }
-  }
-
-  void _closeWebSocket(_TransportRecord record) {
-    final ws = record.webSocket;
-    if (ws == null) return;
-    unawaited(ws.close(1000).timeout(_closeTimeout).catchError((Object _) {}));
+    return true;
   }
 
   Map<String, dynamic> _closeEvent(_TransportRecord record) {
@@ -581,6 +594,7 @@ class _TransportRecord {
   int outboundBytes = 0;
   final Queue<_OutboundFrame> outboundQueue = Queue();
   Future<void>? outboundDrain;
+  StreamController<dynamic>? pendingWrite;
   final List<Future<void>> tcpFlushes = [];
   final Queue<_QueuedEvent> inboundQueue = Queue();
   int inboundBytes = 0;

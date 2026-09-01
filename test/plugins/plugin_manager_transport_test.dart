@@ -108,11 +108,16 @@ class _GatedWebSocket implements WebSocket {
   }
 
   @override
-  Future<void> close([int? code, String? reason]) async {
+  Future<void> close([int? code, String? reason]) {
+    final hasPendingWrite = addStreamGates.any((gate) => !gate.isCompleted);
+    if (hasPendingWrite) {
+      return Future.error(StateError('StreamSink is bound to a stream'));
+    }
     closed = true;
     closeCode = code;
     closeReason = reason;
     readyState = WebSocket.closed;
+    return Future.value();
   }
 
   @override
@@ -554,6 +559,42 @@ void main() {
         expect(ws.written, ['accepted']);
       },
     );
+
+    test('close rejects when an accepted write never drains', () async {
+      final ws = _GatedWebSocket();
+      final manager = PluginManager(
+        kvStore: FakeKeyValueStoreService(),
+        fetchTimeout: const Duration(seconds: 2),
+        transportCloseTimeout: const Duration(milliseconds: 200),
+        connectWebSocket: (url, {protocols}) async => ws,
+      );
+      addTearDown(manager.dispose);
+      final result = await runPluginResult(
+        manager,
+        id: 'closetout.plugin',
+        permissions: const {
+          PluginPermissions.emit,
+          PluginPermissions.networkWebsocket,
+        },
+        jsBody: '''
+          host.transport.open({
+            kind: "websocket",
+            url: "ws://127.0.0.1:1/x"
+          }).then((opened) => {
+            return host.transport.send(opened.handle, { type: "text", data: "stuck" })
+              .then(() => host.transport.close(opened.handle))
+              .then(() => host.emit("result", "closed"))
+              .catch((e) => host.emit("result", JSON.stringify({ message: e.message })));
+          }).catch((e) => host.emit("result", JSON.stringify({ error: e.message })));
+        ''',
+      );
+
+      final payload = jsonDecode(result as String) as Map<String, dynamic>;
+      expect(payload['message'], contains('could not be closed'));
+      expect(ws.closed, isFalse);
+      expect(ws.addStreamGates, hasLength(1));
+      expect(ws.addStreamGates.single.isCompleted, isFalse);
+    });
   });
 
   group('tcp', () {
@@ -1062,6 +1103,7 @@ void main() {
         final manager = PluginManager(
           kvStore: FakeKeyValueStoreService(),
           fetchTimeout: const Duration(seconds: 2),
+          transportCloseTimeout: const Duration(milliseconds: 200),
           connectWebSocket: (url, {protocols}) async => ws,
         );
         addTearDown(manager.dispose);

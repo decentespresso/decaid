@@ -72,6 +72,7 @@ class PluginManager {
   final int maxFetchResponseBytes;
   final Duration pluginHttpTimeout;
   final Duration decentProxyTimeout;
+  final Duration transportCloseTimeout;
 
   De1Controller? _de1controller;
   StreamSubscription<De1Interface?>? _de1Subscription;
@@ -108,6 +109,7 @@ class PluginManager {
     WebSocketConnector? connectWebSocket,
     SocketConnector? connectSocket,
     SecureSocketConnector? connectSecureSocket,
+    this.transportCloseTimeout = const Duration(seconds: 5),
   }) : js = js ?? getJavascriptRuntime(xhr: false) {
     _decentProxyBridge = PluginDecentProxyBridge(
       decentProxyService: decentProxyService,
@@ -118,6 +120,7 @@ class PluginManager {
       connectWebSocket: connectWebSocket,
       connectSocket: connectSocket,
       connectSecureSocket: connectSecureSocket,
+      closeTimeout: transportCloseTimeout,
     );
     _bootstrapJs();
   }
@@ -1363,7 +1366,11 @@ class PluginManager {
         _log.warning("Error during plugin unload: $id", e, st);
       }
       try {
-        _cleanupPluginResources(id, pluginBridgeToken, retiringGeneration);
+        await _cleanupPluginResources(
+          id,
+          pluginBridgeToken,
+          retiringGeneration,
+        );
       } finally {
         await _drainPluginStorageOperations(id, retiringGeneration);
       }
@@ -1377,11 +1384,11 @@ class PluginManager {
     }
   }
 
-  void _cleanupPluginResources(
+  Future<void> _cleanupPluginResources(
     String pluginId,
     String? pluginBridgeToken,
     int retiringGeneration,
-  ) {
+  ) async {
     Object? firstError;
     StackTrace? firstStackTrace;
 
@@ -1416,9 +1423,12 @@ class PluginManager {
       while (js.executePendingJob() > 0) {}
     });
     attempt(() => _cancelTimersForPlugin(pluginId, pluginBridgeToken));
-    attempt(
-      () => _transportService.closeAllForPlugin(pluginId, retiringGeneration),
-    );
+    try {
+      await _transportService.closeAllForPlugin(pluginId, retiringGeneration);
+    } catch (error, stackTrace) {
+      firstError ??= error;
+      firstStackTrace ??= stackTrace;
+    }
 
     if (firstError != null) {
       Error.throwWithStackTrace(firstError!, firstStackTrace!);
@@ -1580,10 +1590,14 @@ class PluginManager {
 
   void cancelAllOperations() {
     _ensureActive();
-    _cancelAllOperations();
+    unawaited(
+      _cancelAllOperations().catchError((Object error, StackTrace stackTrace) {
+        _log.warning('cancelAllOperations failed', error, stackTrace);
+      }),
+    );
   }
 
-  void _cancelAllOperations() {
+  Future<void> _cancelAllOperations() async {
     Object? firstError;
     StackTrace? firstStackTrace;
 
@@ -1622,7 +1636,12 @@ class PluginManager {
       js.evaluate('globalThis.__cancelAllTimers();');
       while (js.executePendingJob() > 0) {}
     });
-    attempt(() => _transportService.dispose());
+    try {
+      await _transportService.dispose();
+    } catch (error, stackTrace) {
+      firstError ??= error;
+      firstStackTrace ??= stackTrace;
+    }
 
     if (firstError != null) {
       Error.throwWithStackTrace(firstError!, firstStackTrace!);
