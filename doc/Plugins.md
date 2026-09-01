@@ -421,8 +421,9 @@ never affects another plugin or another generation of the same plugin.
 ### Resource bounds
 
 - Maximum **8 live transports per plugin generation** (connecting, open and
-  closing all count). Opening one more rejects with
-  `transport_resource_limit`.
+  closing all count; a transport closed by the peer before `onEvent()` was
+  registered also counts until its queued events are delivered). Opening one
+  more rejects with `transport_resource_limit`.
 - Maximum **1 MiB pending outbound data per transport**. A send that would
   exceed this rejects atomically with `transport_resource_limit`.
 - Maximum **1 MiB queued inbound data per transport** waiting for JS delivery.

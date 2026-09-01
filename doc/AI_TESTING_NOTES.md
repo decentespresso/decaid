@@ -114,8 +114,12 @@ Add widget test gotchas, mock helper changes, and test infrastructure patterns. 
   `addStream`, so the test deterministically exercises the outbound byte
   limit without depending on kernel socket-buffer sizes.
 - **TLS/WSS positive paths:** platform trust validation cannot be exercised
-  offline (self-signed certs are always rejected by the default connectors —
-  those rejection paths are covered separately). The positive tests inject
-  connectors that accept the local self-signed certificate
-  (`onBadCertificate` / `badCertificateCallback`) and still run a real TLS /
-  TLS-wrapped-WebSocket round trip.
+  offline. Verified empirically that dart:io on this platform ignores
+  user-supplied trust anchors: `SecureSocket.connect(context:
+  SecurityContext()..setTrustedCertificates(ca))` and
+  `WebSocket.connect(customClient: HttpClient(context: ...))` both fail with
+  CERTIFICATE_VERIFY_FAILED for a CA-signed local server cert. The rejection
+  tests prove the default connectors validate against the platform store; the
+  positive tests inject connectors that accept the local self-signed
+  certificate (`onBadCertificate` / `badCertificateCallback`) and still run a
+  real TLS / TLS-wrapped-WebSocket round trip.

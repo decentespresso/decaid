@@ -559,7 +559,15 @@ class PluginManager {
           __nativeSendMessage("transport", __nativeJsonStringify(message));
         }
 
-        globalThis.__transportRequest = function (bridgeToken, generation, requestId, type, payload) {
+        const __frozenTransportGlobal = (name, value) => {
+          Object.defineProperty(globalThis, name, {
+            value: value,
+            writable: false,
+            configurable: false,
+            enumerable: false
+          });
+        };
+        __frozenTransportGlobal("__transportRequest", function (bridgeToken, generation, requestId, type, payload) {
           __sendTransportMessage({
             bridgeToken: bridgeToken,
             generation: generation,
@@ -567,21 +575,17 @@ class PluginManager {
             type: type,
             payload: payload
           });
-        };
-
-        globalThis.__transportRegister = function (requestId, entry) {
+        });
+        __frozenTransportGlobal("__transportRegister", function (requestId, entry) {
           __transportPending.set(requestId, entry);
-        };
-
-        globalThis.__transportSetListener = function (handle, pluginId, listener) {
+        });
+        __frozenTransportGlobal("__transportSetListener", function (handle, pluginId, listener) {
           __transportListeners.set(handle, { pluginId: pluginId, listener: listener });
-        };
-
-        globalThis.__transportRemoveListener = function (handle) {
+        });
+        __frozenTransportGlobal("__transportRemoveListener", function (handle) {
           __transportListeners.delete(handle);
-        };
-
-        globalThis.__handleTransportReply = function (msg) {
+        });
+        __frozenTransportGlobal("__handleTransportReply", function (msg) {
           const pending = __transportPending.get(msg.requestId);
           if (!pending || pending.bridgeToken !== msg.bridgeToken) return;
           __transportPending.delete(msg.requestId);
@@ -592,9 +596,8 @@ class PluginManager {
             return;
           }
           pending.resolve(msg.result || {});
-        };
-
-        globalThis.__dispatchTransportEvent = function (pluginId, handle, event) {
+        });
+        __frozenTransportGlobal("__dispatchTransportEvent", function (pluginId, handle, event) {
           const record = __transportListeners.get(handle);
           if (!record || record.pluginId !== pluginId || !record.listener) return;
           try {
@@ -602,32 +605,28 @@ class PluginManager {
           } catch (e) {
             console.error("Transport listener error", pluginId, e);
           }
-        };
-
-        globalThis.__rejectTransportPendingForToken = function (bridgeToken, error) {
+        });
+        __frozenTransportGlobal("__rejectTransportPendingForToken", function (bridgeToken, error) {
           for (const [requestId, pending] of __transportPending) {
             if (pending.bridgeToken !== bridgeToken) continue;
             __transportPending.delete(requestId);
             pending.reject(new __NativeError(error));
           }
-        };
-
-        globalThis.__rejectAllTransportPending = function (error) {
+        });
+        __frozenTransportGlobal("__rejectAllTransportPending", function (error) {
           for (const pending of __transportPending.values()) {
             pending.reject(new __NativeError(error));
           }
           __transportPending.clear();
-        };
-
-        globalThis.__clearTransportListenersForPlugin = function (pluginId) {
+        });
+        __frozenTransportGlobal("__clearTransportListenersForPlugin", function (pluginId) {
           for (const [handle, record] of __transportListeners) {
             if (record.pluginId === pluginId) __transportListeners.delete(handle);
           }
-        };
-
-        globalThis.__clearAllTransportListeners = function () {
+        });
+        __frozenTransportGlobal("__clearAllTransportListeners", function () {
           __transportListeners.clear();
-        };
+        });
 
         Object.defineProperty(globalThis, "host", {
           value: __nativeFreeze({

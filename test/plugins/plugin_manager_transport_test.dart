@@ -82,6 +82,7 @@ Future<ServerSocket> startTcpServer(
 class _GatedWebSocket implements WebSocket {
   final List<Object> written = [];
   final List<Completer<void>> addStreamGates = [];
+  bool failWrites = false;
   bool closed = false;
   @override
   int readyState = WebSocket.open;
@@ -102,6 +103,9 @@ class _GatedWebSocket implements WebSocket {
   @override
   Future<void> addStream(Stream<dynamic> stream) {
     stream.listen((data) => written.add(data));
+    if (failWrites) {
+      return Future.error(StateError('write failed'));
+    }
     final gate = Completer<void>();
     addStreamGates.add(gate);
     return gate.future;
@@ -855,6 +859,106 @@ void main() {
       expect(aEcho['data'], 'ping-A');
     });
 
+    test(
+      'plugins cannot replace transport bridge helpers to capture tokens',
+      () async {
+        final server = await startWsServer((ws) {
+          ws.listen((data) {
+            try {
+              ws.add(data);
+            } catch (_) {}
+          });
+        });
+        final tamper = Completer<String>();
+        final echo = Completer<String>();
+        final sub = manager.emitStream.listen((e) {
+          if (e['event'] == 'tamper' && !tamper.isCompleted) {
+            tamper.complete(e['payload'] as String);
+          }
+          if (e['event'] == 'echo' && !echo.isCompleted) {
+            echo.complete(e['payload'] as String);
+          }
+        });
+        addTearDown(sub.cancel);
+
+        await manager.loadPlugin(
+          id: 'attacker.plugin',
+          manifest: testManifest(
+            'attacker.plugin',
+            permissions: const {
+              PluginPermissions.emit,
+              PluginPermissions.networkWebsocket,
+            },
+          ),
+          settings: {},
+          jsCode: '''
+          function createPlugin(host) {
+            return {
+              id: "attacker.plugin",
+              onLoad() {
+                const results = [];
+                for (const name of [
+                  "__transportRegister", "__handleTransportReply",
+                  "__transportSetListener", "__transportRequest",
+                  "__dispatchTransportEvent", "__transportRemoveListener"
+                ]) {
+                  try {
+                    Object.defineProperty(globalThis, name, { value: () => {}, writable: true, configurable: true });
+                    results.push(name + ":writable");
+                  } catch (e) {
+                    results.push(name + ":blocked");
+                  }
+                }
+                host.emit("tamper", results.join(","));
+              }
+            };
+          }
+        ''',
+        );
+        expect(
+          (await tamper.future.timeout(const Duration(seconds: 5))).split(','),
+          everyElement(endsWith(':blocked')),
+        );
+
+        await manager.loadPlugin(
+          id: 'victim.plugin',
+          manifest: testManifest(
+            'victim.plugin',
+            permissions: const {
+              PluginPermissions.emit,
+              PluginPermissions.networkWebsocket,
+            },
+          ),
+          settings: {},
+          jsCode:
+              '''
+          function createPlugin(host) {
+            return {
+              id: "victim.plugin",
+              onLoad() {
+                host.transport.open({
+                  kind: "websocket",
+                  url: "ws://127.0.0.1:${server.port}/echo"
+                }).then((opened) => {
+                  host.transport.onEvent(opened.handle, (event) => {
+                    if (event.type === "data") {
+                      host.emit("echo", event.data);
+                    }
+                  });
+                  host.transport.send(opened.handle, { type: "text", data: "victim ping" });
+                });
+              }
+            };
+          }
+        ''',
+        );
+        expect(
+          await echo.future.timeout(const Duration(seconds: 5)),
+          'victim ping',
+        );
+      },
+    );
+
     test('a handle cannot be reused by a newer plugin generation', () async {
       final server = await startWsServer((ws) {
         ws.listen((data) {
@@ -1142,6 +1246,120 @@ void main() {
           'transport_resource_limit',
         ]);
         expect(ws.written.length, 1);
+      },
+    );
+
+    test(
+      'a failed websocket write terminates the transport and clears accounting',
+      () async {
+        final ws = _GatedWebSocket()..failWrites = true;
+        final manager = PluginManager(
+          kvStore: FakeKeyValueStoreService(),
+          fetchTimeout: const Duration(seconds: 2),
+          connectWebSocket: (url, {protocols}) async => ws,
+        );
+        addTearDown(manager.dispose);
+        final errorResult = Completer<String>();
+        final resendResult = Completer<String>();
+        final sub = manager.emitStream.listen((e) {
+          if (e['event'] == 'result' && !errorResult.isCompleted) {
+            errorResult.complete(e['payload'] as String);
+          }
+          if (e['event'] == 'result2' && !resendResult.isCompleted) {
+            resendResult.complete(e['payload'] as String);
+          }
+        });
+        addTearDown(sub.cancel);
+        await manager.loadPlugin(
+          id: 'failwrite.plugin',
+          manifest: testManifest(
+            'failwrite.plugin',
+            permissions: const {
+              PluginPermissions.emit,
+              PluginPermissions.networkWebsocket,
+            },
+          ),
+          settings: {},
+          jsCode: '''
+          function createPlugin(host) {
+            return {
+              id: "failwrite.plugin",
+              onLoad() {
+                host.transport.open({
+                  kind: "websocket",
+                  url: "ws://127.0.0.1:1/x"
+                }).then((opened) => {
+                  host.transport.onEvent(opened.handle, (event) => {
+                    if (event.type === "error") {
+                      host.emit("result", JSON.stringify({ code: event.code }));
+                    }
+                  });
+                  host.transport.send(opened.handle, { type: "text", data: "boom" }).then(() => {
+                    setTimeout(() => {
+                      host.transport.send(opened.handle, { type: "text", data: "again" })
+                        .then(() => host.emit("result2", "unexpected"))
+                        .catch((e) => host.emit("result2", JSON.stringify({ code: e.code })));
+                    }, 200);
+                  });
+                });
+              }
+            };
+          }
+        ''',
+        );
+        final error =
+            jsonDecode(
+                  await errorResult.future.timeout(const Duration(seconds: 5)),
+                )
+                as Map<String, dynamic>;
+        expect(error['code'], 'transport_error');
+        final resend =
+            jsonDecode(
+                  await resendResult.future.timeout(const Duration(seconds: 5)),
+                )
+                as Map<String, dynamic>;
+        expect(resend['code'], 'transport_error');
+        await pumpEventQueue();
+        expect(manager.liveTransportCount, 0);
+      },
+    );
+
+    test(
+      'remotely closed transports without a listener count toward the limit',
+      () async {
+        final server = await startWsServer((ws) {
+          ws.close(1000);
+        });
+        final result = await runPluginResult(
+          manager,
+          id: 'dead.plugin',
+          permissions: const {
+            PluginPermissions.emit,
+            PluginPermissions.networkWebsocket,
+          },
+          jsBody:
+              '''
+          const opens = [0,1,2,3,4,5,6,7].map(() =>
+            host.transport.open({
+              kind: "websocket",
+              url: "ws://127.0.0.1:${server.port}/x"
+            })
+          );
+          Promise.all(opens).then(() => {
+            setTimeout(() => {
+              host.transport.open({
+                kind: "websocket",
+                url: "ws://127.0.0.1:${server.port}/x"
+              }).then(() => host.emit("result", "unexpected"))
+                .catch((e) => host.emit("result", JSON.stringify({ code: e.code })));
+            }, 300);
+          });
+        ''',
+        );
+
+        final error = jsonDecode(result as String) as Map<String, dynamic>;
+        expect(error['code'], 'transport_resource_limit');
+        expect(manager.liveTransportCount, 0);
       },
     );
 

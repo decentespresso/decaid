@@ -149,7 +149,12 @@ class PluginTransportService {
       }
       final socket = record.socket!;
       _reserveOutbound(record, bytes.length);
-      socket.add(bytes);
+      try {
+        socket.add(bytes);
+      } catch (_) {
+        _releaseOutbound(record, bytes.length);
+        rethrow;
+      }
       final write = Completer<void>();
       record.tcpFlushes.add(write.future);
       unawaited(
@@ -302,9 +307,11 @@ class PluginTransportService {
         try {
           final write = ws.addStream(controller.stream);
           controller.add(frame.data);
-          await controller.close();
-          await write;
+          await Future.wait([controller.close(), write]);
         } on Object {
+          record.outboundQueue.clear();
+          record.outboundBytes = 0;
+          _terminate(record, error: 'WebSocket write failed; transport closed');
           break;
         } finally {
           record.pendingWrite = null;
@@ -526,15 +533,15 @@ class PluginTransportService {
   }
 
   void _checkLiveLimit(String pluginId, int generation) {
-    final live = _records.values.where(
+    final retained = _records.values.where(
       (record) =>
           record.pluginId == pluginId &&
           record.generation == generation &&
-          !record.terminal,
+          (!record.terminal || !record.delivering),
     );
-    if (live.length >= maxTransportsPerGeneration) {
+    if (retained.length >= maxTransportsPerGeneration) {
       throw const PluginTransportException(
-        'Too many live transports for this plugin',
+        'Too many open transports for this plugin',
         code: _resourceLimitCode,
       );
     }
