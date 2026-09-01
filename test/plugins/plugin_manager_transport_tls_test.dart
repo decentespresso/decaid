@@ -34,7 +34,8 @@ Future<Object?> runPluginResult(
         ? testManifest(id)
         : testManifest(id, permissions: permissions),
     settings: {},
-    jsCode: '''
+    jsCode:
+        '''
       function createPlugin(host) {
         return {
           id: "$id",
@@ -90,38 +91,40 @@ void main() {
 
   tearDown(() async => manager.dispose());
 
-  test('tls open rejects an untrusted certificate via platform validation',
-      () async {
-    if (!certsReady) {
-      markTestSkipped('openssl unavailable');
-      return;
-    }
-    final serverContext = SecurityContext()
-      ..useCertificateChain(serverCert)
-      ..usePrivateKey(serverKey);
-    final server = await SecureServerSocket.bind(
-      InternetAddress.loopbackIPv4,
-      0,
-      serverContext,
-    );
-    server.listen(
-      (socket) => socket.listen(
-        (chunk) {},
+  test(
+    'tls open rejects an untrusted certificate via platform validation',
+    () async {
+      if (!certsReady) {
+        markTestSkipped('openssl unavailable');
+        return;
+      }
+      final serverContext = SecurityContext()
+        ..useCertificateChain(serverCert)
+        ..usePrivateKey(serverKey);
+      final server = await SecureServerSocket.bind(
+        InternetAddress.loopbackIPv4,
+        0,
+        serverContext,
+      );
+      server.listen(
+        (socket) => socket.listen(
+          (chunk) {},
+          onError: (Object _) {},
+          cancelOnError: true,
+        ),
         onError: (Object _) {},
-        cancelOnError: true,
-      ),
-      onError: (Object _) {},
-    );
-    addTearDown(() async => server.close());
+      );
+      addTearDown(() async => server.close());
 
-    final result = await runPluginResult(
-      manager,
-      id: 'tls.plugin',
-      permissions: const {
-        PluginPermissions.emit,
-        PluginPermissions.networkTls,
-      },
-      jsBody: '''
+      final result = await runPluginResult(
+        manager,
+        id: 'tls.plugin',
+        permissions: const {
+          PluginPermissions.emit,
+          PluginPermissions.networkTls,
+        },
+        jsBody:
+            '''
         host.transport.open({
           kind: "tls",
           host: "127.0.0.1",
@@ -131,48 +134,51 @@ void main() {
           (e) => host.emit("result", JSON.stringify({ message: e.message }))
         );
       ''',
-    );
+      );
 
-    final error = jsonDecode(result as String) as Map<String, dynamic>;
-    expect(error['message'], contains('HandshakeException'));
-    expect(manager.liveTransportCount, 0);
-  });
+      final error = jsonDecode(result as String) as Map<String, dynamic>;
+      expect(error['message'], contains('HandshakeException'));
+      expect(manager.liveTransportCount, 0);
+    },
+  );
 
-  test('wss rejects an untrusted certificate using only network.websocket',
-      () async {
-    if (!certsReady) {
-      markTestSkipped('openssl unavailable');
-      return;
-    }
-    final serverContext = SecurityContext()
-      ..useCertificateChain(serverCert)
-      ..usePrivateKey(serverKey);
-    final server = await HttpServer.bindSecure(
-      InternetAddress.loopbackIPv4,
-      0,
-      serverContext,
-    );
-    server.listen((req) async {
-      try {
-        if (WebSocketTransformer.isUpgradeRequest(req)) {
-          final ws = await WebSocketTransformer.upgrade(req);
-          ws.listen((data) {}, onError: (Object _) {});
-        } else {
-          req.response.statusCode = 404;
-          await req.response.close();
-        }
-      } catch (_) {}
-    });
-    addTearDown(() async => server.close(force: true));
+  test(
+    'wss rejects an untrusted certificate using only network.websocket',
+    () async {
+      if (!certsReady) {
+        markTestSkipped('openssl unavailable');
+        return;
+      }
+      final serverContext = SecurityContext()
+        ..useCertificateChain(serverCert)
+        ..usePrivateKey(serverKey);
+      final server = await HttpServer.bindSecure(
+        InternetAddress.loopbackIPv4,
+        0,
+        serverContext,
+      );
+      server.listen((req) async {
+        try {
+          if (WebSocketTransformer.isUpgradeRequest(req)) {
+            final ws = await WebSocketTransformer.upgrade(req);
+            ws.listen((data) {}, onError: (Object _) {});
+          } else {
+            req.response.statusCode = 404;
+            await req.response.close();
+          }
+        } catch (_) {}
+      });
+      addTearDown(() async => server.close(force: true));
 
-    final result = await runPluginResult(
-      manager,
-      id: 'wss.plugin',
-      permissions: const {
-        PluginPermissions.emit,
-        PluginPermissions.networkWebsocket,
-      },
-      jsBody: '''
+      final result = await runPluginResult(
+        manager,
+        id: 'wss.plugin',
+        permissions: const {
+          PluginPermissions.emit,
+          PluginPermissions.networkWebsocket,
+        },
+        jsBody:
+            '''
         host.transport.open({
           kind: "websocket",
           url: "wss://127.0.0.1:${server.port}/x"
@@ -181,10 +187,11 @@ void main() {
           (e) => host.emit("result", JSON.stringify({ message: e.message }))
         );
       ''',
-    );
+      );
 
-    final error = jsonDecode(result as String) as Map<String, dynamic>;
-    expect(error['message'], contains('HandshakeException'));
-    expect(manager.liveTransportCount, 0);
-  });
+      final error = jsonDecode(result as String) as Map<String, dynamic>;
+      expect(error['message'], contains('HandshakeException'));
+      expect(manager.liveTransportCount, 0);
+    },
+  );
 }
