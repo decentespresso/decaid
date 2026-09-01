@@ -225,7 +225,7 @@ class Skale2Scale implements Scale {
 
   void _parseWeightNotification(List<int> data) {
     double? weight;
-    if (data.length == 5) {
+    if (data.length >= 5) {
       var mantissa =
           (data[1] & 0xFF) | ((data[2] & 0xFF) << 8) | ((data[3] & 0xFF) << 16);
       if (mantissa & 0x800000 != 0) {
