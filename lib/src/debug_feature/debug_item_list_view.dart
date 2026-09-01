@@ -3,8 +3,10 @@ import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart' as dev;
+import 'package:reaprime/src/models/device/grinder.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/debug_feature/debug_item_details_view.dart';
+import 'package:reaprime/src/debug_feature/grinder_debug_view.dart';
 import 'package:reaprime/src/debug_feature/scale_debug_view.dart';
 import 'package:shadcn_ui/shadcn_ui.dart' hide Scale;
 
@@ -118,11 +120,13 @@ class DebugItemListView extends StatelessWidget {
   Widget _buildGroupedList(BuildContext context, List<dev.Device> devices) {
     final machines = devices.whereType<De1Interface>().toList();
     final scales = devices.whereType<Scale>().toList();
+    final grinders = devices.whereType<Grinder>().toList();
     final sensors = devices
         .where(
           (d) =>
               d.type != dev.DeviceType.machine &&
-              d.type != dev.DeviceType.scale,
+              d.type != dev.DeviceType.scale &&
+              d.type != dev.DeviceType.grinder,
         )
         .toList();
 
@@ -135,6 +139,10 @@ class DebugItemListView extends StatelessWidget {
         if (scales.isNotEmpty) ...[
           _buildSectionHeader(context, 'Scales'),
           ...scales.map((s) => _buildDeviceRow(context, s)),
+        ],
+        if (grinders.isNotEmpty) ...[
+          _buildSectionHeader(context, 'Grinders'),
+          ...grinders.map((g) => _buildDeviceRow(context, g)),
         ],
         if (sensors.isNotEmpty) ...[
           _buildSectionHeader(context, 'Sensors'),
@@ -242,6 +250,11 @@ class DebugItemListView extends StatelessWidget {
       Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => ScaleDebugView(scale: device)),
+      );
+    } else if (device is Grinder) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => GrinderDebugView(grinder: device)),
       );
     }
   }

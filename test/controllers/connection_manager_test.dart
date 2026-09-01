@@ -2340,7 +2340,7 @@ void main() {
         );
         expect(
           connectionManager.currentStatus.conditions.single.affectedDeviceTypes,
-          {DeviceType.machine, DeviceType.scale},
+          {DeviceType.machine, DeviceType.scale, DeviceType.grinder},
         );
       });
 

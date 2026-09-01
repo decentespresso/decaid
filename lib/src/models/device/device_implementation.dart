@@ -20,4 +20,5 @@ enum DeviceImplementation {
   difluidR2Sensor,
   debugPort,
   sensorBasket,
+  bookooGrinder,
 }

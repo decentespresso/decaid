@@ -4,6 +4,7 @@ import 'package:reaprime/src/models/device/impl/acaia/acaia_scale.dart';
 import 'package:reaprime/src/models/device/impl/atomheart/atomheart_scale.dart';
 import 'package:reaprime/src/models/device/impl/bengle/bengle.dart';
 import 'package:reaprime/src/models/device/impl/blackcoffee/blackcoffee_scale.dart';
+import 'package:reaprime/src/models/device/impl/bookoo/bookoo_grinder.dart';
 import 'package:reaprime/src/models/device/impl/bookoo/miniscale.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
 import 'package:reaprime/src/models/device/impl/decent_scale/scale.dart';
@@ -41,6 +42,7 @@ class DeviceMatcher {
       DecentTemp.serviceIdentifier.long,
       DifluidR2Sensor.serviceIdentifier.long,
     ],
+    DeviceType.grinder => [BookooGrinder.serviceIdentifier.long],
   };
 
   static DeviceImplementation? implementationForName(String advertisedName) {
@@ -98,7 +100,12 @@ class DeviceMatcher {
     if (nameLower.contains('atomheart') || nameLower.contains('eclair')) {
       return DeviceImplementation.atomheartScale;
     }
-    if (nameLower.contains('bookoo')) return DeviceImplementation.bookooScale;
+    if (nameLower.contains('motto80') || nameLower.contains('mt80')) {
+      return DeviceImplementation.bookooGrinder;
+    }
+    if (nameLower.contains('bookoo') && !nameLower.contains('mt80')) {
+      return DeviceImplementation.bookooScale;
+    }
     if (nameLower.contains('decent temp')) {
       return DeviceImplementation.decentTemp;
     }
@@ -169,7 +176,10 @@ class DeviceMatcher {
     if (nameLower.contains('atomheart') || nameLower.contains('eclair')) {
       return AtomheartScale(transport: transport);
     }
-    if (nameLower.contains('bookoo')) {
+    if (nameLower.contains('motto80') || nameLower.contains('mt80')) {
+      return BookooGrinder(transport: transport);
+    }
+    if (nameLower.contains('bookoo') && !nameLower.contains('mt80')) {
       return BookooScale(transport: transport);
     }
     if (nameLower.contains('decent temp')) {

@@ -11,6 +11,7 @@ import 'package:reaprime/src/controllers/remembered_devices_controller.dart';
 import 'package:reaprime/src/models/device/remembered_device.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/controllers/profile_controller.dart';
+import 'package:reaprime/src/controllers/grinder_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/controllers/sensor_controller.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
@@ -18,6 +19,7 @@ import 'package:reaprime/src/models/data/profile_record.dart';
 import 'package:reaprime/src/models/data/shot_state_event.dart';
 import 'package:reaprime/src/models/data/utils.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/grinder.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/scale_calibration.dart';
 import 'package:reaprime/src/models/errors.dart';
@@ -105,6 +107,7 @@ import 'webserver/feedback_handler.dart';
 
 part 'webserver/de1handler.dart';
 part 'webserver/scale_handler.dart';
+part 'webserver/grinder_handler.dart';
 part 'webserver/devices_handler.dart';
 part 'webserver/settings_handler.dart';
 part 'webserver/sensors_handler.dart';
@@ -176,6 +179,7 @@ Future<void> startWebServer(
     de1Controller: de1Controller,
     settingsController: settingsController,
   );
+  final grinderHandler = GrinderHandler(controller: connectionManager.grinderController);
   final deviceHandler = DevicesHandler(
     controller: deviceController,
     batteryController: batteryController,
@@ -346,6 +350,7 @@ Future<void> startWebServer(
       de1Handler,
       firmwareHandler,
       scaleHandler,
+      grinderHandler,
       settingsHandler,
       sensorsHandler,
       workflowHandler,
@@ -387,6 +392,7 @@ Handler _init(
   De1Handler de1Handler,
   FirmwareHandler firmwareHandler,
   ScaleHandler scaleHandler,
+  GrinderHandler grinderHandler,
   SettingsHandler settingsHandler,
   SensorsHandler sensorsHandler,
   WorkflowHandler workflowHandler,
@@ -423,6 +429,7 @@ Handler _init(
   de1Handler.addRoutes(app);
   firmwareHandler.addRoutes(app);
   scaleHandler.addRoutes(app);
+  grinderHandler.addRoutes(app);
   settingsHandler.addRoutes(app);
   sensorsHandler.addRoutes(app);
   workflowHandler.addRoutes(app);

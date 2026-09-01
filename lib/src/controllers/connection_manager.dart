@@ -17,7 +17,9 @@ import 'package:reaprime/src/controllers/connection/status_publisher.dart';
 import 'package:reaprime/src/controllers/connection_error.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/remembered_devices_controller.dart';
+import 'package:reaprime/src/controllers/grinder_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
+import 'package:reaprime/src/models/device/grinder.dart';
 import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/transport/ble_connect_exception.dart';
@@ -118,6 +120,7 @@ class ConnectionManager {
   final DeviceScanner deviceScanner;
   final De1Controller de1Controller;
   final ScaleController scaleController;
+  final GrinderController grinderController;
   final SettingsController settingsController;
 
   final RememberedDevicesController? rememberedDevices;
@@ -244,9 +247,11 @@ class ConnectionManager {
     required this.scaleController,
     required this.settingsController,
     this.rememberedDevices,
+    GrinderController? grinderController,
     Duration deviceAttachSettleDelay = const Duration(milliseconds: 500),
     Duration? connectTimeout,
-  }) : _connectTimeout =
+  }) : grinderController = grinderController ?? GrinderController(),
+       _connectTimeout =
            connectTimeout ??
            (Platform.isLinux
                ? const Duration(seconds: 60)
@@ -646,7 +651,11 @@ class ConnectionManager {
   void _setTransportCondition(ConnectionError error) {
     final condition = TransportCondition(
       transportType: TransportType.ble,
-      affectedDeviceTypes: const {DeviceType.machine, DeviceType.scale},
+      affectedDeviceTypes: const {
+        DeviceType.machine,
+        DeviceType.scale,
+        DeviceType.grinder,
+      },
       connectionError: error,
     );
     _publishStatus(
@@ -1160,6 +1169,8 @@ class ConnectionManager {
     _publishStatus(
       currentStatus.copyWith(foundMachines: machines, foundScales: scales),
     );
+
+    await _tryConnectPreferredGrinder(scanRun.grinders);
 
     if (_machineConnected) {
       _log.fine('Machine connected, proceeding to scale phase');
@@ -1779,6 +1790,68 @@ class ConnectionManager {
       return Future.value(const ConnectionResult.conflict());
     }
     return _trackConnectionWork(() => _connectScale(scale));
+  }
+
+  Future<ConnectionResult> connectGrinder(Grinder grinder) {
+    if (_shuttingDown) {
+      return Future.value(const ConnectionResult.conflict());
+    }
+    return _trackConnectionWork(() => _connectGrinder(grinder));
+  }
+
+  Future<void> _tryConnectPreferredGrinder(List<Grinder> grinders) async {
+    final preferredGrinderId = settingsController.preferredGrinderId;
+    if (preferredGrinderId == null || grinders.isEmpty) return;
+    if (grinderController.lastConnectedDeviceId == preferredGrinderId &&
+        grinderController.currentConnectionState == ConnectionState.connected) {
+      return;
+    }
+    final match = grinders
+        .where((grinder) => grinder.deviceId == preferredGrinderId)
+        .firstOrNull;
+    if (match == null) {
+      _log.fine(
+        'Preferred grinder $preferredGrinderId not found in scan results',
+      );
+      return;
+    }
+    _log.fine('Connecting preferred grinder $preferredGrinderId');
+    final result = await connectGrinder(match);
+    if (!result.success) {
+      _log.warning('Preferred grinder connect failed: ${result.outcome.name}');
+    }
+  }
+
+  Future<ConnectionResult> _connectGrinder(Grinder grinder) async {
+    if (grinderController.lastConnectedDeviceId == grinder.deviceId &&
+        grinderController.currentConnectionState == ConnectionState.connected) {
+      return const ConnectionResult.alreadyConnected();
+    }
+    _log.fine('connectGrinder: connecting to ${grinder.name}');
+    try {
+      await _trackConnectionWork(
+        () => grinderController.connectToGrinder(grinder),
+      ).timeout(_connectTimeout);
+      await settingsController.setPreferredGrinderId(grinder.deviceId);
+      return const ConnectionResult.succeeded();
+    } on TimeoutException {
+      return ConnectionResult.timedOut('Grinder connect timed out');
+    } catch (e) {
+      _log.warning('Grinder connect failed: $e');
+      _publishStatus(
+        currentStatus.copyWith(
+          error: () => ConnectionError(
+            kind: ConnectionErrorKind.grinderConnectFailed,
+            severity: ConnectionErrorSeverity.error,
+            timestamp: DateTime.now().toUtc(),
+            deviceId: grinder.deviceId,
+            deviceName: grinder.name,
+            message: e.toString(),
+          ),
+        ),
+      );
+      return ConnectionResult.failed(e.toString());
+    }
   }
 
   Future<ConnectionResult> _connectScale(Scale scale) async {

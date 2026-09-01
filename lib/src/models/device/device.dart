@@ -3,7 +3,7 @@ import 'package:reaprime/src/models/device/remembered_device.dart';
 import 'package:reaprime/src/models/device/scan_filter.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 
-enum DeviceType { machine, scale, sensor }
+enum DeviceType { machine, scale, sensor, grinder }
 
 abstract class Device {
   String get deviceId;

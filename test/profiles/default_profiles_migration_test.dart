@@ -219,10 +219,11 @@ void main() {
       expect(storage.records[v3Id]!.parentId, v2Id);
 
       final lineage = await controller.getLineage(v3Id);
-      expect(lineage.map((r) => r.id).toList(), [
-        v2Id,
-        v3Id,
-      ], reason: 'lineage walks from v3 back to its v2 parent');
+      expect(
+        lineage.map((r) => r.id).toList(),
+        [v2Id, v3Id],
+        reason: 'lineage walks from v3 back to its v2 parent',
+      );
     },
   );
 }

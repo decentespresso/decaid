@@ -543,6 +543,8 @@ class DevicesHandler {
         } catch (e) {
           return ConnectionResult.failed(e.toString());
         }
+      case DeviceType.grinder:
+        return _connectionManager.connectGrinder(device as Grinder);
     }
   }
 
@@ -572,6 +574,7 @@ class DevicesHandler {
         DeviceType.machine => ConnectionErrorKind.machineConnectFailed,
         DeviceType.scale => ConnectionErrorKind.scaleConnectFailed,
         DeviceType.sensor => ConnectionErrorKind.sensorConnectFailed,
+        DeviceType.grinder => ConnectionErrorKind.grinderConnectFailed,
       },
       severity: ConnectionErrorSeverity.error,
       timestamp: DateTime.now().toUtc(),

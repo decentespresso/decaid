@@ -73,17 +73,11 @@ void main() {
     final frame = await transport.shotSettings.first.timeout(
       const Duration(seconds: 1),
     );
-    expect(frame.buffer.asUint8List(), [
-      0x00,
-      0x96,
-      0x1e,
-      0x4b,
-      0x32,
-      0x1e,
-      0x24,
-      0x5e,
-      0x00,
-    ], reason: 'firmware defaults, since a serial machine never pushes K');
+    expect(
+      frame.buffer.asUint8List(),
+      [0x00, 0x96, 0x1e, 0x4b, 0x32, 0x1e, 0x24, 0x5e, 0x00],
+      reason: 'firmware defaults, since a serial machine never pushes K',
+    );
     expect(
       serial.writes.where((w) => w == '<-K>'),
       isEmpty,

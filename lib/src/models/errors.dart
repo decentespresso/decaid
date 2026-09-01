@@ -8,7 +8,7 @@ class PermissionDeniedException implements Exception {
       : 'PermissionDeniedException: $message';
 }
 
-enum DeviceKind { machine, scale, unknown }
+enum DeviceKind { machine, scale, grinder, unknown }
 
 class DeviceNotConnectedException implements Exception {
   final DeviceKind kind;
@@ -16,6 +16,7 @@ class DeviceNotConnectedException implements Exception {
   const DeviceNotConnectedException(this.kind);
   const DeviceNotConnectedException.machine() : kind = DeviceKind.machine;
   const DeviceNotConnectedException.scale() : kind = DeviceKind.scale;
+  const DeviceNotConnectedException.grinder() : kind = DeviceKind.grinder;
   const DeviceNotConnectedException.unknown() : kind = DeviceKind.unknown;
 
   @override

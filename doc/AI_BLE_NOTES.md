@@ -431,6 +431,44 @@ stalled write resume later and overwrite a newer one. Bound the actual
 unbounded read instead; a real anti-wedge mechanism needs explicit
 cancellation or fencing.
 
+## MOTTO80 (Bookoo) Grinder Protocol
+
+The MOTTO80 grinder advertises as "MOTTO80 BLE" (matched with
+`contains('motto80')`). Service `4d543830-0001-4b80-8f00-424f4f4b4f4f` with
+command characteristic `...-0002` (write-with-response) and status
+characteristic `...-0003` (notify, ~200ms status broadcasts). A legacy
+`0000ffff` service exists but is only used by the reference GUI for raw hex
+writes; the driver does not use it.
+
+Frames are `[A5 01][seq uint16 LE][payloadLen uint32 LE][UTF-8 JSON]`; seq
+starts at 0 on connect and wraps at 0xffff. Long frames fragment across
+notifications: continuation chunks may repeat the full header with the same
+seq, or arrive headerless. The parser keeps a pending `{seq, expect, bytes}`
+buffer, appends both continuation forms, drops stale pending when a
+different-seq frame arrives, and decodes UTF-8 once on the reassembled buffer
+with `allowMalformed: true` — the reference GUI decodes per fragment and
+mangles multi-byte characters (Chinese preset names) split across chunks.
+
+Connect sequence: subscribe status → handshake
+`{"request":{"appHello":{"op":"handshake"}}}` → 400ms →
+`{"request":{"grindSection":{"op":"get","selector":{"type":"all"}}}}` →
+400ms → `{"request":{"grindPreset":{"op":"get","selector":{"type":"all"}}}}`.
+Startup queries are fire-and-forget with per-query failure logs. Responses are
+identified by the `"response"` substring in the JSON; broadcasts carry the
+scalar fields (feedingRpm, grindRpm, brightness, standbySec, cupDetect,
+autoStop, fastClean, bladeGap, humidity, devState, netState, totalGrinds,
+wifiName, snCode, resetReason, releaseVer). Preset responses carry
+`"uid":"hex","name":"..."` entries.
+
+Command envelope `{"request":{<module>:{<op>|<data>}}}`: grind start/stop,
+grindSection set (index or name), grindPreset set (uid confirmed against the
+rig; index fallback), geneSetting set (numeric/bool keys with ranges:
+feedingRpm 0-65, grindRpm 0-1050, bladeGap 0-1000, brightness 0-10,
+standbySec 0-900, cupDetect/autoStop/fastClean bools), reboot. Grind
+start/stop, section and preset set payloads are educated guesses from the
+reference GUI and should be confirmed against the rig before relying on them;
+wifi/usage queries have no consumer yet.
+
 ## Keeping Notes Fresh
 
 Add lessons that would have saved debugging time: new footguns, thread-safety constraints, connection-lifecycle changes, non-obvious symptoms, and cross-transport dependencies. Prune stale claims. Prefer fewer, sharper notes over long background.

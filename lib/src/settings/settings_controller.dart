@@ -42,6 +42,8 @@ class SettingsController with ChangeNotifier {
 
   String? _preferredScaleId;
 
+  String? _preferredGrinderId;
+
   String _defaultSkinId = 'streamline.js';
 
   bool _automaticUpdateCheck = true;
@@ -87,6 +89,7 @@ class SettingsController with ChangeNotifier {
   bool get stopHotWaterAtWeight => _stopHotWaterAtWeight;
   String? get preferredMachineId => _preferredMachineId;
   String? get preferredScaleId => _preferredScaleId;
+  String? get preferredGrinderId => _preferredGrinderId;
   String get defaultSkinId => _defaultSkinId;
   bool get automaticUpdateCheck => _automaticUpdateCheck;
   UpdateChannel get updateChannel => _updateChannel;
@@ -127,6 +130,7 @@ class SettingsController with ChangeNotifier {
     _stopHotWaterAtWeight = await _settingsService.stopHotWaterAtWeight();
     _preferredMachineId = await _settingsService.preferredMachineId();
     _preferredScaleId = await _settingsService.preferredScaleId();
+    _preferredGrinderId = await _settingsService.preferredGrinderId();
     _defaultSkinId = await _settingsService.defaultSkinId();
     _automaticUpdateCheck = await _settingsService.automaticUpdateCheck();
     _updateChannel = await _settingsService.updateChannel();
@@ -236,6 +240,9 @@ class SettingsController with ChangeNotifier {
     _preferredScaleId = devices.contains(SimulatedDevicesTypes.scale)
         ? 'MockScale'
         : null;
+    _preferredGrinderId = devices.contains(SimulatedDevicesTypes.grinder)
+        ? 'MockGrinder'
+        : null;
     notifyListeners();
   }
 
@@ -317,6 +324,15 @@ class SettingsController with ChangeNotifier {
     }
     _preferredScaleId = scaleId;
     await _settingsService.setPreferredScaleId(scaleId);
+    notifyListeners();
+  }
+
+  Future<void> setPreferredGrinderId(String? grinderId) async {
+    if (grinderId == _preferredGrinderId) {
+      return;
+    }
+    _preferredGrinderId = grinderId;
+    await _settingsService.setPreferredGrinderId(grinderId);
     notifyListeners();
   }
 

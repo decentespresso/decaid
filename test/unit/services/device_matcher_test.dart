@@ -6,6 +6,7 @@ import 'package:reaprime/src/models/device/impl/acaia/acaia_scale.dart';
 import 'package:reaprime/src/models/device/impl/atomheart/atomheart_scale.dart';
 import 'package:reaprime/src/models/device/impl/bengle/bengle.dart';
 import 'package:reaprime/src/models/device/impl/blackcoffee/blackcoffee_scale.dart';
+import 'package:reaprime/src/models/device/impl/bookoo/bookoo_grinder.dart';
 import 'package:reaprime/src/models/device/impl/bookoo/miniscale.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
 import 'package:reaprime/src/models/device/impl/decent_scale/scale.dart';
@@ -373,6 +374,30 @@ void main() {
       );
 
       expect(device, isA<BookooScale>());
+    });
+
+    test('BOOKOO MT80 matches the grinder, not the scale', () async {
+      final device = await DeviceMatcher.match(
+        transport: mockTransport,
+        advertisedName: 'BOOKOO MT80',
+      );
+
+      expect(device, isA<BookooGrinder>());
+    });
+
+    test('MOTTO80 BLE matches the grinder', () async {
+      final device = await DeviceMatcher.match(
+        transport: mockTransport,
+        advertisedName: 'MOTTO80 BLE',
+      );
+
+      expect(device, isA<BookooGrinder>());
+    });
+
+    test('serviceUuidsFor grinder contains the MT80 service', () {
+      final services = DeviceMatcher.serviceUuidsFor(DeviceType.grinder);
+
+      expect(services, contains('4d543830-0001-4b80-8f00-424f4f4b4f4f'));
     });
 
     test('returns null for unknown name', () async {

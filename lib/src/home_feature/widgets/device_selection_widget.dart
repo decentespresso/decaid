@@ -70,9 +70,12 @@ class _DeviceSelectionWidgetState extends State<DeviceSelectionWidget> {
   @override
   Widget build(BuildContext context) {
     if (_discoveredDevices.isEmpty) {
-      final label = widget.deviceType == dev.DeviceType.machine
-          ? 'machines'
-          : 'scales';
+      final label = switch (widget.deviceType) {
+        dev.DeviceType.machine => 'machines',
+        dev.DeviceType.scale => 'scales',
+        dev.DeviceType.sensor => 'devices',
+        dev.DeviceType.grinder => 'grinders',
+      };
       return Padding(
         padding: const EdgeInsets.all(8.0),
         child: Center(

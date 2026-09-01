@@ -34,6 +34,8 @@ abstract class SettingsService {
   Future<void> setPreferredMachineId(String? machineId);
   Future<String?> preferredScaleId();
   Future<void> setPreferredScaleId(String? scaleId);
+  Future<String?> preferredGrinderId();
+  Future<void> setPreferredGrinderId(String? grinderId);
   Future<String> defaultSkinId();
   Future<void> setDefaultSkinId(String skinId);
   Future<bool> automaticUpdateCheck();
@@ -248,6 +250,20 @@ class SharedPreferencesSettingsService extends SettingsService {
       await prefs.remove(SettingsKeys.preferredScaleId.name);
     } else {
       await prefs.setString(SettingsKeys.preferredScaleId.name, scaleId);
+    }
+  }
+
+  @override
+  Future<String?> preferredGrinderId() async {
+    return await prefs.getString(SettingsKeys.preferredGrinderId.name);
+  }
+
+  @override
+  Future<void> setPreferredGrinderId(String? grinderId) async {
+    if (grinderId == null) {
+      await prefs.remove(SettingsKeys.preferredGrinderId.name);
+    } else {
+      await prefs.setString(SettingsKeys.preferredGrinderId.name, grinderId);
     }
   }
 
@@ -536,6 +552,7 @@ enum SettingsKeys {
   stopHotWaterAtWeight,
   preferredMachineId,
   preferredScaleId,
+  preferredGrinderId,
   defaultSkinId,
   automaticUpdateCheck,
   updateChannel,
@@ -561,7 +578,7 @@ enum SettingsKeys {
   enableSimulatedWebViews,
 }
 
-enum SimulatedDevicesTypes { machine, scale, sensor, bengle, replay }
+enum SimulatedDevicesTypes { machine, scale, sensor, bengle, replay, grinder }
 
 extension SimulatedDevicesTypesFromString on SimulatedDevicesTypes {
   static SimulatedDevicesTypes? fromString(String value) {

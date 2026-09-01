@@ -136,6 +136,7 @@ const _defaultSimulatedDevices = <SimulatedDevicesTypes>{
   SimulatedDevicesTypes.scale,
   SimulatedDevicesTypes.sensor,
   SimulatedDevicesTypes.bengle,
+  SimulatedDevicesTypes.grinder,
 };
 
 Set<SimulatedDevicesTypes> _parseSimulateFlag(String value) {

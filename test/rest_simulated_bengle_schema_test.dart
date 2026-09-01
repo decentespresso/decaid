@@ -7,7 +7,7 @@ void main() {
     final spec = await File('assets/api/rest_v1.yml').readAsString();
     expect(
       RegExp(
-        r'enum: \[machine, scale, sensor, bengle\]',
+        r'enum: \[machine, scale, sensor, bengle, grinder\]',
       ).allMatches(spec).length,
       2,
     );

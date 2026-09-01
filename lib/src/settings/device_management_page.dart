@@ -51,6 +51,9 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
   List<Device> get _scales =>
       _devices.where((d) => d.type == DeviceType.scale).toList();
 
+  List<Device> get _grinders =>
+      _devices.where((d) => d.type == DeviceType.grinder).toList();
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -86,6 +89,17 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                     emptyLabel: 'scales',
                     onSelected: (id) async {
                       await widget.settingsController.setPreferredScaleId(id);
+                      if (mounted) _showSavedSnackbar();
+                    },
+                  ),
+                  _buildSection(
+                    title: 'Auto-connect Grinder',
+                    icon: Icons.blender_outlined,
+                    devices: _grinders,
+                    selectedId: widget.settingsController.preferredGrinderId,
+                    emptyLabel: 'grinders',
+                    onSelected: (id) async {
+                      await widget.settingsController.setPreferredGrinderId(id);
                       if (mounted) _showSavedSnackbar();
                     },
                   ),

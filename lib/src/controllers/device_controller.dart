@@ -330,6 +330,7 @@ class DeviceController
     int machineCount = 0;
     int scaleCount = 0;
     int sensorCount = 0;
+    int grinderCount = 0;
 
     for (var device in devices) {
       _telemetryService!.setCustomKey(
@@ -347,12 +348,16 @@ class DeviceController
         case DeviceType.sensor:
           sensorCount++;
           break;
+        case DeviceType.grinder:
+          grinderCount++;
+          break;
       }
     }
 
     _telemetryService!.setCustomKey('connected_machines', machineCount);
     _telemetryService!.setCustomKey('connected_scales', scaleCount);
     _telemetryService!.setCustomKey('connected_sensors', sensorCount);
+    _telemetryService!.setCustomKey('connected_grinders', grinderCount);
   }
 
   void dispose() {

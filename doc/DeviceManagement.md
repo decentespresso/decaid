@@ -189,6 +189,7 @@ Discovery services use name-based matching via `DeviceMatcher` to create appropr
 - Name rules map advertisement names to device factories
 - Service verification happens during `onConnect()` using `BleServiceIdentifier`
 - DiFluid R2 reflectometers are matched separately from DiFluid scales by advertised name and the R2 BLE service UUID, then exposed as `Sensor` devices with a `measure` command
+- MOTTO80 grinders are matched by advertised name containing `motto80` and surface as `DeviceType.grinder` with a typed `Grinder` abstraction (`GrinderSnapshot` stream, start/stop/preset/geneSetting operations). Auto-connect uses `preferredGrinderId` (Settings > Devices > Auto-connect Grinder): `ConnectionManager._tryConnectPreferredGrinder` connects the discovered grinder matching the preferred id after each scan. Deferred: grinder picker ambiguity, background reacquisition watch, quick-connect execution for remembered grinders, and a scan-flow column (streamline.js work)
 
 ### Service Lifecycle
 

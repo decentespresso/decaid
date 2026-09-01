@@ -56,7 +56,7 @@ paths:
                       enum: [connected, disconnected]
                     type:
                       type: string
-                      enum: [machine, scale, sensor]
+                      enum: [machine, scale, sensor, grinder]
                     available:
                       type: boolean
                       description: >
@@ -6403,6 +6403,10 @@ components:
           type: string
           nullable: true
           example: "AA:BB:CC:DD:EE:FF"
+        preferredGrinderId:
+          description: Device ID of the preferred grinder for auto-connect on startup. When set, REA will automatically connect to this grinder when it's discovered during device scan. Set to null to clear the preference.
+          type: string
+          nullable: true
         defaultSkinId:
           description: ID of the default WebUI skin to serve
           type: string
@@ -6440,7 +6444,7 @@ components:
           type: array
           items:
             type: string
-            enum: [machine, scale, sensor, bengle]
+            enum: [machine, scale, sensor, bengle, grinder]
           nullable: true
         themeMode:
           description: App theme mode
@@ -6500,6 +6504,10 @@ components:
           description: Device ID of the preferred scale for auto-connect on startup. Returns null if no preferred device is set.
           type: string
           nullable: true
+        preferredGrinderId:
+          description: Device ID of the preferred grinder for auto-connect on startup. Returns null if no preferred device is set.
+          type: string
+          nullable: true
           example: "AA:BB:CC:DD:EE:FF"
         defaultSkinId:
           description: ID of the default WebUI skin being served
@@ -6536,7 +6544,7 @@ components:
           type: array
           items:
             type: string
-            enum: [machine, scale, sensor, bengle]
+            enum: [machine, scale, sensor, bengle, grinder]
         themeMode:
           description: App theme mode
           type: string
