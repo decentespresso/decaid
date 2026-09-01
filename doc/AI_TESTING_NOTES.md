@@ -102,3 +102,20 @@ Available via `--dart-define=simulate=1` or settings UI toggle. For end-to-end A
 ## Keeping Notes Fresh
 
 Add widget test gotchas, mock helper changes, and test infrastructure patterns. Prune when test APIs change.
+
+## Plugin transport tests (`test/plugins/plugin_manager_transport*_test.dart`)
+
+`PluginManager` accepts optional `connectWebSocket` / `connectSocket` /
+`connectSecureSocket` connectors (defaulting to `WebSocket.connect` /
+`Socket.connect` / `SecureSocket.connect`) forwarded to
+`PluginTransportService`. Tests use them for:
+
+- **Backpressure accounting:** `_BlockingWebSocket` never completes
+  `addStream`, so the test deterministically exercises the outbound byte
+  limit without depending on kernel socket-buffer sizes.
+- **TLS/WSS positive paths:** platform trust validation cannot be exercised
+  offline (self-signed certs are always rejected by the default connectors —
+  those rejection paths are covered separately). The positive tests inject
+  connectors that accept the local self-signed certificate
+  (`onBadCertificate` / `badCertificateCallback`) and still run a real TLS /
+  TLS-wrapped-WebSocket round trip.

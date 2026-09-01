@@ -655,7 +655,8 @@ it in Decaid UI.
   certificates are not supported
 - Storage is isolated per plugin
 - No filesystem access beyond the plugin's own directory
-- No network access to localhost/private IPs (except for Decaid API)
+- HTTP/fetch cannot reach localhost or private IPs (except for the Decaid
+  API); `host.transport` has no such restriction
 
 ## External First-Party Plugins
 

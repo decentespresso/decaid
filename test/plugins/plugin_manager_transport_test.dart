@@ -9,8 +9,6 @@ import 'package:reaprime/src/plugins/plugin_manifest.dart';
 
 import 'plugin_test_helpers.dart';
 
-/// Loads a plugin whose onLoad runs [jsBody] and resolves with the first
-/// `host.emit("result", payload)` payload.
 Future<Object?> runPluginResult(
   PluginManager manager, {
   required String id,
@@ -78,6 +76,54 @@ Future<ServerSocket> startTcpServer(
   });
   addTearDown(() async => server.close());
   return server;
+}
+
+class _BlockingWebSocket implements WebSocket {
+  final List<Object> written = [];
+  @override
+  int readyState = WebSocket.open;
+  @override
+  String? protocol = '';
+  @override
+  String extensions = '';
+  @override
+  int? closeCode;
+  @override
+  String? closeReason;
+  @override
+  Duration? pingInterval;
+
+  @override
+  void add(dynamic data) => written.add(data);
+
+  @override
+  Future<void> addStream(Stream<dynamic> stream) {
+    stream.listen((data) => written.add(data));
+    return Completer<void>().future;
+  }
+
+  @override
+  Future<void> close([int? code, String? reason]) async {
+    closeCode = code;
+    closeReason = reason;
+    readyState = WebSocket.closed;
+  }
+
+  @override
+  StreamSubscription<dynamic> listen(
+    void Function(dynamic)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) => Stream<dynamic>.multi((controller) {}).listen(
+    onData,
+    onError: onError,
+    onDone: onDone,
+    cancelOnError: cancelOnError,
+  );
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 void main() {
@@ -632,7 +678,7 @@ void main() {
       );
 
       final error = jsonDecode(result as String) as Map<String, dynamic>;
-      expect(error['message'], contains('not owned'));
+      expect(error['message'], contains('Unknown transport handle'));
     });
 
     test('plugin unload closes all owned connections', () async {
@@ -814,6 +860,54 @@ void main() {
       expect(error['code'], 'transport_resource_limit');
       expect(received, 0);
     });
+
+    test(
+      'multiple sub-limit websocket sends accumulate pending outbound bytes',
+      () async {
+        final ws = _BlockingWebSocket();
+        final manager = PluginManager(
+          kvStore: FakeKeyValueStoreService(),
+          fetchTimeout: const Duration(seconds: 2),
+          connectWebSocket: (url, {protocols}) async => ws,
+        );
+        addTearDown(manager.dispose);
+        final result = await runPluginResult(
+          manager,
+          id: 'backpressure.plugin',
+          permissions: const {
+            PluginPermissions.emit,
+            PluginPermissions.networkWebsocket,
+          },
+          jsBody: '''
+          const big = "x".repeat(400 * 1024);
+          host.transport.open({
+            kind: "websocket",
+            url: "ws://127.0.0.1:1/x"
+          }).then((opened) => {
+            const results = [];
+            const attempt = (i) => {
+              if (i >= 3) {
+                host.emit("result", JSON.stringify(results));
+                return;
+              }
+              host.transport.send(opened.handle, { type: "text", data: big })
+                .then(() => { results.push("ok"); attempt(i + 1); })
+                .catch((e) => { results.push(e.code); attempt(i + 1); });
+            };
+            attempt(0);
+          }).catch((e) => host.emit("result", JSON.stringify({ error: e.message })));
+        ''',
+        );
+
+        await pumpEventQueue();
+        expect(jsonDecode(result as String), [
+          'ok',
+          'ok',
+          'transport_resource_limit',
+        ]);
+        expect(ws.written.length, 1);
+      },
+    );
 
     test(
       'inbound overflow closes the transport with a resource limit error',

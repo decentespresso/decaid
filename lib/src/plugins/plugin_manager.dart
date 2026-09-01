@@ -105,6 +105,9 @@ class PluginManager {
     this.pluginHttpTimeout = const Duration(seconds: 30),
     this.decentProxyTimeout = const Duration(seconds: 30),
     JavascriptRuntime? js,
+    WebSocketConnector? connectWebSocket,
+    SocketConnector? connectSocket,
+    SecureSocketConnector? connectSecureSocket,
   }) : js = js ?? getJavascriptRuntime(xhr: false) {
     _decentProxyBridge = PluginDecentProxyBridge(
       decentProxyService: decentProxyService,
@@ -112,6 +115,9 @@ class PluginManager {
     );
     _transportService = PluginTransportService(
       eventSink: _dispatchTransportEvent,
+      connectWebSocket: connectWebSocket,
+      connectSocket: connectSocket,
+      connectSecureSocket: connectSecureSocket,
     );
     _bootstrapJs();
   }
@@ -544,7 +550,6 @@ class PluginManager {
           __timers.clear();
         };
 
-        // Transport bridge: plugin-owned outbound WebSocket/TCP/TLS handles.
         const __transportListeners = new Map();
         const __transportPending = new Map();
         function __sendTransportMessage(message) {
@@ -567,6 +572,10 @@ class PluginManager {
 
         globalThis.__transportSetListener = function (handle, pluginId, listener) {
           __transportListeners.set(handle, { pluginId: pluginId, listener: listener });
+        };
+
+        globalThis.__transportRemoveListener = function (handle) {
+          __transportListeners.delete(handle);
         };
 
         globalThis.__handleTransportReply = function (msg) {
@@ -955,7 +964,9 @@ class PluginManager {
           );
           if (!_isCurrentPluginMessage(pluginId, {'generation': generation})) {
             unawaited(
-              _transportService.close(pluginId, generation, result.handle),
+              _transportService
+                  .close(pluginId, generation, result.handle)
+                  .catchError((Object _) {}),
             );
             return;
           }
@@ -1000,7 +1011,11 @@ class PluginManager {
         case 'onEvent':
           final handle = payload['handle'];
           if (handle is String) {
-            _transportService.onEventRegistered(pluginId, generation, handle);
+            try {
+              _transportService.onEventRegistered(pluginId, generation, handle);
+            } on PluginTransportException {
+              _removeTransportListener(handle);
+            }
           }
         default:
           _log.warning('Unknown transport message type from $pluginId: $type');
@@ -1045,8 +1060,22 @@ class PluginManager {
         '${jsonEncode(pluginId)}, ${jsonEncode(handle)}, ${jsonEncode(event)});',
       );
       while (js.executePendingJob() > 0) {}
+      if (event['type'] == 'close') {
+        _removeTransportListener(handle);
+      }
     } catch (e, st) {
       _log.warning('Failed to dispatch transport event to $pluginId', e, st);
+    }
+  }
+
+  void _removeTransportListener(String handle) {
+    try {
+      js.evaluate(
+        'globalThis.__transportRemoveListener(${jsonEncode(handle)});',
+      );
+      while (js.executePendingJob() > 0) {}
+    } catch (e, st) {
+      _log.warning('Failed to remove transport listener', e, st);
     }
   }
 
@@ -1387,11 +1416,9 @@ class PluginManager {
       while (js.executePendingJob() > 0) {}
     });
     attempt(() => _cancelTimersForPlugin(pluginId, pluginBridgeToken));
-    attempt(() {
-      unawaited(
-        _transportService.closeAllForPlugin(pluginId, retiringGeneration),
-      );
-    });
+    attempt(
+      () => _transportService.closeAllForPlugin(pluginId, retiringGeneration),
+    );
 
     if (firstError != null) {
       Error.throwWithStackTrace(firstError!, firstStackTrace!);

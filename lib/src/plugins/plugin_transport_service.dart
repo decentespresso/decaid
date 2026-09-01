@@ -5,11 +5,8 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
-/// Kinds of outbound transport exposed to plugins.
 enum PluginTransportKind { websocket, tcp, tls }
 
-/// Error surfaced to the JS bridge. [code] is the stable machine-readable
-/// error code carried on the rejected Promise.
 class PluginTransportException implements Exception {
   const PluginTransportException(this.message, {this.code = 'transport_error'});
 
@@ -27,8 +24,6 @@ class TransportOpenResult {
   final String? protocol;
 }
 
-/// Delivers a decoded transport event to the JS runtime. Implemented by
-/// [PluginManager] so it can validate plugin generation before evaluating JS.
 typedef PluginTransportEventSink =
     void Function(
       String pluginId,
@@ -37,23 +32,32 @@ typedef PluginTransportEventSink =
       Map<String, dynamic> event,
     );
 
-/// Owns native WebSocket/TCP/TLS connections opened by plugins.
-///
-/// Every handle is owned by a (pluginId, generation) pair. The service
-/// enforces connection and byte limits, bounds the inbound queue, and
-/// guarantees that unload/dispose close every native connection.
+typedef WebSocketConnector =
+    Future<WebSocket> Function(String url, {Iterable<String>? protocols});
+typedef SocketConnector = Future<Socket> Function(String host, int port);
+typedef SecureSocketConnector =
+    Future<SecureSocket> Function(String host, int port);
+
 class PluginTransportService {
   PluginTransportService({
     required this.eventSink,
     this.maxTransportsPerGeneration = 8,
     this.maxPendingOutboundBytes = 1 << 20,
     this.maxQueuedInboundBytes = 1 << 20,
-  });
+    WebSocketConnector? connectWebSocket,
+    SocketConnector? connectSocket,
+    SecureSocketConnector? connectSecureSocket,
+  }) : connectWebSocket = connectWebSocket ?? _connectWebSocket,
+       connectSocket = connectSocket ?? _connectSocket,
+       connectSecureSocket = connectSecureSocket ?? _connectSecureSocket;
 
   final PluginTransportEventSink eventSink;
   final int maxTransportsPerGeneration;
   final int maxPendingOutboundBytes;
   final int maxQueuedInboundBytes;
+  final WebSocketConnector connectWebSocket;
+  final SocketConnector connectSocket;
+  final SecureSocketConnector connectSecureSocket;
 
   static const Duration _closeTimeout = Duration(seconds: 5);
   static const String _resourceLimitCode = 'transport_resource_limit';
@@ -63,7 +67,6 @@ class PluginTransportService {
   int get liveTransportCount =>
       _records.values.where((record) => !record.terminal).length;
 
-  /// Opens a transport and resolves once the connection is established.
   Future<TransportOpenResult> open({
     required String pluginId,
     required int generation,
@@ -95,19 +98,12 @@ class PluginTransportService {
     }
   }
 
-  /// Registers the single event listener for [handle]. Calling it again
-  /// replaces the previous listener. Flushes the bounded inbound queue in
-  /// order.
   void onEventRegistered(String pluginId, int generation, String handle) {
     final record = _recordFor(pluginId, generation, handle);
     record.delivering = true;
     _drain(record);
   }
 
-  /// Resolves once the payload is accepted into the native transport's
-  /// bounded outbound write path. Rejects atomically with
-  /// `transport_resource_limit` if accepting the whole payload would exceed
-  /// the outbound limit.
   Future<void> send(
     String pluginId,
     int generation,
@@ -127,10 +123,7 @@ class PluginTransportService {
       if (data is! String) {
         throw const PluginTransportException('Text payload must be a string');
       }
-      final size = utf8.encode(data).length;
-      _reserveOutbound(record, size);
-      record.webSocket!.add(data);
-      _releaseOutbound(record, size);
+      _enqueueOutbound(record, data, utf8.encode(data).length);
       return;
     }
     if (type == 'binary') {
@@ -148,14 +141,13 @@ class PluginTransportService {
           'Binary payload is not valid base64',
         );
       }
-      _reserveOutbound(record, bytes.length);
       final ws = record.webSocket;
       if (ws != null) {
-        ws.add(bytes);
-        _releaseOutbound(record, bytes.length);
+        _enqueueOutbound(record, bytes, bytes.length);
         return;
       }
       final socket = record.socket!;
+      _reserveOutbound(record, bytes.length);
       socket.add(bytes);
       unawaited(
         socket.flush().then<void>(
@@ -170,8 +162,6 @@ class PluginTransportService {
     );
   }
 
-  /// Closes the transport and releases the handle. Resolves once the native
-  /// transport is closed.
   Future<void> close(String pluginId, int generation, String handle) async {
     final record = _recordFor(pluginId, generation, handle);
     _checkOpen(record);
@@ -179,11 +169,9 @@ class PluginTransportService {
     if (ws != null) {
       try {
         await ws.close(1000).timeout(_closeTimeout);
-      } catch (_) {
-        // The peer may already have closed or never respond to the close
-        // frame; the handle is released below regardless.
-      }
+      } catch (_) {}
       _terminate(record);
+      _records.remove(record.handle);
       return;
     }
     final socket = record.socket;
@@ -194,30 +182,28 @@ class PluginTransportService {
         socket.destroy();
       }
       _terminate(record);
+      _records.remove(record.handle);
       return;
     }
     _terminate(record);
+    _records.remove(record.handle);
   }
 
-  /// Closes every live transport owned by (pluginId, generation). Used on
-  /// plugin unload; cleanup is deterministic even if plugin JS misbehaves.
-  Future<void> closeAllForPlugin(String pluginId, int generation) async {
+  void closeAllForPlugin(String pluginId, int generation) {
     final owned = _records.values
         .where(
           (record) =>
-              record.pluginId == pluginId &&
-              record.generation == generation &&
-              !record.terminal,
+              record.pluginId == pluginId && record.generation == generation,
         )
         .toList();
     for (final record in owned) {
-      try {
-        await close(pluginId, generation, record.handle);
-      } catch (_) {}
+      _records.remove(record.handle);
+      if (record.terminal) continue;
+      record.terminal = true;
+      _closeNative(record);
     }
   }
 
-  /// Closes all remaining transports. Called on manager disposal.
   void dispose() {
     for (final record in _records.values) {
       if (record.terminal) continue;
@@ -248,7 +234,13 @@ class PluginTransportService {
       }
       protocols = rawProtocols.cast<String>();
     }
-    final ws = await WebSocket.connect(url, protocols: protocols);
+    final ws = await connectWebSocket(url, protocols: protocols);
+    if (record.terminal) {
+      unawaited(
+        ws.close(1000).timeout(_closeTimeout).catchError((Object _) {}),
+      );
+      throw const PluginTransportException('Plugin unloaded during connect');
+    }
     record.webSocket = ws;
     _listenWebSocket(record);
     final protocol = ws.protocol;
@@ -264,7 +256,11 @@ class PluginTransportService {
   ) async {
     final host = _hostOption(options);
     final port = _portOption(options);
-    final socket = await Socket.connect(host, port);
+    final socket = await connectSocket(host, port);
+    if (record.terminal) {
+      socket.destroy();
+      throw const PluginTransportException('Plugin unloaded during connect');
+    }
     record.socket = socket;
     _listenSocket(record);
     return TransportOpenResult(handle: record.handle);
@@ -276,10 +272,41 @@ class PluginTransportService {
   ) async {
     final host = _hostOption(options);
     final port = _portOption(options);
-    final socket = await SecureSocket.connect(host, port);
+    final socket = await connectSecureSocket(host, port);
+    if (record.terminal) {
+      socket.destroy();
+      throw const PluginTransportException('Plugin unloaded during connect');
+    }
     record.socket = socket;
     _listenSocket(record);
     return TransportOpenResult(handle: record.handle);
+  }
+
+  void _enqueueOutbound(_TransportRecord record, Object data, int size) {
+    _reserveOutbound(record, size);
+    record.outboundQueue.add(_OutboundFrame(data, size));
+    unawaited(_drainOutbound(record));
+  }
+
+  Future<void> _drainOutbound(_TransportRecord record) async {
+    if (record.outboundWriting) return;
+    record.outboundWriting = true;
+    try {
+      while (!record.terminal && record.outboundQueue.isNotEmpty) {
+        final frame = record.outboundQueue.first;
+        final ws = record.webSocket;
+        if (ws == null) break;
+        try {
+          await ws.addStream(Stream<dynamic>.value(frame.data));
+        } on Object {
+          break;
+        }
+        record.outboundQueue.removeFirst();
+        _releaseOutbound(record, frame.size);
+      }
+    } finally {
+      record.outboundWriting = false;
+    }
   }
 
   String _hostOption(Map<String, dynamic> options) {
@@ -373,6 +400,7 @@ class PluginTransportService {
         queued.event,
       );
     }
+    if (record.terminal) _records.remove(record.handle);
   }
 
   void _terminate(
@@ -478,6 +506,17 @@ class PluginTransportService {
   }
 }
 
+Future<WebSocket> _connectWebSocket(
+  String url, {
+  Iterable<String>? protocols,
+}) => WebSocket.connect(url, protocols: protocols);
+
+Future<Socket> _connectSocket(String host, int port) =>
+    Socket.connect(host, port);
+
+Future<SecureSocket> _connectSecureSocket(String host, int port) =>
+    SecureSocket.connect(host, port);
+
 class _TransportRecord {
   _TransportRecord({
     required this.handle,
@@ -496,8 +535,17 @@ class _TransportRecord {
   bool delivering = false;
   bool terminal = false;
   int outboundBytes = 0;
+  final Queue<_OutboundFrame> outboundQueue = Queue();
+  bool outboundWriting = false;
   final Queue<_QueuedEvent> inboundQueue = Queue();
   int inboundBytes = 0;
+}
+
+class _OutboundFrame {
+  const _OutboundFrame(this.data, this.size);
+
+  final Object data;
+  final int size;
 }
 
 class _QueuedEvent {
