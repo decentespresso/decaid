@@ -6,6 +6,26 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Decaid</title>
         <item>
+            <title>0.8.5</title>
+            <pubDate>Wed, 02 Sep 2026 12:54:34 +0000</pubDate>
+            <sparkle:version>2624</sparkle:version>
+            <sparkle:shortVersionString>0.8.5</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* fix(skale2): accept nine-byte weight notifications by @tadelv in https://github.com/decentespresso/decaid/pull/755
+* feat(plugins): permission-gated host.transport WebSocket/TCP/TLS transports (#146) by @tadelv in https://github.com/decentespresso/decaid/pull/759
+* feat(sensor): expose Bengle EBus tap as a raw Sensor by @tadelv in https://github.com/decentespresso/decaid/pull/762
+* chore(shots): track createdAt and updatedAt on shot records by @tadelv in https://github.com/decentespresso/decaid/pull/750
+* chore: bump dart_js by @tadelv in https://github.com/decentespresso/decaid/pull/768
+* Bundle the dcamp community plugin by @johnbuckman in https://github.com/decentespresso/decaid/pull/763
+
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.8.4...v0.8.5
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.8.5/decaid-macos-0.8.5.zip" length="71431310" type="application/octet-stream" sparkle:edSignature="Pc/ceJ6j+mI1MSqkzNA0XF/nd/PaEfBEChY5pEvI9beRa9psU3KpfOng94GrNhlhDeWZvlxvuujXwrtO6B6eBQ=="/>
+        </item>
+        <item>
             <title>0.8.4</title>
             <pubDate>Mon, 31 Aug 2026 18:48:28 +0000</pubDate>
             <sparkle:version>2600</sparkle:version>
@@ -300,6 +320,6 @@ See `doc/RELEASE.md` for install and verification instructions.
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: LrSJ+p39kqk0pI8ufVp0KbIBsKdLD5uJoKDu15m+RF7b2rXufxvJoEmUVb0Y2jJeh7EgbQDKdr9iBzrBSZGzCg==
-length: 26110
+edSignature: /5gQtLYBKQ+jSmFiB5U1nXfbz9zDM90IECaOpVkyl+4cwnnqyJ3x3crOEcCfYqZJ7s6Sb+bEQG3nQ6PXxuvcAQ==
+length: 27609
 -->
