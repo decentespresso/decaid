@@ -68,6 +68,10 @@ class AppDatabase extends _$AppDatabase {
         if (from < 5) {
           await m.addColumn(shotRecords, shotRecords.createdAt);
           await m.addColumn(shotRecords, shotRecords.updatedAt);
+          await customStatement(
+            'UPDATE shot_records SET created_at = timestamp, '
+            'updated_at = timestamp',
+          );
         }
       },
       beforeOpen: (details) async {

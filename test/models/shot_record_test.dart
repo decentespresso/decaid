@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
 import 'package:reaprime/src/models/data/shot_annotations.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
+import 'package:reaprime/src/models/data/shot_snapshot.dart';
+import 'package:reaprime/src/models/device/machine.dart';
 
 void main() {
   test('canonical constructor annotations stay authoritative when null', () {
@@ -193,6 +195,43 @@ void main() {
 
       expect(a.sameContent(b), isTrue);
       expect(a.sameContent(c), isTrue);
+    });
+
+    test('measurements count as content only when requested', () {
+      ShotSnapshot snapshot(double volume) => ShotSnapshot(
+        machine: MachineSnapshot(
+          timestamp: DateTime.utc(2026, 7, 23, 10),
+          state: const MachineStateSnapshot(
+            state: MachineState.steam,
+            substate: MachineSubstate.pouring,
+          ),
+          flow: 0,
+          pressure: 0,
+          targetFlow: 0,
+          targetPressure: 0,
+          mixTemperature: 90,
+          groupTemperature: 90,
+          targetMixTemperature: 93,
+          targetGroupTemperature: 93,
+          profileFrame: 0,
+          steamTemperature: 140,
+        ),
+        volume: volume,
+      );
+
+      final plain = record();
+      final withFlow = ShotRecord(
+        id: 'shot-1',
+        timestamp: DateTime.utc(2026, 7, 23),
+        createdAt: DateTime.utc(2026, 7, 23, 9),
+        updatedAt: DateTime.utc(2026, 7, 23, 9, 30),
+        measurements: [snapshot(42)],
+        workflow: workflow,
+      );
+
+      expect(plain.sameContent(withFlow), isTrue);
+      expect(plain.sameContent(withFlow, includeMeasurements: true), isFalse);
+      expect(withFlow.sameContent(withFlow, includeMeasurements: true), isTrue);
     });
   });
 }

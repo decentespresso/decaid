@@ -64,7 +64,10 @@ class ShotExportSection implements DataExportSection {
 
         if (existing != null) {
           if (strategy == ConflictStrategy.overwrite) {
-            final contentChanged = !existing.sameContent(record);
+            final contentChanged = !existing.sameContent(
+              record,
+              includeMeasurements: true,
+            );
             await _controller.storageService.updateShot(
               record.copyWith(
                 createdAt:

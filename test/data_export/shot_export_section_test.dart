@@ -4,9 +4,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/models/data/shot_annotations.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
+import 'package:reaprime/src/models/data/shot_snapshot.dart';
 import 'package:reaprime/src/models/data/steam_record.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
 import 'package:reaprime/src/models/data/profile.dart';
+import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/services/storage/storage_service.dart';
 import 'package:reaprime/src/services/webserver/data_export/data_export_section.dart';
 import 'package:reaprime/src/services/webserver/data_export/shot_export_section.dart';
@@ -157,6 +159,27 @@ ShotRecord makeShot(int i) => ShotRecord.fromJson({
   'measurements': <Object?>[],
   'workflow': makeWorkflowJson(),
 });
+
+ShotSnapshot _snapshot() => ShotSnapshot(
+  machine: MachineSnapshot(
+    timestamp: DateTime.utc(2026, 5, 18, 12),
+    state: const MachineStateSnapshot(
+      state: MachineState.steam,
+      substate: MachineSubstate.pouring,
+    ),
+    flow: 0,
+    pressure: 0,
+    targetFlow: 0,
+    targetPressure: 0,
+    mixTemperature: 90,
+    groupTemperature: 90,
+    targetMixTemperature: 93,
+    targetGroupTemperature: 93,
+    profileFrame: 0,
+    steamTemperature: 140,
+  ),
+  volume: 0,
+);
 
 void main() {
   group('ShotExportSection', () {
@@ -371,6 +394,46 @@ void main() {
         expect(
           stored['updatedAt'],
           existing.updatedAt!.toUtc().toIso8601String(),
+        );
+      },
+    );
+
+    test(
+      'overwrite differing only in measurements advances updatedAt',
+      () async {
+        final storage = _TestShotStorage();
+        final existing = makeShot(1).copyWith(
+          createdAt: DateTime.utc(2024, 1, 1, 8),
+          updatedAt: DateTime.utc(2024, 1, 1, 8, 30),
+          measurements: [_snapshot().copyWith(volume: 36)],
+        );
+        storage.shots['shot-1'] = existing.toJson();
+        final section = ShotExportSection(
+          controller: PersistenceController(storageService: storage.service),
+          pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) async =>
+              [],
+        );
+
+        final reimported = makeShot(1).copyWith(
+          createdAt: DateTime.utc(2020, 1, 1),
+          updatedAt: DateTime.utc(2020, 1, 1),
+          measurements: [_snapshot().copyWith(volume: 42)],
+        );
+        final result = await importSectionJson(
+          section,
+          jsonEncode([reimported.toJson()]),
+          ConflictStrategy.overwrite,
+        );
+        expect(result.imported, 1);
+
+        final stored = storage.shots['shot-1']!;
+        expect((stored['measurements'] as List).single['volume'], 42);
+        expect(stored['updatedAt'], endsWith('Z'));
+        expect(
+          DateTime.parse(
+            stored['updatedAt'] as String,
+          ).isAfter(DateTime.utc(2024, 1, 1, 8, 30)),
+          isTrue,
         );
       },
     );

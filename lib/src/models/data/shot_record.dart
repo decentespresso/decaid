@@ -116,12 +116,13 @@ class ShotRecord {
   }
 
   /// Canonical JSON of the user-meaningful content, used to decide whether a
-  /// write is a real content change. Excludes the system-managed timestamps,
-  /// measurements, and the deprecated `metadata` mirror; bookkeeping extras are
-  /// dropped, and an `extras` map emptied by that exclusion compares equal to
-  /// no `extras` (likewise for `annotations`).
-  Map<String, dynamic> contentSignature() {
-    final json = toJsonWithoutMeasurements()
+  /// write is a real content change. Excludes the system-managed timestamps
+  /// and the deprecated `metadata` mirror; bookkeeping extras are dropped, and
+  /// an `extras` map emptied by that exclusion compares equal to no `extras`
+  /// (likewise for `annotations`). Measurements are excluded unless
+  /// [includeMeasurements] is set, matching callers that can edit them.
+  Map<String, dynamic> contentSignature({bool includeMeasurements = false}) {
+    final json = (includeMeasurements ? toJson() : toJsonWithoutMeasurements())
       ..remove('createdAt')
       ..remove('updatedAt')
       ..remove('metadata');
@@ -150,9 +151,13 @@ class ShotRecord {
   }
 
   /// True when both records carry identical user-meaningful content, ignoring
-  /// system-managed timestamps and bookkeeping extras.
-  bool sameContent(ShotRecord other) =>
-      jsonEncode(contentSignature()) == jsonEncode(other.contentSignature());
+  /// system-managed timestamps and bookkeeping extras. Measurements count as
+  /// content only when [includeMeasurements] is set.
+  bool sameContent(ShotRecord other, {bool includeMeasurements = false}) =>
+      jsonEncode(contentSignature(includeMeasurements: includeMeasurements)) ==
+      jsonEncode(
+        other.contentSignature(includeMeasurements: includeMeasurements),
+      );
 
   String shotTime() {
     final dateFormat = DateFormat.yMd();

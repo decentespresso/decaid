@@ -193,10 +193,11 @@ an `annotations` map emptied by it compares equal to no `annotations`, so the
 first-ever sync marker on a clean shot does not dirty it. All other `extras`
 keys count as content. `measurements` is not editable through this endpoint:
 a PUT body containing it is rejected with 400. Sync import with
-`onConflict: overwrite` follows the same rule: the existing `createdAt` is
-preserved, and `updatedAt` advances only when the imported content differs
-from the stored record, so a no-op re-import cannot move a consumer's cursor
-backwards.
+`onConflict: overwrite` replaces the whole record, so its comparison
+includes `measurements` (which overwrite can change, unlike PUT): the
+existing `createdAt` is preserved, and `updatedAt` advances whenever the
+imported record differs from the stored one, so a no-op re-import cannot
+move a consumer's cursor backwards.
 
 ### Steams
 

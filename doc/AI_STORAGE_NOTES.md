@@ -71,6 +71,8 @@ Persistence uses Drift (SQLite) via `AppDatabase`. DAOs in `lib/src/daos/`, mapp
 
 **Schema migration:** The `@Database` annotation's `version` field is the schema version. Migrations run in `onUpgrade` callback. Each version bump needs a corresponding migration step.
 
+**Schema v5 (shot revision metadata):** `shot_records.createdAt`/`updatedAt` were added as nullable TEXT and backfilled from `timestamp` during the 4→5 migration, so pre-v5 rows carry a real DB-level revision instead of NULL. `ShotMapper.fromRow` still falls back to `timestamp` for any row with NULL fields (e.g. rows inserted without stamps). The revision contract (bookkeeping extras do not advance `updatedAt`, PUT cannot write the fields) is documented in `doc/Api.md` under Shots → Modification tracking.
+
 ## Profile Storage
 
 Content-based hash IDs for deduplication. `ProfileController` manages the profile library:
