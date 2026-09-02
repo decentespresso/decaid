@@ -85,7 +85,7 @@ dependencies:
     # path: ../dart_js
     git:
       url: https://github.com/tadelv/dart_js
-      ref: 6348eae
+      ref: ce2edeb
   firebase_core: ^4.3.0
   firebase_crashlytics: ^5.0.6
   firebase_performance: ^0.11.1+3
