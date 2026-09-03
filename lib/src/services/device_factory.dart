@@ -56,9 +56,7 @@ class DeviceFactory {
       DeviceImplementation.weighMasterScale => WeighMasterScale(
         transport: transport,
       ),
-      DeviceImplementation.timemoreScale => TimemoreScale(
-        transport: transport,
-      ),
+      DeviceImplementation.timemoreScale => TimemoreScale(transport: transport),
       DeviceImplementation.decentTemp => DecentTemp(transport: transport),
       DeviceImplementation.difluidR2Sensor => DifluidR2Sensor(
         transport: transport,

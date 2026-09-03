@@ -11,21 +11,23 @@ import 'package:rxdart/subjects.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import '../../scale.dart';
 
-// Timemore Link scale BLE protocol.
+// Timemore scale BLE protocol (open-scale-protocol v1.0.3).
 //
 // Service UUID  : 0000fff0-0000-1000-8000-00805f9b34fb
-// Notify char   : 0000fff1-0000-1000-8000-00805f9b34fb  (weight notifications)
+// Notify char   : 0000fff1-0000-1000-8000-00805f9b34fb  (weight/flow/timer stream)
 // Write char    : 0000fff2-0000-1000-8000-00805f9b34fb  (commands)
 //
-// Notify packet layout (type=0x01):
-//   [0] 0xA5  [1] 0x5A  [2] type  [3] stat
-//   [4..7] varies  [8] wHigh  [9] wLow  ...
-//   weight = signed_int16(bytes[8], bytes[9]) / 10.0  (grams)
+// Frame layout:
+//   A5 5A | opcode | cmd | length(2, big-endian) | data | crc(2, big-endian)
+//   crc is CRC-16/MODBUS (poly 0x8005 reflected = 0xA001, init 0xFFFF).
 //
-// Commands use CRC-16/MODBUS appended as two big-endian bytes.
-// Advertising name prefix: "Basic3 Link"
+// Notify weight frame (opcode 0x01, cmd 0x01, length 0x0009):
+//   [6..9]   weight    Int32  BE  (divide by 10 -> grams)
+//   [10,11]  flow      Int16  BE  (divide by 10 -> grams/second)
+//   [12,13]  timer     UInt16 BE  (seconds)
+//   [14]     overload  UInt8      (1 = over limit)
 //
-// Protocol reverse-engineered from HCI snoop logs (12/12 verified).
+// Advertising name prefix: "Basic3 Link" (Link) or "TIMEMORE" (Dot family).
 class TimemoreScale implements Scale {
   final Logger _log = Logger('TimemoreScale');
 
@@ -36,16 +38,28 @@ class TimemoreScale implements Scale {
   static final BleServiceIdentifier _writeCharacteristic =
       BleServiceIdentifier.short('fff2');
 
-  static const _packetHeader0 = 0xA5;
-  static const _packetHeader1 = 0x5A;
-  static const _typeWeight = 0x01;
-  static const _minPacketLength = 10;
+  static const _header0 = 0xA5;
+  static const _header1 = 0x5A;
+
+  static const _opNotify = 0x01;
+  static const _opRead = 0x02;
+  static const _opWrite = 0x03;
+
+  static const _cmdWeightStream = 0x01;
+  static const _cmdTimer = 0x02;
+  static const _cmdBattery = 0x05;
+  static const _cmdTare = 0x0D;
+
+  static const _minFrameLength = 8;
+  static const _weightFrameLength = 17;
 
   final BLETransport _transport;
   final StreamController<ScaleSnapshot> _streamController =
       StreamController.broadcast();
   final BehaviorSubject<ConnectionState> _connectionStateController =
       BehaviorSubject.seeded(ConnectionState.discovered);
+
+  int _batteryLevel = 0;
 
   TimemoreScale({required BLETransport transport}) : _transport = transport;
 
@@ -125,26 +139,22 @@ class TimemoreScale implements Scale {
 
   @override
   Future<void> tare() async {
-    // Link tare: A5 5A 03 0D 00 02 00 00 + CRC16/MODBUS (2 bytes, big-endian)
-    // Precede with a 02-05 state query as observed in HCI snoop logs.
-    await _safeWrite(_linkQuery(0x05));
-    await Future<void>.delayed(const Duration(milliseconds: 150));
-    await _safeWrite(_withCrc([0xA5, 0x5A, 0x03, 0x0D, 0x00, 0x02, 0x00, 0x00]));
+    await _safeWrite(_frame(_opWrite, _cmdTare));
   }
 
   @override
   Future<void> startTimer() async {
-    await _safeWrite(_withCrc([0xA5, 0x5A, 0x03, 0x02, 0x00, 0x01, 0x01]));
+    await _safeWrite(_frame(_opWrite, _cmdTimer, const [0x01]));
   }
 
   @override
   Future<void> stopTimer() async {
-    await _safeWrite(_withCrc([0xA5, 0x5A, 0x03, 0x02, 0x00, 0x01, 0x02]));
+    await _safeWrite(_frame(_opWrite, _cmdTimer, const [0x02]));
   }
 
   @override
   Future<void> resetTimer() async {
-    await _safeWrite(_withCrc([0xA5, 0x5A, 0x03, 0x02, 0x00, 0x01, 0x03]));
+    await _safeWrite(_frame(_opWrite, _cmdTimer, const [0x03]));
   }
 
   @override
@@ -155,41 +165,45 @@ class TimemoreScale implements Scale {
   @override
   Future<void> wakeDisplay() async {}
 
-  // Init sequence: query args 0x13, 0x08, 0x05, 0x02, 0x06, 0x0C
-  // Sent twice as observed in the reference implementation.
+  // Query battery once on connect so snapshots carry a level.
   Future<void> _sendInitSequence() async {
-    const initArgs = [0x13, 0x08, 0x05, 0x02, 0x06, 0x0C];
-    for (final arg in initArgs) {
-      await _safeWrite(_linkQuery(arg));
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-    }
-    await Future<void>.delayed(const Duration(milliseconds: 200));
-    for (final arg in initArgs) {
-      await _safeWrite(_linkQuery(arg));
-      await Future<void>.delayed(const Duration(milliseconds: 100));
-    }
-    // Follow-up 02-05 query observed after init in HCI logs.
-    await Future<void>.delayed(const Duration(milliseconds: 200));
-    await _safeWrite(_linkQuery(0x05));
+    await _safeWrite(_frame(_opRead, _cmdBattery));
   }
 
   void _onNotification(List<int> data) {
-    if (data.length < _minPacketLength) return;
-    if (data[0] != _packetHeader0 || data[1] != _packetHeader1) return;
-    if (data[2] != _typeWeight) return;
+    if (data.length < _minFrameLength) return;
+    if (data[0] != _header0 || data[1] != _header1) return;
 
-    final rawWord = (data[8] << 8) | data[9];
-    // Treat as signed 16-bit.
-    final signed = rawWord > 32767 ? rawWord - 65536 : rawWord;
-    final weightGrams = signed / 10.0;
+    final opcode = data[2];
+    final cmd = data[3];
 
-    _streamController.add(
-      ScaleSnapshot(
-        timestamp: DateTime.now(),
-        weight: weightGrams,
-        batteryLevel: 0,
-      ),
-    );
+    // Battery response: data = [bars, percent].
+    if (cmd == _cmdBattery && data.length >= 8) {
+      _batteryLevel = data[7];
+      return;
+    }
+
+    // Weight/flow/timer stream.
+    if (opcode == _opNotify &&
+        cmd == _cmdWeightStream &&
+        data.length >= _weightFrameLength) {
+      final bytes = Uint8List.fromList(data);
+      final view = ByteData.sublistView(bytes);
+
+      final weightGrams = view.getInt32(6, Endian.big) / 10.0;
+      final flowGramsPerSecond = view.getInt16(10, Endian.big) / 10.0;
+      final timerSeconds = view.getUint16(12, Endian.big);
+
+      _streamController.add(
+        ScaleSnapshot(
+          timestamp: DateTime.now(),
+          weight: weightGrams,
+          batteryLevel: _batteryLevel,
+          flow: flowGramsPerSecond,
+          timerValue: Duration(seconds: timerSeconds),
+        ),
+      );
+    }
   }
 
   Future<void> _safeWrite(List<int> bytes) async {
@@ -205,17 +219,22 @@ class TimemoreScale implements Scale {
     }
   }
 
-  // Builds a Link query command: A5 5A 02 <arg> 00 00 + CRC16/MODBUS
-  List<int> _linkQuery(int arg) =>
-      _withCrc([0xA5, 0x5A, 0x02, arg, 0x00, 0x00]);
-
-  // Appends CRC-16/MODBUS checksum (big-endian) to payload.
-  List<int> _withCrc(List<int> payload) {
+  // Builds a protocol frame with auto-computed length and CRC-16/MODBUS.
+  List<int> _frame(int opcode, int cmd, [List<int> data = const []]) {
+    final payload = <int>[
+      _header0,
+      _header1,
+      opcode,
+      cmd,
+      (data.length >> 8) & 0xFF,
+      data.length & 0xFF,
+      ...data,
+    ];
     final crc = _crc16Modbus(payload);
     return [...payload, (crc >> 8) & 0xFF, crc & 0xFF];
   }
 
-  // CRC-16/MODBUS: poly 0xA001, init 0xFFFF, reflect in/out.
+  // CRC-16/MODBUS: poly 0xA001 (reflected 0x8005), init 0xFFFF.
   int _crc16Modbus(List<int> bytes) {
     var crc = 0xFFFF;
     for (final b in bytes) {
