@@ -1,0 +1,6 @@
+{
+  "id": "ble-reconnect-diagnostics",
+  "name": "BLE Reconnect Diagnostics",
+  "description": "Temporary BLE scale reconnect field diagnostic harness.",
+  "version": "0.1.0"
+}

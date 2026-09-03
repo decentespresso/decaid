@@ -549,6 +549,7 @@ The **proxy** lets clients *use* the account without ever seeing the credentials
 | Method | Path | Description | Handler |
 |--------|------|-------------|---------|
 | GET | `/api/v1/info` | Build metadata (version, commit, branch) + gateway LAN IP (`localIp`) | `info_handler.dart` |
+| GET | `/api/v1/diagnostics/ble` | Read-only BLE adapter, scan/watch ownership, reconnect policy, cache, and advertisement diagnostics | `ble_diagnostics_handler.dart` |
 | GET | `/api/v1/update` | App-update state snapshot (`phase`, `latestVersion`, `releaseNotes`, `releaseUrl`, `installable`). Pure read — no network call; force a re-check via `/ws/v1/update`. | `update_handler.dart` |
 | POST | `/api/v1/feedback` | Submit feedback (creates GitHub issue) | `feedback_handler.dart` |
 | GET | `/api/v1/logs` | Recent log entries, newest first. Live log + rotated files `log.txt.1..N` are always stitched chronologically; response is a size-bounded tail window (`?kb=N`, default 1024 KB, clamped to 4096 KB). `?order=asc` for original chronological order | `logs_handler.dart` |

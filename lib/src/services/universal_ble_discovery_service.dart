@@ -13,6 +13,8 @@ import 'package:reaprime/src/services/device_factory.dart';
 import 'package:reaprime/src/services/device_matcher.dart';
 import 'package:reaprime/src/models/device/device_watch.dart';
 import 'package:reaprime/src/models/device/watch_filter.dart';
+import 'package:reaprime/src/models/device/watch_state.dart';
+import 'package:reaprime/src/models/device/ble_scan_state.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:universal_ble/universal_ble.dart';
@@ -28,6 +30,12 @@ typedef BleTransportFactory =
       required bool requestLargeMtuNonAndroid,
       required BleLifecycleGate lifecycleGate,
     });
+
+class _AdvertisementStats {
+  int count = 0;
+  DateTime? lastSeen;
+  String? name;
+}
 
 class UniversalBleDiscoveryService extends BleDiscoveryService
     implements DeviceWatchCapable {
@@ -72,12 +80,16 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
   bool get supportsDeviceWatch => _watchSupportGate();
 
   DeviceWatchFilter? _watchRequested;
-  bool _watchScanActive = false;
+  BleScanOwner _scanOwner = BleScanOwner.none;
+  BleScanPhase _scanPhase = BleScanPhase.idle;
+  int _scanGeneration = 0;
+  int _watchRequestGeneration = 0;
   StreamSubscription<BleDevice>? _watchScanSub;
   Timer? _watchRefreshTimer;
 
   int _watchAdapterGeneration = 0;
   AdapterState? _lastWatchAdapterState;
+  bool _adapterOffBoundaryPending = false;
 
   bool _watchStartNeedsRetry = false;
 
@@ -88,25 +100,79 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
 
   final StreamController<void> _watchFailureController =
       StreamController.broadcast();
+  final BehaviorSubject<DeviceWatchState> _watchStateSubject =
+      BehaviorSubject.seeded(DeviceWatchState.inactive);
 
   @override
   Stream<void> get deviceWatchFailures => _watchFailureController.stream;
 
+  @override
+  Stream<DeviceWatchState> get deviceWatchState => _watchStateSubject.stream;
+
+  BleScanOwner get scanOwner => _scanOwner;
+  BleScanPhase get scanPhase => _scanPhase;
+  int get scanGeneration => _scanGeneration;
+  DeviceWatchState get currentDeviceWatchState => _watchStateSubject.value;
+  bool get watchDeviceSubscriptionInstalled => _watchScanSub != null;
+  int get scanFailureCount => _scanFailureCount;
+  String? get latestScanFailure => _latestScanFailure;
+  DateTime? get latestScanFailureAt => _latestScanFailureAt;
+
+  int _scanFailureCount = 0;
+  String? _latestScanFailure;
+  DateTime? _latestScanFailureAt;
+
   Future<void>? _watchStartInFlight;
 
+  bool get _isScanning =>
+      _scanOwner == BleScanOwner.burst ||
+      (_scanOwner == BleScanOwner.watch && _scanPhase == BleScanPhase.stopping);
+  bool get _watchScanActive =>
+      _scanOwner == BleScanOwner.watch && _scanPhase == BleScanPhase.active;
+
+  void _setWatchState(DeviceWatchState state) {
+    if (_watchStateSubject.value == state) return;
+    _watchStateSubject.add(state);
+  }
+
+  void _recordScanFailure(Object error) {
+    _scanFailureCount++;
+    _latestScanFailure = error.toString();
+    _latestScanFailureAt = DateTime.now().toUtc();
+  }
+
   @override
-  Future<void> startDeviceWatch(DeviceWatchFilter filter) async {
+  Future<DeviceWatchStartResult> startDeviceWatch(
+    DeviceWatchFilter filter,
+  ) async {
     _watchRequested = filter;
+    final requestGeneration = ++_watchRequestGeneration;
     if (_isScanning) {
+      _setWatchState(DeviceWatchState.queued);
       log.fine('Burst scan in flight; watch starts when it completes');
-      return;
+      return DeviceWatchStartResult.queuedBehindBurst;
     }
-    await _startWatchScan();
+    try {
+      await _startWatchScan();
+    } catch (e) {
+      if (requestGeneration == _watchRequestGeneration &&
+          identical(_watchRequested, filter)) {
+        _watchRequested = null;
+        _scanOwner = BleScanOwner.none;
+        _scanPhase = BleScanPhase.faulted;
+        _setWatchState(DeviceWatchState.faulted);
+      }
+      return DeviceWatchStartResult.failed;
+    }
+    return _watchScanActive
+        ? DeviceWatchStartResult.active
+        : DeviceWatchStartResult.queuedBehindBurst;
   }
 
   @override
   Future<void> stopDeviceWatch() async {
     _watchRequested = null;
+    _watchRequestGeneration++;
     await _awaitInFlightWatchStart();
     await _deactivateWatchScan(
       stopOsScan: _watchScanActive && !_isScanning,
@@ -137,13 +203,27 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     _watchLivenessTimer?.cancel();
     _watchLivenessTimer = null;
     _cancelWatchScanSub();
-    _watchScanActive = false;
+    if (_scanOwner == BleScanOwner.watch) {
+      _scanPhase = stopOsScan ? BleScanPhase.stopping : BleScanPhase.idle;
+      _scanGeneration++;
+    }
     if (stopOsScan) {
       try {
         await UniversalBle.stopScan();
       } catch (e, st) {
+        _recordScanFailure(e);
+        _scanPhase = BleScanPhase.faulted;
+        _setWatchState(DeviceWatchState.faulted);
         log.warning('$context: stopScan failed', e, st);
+        rethrow;
       }
+    }
+    if (_scanOwner == BleScanOwner.watch) {
+      _scanOwner = BleScanOwner.none;
+      _scanPhase = BleScanPhase.idle;
+    }
+    if (_scanPhase != BleScanPhase.faulted) {
+      _setWatchState(DeviceWatchState.inactive);
     }
   }
 
@@ -153,6 +233,7 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     } catch (e, st) {
       log.warning('$context: watch restart failed — reporting', e, st);
       _watchRequested = null;
+      _setWatchState(DeviceWatchState.faulted);
       await _deactivateWatchScan(stopOsScan: false, context: context);
       if (!_watchFailureController.isClosed) {
         _watchFailureController.add(null);
@@ -179,11 +260,22 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
   Future<void> _runWatchScanStart() async {
     final filter = _watchRequested;
     if (filter == null || _watchScanActive) return;
+    if (_scanPhase == BleScanPhase.faulted) {
+      throw StateError('BLE scan ownership is faulted');
+    }
+    if (_scanOwner == BleScanOwner.burst) {
+      _setWatchState(DeviceWatchState.queued);
+      return;
+    }
     if (_adapterStateSubject.value != AdapterState.poweredOn) {
+      _setWatchState(DeviceWatchState.queued);
       log.fine('Adapter not powered on; watch pends adapter recovery');
       return;
     }
     final adapterGen = _watchAdapterGeneration;
+    _scanOwner = BleScanOwner.watch;
+    _scanPhase = BleScanPhase.starting;
+    _scanGeneration++;
 
     _watchScanSub = UniversalBle.scanStream.listen((result) async {
       if (_currentlyScanning.contains(normalizeBleDeviceId(result.deviceId))) {
@@ -209,6 +301,12 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
       );
     } catch (e) {
       _cancelWatchScanSub();
+      _recordScanFailure(e);
+      if (_scanOwner == BleScanOwner.watch) {
+        _scanOwner = BleScanOwner.none;
+        _scanPhase = BleScanPhase.faulted;
+      }
+      _setWatchState(DeviceWatchState.faulted);
       rethrow;
     }
     if (_watchRequested == null) {
@@ -230,7 +328,8 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
       _watchStartNeedsRetry = true;
       return;
     }
-    _watchScanActive = true;
+    _scanPhase = BleScanPhase.active;
+    _setWatchState(DeviceWatchState.active);
     _armWatchRefresh();
     _armWatchLiveness();
     log.info('Background device watch started (prefix: $namePrefix)');
@@ -272,7 +371,11 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
 
   Future<void> _pauseWatchForBurst() async {
     await _awaitInFlightWatchStart();
-    if (!_watchScanActive) return;
+    if (_scanOwner != BleScanOwner.watch ||
+        (_scanPhase != BleScanPhase.active &&
+            _scanPhase != BleScanPhase.stopping)) {
+      return;
+    }
     log.fine('Pausing background watch for burst scan');
     await _deactivateWatchScan(stopOsScan: true, context: 'watch-pause');
   }
@@ -286,20 +389,38 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     if (state == _lastWatchAdapterState) return;
     _lastWatchAdapterState = state;
     _watchAdapterGeneration++;
-    if (state != AdapterState.poweredOn) {
-      if (!_watchScanActive) return;
-      unawaited(
-        _deactivateWatchScan(stopOsScan: false, context: 'adapter-off'),
+    if (state == AdapterState.poweredOff) {
+      _adapterOffBoundaryPending = true;
+      if (_watchScanActive) {
+        unawaited(
+          _deactivateWatchScan(stopOsScan: false, context: 'adapter-off'),
+        );
+      }
+      return;
+    }
+    if (state != AdapterState.poweredOn) return;
+
+    if (_adapterOffBoundaryPending && _scanPhase == BleScanPhase.faulted) {
+      _adapterOffBoundaryPending = false;
+      _watchStartNeedsRetry = false;
+      _scanOwner = BleScanOwner.none;
+      _scanPhase = BleScanPhase.idle;
+      _scanStopError = null;
+      _scanGeneration++;
+      _setWatchState(
+        _watchRequested == null
+            ? DeviceWatchState.inactive
+            : DeviceWatchState.queued,
       );
-    } else if (state == AdapterState.poweredOn &&
-        _watchRequested != null &&
-        !_watchScanActive &&
-        !_isScanning) {
+    }
+    _adapterOffBoundaryPending = false;
+    if (_watchRequested != null && !_watchScanActive && !_isScanning) {
       unawaited(_restartWatchOrReportFailure('adapter recovery'));
     }
   }
 
   final Map<String, Device> _devices = {};
+  final Map<String, _AdvertisementStats> _advertisements = {};
   final Map<String, Future<Device?>> _candidateInFlight = {};
 
   final log = logging.Logger("UniversalBleDeviceService");
@@ -313,7 +434,9 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
   StreamSubscription<AvailabilityState>? _availabilitySubscription;
   bool _disposed = false;
 
-  bool _isScanning = false;
+  Future<void>? _burstStartInFlight;
+  Future<void>? _burstStopInFlight;
+  ({Object error, StackTrace stackTrace})? _scanStopError;
 
   Timer? _scanDurationTimer;
   Completer<void>? _scanDurationCompleter;
@@ -326,6 +449,75 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
 
   @override
   Stream<List<Device>> get devices => _deviceStreamController.stream;
+
+  @override
+  Future<Map<String, Object?>> diagnostics() async {
+    Object? nativeIsScanning;
+    String? nativeScanError;
+    try {
+      nativeIsScanning = await UniversalBle.isScanning().timeout(
+        const Duration(seconds: 2),
+      );
+    } catch (e) {
+      nativeScanError = e.toString();
+    }
+
+    final cache = <Map<String, Object?>>[];
+    for (final entry in _devices.entries) {
+      String state;
+      try {
+        state = (await entry.value.connectionState.first.timeout(
+          const Duration(seconds: 2),
+          onTimeout: () => ConnectionState.disconnected,
+        )).name;
+      } catch (e) {
+        state = 'error: $e';
+      }
+      cache.add({
+        'deviceId': entry.key,
+        'name': entry.value.name,
+        'type': entry.value.type.name,
+        'implementation': entry.value.implementation.name,
+        'transport': entry.value.transportType.name,
+        'connectionState': state,
+        'instanceId': identityHashCode(entry.value),
+      });
+    }
+
+    return {
+      'serviceInstanceId': identityHashCode(this),
+      'adapterState': _adapterStateSubject.value.name,
+      'scan': {
+        'owner': _scanOwner.name,
+        'phase': _scanPhase.name,
+        'generation': _scanGeneration,
+        'nativeIsScanning': nativeIsScanning,
+        'nativeIsScanningError': nativeScanError,
+      },
+      'watch': {
+        'state': _watchStateSubject.value.name,
+        'requested': _watchRequested != null,
+        'filterNamePrefix': _watchRequested?.namePrefix,
+        'deviceSubscriptionInstalled': _watchScanSub != null,
+        'refreshTimerActive': _watchRefreshTimer != null,
+        'livenessTimerActive': _watchLivenessTimer != null,
+      },
+      'cache': cache,
+      'advertisements': {
+        for (final entry in _advertisements.entries)
+          entry.key: {
+            'count': entry.value.count,
+            'lastSeen': entry.value.lastSeen?.toIso8601String(),
+            'name': entry.value.name,
+          },
+      },
+      'scanFailures': {
+        'count': _scanFailureCount,
+        'latest': _latestScanFailure,
+        'latestAt': _latestScanFailureAt?.toIso8601String(),
+      },
+    };
+  }
 
   @override
   Future<void> initialize() async {
@@ -377,41 +569,78 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
 
   @override
   void stopScan() {
-    if (!_isScanning && _watchScanActive) {
-      log.fine('stopScan ignored: only the background watch is running');
+    if (!_isScanning) {
+      if (_watchScanActive) {
+        log.fine('stopScan ignored: only the background watch is running');
+      }
       return;
     }
-    _cancelScanDurationWait();
-    UniversalBle.stopScan();
+    _scanPhase = BleScanPhase.stopping;
+    unawaited(_stopBurstScan());
   }
 
   Future<void> _stopScanForConnect() async {
-    _cancelScanDurationWait();
+    if (_scanOwner == BleScanOwner.burst) {
+      _scanPhase = BleScanPhase.stopping;
+      await _stopBurstScan();
+      final stopError = _scanStopError;
+      if (stopError != null) {
+        Error.throwWithStackTrace(stopError.error, stopError.stackTrace);
+      }
+      return;
+    }
     await UniversalBle.stopScan();
+  }
+
+  Future<void> _stopBurstScan() {
+    final existing = _burstStopInFlight;
+    if (existing != null) return existing;
+    late final Future<void> stop;
+    stop = _stopBurstScanImpl().whenComplete(() {
+      if (identical(_burstStopInFlight, stop)) _burstStopInFlight = null;
+    });
+    _burstStopInFlight = stop;
+    return stop;
+  }
+
+  Future<void> _stopBurstScanImpl() async {
+    final start = _burstStartInFlight;
+    if (start != null) {
+      try {
+        await start;
+      } catch (_) {}
+    }
+    try {
+      await UniversalBle.stopScan();
+    } catch (e, st) {
+      _recordScanFailure(e);
+      _scanStopError = (error: e, stackTrace: st);
+      _scanPhase = BleScanPhase.faulted;
+      log.warning('Burst stopScan failed', e, st);
+    } finally {
+      final c = _scanDurationCompleter;
+      if (c != null && !c.isCompleted) c.complete();
+    }
   }
 
   void _cancelScanDurationWait() {
     _scanDurationTimer?.cancel();
     _scanDurationTimer = null;
-    final c = _scanDurationCompleter;
-    if (c != null && !c.isCompleted) {
-      c.complete();
-    }
     _scanDurationCompleter = null;
   }
 
   Future<void> _waitForScanDuration(Duration duration) async {
     final completer = Completer<void>();
     _scanDurationCompleter = completer;
-    _scanDurationTimer = Timer(duration, () async {
-      try {
-        await UniversalBle.stopScan();
-      } catch (e, st) {
-        log.warning('Scheduled stopScan failed', e, st);
-      }
-      _cancelScanDurationWait();
+    _scanDurationTimer = Timer(duration, () {
+      _scanPhase = BleScanPhase.stopping;
+      unawaited(_stopBurstScan());
     });
     await completer.future;
+    final stopError = _scanStopError;
+    if (stopError != null) {
+      Error.throwWithStackTrace(stopError.error, stopError.stackTrace);
+    }
   }
 
   @override
@@ -422,17 +651,29 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
       _deviceStreamController.add(_devices.values.toList());
       return;
     }
-    if (_isScanning) {
+    if (_scanPhase == BleScanPhase.faulted) {
+      throw StateError('BLE scan ownership is faulted');
+    }
+    await _awaitInFlightWatchStart();
+    if (_scanOwner == BleScanOwner.burst) {
       log.warning('Scan already in progress, ignoring request');
       return;
     }
+    if (_scanOwner == BleScanOwner.watch) {
+      _scanPhase = BleScanPhase.stopping;
+    }
+    await _pauseWatchForBurst();
+    if (_scanPhase == BleScanPhase.faulted) {
+      throw StateError('BLE scan ownership is faulted');
+    }
 
-    _isScanning = true;
+    _scanOwner = BleScanOwner.burst;
+    _scanPhase = BleScanPhase.starting;
+    _scanGeneration++;
+    _scanStopError = null;
     StreamSubscription<BleDevice>? sub;
 
     try {
-      await _pauseWatchForBurst();
-
       log.fine("Clearing stale connections");
       _currentlyScanning.clear();
 
@@ -459,10 +700,26 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
               ),
             )
           : null;
-      await UniversalBle.startScan(
+      final start = UniversalBle.startScan(
         scanFilter: scanFilter,
         platformConfig: platformConfig,
       );
+      _burstStartInFlight = start;
+      try {
+        await start;
+      } catch (e) {
+        _recordScanFailure(e);
+        _scanPhase = BleScanPhase.faulted;
+        rethrow;
+      } finally {
+        if (identical(_burstStartInFlight, start)) {
+          _burstStartInFlight = null;
+        }
+      }
+      if (_scanPhase == BleScanPhase.faulted) {
+        throw StateError('BLE scan ownership is faulted');
+      }
+      _scanPhase = BleScanPhase.active;
 
       try {
         final systemDevices = await UniversalBle.getSystemDevices(
@@ -480,8 +737,34 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
       await sub?.cancel();
       _cancelScanDurationWait();
       _deviceStreamController.add(_devices.values.toList());
-      _isScanning = false;
-      await _resumeWatchAfterBurst();
+      final faulted = _scanPhase == BleScanPhase.faulted;
+      if (_scanOwner == BleScanOwner.burst) {
+        _scanOwner = BleScanOwner.none;
+        _scanPhase = faulted ? BleScanPhase.faulted : BleScanPhase.idle;
+      }
+      if (!faulted) await _resumeWatchAfterBurst();
+    }
+  }
+
+  void _recordAdvertisement(String deviceId, String? name) {
+    final stats = _advertisements.putIfAbsent(
+      deviceId,
+      _AdvertisementStats.new,
+    );
+    stats.count++;
+    stats.lastSeen = DateTime.now().toUtc();
+    stats.name = name;
+  }
+
+  Future<BleConnectionState?> _nativeLinkState(String deviceId) async {
+    try {
+      return await UniversalBle.getConnectionState(
+        deviceId,
+        timeout: const Duration(seconds: 2),
+      );
+    } catch (e, st) {
+      log.fine('Native link check failed for $deviceId', e, st);
+      return null;
     }
   }
 
@@ -489,12 +772,40 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     final deviceId = normalizeBleDeviceId(device.deviceId);
     if (_currentlyScanning.contains(deviceId)) return;
     _currentlyScanning.add(deviceId);
+    _recordAdvertisement(deviceId, device.name);
 
     try {
       final name = device.name ?? '';
       if (name.isEmpty) return;
 
-      if (_devices.containsKey(deviceId)) return;
+      final existing = _devices[deviceId];
+      if (existing != null) {
+        final state = await existing.connectionState.first.timeout(
+          const Duration(seconds: 2),
+          onTimeout: () => ConnectionState.disconnected,
+        );
+        if (state == ConnectionState.connected ||
+            state == ConnectionState.connecting) {
+          final nativeLink = await _nativeLinkState(existing.deviceId);
+          if (nativeLink == null ||
+              nativeLink == BleConnectionState.connected ||
+              nativeLink == BleConnectionState.connecting) {
+            return;
+          }
+          log.warning(
+            'Replacing cached connected device $deviceId; '
+            'native link is ${nativeLink.name}',
+          );
+        }
+        _devices.remove(deviceId);
+        await _connections.remove(deviceId)?.cancel();
+        try {
+          await existing.disconnect();
+        } catch (e, st) {
+          log.fine('Failed to discard stale device $deviceId', e, st);
+        }
+        _deviceStreamController.add(_devices.values.toList());
+      }
 
       final matchedDevice = await _candidate(
         deviceId,
@@ -676,5 +987,6 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     if (!_watchFailureController.isClosed) {
       await _watchFailureController.close();
     }
+    if (!_watchStateSubject.isClosed) await _watchStateSubject.close();
   }
 }
