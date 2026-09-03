@@ -421,6 +421,20 @@ void main() {
       );
     });
 
+    test('TIMEMORE DOT → timemoreDot', () {
+      expect(
+        DeviceMatcher.implementationForName('TIMEMORE DOT'),
+        DeviceImplementation.timemoreDot,
+      );
+    });
+
+    test('TES017 → timemoreDot', () {
+      expect(
+        DeviceMatcher.implementationForName('TES017'),
+        DeviceImplementation.timemoreDot,
+      );
+    });
+
     test('unknown name → null', () {
       expect(DeviceMatcher.implementationForName('Unknown Device'), isNull);
     });

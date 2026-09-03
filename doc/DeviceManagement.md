@@ -185,10 +185,11 @@ Discovery services use name-based matching via `DeviceMatcher` to create appropr
 
 **Key Points:**
 - Unfiltered BLE scans — no service UUID filtering
-- `DeviceMatcher.match()` takes a transport and advertised name, returns a `Device?`
+- `DeviceMatcher.match()` takes a transport, advertised name, and advertised service UUIDs, returns a `Device?`
 - Name rules map advertisement names to device factories
 - Service verification happens during `onConnect()` using `BleServiceIdentifier`
 - DiFluid R2 reflectometers are matched separately from DiFluid scales by advertised name and the R2 BLE service UUID, then exposed as `Sensor` devices with a `measure` command
+- One advertised-service escape hatch: devices that advertise FFF0 with an empty name (e.g. a Timemore Dot outside pairing mode) are matched via `DeviceMatcher.advertisesKnownService` instead of being skipped
 
 ### Service Lifecycle
 

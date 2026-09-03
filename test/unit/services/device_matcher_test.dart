@@ -16,6 +16,7 @@ import 'package:reaprime/src/models/device/impl/felicita/arc.dart';
 import 'package:reaprime/src/models/device/impl/hiroia/hiroia_scale.dart';
 import 'package:reaprime/src/models/device/impl/skale/skale2_scale.dart';
 import 'package:reaprime/src/models/device/impl/smartchef/smartchef_scale.dart';
+import 'package:reaprime/src/models/device/impl/timemore/timemore_dot_scale.dart';
 import 'package:reaprime/src/models/device/impl/varia/varia_aku_scale.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
@@ -373,6 +374,83 @@ void main() {
       );
 
       expect(device, isA<BookooScale>());
+    });
+
+    test('TIMEMORE DOT matches to TimemoreDotScale', () async {
+      final device = await DeviceMatcher.match(
+        transport: mockTransport,
+        advertisedName: 'TIMEMORE DOT',
+      );
+
+      expect(device, isNotNull);
+      expect(device, isA<TimemoreDotScale>());
+    });
+
+    test('Timemore_Dot (mixed case) matches to TimemoreDotScale', () async {
+      final device = await DeviceMatcher.match(
+        transport: mockTransport,
+        advertisedName: 'Timemore_Dot',
+      );
+
+      expect(device, isNotNull);
+      expect(device, isA<TimemoreDotScale>());
+    });
+
+    test('TES017 matches to TimemoreDotScale', () async {
+      final device = await DeviceMatcher.match(
+        transport: mockTransport,
+        advertisedName: 'TES017',
+      );
+
+      expect(device, isNotNull);
+      expect(device, isA<TimemoreDotScale>());
+    });
+
+    test(
+      'nameless advertisement with FFF0 service matches TimemoreDotScale',
+      () async {
+        final device = await DeviceMatcher.match(
+          transport: mockTransport,
+          advertisedName: '',
+          advertisedServices: ['0000fff0-0000-1000-8000-00805f9b34fb'],
+        );
+
+        expect(device, isNotNull);
+        expect(device, isA<TimemoreDotScale>());
+      },
+    );
+
+    test(
+      'nameless advertisement with short FFF0 form matches TimemoreDotScale',
+      () async {
+        final device = await DeviceMatcher.match(
+          transport: mockTransport,
+          advertisedName: '',
+          advertisedServices: ['FFF0'],
+        );
+
+        expect(device, isNotNull);
+        expect(device, isA<TimemoreDotScale>());
+      },
+    );
+
+    test(
+      'nameless advertisement with unrelated service returns null',
+      () async {
+        final device = await DeviceMatcher.match(
+          transport: mockTransport,
+          advertisedName: '',
+          advertisedServices: ['0000180a-0000-1000-8000-00805f9b34fb'],
+        );
+
+        expect(device, isNull);
+      },
+    );
+
+    test('Timemore Dot service UUID is in the scale scan filter', () {
+      final services = DeviceMatcher.serviceUuidsFor(DeviceType.scale);
+
+      expect(services, contains('0000fff0-0000-1000-8000-00805f9b34fb'));
     });
 
     test('returns null for unknown name', () async {

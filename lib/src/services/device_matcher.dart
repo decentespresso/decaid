@@ -15,6 +15,7 @@ import 'package:reaprime/src/models/device/impl/felicita/arc.dart';
 import 'package:reaprime/src/models/device/impl/hiroia/hiroia_scale.dart';
 import 'package:reaprime/src/models/device/impl/skale/skale2_scale.dart';
 import 'package:reaprime/src/models/device/impl/smartchef/smartchef_scale.dart';
+import 'package:reaprime/src/models/device/impl/timemore/timemore_dot_scale.dart';
 import 'package:reaprime/src/models/device/impl/varia/varia_aku_scale.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:reaprime/src/models/device/impl/weighmaster/weighmaster_scale.dart';
@@ -34,6 +35,7 @@ class DeviceMatcher {
       HiroiaScale.serviceIdentifier.long,
       AtomheartScale.serviceIdentifier.long,
       WeighMasterScale.serviceIdentifier.long,
+      TimemoreDotScale.serviceIdentifier.long,
       ...AcaiaScale.advertisedServiceUuids,
     ],
     DeviceType.machine => [UnifiedDe1.advertisingIdentifier.long],
@@ -66,6 +68,9 @@ class DeviceMatcher {
     }
     if (nameLower.startsWith('black')) {
       return DeviceImplementation.blackCoffeeScale;
+    }
+    if (nameLower.contains('dot') || nameLower.contains('tes017')) {
+      return DeviceImplementation.timemoreDot;
     }
     if (nameLower.contains('acaia') ||
         nameLower.contains('lunar') ||
@@ -111,6 +116,7 @@ class DeviceMatcher {
   static Future<Device?> match({
     required BLETransport transport,
     required String advertisedName,
+    List<String> advertisedServices = const [],
   }) async {
     final name = advertisedName;
     final nameLower = name.toLowerCase();
@@ -132,6 +138,12 @@ class DeviceMatcher {
     }
     if (nameLower.startsWith('black')) {
       return BlackCoffeeScale(transport: transport);
+    }
+
+    if (nameLower.contains('dot') ||
+        nameLower.contains('tes017') ||
+        (name.isEmpty && advertisesKnownService(advertisedServices))) {
+      return TimemoreDotScale(transport: transport);
     }
 
     if (nameLower.contains('acaia') ||
@@ -180,5 +192,11 @@ class DeviceMatcher {
     }
 
     return null;
+  }
+
+  static bool advertisesKnownService(List<String> advertisedServices) {
+    final lower = advertisedServices.map((s) => s.toLowerCase()).toSet();
+    return lower.contains(TimemoreDotScale.serviceIdentifier.long) ||
+        lower.contains(TimemoreDotScale.serviceIdentifier.short);
   }
 }

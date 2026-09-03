@@ -173,6 +173,16 @@ void main() {
       expect(device!.implementation, DeviceImplementation.bookooScale);
     });
 
+    test('timemoreDot returns TimemoreDotScale', () {
+      final device = DeviceFactory.createBle(
+        DeviceImplementation.timemoreDot,
+        transport,
+      );
+      expect(device, isNotNull);
+      expect(device!.implementation, DeviceImplementation.timemoreDot);
+      expect(device.transportType, TransportType.ble);
+    });
+
     test('eurekaScale returns EurekaScale', () {
       final device = DeviceFactory.createBle(
         DeviceImplementation.eurekaScale,
