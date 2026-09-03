@@ -6,6 +6,7 @@ import 'package:reaprime/src/models/device/device_scanner.dart';
 import 'package:reaprime/src/models/device/remembered_device.dart';
 import 'package:reaprime/src/models/device/scan_filter.dart';
 import 'package:reaprime/src/models/device/watch_filter.dart';
+import 'package:reaprime/src/models/device/watch_state.dart';
 import 'package:rxdart/rxdart.dart';
 
 class MockDeviceScanner implements DeviceScanner {
@@ -39,9 +40,17 @@ class MockDeviceScanner implements DeviceScanner {
   Object? failNextWatchWith;
 
   final _watchFailuresSubject = PublishSubject<void>();
+  final _watchStateSubject = BehaviorSubject<DeviceWatchState>.seeded(
+    DeviceWatchState.inactive,
+  );
+
+  Completer<void>? holdNextWatchStart;
+  Object? failNextWatchStopWith;
+  int _watchGeneration = 0;
 
   void emitWatchFailure() {
     watchActive = false;
+    _watchStateSubject.add(DeviceWatchState.faulted);
     _watchFailuresSubject.add(null);
   }
 
@@ -143,21 +152,46 @@ class MockDeviceScanner implements DeviceScanner {
   bool get supportsBackgroundWatch => supportsWatch;
 
   @override
-  Future<void> startScaleWatch(DeviceWatchFilter filter) async {
+  Stream<DeviceWatchState> get scaleWatchState => _watchStateSubject.stream;
+
+  @override
+  Future<DeviceWatchStartResult> startScaleWatch(
+    DeviceWatchFilter filter,
+  ) async {
     if (failNextWatchWith != null) {
       final e = failNextWatchWith;
       failNextWatchWith = null;
+      _watchStateSubject.add(DeviceWatchState.faulted);
       throw e!;
     }
     startWatchCallCount++;
     lastWatchFilter = filter;
+    final generation = ++_watchGeneration;
+    final hold = holdNextWatchStart;
+    if (hold != null) {
+      holdNextWatchStart = null;
+      await hold.future;
+    }
+    if (generation != _watchGeneration) {
+      return DeviceWatchStartResult.failed;
+    }
     watchActive = true;
+    _watchStateSubject.add(DeviceWatchState.active);
+    return DeviceWatchStartResult.active;
   }
 
   @override
   Future<void> stopScaleWatch() async {
     stopWatchCallCount++;
+    _watchGeneration++;
+    final error = failNextWatchStopWith;
+    failNextWatchStopWith = null;
+    if (error != null) {
+      _watchStateSubject.add(DeviceWatchState.faulted);
+      throw error;
+    }
     watchActive = false;
+    _watchStateSubject.add(DeviceWatchState.inactive);
   }
 
   @override
@@ -165,6 +199,7 @@ class MockDeviceScanner implements DeviceScanner {
 
   void dispose() {
     _watchFailuresSubject.close();
+    _watchStateSubject.close();
     _deviceSubject.close();
     _scanningSubject.close();
     _adapterStateSubject.close();

@@ -4,6 +4,7 @@ import 'package:reaprime/src/models/device/remembered_device.dart';
 import 'package:reaprime/src/models/device/scan_filter.dart';
 import 'package:reaprime/src/models/device/scan_result.dart';
 import 'package:reaprime/src/models/device/watch_filter.dart';
+import 'package:reaprime/src/models/device/watch_state.dart';
 
 export 'package:reaprime/src/models/device/scan_result.dart';
 
@@ -24,7 +25,9 @@ abstract class DeviceScanner {
 
   bool get supportsBackgroundWatch;
 
-  Future<void> startScaleWatch(DeviceWatchFilter filter);
+  Stream<DeviceWatchState> get scaleWatchState;
+
+  Future<DeviceWatchStartResult> startScaleWatch(DeviceWatchFilter filter);
 
   Future<void> stopScaleWatch();
 

@@ -173,6 +173,52 @@ void main() {
   });
 
   test(
+    'a pending lower-level watch stays unarmed until it becomes active',
+    () async {
+      final startGate = Completer<void>();
+      scanner.holdNextWatchStart = startGate;
+      final arming = watch.arm();
+      await pump();
+
+      expect(watch.armed, isFalse);
+      expect(scanner.startWatchCallCount, 1);
+
+      startGate.complete();
+      await arming;
+
+      expect(watch.armed, isTrue);
+    },
+  );
+
+  test('disarm during a pending start leaves no active watch', () async {
+    final startGate = Completer<void>();
+    scanner.holdNextWatchStart = startGate;
+    final arming = watch.arm();
+    await pump();
+    final disarming = watch.disarm();
+
+    startGate.complete();
+    await arming;
+    await disarming;
+    await pump();
+
+    expect(watch.armed, isFalse);
+    expect(scanner.watchActive, isFalse);
+    expect(scanner.stopWatchCallCount, 1);
+  });
+
+  test('stop failure during a sighting prevents the connect attempt', () async {
+    scanner.failNextWatchStopWith = Exception('stop denied');
+    await watch.arm();
+    scanner.addDevice(TestScale(deviceId: scaleId));
+    await pump();
+
+    expect(connectCalls, isEmpty);
+    expect(unavailableCalls, 1);
+    expect(watch.armed, isFalse);
+  });
+
+  test(
     'startScaleWatch failure reports watch-unavailable and stays disarmed',
     () async {
       scanner.failNextWatchWith = Exception('no watch for you');

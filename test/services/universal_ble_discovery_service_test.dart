@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart' as domain;
 import 'package:reaprime/src/models/device/watch_filter.dart';
+import 'package:reaprime/src/models/device/watch_state.dart';
 import 'package:reaprime/src/services/universal_ble_discovery_service.dart';
 import 'package:universal_ble/universal_ble.dart';
 
@@ -27,6 +28,7 @@ class _FakeBlePlatform extends UniversalBlePlatform {
       [];
   int stopScanCalls = 0;
   Object? failNextStartScanWith;
+  Object? failNextStopScanWith;
 
   @override
   Future<AvailabilityState> getBluetoothAvailabilityState() async =>
@@ -62,6 +64,9 @@ class _FakeBlePlatform extends UniversalBlePlatform {
   @override
   Future<void> stopScan() async {
     stopScanCalls++;
+    final error = failNextStopScanWith;
+    failNextStopScanWith = null;
+    if (error != null) throw error;
     nativeScanning = false;
   }
 
@@ -264,6 +269,60 @@ void main() {
 
       expect(transports, 1);
     });
+  });
+
+  group('watch ownership contract', () {
+    test(
+      'reports a queued watch as queued until the burst releases ownership',
+      () async {
+        final burst = service.scanForDevices();
+        await pump();
+
+        final result = await service.startDeviceWatch(_watchFilter);
+
+        expect(result, DeviceWatchStartResult.queuedBehindBurst);
+        expect(service.currentDeviceWatchState, DeviceWatchState.queued);
+        expect(platform.startScanCalls, hasLength(1));
+
+        service.stopScan();
+        await burst;
+        await pump();
+
+        expect(service.currentDeviceWatchState, DeviceWatchState.active);
+        expect(platform.startScanCalls, hasLength(2));
+      },
+    );
+
+    test(
+      'a failed watch-to-burst stop faults ownership and blocks the burst',
+      () async {
+        await service.startDeviceWatch(_watchFilter);
+        platform.failNextStopScanWith = Exception('stop denied');
+
+        final burst = service.scanForDevices();
+
+        await expectLater(burst, throwsA(isA<Exception>()));
+        expect(service.currentDeviceWatchState, DeviceWatchState.faulted);
+        expect(platform.startScanCalls, hasLength(1));
+      },
+    );
+
+    test(
+      'an initial start failure clears the request and does not resurrect',
+      () async {
+        platform.failNextStartScanWith = Exception('start denied');
+
+        final result = await service.startDeviceWatch(_watchFilter);
+
+        expect(result, DeviceWatchStartResult.failed);
+        expect(service.currentDeviceWatchState, DeviceWatchState.faulted);
+        platform.updateAvailability(AvailabilityState.poweredOff);
+        await pump();
+        platform.updateAvailability(AvailabilityState.poweredOn);
+        await pump();
+        expect(platform.startScanCalls, isEmpty);
+      },
+    );
   });
 
   group('stopDeviceWatch', () {
