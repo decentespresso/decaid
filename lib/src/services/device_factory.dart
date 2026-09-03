@@ -20,6 +20,7 @@ import 'package:reaprime/src/models/device/impl/sensor/sensor_basket.dart';
 import 'package:reaprime/src/models/device/impl/skale/skale2_scale.dart';
 import 'package:reaprime/src/models/device/impl/smartchef/smartchef_scale.dart';
 import 'package:reaprime/src/models/device/impl/varia/varia_aku_scale.dart';
+import 'package:reaprime/src/models/device/impl/timemore/timemore_scale.dart';
 import 'package:reaprime/src/models/device/impl/weighmaster/weighmaster_scale.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:reaprime/src/models/device/transport/serial_port.dart';
@@ -53,6 +54,9 @@ class DeviceFactory {
         transport: transport,
       ),
       DeviceImplementation.weighMasterScale => WeighMasterScale(
+        transport: transport,
+      ),
+      DeviceImplementation.timemoreScale => TimemoreScale(
         transport: transport,
       ),
       DeviceImplementation.decentTemp => DecentTemp(transport: transport),
