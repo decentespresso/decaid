@@ -786,7 +786,7 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
         );
         if (state == ConnectionState.connected ||
             state == ConnectionState.connecting) {
-          final nativeLink = await _nativeLinkState(deviceId);
+          final nativeLink = await _nativeLinkState(existing.deviceId);
           if (nativeLink == null ||
               nativeLink == BleConnectionState.connected ||
               nativeLink == BleConnectionState.connecting) {
