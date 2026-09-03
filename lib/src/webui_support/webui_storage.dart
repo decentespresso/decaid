@@ -140,13 +140,18 @@ class WebUISkin {
 class WebUIStorage {
   final _log = Logger('WebUIStorage');
   final SettingsController _settingsController;
+  final Directory? _webUIDirOverride;
 
   late Directory _webUIDir;
   final Map<String, WebUISkin> _installedSkins = {};
   final Map<String, WebUIReaMetadata> _skinMetadata = {};
   bool _initialized = false;
 
-  WebUIStorage(this._settingsController);
+  WebUIStorage(this._settingsController, {Directory? webUIDir})
+    : _webUIDirOverride = webUIDir;
+
+  @visibleForTesting
+  static bool get diagnosticsSkinEnabled => bool.fromEnvironment('diagnostics');
 
   @visibleForTesting
   void debugInitWithWebUIDir(Directory dir) {
@@ -157,7 +162,8 @@ class WebUIStorage {
     _initialized = true;
   }
 
-  static const List<String> _bundledAssetPaths = [];
+  static List<String> get _bundledAssetPaths =>
+      diagnosticsSkinEnabled ? ['assets/ble-reconnect-diagnostics/'] : [];
 
   static List<Map<String, dynamic>>? _remoteWebUISourcesCache;
 
@@ -182,7 +188,7 @@ class WebUIStorage {
       return;
     }
 
-    _webUIDir = Directory(await AppDirectories.webUi);
+    _webUIDir = _webUIDirOverride ?? Directory(await AppDirectories.webUi);
 
     if (!_webUIDir.existsSync()) {
       _webUIDir.createSync(recursive: true);
