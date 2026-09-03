@@ -49,6 +49,7 @@ class MockDeviceDiscoveryService implements DeviceDiscoveryService {
 
 class MockBleDiscoveryService extends BleDiscoveryService {
   final _controller = BehaviorSubject<List<Device>>.seeded([]);
+  Map<String, Object?> diagnosticDetails = const {};
   final _adapterStateSubject = BehaviorSubject<AdapterState>.seeded(
     AdapterState.unknown,
   );
@@ -81,6 +82,9 @@ class MockBleDiscoveryService extends BleDiscoveryService {
 
   @override
   Future<void> initialize() async {}
+
+  @override
+  Future<Map<String, Object?>> diagnostics() async => diagnosticDetails;
 
   @override
   Future<void> scanForDevices({ScanFilter? filter}) async {}
