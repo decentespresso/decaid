@@ -619,11 +619,11 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: ce2edeb
-      resolved-ref: ce2edeb2f3ab705c4d6c94a42b1af663750ea9b8
+      ref: d6e8849
+      resolved-ref: d6e8849210c0081d19c78be97628947e6e2976e2
       url: "https://github.com/tadelv/dart_js"
     source: git
-    version: "0.8.5"
+    version: "0.8.6"
   flutter_launcher_icons:
     dependency: "direct main"
     description:
