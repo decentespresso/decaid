@@ -48,6 +48,15 @@ class DeviceController
   @override
   AdapterState get currentAdapterState => _adapterStateStream.value;
 
+  Future<List<Map<String, Object?>>> bleDiagnostics() async => Future.wait(
+    _services.whereType<BleDiscoveryService>().map((service) async {
+      return {
+        'service': service.runtimeType.toString(),
+        'details': await service.diagnostics(),
+      };
+    }),
+  );
+
   final PublishSubject<DeviceAttachedEvent> _deviceAttachedStream =
       PublishSubject<DeviceAttachedEvent>();
 

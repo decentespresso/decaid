@@ -4830,6 +4830,22 @@ paths:
                   - appStore
                   - fullVersion
                   - localIp
+  /api/v1/diagnostics/ble:
+    get:
+      summary: Read-only BLE reconnect diagnostics
+      description: >
+        Returns adapter, native scan ownership, background watch, reconnect
+        policy, discovery cache, advertisement, and scan-failure state. This
+        endpoint does not start, stop, or otherwise mutate BLE operations.
+      tags: [System]
+      responses:
+        "200":
+          description: Current BLE diagnostics snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BleDiagnosticsSnapshot"
+
   /api/v1/update:
     get:
       summary: Get app update state
@@ -5411,6 +5427,21 @@ paths:
 
 components:
   schemas:
+    BleDiagnosticsSnapshot:
+      type: object
+      required: [timestamp, ble, connection]
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        ble:
+          type: object
+          additionalProperties: true
+        connection:
+          type: object
+          additionalProperties: true
+      additionalProperties: true
+
     FlowSmoothingConfig:
       type: object
       required: [windowMs, movingAverageSamples]

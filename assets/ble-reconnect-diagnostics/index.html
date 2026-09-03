@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>BLE Reconnect Diagnostics</title>
+  <style>
+    :root { color-scheme: dark; font: 16px system-ui, sans-serif; }
+    body { background:#16181d; color:#e8eaf0; margin:0 auto; max-width:1000px; padding:20px; }
+    h1 { margin-top:0; } button { background:#2d6cdf; border:0; border-radius:4px; color:white; cursor:pointer; margin:3px; padding:9px 12px; }
+    button.secondary { background:#444b58; } button.warn { background:#a64b35; }
+    section { background:#20242c; border-radius:6px; margin:14px 0; padding:14px; }
+    code, pre { background:#101216; border-radius:4px; padding:8px; white-space:pre-wrap; word-break:break-word; }
+    .grid { display:grid; gap:8px; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); }
+    .value { color:#8fd3ff; display:block; font-size:1.15em; margin-top:3px; }
+    #timeline { max-height:320px; overflow:auto; } .event { border-bottom:1px solid #383e49; padding:5px 0; }
+    .muted { color:#a7adba; } #error { color:#ff9e8c; }
+  </style>
+</head>
+<body>
+  <h1>BLE Reconnect Diagnostics</h1>
+  <p class="muted">Temporary field harness for the preferred-scale sleep, hard-power-cycle, and wake sequence.</p>
+  <section>
+    <button id="start">Start capture</button>
+    <button id="stop" class="secondary">Stop capture</button>
+    <button id="snapshot" class="secondary">Snapshot now</button>
+    <button id="export">Export JSON report</button>
+    <button id="clear" class="warn">Clear report</button>
+    <div id="capture" class="muted">Capture is stopped.</div>
+    <div id="error"></div>
+  </section>
+  <section>
+    <h2>Guided actions</h2>
+    <button data-state="sleeping" data-action="machine sleep">Put machine to sleep</button>
+    <button data-action="scale powered off">Scale powered OFF</button>
+    <button data-action="scale powered on">Scale powered ON</button>
+    <button data-state="idle" data-action="machine wake">Wake machine</button>
+    <button id="discovery" class="secondary">Discovery-only probe</button>
+    <button id="connect" class="secondary">Scan + connect probe</button>
+  </section>
+  <section>
+    <h2>Live state</h2>
+    <div class="grid">
+      <div>Decaid<span id="version" class="value">loading</span></div>
+      <div>Machine<span id="machine" class="value">unknown</span></div>
+      <div>Scale<span id="scale" class="value">unknown</span></div>
+      <div>Scan owner / phase<span id="scan" class="value">unknown</span></div>
+      <div>Native scanning<span id="native" class="value">unknown</span></div>
+      <div>Watch armed / generation<span id="watch" class="value">unknown</span></div>
+    </div>
+  </section>
+  <section>
+    <h2>Event timeline</h2>
+    <div id="timeline" class="muted">No captured events.</div>
+  </section>
+  <section>
+    <h2>Latest diagnostics</h2>
+    <pre id="latest">No snapshot.</pre>
+  </section>
+  <script>
+    const report = {metadata:null,capture:null,events:[],diagnostics:[],deviceEvents:[],machineEvents:[],probes:[]};
+    let capturing = false, timer = null, startedAt = null, deviceSocket, machineSocket;
+    const $ = id => document.getElementById(id);
+    const now = () => new Date().toISOString();
+    const addEvent = (type, details = {}) => {
+      const event = {timestamp:now(), type, ...details};
+      if (capturing) report.events.push(event);
+      renderTimeline();
+    };
+    const showError = error => { $('error').textContent = error; };
+    const request = async (url, options) => {
+      const response = await fetch(url, options);
+      const text = await response.text();
+      let body; try { body = JSON.parse(text); } catch (_) { body = text; }
+      if (!response.ok) throw new Error(`${response.status}: ${text}`);
+      return body;
+    };
+    const renderTimeline = () => {
+      $('timeline').innerHTML = report.events.length ? report.events.slice().reverse().map(e =>
+        `<div class="event"><code>${e.timestamp}</code> ${e.type} <span class="muted">${JSON.stringify(e.details || '')}</span></div>`).join('') : 'No captured events.';
+    };
+    const updateDiagnostics = data => {
+      report.diagnostics.push({timestamp:now(), snapshot:data});
+      const service = data.ble?.services?.[0]?.details;
+      const scan = service?.scan;
+      const watch = data.connection?.scaleWatch;
+      $('scan').textContent = scan ? `${scan.owner} / ${scan.phase}` : 'unknown';
+      $('native').textContent = scan?.nativeIsScanning ?? 'unknown';
+      $('watch').textContent = watch ? `${watch.armed} / ${watch.generation}` : 'unknown';
+      $('latest').textContent = JSON.stringify(data, null, 2);
+      renderTimeline();
+    };
+    const snapshot = async () => {
+      try { updateDiagnostics(await request('/api/v1/diagnostics/ble')); }
+      catch (e) { showError(`Diagnostics: ${e}`); }
+    };
+    const connectSocket = (path, handler) => {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const socket = new WebSocket(`${protocol}//${location.host}${path}`);
+      socket.onmessage = event => { try { handler(JSON.parse(event.data)); } catch (e) { showError(`WebSocket: ${e}`); } };
+      socket.onerror = () => showError(`WebSocket unavailable: ${path}`);
+      return socket;
+    };
+    const openSockets = () => {
+      deviceSocket = connectSocket('/ws/v1/devices', data => {
+        report.deviceEvents.push({timestamp:now(),state:data});
+        const devices = data.devices || [];
+        const scale = devices.find(d => d.type === 'scale');
+        $('scale').textContent = scale ? `${scale.name || scale.id} (${scale.state || 'unknown'})` : 'not discovered';
+        addEvent('device state', {details:{devices:devices.length,scale:scale?.id || null}});
+      });
+      machineSocket = connectSocket('/ws/v1/machine/snapshot', data => {
+        report.machineEvents.push({timestamp:now(),state:data});
+        const state = data.state?.state || data.state || data.machineState || 'unknown';
+        $('machine').textContent = state;
+        addEvent('machine state', {details:{state}});
+      });
+    };
+    const closeSockets = () => { deviceSocket?.close(); machineSocket?.close(); deviceSocket = machineSocket = null; };
+    const startCapture = () => {
+      if (capturing) return;
+      capturing = true; startedAt = Date.now(); report.capture = {startedAt:now(),endedAt:null,durationMs:null};
+      $('capture').textContent = `Capture started at ${report.capture.startedAt}`;
+      addEvent('capture started'); openSockets(); snapshot(); timer = setInterval(snapshot, 1000);
+    };
+    const stopCapture = () => {
+      if (!capturing) return;
+      capturing = false; clearInterval(timer); timer = null; closeSockets();
+      report.capture.endedAt = now(); report.capture.durationMs = Date.now() - startedAt;
+      $('capture').textContent = `Capture stopped at ${report.capture.endedAt} (${report.capture.durationMs} ms)`;
+      report.events.push({timestamp:report.capture.endedAt,type:'capture stopped'}); renderTimeline();
+    };
+    const mark = action => { addEvent('physical marker', {details:{action}}); };
+    const probe = async connect => {
+      const started = now(); addEvent('probe started', {details:{connect}});
+      try {
+        const result = await request(`/api/v1/devices/scan?connect=${connect}`);
+        report.probes.push({timestamp:started,connect,completedAt:now(),status:'ok',result});
+        addEvent('probe completed', {details:{connect,status:'ok'}});
+      } catch (e) {
+        report.probes.push({timestamp:started,connect,completedAt:now(),status:'error',error:String(e)});
+        addEvent('probe completed', {details:{connect,status:'error',error:String(e)}}); showError(String(e));
+      }
+      await snapshot();
+    };
+    $('start').onclick = startCapture; $('stop').onclick = stopCapture; $('snapshot').onclick = snapshot;
+    $('clear').onclick = () => { report.events=[]; report.diagnostics=[]; report.deviceEvents=[]; report.machineEvents=[]; report.probes=[]; renderTimeline(); };
+    $('export').onclick = () => {
+      const data = JSON.stringify(report, null, 2), blob = new Blob([data], {type:'application/json'});
+      const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `ble-reconnect-${Date.now()}.json`; link.click(); URL.revokeObjectURL(link.href);
+    };
+    document.querySelectorAll('[data-action]').forEach(button => button.onclick = async () => {
+      mark(button.dataset.action);
+      if (button.dataset.state) {
+        try { await request(`/api/v1/machine/state/${button.dataset.state}`, {method:'PUT'}); }
+        catch (e) { showError(`Machine state: ${e}`); }
+      }
+    });
+    $('discovery').onclick = () => probe(false); $('connect').onclick = () => probe(true);
+    request('/api/v1/info').then(info => { report.metadata=info; $('version').textContent = `${info.fullVersion} (${info.commitShort})`; }).catch(e => showError(`Build info: ${e}`));
+    snapshot();
+  </script>
+</body>
+</html>

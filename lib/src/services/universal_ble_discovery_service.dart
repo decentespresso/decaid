@@ -31,6 +31,12 @@ typedef BleTransportFactory =
       required BleLifecycleGate lifecycleGate,
     });
 
+class _AdvertisementStats {
+  int count = 0;
+  DateTime? lastSeen;
+  String? name;
+}
+
 class UniversalBleDiscoveryService extends BleDiscoveryService
     implements DeviceWatchCapable {
   UniversalBleDiscoveryService({
@@ -396,6 +402,7 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
   }
 
   final Map<String, Device> _devices = {};
+  final Map<String, _AdvertisementStats> _advertisements = {};
   final Map<String, Future<Device?>> _candidateInFlight = {};
 
   final log = logging.Logger("UniversalBleDeviceService");
@@ -424,6 +431,75 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
 
   @override
   Stream<List<Device>> get devices => _deviceStreamController.stream;
+
+  @override
+  Future<Map<String, Object?>> diagnostics() async {
+    Object? nativeIsScanning;
+    String? nativeScanError;
+    try {
+      nativeIsScanning = await UniversalBle.isScanning().timeout(
+        const Duration(seconds: 2),
+      );
+    } catch (e) {
+      nativeScanError = e.toString();
+    }
+
+    final cache = <Map<String, Object?>>[];
+    for (final entry in _devices.entries) {
+      String state;
+      try {
+        state = (await entry.value.connectionState.first.timeout(
+          const Duration(seconds: 2),
+          onTimeout: () => ConnectionState.disconnected,
+        )).name;
+      } catch (e) {
+        state = 'error: $e';
+      }
+      cache.add({
+        'deviceId': entry.key,
+        'name': entry.value.name,
+        'type': entry.value.type.name,
+        'implementation': entry.value.implementation.name,
+        'transport': entry.value.transportType.name,
+        'connectionState': state,
+        'instanceId': identityHashCode(entry.value),
+      });
+    }
+
+    return {
+      'serviceInstanceId': identityHashCode(this),
+      'adapterState': _adapterStateSubject.value.name,
+      'scan': {
+        'owner': _scanOwner.name,
+        'phase': _scanPhase.name,
+        'generation': _scanGeneration,
+        'nativeIsScanning': nativeIsScanning,
+        'nativeIsScanningError': nativeScanError,
+      },
+      'watch': {
+        'state': _watchStateSubject.value.name,
+        'requested': _watchRequested != null,
+        'filterNamePrefix': _watchRequested?.namePrefix,
+        'deviceSubscriptionInstalled': _watchScanSub != null,
+        'refreshTimerActive': _watchRefreshTimer != null,
+        'livenessTimerActive': _watchLivenessTimer != null,
+      },
+      'cache': cache,
+      'advertisements': {
+        for (final entry in _advertisements.entries)
+          entry.key: {
+            'count': entry.value.count,
+            'lastSeen': entry.value.lastSeen?.toIso8601String(),
+            'name': entry.value.name,
+          },
+      },
+      'scanFailures': {
+        'count': _scanFailureCount,
+        'latest': _latestScanFailure,
+        'latestAt': _latestScanFailureAt?.toIso8601String(),
+      },
+    };
+  }
 
   @override
   Future<void> initialize() async {
@@ -652,10 +728,21 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     }
   }
 
+  void _recordAdvertisement(String deviceId, String? name) {
+    final stats = _advertisements.putIfAbsent(
+      deviceId,
+      _AdvertisementStats.new,
+    );
+    stats.count++;
+    stats.lastSeen = DateTime.now().toUtc();
+    stats.name = name;
+  }
+
   Future<void> _deviceScanned(BleDevice device) async {
     final deviceId = normalizeBleDeviceId(device.deviceId);
     if (_currentlyScanning.contains(deviceId)) return;
     _currentlyScanning.add(deviceId);
+    _recordAdvertisement(deviceId, device.name);
 
     try {
       final name = device.name ?? '';

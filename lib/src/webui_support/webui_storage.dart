@@ -157,7 +157,10 @@ class WebUIStorage {
     _initialized = true;
   }
 
-  static const List<String> _bundledAssetPaths = [];
+  static const List<String> _bundledAssetPaths =
+      bool.fromEnvironment('diagnostics')
+      ? ['assets/ble-reconnect-diagnostics/']
+      : [];
 
   static List<Map<String, dynamic>>? _remoteWebUISourcesCache;
 

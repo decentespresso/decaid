@@ -143,6 +143,15 @@ The snapshot WebSocket sends complete machine state at regular intervals:
 
 ---
 
+## BLE Reconnect Diagnostics
+
+Diagnostic builds (`--dart-define=diagnostics=1`) bundle the temporary
+`ble-reconnect-diagnostics` skin. It samples `/api/v1/diagnostics/ble`, listens
+to `/ws/v1/devices` and `/ws/v1/machine/snapshot`, guides the sleep and
+scale-power sequence, and exports a timestamped JSON report. The diagnostics
+endpoint is read-only; discovery probes are explicit calls to
+`/api/v1/devices/scan?connect=false` or `connect=true`.
+
 ## Core API Endpoints
 
 ### Device Management

@@ -179,6 +179,7 @@ flutter:
   assets:
     - assets/images/
     - assets/web/
+    - assets/ble-reconnect-diagnostics/
     - assets/api/
     - assets/plugins/time-to-ready.reaplugin/
     - assets/plugins/visualizer.reaplugin/

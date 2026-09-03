@@ -40,6 +40,17 @@ class ScaleWatch {
 
   bool get armed => _armed;
 
+  Map<String, Object?> get diagnostics => {
+    'armed': _armed,
+    'requested': _requested,
+    'lowerWatchRequested': _lowerWatchRequested,
+    'generation': _generation,
+    'connecting': _connecting,
+    'deviceSubscriptionInstalled': _sub != null,
+    'failureSubscriptionInstalled': _failureSub != null,
+    'stateSubscriptionInstalled': _stateSub != null,
+  };
+
   Future<void> arm() async {
     if (_requested || _armed) return;
     if (!_shouldWatch()) return;

@@ -238,6 +238,15 @@ class ConnectionManager {
   bool get supportsBackgroundScaleWatch =>
       deviceScanner.supportsBackgroundWatch;
 
+  bool get shouldRetryPreferredScale => _shouldRetryPreferredScale();
+  bool get scaleReconnectBlockedByPowerMode =>
+      _scaleReconnectBlockedByPowerMode;
+  int get scaleReconnectFailures => _scaleReconnectFailures;
+  bool get scaleReconnectScheduled => _preferredScaleReconnect != null;
+  Map<String, Object?> get scaleWatchDiagnostics => _scaleWatch.diagnostics;
+  bool get stateWatchdogActive => _stateWatchdog != null;
+  int get diagnosticSnapshotStalenessReconnects => snapshotStalenessReconnects;
+
   ConnectionManager({
     required this.deviceScanner,
     required this.de1Controller,
@@ -269,6 +278,7 @@ class ConnectionManager {
     _scaleWatch = ScaleWatch(
       scanner: deviceScanner,
       shouldWatch: () =>
+          !_isConnecting &&
           _shouldRetryPreferredScale() &&
           _disconnectSupervisor.latestMachine is! BengleInterface,
       preferredScaleId: () => settingsController.preferredScaleId,
@@ -942,6 +952,7 @@ class ConnectionManager {
       if (_automaticMachineAttemptSuperseded && !_machineConnected) {
         _automaticMachineAttemptSuperseded = false;
       }
+      _ensureScaleReacquisition();
     }
   }
 

@@ -240,6 +240,30 @@ void main() {
       await sub.cancel();
     });
 
+    test(
+      'diagnostics reports native disagreement and advertisements',
+      () async {
+        await service.startDeviceWatch(_watchFilter);
+        platform.updateScanResult(
+          BleDevice(deviceId: 'AA:BB:CC:DD:EE:FF', name: 'Decent Scale'),
+        );
+        await pump();
+
+        platform.nativeScanning = false;
+        final diagnostics = await service.diagnostics();
+        final scan = diagnostics['scan'] as Map;
+        final watch = diagnostics['watch'] as Map;
+        final advertisements = diagnostics['advertisements'] as Map;
+
+        expect(scan['owner'], 'watch');
+        expect(scan['phase'], 'active');
+        expect(scan['nativeIsScanning'], isFalse);
+        expect(watch['state'], 'active');
+        expect(advertisements['aa:bb:cc:dd:ee:ff']['count'], 1);
+        expect(advertisements['aa:bb:cc:dd:ee:ff']['lastSeen'], isA<String>());
+      },
+    );
+
     test('normalized duplicate results create one candidate', () async {
       var transports = 0;
       final sut = UniversalBleDiscoveryService(

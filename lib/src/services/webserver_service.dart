@@ -93,6 +93,7 @@ import 'package:reaprime/src/models/scan_report.dart';
 import 'package:reaprime/src/services/webview_log_service.dart';
 import 'package:reaprime/src/services/update_check_service.dart';
 import 'package:reaprime/src/services/webserver/info_handler.dart';
+import 'package:reaprime/src/services/webserver/ble_diagnostics_handler.dart';
 import 'package:reaprime/src/services/webserver/debug_handler.dart';
 import 'package:reaprime/src/services/firmware/bundled_firmware_catalog.dart';
 import 'package:reaprime/src/services/webserver/wifi_scale_handler.dart';
@@ -321,6 +322,11 @@ Future<void> startWebServer(
   );
 
   final infoHandler = InfoHandler();
+  final bleDiagnosticsHandler = BleDiagnosticsHandler(
+    deviceController: deviceController,
+    connectionManager: connectionManager,
+    settingsController: settingsController,
+  );
 
   final updateHandler = updateCheckService == null
       ? null
@@ -370,6 +376,7 @@ Future<void> startWebServer(
       beansHandler,
       grindersHandler,
       infoHandler,
+      bleDiagnosticsHandler,
       debugHandler,
       wifiScaleHandler,
       updateHandler,
@@ -411,6 +418,7 @@ Handler _init(
   BeansHandler? beansHandler,
   GrindersHandler? grindersHandler,
   InfoHandler infoHandler,
+  BleDiagnosticsHandler bleDiagnosticsHandler,
   DebugHandler? debugHandler,
   WifiScaleHandler? wifiScaleHandler,
   UpdateHandler? updateHandler,
@@ -457,6 +465,7 @@ Handler _init(
     grindersHandler.addRoutes(app);
   }
   infoHandler.addRoutes(app);
+  bleDiagnosticsHandler.addRoutes(app);
   updateHandler?.addRoutes(app);
   if (debugHandler != null) {
     debugHandler.addRoutes(app);
