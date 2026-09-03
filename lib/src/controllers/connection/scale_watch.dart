@@ -39,6 +39,8 @@ class ScaleWatch {
        _onWatchUnavailable = onWatchUnavailable;
 
   bool get armed => _armed;
+  bool get hasPendingRequest =>
+      _requested || _armed || _lowerWatchRequested || _sub != null;
 
   Map<String, Object?> get diagnostics => {
     'armed': _armed,
