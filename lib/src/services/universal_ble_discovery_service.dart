@@ -89,6 +89,7 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
 
   int _watchAdapterGeneration = 0;
   AdapterState? _lastWatchAdapterState;
+  bool _adapterOffBoundaryPending = false;
 
   bool _watchStartNeedsRetry = false;
 
@@ -388,15 +389,32 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     if (state == _lastWatchAdapterState) return;
     _lastWatchAdapterState = state;
     _watchAdapterGeneration++;
-    if (state != AdapterState.poweredOn) {
-      if (!_watchScanActive) return;
-      unawaited(
-        _deactivateWatchScan(stopOsScan: false, context: 'adapter-off'),
+    if (state == AdapterState.poweredOff) {
+      _adapterOffBoundaryPending = true;
+      if (_watchScanActive) {
+        unawaited(
+          _deactivateWatchScan(stopOsScan: false, context: 'adapter-off'),
+        );
+      }
+      return;
+    }
+    if (state != AdapterState.poweredOn) return;
+
+    if (_adapterOffBoundaryPending && _scanPhase == BleScanPhase.faulted) {
+      _adapterOffBoundaryPending = false;
+      _watchStartNeedsRetry = false;
+      _scanOwner = BleScanOwner.none;
+      _scanPhase = BleScanPhase.idle;
+      _scanStopError = null;
+      _scanGeneration++;
+      _setWatchState(
+        _watchRequested == null
+            ? DeviceWatchState.inactive
+            : DeviceWatchState.queued,
       );
-    } else if (state == AdapterState.poweredOn &&
-        _watchRequested != null &&
-        !_watchScanActive &&
-        !_isScanning) {
+    }
+    _adapterOffBoundaryPending = false;
+    if (_watchRequested != null && !_watchScanActive && !_isScanning) {
       unawaited(_restartWatchOrReportFailure('adapter recovery'));
     }
   }
@@ -738,6 +756,18 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     stats.name = name;
   }
 
+  Future<BleConnectionState?> _nativeLinkState(String deviceId) async {
+    try {
+      return await UniversalBle.getConnectionState(
+        deviceId,
+        timeout: const Duration(seconds: 2),
+      );
+    } catch (e, st) {
+      log.fine('Native link check failed for $deviceId', e, st);
+      return null;
+    }
+  }
+
   Future<void> _deviceScanned(BleDevice device) async {
     final deviceId = normalizeBleDeviceId(device.deviceId);
     if (_currentlyScanning.contains(deviceId)) return;
@@ -756,7 +786,16 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
         );
         if (state == ConnectionState.connected ||
             state == ConnectionState.connecting) {
-          return;
+          final nativeLink = await _nativeLinkState(deviceId);
+          if (nativeLink == null ||
+              nativeLink == BleConnectionState.connected ||
+              nativeLink == BleConnectionState.connecting) {
+            return;
+          }
+          log.warning(
+            'Replacing cached connected device $deviceId; '
+            'native link is ${nativeLink.name}',
+          );
         }
         _devices.remove(deviceId);
         await _connections.remove(deviceId)?.cancel();

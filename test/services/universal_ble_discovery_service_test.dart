@@ -5,6 +5,7 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart' as domain;
+import 'package:reaprime/src/models/device/ble_scan_state.dart';
 import 'package:reaprime/src/models/device/watch_filter.dart';
 import 'package:reaprime/src/models/device/watch_state.dart';
 import 'package:reaprime/src/services/universal_ble_discovery_service.dart';
@@ -23,6 +24,7 @@ import '../helpers/mock_settings_service.dart';
 
 class _FakeBlePlatform extends UniversalBlePlatform {
   final List<BleDevice> systemDevices = [];
+  final Map<String, BleConnectionState> connectionStates = {};
 
   final List<({ScanFilter? filter, PlatformConfig? config})> startScanCalls =
       [];
@@ -140,6 +142,7 @@ class _FakeBlePlatform extends UniversalBlePlatform {
 
   @override
   Future<BleConnectionState> getConnectionState(String deviceId) async =>
+      connectionStates[deviceId.toLowerCase()] ??
       BleConnectionState.disconnected;
 
   @override
@@ -345,6 +348,34 @@ void main() {
         platform.updateAvailability(AvailabilityState.poweredOn);
         await pump();
         expect(platform.startScanCalls, isEmpty);
+      },
+    );
+
+    test(
+      'adapter off and on resets faulted ownership for a fresh burst',
+      () async {
+        await service.startDeviceWatch(_watchFilter);
+        platform.failNextStopScanWith = Exception('stop denied');
+
+        final failedBurst = service.scanForDevices();
+        await expectLater(failedBurst, throwsA(isA<Exception>()));
+        expect(service.scanPhase, BleScanPhase.faulted);
+
+        platform.updateAvailability(AvailabilityState.poweredOff);
+        await pump();
+        expect(service.scanPhase, BleScanPhase.faulted);
+
+        platform.updateAvailability(AvailabilityState.poweredOn);
+        await pump();
+        expect(service.scanPhase, BleScanPhase.active);
+        expect(platform.startScanCalls, hasLength(2));
+
+        await service.stopDeviceWatch();
+        final burst = service.scanForDevices();
+        await pump();
+        expect(platform.startScanCalls, hasLength(3));
+        service.stopScan();
+        await burst;
       },
     );
   });
@@ -805,6 +836,102 @@ void main() {
         expect(transport.disposeCalls, 0);
 
         await (result as De1Interface).dispose();
+      },
+    );
+
+    test(
+      'fresh advertisement replaces a cached connected device after native link loss',
+      () async {
+        const deviceId = 'AA:BB:CC:DD:EE:03';
+        final transports = <_TrackingFakeBleTransport>[];
+        final sut = UniversalBleDiscoveryService(
+          watchSupportGate: () => true,
+          transportFactory:
+              ({
+                required device,
+                required stopScan,
+                required requestLargeMtuNonAndroid,
+                required lifecycleGate,
+              }) {
+                final transport = transportForModel(129);
+                transports.add(transport);
+                return transport;
+              },
+        );
+        addTearDown(sut.dispose);
+        platform.systemDevices.add(BleDevice(deviceId: deviceId, name: 'DE1'));
+        await sut.initialize();
+
+        final remembered = RememberedDevice(
+          id: deviceId,
+          name: 'DE1',
+          type: domain.DeviceType.machine,
+          implementation: DeviceImplementation.unifiedDe1,
+          transportType: TransportType.ble,
+        );
+        final connected = await sut.tryQuickConnect(remembered);
+        expect(connected, isNotNull);
+        expect(transports, hasLength(1));
+        await sut.startDeviceWatch(_watchFilter);
+
+        platform.updateScanResult(BleDevice(deviceId: deviceId, name: 'DE1'));
+        await pump();
+
+        expect(
+          transports,
+          hasLength(2),
+          reason: 'fresh advertisement must create a new transport instance',
+        );
+        expect(
+          transports.first.disconnectCalls,
+          greaterThanOrEqualTo(1),
+          reason: 'the stale cached instance must be disconnected',
+        );
+        await (connected as De1Interface).dispose();
+      },
+    );
+
+    test(
+      'fresh advertisement preserves a cached device with a live native link',
+      () async {
+        const deviceId = 'AA:BB:CC:DD:EE:04';
+        final transports = <_TrackingFakeBleTransport>[];
+        final sut = UniversalBleDiscoveryService(
+          watchSupportGate: () => true,
+          transportFactory:
+              ({
+                required device,
+                required stopScan,
+                required requestLargeMtuNonAndroid,
+                required lifecycleGate,
+              }) {
+                final transport = transportForModel(129);
+                transports.add(transport);
+                return transport;
+              },
+        );
+        addTearDown(sut.dispose);
+        platform.systemDevices.add(BleDevice(deviceId: deviceId, name: 'DE1'));
+        platform.connectionStates[deviceId.toLowerCase()] =
+            BleConnectionState.connected;
+        await sut.initialize();
+
+        const remembered = RememberedDevice(
+          id: deviceId,
+          name: 'DE1',
+          type: domain.DeviceType.machine,
+          implementation: DeviceImplementation.unifiedDe1,
+          transportType: TransportType.ble,
+        );
+        final connected = await sut.tryQuickConnect(remembered);
+        await sut.startDeviceWatch(_watchFilter);
+
+        platform.updateScanResult(BleDevice(deviceId: deviceId, name: 'DE1'));
+        await pump();
+
+        expect(transports, hasLength(1));
+        expect(connected, isNotNull);
+        await (connected as De1Interface).dispose();
       },
     );
 

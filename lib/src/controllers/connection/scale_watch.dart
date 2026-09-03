@@ -68,7 +68,6 @@ class ScaleWatch {
     }
     final existing = _findPreferred(_scanner.devices, id);
     if (existing != null) {
-      _armed = true;
       await _tryConnect(existing, gen);
       return;
     }
@@ -123,10 +122,18 @@ class ScaleWatch {
   Future<void> _startAfterScan(int gen) async {
     try {
       await _scanner.scanningStream.firstWhere((scanning) => !scanning);
-      if (gen != _generation || !_requested || !_shouldWatch()) return;
+      if (gen != _generation || !_requested) return;
+      if (!_shouldWatch()) {
+        await disarm();
+        return;
+      }
       _listenForStart(gen);
       final result = await _startWatchScan(gen);
-      if (gen != _generation || !_requested || !_shouldWatch()) return;
+      if (gen != _generation || !_requested) return;
+      if (!_shouldWatch()) {
+        await disarm();
+        return;
+      }
       if (result == DeviceWatchStartResult.active) _activate(gen);
       if (result == DeviceWatchStartResult.failed) _fail(gen);
     } catch (e, st) {
@@ -258,15 +265,9 @@ class ScaleWatch {
       _log.fine('Scale still missing after connect attempt; watch continues');
       _listenForStart(gen);
       final result = await _startWatchScan(gen);
-      if (gen != _generation || !_requested || !_armed || !_shouldWatch()) {
-        if (_lowerWatchRequested) {
-          try {
-            await _scanner.stopScaleWatch();
-          } catch (e, st) {
-            _log.warning('Failed to cancel stale scale watch restart', e, st);
-          }
-          _lowerWatchRequested = false;
-        }
+      if (gen != _generation || !_requested) return;
+      if (!_shouldWatch()) {
+        await disarm();
         return;
       }
       if (result == DeviceWatchStartResult.active) _activate(gen);
