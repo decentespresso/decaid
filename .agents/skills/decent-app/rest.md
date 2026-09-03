@@ -53,6 +53,30 @@ curl -sf http://localhost:8080/api/v1/devices \
 
 `scripts/sb-dev.sh status` already curls `/api/v1/devices` and pretty-prints the result — fastest way to answer "is a machine up" without memorising payload shapes.
 
+## Inspect application logs
+
+`GET /api/v1/logs` returns plain text from the live log and rotated log files. It defaults to the most recent 1024 KB in newest-first order. Use `kb` to choose a tail window (maximum 4096 KB) and `order=asc` when chronology matters.
+
+Download the full available window before filtering it. Use `localhost` when Decent runs on the same machine; otherwise replace it with the tablet's LAN hostname or IP address (for example, `de1tablet.home` or `192.168.1.42`):
+
+```bash
+BASE=http://localhost:8080
+curl -sf "$BASE/api/v1/logs?kb=4096&order=asc" -o /tmp/decaid.log
+rg -ni 'error|warning|severe|exception|failed' /tmp/decaid.log
+```
+
+Use narrower searches for the subsystem or device under investigation, and inspect surrounding lines rather than relying only on the error-level search:
+
+```bash
+rg -ni 'bengle|tap|scan|sensor' /tmp/decaid.log
+```
+
+For a quick look at only the newest entries, omit `order=asc` and request a smaller window:
+
+```bash
+curl -sf "$BASE/api/v1/logs?kb=128"
+```
+
 ## When REST isn't enough
 
 Live telemetry (shot frames, scale weights, snapshot stream) is WebSocket-only. See `websocket.md`.
