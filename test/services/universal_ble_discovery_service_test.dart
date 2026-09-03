@@ -152,6 +152,13 @@ class _FakeBlePlatform extends UniversalBlePlatform {
 }
 
 class _TrackingFakeBleTransport extends FakeBleTransport {
+  _TrackingFakeBleTransport({this.deviceId});
+
+  final String? deviceId;
+
+  @override
+  String get id => deviceId ?? super.id;
+
   int disconnectCalls = 0;
   int disposeCalls = 0;
   bool _disposed = false;
@@ -180,8 +187,8 @@ void main() {
   late _FakeBlePlatform platform;
   late UniversalBleDiscoveryService service;
 
-  _TrackingFakeBleTransport transportForModel(int model) {
-    return _TrackingFakeBleTransport()
+  _TrackingFakeBleTransport transportForModel(int model, {String? deviceId}) {
+    return _TrackingFakeBleTransport(deviceId: deviceId)
       ..queueOnConnectResponses(v13Model: model, calFlowEst: 100);
   }
 
@@ -853,7 +860,10 @@ void main() {
                 required requestLargeMtuNonAndroid,
                 required lifecycleGate,
               }) {
-                final transport = transportForModel(129);
+                final transport = transportForModel(
+                  129,
+                  deviceId: device.deviceId,
+                );
                 transports.add(transport);
                 return transport;
               },
@@ -905,7 +915,10 @@ void main() {
                 required requestLargeMtuNonAndroid,
                 required lifecycleGate,
               }) {
-                final transport = transportForModel(129);
+                final transport = transportForModel(
+                  129,
+                  deviceId: device.deviceId,
+                );
                 transports.add(transport);
                 return transport;
               },
