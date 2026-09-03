@@ -8,6 +8,7 @@ void main() {
       final ctx = WorkflowContext(
         targetDoseWeight: 18.0,
         targetYield: 36.0,
+        targetWaterVolume: 55.0,
         grinderId: 'grinder-123',
         grinderModel: 'Niche Zero',
         grinderSetting: '15',
@@ -27,6 +28,7 @@ void main() {
 
       expect(restored.targetDoseWeight, 18.0);
       expect(restored.targetYield, 36.0);
+      expect(restored.targetWaterVolume, 55.0);
       expect(restored.grinderId, 'grinder-123');
       expect(restored.grinderModel, 'Niche Zero');
       expect(restored.grinderSetting, '15');
@@ -47,6 +49,7 @@ void main() {
       final json = ctx.toJson();
       expect(json.containsKey('grinderId'), false);
       expect(json.containsKey('extras'), false);
+      expect(json.containsKey('targetWaterVolume'), false);
 
       final restored = WorkflowContext.fromJson(json);
       expect(restored.targetDoseWeight, 18.0);
@@ -72,6 +75,7 @@ void main() {
       final ctx = WorkflowContext(
         targetDoseWeight: 18.0,
         targetYield: 36.0,
+        targetWaterVolume: 55.0,
         coffeeName: 'Ethiopian',
       );
 
@@ -79,7 +83,29 @@ void main() {
 
       expect(updated.targetDoseWeight, 18.0);
       expect(updated.targetYield, 40.0);
+      expect(updated.targetWaterVolume, 55.0);
       expect(updated.coffeeName, 'Ethiopian');
+    });
+
+    test('copyWith changes and clears the water-volume override', () {
+      final ctx = WorkflowContext(targetWaterVolume: 55.0);
+
+      final updated = ctx.copyWith(targetWaterVolume: 60.0);
+      final cleared = updated.copyWith(clearTargetWaterVolume: true);
+
+      expect(updated.targetWaterVolume, 60.0);
+      expect(cleared.targetWaterVolume, isNull);
+    });
+
+    test('clear operations preserve the water-volume override', () {
+      final ctx = WorkflowContext(
+        targetWaterVolume: 55.0,
+        grinderId: 'grinder-123',
+        beanBatchId: 'batch-456',
+      );
+
+      expect(ctx.clearGrinder().targetWaterVolume, 55.0);
+      expect(ctx.clearBeanBatch().targetWaterVolume, 55.0);
     });
 
     group('fromJson non-string coercion (#106)', () {

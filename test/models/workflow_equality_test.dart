@@ -221,12 +221,14 @@ void main() {
       const a = WorkflowContext(
         targetDoseWeight: 18.0,
         targetYield: 36.0,
+        targetWaterVolume: 55.0,
         grinderId: 'g1',
         coffeeName: 'Illy',
       );
       const b = WorkflowContext(
         targetDoseWeight: 18.0,
         targetYield: 36.0,
+        targetWaterVolume: 55.0,
         grinderId: 'g1',
         coffeeName: 'Illy',
       );
@@ -237,6 +239,7 @@ void main() {
     test('differ when any field differs', () {
       const base = WorkflowContext(targetDoseWeight: 18.0, targetYield: 36.0);
       expect(base, isNot(equals(base.copyWith(targetDoseWeight: 18.5))));
+      expect(base, isNot(equals(base.copyWith(targetWaterVolume: 55.0))));
       expect(base, isNot(equals(base.copyWith(grinderId: 'g2'))));
     });
 
@@ -244,6 +247,7 @@ void main() {
       const original = WorkflowContext(
         targetDoseWeight: 18.0,
         targetYield: 36.0,
+        targetWaterVolume: 55.0,
         grinderId: '123',
         grinderSetting: '5',
         beanBatchId: '456',

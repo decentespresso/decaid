@@ -63,12 +63,14 @@ class ShotSequencer {
     required this.persistenceController,
     required this.targetProfile,
     required this.targetYield,
+    double? targetWaterVolume,
     required bool bypassSAW,
     required bool blockOnNoScale,
     required double weightFlowMultiplier,
     required double volumeFlowMultiplier,
     required bool stepExitArbiterEnabled,
-  }) : _bypassSAW = bypassSAW,
+  }) : targetWaterVolume = targetWaterVolume ?? targetProfile.targetVolume,
+       _bypassSAW = bypassSAW,
        _blockOnNoScale = blockOnNoScale,
        _weightFlowMultiplier = weightFlowMultiplier,
        _volumeFlowMultiplier = volumeFlowMultiplier,
@@ -193,6 +195,7 @@ class ShotSequencer {
   DateTime get shotStartTime => _shotStartTime;
 
   final double targetYield;
+  final double? targetWaterVolume;
   ShotState _state = ShotState.idle;
   bool _scaleLost = false;
   bool _scaleConnected = false;
@@ -457,19 +460,19 @@ class ShotSequencer {
         if (!_bypassSAW &&
             !_machineHasAutonomousSAW &&
             (scale == null || _scaleLost) &&
-            (targetProfile.targetVolume ?? 0) > 0) {
+            (targetWaterVolume ?? 0) > 0) {
           final projectedVolume =
               _accumulatedVolume + (machine.flow * _volumeFlowMultiplier);
-          if (projectedVolume > targetProfile.targetVolume!) {
+          if (projectedVolume > targetWaterVolume!) {
             _finalStopReason = ShotDecisionReason.targetVolume;
             _emitDecision(
               ShotDecisionKind.stop,
               ShotDecisionReason.targetVolume,
               details:
-                  'Target volume ${targetProfile.targetVolume}ml reached '
+                  'Target volume ${targetWaterVolume}ml reached '
                   '(projected: $projectedVolume). Stopping shot.',
               data: {
-                'targetVolume': targetProfile.targetVolume,
+                'targetVolume': targetWaterVolume,
                 'projectedVolume': projectedVolume,
               },
             );

@@ -7642,6 +7642,16 @@ components:
           nullable: true
           description: Target output weight in grams (beverage)
           example: 36.0
+        targetWaterVolume:
+          type: number
+          format: double
+          nullable: true
+          description: |
+            DE1-integrated machine water volume in milliliters. Overrides the
+            profile targetVolume only for the existing volumetric fallback when
+            no usable scale stop is available. Null inherits the profile target;
+            0 disables volumetric stopping for this workflow.
+          example: 55.0
         grinderId:
           type: string
           nullable: true

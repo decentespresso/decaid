@@ -398,6 +398,11 @@ class _MyAppState extends State<MyApp> {
                                   .context
                                   ?.targetYield ??
                               0,
+                          targetWaterVolume: widget
+                              .workflowController
+                              .currentWorkflow
+                              .context
+                              ?.targetWaterVolume,
                           bypassSAW:
                               widget.settingsController.gatewayMode ==
                               GatewayMode.full,

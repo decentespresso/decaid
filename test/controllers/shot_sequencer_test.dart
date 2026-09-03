@@ -1901,6 +1901,7 @@ void main() {
     ShotSequencer makeSequencer({
       Profile? profile,
       double targetYield = 36.0,
+      double? targetWaterVolume,
       double volumeFlowMultiplier = 0.0,
     }) {
       return ShotSequencer(
@@ -1909,6 +1910,7 @@ void main() {
         persistenceController: persistenceController,
         targetProfile: profile ?? _simpleProfile(),
         targetYield: targetYield,
+        targetWaterVolume: targetWaterVolume,
         bypassSAW: false,
         blockOnNoScale: false,
         weightFlowMultiplier: 0.0,
@@ -1916,6 +1918,29 @@ void main() {
         stepExitArbiterEnabled: true,
       );
     }
+
+    Profile volumeProfile() => Profile(
+      version: '2',
+      title: 'Volume Profile',
+      notes: '',
+      author: 'test',
+      beverageType: BeverageType.espresso,
+      targetVolumeCountStart: 0,
+      tankTemperature: 0,
+      targetWeight: 0,
+      targetVolume: 50,
+      steps: [
+        ProfileStepPressure(
+          name: 'step1',
+          transition: TransitionType.fast,
+          volume: 0,
+          seconds: 30,
+          temperature: 93,
+          sensor: TemperatureSensor.coffee,
+          pressure: 9,
+        ),
+      ],
+    );
 
     void driveToPouring() {
       testDe1.emitStateAndSubstate(
@@ -1977,30 +2002,8 @@ void main() {
         'the shot', () {
       fakeAsync((async) {
         scaleController.simulateDisconnect();
-        final profile = Profile(
-          version: '2',
-          title: 'Volume Profile',
-          notes: '',
-          author: 'test',
-          beverageType: BeverageType.espresso,
-          targetVolumeCountStart: 0,
-          tankTemperature: 0,
-          targetWeight: 0,
-          targetVolume: 50,
-          steps: [
-            ProfileStepPressure(
-              name: 'step1',
-              transition: TransitionType.fast,
-              volume: 0,
-              seconds: 30,
-              temperature: 93,
-              sensor: TemperatureSensor.coffee,
-              pressure: 9,
-            ),
-          ],
-        );
         final sequencer = makeSequencer(
-          profile: profile,
+          profile: volumeProfile(),
           volumeFlowMultiplier: 1.0,
         );
         final decisions = <ShotDecision>[];
@@ -2017,8 +2020,132 @@ void main() {
           (d) => d.reason == ShotDecisionReason.targetVolume,
         );
         expect(stop.kind, ShotDecisionKind.stop);
+        expect(stop.data?['targetVolume'], 50.0);
         expect(sequencer.finalStopReason, ShotDecisionReason.targetVolume);
         expect(testDe1.requestedStates, contains(MachineState.idle));
+
+        sequencer.dispose();
+      });
+    });
+
+    test('workflow water-volume override replaces the profile fallback', () {
+      fakeAsync((async) {
+        scaleController.simulateDisconnect();
+        final sequencer = makeSequencer(
+          profile: volumeProfile(),
+          targetWaterVolume: 75,
+          volumeFlowMultiplier: 1.0,
+        );
+        final decisions = <ShotDecision>[];
+        sequencer.decisions.listen(decisions.add);
+
+        async.elapse(Duration(milliseconds: 10));
+        driveToPouring();
+        async.elapse(Duration(milliseconds: 10));
+
+        emitPouringFrame(0, flow: 60);
+        async.elapse(Duration(milliseconds: 10));
+        expect(
+          decisions.where((d) => d.reason == ShotDecisionReason.targetVolume),
+          isEmpty,
+        );
+
+        emitPouringFrame(0, flow: 80);
+        async.elapse(Duration(milliseconds: 10));
+
+        final stop = decisions.singleWhere(
+          (d) => d.reason == ShotDecisionReason.targetVolume,
+        );
+        expect(stop.data?['targetVolume'], 75.0);
+
+        sequencer.dispose();
+      });
+    });
+
+    test('zero workflow water volume disables the profile fallback', () {
+      fakeAsync((async) {
+        scaleController.simulateDisconnect();
+        final sequencer = makeSequencer(
+          profile: volumeProfile(),
+          targetWaterVolume: 0,
+          volumeFlowMultiplier: 1.0,
+        );
+        final decisions = <ShotDecision>[];
+        sequencer.decisions.listen(decisions.add);
+
+        async.elapse(Duration(milliseconds: 10));
+        driveToPouring();
+        async.elapse(Duration(milliseconds: 10));
+        emitPouringFrame(0, flow: 100);
+        async.elapse(Duration(milliseconds: 10));
+
+        expect(
+          decisions.where((d) => d.reason == ShotDecisionReason.targetVolume),
+          isEmpty,
+        );
+
+        sequencer.dispose();
+      });
+    });
+
+    test('target yield never becomes a volumetric fallback', () {
+      fakeAsync((async) {
+        scaleController.simulateDisconnect();
+        final sequencer = makeSequencer(
+          targetYield: 36,
+          volumeFlowMultiplier: 1.0,
+        );
+        final decisions = <ShotDecision>[];
+        sequencer.decisions.listen(decisions.add);
+
+        async.elapse(Duration(milliseconds: 10));
+        driveToPouring();
+        async.elapse(Duration(milliseconds: 10));
+        emitPouringFrame(0, flow: 100);
+        async.elapse(Duration(milliseconds: 10));
+
+        expect(
+          decisions.where((d) => d.reason == ShotDecisionReason.targetVolume),
+          isEmpty,
+        );
+
+        sequencer.dispose();
+      });
+    });
+
+    test('workflow water volume activates only after scale loss', () {
+      fakeAsync((async) {
+        scaleController.emitWeight(0);
+        final sequencer = makeSequencer(
+          profile: volumeProfile(),
+          targetYield: 36,
+          targetWaterVolume: 55,
+          volumeFlowMultiplier: 1.0,
+        );
+        final decisions = <ShotDecision>[];
+        sequencer.decisions.listen(decisions.add);
+
+        async.elapse(Duration(milliseconds: 10));
+        driveToPouring();
+        async.elapse(Duration(milliseconds: 10));
+        emitPouringFrame(0, flow: 60);
+        async.elapse(Duration(milliseconds: 10));
+        expect(
+          decisions.where((d) => d.reason == ShotDecisionReason.targetVolume),
+          isEmpty,
+        );
+
+        scaleController.simulateDisconnect();
+        async.elapse(Duration(milliseconds: 10));
+        emitPouringFrame(0, flow: 60);
+        async.elapse(Duration(milliseconds: 10));
+
+        expect(
+          decisions
+              .singleWhere((d) => d.reason == ShotDecisionReason.targetVolume)
+              .data?['targetVolume'],
+          55.0,
+        );
 
         sequencer.dispose();
       });

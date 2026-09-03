@@ -814,6 +814,8 @@ class De1StateManager with WidgetsBindingObserver {
       targetProfile: _workflowController.currentWorkflow.profile,
       targetYield:
           _workflowController.currentWorkflow.context?.targetYield ?? 0,
+      targetWaterVolume:
+          _workflowController.currentWorkflow.context?.targetWaterVolume,
       bypassSAW: _settingsController.gatewayMode == GatewayMode.full,
       blockOnNoScale: _settingsController.blockOnNoScale && !scalelessBeverage,
       weightFlowMultiplier: _settingsController.weightFlowMultiplier,

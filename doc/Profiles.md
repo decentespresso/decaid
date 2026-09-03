@@ -8,6 +8,10 @@ REA supports loading profiles to the espresso machine either directly through th
 
 The REA Profile data object definition lives in `lib/src/models/data/profile.dart`.
 
+## Workflow Final Targets
+
+`WorkflowContext.targetYield` is beverage output weight in grams and drives scale-based stop-at-weight. `WorkflowContext.targetWaterVolume` is DE1-integrated machine water volume in milliliters and overrides `Profile.targetVolume` only for the existing volumetric fallback when no usable scale stop is available. A null workflow water target inherits the profile target; `0` disables volumetric stopping for that workflow. These quantities are never converted or used as fallbacks for each other.
+
 Step transitions can be owned by either the DE1 firmware or the app. Firmware
 owns pressure/flow `exit` conditions because they are encoded into the profile
 sent to the machine. The app owns per-step `weight` exits because only the

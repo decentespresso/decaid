@@ -3,6 +3,7 @@ import 'package:reaprime/src/models/data/utils.dart';
 class WorkflowContext {
   final double? targetDoseWeight;
   final double? targetYield;
+  final double? targetWaterVolume;
 
   final String? grinderId;
   final String? grinderModel;
@@ -22,6 +23,7 @@ class WorkflowContext {
   const WorkflowContext({
     this.targetDoseWeight,
     this.targetYield,
+    this.targetWaterVolume,
     this.grinderId,
     this.grinderModel,
     this.grinderSetting,
@@ -43,6 +45,7 @@ class WorkflowContext {
     return WorkflowContext(
       targetDoseWeight: parseOptionalDouble(json['targetDoseWeight']),
       targetYield: parseOptionalDouble(json['targetYield']),
+      targetWaterVolume: parseOptionalDouble(json['targetWaterVolume']),
       grinderId: parseOptionalString(json['grinderId']),
       grinderModel: parseOptionalString(json['grinderModel']),
       grinderSetting: parseOptionalString(json['grinderSetting']),
@@ -60,6 +63,7 @@ class WorkflowContext {
     return {
       if (targetDoseWeight != null) 'targetDoseWeight': targetDoseWeight,
       if (targetYield != null) 'targetYield': targetYield,
+      if (targetWaterVolume != null) 'targetWaterVolume': targetWaterVolume,
       if (grinderId != null) 'grinderId': grinderId,
       if (grinderModel != null) 'grinderModel': grinderModel,
       if (grinderSetting != null) 'grinderSetting': grinderSetting,
@@ -76,6 +80,7 @@ class WorkflowContext {
   WorkflowContext clearGrinder() => WorkflowContext(
     targetDoseWeight: targetDoseWeight,
     targetYield: targetYield,
+    targetWaterVolume: targetWaterVolume,
     grinderId: null,
     grinderModel: null,
     grinderSetting: grinderSetting,
@@ -91,6 +96,7 @@ class WorkflowContext {
   WorkflowContext clearBeanBatch() => WorkflowContext(
     targetDoseWeight: targetDoseWeight,
     targetYield: targetYield,
+    targetWaterVolume: targetWaterVolume,
     grinderId: grinderId,
     grinderModel: grinderModel,
     grinderSetting: grinderSetting,
@@ -106,6 +112,8 @@ class WorkflowContext {
   WorkflowContext copyWith({
     double? targetDoseWeight,
     double? targetYield,
+    double? targetWaterVolume,
+    bool clearTargetWaterVolume = false,
     String? grinderId,
     String? grinderModel,
     String? grinderSetting,
@@ -120,6 +128,9 @@ class WorkflowContext {
     return WorkflowContext(
       targetDoseWeight: targetDoseWeight ?? this.targetDoseWeight,
       targetYield: targetYield ?? this.targetYield,
+      targetWaterVolume: clearTargetWaterVolume
+          ? null
+          : targetWaterVolume ?? this.targetWaterVolume,
       grinderId: grinderId ?? this.grinderId,
       grinderModel: grinderModel ?? this.grinderModel,
       grinderSetting: grinderSetting ?? this.grinderSetting,
@@ -145,6 +156,7 @@ class WorkflowContext {
     if (other is! WorkflowContext) return false;
     return other.targetDoseWeight == targetDoseWeight &&
         other.targetYield == targetYield &&
+        other.targetWaterVolume == targetWaterVolume &&
         other.grinderId == grinderId &&
         other.grinderModel == grinderModel &&
         other.grinderSetting == grinderSetting &&
@@ -161,6 +173,7 @@ class WorkflowContext {
   int get hashCode => Object.hash(
     targetDoseWeight,
     targetYield,
+    targetWaterVolume,
     grinderId,
     grinderModel,
     grinderSetting,
