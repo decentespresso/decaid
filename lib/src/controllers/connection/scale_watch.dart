@@ -59,6 +59,11 @@ class ScaleWatch {
 
     _requested = true;
     final gen = _generation;
+    if (_scanner.isScanning) {
+      _listenForStart(gen);
+      unawaited(_startAfterScan(gen));
+      return;
+    }
     final existing = _findPreferred(_scanner.devices, id);
     if (existing != null) {
       _armed = true;
@@ -112,6 +117,23 @@ class ScaleWatch {
 
   Scale? _findPreferred(List<Device> devices, String id) =>
       devices.whereType<Scale>().where((s) => s.deviceId == id).firstOrNull;
+
+  Future<void> _startAfterScan(int gen) async {
+    try {
+      await _scanner.scanningStream.firstWhere((scanning) => !scanning);
+      if (gen != _generation || !_requested || !_shouldWatch()) return;
+      _listenForStart(gen);
+      final result = await _startWatchScan(gen);
+      if (gen != _generation || !_requested || !_shouldWatch()) return;
+      if (result == DeviceWatchStartResult.active) _activate(gen);
+      if (result == DeviceWatchStartResult.failed) _fail(gen);
+    } catch (e, st) {
+      if (gen == _generation) {
+        _log.warning('Failed to start background watch after scan', e, st);
+        _fail(gen);
+      }
+    }
+  }
 
   Future<DeviceWatchStartResult?> _startWatchScan(int gen) async {
     if (gen != _generation || !_requested) return null;

@@ -67,6 +67,9 @@ class MockDeviceScanner implements DeviceScanner {
   AdapterState get currentAdapterState => _adapterStateSubject.value;
 
   @override
+  bool get isScanning => _scanningSubject.value;
+
+  @override
   List<Device> get devices => List.from(_devices);
 
   void mockAdapterState(AdapterState state) {

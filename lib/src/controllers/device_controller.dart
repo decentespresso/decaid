@@ -37,6 +37,8 @@ class DeviceController
 
   @override
   Stream<DeviceWatchState> get scaleWatchState => _scaleWatchState.stream;
+
+  @override
   bool get isScanning => _scanningStream.value;
 
   final BehaviorSubject<AdapterState> _adapterStateStream =

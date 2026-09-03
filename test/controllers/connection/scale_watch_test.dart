@@ -96,6 +96,27 @@ void main() {
     );
   });
 
+  test('cached preferred scale does not bypass an active full scan', () async {
+    scanner.addDevice(TestScale(deviceId: scaleId));
+    scanner.scanCompleter = Completer<void>();
+    final scan = scanner.scanForDevices();
+    await pump();
+
+    final arming = watch.arm();
+    await pump();
+    expect(connectCalls, isEmpty);
+    expect(scanner.startWatchCallCount, 0);
+
+    scanner.completeScan();
+    await scan;
+    await arming;
+    await pump();
+
+    expect(connectCalls, isEmpty);
+    expect(scanner.startWatchCallCount, 1);
+    expect(watch.armed, isTrue);
+  });
+
   test(
     'sighting stops the watch before connecting, then disarms on success',
     () async {

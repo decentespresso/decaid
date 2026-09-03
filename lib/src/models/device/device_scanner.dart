@@ -11,6 +11,7 @@ export 'package:reaprime/src/models/device/scan_result.dart';
 abstract class DeviceScanner {
   Stream<List<Device>> get deviceStream;
   Stream<bool> get scanningStream;
+  bool get isScanning;
   List<Device> get devices;
 
   Future<ScanResult> scanForDevices({ScanFilter? filter});

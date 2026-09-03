@@ -80,7 +80,7 @@
         `<div class="event"><code>${e.timestamp}</code> ${e.type} <span class="muted">${JSON.stringify(e.details || '')}</span></div>`).join('') : 'No captured events.';
     };
     const updateDiagnostics = data => {
-      report.diagnostics.push({timestamp:now(), snapshot:data});
+      if (capturing) report.diagnostics.push({timestamp:now(), snapshot:data});
       const service = data.ble?.services?.[0]?.details;
       const scan = service?.scan;
       const watch = data.connection?.scaleWatch;
@@ -119,7 +119,9 @@
     const closeSockets = () => { deviceSocket?.close(); machineSocket?.close(); deviceSocket = machineSocket = null; };
     const startCapture = () => {
       if (capturing) return;
-      capturing = true; startedAt = Date.now(); report.capture = {startedAt:now(),endedAt:null,durationMs:null};
+      capturing = true; startedAt = Date.now();
+      report.events=[]; report.diagnostics=[]; report.deviceEvents=[]; report.machineEvents=[]; report.probes=[];
+      report.capture = {startedAt:now(),endedAt:null,durationMs:null};
       $('capture').textContent = `Capture started at ${report.capture.startedAt}`;
       addEvent('capture started'); openSockets(); snapshot(); timer = setInterval(snapshot, 1000);
     };
