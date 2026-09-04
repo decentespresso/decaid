@@ -1,6 +1,6 @@
 # Simulated devices
 
-Decent ships with in-process mock implementations of its supported devices so you can develop and run tests without a real DE1 or scale on hand. Simulate mode is deterministic, CI-friendly, and enabled via `--dart-define=simulate=1` (all mocks), a comma-delimited subset like `--dart-define=simulate=machine,scale`, or the in-app Settings UI toggle (`SimulatedDevicesTypes` — machine, scale, sensor). `sb-dev start` injects `--dart-define=simulate=1` by default; pass `--real` to opt out and run against real hardware (see `lifecycle.md`).
+Decent ships with in-process device implementations for development without hardware. Simulate mode is enabled with `--dart-define=simulate=1`, a comma-delimited subset such as `--dart-define=simulate=machine,scale`, or the Settings UI. The current `SimulatedDevicesTypes` values are `machine, scale, sensor, bengle, replay`. `sb-dev start` enables the default set from `lib/main.dart`; pass `--real` to disable simulated devices.
 
 ## Available mocks
 
@@ -9,6 +9,8 @@ Registered in `lib/src/services/simulated_device_service.dart`:
 | Type    | Internal id         | REST `name` field | Source |
 |---------|---------------------|-------------------|--------|
 | Machine | `MockDe1`           | `MockDe1`         | `lib/src/models/device/impl/mock_de1/mock_de1.dart` |
+| Bengle  | `MockBengle`        | `MockBengle`      | `lib/src/models/device/impl/bengle/mock_bengle.dart` |
+| Replay  | `MockReplayDe1`     | `Replay DE1`      | `lib/src/models/device/impl/replay/mock_replay_de1.dart` |
 | Scale   | `MockScale`         | `Mock Scale`      | `lib/src/models/device/impl/mock_scale/mock_scale.dart` (id is `MockScale`; `name` carries the space) |
 | Sensor  | `MockSensorBasket`  | `SensorBasket`    | `lib/src/models/device/impl/sensor/mock/mock_sensor_basket.dart` |
 | Sensor  | `MockDebugPort`     | `DebugPort`       | `lib/src/models/device/impl/sensor/mock/mock_debug_port.dart` |
@@ -66,7 +68,7 @@ See `websocket.md` for why all four of `--no-async-stdio -n -U -t` are needed.
 
 ```bash
 scripts/sb-dev.sh stop
-rm -rf "${SB_RUNTIME_DIR:-/tmp/decent-app-$USER}"
+rm -rf "${SB_RUNTIME_DIR:-/tmp/decent-$USER}"
 rm -rf "$HOME/Library/Containers/net.tadel.reaprime/Data/Documents"  # macOS
 ```
 

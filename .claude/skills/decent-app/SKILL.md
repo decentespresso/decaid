@@ -1,12 +1,10 @@
 ---
 name: decent-app
-description: Use when touching the Flutter app, its REST/WebSocket API, profiles, shots, or simulated devices, or whenever exercising a code change against a running Decent instance. Covers the dev loop (sb-dev start/reload/stop), REST calls via curl, WebSocket streams via websocat, and smoke-test verification.
+description: Drive or verify a running Decent app via sb-dev, REST, WebSockets, simulated devices, or real hardware. Use for API/WebSocket changes, runtime/device flows, smoke tests, and end-to-end regression scenarios; not for pure Dart changes that do not require a running app.
 ---
 
 # Decent
 
-This is a Claude Code forwarder. The canonical skill lives under the cross-client [agentskills.io](https://agentskills.io) path:
+This is a Claude Code forwarder. The canonical skill is `.agents/skills/decent-app/SKILL.md`.
 
-**`.agents/skills/decent-app/SKILL.md`**
-
-Read that file and the sibling routing targets (`lifecycle.md`, `rest.md`, `websocket.md`, `simulated-devices.md`, `verification.md`, `scenarios/`) for everything the skill covers. Relative paths in those files resolve against `.agents/skills/decent-app/`.
+Read the canonical skill, then only the routing target relevant to the current task. Do not load all references or scenarios.
