@@ -262,11 +262,11 @@ class SerialServiceAndroid
         deviceName: machine.name,
       );
     }
-    _devices.add(machine);
+    _addDevices([machine]);
     _recordPhysicalOwnership(machine.deviceId, device);
     machine.connectionState.listen((state) {
       if (state == ConnectionState.disconnected) {
-        _devices.remove(machine);
+        if (!_devices.remove(machine)) return;
         _machineSubject.add(_devices);
         _logicalToPhysicalDeviceId.remove(machine.deviceId);
         final t = _transportForDeviceId.remove(machine.deviceId);
@@ -340,11 +340,11 @@ class SerialServiceAndroid
       try {
         await device.onConnect().timeout(const Duration(seconds: 10));
         final connected = device;
-        _devices.add(connected);
+        _addDevices([connected]);
         _recordPhysicalOwnership(connected.deviceId, d);
         connected.connectionState.listen((state) {
           if (state == ConnectionState.disconnected) {
-            _devices.remove(connected);
+            if (!_devices.remove(connected)) return;
             _machineSubject.add(_devices);
             _logicalToPhysicalDeviceId.remove(connected.deviceId);
             final t = _transportForDeviceId.remove(connected.deviceId);
@@ -393,6 +393,13 @@ class SerialServiceAndroid
     final physicalId = physical.deviceId;
     if (physicalId != null) {
       _logicalToPhysicalDeviceId[logicalDeviceId] = physicalId;
+    }
+  }
+
+  void _addDevices(Iterable<Device> devices) {
+    for (final device in devices) {
+      _devices.removeWhere((known) => known.deviceId == device.deviceId);
+      _devices.add(device);
     }
   }
 
@@ -509,7 +516,7 @@ class SerialServiceAndroid
         return found;
       }),
     );
-    _devices.addAll(results.expand((e) => e));
+    _addDevices(results.expand((e) => e));
     _machineSubject.add(_devices);
   }
 

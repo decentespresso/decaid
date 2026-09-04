@@ -893,6 +893,10 @@ attach recovery"). Explicit native, REST, and WebSocket scans call
 `connectingMachine` is published before the attempt, then phase falls
 through to `scanning` (existing scan path).
 
+Android serial discovery replaces a registry entry when quick-connect detects
+a new device instance with the same `deviceId`, so REST and WebSocket inventory
+never retain the disconnected instance beside its connected replacement.
+
 ### Initial App Startup
 
 ```
