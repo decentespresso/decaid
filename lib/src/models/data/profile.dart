@@ -42,34 +42,51 @@ class Profile extends Equatable {
     tankTemperature,
   ];
 
-  factory Profile.fromJson(Map<String, dynamic> json) {
+  static const unknownTitle = 'Unknown profile';
+
+  factory Profile.fromJson(Map<String, dynamic> json) =>
+      Profile._parse(json, requireExecutable: true);
+
+  factory Profile.fromRecordedJson(Map<String, dynamic> json) =>
+      Profile._parse(json, requireExecutable: false);
+
+  static Profile _parse(
+    Map<String, dynamic> json, {
+    required bool requireExecutable,
+  }) {
     final title = parseOptionalString(json['title']);
-    if (title == null || title.isEmpty) {
-      throw ArgumentError('Profile must have a non-empty "title"');
-    }
     final rawSteps = json['steps'];
-    if (rawSteps is! List || rawSteps.isEmpty) {
-      throw ArgumentError('Profile must have a non-empty "steps" array');
-    }
-    if (json['tank_temperature'] == null) {
-      throw ArgumentError('Profile must have "tank_temperature"');
-    }
-    if (json['target_volume_count_start'] == null) {
-      throw ArgumentError('Profile must have "target_volume_count_start"');
+    if (requireExecutable) {
+      if (title == null || title.isEmpty) {
+        throw ArgumentError('Profile must have a non-empty "title"');
+      }
+      if (rawSteps is! List || rawSteps.isEmpty) {
+        throw ArgumentError('Profile must have a non-empty "steps" array');
+      }
+      if (json['tank_temperature'] == null) {
+        throw ArgumentError('Profile must have "tank_temperature"');
+      }
+      if (json['target_volume_count_start'] == null) {
+        throw ArgumentError('Profile must have "target_volume_count_start"');
+      }
     }
     return Profile(
       version: parseOptionalString(json['version']),
-      title: title,
+      title: title == null || title.isEmpty ? unknownTitle : title,
       notes: parseOptionalString(json['notes']) ?? '',
       author: parseOptionalString(json['author']) ?? '',
       beverageType: _parseBeverageType(json['beverage_type']),
-      steps: rawSteps
-          .map((step) => ProfileStep.fromJson(step as Map<String, dynamic>))
-          .toList(),
+      steps: rawSteps is List
+          ? rawSteps
+                .map(
+                  (step) => ProfileStep.fromJson(step as Map<String, dynamic>),
+                )
+                .toList()
+          : const [],
       targetVolume: parseOptionalDouble(json['target_volume']),
       targetWeight: parseOptionalDouble(json['target_weight']),
-      targetVolumeCountStart: parseInt(json['target_volume_count_start']),
-      tankTemperature: parseDouble(json['tank_temperature']),
+      targetVolumeCountStart: parseInt(json['target_volume_count_start'] ?? 0),
+      tankTemperature: parseDouble(json['tank_temperature'] ?? 0),
     );
   }
 
