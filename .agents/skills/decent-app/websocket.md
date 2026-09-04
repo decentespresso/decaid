@@ -16,7 +16,7 @@ Fallback if websocat isn't available: `npm install -g wscat`. All examples below
 
 ## One-shot snapshot — the default
 
-Each `Bash` tool call is a fresh shell, so bounded reads (no background state) are the safe default. Always bound by message count (`--max-messages-rev N`) — websocat exits cleanly as soon as it has received N messages from the WebSocket.
+Each shell call may be independent, so bounded reads are the safe default. Bound by message count (`--max-messages-rev N`) so websocat exits after receiving N messages.
 
 ```bash
 websocat --no-async-stdio -n -U -t --max-messages-rev 5 \
@@ -55,7 +55,7 @@ Same flags as the one-shot form but without `--max-messages-rev` so the subscrip
 
 ## Bidirectional channels
 
-`ws/v1/devices` and `ws/v1/display` accept commands as well as emit state. Payload shape lives in the spec (`DevicesCommand`, `DisplayCommand`) — check before sending. Drop `-U` (we need stdin→ws now) and bound by `--max-messages-rev` so the shell returns after reading the ack. Example: kick off a scan on the devices channel.
+Several channels are bidirectional. Consult `assets/api/websocket_v1.yml` for the current channel and payload inventory. Drop `-U` when sending and bound by `--max-messages-rev` so the shell returns after the acknowledgement. This representative example starts a device scan:
 
 ```bash
 echo '{"command": "scan", "connect": false, "quick": true}' \

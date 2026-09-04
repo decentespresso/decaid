@@ -1,6 +1,6 @@
 # Verification
 
-Deciding how to smoke-test a change to Decent, and the concrete recipes for each workflow. For the broader test-tier decision process (unit / integration / MCP) see `.claude/skills/tdd-workflow/SKILL.md` — this file is specifically about end-to-end verification against a running Decent instance driven by `scripts/sb-dev.sh`.
+Use this file for end-to-end verification against a running Decent instance. For unit, integration, and end-to-end test policy, follow the root `AGENTS.md` and `doc/AI_TESTING_NOTES.md`.
 
 ## When to verify via a running app
 
@@ -48,19 +48,13 @@ Boot the app with a mock machine connected, confirm REST is reachable and a DE1 
 
 Shortest loop: reload, re-hit the endpoint, diff the response against the spec. If the shape changed, update `assets/api/rest_v1.yml` or `assets/api/websocket_v1.yml` in the same commit, and update `doc/Api.md` / `doc/Plugins.md` if user-facing.
 
-## Pre-PR checklist
+## Completion requirements
 
-Before opening a PR, merging locally, or calling work done:
-
-- Plans moved from `doc/plans/` to `doc/plans/archive/<meaningful-subfolder>/`.
-- Docs updated for any behavior change that touches them: `doc/Api.md`, `doc/Skins.md`, `doc/Plugins.md`, `doc/Profiles.md`, `doc/DeviceManagement.md`.
-- `flutter analyze` clean.
-- `flutter test` green.
-- Full sb-dev smoke completed: `start` → `status` → exercise feature → `reload` → re-exercise → `stop`.
+Follow the root `AGENTS.md` for formatting, tests, plan archival or deletion, documentation, and PR requirements. In addition, runtime-facing changes need the relevant `sb-dev` smoke or regression scenario.
 
 ## Regression scenarios
 
-Concrete end-to-end recipes that used to live as MCP yaml fixtures now live as markdown under `scenarios/`. The full index is in `SKILL.md` - pick the scenario that matches your task there. Run it before calling related work done. Each file lists preconditions, a sequence of `curl` / `websocat` commands, expected output hints, and postconditions - paste them verbatim.
+The scenario index is in `scenarios/README.md`. Pick the matching recipe and run it before calling related work done.
 
 ## Stale spec, stale skill
 
