@@ -6,7 +6,7 @@ Flutter's Apple build can report that no `firebase-ios-sdk` version satisfies a 
 
 ```bash
 git --git-dir=build/macos/SourcePackages/repositories/firebase-ios-sdk-* \
-  tag | grep '^12\.' | tail
+  tag --sort=-version:refname | head
 ```
 
 If it is stale, remove only the generated project-local package clones and rebuild:

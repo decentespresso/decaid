@@ -7,4 +7,4 @@ description: Drive or verify a running Decent app via sb-dev, REST, WebSockets, 
 
 This is a Claude Code forwarder. The canonical skill is `.agents/skills/decent-app/SKILL.md`.
 
-Read the canonical skill, then only the routing target relevant to the current task. Do not load all references or scenarios.
+Read the canonical skill, then only the routing target(s) needed for the current task. Do not preload unrelated references or scenarios.
