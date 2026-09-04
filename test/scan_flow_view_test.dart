@@ -24,6 +24,7 @@ void main() {
   late DeviceController deviceController;
   late SettingsController settingsController;
   late ScanStateGuardian scanStateGuardian;
+  late MockBleDiscoveryService discovery;
 
   setUp(() async {
     mockScanner = MockDeviceScanner();
@@ -39,14 +40,18 @@ void main() {
       settingsController: settings,
     );
 
-    final discovery = MockBleDiscoveryService();
+    discovery = MockBleDiscoveryService();
     deviceController = DeviceController([discovery]);
     await deviceController.initialize();
     settingsController = settings;
     scanStateGuardian = ScanStateGuardian(bleService: discovery);
   });
 
-  Widget buildView({VoidCallback? initialConnectionIntent}) {
+  Widget buildView({
+    VoidCallback? initialConnectionIntent,
+    VoidCallback? onExit,
+    String exitLabel = 'Dashboard',
+  }) {
     return ShadApp(
       home: ScanFlowView(
         connectionManager: mockCm,
@@ -55,7 +60,8 @@ void main() {
         scanStateGuardian: scanStateGuardian,
         initialConnectionIntent: initialConnectionIntent,
         onConnected: () {},
-        onExit: () {},
+        onExit: onExit ?? () {},
+        exitLabel: exitLabel,
       ),
     );
   }
@@ -433,6 +439,90 @@ void main() {
 
       expect(find.text('Bluetooth Unavailable'), findsOneWidget);
       expect(find.text('BLE Machine'), findsNothing);
+    });
+  });
+
+  group('connect-failure error view', () {
+    ConnectionError connectError() => ConnectionError(
+      kind: ConnectionErrorKind.machineConnectFailed,
+      severity: ConnectionErrorSeverity.error,
+      timestamp: DateTime.now().toUtc(),
+      message: 'Machine My DE1 failed to connect.',
+      suggestion: 'Make sure the DE1 is powered on and in range, then retry.',
+    );
+
+    testWidgets('offers exit label action when nothing was found', (
+      tester,
+    ) async {
+      var exited = false;
+      mockCm.emitStatus(
+        ConnectionStatus(phase: ConnectionPhase.idle, error: connectError()),
+      );
+
+      await tester.pumpWidget(
+        buildView(
+          initialConnectionIntent: () => mockCm.scanAndConnect(),
+          onExit: () => exited = true,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Retry'), findsOneWidget);
+      expect(find.text('Dashboard'), findsOneWidget);
+      expect(find.text('View found devices'), findsNothing);
+
+      await tester.tap(find.text('Dashboard'));
+      await tester.pump();
+      expect(exited, isTrue);
+    });
+
+    testWidgets('machine list is reachable after a connect failure', (
+      tester,
+    ) async {
+      final machine = FakeDe1(deviceId: 'm1', name: 'DE1 #1');
+      discovery.addDevice(machine);
+      mockCm.emitStatus(
+        ConnectionStatus(
+          phase: ConnectionPhase.idle,
+          foundMachines: [machine],
+          error: connectError(),
+        ),
+      );
+
+      await tester.pumpWidget(
+        buildView(initialConnectionIntent: () => mockCm.scanAndConnect()),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Connection Error'), findsOneWidget);
+
+      await tester.tap(find.text('View found devices'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Connection Error'), findsNothing);
+      expect(find.text('DE1 #1'), findsOneWidget);
+      expect(find.text('ReScan'), findsOneWidget);
+    });
+
+    testWidgets('uses the caller-provided exit label', (tester) async {
+      var exited = false;
+      mockCm.emitStatus(
+        ConnectionStatus(phase: ConnectionPhase.idle, error: connectError()),
+      );
+
+      await tester.pumpWidget(
+        buildView(
+          initialConnectionIntent: () => mockCm.scanAndConnect(),
+          onExit: () => exited = true,
+          exitLabel: 'Cancel',
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Cancel'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pump();
+      expect(exited, isTrue);
     });
   });
 
