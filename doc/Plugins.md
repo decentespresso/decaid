@@ -78,6 +78,7 @@ A Decaid plugin consists of two required files:
   - `pluginStorage`: Call `host.storage`
   - `events.machine`: Receive `stateUpdate`
   - `events.shots`: Receive `shotStored` and `shotUpdated`
+  - `events.workflow`: Receive `workflowUpdated`
   - `proxy.decent_api`: Send read requests through `host.decentProxy`
   - `proxy.decent_api.write`: Send allowlisted write requests through `host.decentProxy`
   - `network.websocket`: Open outbound WebSocket connections (`ws://` and `wss://`) through `host.transport`
@@ -191,7 +192,7 @@ The returned object has `{ status, headers, body }`. Consent denial or non-decis
 Plugins receive events in the `onEvent` method:
 
 Machine broadcasts require `events.machine`. Shot lifecycle broadcasts require
-`events.shots`.
+`events.shots`. Workflow broadcasts require `events.workflow`.
 
 - **`stateUpdate`**: Machine state changes (temperature, pressure, flow, etc.)
 
@@ -204,6 +205,20 @@ Machine broadcasts require `events.machine`. Shot lifecycle broadcasts require
       pressure: 9.2,
       flow: 2.1,
       // ... other machine metrics
+    }
+  }
+  ```
+
+- **`workflowUpdated`**: Signals that workflow state changed without exposing
+  the workflow itself. A permitted plugin receives one current-revision snapshot
+  after each successful load or reload, followed by events only for new
+  revisions. `revision` is a JavaScript Number.
+
+  ```javascript
+  {
+    name: "workflowUpdated",
+    payload: {
+      revision: 42
     }
   }
   ```

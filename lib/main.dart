@@ -509,6 +509,7 @@ void main(List<String> args) async {
     deviceService: pluginDeviceService,
   );
   await pluginService.pluginManager.attachDe1Controller(de1Controller);
+  pluginService.pluginManager.attachWorkflowController(workflowController);
   persistenceController.onShotStored = (shotId) =>
       pluginService.pluginManager.broadcastEvent('shotStored', {'id': shotId});
 

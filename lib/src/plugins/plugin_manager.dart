@@ -14,6 +14,7 @@ import 'plugin_transport_service.dart';
 import 'plugin_types.dart';
 import '../services/storage/kv_store_service.dart';
 import '../controllers/de1_controller.dart';
+import '../controllers/workflow_controller.dart';
 import '../models/device/de1_interface.dart';
 import '../models/device/machine.dart';
 import '../services/account/decent_proxy_service.dart';
@@ -102,6 +103,10 @@ class PluginManager {
   Future<void> _snapshotQueue = Future.value();
   int _attachmentGeneration = 0;
   int _snapshotGeneration = 0;
+  WorkflowController? _workflowController;
+  void Function()? _workflowListener;
+  int? _lastWorkflowRevision;
+  int _workflowAttachmentGeneration = 0;
   PluginManagerLifecycle _lifecycle = PluginManagerLifecycle.active;
   Future<void>? _disposeFuture;
   final Map<String, int> _retiringPluginGenerations = {};
@@ -195,6 +200,10 @@ class PluginManager {
     }
 
     try {
+      await runStage(
+        'workflow controller detachment',
+        _detachWorkflowController,
+      );
       await runStage('attachment queue', () => _attachmentQueue);
       await runStage('snapshot queue', () => _snapshotQueue);
       await runStage('controller detachment', _cancelControllerSubscriptions);
@@ -242,6 +251,9 @@ class PluginManager {
       _de1Subscription = null;
       _snapshotSubscription = null;
       _de1controller = null;
+      _workflowController = null;
+      _workflowListener = null;
+      _lastWorkflowRevision = null;
       _lifecycle = PluginManagerLifecycle.disposed;
     }
 
@@ -1999,6 +2011,15 @@ class PluginManager {
       while (js.executePendingJob() > 0) {}
 
       runtime.markRunning();
+      if (identical(_plugins[id], runtime) &&
+          generation == _pluginGenerations[id]) {
+        final workflowController = _workflowController;
+        if (workflowController != null) {
+          dispatchEvent(id, 'workflowUpdated', {
+            'revision': workflowController.revision,
+          });
+        }
+      }
       _log.info("loaded: $id");
     } catch (e, st) {
       try {
@@ -2181,6 +2202,7 @@ class PluginManager {
     final permission = switch (name) {
       'stateUpdate' => PluginPermissions.eventsMachine,
       'shotStored' || 'shotUpdated' => PluginPermissions.eventsShots,
+      'workflowUpdated' => PluginPermissions.eventsWorkflow,
       _ => null,
     };
     if (permission != null && !_hasPermission(pluginId, permission)) return;
@@ -2667,6 +2689,43 @@ class PluginManager {
   }
 
   List<PluginRuntime> get loadedPlugins => _plugins.values.toList();
+
+  void attachWorkflowController(WorkflowController controller) {
+    _ensureActive();
+    if (identical(controller, _workflowController)) return;
+
+    _detachWorkflowController();
+    final generation = _workflowAttachmentGeneration;
+    _workflowController = controller;
+    _lastWorkflowRevision = controller.revision;
+
+    void listener() {
+      if (_lifecycle != PluginManagerLifecycle.active ||
+          !identical(controller, _workflowController) ||
+          generation != _workflowAttachmentGeneration) {
+        return;
+      }
+      final revision = controller.revision;
+      if (revision == _lastWorkflowRevision) return;
+      _lastWorkflowRevision = revision;
+      broadcastEvent('workflowUpdated', {'revision': revision});
+    }
+
+    _workflowListener = listener;
+    controller.addListener(listener);
+  }
+
+  void _detachWorkflowController() {
+    _workflowAttachmentGeneration += 1;
+    final controller = _workflowController;
+    final listener = _workflowListener;
+    _workflowController = null;
+    _workflowListener = null;
+    _lastWorkflowRevision = null;
+    if (controller != null && listener != null) {
+      controller.removeListener(listener);
+    }
+  }
 
   Future<void> attachDe1Controller(De1Controller? controller) {
     _ensureActive();
