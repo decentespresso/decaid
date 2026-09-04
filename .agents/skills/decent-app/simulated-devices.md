@@ -64,15 +64,14 @@ See `websocket.md` for why all four of `--no-async-stdio -n -U -t` are needed.
 
 - **Hot restart** (`sb-dev hot-restart`) rebuilds the widget tree from `main()` but keeps the process and every on-disk file intact.
 - **Cold restart** (`sb-dev stop && sb-dev start`) gives a fresh flutter process, but the Drift SQLite DB and `shared_preferences` survive.
-- **Fresh slate** — stop, wipe the runtime dir, and wipe the app's documents dir:
+- **Fresh slate** - stop the app, remove the runtime directory, then remove persistent state from the resolved support directory:
 
 ```bash
 scripts/sb-dev.sh stop
 rm -rf "${SB_RUNTIME_DIR:-/tmp/decent-$USER}"
-rm -rf "$HOME/Library/Containers/net.tadel.reaprime/Data/Documents"  # macOS
 ```
 
-On Linux the app documents dir is under `$HOME/.local/share/reaprime/` (or `$XDG_DATA_HOME`); see `getApplicationDocumentsDirectory()` in `lib/main.dart`.
+Persistent desktop state lives under `AppDirectories.support`, which uses `getApplicationSupportDirectory()`. Run the desktop executable with `--print-storage-paths` and remove only the reported `support:` path after backing up anything needed. Do not assume the Documents directory; see `doc/AI_STORAGE_NOTES.md`.
 
 ## Known weirdness
 
