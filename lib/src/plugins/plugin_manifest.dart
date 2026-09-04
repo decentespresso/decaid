@@ -127,6 +127,7 @@ enum PluginPermissions {
   pluginStorage('pluginStorage'),
   eventsMachine('events.machine'),
   eventsShots('events.shots'),
+  eventsWorkflow('events.workflow'),
   proxyDecentApi('proxy.decent_api'),
   proxyDecentApiWrite('proxy.decent_api.write'),
   networkWebsocket('network.websocket'),
