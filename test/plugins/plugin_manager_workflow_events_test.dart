@@ -48,11 +48,7 @@ Future<void> _loadPlugin(
             if (event.name !== "workflowUpdated") return;
             globalThis.__workflowEvents ??= {};
             globalThis.__workflowEvents["$id"] ??= [];
-            globalThis.__workflowEvents["$id"].push({
-              revision: event.payload.revision,
-              revisionType: typeof event.payload.revision,
-              keys: Object.keys(event.payload).sort()
-            });
+            globalThis.__workflowEvents["$id"].push(event.payload);
           }
         };
       }
@@ -73,7 +69,7 @@ void _advance(WorkflowController controller) {
 }
 
 void main() {
-  test('permission gates snapshots and live revision events', () async {
+  test('permission gates snapshots and workflow change events', () async {
     final manager = PluginManager(kvStore: FakeKeyValueStoreService());
     final controller = WorkflowController();
     addTearDown(manager.dispose);
@@ -82,26 +78,21 @@ void main() {
     manager.attachWorkflowController(controller);
     await _loadPlugin(manager, 'permitted.plugin');
     await _loadPlugin(manager, 'denied.plugin', permitted: false);
+    final initialWorkflow = controller.currentWorkflow.toJson();
     controller.notifyListeners();
-    _advance(controller);
-    _advance(controller);
+    controller.setWorkflow(
+      controller.currentWorkflow.copyWith(name: 'Selected workflow'),
+    );
+    final selectedWorkflow = controller.currentWorkflow.toJson();
+    controller.updateWorkflow(
+      context: controller.currentWorkflow.context!.copyWith(targetYield: 42),
+    );
+    final updatedWorkflow = controller.currentWorkflow.toJson();
 
     expect(_events(manager, 'permitted.plugin'), [
-      {
-        'revision': 0,
-        'revisionType': 'number',
-        'keys': ['revision'],
-      },
-      {
-        'revision': 1,
-        'revisionType': 'number',
-        'keys': ['revision'],
-      },
-      {
-        'revision': 2,
-        'revisionType': 'number',
-        'keys': ['revision'],
-      },
+      initialWorkflow,
+      selectedWorkflow,
+      updatedWorkflow,
     ]);
     expect(_events(manager, 'denied.plugin'), isEmpty);
   });
@@ -115,13 +106,14 @@ void main() {
     manager.attachWorkflowController(controller);
     _advance(controller);
     _advance(controller);
+    final currentWorkflow = controller.currentWorkflow.toJson();
     await _loadPlugin(manager, 'reloaded.plugin');
     await _loadPlugin(manager, 'reloaded.plugin');
 
-    expect(
-      _events(manager, 'reloaded.plugin').map((event) => event['revision']),
-      [2, 2],
-    );
+    expect(_events(manager, 'reloaded.plugin'), [
+      currentWorkflow,
+      currentWorkflow,
+    ]);
   });
 
   test('loading another plugin does not repeat existing snapshots', () async {
@@ -139,7 +131,7 @@ void main() {
   });
 
   test(
-    'same attachment is ignored and replacement invalidates the old one',
+    'attachment snapshots once and replacement or detach removes listeners',
     () async {
       final manager = PluginManager(kvStore: FakeKeyValueStoreService());
       final first = _CountingWorkflowController();
@@ -148,20 +140,29 @@ void main() {
       addTearDown(first.dispose);
       addTearDown(second.dispose);
 
-      manager.attachWorkflowController(first);
-      manager.attachWorkflowController(first);
       await _loadPlugin(manager, 'events.plugin');
+      expect(_events(manager, 'events.plugin'), isEmpty);
+
+      manager.attachWorkflowController(first);
+      final firstWorkflow = first.currentWorkflow.toJson();
+      manager.attachWorkflowController(first);
       manager.attachWorkflowController(second);
+      final secondWorkflow = second.currentWorkflow.toJson();
       _advance(first);
+      _advance(second);
+      final updatedSecondWorkflow = second.currentWorkflow.toJson();
+      manager.attachWorkflowController(null);
       _advance(second);
 
       expect(first.addListenerCalls, 1);
       expect(first.removeListenerCalls, 1);
       expect(second.addListenerCalls, 1);
-      expect(
-        _events(manager, 'events.plugin').map((event) => event['revision']),
-        [0, 1],
-      );
+      expect(second.removeListenerCalls, 1);
+      expect(_events(manager, 'events.plugin'), [
+        firstWorkflow,
+        secondWorkflow,
+        updatedSecondWorkflow,
+      ]);
     },
   );
 
