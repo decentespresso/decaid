@@ -1608,12 +1608,11 @@ void main() {
           [0.0, 0.0, 0.0, 18.0],
           reason: 'pre-tare frames are 0; real weight only after the pour tare',
         );
-        expect(recorded.map((s) => s.scale?.weightFlow).toList(), [
-          0.0,
-          0.0,
-          0.0,
-          2.0,
-        ], reason: 'flow off the un-tared cup must not leak either');
+        expect(
+          recorded.map((s) => s.scale?.weightFlow).toList(),
+          [0.0, 0.0, 0.0, 2.0],
+          reason: 'flow off the un-tared cup must not leak either',
+        );
 
         shotSequencer.dispose();
       });

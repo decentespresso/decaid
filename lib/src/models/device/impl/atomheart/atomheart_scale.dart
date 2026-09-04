@@ -122,7 +122,6 @@ class AtomheartScale implements Scale {
         serviceIdentifier.long,
         commandCharacteristic.long,
         data,
-        withResponse: false,
       );
     } on DeviceNotConnectedException {
       // Transport already emitted disconnected.

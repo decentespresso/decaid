@@ -295,19 +295,19 @@ void main() {
       ]);
     });
 
-    test('write with response falls back to write without response', () async {
+    test('a rejected write with response is never downgraded', () async {
       platform.unsupportedWriteProperties.add(BleOutputProperty.withResponse);
 
-      await transport.write(
-        _serviceUuid,
-        _charUuid,
-        Uint8List.fromList([0x54, 0x01, 0x01]),
+      await expectLater(
+        transport.write(
+          _serviceUuid,
+          _charUuid,
+          Uint8List.fromList([0x54, 0x01, 0x01]),
+        ),
+        throwsA(isA<UniversalBleException>()),
       );
 
-      expect(platform.writeProperties, [
-        BleOutputProperty.withResponse,
-        BleOutputProperty.withoutResponse,
-      ]);
+      expect(platform.writeProperties, [BleOutputProperty.withResponse]);
     });
 
     test(

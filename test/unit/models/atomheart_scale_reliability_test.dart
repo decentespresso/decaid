@@ -14,8 +14,10 @@ class _RecordingTransport extends BLETransport {
     ConnectionState.discovered,
   );
   final Completer<void> firstSubscription = Completer<void>();
-  final List<({String service, String characteristic, List<int> data})> writes =
-      [];
+  final List<
+    ({String service, String characteristic, List<int> data, bool withResponse})
+  >
+  writes = [];
 
   List<String> services = [AtomheartScale.serviceIdentifier.long];
   Object? connectError;
@@ -111,6 +113,7 @@ class _RecordingTransport extends BLETransport {
       service: serviceUUID,
       characteristic: characteristicUUID,
       data: data.toList(),
+      withResponse: withResponse,
     ));
   }
 
@@ -320,6 +323,9 @@ void main() {
         [0x53, 0x01, 0x01],
         [0x45, 0x01, 0x01],
       ]);
+      expect(transport.writes.map((write) => write.withResponse).toSet(), {
+        true,
+      });
       await transport.dispose();
     },
   );

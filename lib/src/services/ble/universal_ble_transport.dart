@@ -746,20 +746,19 @@ class UniversalBleTransport extends BLETransport {
       _onOperationTimeout('write', '$serviceUUID/$characteristicUUID');
       rethrow;
     } on UniversalBleException catch (e) {
-      if (!_unsupportedWriteCodes.contains(e.code)) {
+      if (withResponse || !_unsupportedWriteCodes.contains(e.code)) {
         _handleGattError(e, 'write', '$serviceUUID/$characteristicUUID');
       }
       _log.warning(
         'GATT write($serviceUUID/$characteristicUUID) rejected '
-        '${withResponse ? 'withResponse' : 'withoutResponse'} — '
-        'retrying with the other write property: ${e.code}',
+        'withoutResponse — retrying with response: ${e.code}',
       );
       try {
         await _writeWithProperty(
           serviceUUID,
           characteristicUUID,
           data,
-          withResponse: !withResponse,
+          withResponse: true,
           timeout: timeout,
         );
       } on TimeoutException {
