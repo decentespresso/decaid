@@ -33,6 +33,8 @@ class _FakeBlePlatform extends UniversalBlePlatform {
   final List<Object> serviceDiscoveryResults = [];
   final List<String> disconnectCalls = [];
   final List<BleInputProperty> notificationProperties = [];
+  final List<BleOutputProperty> writeProperties = [];
+  final Set<BleOutputProperty> unsupportedWriteProperties = {};
 
   bool throwOnSecondSetNotifiable = false;
   final Map<String, int> _setNotifiableCounts = {};
@@ -148,6 +150,16 @@ class _FakeBlePlatform extends UniversalBlePlatform {
     BleOutputProperty bleOutputProperty,
   ) async {
     writeCalls++;
+    writeProperties.add(bleOutputProperty);
+    if (unsupportedWriteProperties.contains(bleOutputProperty)) {
+      throw UniversalBleException(
+        code: bleOutputProperty == BleOutputProperty.withoutResponse
+            ? UniversalBleErrorCode
+                  .characteristicDoesNotSupportWriteWithoutResponse
+            : UniversalBleErrorCode.characteristicDoesNotSupportWrite,
+        message: 'Characteristic does not support $bleOutputProperty',
+      );
+    }
     if (writeError case final error?) throw error;
     if (hangWrites) {
       await (writeBlocker ?? Completer<void>()).future;
@@ -240,6 +252,82 @@ void main() {
       throwsA(isA<TimeoutException>()),
     );
   }
+
+  group('write property negotiation', () {
+    test(
+      'a supported write is issued once with the requested property',
+      () async {
+        await transport.write(
+          _serviceUuid,
+          _charUuid,
+          Uint8List.fromList([0x03, 0x0a]),
+          withResponse: false,
+        );
+        await transport.write(
+          _serviceUuid,
+          _charUuid,
+          Uint8List.fromList([0x03, 0x0a]),
+        );
+
+        expect(platform.writeProperties, [
+          BleOutputProperty.withoutResponse,
+          BleOutputProperty.withResponse,
+        ]);
+        expect(platform.writeCalls, 2);
+      },
+    );
+
+    test('write without response falls back to write with response', () async {
+      platform.unsupportedWriteProperties.add(
+        BleOutputProperty.withoutResponse,
+      );
+
+      await transport.write(
+        _serviceUuid,
+        _charUuid,
+        Uint8List.fromList([0x54, 0x01, 0x01]),
+        withResponse: false,
+      );
+
+      expect(platform.writeProperties, [
+        BleOutputProperty.withoutResponse,
+        BleOutputProperty.withResponse,
+      ]);
+    });
+
+    test('a rejected write with response is never downgraded', () async {
+      platform.unsupportedWriteProperties.add(BleOutputProperty.withResponse);
+
+      await expectLater(
+        transport.write(
+          _serviceUuid,
+          _charUuid,
+          Uint8List.fromList([0x54, 0x01, 0x01]),
+        ),
+        throwsA(isA<UniversalBleException>()),
+      );
+
+      expect(platform.writeProperties, [BleOutputProperty.withResponse]);
+    });
+
+    test(
+      'a characteristic supporting neither write type still throws',
+      () async {
+        platform.unsupportedWriteProperties.addAll(BleOutputProperty.values);
+
+        await expectLater(
+          transport.write(
+            _serviceUuid,
+            _charUuid,
+            Uint8List.fromList([0x54, 0x01, 0x01]),
+            withResponse: false,
+          ),
+          throwsA(isA<UniversalBleException>()),
+        );
+        expect(platform.writeProperties.length, 2);
+      },
+    );
+  });
 
   group('GATT timeout link verification (fix 1)', () {
     test(

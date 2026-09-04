@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/impl/atomheart/atomheart_scale.dart';
 import 'package:reaprime/src/models/device/scale.dart';
@@ -13,8 +14,10 @@ class _RecordingTransport extends BLETransport {
     ConnectionState.discovered,
   );
   final Completer<void> firstSubscription = Completer<void>();
-  final List<({String service, String characteristic, List<int> data})> writes =
-      [];
+  final List<
+    ({String service, String characteristic, List<int> data, bool withResponse})
+  >
+  writes = [];
 
   List<String> services = [AtomheartScale.serviceIdentifier.long];
   Object? connectError;
@@ -110,6 +113,7 @@ class _RecordingTransport extends BLETransport {
       service: serviceUUID,
       characteristic: characteristicUUID,
       data: data.toList(),
+      withResponse: withResponse,
     ));
   }
 
@@ -123,6 +127,22 @@ class _RecordingTransport extends BLETransport {
 }
 
 void main() {
+  late List<LogRecord> records;
+  late Level previousLevel;
+  late StreamSubscription<LogRecord> logSub;
+
+  setUp(() {
+    records = [];
+    previousLevel = Logger.root.level;
+    Logger.root.level = Level.ALL;
+    logSub = Logger.root.onRecord.listen(records.add);
+  });
+
+  tearDown(() async {
+    await logSub.cancel();
+    Logger.root.level = previousLevel;
+  });
+
   test('uses the current Eclair GATT contract', () async {
     expect(
       AtomheartScale.serviceIdentifier.long,
@@ -219,6 +239,43 @@ void main() {
     await transport.dispose();
   });
 
+  test('a silent subscription names the missing notifications', () async {
+    final transport = _RecordingTransport();
+    final scale = AtomheartScale(
+      transport: transport,
+      notificationTimeout: const Duration(milliseconds: 5),
+    );
+
+    await scale.onConnect();
+
+    final failure = records.singleWhere(
+      (r) => r.message.startsWith('Connect failed'),
+    );
+    expect(failure.message, contains('0 notifications'));
+    await transport.dispose();
+  });
+
+  test('rejected frames are named in the connect failure', () async {
+    final transport = _RecordingTransport();
+    final scale = AtomheartScale(
+      transport: transport,
+      notificationTimeout: const Duration(milliseconds: 50),
+    );
+    final connection = scale.onConnect();
+
+    await transport.firstSubscription.future;
+    transport.emit([0x57, 0, 0, 0, 0, 0, 0, 0, 0]);
+    await connection;
+
+    final failure = records.singleWhere(
+      (r) => r.message.startsWith('Connect failed'),
+    );
+    expect(failure.message, contains('1 notifications'));
+    expect(failure.message, contains('last rejected frame'));
+    expect(failure.message, contains('57 00 00 00 00 00 00 00 00'));
+    await transport.dispose();
+  });
+
   for (final stage in ['connect', 'service discovery', 'subscription']) {
     test('$stage failure ends disconnected', () async {
       final transport = _RecordingTransport();
@@ -266,6 +323,9 @@ void main() {
         [0x53, 0x01, 0x01],
         [0x45, 0x01, 0x01],
       ]);
+      expect(transport.writes.map((write) => write.withResponse).toSet(), {
+        true,
+      });
       await transport.dispose();
     },
   );
