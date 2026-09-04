@@ -11,7 +11,7 @@ This is an Agent Skills-compatible bundle. Codex discovers repository skills und
 
 ## Routing
 
-Read only the file relevant to the current task.
+Read only the routing target(s) needed for the current task. Do not preload unrelated references or scenarios.
 
 | Task | File |
 |---|---|

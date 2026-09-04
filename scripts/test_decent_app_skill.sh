@@ -9,7 +9,7 @@ SCENARIO_INDEX="$SKILL_DIR/scenarios/README.md"
 
 [[ "$(head -n 1 "$SKILL_FILE")" == "---" ]]
 grep -qx 'name: decent-app' "$SKILL_FILE"
-grep -q '^description: .\+$' "$SKILL_FILE"
+grep -Eq '^description: .+$' "$SKILL_FILE"
 
 if grep -RFn '/tmp/decent-app-' "$SKILL_DIR"; then
   echo "Stale sb-dev runtime directory found" >&2
@@ -24,21 +24,50 @@ runtime_default="$(
 grep -Fq "default \`$runtime_default/\`" "$SKILL_DIR/lifecycle.md"
 
 simulated_types="$(
-  sed -n 's/^enum SimulatedDevicesTypes { \(.*\) }$/\1/p' \
+  awk '
+    /enum SimulatedDevicesTypes[[:space:]]*\{/ {
+      collecting = 1
+      sub(/^.*enum SimulatedDevicesTypes[[:space:]]*\{[[:space:]]*/, "")
+    }
+    collecting {
+      if ($0 ~ /}/) {
+        sub(/[[:space:]]*}.*/, "")
+        values = values " " $0
+        exit
+      }
+      values = values " " $0
+    }
+    END {
+      gsub(/[[:space:]]+/, " ", values)
+      sub(/^ /, "", values)
+      sub(/ $/, "", values)
+      gsub(/,[[:space:]]*/, ", ", values)
+      sub(/,[[:space:]]*$/, "", values)
+      print values
+    }
+  ' \
     "$REPO_ROOT/lib/src/settings/settings_service.dart"
 )"
+[[ -n "$simulated_types" ]] || {
+  echo "Could not parse SimulatedDevicesTypes" >&2
+  exit 1
+}
 grep -Fq "\`$simulated_types\`" "$SKILL_DIR/simulated-devices.md"
 
-mapfile -t indexed_scenarios < <(
+TEMP_DIR="$(mktemp -d)"
+trap 'rm -rf "$TEMP_DIR"' EXIT
+
+indexed_scenarios="$TEMP_DIR/indexed-scenarios"
+actual_scenarios="$TEMP_DIR/actual-scenarios"
+
+{
   sed -n 's/.*`scenarios\/\([^`]*\.md\)`.*/\1/p' "$SCENARIO_INDEX" |
     sort
-)
-mapfile -t actual_scenarios < <(
-  find "$SKILL_DIR/scenarios" -maxdepth 1 -type f -name '*.md' \
-    ! -name README.md -printf '%f\n' |
+} > "$indexed_scenarios"
+{
+  find "$SKILL_DIR/scenarios" -type f -name '*.md' ! -name README.md \
+    -exec basename {} \; |
     sort
-)
+} > "$actual_scenarios"
 
-diff \
-  <(printf '%s\n' "${indexed_scenarios[@]}") \
-  <(printf '%s\n' "${actual_scenarios[@]}")
+diff "$indexed_scenarios" "$actual_scenarios"
