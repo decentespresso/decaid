@@ -209,16 +209,27 @@ Machine broadcasts require `events.machine`. Shot lifecycle broadcasts require
   }
   ```
 
-- **`workflowUpdated`**: Signals that workflow state changed without exposing
-  the workflow itself. A permitted plugin receives one current-revision snapshot
-  after each successful load or reload, followed by events only for new
-  revisions. `revision` is a JavaScript Number.
+- **`workflowUpdated`**: Contains exactly the current workflow serialization
+  returned by `WorkflowController.currentWorkflow.toJson()`. A permitted plugin
+  receives the current workflow when a controller is attached or replaced and
+  after each successful load or reload. Later events are delivered when the
+  workflow revision changes.
 
   ```javascript
   {
     name: "workflowUpdated",
     payload: {
-      revision: 42
+      id: "workflow-id",
+      name: "Espresso",
+      description: "",
+      profile: { /* profile fields */ },
+      context: {
+        targetDoseWeight: 18.0,
+        targetYield: 36.0
+      },
+      steamSettings: { /* steam fields */ },
+      hotWaterData: { /* hot-water fields */ },
+      rinseData: { /* rinse fields */ }
     }
   }
   ```

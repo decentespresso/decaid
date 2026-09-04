@@ -2015,9 +2015,11 @@ class PluginManager {
           generation == _pluginGenerations[id]) {
         final workflowController = _workflowController;
         if (workflowController != null) {
-          dispatchEvent(id, 'workflowUpdated', {
-            'revision': workflowController.revision,
-          });
+          dispatchEvent(
+            id,
+            'workflowUpdated',
+            workflowController.currentWorkflow.toJson(),
+          );
         }
       }
       _log.info("loaded: $id");
@@ -2690,11 +2692,12 @@ class PluginManager {
 
   List<PluginRuntime> get loadedPlugins => _plugins.values.toList();
 
-  void attachWorkflowController(WorkflowController controller) {
+  void attachWorkflowController(WorkflowController? controller) {
     _ensureActive();
     if (identical(controller, _workflowController)) return;
 
     _detachWorkflowController();
+    if (controller == null) return;
     final generation = _workflowAttachmentGeneration;
     _workflowController = controller;
     _lastWorkflowRevision = controller.revision;
@@ -2708,11 +2711,12 @@ class PluginManager {
       final revision = controller.revision;
       if (revision == _lastWorkflowRevision) return;
       _lastWorkflowRevision = revision;
-      broadcastEvent('workflowUpdated', {'revision': revision});
+      broadcastEvent('workflowUpdated', controller.currentWorkflow.toJson());
     }
 
     _workflowListener = listener;
     controller.addListener(listener);
+    broadcastEvent('workflowUpdated', controller.currentWorkflow.toJson());
   }
 
   void _detachWorkflowController() {
