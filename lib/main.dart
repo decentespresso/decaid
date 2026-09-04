@@ -560,7 +560,7 @@ void main(List<String> args) async {
             cursorTimestamp: afterTimestamp,
             cursorId: afterId,
           );
-          return rows.map(ShotMapper.fromRow).toList();
+          return ShotMapper.fromRows(rows);
         },
         pageSteams: (limit, {afterTimestamp, afterCreatedAt, afterId}) async {
           final rows = await appDatabase.steamDao.getSteamsForExport(

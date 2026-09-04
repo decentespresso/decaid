@@ -43,7 +43,7 @@ class DriftStorageService implements StorageService {
   @override
   Future<List<domain.ShotRecord>> getAllShots() async {
     final rows = await _db.shotDao.getAllShots();
-    return rows.map(ShotMapper.fromRow).toList();
+    return ShotMapper.fromRows(rows);
   }
 
   @override
@@ -92,7 +92,7 @@ class DriftStorageService implements StorageService {
       search: search,
       ascending: ascending,
     );
-    return rows.map(ShotMapper.fromRow).toList();
+    return ShotMapper.fromRows(rows);
   }
 
   @override

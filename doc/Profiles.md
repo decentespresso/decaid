@@ -109,6 +109,21 @@ REA uses **content-based hashing** for profile identification instead of random 
 - **Conflict-free merging**: No manual conflict resolution needed
 - **Provable identity**: ID proves the profile content hasn't changed
 
+#### Parsing Strictness
+
+`Profile.fromJson` requires a non-empty `title`, a non-empty `steps` array,
+`tank_temperature`, and `target_volume_count_start`. It backs the profile
+library, `POST`/`PUT /api/v1/profiles`, and DE1 profile upload, so a profile that
+cannot be brewed is rejected at the boundary.
+
+`Profile.fromRecordedJson` relaxes those requirements and is reached only
+through `Workflow.fromRecordedJson`, which `ShotMapper.fromRow` uses to read the
+profile embedded in a stored shot's workflow. A shot's profile is a
+record of what happened, and shots imported from de1app `.shot` files carry no
+profile steps at all. Missing or empty titles read back as `Unknown profile`;
+missing numeric fields read back as `0`. Never use it to load a profile the user
+can brew from.
+
 #### Hash Types
 
 Profiles use three SHA-256 hashes:

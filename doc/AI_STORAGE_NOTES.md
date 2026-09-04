@@ -81,6 +81,31 @@ Content-based hash IDs for deduplication. `ProfileController` manages the profil
 - `ProfileStorageService` interface with `DriftProfileStorageService` implementation.
 - ID-changing updates use `ProfileStorageService.replace`, which inserts the replacement and deletes the original in one Drift transaction. Target-ID collisions throw `ArgumentError` and leave both records unchanged.
 
+### Recorded Shot Profiles Are Not Executable Profiles
+
+A shot's stored `workflowJson.profile` is a historical record, not something the
+app brews from, so `ShotMapper.fromRow` reads it with
+`Workflow.fromRecordedJson`, which parses the profile via
+`Profile.fromRecordedJson` and allows an empty `steps` array and a missing
+title. `Workflow.fromJson` and `Profile.fromJson` stay strict and back the
+profile library, the profile and workflow REST handlers, the stored current
+workflow, and DE1 upload; a step-less profile must never enter the brewable
+library, and `PUT /api/v1/workflow` must keep returning 400 for one (issue
+#338).
+
+de1app `.shot` files carry the shot, not the profile that produced it, so
+`TclShotParser` and the no-profile branch of `ShotV2JsonParser` store a
+placeholder profile with `steps: []`. Before the lenient read path existed, the
+strict parser refused to read those rows back, and because
+`DriftStorageService.getShotsPaginated` mapped rows with a bare `rows.map(...)`,
+a single de1app import made `GET /api/v1/shots` return 500 and hid the entire
+history rather than one shot (issue #784).
+
+`ShotMapper.fromRows` now skips and logs a row it cannot map, so any future
+corruption costs its own shot instead of the whole list. Single-shot reads
+(`getShot`, `getLatestShot`) still surface the error, because there the failing
+row is the answer.
+
 ### Legacy Profile Corpus Ingestion
 
 `tools/ingest_profiles.py` rejects de1app TCL profiles whose type is `settings_2a`
