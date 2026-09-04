@@ -1579,7 +1579,6 @@ _log.info('Found serial ports: $ports');
 - `lib/src/models/device/impl/mock_scale/` - Mock scale for testing
 
 ### UI Components
-- `lib/src/permissions_feature/permissions_view.dart` - Initial scan and DE1 selection
 - `lib/src/home_feature/tiles/status_tile.dart` - Connection status display
 - `lib/src/sample_feature/sample_item_list_view.dart` - Device list debugging
 
