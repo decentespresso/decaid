@@ -17,12 +17,15 @@ linked, so a *granted* plugin reaches the service and gets
 
 ## Preconditions
 
-Fixture plugins live in the app documents `plugins/` dir, which is scanned at boot.
-On sandboxed macOS that is:
+Fixture plugins live under `AppDirectories.plugins`, which is scanned at boot.
+Resolve the current path from the app instead of assuming an OS-specific location:
 
 ```bash
-PLUGINS_DIR="$HOME/Library/Containers/net.tadel.reaprime/Data/Documents/plugins"
-# Linux (non-sandboxed): $HOME/.local/share/net.tadel.reaprime/plugins  (verify per build)
+PLUGINS_DIR="$(
+  flutter run -d macos --dart-entrypoint-args=--print-storage-paths \
+    | sed -n 's/^plugins: //p'
+)"
+[[ -n "$PLUGINS_DIR" ]] || { echo "Could not resolve plugins path" >&2; exit 1; }
 mkdir -p "$PLUGINS_DIR/proxy-smoke-granted" "$PLUGINS_DIR/proxy-smoke-denied"
 ```
 

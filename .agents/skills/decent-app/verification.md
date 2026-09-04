@@ -25,7 +25,7 @@ Boot the app with a mock machine connected, confirm REST is reachable and a DE1 
 
 ## Added a new REST endpoint
 
-1. Implement the handler under `lib/src/services/webserver/` and register its route — see `CLAUDE.md` → "Adding a New API Endpoint".
+1. Implement the handler under `lib/src/services/webserver/` and register its route; see `doc/AI_API_NOTES.md` -> "Adding An Endpoint (Checklist)".
 2. `scripts/sb-dev.sh reload` to pick up the change.
 3. `curl -sf` the new endpoint and confirm the response shape.
 4. **Update `assets/api/rest_v1.yml` in the same commit as the handler change.** Stale spec = stale agent knowledge — future `rest.md` users read the spec, not your handler.
