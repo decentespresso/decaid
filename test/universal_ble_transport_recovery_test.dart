@@ -735,16 +735,12 @@ void main() {
       await pump();
 
       for (var i = 0; i < chars.length; i++) {
-        expect(
-          newReceived[i],
-          [(i + 1) * 10],
-          reason: 'new callback for ${chars[i]} must receive the push',
-        );
-        expect(
-          oldReceived[i],
-          [i + 1],
-          reason: 'old callback for ${chars[i]} must NOT receive the push',
-        );
+        expect(newReceived[i], [
+          (i + 1) * 10,
+        ], reason: 'new callback for ${chars[i]} must receive the push');
+        expect(oldReceived[i], [
+          i + 1,
+        ], reason: 'old callback for ${chars[i]} must NOT receive the push');
       }
     });
 
