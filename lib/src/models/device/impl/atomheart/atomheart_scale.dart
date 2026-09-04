@@ -33,6 +33,8 @@ class AtomheartScale implements Scale {
   final BLETransport _transport;
   final Duration _notificationTimeout;
   Completer<void>? _firstValidFrame;
+  int _notificationsSeen = 0;
+  List<int>? _lastRejectedFrame;
 
   AtomheartScale({
     required BLETransport transport,
@@ -166,6 +168,8 @@ class AtomheartScale implements Scale {
   Future<void> _confirmNotifications() async {
     final firstValidFrame = Completer<void>();
     _firstValidFrame = firstValidFrame;
+    _notificationsSeen = 0;
+    _lastRejectedFrame = null;
     try {
       for (var attempt = 0; attempt < _notificationAttempts; attempt++) {
         if (attempt == 0) {
@@ -182,7 +186,9 @@ class AtomheartScale implements Scale {
           await firstValidFrame.future.timeout(_notificationTimeout);
           return;
         } on TimeoutException {
-          if (attempt == _notificationAttempts - 1) rethrow;
+          if (attempt == _notificationAttempts - 1) {
+            throw TimeoutException(_notificationDiagnostics());
+          }
         }
       }
     } finally {
@@ -190,6 +196,16 @@ class AtomheartScale implements Scale {
         _firstValidFrame = null;
       }
     }
+  }
+
+  String _notificationDiagnostics() {
+    final rejected = _lastRejectedFrame;
+    final detail = rejected == null
+        ? ''
+        : ', last rejected frame '
+              '[${rejected.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ')}]';
+    return 'no valid Eclair weight frame after $_notificationAttempts '
+        'subscriptions, $_notificationsSeen notifications received$detail';
   }
 
   static ScaleSnapshot? parseFrame(List<int> data) {
@@ -225,13 +241,16 @@ class AtomheartScale implements Scale {
   }
 
   void _parseNotification(List<int> data) {
+    _notificationsSeen++;
     final snapshot = parseFrame(data);
-    if (snapshot != null) {
-      _streamController.add(snapshot);
-      final firstValidFrame = _firstValidFrame;
-      if (firstValidFrame != null && !firstValidFrame.isCompleted) {
-        firstValidFrame.complete();
-      }
+    if (snapshot == null) {
+      _lastRejectedFrame = data;
+      return;
+    }
+    _streamController.add(snapshot);
+    final firstValidFrame = _firstValidFrame;
+    if (firstValidFrame != null && !firstValidFrame.isCompleted) {
+      firstValidFrame.complete();
     }
   }
 }

@@ -266,6 +266,11 @@ class UniversalBleTransport extends BLETransport {
     UniversalBleErrorCode.serviceNotFound,
   };
 
+  static const _unsupportedWriteCodes = {
+    UniversalBleErrorCode.characteristicDoesNotSupportWrite,
+    UniversalBleErrorCode.characteristicDoesNotSupportWriteWithoutResponse,
+  };
+
   Never _handleGattError(
     UniversalBleException e,
     String operation,
@@ -305,6 +310,7 @@ class UniversalBleTransport extends BLETransport {
       _clearQueue(UniversalBleErrorCode.deviceDisconnected);
       throw const DeviceNotConnectedException.unknown();
     }
+    _log.warning('GATT $operation($path) failed — unmapped error: $e');
     throw e;
   }
 
@@ -729,21 +735,60 @@ class UniversalBleTransport extends BLETransport {
     Duration? timeout,
   }) async {
     try {
-      await UniversalBle.write(
-        _device.deviceId,
-        BleUuidParser.string(serviceUUID),
-        BleUuidParser.string(characteristicUUID),
+      await _writeWithProperty(
+        serviceUUID,
+        characteristicUUID,
         data,
-        withoutResponse: !withResponse,
+        withResponse: withResponse,
         timeout: timeout,
       );
     } on TimeoutException {
       _onOperationTimeout('write', '$serviceUUID/$characteristicUUID');
       rethrow;
     } on UniversalBleException catch (e) {
-      _handleGattError(e, 'write', '$serviceUUID/$characteristicUUID');
+      if (!_unsupportedWriteCodes.contains(e.code)) {
+        _handleGattError(e, 'write', '$serviceUUID/$characteristicUUID');
+      }
+      _log.warning(
+        'GATT write($serviceUUID/$characteristicUUID) rejected '
+        '${withResponse ? 'withResponse' : 'withoutResponse'} — '
+        'retrying with the other write property: ${e.code}',
+      );
+      try {
+        await _writeWithProperty(
+          serviceUUID,
+          characteristicUUID,
+          data,
+          withResponse: !withResponse,
+          timeout: timeout,
+        );
+      } on TimeoutException {
+        _onOperationTimeout('write', '$serviceUUID/$characteristicUUID');
+        rethrow;
+      } on UniversalBleException catch (retryError) {
+        _handleGattError(
+          retryError,
+          'write',
+          '$serviceUUID/$characteristicUUID',
+        );
+      }
     }
   }
+
+  Future<void> _writeWithProperty(
+    String serviceUUID,
+    String characteristicUUID,
+    Uint8List data, {
+    required bool withResponse,
+    Duration? timeout,
+  }) => UniversalBle.write(
+    _device.deviceId,
+    BleUuidParser.string(serviceUUID),
+    BleUuidParser.string(characteristicUUID),
+    data,
+    withoutResponse: !withResponse,
+    timeout: timeout,
+  );
 
   @override
   Future<void> setTransportPriority(bool prioritized) async {

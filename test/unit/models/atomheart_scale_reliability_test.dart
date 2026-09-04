@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/impl/atomheart/atomheart_scale.dart';
 import 'package:reaprime/src/models/device/scale.dart';
@@ -123,6 +124,22 @@ class _RecordingTransport extends BLETransport {
 }
 
 void main() {
+  late List<LogRecord> records;
+  late Level previousLevel;
+  late StreamSubscription<LogRecord> logSub;
+
+  setUp(() {
+    records = [];
+    previousLevel = Logger.root.level;
+    Logger.root.level = Level.ALL;
+    logSub = Logger.root.onRecord.listen(records.add);
+  });
+
+  tearDown(() async {
+    await logSub.cancel();
+    Logger.root.level = previousLevel;
+  });
+
   test('uses the current Eclair GATT contract', () async {
     expect(
       AtomheartScale.serviceIdentifier.long,
@@ -216,6 +233,43 @@ void main() {
     expect(transport.resetSubscriptionCalls, 2);
     expect(transport.disconnectCalls, 1);
     expect(await scale.connectionState.first, ConnectionState.disconnected);
+    await transport.dispose();
+  });
+
+  test('a silent subscription names the missing notifications', () async {
+    final transport = _RecordingTransport();
+    final scale = AtomheartScale(
+      transport: transport,
+      notificationTimeout: const Duration(milliseconds: 5),
+    );
+
+    await scale.onConnect();
+
+    final failure = records.singleWhere(
+      (r) => r.message.startsWith('Connect failed'),
+    );
+    expect(failure.message, contains('0 notifications'));
+    await transport.dispose();
+  });
+
+  test('rejected frames are named in the connect failure', () async {
+    final transport = _RecordingTransport();
+    final scale = AtomheartScale(
+      transport: transport,
+      notificationTimeout: const Duration(milliseconds: 50),
+    );
+    final connection = scale.onConnect();
+
+    await transport.firstSubscription.future;
+    transport.emit([0x57, 0, 0, 0, 0, 0, 0, 0, 0]);
+    await connection;
+
+    final failure = records.singleWhere(
+      (r) => r.message.startsWith('Connect failed'),
+    );
+    expect(failure.message, contains('1 notifications'));
+    expect(failure.message, contains('last rejected frame'));
+    expect(failure.message, contains('57 00 00 00 00 00 00 00 00'));
     await transport.dispose();
   });
 

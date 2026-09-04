@@ -39,6 +39,7 @@ class ScaleHandler {
           try {
             await _controller.tare();
           } catch (e) {
+            _log.warning('tare command failed', e);
             return jsonError({'error': e.toString()});
           }
           return jsonOk(null);
@@ -66,6 +67,7 @@ class ScaleHandler {
             return jsonNotFound({'error': 'Unknown command: $command'});
         }
       } catch (e) {
+        _log.warning('timer $command command failed', e);
         return jsonError({'error': e.toString()});
       }
     });
