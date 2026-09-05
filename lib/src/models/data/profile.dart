@@ -150,10 +150,26 @@ class StepLimiter extends Equatable {
   const StepLimiter({required this.value, required this.range});
 
   factory StepLimiter.fromJson(Map<String, dynamic> json) {
-    return StepLimiter(
-      value: parseDouble(json["value"]),
-      range: parseDouble(json["range"]),
-    );
+    // `value` is required: defaulting it would turn a garbage limiter into a
+    // silent OFF on the machine — refuse visibly instead (400 at the REST
+    // boundary, same policy as TransitionType.hold / ExitType.power above).
+    final value = parseOptionalDouble(json['value']);
+    if (value == null) {
+      throw const FormatException('limiter "value" must be a number');
+    }
+    // `range` (the falloff band below the cap) is optional: absent or null
+    // means a hard cap at `value` — range 0 is the DE1 wire's own encoding of
+    // "no band" and the mock's hard-clamp branch. Real libraries carry
+    // limiter:null steps, and a client arming one sends {"value": x} with no
+    // range (Decal F-048).
+    final rawRange = json['range'];
+    final range = parseOptionalDouble(rawRange);
+    if (range == null && rawRange != null) {
+      throw const FormatException(
+        'limiter "range" must be a number when present',
+      );
+    }
+    return StepLimiter(value: value, range: range ?? 0.0);
   }
 
   Map<String, dynamic> toJson() {

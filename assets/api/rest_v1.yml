@@ -6100,7 +6100,6 @@ components:
       description: Safety limiter for a step (caps the non-controlled variable)
       required:
         - value
-        - range
       properties:
         value:
           type: number
@@ -6109,7 +6108,12 @@ components:
         range:
           type: number
           format: double
-          description: Acceptable range around the limiter value
+          default: 0
+          description: >-
+            Falloff band below the limiter value. Optional on upload: omitted or
+            null means a hard cap at `value` (range 0 is the machine's own
+            encoding of "no band"). Always present in responses, because an
+            omitted range is stored as 0.
     ShotSettings:
       type: object
       properties:

@@ -131,6 +131,8 @@ class ProfileHandler {
       return jsonBadRequest({'error': 'Invalid request', 'message': '$e'});
     } on FormatException catch (e) {
       return jsonBadRequest({'error': 'Invalid request', 'message': '$e'});
+    } on TypeError catch (e) {
+      return jsonBadRequest({'error': 'Invalid request', 'message': '$e'});
     } catch (e, st) {
       log.severe('Error in _handleCreate', e, st);
       return jsonError({'error': 'Internal server error', 'message': '$e'});

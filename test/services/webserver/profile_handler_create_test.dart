@@ -1,7 +1,10 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/profile_controller.dart';
+import 'package:reaprime/src/models/data/profile.dart';
+import 'package:reaprime/src/models/data/profile_hash.dart';
 import 'package:reaprime/src/models/data/profile_record.dart';
 import 'package:reaprime/src/services/storage/profile_storage_service.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
@@ -52,30 +55,40 @@ class _StubStorage implements ProfileStorageService {
 
 void main() {
   late ProfileController controller;
+  late _StubStorage storage;
   late Handler handler;
 
-  Future<Response> postProfile(Map<String, dynamic> body) async {
+  Future<Response> postRawProfile(String body) async {
     return await handler(
       Request(
         'POST',
         Uri.parse('http://localhost/api/v1/profiles'),
-        body: jsonEncode(body),
+        body: body,
       ),
     );
   }
 
-  Future<Response> putProfile(String id, Map<String, dynamic> body) async {
+  Future<Response> putRawProfile(String id, String body) async {
     return await handler(
       Request(
         'PUT',
         Uri.parse('http://localhost/api/v1/profiles/$id'),
-        body: jsonEncode(body),
+        body: body,
       ),
     );
   }
 
+  Future<Response> postProfile(Map<String, dynamic> body) async {
+    return await postRawProfile(jsonEncode(body));
+  }
+
+  Future<Response> putProfile(String id, Map<String, dynamic> body) async {
+    return await putRawProfile(id, jsonEncode(body));
+  }
+
   setUp(() {
-    controller = ProfileController(storage: _StubStorage());
+    storage = _StubStorage();
+    controller = ProfileController(storage: storage);
     final profileHandler = ProfileHandler(controller: controller);
     final app = Router().plus;
     profileHandler.addRoutes(app);
@@ -211,6 +224,131 @@ void main() {
       });
 
       expect(response.statusCode, 400);
+    });
+  });
+
+  // Decal audit finding F-048 (server half). The device answered these exact
+  // bytes with a 500 on POST and a 400 on PUT, because a limiter carrying only
+  // a "value" threw a TypeError that only _handleUpdate caught.
+  group('rangeless limiter (F-048)', () {
+    String fixture(String name) =>
+        File('test/fixtures/f048/$name').readAsStringSync();
+
+    Map<String, dynamic> stepWithLimiter(dynamic limiter) => {
+      'name': 'pour',
+      'pump': 'pressure',
+      'transition': 'fast',
+      'volume': 100,
+      'seconds': 30,
+      'temperature': 93,
+      'sensor': 'coffee',
+      'pressure': 9,
+      'limiter': limiter,
+    };
+
+    Future<String> seedRecord() async {
+      final response = await postProfile({'profile': profileWithoutMetadata()});
+      final created =
+          jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      return created['id'] as String;
+    }
+
+    test('POST accepts the device-verbatim body that returned 500', () async {
+      // The captured body names a parent that existed in the device library.
+      final parentProfile = Profile.fromJson(profileWithoutMetadata());
+      final hashes = ProfileHash.calculateAll(parentProfile);
+      await storage.store(
+        ProfileRecord(
+          id: 'profile:5ae9b2e3bfbeee965258',
+          profile: parentProfile,
+          metadataHash: hashes.metadataHash,
+          compoundHash: hashes.compoundHash,
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        ),
+      );
+
+      final response = await postRawProfile(fixture('e01_post_body.json'));
+
+      expect(response.statusCode, 201);
+      final record =
+          jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      final steps =
+          (record['profile'] as Map<String, dynamic>)['steps'] as List<dynamic>;
+      expect((steps[0] as Map<String, dynamic>)['limiter'], {
+        'value': 0.1,
+        'range': 0.0,
+      });
+      expect((steps[1] as Map<String, dynamic>)['limiter'], isNull);
+      expect((steps[2] as Map<String, dynamic>)['limiter'], {
+        'value': 6.0,
+        'range': 3.0,
+      });
+    });
+
+    test('PUT accepts the device-verbatim body and re-addresses it', () async {
+      final id = await seedRecord();
+
+      final response = await putRawProfile(id, fixture('e01_put_body.json'));
+
+      expect(response.statusCode, 200);
+      final record =
+          jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      expect(record['id'], isNot(equals(id)));
+      final steps =
+          (record['profile'] as Map<String, dynamic>)['steps'] as List<dynamic>;
+      expect((steps[0] as Map<String, dynamic>)['limiter'], {
+        'value': 0.1,
+        'range': 0.0,
+      });
+    });
+
+    test('the three captured poison shapes all save', () async {
+      for (final limiter in [
+        {'value': 0.1},
+        {'value': 2.5},
+        {'value': 0},
+      ]) {
+        final body = profileWithoutMetadata()
+          ..['steps'] = <dynamic>[stepWithLimiter(limiter)];
+
+        final response = await postProfile({'profile': body});
+
+        expect(response.statusCode, 201, reason: 'limiter $limiter');
+      }
+    });
+
+    test('POST and PUT answer identically for a valueless limiter', () async {
+      final id = await seedRecord();
+      final body = profileWithoutMetadata()
+        ..['steps'] = <dynamic>[stepWithLimiter(<String, dynamic>{})];
+
+      final post = await postProfile({'profile': body});
+      final put = await putProfile(id, {'profile': body});
+      final postBody = await post.readAsString();
+      final putBody = await put.readAsString();
+
+      expect(post.statusCode, 400);
+      expect(put.statusCode, 400);
+      expect(postBody, equals(putBody));
+      expect(postBody, contains(r'limiter \"value\"'));
+    });
+
+    test('POST and PUT answer identically for a residual TypeError', () async {
+      final id = await seedRecord();
+      final body = profileWithoutMetadata()
+        ..['steps'] = <dynamic>[
+          stepWithLimiter({'value': 1, 'range': 0.6})..['transition'] = null,
+        ];
+
+      final post = await postProfile({'profile': body});
+      final put = await putProfile(id, {'profile': body});
+      final postBody = await post.readAsString();
+      final putBody = await put.readAsString();
+
+      expect(post.statusCode, 400);
+      expect(put.statusCode, 400);
+      expect(postBody, equals(putBody));
     });
   });
 }
