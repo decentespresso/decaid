@@ -65,9 +65,6 @@ Use `ShadApp(home: Scaffold(body: child))` — `Scaffold` provides `Material` an
 ### Animations
 Use `pump()` not `pumpAndSettle()` when tree has `CircularProgressIndicator` or ongoing animations.
 
-### DeviceDiscoveryView
-Use `tester.runAsync()` — it uses real `Future.delayed` and stream microtask propagation.
-
 ### StreamBuilder Patterns
 - Check both `hasData` AND `data != null` for nullable streams (e.g., `De1Interface?`)
 - Use explicit type parameters: `StreamBuilder<De1Interface?>`
