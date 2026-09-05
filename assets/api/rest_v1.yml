@@ -5427,6 +5427,42 @@ paths:
 
 components:
   schemas:
+    De1SettingsWriteReport:
+      type: object
+      properties:
+        results:
+          type: object
+          description: |
+            One entry per field present in the request. Absent fields are not reported.
+            An empty request body yields an empty object.
+          additionalProperties:
+            $ref: "#/components/schemas/De1SettingWriteResult"
+    De1SettingWriteResult:
+      type: object
+      properties:
+        requested:
+          description: The value the request asked for. Booleans for usb.
+          nullable: true
+        actual:
+          description: |
+            The value read back from the machine after the write, or null when the
+            read-back failed.
+          nullable: true
+        status:
+          type: string
+          enum: [applied, adjusted, unverified]
+          description: |
+            applied - the read-back matched the requested value, within half of one
+            write quantization step for scaled fields.
+            adjusted - the write completed but the machine now holds a different value.
+            The app clamps some fields before the wire (fanThreshold is bounded 0-50) and
+            the firmware may ignore or modify others; both surface identically, with the
+            read-back in actual.
+            unverified - the write was sent and the read-back failed, so the server makes
+            no claim about the stored value.
+
+            The verdict is verified at write time only. A later connect-time defaults pass
+            can change a value again.
     BleDiagnosticsSnapshot:
       type: object
       required: [timestamp, ble, connection]

@@ -417,7 +417,7 @@ class De1Handler {
           : parseInt(json['steamPurgeMode']);
 
       return _mapDe1WriteErrors(() async {
-        await _controller.updateMachineSettings(
+        final report = await _controller.updateMachineSettings(
           usb: usb,
           fan: fan,
           flushTemp: flushTemp,
@@ -428,7 +428,7 @@ class De1Handler {
           tankTemp: tankTemp,
           steamPurgeMode: steamPurgeMode,
         );
-        return jsonAccepted();
+        return jsonAccepted({'results': report.toJson()});
       });
     });
 

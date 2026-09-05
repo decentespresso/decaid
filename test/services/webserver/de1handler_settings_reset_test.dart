@@ -176,7 +176,7 @@ void main() {
       final res = await delete('/api/v1/machine/settings/reset');
       expect(res.statusCode, 202);
 
-      expect(await de1.getFanThreshhold(), 55);
+      expect(await de1.getFanThreshhold(), 50);
       expect(await de1.getHeaterIdleTemp(), 95);
       expect(await de1.getHeaterPhase1Flow(), 2.0);
       expect(await de1.getHeaterPhase2Flow(), 4.0);
