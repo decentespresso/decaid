@@ -1,0 +1,68 @@
+{
+  "version": "2",
+  "title": "Test/pressure calibration",
+  "author": "Decent",
+  "notes": "You will need a portafilter fitted with a pressure gauge that leaks or has a slow flow rate.  This profile will slowly rise to 9 bar and hold it.  Compare what is on the screen with what your analog pressure gauge tells you.  Go to Settings->Machine->Calibrate and enter the held pressure value, and then retest until the pressure until the two agree.",
+  "beverage_type": "calibrate",
+  "steps": [
+    {
+      "name": "fast rise",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "80.0",
+      "sensor": "coffee",
+      "seconds": "20.0",
+      "volume": "500.0",
+      "weight": "0.0",
+      "pressure": "7.0",
+      "flow": "0.0",
+      "exit": {
+        "type": "pressure",
+        "condition": "over",
+        "value": "7.0"
+      },
+      "limiter": {
+        "value": "0.0",
+        "range": "0.6"
+      }
+    },
+    {
+      "name": "final slow rise",
+      "pump": "pressure",
+      "transition": "smooth",
+      "temperature": "80.0",
+      "sensor": "coffee",
+      "seconds": "3.0",
+      "volume": "500.0",
+      "weight": "0.0",
+      "pressure": "9.0",
+      "flow": "0.0",
+      "limiter": {
+        "value": "0.0",
+        "range": "0.6"
+      }
+    },
+    {
+      "name": "hold",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "70.0",
+      "sensor": "coffee",
+      "seconds": "60.0",
+      "volume": "500.0",
+      "weight": "0.0",
+      "pressure": "9.0",
+      "flow": "0.0",
+      "limiter": {
+        "value": "0.0",
+        "range": "0.6"
+      }
+    }
+  ],
+  "tank_temperature": "0.0",
+  "target_weight": "73.8",
+  "target_volume": "0.0",
+  "target_volume_count_start": "2",
+  "type": "advanced",
+  "hidden": "0"
+}
