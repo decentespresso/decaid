@@ -340,6 +340,176 @@ void main() {
     await bridge.dispose();
   });
 
+  test('absent target at boot writes nothing', () async {
+    final bengle = _RecordingBengle();
+    await connectBengle(bengle);
+    workflow.updateWorkflow(
+      context: const WorkflowContext(targetDoseWeight: 18.0),
+    );
+
+    final bridge = BengleSawBridge(
+      workflowController: workflow,
+      de1Controller: de1Controller,
+      debounce: _debounce,
+    );
+    await pumpDebounce();
+
+    expect(
+      bengle.sawWrites,
+      isEmpty,
+      reason:
+          'an absent targetYield means unknown, and writing 0 disables '
+          'stop-at-weight in firmware',
+    );
+    await bridge.dispose();
+  });
+
+  test('absent target does not block a later real target', () async {
+    final bengle = _RecordingBengle();
+    await connectBengle(bengle);
+    workflow.updateWorkflow(
+      context: const WorkflowContext(targetDoseWeight: 18.0),
+    );
+
+    final bridge = BengleSawBridge(
+      workflowController: workflow,
+      de1Controller: de1Controller,
+      debounce: _debounce,
+    );
+    await pumpDebounce();
+    expect(bengle.sawWrites, isEmpty);
+
+    workflow.updateWorkflow(
+      context: const WorkflowContext(targetDoseWeight: 18.0, targetYield: 34.0),
+    );
+    await pumpDebounce();
+
+    expect(bengle.sawWrites, [34.0]);
+    await bridge.dispose();
+  });
+
+  test('clearing the target leaves the firmware target alone', () async {
+    final bengle = _RecordingBengle();
+    await connectBengle(bengle);
+
+    final bridge = BengleSawBridge(
+      workflowController: workflow,
+      de1Controller: de1Controller,
+      debounce: _debounce,
+    );
+    await Future<void>.delayed(Duration.zero);
+    bengle.sawWrites.clear();
+
+    final base = workflow.currentWorkflow.context ?? const WorkflowContext();
+    workflow.updateWorkflow(context: base.copyWith(targetYield: 30.0));
+    await pumpDebounce();
+    expect(bengle.sawWrites, [30.0]);
+
+    workflow.updateWorkflow(
+      context: const WorkflowContext(targetDoseWeight: 18.0),
+    );
+    await pumpDebounce();
+
+    expect(bengle.sawWrites, [
+      30.0,
+    ], reason: 'a target that goes away must not push 0 over a good value');
+    await bridge.dispose();
+  });
+
+  test('reconnect with no target writes nothing', () async {
+    final first = _RecordingBengle();
+    await connectBengle(first);
+    workflow.updateWorkflow(
+      context: const WorkflowContext(targetDoseWeight: 18.0),
+    );
+
+    final bridge = BengleSawBridge(
+      workflowController: workflow,
+      de1Controller: de1Controller,
+      debounce: _debounce,
+    );
+    await pumpDebounce();
+    expect(first.sawWrites, isEmpty);
+
+    final replacement = _RecordingBengle();
+    await connectBengle(replacement);
+    await pumpDebounce();
+
+    expect(replacement.sawWrites, isEmpty);
+    await bridge.dispose();
+  });
+
+  test('reconnect re-pushes a real target after an absent one', () async {
+    final first = _RecordingBengle();
+    await connectBengle(first);
+
+    final bridge = BengleSawBridge(
+      workflowController: workflow,
+      de1Controller: de1Controller,
+      debounce: _debounce,
+    );
+    await Future<void>.delayed(Duration.zero);
+    first.sawWrites.clear();
+
+    workflow.updateWorkflow(
+      context: const WorkflowContext(targetDoseWeight: 18.0),
+    );
+    await pumpDebounce();
+    expect(first.sawWrites, isEmpty);
+
+    workflow.updateWorkflow(
+      context: const WorkflowContext(targetDoseWeight: 18.0, targetYield: 45.0),
+    );
+    await pumpDebounce();
+    expect(first.sawWrites, [45.0]);
+
+    final replacement = _RecordingBengle();
+    await connectBengle(replacement);
+    await pumpDebounce();
+
+    expect(replacement.sawWrites, [45.0]);
+    await bridge.dispose();
+  });
+
+  test(
+    'a trailing null inside the debounce window cancels the pending write',
+    () async {
+      final bengle = _RecordingBengle();
+      await connectBengle(bengle);
+
+      final bridge = BengleSawBridge(
+        workflowController: workflow,
+        de1Controller: de1Controller,
+        debounce: _debounce,
+      );
+      await Future<void>.delayed(Duration.zero);
+      bengle.sawWrites.clear();
+
+      final base = workflow.currentWorkflow.context ?? const WorkflowContext();
+      workflow.updateWorkflow(context: base.copyWith(targetYield: 30.0));
+      await pumpDebounce();
+      expect(bengle.sawWrites, [30.0]);
+
+      workflow.updateWorkflow(context: base.copyWith(targetYield: 31.0));
+      workflow.updateWorkflow(
+        context: const WorkflowContext(targetDoseWeight: 18.0),
+      );
+      await pumpDebounce();
+      expect(
+        bengle.sawWrites,
+        [30.0],
+        reason:
+            'the document ended the debounce window with no target, so '
+            'neither the superseded 31 nor a spurious 0 may be written',
+      );
+
+      workflow.updateWorkflow(context: base.copyWith(targetYield: 32.0));
+      await pumpDebounce();
+      expect(bengle.sawWrites, [30.0, 32.0]);
+      await bridge.dispose();
+    },
+  );
+
   test('queue saturation retries the current target', () async {
     await de1Controller.dispose();
     de1Controller = De1Controller(

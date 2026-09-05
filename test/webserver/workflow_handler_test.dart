@@ -775,6 +775,44 @@ void main() {
     );
   });
 
+  group('PUT /api/v1/workflow — targetYield explicit zero and removal', () {
+    test('an explicit targetYield of 0 lands in the document as 0', () async {
+      await _settleHandler(spy);
+
+      final future = put({
+        'context': {'targetYield': 0},
+      });
+      await _settleHandler(spy);
+      final response = await future;
+
+      expect(response.statusCode, equals(200));
+      final body = jsonDecode(await response.readAsString());
+      expect(body['context']['targetYield'], equals(0));
+      expect(
+        workflowController.currentWorkflow.context?.targetYield,
+        equals(0.0),
+        reason:
+            'an explicit 0 is the deliberate stop-at-weight disable and '
+            'must survive the merge as a value, not be dropped as absent',
+      );
+    });
+
+    test('an explicit null removes targetYield from the document', () async {
+      await _settleHandler(spy);
+
+      final future = put({
+        'context': {'targetYield': null},
+      });
+      await _settleHandler(spy);
+      final response = await future;
+
+      expect(response.statusCode, equals(200));
+      final body = jsonDecode(await response.readAsString());
+      expect((body['context'] as Map).containsKey('targetYield'), isFalse);
+      expect(workflowController.currentWorkflow.context?.targetYield, isNull);
+    });
+  });
+
   group('PUT /api/v1/workflow — read-modify-write race', () {
     test(
       'multi-field PUT: final shot-settings write reflects BOTH changes',

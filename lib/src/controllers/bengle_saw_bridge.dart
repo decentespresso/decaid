@@ -36,19 +36,28 @@ class BengleSawBridge {
   bool _restartAfterDrain = false;
   bool _disposed = false;
 
-  double _currentTargetYield() =>
-      _workflow.currentWorkflow.context?.targetYield ?? 0.0;
+  double? _currentTargetYield() =>
+      _workflow.currentWorkflow.context?.targetYield;
+
+  void _clearPending() {
+    _desired = null;
+    _desiredGeneration = null;
+    _debounceTimer?.cancel();
+    _debounceTimer = null;
+  }
 
   void _onWorkflowChange() {
     final next = _currentTargetYield();
     final generation = _de1.connectionGeneration;
+    if (next == null) {
+      _log.fine('SAW write skipped — workflow carries no target yield');
+      _clearPending();
+      return;
+    }
     if (next == _lastPushed &&
         _lastPushedGeneration == generation &&
         (_inFlight == null || _inFlight == next)) {
-      _desired = null;
-      _desiredGeneration = null;
-      _debounceTimer?.cancel();
-      _debounceTimer = null;
+      _clearPending();
       return;
     }
     _desired = next;
@@ -67,9 +76,17 @@ class BengleSawBridge {
     }
     _retryTimer?.cancel();
     _retryTimer = null;
+    final target = _currentTargetYield();
+    if (target == null) {
+      _log.info(
+        'SAW target absent from the workflow — firmware target left as is',
+      );
+      _clearPending();
+      return;
+    }
     _debounceTimer?.cancel();
     _debounceTimer = null;
-    _desired = _currentTargetYield();
+    _desired = target;
     _desiredGeneration = _de1.connectionGeneration;
     if (_pushing) _restartAfterDrain = true;
     unawaited(_drain());

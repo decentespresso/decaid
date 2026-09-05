@@ -205,6 +205,14 @@ class De1Handler {
       admittedWebSocketHandler(_handleShotState),
     );
 
+    app.get('/api/v1/machine/stopAtWeight', (Request _) async {
+      return withDe1((de1) async {
+        final gate = _bengleFirmwareGate(de1, 'stopAtWeight');
+        if (gate != null) return gate;
+        final grams = await (de1 as BengleInterface).getStopAtWeightTarget();
+        return jsonOk({'grams': grams});
+      });
+    });
     app.get('/api/v1/machine/ledStrip', (Request _) async {
       return withDe1((de1) async {
         final gate = _bengleFirmwareGate(de1, 'ledStrip');
