@@ -244,7 +244,8 @@ class De1Handler {
         final gate = _bengleFirmwareGate(de1, 'ledStrip');
         if (gate != null) return gate;
         await (de1 as BengleInterface).setLedStrip(state);
-        return jsonOk({'status': 'accepted'});
+        final stored = await de1.getLedStripState();
+        return jsonOk(stored?.toJson() ?? {'status': 'accepted'});
       });
     });
 

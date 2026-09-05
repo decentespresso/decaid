@@ -21,6 +21,8 @@ class Color16 {
     return Color16(r.clamp(0, 65535), g.clamp(0, 65535), b.clamp(0, 65535));
   }
 
+  Color16 quantized() => Color16(red & 0xFF00, green & 0xFF00, blue & 0xFF00);
+
   static String _hex4(int v) =>
       v.toRadixString(16).padLeft(4, '0').toUpperCase();
 
@@ -56,6 +58,9 @@ class ZoneLedState {
     sleeping: Color16.fromJson(json['sleeping']),
     awake: Color16.fromJson(json['awake']),
   );
+
+  ZoneLedState quantized() =>
+      ZoneLedState(sleeping: sleeping.quantized(), awake: awake.quantized());
 
   @override
   bool operator ==(Object other) =>

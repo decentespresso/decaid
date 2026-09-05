@@ -147,6 +147,111 @@ void main() {
       expect(res.statusCode, 400);
     });
 
+    test('replicated-byte input is stored and echoed canonically', () async {
+      await wireWith(MockBengle());
+
+      final res = await put('/api/v1/machine/ledStrip', {
+        'frontStrip': {'sleeping': 'FFFF22220000', 'awake': 'FF00F0008000'},
+        'backStrip': {'sleeping': '300020001000', 'awake': 'FFFFFFFFFFFF'},
+        'frontSwitch': {'sleeping': '000000000000', 'awake': '000000000000'},
+      });
+      expect(res.statusCode, 200);
+
+      final putBody = await res.readAsString();
+      final echoed = jsonDecode(putBody);
+      expect(
+        echoed['frontStrip']['sleeping'],
+        'FF0022000000',
+        reason: 'the PUT 200 body must be the stored canonical spelling',
+      );
+      expect(echoed['backStrip']['awake'], 'FF00FF00FF00');
+
+      final getRes = await get('/api/v1/machine/ledStrip');
+      expect(getRes.statusCode, 200);
+      expect(
+        await getRes.readAsString(),
+        putBody,
+        reason: 'a following GET must be byte-identical to the PUT echo',
+      );
+    });
+
+    test('the audited F-044 write on frontStrip.awake echoes the palette '
+        'the machine recorded', () async {
+      await wireWith(MockBengle());
+
+      final res = await put('/api/v1/machine/ledStrip', {
+        'frontStrip': {'awake': 'FFFF22220000', 'sleeping': '400022000000'},
+        'backStrip': {'awake': 'FF00D3008E00', 'sleeping': '400022000000'},
+        'frontSwitch': {'awake': 'FFFF22220000', 'sleeping': '400022000000'},
+      });
+      expect(res.statusCode, 200);
+
+      final echoed = jsonDecode(await res.readAsString());
+      expect(
+        echoed,
+        {
+          'frontStrip': {'sleeping': '400022000000', 'awake': 'FF0022000000'},
+          'backStrip': {'sleeping': '400022000000', 'awake': 'FF00D3008E00'},
+          'frontSwitch': {'sleeping': '400022000000', 'awake': 'FF0022000000'},
+        },
+        reason:
+            'the echo must match the stored state the audited machine '
+            'served back for this exact write',
+      );
+    });
+
+    test('canonical input is echoed byte-identically', () async {
+      await wireWith(MockBengle());
+
+      const frontStrip = {'sleeping': 'FF0022000000', 'awake': 'FF00F0008000'};
+      const backStrip = {'sleeping': '300020001000', 'awake': 'FF00FF00FF00'};
+
+      final res = await put('/api/v1/machine/ledStrip', {
+        'frontStrip': frontStrip,
+        'backStrip': backStrip,
+        'frontSwitch': {'sleeping': '000000000000', 'awake': '000000000000'},
+      });
+      expect(res.statusCode, 200);
+
+      final echoed = jsonDecode(await res.readAsString());
+      expect(echoed['frontStrip'], frontStrip);
+      expect(echoed['backStrip'], backStrip);
+    });
+
+    test(
+      'the echoed frontSwitch is the derived palette, not the sent one',
+      () async {
+        await wireWith(MockBengle());
+
+        final res = await put('/api/v1/machine/ledStrip', {
+          'frontStrip': {'sleeping': '000000000000', 'awake': '000000000000'},
+          'backStrip': {'sleeping': '000000000000', 'awake': '000000000000'},
+          'frontSwitch': {'sleeping': 'FFFF00000000', 'awake': '0000FFFF0000'},
+        });
+        expect(res.statusCode, 200);
+
+        final echoed = jsonDecode(await res.readAsString());
+        expect(echoed['frontSwitch']['awake'], 'FF00F000C800');
+        expect(echoed['frontSwitch']['sleeping'], '550050004300');
+      },
+    );
+
+    test('reset after a PUT returns the same canonical body', () async {
+      await wireWith(MockBengle());
+
+      final res = await put('/api/v1/machine/ledStrip', {
+        'frontStrip': {'sleeping': 'FFFF22220000', 'awake': 'FF00F0008000'},
+        'backStrip': {'sleeping': '300020001000', 'awake': 'FFFFFFFFFFFF'},
+        'frontSwitch': {'sleeping': '000000000000', 'awake': '000000000000'},
+      });
+      expect(res.statusCode, 200);
+      final putBody = await res.readAsString();
+
+      final resetRes = await post('/api/v1/machine/ledStrip/reset');
+      expect(resetRes.statusCode, 200);
+      expect(await resetRes.readAsString(), putBody);
+    });
+
     test('malformed hex defaults to zero', () async {
       final bengle = MockBengle();
       await wireWith(bengle);

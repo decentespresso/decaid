@@ -298,7 +298,16 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   @override
   Future<LedStripState> getLedStripState() async => _led.value;
   @override
-  Future<void> setLedStrip(LedStripState state) async => _led.add(state);
+  Future<void> setLedStrip(LedStripState state) async => _led.add(
+    // The firmware canonicalises what it is given, so a replay mock that
+    // stored the raw spelling would answer a GET with a value the machine
+    // could never hold.
+    LedStripState(
+      frontStrip: state.frontStrip.quantized(),
+      backStrip: state.backStrip.quantized(),
+      frontSwitch: state.frontSwitch,
+    ),
+  );
   @override
   Future<void> commitLedStrip() async {}
   @override
