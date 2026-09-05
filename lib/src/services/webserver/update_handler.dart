@@ -58,6 +58,13 @@ class UpdateHandler {
 
     switch (command) {
       case 'check':
+        if (!_service.canCheck) {
+          reply({
+            'error': 'App update checks are not supported on this platform',
+            'url': _service.currentState.releaseUrl,
+          });
+          return;
+        }
         _service.requestCheck();
 
       case 'install':

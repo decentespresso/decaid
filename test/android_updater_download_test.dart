@@ -102,6 +102,52 @@ void main() {
       expect(update?.version, '0.7.15-beta.1');
     });
 
+    test('returns null for an empty release list', () async {
+      final updater = updaterFor([]);
+
+      expect(await updater.checkForUpdate('0.7.14'), isNull);
+    });
+
+    test('returns null when no release is newer', () async {
+      final updater = updaterFor([release('0.7.14', prerelease: false)]);
+
+      expect(await updater.checkForUpdate('0.7.14'), isNull);
+    });
+
+    test('throws naming the status when GitHub answers non-200', () async {
+      final updater = AndroidUpdater(
+        owner: 'tadelv',
+        repo: 'reaprime',
+        httpClient: MockClient((_) async => http.Response('rate limited', 403)),
+      );
+
+      await expectLater(
+        updater.checkForUpdate('0.7.14'),
+        throwsA(
+          isA<UpdateCheckException>().having(
+            (e) => e.toString(),
+            'message',
+            contains('403'),
+          ),
+        ),
+      );
+    });
+
+    test('propagates a transport failure', () async {
+      final updater = AndroidUpdater(
+        owner: 'tadelv',
+        repo: 'reaprime',
+        httpClient: MockClient(
+          (_) async => throw const SocketException('network is unreachable'),
+        ),
+      );
+
+      await expectLater(
+        updater.checkForUpdate('0.7.14'),
+        throwsA(isA<SocketException>()),
+      );
+    });
+
     test('all invalid releases do not affect a later valid check', () async {
       var callCount = 0;
       final updater = AndroidUpdater(

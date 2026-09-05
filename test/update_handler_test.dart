@@ -21,6 +21,24 @@ class _NoopUpdater extends AndroidUpdater {
   void dispose() {}
 }
 
+class _RecordingUpdateService extends UpdateCheckService {
+  _RecordingUpdateService({required bool isMacOS})
+    : super(
+        settingsService: MockSettingsService(),
+        webUIStorage: WebUIStorage(SettingsController(MockSettingsService())),
+        updater: _NoopUpdater(),
+        platformIsAndroid: true,
+        platformIsMacOS: isMacOS,
+      );
+
+  int requestChecks = 0;
+
+  @override
+  Future<void> requestCheck() async {
+    requestChecks++;
+  }
+}
+
 void main() {
   late UpdateCheckService service;
   late UpdateHandler updateHandler;
@@ -87,6 +105,31 @@ void main() {
       expect(replies.single['error'], contains('not supported'));
       expect(replies.single['url'], contains('releases'));
       nonAndroid.dispose();
+    });
+
+    test('check without an updater replies not-supported + url', () {
+      final unsupported = _RecordingUpdateService(isMacOS: true);
+      final h = UpdateHandler(service: unsupported);
+      final replies = <Map<String, dynamic>>[];
+
+      h.handleCommand({'command': 'check'}, replies.add);
+
+      expect(replies.single['error'], contains('not supported'));
+      expect(replies.single['url'], contains('releases'));
+      expect(unsupported.requestChecks, 0);
+      unsupported.dispose();
+    });
+
+    test('check on a supported platform runs the check with no reply', () {
+      final supported = _RecordingUpdateService(isMacOS: false);
+      final h = UpdateHandler(service: supported);
+      final replies = <Map<String, dynamic>>[];
+
+      h.handleCommand({'command': 'check'}, replies.add);
+
+      expect(replies, isEmpty);
+      expect(supported.requestChecks, 1);
+      supported.dispose();
     });
   });
 }

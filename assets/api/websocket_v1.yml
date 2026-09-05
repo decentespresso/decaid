@@ -187,7 +187,9 @@ channels:
     description: |
       Bidirectional app-update channel. Emits an `AppUpdateState` snapshot on
       connect and on every state change. Accepts commands:
-      - `{"command": "check"}` — force a re-poll of GitHub releases.
+      - `{"command": "check"}` — force a re-poll of GitHub releases. Not
+        supported on macOS, where it replies with a transient
+        `{"error", "url"}` carrying the releases page rather than polling.
       - `{"command": "install"}` — on Android: auto-check if needed, then
         download + launch the system installer. On other platforms this is not
         supported and replies with a transient `{"error", "url"}`.

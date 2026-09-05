@@ -154,14 +154,60 @@ void main() {
       svc.dispose();
     });
 
-    test('emits error when the check throws', () async {
+    test('a loud check emits error and rethrows', () async {
       final svc = build();
       updater.throwOnCheck = true;
 
-      await svc.checkForUpdate();
+      await expectLater(svc.checkForUpdate(), throwsA(isA<Exception>()));
 
       expect(svc.currentState.phase, AppUpdatePhase.error);
       expect(svc.currentState.error, isNotNull);
+      expect(svc.currentState.error, isNotEmpty);
+      svc.dispose();
+    });
+
+    test('a quiet check settles back to idle without error', () async {
+      final svc = build();
+      updater.throwOnCheck = true;
+      final phases = <AppUpdatePhase>[];
+      final sub = svc.updateState.listen((s) => phases.add(s.phase));
+
+      final result = await svc.checkForUpdate(quiet: true);
+      await Future.delayed(Duration.zero);
+
+      expect(result, isNull);
+      expect(
+        phases,
+        containsAllInOrder(<AppUpdatePhase>[
+          AppUpdatePhase.checking,
+          AppUpdatePhase.idle,
+        ]),
+      );
+      expect(phases, isNot(contains(AppUpdatePhase.error)));
+      expect(svc.currentState.phase, AppUpdatePhase.idle);
+      expect(svc.currentState.error, isNull);
+      await sub.cancel();
+      svc.dispose();
+    });
+
+    test('a quiet failure keeps an already known update', () async {
+      final svc = build();
+      updater.nextCheck = _update();
+      await svc.checkForUpdate();
+      updater.throwOnCheck = true;
+
+      await svc.checkForUpdate(quiet: true);
+
+      expect(svc.currentState.phase, AppUpdatePhase.available);
+      expect(svc.currentState.latestVersion, '9.9.9');
+      expect(svc.currentState.error, isNull);
+      svc.dispose();
+    });
+
+    test('canCheck is true off macOS', () {
+      final svc = build();
+
+      expect(svc.canCheck, isTrue);
       svc.dispose();
     });
 
@@ -293,6 +339,27 @@ void main() {
   });
 
   group('requestCheck', () {
+    test('a failed manual check ends in an error frame, not idle', () async {
+      final svc = build();
+      updater.throwOnCheck = true;
+      final phases = <AppUpdatePhase>[];
+      final sub = svc.updateState.listen((s) => phases.add(s.phase));
+
+      await svc.requestCheck();
+      await Future.delayed(Duration.zero);
+
+      expect(
+        phases,
+        containsAllInOrder(<AppUpdatePhase>[
+          AppUpdatePhase.checking,
+          AppUpdatePhase.error,
+        ]),
+      );
+      expect(svc.currentState.error, contains('check boom'));
+      await sub.cancel();
+      svc.dispose();
+    });
+
     test('coalesces while a check is in flight', () async {
       final svc = build();
       updater.nextCheck = _update();
@@ -310,7 +377,42 @@ void main() {
     });
   });
 
+  group('periodic checks', () {
+    test('a failing periodic check emits no error frame', () async {
+      final svc = build();
+      updater.throwOnCheck = true;
+      final phases = <AppUpdatePhase>[];
+      final sub = svc.updateState.listen((s) => phases.add(s.phase));
+
+      await svc.enableAutomaticChecks();
+      await Future.delayed(Duration.zero);
+
+      expect(updater.checkCalls, 1);
+      expect(phases, isNot(contains(AppUpdatePhase.error)));
+      expect(svc.currentState.phase, AppUpdatePhase.idle);
+      expect(svc.currentState.error, isNull);
+      await sub.cancel();
+      svc.dispose();
+    });
+
+    test('a failing periodic check does not throw', () async {
+      final svc = build();
+      updater.throwOnCheck = true;
+
+      await expectLater(svc.enableAutomaticChecks(), completes);
+
+      svc.dispose();
+    });
+  });
+
   group('macOS (Sparkle owns app updates)', () {
+    test('canCheck is false', () {
+      final svc = build(isMacOS: true);
+
+      expect(svc.canCheck, isFalse);
+      svc.dispose();
+    });
+
     test('checkForUpdate is a no-op and leaves the state idle', () async {
       final svc = build(isMacOS: true);
       updater.nextCheck = _update();

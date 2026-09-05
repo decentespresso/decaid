@@ -42,6 +42,15 @@ class UpdateInfo {
   }
 }
 
+class UpdateCheckException implements Exception {
+  final String message;
+
+  UpdateCheckException(this.message);
+
+  @override
+  String toString() => message;
+}
+
 enum UpdateChannel { stable, beta }
 
 class AndroidUpdater {
@@ -76,8 +85,9 @@ class AndroidUpdater {
       final response = await _httpClient.get(Uri.parse(_releasesUrl));
 
       if (response.statusCode != 200) {
-        _log.warning('Failed to fetch releases: ${response.statusCode}');
-        return null;
+        throw UpdateCheckException(
+          'Failed to fetch releases: HTTP ${response.statusCode}',
+        );
       }
 
       final releases = json.decode(response.body) as List<dynamic>;
@@ -113,7 +123,7 @@ class AndroidUpdater {
       }
     } catch (e, stackTrace) {
       _log.severe('Error checking for updates', e, stackTrace);
-      return null;
+      rethrow;
     }
   }
 
