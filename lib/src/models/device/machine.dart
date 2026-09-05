@@ -171,6 +171,14 @@ enum MachineSubstate {
   cleanSoaking,
   cleaningSteam,
 
+  /// The steam valve is shut but the session is not over: the machine is between
+  /// pours and will resume where it left off.
+  pausedSteam,
+
+  /// The short purge the machine makes after steam stops on time or on milk
+  /// temperature. It can hold this state for a while, so a screen should say so.
+  puffing,
+
   errorNaN,
   errorInf,
   errorGeneric,

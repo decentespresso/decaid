@@ -70,9 +70,15 @@ MachineSubstate mapDe1SubToMachineSubstate(De1SubState de1SubState) {
     case De1SubState.noState:
     case De1SubState.userNotPresent:
     case De1SubState.refill:
-    case De1SubState.pausedSteam:
-    case De1SubState.puffing:
       return MachineSubstate.idle;
+
+    // Both are steam phases with nothing pouring, and both were reported as `idle`.
+    // A caller could not tell a pause from a purge from a machine doing nothing, so
+    // neither could be shown, and the purge in particular can last a while.
+    case De1SubState.pausedSteam:
+      return MachineSubstate.pausedSteam;
+    case De1SubState.puffing:
+      return MachineSubstate.puffing;
 
     case De1SubState.heatWaterTank:
     case De1SubState.heatWaterHeater:
