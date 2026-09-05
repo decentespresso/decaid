@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' show AppExitResponse, AppExitType;
 
@@ -175,6 +176,37 @@ ActiveSkinConsent? _activeSkinConsent(String path, WebUIStorage storage) {
     id: skin?.id,
     name: skin?.name ?? 'Custom skin',
     path: value,
+  );
+}
+
+const skinPortAssignmentsPreferenceKey = 'webUISkinPorts';
+
+Map<String, int> decodeSkinPortAssignments(String? raw) {
+  if (raw == null || raw.isEmpty) return {};
+  try {
+    final decoded = jsonDecode(raw);
+    if (decoded is! Map) return {};
+    return {
+      for (final entry in decoded.entries)
+        if (entry.key is String && entry.value is int)
+          entry.key as String: entry.value as int,
+    };
+  } catch (_) {
+    return {};
+  }
+}
+
+Future<Map<String, int>> loadPersistedSkinPortAssignments() async {
+  final raw = await SharedPreferencesAsync().getString(
+    skinPortAssignmentsPreferenceKey,
+  );
+  return decodeSkinPortAssignments(raw);
+}
+
+Future<void> persistSkinPortAssignments(Map<String, int> assignments) async {
+  await SharedPreferencesAsync().setString(
+    skinPortAssignmentsPreferenceKey,
+    jsonEncode(assignments),
   );
 }
 
@@ -413,7 +445,10 @@ void main(List<String> args) async {
     scaleController: scaleController,
     settingsController: settingsController,
   );
-  final WebUIService webUIService = WebUIService();
+  final WebUIService webUIService = WebUIService(
+    loadSkinPortAssignments: loadPersistedSkinPortAssignments,
+    saveSkinPortAssignments: persistSkinPortAssignments,
+  );
   final WebUIStorage webUIStorage = WebUIStorage(settingsController);
 
   DecentAccountService? decentAccountService;
