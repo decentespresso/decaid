@@ -424,14 +424,8 @@ reading, decode strict UTF-8, ignore empty/malformed values and read failures,
 and fence the result by connection generation so a late read cannot repopulate
 metadata after disconnect or reconnect.
 
-Atomax publishes client-SDK releases and changelogs, but no public scale
-firmware catalog, image archive, firmware changelog, or compatibility matrix.
-Static analysis of official Android app 2.3.0 (version code 13; base APK SHA-256
-`b28c9e1f118a73a616007197a99127045316b501841028edb37d0d0ef59e7c2d`)
-showed a private manifest/version check and Nordic DFU path. That establishes
-how the official app behaves, not a safe third-party update contract. Decaid
-therefore displays the revision only and must not infer update availability or
-implement Skale DFU without a public vendor contract.
+Atomax does not publish a firmware update contract, so Decaid displays the
+revision only and does not infer update availability or implement Skale DFU.
 
 ## Keeping Notes Fresh
 

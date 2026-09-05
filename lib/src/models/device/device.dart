@@ -26,8 +26,6 @@ class DeviceInformation {
 
   const DeviceInformation({this.firmwareVersion});
 
-  bool get isEmpty => firmwareVersion == null;
-
   Map<String, dynamic> toJson() => {
     if (firmwareVersion != null) 'firmwareVersion': firmwareVersion,
   };

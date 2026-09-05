@@ -51,8 +51,6 @@ class Skale2Scale implements Scale, DeviceInformationCapable {
 
   int _connectionGeneration = 0;
   StreamSubscription<ConnectionState>? _transportDisconnectSubscription;
-  String? _firmwareVersion;
-  bool _deviceInformationActive = false;
 
   final BehaviorSubject<DeviceInformation?> _deviceInformationController =
       BehaviorSubject<DeviceInformation?>.seeded(null);
@@ -135,7 +133,6 @@ class Skale2Scale implements Scale, DeviceInformationCapable {
         );
       }
 
-      _deviceInformationActive = true;
       await _initScale(services, generation);
       if (!await _isConnectionActive(generation)) return;
       _connectionStateController.add(ConnectionState.connected);
@@ -214,18 +211,18 @@ class Skale2Scale implements Scale, DeviceInformationCapable {
       );
       if (!await _isConnectionActive(generation) || data.isEmpty) return;
 
-      var contentLength = data.length;
-      while (contentLength > 0 && data[contentLength - 1] == 0) {
-        contentLength--;
-      }
-      final value = utf8.decode(data.sublist(0, contentLength)).trim();
+      final value = utf8
+          .decode(data)
+          .replaceFirst(RegExp(r'\x00+$'), '')
+          .trim();
       if (value.isEmpty ||
           value.runes.any((rune) => rune < 0x20 || rune == 0x7F)) {
         return;
       }
 
-      _firmwareVersion = value;
-      _publishDeviceInformation();
+      _deviceInformationController.add(
+        DeviceInformation(firmwareVersion: value),
+      );
     } on FormatException catch (e) {
       _log.fine('Ignoring malformed Skale firmware revision: $e');
     } catch (e) {
@@ -238,15 +235,7 @@ class Skale2Scale implements Scale, DeviceInformationCapable {
     return await _transport.connectionState.first == ConnectionState.connected;
   }
 
-  void _publishDeviceInformation() {
-    if (!_deviceInformationActive) return;
-    final information = DeviceInformation(firmwareVersion: _firmwareVersion);
-    _deviceInformationController.add(information.isEmpty ? null : information);
-  }
-
   void _clearDeviceInformation() {
-    _firmwareVersion = null;
-    _deviceInformationActive = false;
     _deviceInformationController.add(null);
   }
 
