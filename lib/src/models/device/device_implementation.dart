@@ -21,4 +21,5 @@ enum DeviceImplementation {
   debugPort,
   sensorBasket,
   bengleDebugPort,
+  plugin,
 }

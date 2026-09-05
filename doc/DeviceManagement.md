@@ -743,6 +743,15 @@ sensor is connected, skins can call the `measure` command through the existing
 Sensors API and read TDS, temperature, refractive index, and status values from
 the sensor data stream.
 
+`PluginDeviceService` is a `DeviceDiscoveryService` that contributes sensors
+registered by plugin generations. This keeps plugin-backed sensors on the same
+`DeviceController` → `SensorController` path as native sensors. Public identity
+comes from plugin id, declared driver id, and plugin-local instance id; unload
+removes the retiring generation without changing that identity for a later
+reload. Plugin connection handlers must complete protocol initialization before
+the sensor reports `connected`. Registrations are runtime-only and are not added
+to remembered-device selection.
+
 ### Bengle EBus tap
 
 Bengle composite devices (VID `0x2e8a`, PID `0x000a`) may expose a second CDC

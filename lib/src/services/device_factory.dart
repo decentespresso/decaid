@@ -64,6 +64,7 @@ class DeviceFactory {
       DeviceImplementation.debugPort => null,
       DeviceImplementation.sensorBasket => null,
       DeviceImplementation.bengleDebugPort => null,
+      DeviceImplementation.plugin => null,
     };
   }
 

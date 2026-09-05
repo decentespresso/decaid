@@ -6671,7 +6671,7 @@ components:
                 type: string
                 enum: ["quick", "full"]
             required: ["mode"]
-        resultSchema:
+        resultsSchema:
           type: object
           additionalProperties: true
           example:
@@ -7123,7 +7123,21 @@ components:
           type: array
           items:
             type: string
-            enum: [log, api, emit, pluginStorage, events.machine, events.shots, proxy.decent_api, proxy.decent_api.write]
+            enum: [log, api, emit, pluginStorage, events.machine, events.shots, events.workflow, proxy.decent_api, proxy.decent_api.write, network.websocket, network.tcp, network.tls]
+        drivers:
+          type: array
+          maxItems: 8
+          description: Device classes this plugin may register. Driver declarations do not grant transport permissions.
+          items:
+            type: object
+            required: [id, type]
+            properties:
+              id:
+                type: string
+                pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'
+              type:
+                type: string
+                enum: [sensor]
         settings:
           type: object
           description: >

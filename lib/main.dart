@@ -39,6 +39,7 @@ import 'package:reaprime/src/controllers/workflow_device_sync.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/simulated_device.dart';
+import 'package:reaprime/src/plugins/plugin_device_service.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/services/android_updater.dart';
@@ -278,6 +279,8 @@ void main(List<String> args) async {
   });
 
   final List<DeviceDiscoveryService> services = [];
+  final pluginDeviceService = PluginDeviceService();
+  services.add(pluginDeviceService);
 
   final bleDiscoveryService = UniversalBleDiscoveryService();
   if (!cliArgs.serial) {
@@ -503,8 +506,10 @@ void main(List<String> args) async {
     kvStore: HiveStoreService(defaultNamespace: "plugins")..initialize(),
     decentProxyService: decentProxyService,
     credentialStore: credentialStore,
+    deviceService: pluginDeviceService,
   );
   await pluginService.pluginManager.attachDe1Controller(de1Controller);
+  pluginService.pluginManager.attachWorkflowController(workflowController);
   persistenceController.onShotStored = (shotId) =>
       pluginService.pluginManager.broadcastEvent('shotStored', {'id': shotId});
 

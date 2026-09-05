@@ -2,6 +2,66 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
 
 void main() {
+  test('parses sensor driver contributions separately from permissions', () {
+    final manifest = PluginManifest.fromJson(<String, dynamic>{
+      'id': 'test.plugin',
+      'name': 'Test Plugin',
+      'author': 'Test',
+      'description': 'Test',
+      'version': '1.0.0',
+      'apiVersion': 1,
+      'permissions': ['network.websocket'],
+      'drivers': [
+        {'id': 'humidity', 'type': 'sensor'},
+      ],
+      'settings': <String, dynamic>{},
+      'api': <dynamic>[],
+    });
+
+    expect(manifest.drivers.single.id, 'humidity');
+    expect(manifest.drivers.single.type, PluginDriverType.sensor);
+    expect(manifest.toJson()['drivers'], [
+      {'id': 'humidity', 'type': 'sensor'},
+    ]);
+    expect(manifest.permissions, {PluginPermissions.networkWebsocket});
+  });
+
+  test('rejects invalid or duplicate driver contributions', () {
+    Map<String, dynamic> manifestWith(dynamic drivers) => <String, dynamic>{
+      'id': 'test.plugin',
+      'name': 'Test Plugin',
+      'author': 'Test',
+      'description': 'Test',
+      'version': '1.0.0',
+      'apiVersion': 1,
+      'permissions': <String>[],
+      'drivers': drivers,
+      'settings': <String, dynamic>{},
+      'api': <dynamic>[],
+    };
+
+    for (final drivers in [
+      'sensor',
+      [
+        {'id': '../humidity', 'type': 'sensor'},
+      ],
+      [
+        {'id': 'humidity', 'type': 'grinder'},
+      ],
+      [
+        {'id': 'humidity', 'type': 'sensor'},
+        {'id': 'humidity', 'type': 'sensor'},
+      ],
+      List.generate(9, (index) => {'id': 'driver-$index', 'type': 'sensor'}),
+    ]) {
+      expect(
+        () => PluginManifest.fromJson(manifestWith(drivers)),
+        throwsFormatException,
+        reason: '$drivers',
+      );
+    }
+  });
+
   test('parses manifest permission wire values', () {
     final manifest = PluginManifest.fromJson(<String, dynamic>{
       'id': 'test.plugin',
@@ -15,6 +75,7 @@ void main() {
         'api',
         'events.machine',
         'events.shots',
+        'events.workflow',
         'proxy.decent_api',
         'proxy.decent_api.write',
         'network.websocket',
@@ -29,6 +90,7 @@ void main() {
     expect(manifest.permissions, contains(PluginPermissions.api));
     expect(manifest.permissions, contains(PluginPermissions.eventsMachine));
     expect(manifest.permissions, contains(PluginPermissions.eventsShots));
+    expect(manifest.permissions, contains(PluginPermissions.eventsWorkflow));
     expect(manifest.permissions, contains(PluginPermissions.proxyDecentApi));
     expect(
       manifest.permissions,
@@ -68,6 +130,7 @@ void main() {
 
   test('rejects Dart enum names as manifest permission aliases', () {
     expect(PluginPermissions.fromString('eventsShots'), isNull);
+    expect(PluginPermissions.fromString('eventsWorkflow'), isNull);
   });
 
   test('serializes permissions using manifest wire values', () {
@@ -81,6 +144,7 @@ void main() {
       permissions: {
         PluginPermissions.api,
         PluginPermissions.pluginStorage,
+        PluginPermissions.eventsWorkflow,
         PluginPermissions.proxyDecentApi,
       },
       settings: {},
@@ -89,7 +153,12 @@ void main() {
 
     expect(
       manifest.toJson()['permissions'],
-      containsAll(['api', 'pluginStorage', 'proxy.decent_api']),
+      containsAll([
+        'api',
+        'pluginStorage',
+        'events.workflow',
+        'proxy.decent_api',
+      ]),
     );
   });
 }
