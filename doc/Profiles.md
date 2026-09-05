@@ -554,7 +554,7 @@ Example error response:
 
 ### Simulated shot execution (MockDe1 / MockBengle)
 
-Mock machines execute profiles in a simulated shot loop that follows profile step targets (flow, pressure, temperature) with simplified machine-response dynamics. Pressure steps model flow limiters and flow steps model pressure limiters with a progressive response across each limiter's range of action. This is a simulator approximation rather than firmware control-loop emulation. Each shot also samples bounded puck resistance so repeated pulls are not identical. Design decisions are recorded in archived plans — see `doc/plans/archive/mock-shot-simulator/mock-shot-fidelity.md` for the substate model, flow→pressure coupling, weight accumulation, transition shaping, and skipStep semantics.
+See [`device-notes/simulators.md`](device-notes/simulators.md#simulated-shot-execution).
 
 ### Profile Wire Format
 
@@ -622,4 +622,3 @@ physical upload.
 - **Auto-cleanup**: Configurable purge of old deleted profiles (e.g., 30 days)
 - **Profile Templates**: Pre-configured templates for common brewing styles
 - **Smart Import**: When importing, use compound hash to detect duplicates with different IDs from old UUID-based exports
-
