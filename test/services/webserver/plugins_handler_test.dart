@@ -195,6 +195,115 @@ void main() {
     expect(manager.activePendingOpCount, 0);
   });
 
+  test(
+    'declared http endpoint receives the request query parameters',
+    () async {
+      const shotId = '1ea4cc8a-efdc-4a82-80dd-56f6cebe3429';
+      final manager = PluginManager(
+        kvStore: FakeKeyValueStoreService(),
+        pluginHttpTimeout: const Duration(seconds: 5),
+      );
+      addTearDown(manager.cancelAllOperations);
+      await manager.loadPlugin(
+        id: pluginId,
+        manifest: httpManifest(),
+        settings: {},
+        jsCode:
+            '''
+        function createPlugin(host) {
+          return {
+            id: "$pluginId",
+            handleHttpRequest: (request) => ({
+              status: 200,
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({query: request.query})
+            })
+          };
+        }
+      ''',
+      );
+      final app = Router().plus;
+      PluginsHandler(
+        pluginManager: manager,
+        pluginService: _FakePluginLoaderService(),
+      ).addRoutes(app);
+
+      final response = await app.call(
+        Request(
+          'GET',
+          Uri.parse(
+            'http://localhost/api/v1/plugins/$pluginId/hello'
+            '?shotId=$shotId&return=%2Fskin%2Fhistory',
+          ),
+        ),
+      );
+
+      expect(response.statusCode, 200);
+      expect(
+        jsonDecode(await response.readAsString()),
+        {
+          'query': {'shotId': shotId, 'return': '/skin/history'},
+        },
+        reason:
+            'a caller hands a plugin page its subject in the URL; the handler '
+            'must surface every query parameter, percent-decoded, as '
+            'HttpRequest.query',
+      );
+      expect(manager.activePendingOpCount, 0);
+    },
+  );
+
+  test('query is an empty map when the request carries none', () async {
+    final manager = PluginManager(
+      kvStore: FakeKeyValueStoreService(),
+      pluginHttpTimeout: const Duration(seconds: 5),
+    );
+    addTearDown(manager.cancelAllOperations);
+    await manager.loadPlugin(
+      id: pluginId,
+      manifest: httpManifest(),
+      settings: {},
+      jsCode:
+          '''
+        function createPlugin(host) {
+          return {
+            id: "$pluginId",
+            handleHttpRequest: (request) => ({
+              status: 200,
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({
+                type: typeof request.query,
+                shotId: request.query.shotId === undefined ? "absent" : "present"
+              })
+            })
+          };
+        }
+      ''',
+    );
+    final app = Router().plus;
+    PluginsHandler(
+      pluginManager: manager,
+      pluginService: _FakePluginLoaderService(),
+    ).addRoutes(app);
+
+    final response = await app.call(
+      Request(
+        'GET',
+        Uri.parse('http://localhost/api/v1/plugins/$pluginId/hello'),
+      ),
+    );
+
+    expect(response.statusCode, 200);
+    expect(
+      jsonDecode(await response.readAsString()),
+      {'type': 'object', 'shotId': 'absent'},
+      reason:
+          'query is always present, so a plugin may read request.query.<name> '
+          'without guarding against an undefined map',
+    );
+    expect(manager.activePendingOpCount, 0);
+  });
+
   test('HTTP plugin endpoint rejects missing api permission', () async {
     final manager = PluginManager(
       kvStore: FakeKeyValueStoreService(),
