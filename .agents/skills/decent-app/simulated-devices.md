@@ -1,6 +1,6 @@
 # Simulated devices
 
-Decent ships with in-process device implementations for development without hardware. Simulate mode is enabled with `--dart-define=simulate=1`, a comma-delimited subset such as `--dart-define=simulate=machine,scale`, or the Settings UI. The current `SimulatedDevicesTypes` values are `machine, scale, sensor, bengle, replay`. `sb-dev start` enables the default set from `lib/main.dart`; pass `--real` to disable simulated devices.
+Decent ships with in-process device implementations for development without hardware. Simulate mode is enabled with `--dart-define=simulate=1`, a comma-delimited subset such as `--dart-define=simulate=machine,scale`, or the Settings UI. The current `SimulatedDevicesTypes` values are `machine, scale, sensor, bengle, replay`. `sb-dev start` enables the default set from `lib/main.dart`; `--real` omits `--dart-define=simulate=1` but does not clear devices enabled in Settings. Before testing hardware, use the verification and cleanup steps in `lifecycle.md`.
 
 ## Available mocks
 
