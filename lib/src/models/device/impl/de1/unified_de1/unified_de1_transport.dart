@@ -28,6 +28,11 @@ const _defaultShotSettingsFrame = <int>[
   0x00,
 ];
 
+/// Per-read bound for the firmware-verify poll ([readFwMapRequestFresh]) so a
+/// single stalled read can never hang the poll loop; the outer stage timeout
+/// still bounds the overall wait.
+const _firmwareMapPollReadTimeout = Duration(seconds: 2);
+
 class UnifiedDe1Transport {
   final DataTransport _transport;
   final TransportType transportType;
@@ -689,6 +694,54 @@ class UnifiedDe1Transport {
         );
       }
     }
+  }
+
+  /// Force a FRESH read of the firmware-map register ([Endpoint.fwMapRequest] /
+  /// A009 / `[I]`), for the firmware erase/verify poll fallback. Some firmwares
+  /// never emit the post-erase / post-verify notification, so the verify flow
+  /// has to actively re-read the register instead of waiting for it to be
+  /// pushed.
+  ///
+  ///  * **serial**: [_serialRead] would hand back the last *pushed* `[I]`
+  ///    frame, which never updates once the firmware stops emitting the notify.
+  ///    fwMapRequest is already continuously `<+I>`-subscribed, and the firmware
+  ///    treats an add-notify as a force-update, so re-sending `<+I>` reprovokes
+  ///    a fresh `[I]` into [_fwMapRequestSubject]. We deliberately do NOT send a
+  ///    matching `<-I>` (unlike [_serialSingleNotifyRead]): dropping the
+  ///    continuous subscription mid-update would blind the notify path a stock
+  ///    DE1 still relies on. Bounded by [_firmwareMapPollReadTimeout].
+  ///  * **BLE**: a genuine GATT read of A009 returns the current register
+  ///    value. It goes through [_bleRead], NOT the public [read]: this is a poll
+  ///    fired repeatedly across the flash-busy erase/verify windows, and it must
+  ///    not inherit [read]'s timeout disconnect->reconnect recovery — tearing
+  ///    the link down and re-establishing it mid-update would corrupt the
+  ///    in-flight firmware write. A failed/timed-out poll read simply throws to
+  ///    the caller, which is expected to log and retry; the outer stage timeout
+  ///    still bounds the overall wait. Bounded by [_firmwareMapPollReadTimeout] so
+  ///    one read can never hang the loop.
+  Future<ByteData> readFwMapRequestFresh() async {
+    final t = _transport;
+    if (transportType == TransportType.serial && t is SerialTransport) {
+      // Arm for the NEXT [I] frame before reprovoking. The subject replays its
+      // current value to a new listener, so drop one — but ONLY when it holds
+      // one. It is no longer seeded upstream, so on the first poll of a
+      // connection an unconditional `skip(1)` would swallow the very frame we
+      // provoked and the read would time out.
+      final source = _fwMapRequestSubject.hasValue
+          ? _fwMapRequestSubject.stream.skip(1)
+          : _fwMapRequestSubject.stream;
+      final next = source.first.timeout(_firmwareMapPollReadTimeout);
+      next.ignore();
+      await t.writeCommand('<+${Endpoint.fwMapRequest.representation}>');
+      return next;
+    }
+    if (transportType == TransportType.ble) {
+      return _bleRead(
+        Endpoint.fwMapRequest,
+        timeout: _firmwareMapPollReadTimeout,
+      );
+    }
+    return read(Endpoint.fwMapRequest);
   }
 
   Future<void> write(LogicalEndpoint endpoint, Uint8List data) async {

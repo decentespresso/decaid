@@ -159,7 +159,9 @@ class _TrackingFakeBleTransport extends FakeBleTransport {
   @override
   String get id => deviceId ?? super.id;
 
-  int disconnectCalls = 0;
+  // disconnectCalls is inherited from FakeBleTransport, which now counts it.
+  // Re-declaring it here would SHADOW the parent's field, so the parent's
+  // disconnectCalls++ would update a different variable than the test reads.
   int disposeCalls = 0;
   bool _disposed = false;
 
