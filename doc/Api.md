@@ -239,6 +239,21 @@ Profile updates use tri-state patch semantics: omitting `metadata` preserves it,
 `metadata: null` clears it, and an object replaces it. The profile itself is
 non-nullable; `profile: null` returns `400`.
 
+#### Extended step types (capability-gated)
+
+A profile step may set `pump: "power"` — a constant-hydraulic-power step carrying a `power` field and
+a mandatory pressure `limiter` — or `pump: "lever"`, a spring-lever step that reads `pressure` as its
+starting pressure P₀ and adds `leverSpring` and `leverGive`. A step may also set
+`transition: "hold"`, which carries no authored target: the firmware latches the value the previous
+step reached for this step's own control variable and holds it flat. HOLD may not be the first step.
+`exit` conditions gain `power` as a third cross-variable comparand alongside pressure and flow.
+
+Every machine stores and round-trips these profiles unchanged, a plain DE1 included. Running one
+needs firmware that advertises the matching capability. `GET /api/v1/machine/info` reports the
+bitmask as `extra.profileModeCaps`: `0x1` Power, `0x2` Lever, `0x4` HOLD, `0x8` cross-variable power
+exit. An absent or zero mask means the machine cannot run those steps, and
+`POST /api/v1/machine/profile` refuses the upload with a `400` before it writes anything.
+
 ### Workflow
 
 | Method | Path | Description | Handler |

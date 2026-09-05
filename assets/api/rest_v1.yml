@@ -5628,7 +5628,7 @@ components:
           description: >
             Machine details read from MMR once at connect. The object stays
             open — a firmware or model may contribute keys not listed here —
-            but these two are always present for a DE1.
+            but the first two are always present for a DE1.
           additionalProperties: true
           properties:
             refillKit:
@@ -5649,6 +5649,15 @@ components:
             voltage:
               type: integer
               description: Heater supply voltage in volts, as reported by the machine.
+            profileModeCaps:
+              type: integer
+              description: >
+                Per-frame profile-step capability bitmask: 0x1 = Power,
+                0x2 = Lever, 0x4 = HOLD, 0x8 = cross-variable power exit.
+                0 or absent means the machine cannot run those profile steps,
+                and arming one — or a power exit — is refused with a 400.
+                Only firmware that implements the new pump modes defines the
+                register; stock firmware and every DE1 report 0.
           example:
             refillKit: true
             voltage: 220
@@ -6020,6 +6029,16 @@ components:
         A single step in a brewing profile. Discriminated by the `pump` field:
         - `pump: "pressure"` → pressure-controlled step (has `pressure` field)
         - `pump: "flow"` → flow-controlled step (has `flow` field)
+        - `pump: "power"` → constant-hydraulic-power step (has `power` field and
+          a MANDATORY pressure `limiter`; Bengle only)
+        - `pump: "lever"` → spring-lever step (uses `pressure` as the starting
+          pressure P₀, plus `leverSpring` and `leverGive`; Bengle only)
+
+        The `power` and `lever` pump modes and the `hold` transition require a
+        machine that advertises the matching capability. Uploading a profile
+        that uses one to a machine that does not (a DE1, or firmware without the
+        capability) is refused with a `400` before any write; the profile still
+        stores and round-trips unchanged on any machine.
       required:
         - name
         - pump
@@ -6034,12 +6053,18 @@ components:
           description: Step name/identifier
         pump:
           type: string
-          enum: [pressure, flow]
-          description: Step type discriminator. Determines whether `pressure` or `flow` field is used.
+          enum: [pressure, flow, power, lever]
+          description: Step type discriminator. Selects which target field applies (`pressure`, `flow`, `power`, or the lever `pressure`/`leverSpring`/`leverGive` trio).
         transition:
           type: string
-          enum: [fast, smooth]
-          description: How the machine transitions to this step's target
+          enum: [fast, smooth, hold]
+          description: >-
+            How the machine transitions to this step's target. `fast` = jump,
+            `smooth` = ramp. `hold` (capable machines only) has NO authored
+            target: the firmware latches the value achieved at the exit of the
+            previous step (for this step's own control variable) and holds it
+            flat. Arming is refused with a `400` on a machine that does not
+            advertise the capability, and HOLD may not be the first step.
         exit:
           $ref: '#/components/schemas/StepExitCondition'
         volume:
@@ -6071,6 +6096,18 @@ components:
           type: number
           format: double
           description: Target flow rate in ml/s (present when pump=flow)
+        power:
+          type: number
+          format: double
+          description: Target hydraulic power in watts (present when pump=power; requires a pressure `limiter`)
+        leverSpring:
+          type: number
+          format: double
+          description: Lever spring rate k_V in bar per 10 ml delivered (present when pump=lever)
+        leverGive:
+          type: number
+          format: double
+          description: Lever give R_s in bar per ml/s (present when pump=lever)
         limiter:
           $ref: '#/components/schemas/StepLimiter'
 
@@ -6084,8 +6121,14 @@ components:
       properties:
         type:
           type: string
-          enum: [pressure, flow]
-          description: Which measurement to evaluate
+          enum: [pressure, flow, power]
+          description: >-
+            Which measurement to evaluate. `power` is hydraulic watts
+            (0.1 * pressure * flow) and requires a capable machine
+            (ProfileModeCaps bit3 = 0x8); arming a power exit on a machine
+            without it is refused with a 400. The exit variable is normally the
+            step's non-own variable (e.g. a pressure step exits on flow or
+            power).
         condition:
           type: string
           enum: [over, under]

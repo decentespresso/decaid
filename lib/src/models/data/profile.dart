@@ -135,11 +135,32 @@ BeverageType _parseBeverageType(dynamic value) {
   return BeverageType.espresso;
 }
 
-enum TransitionType { fast, smooth }
+// A HOLD step carries no user-selected target — at frame entry the firmware
+// latches the value the machine actually ACHIEVED at the exit of the previous
+// step (for the step's OWN control variable) and holds it flat for the frame.
+// HOLD is encoded as a NEW enum value (not an additive boolean key)
+// deliberately: an old client's `TransitionType.values.byName('hold')` THROWS
+// an ArgumentError -> a VISIBLE 400 at the REST boundary, whereas an unknown
+// additive key would be silently DROPPED on the toJson round-trip and
+// re-uploaded as a plain JUMP (forbidden — a silent target jump). A client that
+// knows `hold` round-trips it losslessly on ANY machine (a stock DE1 included)
+// via `.name`/`byName`; only execution/arming and the editor UI are gated by
+// the machine's advertised capability. The target field is ignored at
+// execution and stored as 0 so the base-frame fallback encodes to a benign
+// vent.
+enum TransitionType { fast, smooth, hold }
 
 enum TemperatureSensor { coffee, water }
 
-enum ExitType { pressure, flow }
+// `power` (hydraulic watts, W = 0.1 * pressure * flow) is a NEW enum value, not
+// an additive boolean/key, for the same skew reason as TransitionType.hold: an
+// old client's `ExitType.values.byName('power')` THROWS an ArgumentError -> a
+// VISIBLE 400 at the REST boundary, whereas a dropped additive key would round-
+// trip to a silent pressure/flow exit (a wrong early exit — forbidden). A client
+// that knows `power` round-trips it losslessly on ANY machine (a stock DE1
+// included) via `.name`/`byName`; only encoding/arming is gated by the machine's
+// advertised power-exit capability.
+enum ExitType { pressure, flow, power }
 
 enum ExitCondition { over, under }
 
@@ -194,6 +215,13 @@ abstract class ProfileStep extends Equatable {
       return ProfileStepPressure.fromJson(json);
     } else if (json.containsKey('pump') && json['pump'] == 'flow') {
       return ProfileStepFlow.fromJson(json);
+      // Additive per-frame pump modes. Bengle-only at execution time (gated by
+      // the capability read + arm-time refusal), but parsed and round-tripped
+      // everywhere so stored profiles stay machine-independent.
+    } else if (json.containsKey('pump') && json['pump'] == 'power') {
+      return ProfileStepPower.fromJson(json);
+    } else if (json.containsKey('pump') && json['pump'] == 'lever') {
+      return ProfileStepLever.fromJson(json);
     } else {
       throw Exception(
         'Invalid step type. Must include either "pressure" or "flow".',
@@ -376,6 +404,211 @@ class ProfileStepFlow extends ProfileStep {
     temperature,
     sensor,
     flow,
+    limiter,
+  ];
+}
+
+/// Constant-hydraulic-power pump step. Mirrors [ProfileStepPressure] exactly,
+/// with `power` (hydraulic watts, W = 0.1·P·F) as the target and a MANDATORY
+/// pressure `limiter` (the over-pressure cap the firmware shaper enforces). A
+/// power step with no/zero limiter is a schema violation: `fromJson` throws a
+/// [FormatException] the REST handlers map to a 400. `getTarget()` returns the
+/// power target (the base-frame SetVal, which capable firmware reinterprets as
+/// watts).
+class ProfileStepPower extends ProfileStep {
+  final double power;
+
+  const ProfileStepPower({
+    required super.name,
+    required super.transition,
+    super.exit,
+    required super.volume,
+    required super.seconds,
+    super.weight,
+    required super.temperature,
+    required super.sensor,
+    super.limiter,
+    required this.power,
+  });
+
+  @override
+  double getTarget() => power;
+
+  factory ProfileStepPower.fromJson(Map<String, dynamic> json) {
+    // The pressure limiter is the shaper's mandatory over-pressure cap: a
+    // power step is meaningless (and unsafe to send) without it.
+    final limiterJson = json['limiter'];
+    final limiter = limiterJson != null
+        ? StepLimiter.fromJson(limiterJson)
+        : null;
+    if (limiter == null || limiter.value == 0) {
+      throw const FormatException('power step requires a pressure limiter');
+    }
+    return ProfileStepPower(
+      name: json['name'],
+      transition: TransitionType.values.byName(json['transition']),
+      exit: json['exit'] != null
+          ? StepExitCondition.fromJson(json['exit'])
+          : null,
+      volume: parseDouble(json['volume']),
+      seconds: parseDouble(json['seconds']),
+      weight: parseOptionalDouble(json['weight']),
+      temperature: parseDouble(json['temperature']),
+      sensor: TemperatureSensor.values.byName(json['sensor']),
+      limiter: limiter,
+      power: parseDouble(json['power']),
+    );
+  }
+
+  @override
+  Map<String, dynamic> toJson() {
+    final data = {
+      'name': name,
+      'pump': 'power',
+      'transition': transition.name,
+      'exit': exit?.toJson(),
+      'volume': volume,
+      'seconds': seconds,
+      'weight': weight,
+      'temperature': temperature,
+      'sensor': sensor.name,
+      'power': power,
+      'limiter': limiter?.toJson(),
+    };
+    return data;
+  }
+
+  @override
+  ProfileStep copyWith({double? temperature}) {
+    return ProfileStepPower(
+      name: name,
+      transition: transition,
+      exit: exit,
+      volume: volume,
+      seconds: seconds,
+      weight: weight,
+      temperature: temperature ?? this.temperature,
+      sensor: sensor,
+      power: power,
+      limiter: limiter,
+    );
+  }
+
+  @override
+  List<Object?> get props => [
+    name,
+    transition,
+    exit,
+    volume,
+    seconds,
+    weight,
+    temperature,
+    sensor,
+    power,
+    limiter,
+  ];
+}
+
+/// Spring-lever pump step. Mirrors [ProfileStepPressure] exactly, reusing
+/// `pressure` for P₀ (the lever's starting pressure). `leverSpring` (k_V: bar
+/// per 10 mL delivered) and `leverGive` (R_s: bar per mL/s) shape the pressure
+/// decline the firmware computes. The `limiter` is an OPTIONAL flow cap (the
+/// stock max-flow machinery). `getTarget()` returns P₀.
+class ProfileStepLever extends ProfileStep {
+  final double pressure;
+  final double leverSpring;
+  final double leverGive;
+
+  const ProfileStepLever({
+    required super.name,
+    required super.transition,
+    super.exit,
+    required super.volume,
+    required super.seconds,
+    super.weight,
+    required super.temperature,
+    required super.sensor,
+    super.limiter,
+    required this.pressure,
+    required this.leverSpring,
+    required this.leverGive,
+  });
+
+  @override
+  double getTarget() => pressure;
+
+  factory ProfileStepLever.fromJson(Map<String, dynamic> json) {
+    return ProfileStepLever(
+      name: json['name'],
+      transition: TransitionType.values.byName(json['transition']),
+      exit: json['exit'] != null
+          ? StepExitCondition.fromJson(json['exit'])
+          : null,
+      volume: parseDouble(json['volume']),
+      seconds: parseDouble(json['seconds']),
+      weight: parseOptionalDouble(json['weight']),
+      temperature: parseDouble(json['temperature']),
+      sensor: TemperatureSensor.values.byName(json['sensor']),
+      limiter: json['limiter'] != null
+          ? StepLimiter.fromJson(json['limiter'])
+          : null,
+      pressure: parseDouble(json['pressure']),
+      leverSpring: parseDouble(json['leverSpring']),
+      leverGive: parseDouble(json['leverGive']),
+    );
+  }
+
+  @override
+  Map<String, dynamic> toJson() {
+    final data = {
+      'name': name,
+      'pump': 'lever',
+      'transition': transition.name,
+      'exit': exit?.toJson(),
+      'volume': volume,
+      'seconds': seconds,
+      'weight': weight,
+      'temperature': temperature,
+      'sensor': sensor.name,
+      'pressure': pressure,
+      'leverSpring': leverSpring,
+      'leverGive': leverGive,
+      'limiter': limiter?.toJson(),
+    };
+    return data;
+  }
+
+  @override
+  ProfileStep copyWith({double? temperature}) {
+    return ProfileStepLever(
+      name: name,
+      transition: transition,
+      exit: exit,
+      volume: volume,
+      seconds: seconds,
+      weight: weight,
+      temperature: temperature ?? this.temperature,
+      sensor: sensor,
+      pressure: pressure,
+      leverSpring: leverSpring,
+      leverGive: leverGive,
+      limiter: limiter,
+    );
+  }
+
+  @override
+  List<Object?> get props => [
+    name,
+    transition,
+    exit,
+    volume,
+    seconds,
+    weight,
+    temperature,
+    sensor,
+    pressure,
+    leverSpring,
+    leverGive,
     limiter,
   ];
 }

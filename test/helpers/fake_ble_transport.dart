@@ -293,6 +293,11 @@ class FakeBleTransport extends BLETransport {
     int refillKitPresent = 0,
     // calFlowEst has a read scale of 0.001, so raw 1000 is 1.0.
     int calFlowEst = 1000,
+    // ProfileModeCaps, read on every connect. Default 0 (unsupported)
+    // mirrors stock firmware / a stock DE1 so existing tests answer the read
+    // instantly instead of eating the fail-closed read timeout; a test for the
+    // new pump modes passes 0x3 (Power|Lever) or 0x7 (+HOLD).
+    int profileModeCaps = 0,
   }) {
     queueMmrResponseInt(MMRItem.v13Model, v13Model);
     queueMmrResponseInt(MMRItem.ghcInfo, ghcInfo);
@@ -301,6 +306,7 @@ class FakeBleTransport extends BLETransport {
     queueMmrResponseInt(MMRItem.heaterV, heaterV);
     queueMmrResponseInt(MMRItem.refillKitPresent, refillKitPresent);
     queueMmrResponseInt(MMRItem.calFlowEst, calFlowEst);
+    queueMmrResponseInt(MMRItem.profileModeCaps, profileModeCaps);
   }
 
   @override

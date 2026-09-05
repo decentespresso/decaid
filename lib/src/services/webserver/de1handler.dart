@@ -856,22 +856,52 @@ class De1Handler {
   }
 
   Future<Response> _profileHandler(Request request) async {
-    return withDe1((_) async {
-      final payload = await readBoundedRequestBodyString(
-        request,
-        maxBytes: largeRequestBodyBytes,
-        timeout: largeRequestBodyTimeout,
-      );
+    // UPSTREAM'S BOUND, THE CANARY'S PLACE. Two changes met here: upstream capped
+    // and timed the body read, and this fork moved the PARSE outside withDe1 so a
+    // malformed profile is a clean 400 rather than the opaque 500 the catch-all
+    // gives. Both are kept — the read is bounded AND it happens before withDe1.
+    // RequestBodyReadException propagates as it did before, which is what the
+    // `rethrow` inside withDe1 was already arranging.
+    final payload = await readBoundedRequestBodyString(
+      request,
+      maxBytes: largeRequestBodyBytes,
+      timeout: largeRequestBodyTimeout,
+    );
+    // A power step without its mandatory pressure limiter throws a FormatException
+    // here — also a client error.
+    Profile profile;
+    try {
+      final Map<String, dynamic> json = jsonDecode(payload);
+      profile = Profile.fromJson(json);
+    } on FormatException catch (e) {
+      return jsonBadRequest({'error': 'Invalid profile', 'message': '$e'});
+    } on ArgumentError catch (e) {
+      return jsonBadRequest({'error': 'Invalid profile', 'message': '$e'});
+    }
 
-      Map<String, dynamic> json;
+    return withDe1((de1) async {
       try {
-        json = jsonDecode(payload);
-      } catch (e) {
-        return jsonBadRequest({'error': 'Invalid JSON body'});
+        // Called directly rather than through runDeviceWrite: a capability
+        // refusal is deterministic, so replacement-retry buys nothing, and
+        // runDeviceWrite's catch-and-retry would turn the refusal into a 500
+        // instead of the 400 contract below.
+        await de1.setProfile(profile);
+        return jsonOk(null);
+      } on ProfileModeUnsupportedException catch (e) {
+        // The machine cannot run a Power/Lever step or a HOLD transition in this
+        // profile (arm-time refusal gate). Surface as a clean 400 with the
+        // refusal message, not the opaque 500 the withDe1 catch-all would give.
+        // Any OTHER StateError escaping setProfile is a genuine internal fault
+        // and stays a 500 (the withDe1 catch-all), not a mislabeled client 400.
+        return jsonBadRequest({
+          'error': 'Unsupported profile',
+          'message': e.message,
+        });
       }
-      Profile profile = Profile.fromJson(json);
-      await _controller.runDeviceWrite((device) => device.setProfile(profile));
-      return jsonOk(null);
+      // UPSTREAM DROPPED `retryOnReplacement: true` HERE; this fork had already
+      // dropped runDeviceWrite entirely, for the reason stated above — the retry
+      // turns a deterministic capability refusal into a 500. Same direction, taken
+      // further, so upstream's edit is subsumed rather than lost.
     });
   }
 
