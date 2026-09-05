@@ -15,9 +15,6 @@ class _ConfigurableScale extends TestScale implements UsbPowerConfigurable {
   int calls = 0;
 
   @override
-  bool get usbPowered => powered;
-
-  @override
   Future<void> setUsbPowered(bool value) async {
     calls++;
     if (fail) throw StateError('configuration failed');

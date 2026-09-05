@@ -33,9 +33,6 @@ class _InformationScale extends TestScale
   bool poweredByUsb = false;
 
   @override
-  bool get usbPowered => poweredByUsb;
-
-  @override
   Future<void> setUsbPowered(bool value) async {
     poweredByUsb = value;
   }

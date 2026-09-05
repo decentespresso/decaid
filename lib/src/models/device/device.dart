@@ -59,7 +59,6 @@ abstract interface class DeviceInformationCapable {
 }
 
 abstract interface class UsbPowerConfigurable {
-  bool get usbPowered;
   Future<void> setUsbPowered(bool value);
 }
 

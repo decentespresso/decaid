@@ -109,9 +109,6 @@ class Skale2Scale
       _deviceInformationController.stream;
 
   @override
-  bool get usbPowered => _usbPowered;
-
-  @override
   Future<void> setUsbPowered(bool value) async {
     if (value == _usbPowered) return;
     _usbPowered = value;
@@ -168,8 +165,6 @@ class Skale2Scale
             _weightSubscribed = false;
             _buttonSubscribed = false;
             _stopBatteryRefresh();
-            _batteryLevel = null;
-            _batterySupported = false;
             _clearDeviceInformation();
           });
 
@@ -190,8 +185,7 @@ class Skale2Scale
       if (!_usbPowered) _startBatteryRefresh(generation);
     } catch (e, st) {
       if (generation != _connectionGeneration) return;
-      _log.warning('Connect failed: $e');
-      _log.fine('Skale connection failure details', e, st);
+      _log.warning('Connect failed', e, st);
       _connectionGeneration++;
       _stopBatteryRefresh();
       await _transportDisconnectSubscription?.cancel();
@@ -208,8 +202,6 @@ class Skale2Scale
   Future<void> disconnect() async {
     _connectionGeneration++;
     _stopBatteryRefresh();
-    _batteryLevel = null;
-    _batterySupported = false;
     _clearDeviceInformation();
     try {
       await _transport.disconnect();
@@ -242,9 +234,7 @@ class Skale2Scale
     }
     if (!await _isConnectionActive(generation)) return;
 
-    if (_batterySupported && !_usbPowered) {
-      await _readBatteryLevel(generation);
-    }
+    await _readBatteryLevel(generation);
     if (!await _isConnectionActive(generation)) return;
 
     await Future.delayed(_initStepDelayOverride);
@@ -280,9 +270,7 @@ class Skale2Scale
         batteryService.long,
         batteryCharacteristic.long,
       );
-      if (data.length == 1 && data[0] <= 100) {
-        level = data[0];
-      }
+      level = data.length == 1 && data[0] <= 100 ? data[0] : null;
     } catch (e) {
       _log.fine('Skale battery level unavailable: $e');
     }
@@ -317,11 +305,10 @@ class Skale2Scale
       );
       if (!await _isConnectionActive(generation) || data.isEmpty) return;
 
-      var contentLength = data.length;
-      while (contentLength > 0 && data[contentLength - 1] == 0) {
-        contentLength--;
-      }
-      final value = utf8.decode(data.sublist(0, contentLength)).trim();
+      final value = utf8
+          .decode(data)
+          .replaceFirst(RegExp(r'\x00+$'), '')
+          .trim();
       if (value.isEmpty ||
           value.runes.any((rune) => rune < 0x20 || rune == 0x7F)) {
         return;

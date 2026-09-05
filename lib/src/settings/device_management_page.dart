@@ -24,11 +24,8 @@ class DeviceManagementPage extends StatefulWidget {
 
 class _DeviceManagementPageState extends State<DeviceManagementPage> {
   late StreamSubscription<List<Device>> _deviceSubscription;
-  final Map<
-    String,
-    (DeviceInformationCapable, StreamSubscription<DeviceInformation?>)
-  >
-  _deviceInformationSubscriptions = {};
+  final List<StreamSubscription<DeviceInformation?>>
+      _deviceInformationSubscriptions = [];
   List<Device> _devices = [];
 
   @override
@@ -49,8 +46,8 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
   @override
   void dispose() {
     _deviceSubscription.cancel();
-    for (final entry in _deviceInformationSubscriptions.values) {
-      entry.$2.cancel();
+    for (final subscription in _deviceInformationSubscriptions) {
+      subscription.cancel();
     }
     super.dispose();
   }
@@ -178,24 +175,16 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
   }
 
   void _syncDeviceInformationSubscriptions() {
-    final capable = {
-      for (final device in _devices.whereType<DeviceInformationCapable>())
-        (device as Device).deviceId: device,
-    };
-    final stale = _deviceInformationSubscriptions.keys
-        .where((id) => !capable.containsKey(id))
-        .toList();
-    for (final id in stale) {
-      _deviceInformationSubscriptions.remove(id)?.$2.cancel();
+    for (final subscription in _deviceInformationSubscriptions) {
+      subscription.cancel();
     }
-    for (final entry in capable.entries) {
-      final existing = _deviceInformationSubscriptions[entry.key];
-      if (existing != null && identical(existing.$1, entry.value)) continue;
-      existing?.$2.cancel();
-      final subscription = entry.value.deviceInformation.skip(1).listen((_) {
-        if (mounted) setState(() {});
-      });
-      _deviceInformationSubscriptions[entry.key] = (entry.value, subscription);
+    _deviceInformationSubscriptions.clear();
+    for (final device in _devices.whereType<DeviceInformationCapable>()) {
+      _deviceInformationSubscriptions.add(
+        device.deviceInformation.skip(1).listen((_) {
+          if (mounted) setState(() {});
+        }),
+      );
     }
   }
 
