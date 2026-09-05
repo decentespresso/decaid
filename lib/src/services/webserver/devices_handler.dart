@@ -100,10 +100,8 @@ class DevicesStateAggregator {
       }
       final subscriptions = <StreamSubscription>[
         device.connectionState.skip(1).listen((_) => _emitState()),
-        if (device is DeviceInformationCapable)
-          (device as DeviceInformationCapable).deviceInformation
-              .skip(1)
-              .listen((_) => _emitState()),
+        if (device case final DeviceInformationCapable capable)
+          capable.deviceInformation.skip(1).listen((_) => _emitState()),
       ];
       _deviceStateSubs[device.deviceId] = (device, subscriptions);
     }

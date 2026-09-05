@@ -55,7 +55,6 @@ class Skale2Scale implements Scale, DeviceInformationCapable {
   StreamSubscription<ConnectionState>? _transportDisconnectSubscription;
   String? _firmwareVersion;
   bool _batterySupported = false;
-  bool _deviceInformationActive = false;
 
   final BehaviorSubject<DeviceInformation?> _deviceInformationController =
       BehaviorSubject<DeviceInformation?>.seeded(null);
@@ -133,8 +132,6 @@ class Skale2Scale implements Scale, DeviceInformationCapable {
             _weightSubscribed = false;
             _buttonSubscribed = false;
             _stopBatteryRefresh();
-            _batteryLevel = null;
-            _batterySupported = false;
             _clearDeviceInformation();
           });
 
@@ -146,15 +143,13 @@ class Skale2Scale implements Scale, DeviceInformationCapable {
         );
       }
 
-      _deviceInformationActive = true;
       await _initScale(services, generation);
       if (!await _isConnectionActive(generation)) return;
       _connectionStateController.add(ConnectionState.connected);
       _startBatteryRefresh(generation);
     } catch (e, st) {
       if (generation != _connectionGeneration) return;
-      _log.warning('Connect failed: $e');
-      _log.fine('Skale connection failure details', e, st);
+      _log.warning('Connect failed', e, st);
       _connectionGeneration++;
       _stopBatteryRefresh();
       await _transportDisconnectSubscription?.cancel();
@@ -171,8 +166,6 @@ class Skale2Scale implements Scale, DeviceInformationCapable {
   Future<void> disconnect() async {
     _connectionGeneration++;
     _stopBatteryRefresh();
-    _batteryLevel = null;
-    _batterySupported = false;
     _clearDeviceInformation();
     try {
       await _transport.disconnect();
@@ -206,9 +199,7 @@ class Skale2Scale implements Scale, DeviceInformationCapable {
     if (!await _isConnectionActive(generation)) return;
 
     _batterySupported = batteryService.matchesAny(services);
-    if (_batterySupported) {
-      await _readBatteryLevel(generation);
-    }
+    await _readBatteryLevel(generation);
     if (!await _isConnectionActive(generation)) return;
 
     await Future.delayed(_initStepDelayOverride);
@@ -271,11 +262,10 @@ class Skale2Scale implements Scale, DeviceInformationCapable {
       );
       if (!await _isConnectionActive(generation) || data.isEmpty) return;
 
-      var contentLength = data.length;
-      while (contentLength > 0 && data[contentLength - 1] == 0) {
-        contentLength--;
-      }
-      final value = utf8.decode(data.sublist(0, contentLength)).trim();
+      final value = utf8
+          .decode(data)
+          .replaceFirst(RegExp(r'\x00+$'), '')
+          .trim();
       if (value.isEmpty ||
           value.runes.any((rune) => rune < 0x20 || rune == 0x7F)) {
         return;
@@ -296,7 +286,6 @@ class Skale2Scale implements Scale, DeviceInformationCapable {
   }
 
   void _publishDeviceInformation() {
-    if (!_deviceInformationActive) return;
     final information = DeviceInformation(
       firmwareVersion: _firmwareVersion,
       batteryLevel: _batteryLevel,
@@ -308,7 +297,6 @@ class Skale2Scale implements Scale, DeviceInformationCapable {
     _firmwareVersion = null;
     _batteryLevel = null;
     _batterySupported = false;
-    _deviceInformationActive = false;
     _deviceInformationController.add(null);
   }
 
