@@ -137,7 +137,7 @@ class ScaleController {
     }
     final buttonScale = scale as ScaleButtonCapable;
     _scaleButtons = buttonScale.buttonPresses.listen((button) {
-      if (_connectionGeneration == generation && identical(_scale, scale)) {
+      if (_connectionGeneration == generation) {
         _buttonController.add(button);
       }
     });
