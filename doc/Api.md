@@ -91,6 +91,18 @@ For browser clients on a different origin, `ETag` is exposed via `Access-Control
 | GET | `/api/v1/machine/scaleCalibration` | Read decoded scale-calibration state (step, cell, sub-state, seconds remaining, status) — Bengle only, 404 elsewhere | |
 | PUT | `/api/v1/machine/scaleCalibration` | Start `zero`/`latch`/`abort` calibration step (`weightGrams` 1–10000 required for `latch`); 202 accepted / 409 rejected (busy or shot in progress) — Bengle only | |
 
+#### Derived hydraulic channels
+
+`MachineSnapshot` carries three channels the app computes from pressure and group flow rather than
+reads from the machine: `puckResistance` (R = P / F², bar·s²/mL²), `loadImpedance` (Z = P / F,
+bar·s/mL) and `hydraulicPower` (W = 0.1 · P · F, watts — 1 bar × 1 mL/s = 0.1 W, and espresso sits
+at roughly 0.5–4 W).
+
+All three are gated on flow ≥ 0.3 mL/s **and** pressure ≥ 0.3 bar. Below either threshold the key is
+omitted from the payload entirely rather than sent as `null`. A client must read an absent key as
+"not computable right now", never as zero. The channels appear wherever a `MachineSnapshot` does,
+`/ws/v1/machine/snapshot` included.
+
 #### Firmware updates
 
 The catalog endpoint is available offline and without a connected machine. It returns bundled artifact metadata, compatibility and version eligibility, the recommended artifact, tri-state `updateAvailable`, and the shared machine operation state. The bundled Phase 1 artifact is official DE1 firmware build 1352 for `DE1Pro`, `DE1XL`, `DE1XXL`, and `DE1XXXL`.

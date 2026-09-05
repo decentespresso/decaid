@@ -653,6 +653,25 @@ components:
           type: integer
         steamTemperature:
           type: number
+        puckResistance:
+          type: number
+          description: >
+            Puck hydraulic resistance R = P / F² in bar·s²/mL², derived
+            from pressure and flow. Only computed when flow >= 0.3 mL/s and
+            pressure >= 0.3 bar; when gated the key is omitted entirely
+            (never null).
+        loadImpedance:
+          type: number
+          description: >
+            Hydraulic load impedance Z = P / F in bar·s/mL, derived from
+            pressure and flow. Same >= 0.3 gating as puckResistance; key
+            omitted when gated.
+        hydraulicPower:
+          type: number
+          description: >
+            Hydraulic power delivered to the puck, W = 0.1 · P · F in watts
+            (1 bar × 1 mL/s = 0.1 W; espresso is roughly 0.5–4 W). Same >= 0.3
+            gating as puckResistance; key omitted when gated.
     MachineState:
       type: string
       enum:
