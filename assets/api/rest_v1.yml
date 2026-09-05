@@ -591,6 +591,67 @@ paths:
         "500":
           description: No machine was connected, the machine changed during the write, or the write failed
 
+  /api/v1/machine/ledStrip/preview:
+    post:
+      summary: Show colours on the strips without storing them
+      description: |
+        Writes the firmware's LIVE strip registers, which light the strips at
+        once and are recomputed from the stored palette at the next sleep or
+        wake transition. Nothing here decides what a state looks like.
+
+        This is the only way to show an ASLEEP colour on an awake machine: a
+        stored write is kept and not lit, because the firmware applies a stored
+        colour only when the machine is already in the state it belongs to.
+
+        Name at least one strip. Colours use the same spelling as
+        `GET /machine/ledStrip`. Returns 404 when the connected machine is not
+        a Bengle.
+      tags: [Machine]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                frontStrip:
+                  type: string
+                  description: 16-bit RRRRGGGGBBBB
+                backStrip:
+                  type: string
+                  description: 16-bit RRRRGGGGBBBB
+              example: { frontStrip: "FF00D900A000" }
+      responses:
+        "202":
+          description: Preview accepted
+        "400":
+          description: Body was not JSON, or named neither strip
+        "404":
+          description: Machine connected but does not support LED strip
+        "503":
+          description: Machine write queue is full
+        "500":
+          description: No machine was connected, the machine changed during the write, or the write failed
+
+  /api/v1/machine/ledStrip/preview/clear:
+    post:
+      summary: End a preview and restore the stored palette
+      description: |
+        Puts the strips back to the stored colours for the state the machine is
+        in. A preview otherwise stands until the next sleep or wake transition,
+        which may be hours away. Returns 404 when the connected machine is not
+        a Bengle.
+      tags: [Machine]
+      responses:
+        "202":
+          description: Preview cleared
+        "404":
+          description: Machine connected but does not support LED strip
+        "503":
+          description: Machine write queue is full
+        "500":
+          description: No machine was connected, the machine changed during the write, or the write failed
+
   /api/v1/machine/ledStrip/commit:
     post:
       summary: Commit LED strip config to NVM (compatibility no-op)
