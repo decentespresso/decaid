@@ -73,6 +73,8 @@ import 'package:reaprime/src/services/universal_ble_discovery_service.dart';
 import 'package:reaprime/src/services/simulated_device_service.dart';
 import 'package:reaprime/src/services/webserver/data_export/backup_data_sources.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
+import 'package:reaprime/src/services/webserver/port_binding.dart';
+import 'package:reaprime/src/ui/webserver_port_conflict_app.dart';
 import 'package:reaprime/src/services/macos_updater.dart';
 import 'package:reaprime/src/services/update_check_service.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
@@ -599,6 +601,12 @@ void main(List<String> args) async {
       proxyTokenService: proxyTokenService,
       updateCheckService: updateCheckService,
     );
+  } on WebServerPortInUse catch (e) {
+    log.severe(
+      'port ${e.port} already in use; refusing to boot without the API',
+    );
+    runApp(WebServerPortConflictApp(port: e.port));
+    return;
   } catch (e, st) {
     log.severe('failed to start web server', e, st);
   }

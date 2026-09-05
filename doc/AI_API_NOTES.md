@@ -148,6 +148,61 @@ All four machine sockets: `/ws/v1/machine/snapshot`, `/ws/v1/machine/shotSetting
 
 **Full gateway mode is explicitly exempt**, checked via `settingsController.gatewayMode == GatewayMode.full` alongside the shot-state check — not left implicit. In `full` mode the skin owns the shot and `De1StateManager` normally never starts its own `ShotSequencer` for it, so `currentShotState` would usually stay idle anyway; but the launcher/home-screen path in `De1StateManager._handleEspressoState` starts an app-owned `ShotSequencer` "regardless of mode" whenever the app's own home screen is foregrounded, even under `full` gateway mode. Relying on ShotSequencer-absence alone would make the lockout accidentally engage in that edge case, which is out of scope for the setting's intent (it exists to protect app-tracked shots, not skin-owned ones) — hence the explicit gateway-mode check rather than an inferred one.
 
+## Fixed Port Already Bound
+
+### Problem
+
+`startWebServer` binds two fixed ports: 8080 for the REST and WebSocket API, and
+4001 for the API docs. `main()` wrapped the call in a bare `catch` that logged
+`failed to start web server` and carried on, so a bind failure left the app
+running with no API at all.
+
+That failure was close to invisible. The WebUI binds an ephemeral port and is
+unaffected, so the skin still loaded and the app looked normal; only every REST
+call and every WebSocket behind it was gone. `BootTiming.mark('webserver_up')`
+fired either way. The user saw an app that opened correctly and then misbehaved,
+with the reason only in the log.
+
+Two Decaid-family apps installed on one device share those fixed ports, so the
+common cause is that the other one is already running.
+
+### Solution
+
+`lib/src/services/webserver/port_binding.dart` wraps both binds.
+`serveOrReportPortInUse` raises a typed `WebServerPortInUse`; `main()` catches it
+and runs `WebServerPortConflictApp` instead of the app.
+
+### Design Choices
+
+- **Only EADDRINUSE is a port clash.** Every other `SocketException` is
+  rethrown unchanged so it keeps its own error path. A check that treated all of
+  them as a clash would tell the user to close an app that is not running.
+- **The errno set is per platform.** Dart reports the raw OS code and does not
+  normalise it: 98 on Linux and Android, 48 on macOS and iOS, 10048 on Windows.
+- **A same-process double bind carries no errno.** Dart refuses it before the OS
+  sees it and raises its own message, "The shared flag to bind() needs to be
+  `true` ...". That is the same condition for the user, so `isAddressInUse`
+  matches on `sameProcessBindClashMessage` as well. Matching a message is
+  brittle, so a test pins the wording: a Dart change fails that test rather than
+  letting the check fall through to the unknown-failure path. This is also why
+  an in-process test can exercise `serveOrReportPortInUse` at all.
+- **The boot stops.** Continuing would present a working-looking app with
+  nothing behind it, which is the defect this replaces.
+- **The screen does not close the other app.** Android does not let one app stop
+  another; `killBackgroundProcesses` needs its own permission and only ever
+  touches background processes. The screen offers "Check again", which re-probes
+  the port, and "Close this app".
+- **`probePortIsFree` is injected into the screen.** A widget test drives a fake
+  clock and real socket I/O never settles under it, so the widget takes a
+  `PortProbe`. The real probe is covered separately in a plain test.
+
+### Focused Tests
+
+```
+flutter test test/unit/services/webserver/port_binding_test.dart
+flutter test test/unit/ui/webserver_port_conflict_app_test.dart
+```
+
 ## Keeping Notes Fresh
 
 Add protocol compatibility rules, API versioning decisions, and endpoint design rationale. Prune when specs are updated.
