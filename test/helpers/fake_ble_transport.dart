@@ -111,6 +111,15 @@ class FakeBleTransport extends BLETransport {
   @override
   Future<List<String>> discoverServices() async => [de1ServiceUUID];
 
+  /// Characteristic UUIDs this fake peripheral claims to expose. Defaults to
+  /// NONE, matching firmware that predates a given characteristic, so an
+  /// optional subscribe must be explicitly enabled by a test.
+  List<String> presentCharacteristics = const [];
+
+  @override
+  Future<List<String>> discoverCharacteristics(String serviceUUID) async =>
+      presentCharacteristics;
+
   @override
   Future<Uint8List> read(
     String serviceUUID,

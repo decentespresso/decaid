@@ -1,3 +1,4 @@
+import 'package:reaprime/src/models/device/impl/de1/unified_de1/bengle_est_sample.dart';
 import 'dart:async';
 import 'dart:math';
 import 'dart:typed_data';
@@ -338,6 +339,10 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   Stream<bool> get probeAttached => Stream<bool>.value(false);
   @override
   Stream<double> get probeTemperature => const Stream<double>.empty();
+
+  @override
+  Stream<BengleEstSample> get puckEstimator =>
+      const Stream<BengleEstSample>.empty();
 
   @override
   Stream<bool> get ready => _synthetic.ready;

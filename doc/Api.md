@@ -91,6 +91,18 @@ For browser clients on a different origin, `ETag` is exposed via `Access-Control
 | GET | `/api/v1/machine/scaleCalibration` | Read decoded scale-calibration state (step, cell, sub-state, seconds remaining, status) — Bengle only, 404 elsewhere | |
 | PUT | `/api/v1/machine/scaleCalibration` | Start `zero`/`latch`/`abort` calibration step (`weightGrams` 1–10000 required for `latch`); 202 accepted / 409 rejected (busy or shot in progress) — Bengle only | |
 
+#### Derived hydraulic channels
+
+`MachineSnapshot` carries three channels the app computes from pressure and group flow rather than
+reads from the machine: `puckResistanceDerived` (R = P / F², bar·s²/mL²), `loadImpedanceDerived`
+(Z = P / F, bar·s/mL) and `hydraulicPowerDerived` (W = 0.1 · P · F, watts — 1 bar × 1 mL/s = 0.1 W, and espresso sits
+at roughly 0.5–4 W).
+
+All three are gated on flow ≥ 0.3 mL/s **and** pressure ≥ 0.3 bar. Below either threshold the key is
+omitted from the payload entirely rather than sent as `null`. A client must read an absent key as
+"not computable right now", never as zero. The channels appear wherever a `MachineSnapshot` does,
+`/ws/v1/machine/snapshot` included.
+
 #### Firmware updates
 
 The catalog endpoint is available offline and without a connected machine. It returns bundled artifact metadata, compatibility and version eligibility, the recommended artifact, tri-state `updateAvailable`, and the shared machine operation state. The bundled Phase 1 artifact is official DE1 firmware build 1352 for `DE1Pro`, `DE1XL`, `DE1XXL`, and `DE1XXXL`.
@@ -395,6 +407,22 @@ same request prevent all fields from being stored (validation is atomic).
 | GET | `/api/v1/sensors/:id` | Get sensor manifest | |
 | POST | `/api/v1/sensors/:id/execute` | Execute sensor command | |
 
+#### Bengle puck estimator
+
+A Bengle that streams `BengleEstSample` frames publishes them as a sensor. Its id is
+`<machineDeviceId>-puckestimator` and its name is `Bengle Puck Estimator`. It exposes no commands.
+Read its manifest at `GET /api/v1/sensors/:id` and stream it at `/ws/v1/sensors/:id/snapshot`.
+
+Channels: `r1` (bar·s/mL), `r2` (bar·s²/mL²), `compliance` (mL/bar), `confidence`, `lag` (s),
+`lagConfidence`, `sigmaQ` (mL/s), `absorbedVolume` (mL), `lastPauseTau` (s), the four `collapse*`
+detector channels, and `hydraulicPowerMeasured` (W, firmware rev 3 and later), plus `timestamp`,
+`rev` and `flags`. A channel the firmware does not report is omitted, never sent as `null`.
+
+`r1`, `r2` and `hydraulicPowerMeasured` are the measured counterparts of `loadImpedanceDerived`,
+`puckResistanceDerived` and `hydraulicPowerDerived` on `MachineSnapshot` — same quantity, same units,
+but computed from the flow through the puck instead of the reported group flow. Prefer the measured
+channel when the machine offers it. The two sources gate differently, so they go absent at different
+moments in a shot, and a client that switches source mid-shot sees the gaps move.
 Plugin-backed sensors registered through `host.devices` use this same API and
 the device inventory. Their stable IDs have the form
 `plugin:<pluginId>:<driverId>:<instanceId>`. Sensor manifests expose command

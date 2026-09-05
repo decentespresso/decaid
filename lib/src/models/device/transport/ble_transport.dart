@@ -8,6 +8,21 @@ abstract class BLETransport extends DataTransport {
 
   Future<List<String>> discoverServices();
 
+  /// Characteristic UUIDs present on [serviceUUID], as discovered on this
+  /// connection.
+  ///
+  /// Exists so a caller can check a characteristic is really there BEFORE
+  /// subscribing to it. Subscribing blind is not a benign no-op: the CCCD write
+  /// against a characteristic the peripheral never registered stalls the
+  /// command queue, which is why optional characteristics were previously
+  /// serial-only.
+  ///
+  /// Defaults to empty — a transport that cannot enumerate characteristics
+  /// reports none, so callers fail CLOSED and simply skip the optional
+  /// subscribe rather than risking the stall.
+  Future<List<String>> discoverCharacteristics(String serviceUUID) async =>
+      const [];
+
   Future<ConnectionState> getConnectionState();
 
   Future<void> subscribe(

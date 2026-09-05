@@ -37,6 +37,7 @@ import 'package:shadcn_ui/shadcn_ui.dart' hide Scale;
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
+import 'package:reaprime/src/controllers/sensor_controller.dart';
 import 'package:reaprime/src/controllers/battery_controller.dart';
 import 'package:reaprime/src/launcher/launcher_view.dart';
 import 'package:reaprime/src/launcher/launcher_scan_page.dart';
@@ -92,6 +93,7 @@ class MyApp extends StatefulWidget {
     required this.displayController,
     required this.connectionManager,
     required this.scanStateGuardian,
+    this.sensorController,
     this.updateCheckService,
     this.macosUpdater,
     this.beanStorage,
@@ -116,6 +118,9 @@ class MyApp extends StatefulWidget {
   final WebViewLogService webViewLogService;
   final PresenceController presenceController;
   final DisplayController displayController;
+
+  /// Optional: when present, shots record each attached sensor's channels.
+  final SensorController? sensorController;
   final ConnectionManager connectionManager;
   final ScanStateGuardian scanStateGuardian;
   final UpdateCheckService? updateCheckService;
@@ -236,6 +241,7 @@ class _MyAppState extends State<MyApp> {
       settingsController: widget.settingsController,
       connectionManager: widget.connectionManager,
       accountService: widget.decentAccountService,
+      sensorController: widget.sensorController,
       navigatorKey: NavigationService.navigatorKey,
     );
   }

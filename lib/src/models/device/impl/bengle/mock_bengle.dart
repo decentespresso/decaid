@@ -6,6 +6,7 @@ import 'package:reaprime/src/models/firmware_wake_window.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/models/device/impl/simulated_shot_weight_model.dart';
 import 'package:reaprime/src/models/device/led_strip.dart';
+import 'package:reaprime/src/models/device/impl/de1/unified_de1/bengle_est_sample.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/scale_calibration.dart';
@@ -201,11 +202,23 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
   late final BehaviorSubject<bool> _probeAttachedSubject;
   final PublishSubject<double> _probeTemperatureSubject =
       PublishSubject<double>();
+  final PublishSubject<BengleEstSample> _puckEstimatorSubject =
+      PublishSubject<BengleEstSample>();
 
   static const double _probeStartTemp = 4.0;
   static const double _probeRiseRate = 5.0;
   double _probeTemp = _probeStartTemp;
   DateTime? _lastProbeTickAt;
+
+  @override
+  Stream<BengleEstSample> get puckEstimator => _puckEstimatorSubject.stream;
+
+  /// Simulation hook: publish a decoded estimator frame as if the firmware had
+  /// sent one. Nothing emits on its own -- a mock must never advertise observer
+  /// data the real serial-only stream would not produce.
+  void emitPuckEstimator(BengleEstSample sample) {
+    if (!_puckEstimatorSubject.isClosed) _puckEstimatorSubject.add(sample);
+  }
 
   @override
   Stream<ScaleSnapshot> get weightSnapshot => _weight.stream;
@@ -363,6 +376,9 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
     }
     if (!_probeTemperatureSubject.isClosed) {
       await _probeTemperatureSubject.close();
+    }
+    if (!_puckEstimatorSubject.isClosed) {
+      await _puckEstimatorSubject.close();
     }
     await super.onDisconnect();
   }

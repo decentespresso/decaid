@@ -385,6 +385,24 @@ class UniversalBleTransport extends BLETransport {
     return operation;
   }
 
+  /// serviceUUID (lowercase) -> characteristic UUIDs (lowercase), captured at
+  /// discovery. Replaced wholesale on each discovery so a reconnect can never
+  /// leave a stale characteristic looking present.
+  Map<String, List<String>> _characteristicsByService = const {};
+
+  void _cacheCharacteristics(List<BleService> services) {
+    _characteristicsByService = {
+      for (final service in services)
+        service.uuid.toLowerCase(): [
+          for (final c in service.characteristics) c.uuid.toLowerCase(),
+        ],
+    };
+  }
+
+  @override
+  Future<List<String>> discoverCharacteristics(String serviceUUID) async =>
+      _characteristicsByService[serviceUUID.toLowerCase()] ?? const [];
+
   @override
   Future<List<String>> discoverServices() =>
       _lifecycleGate.run(_device.deviceId, _discoverServicesLocked);
@@ -398,6 +416,7 @@ class UniversalBleTransport extends BLETransport {
       _log.fine(
         "discovered services: ${services.map((e) => e.toString()).toList().join('\n')}",
       );
+      _cacheCharacteristics(services);
       return services.map((s) => s.uuid).toList();
     }
 
@@ -422,6 +441,7 @@ class UniversalBleTransport extends BLETransport {
       timeout: const Duration(seconds: 15),
     );
     _log.fine('discovered ${services.length} services');
+    _cacheCharacteristics(services);
     return services.map((service) => service.uuid).toList();
   }
 

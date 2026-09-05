@@ -18,7 +18,8 @@ class Bengle extends UnifiedDe1
         LedStripCapability,
         ScaleCalibrationCapability,
         CupWarmerCapability,
-        WakeScheduleCapability
+        WakeScheduleCapability,
+        PuckEstimatorCapability
     implements BengleInterface {
   Bengle({required super.transport});
 
@@ -111,6 +112,10 @@ class Bengle extends UnifiedDe1
       );
     }
     await enableBengleShotSample();
+    // Optional: only firmware that registers the characteristic has it, and on
+    // serial it is already subscribed at connect. A false here is normal, not
+    // an error -- the puck-estimator sensor simply never registers.
+    await enableEstimator();
     _probeSub = notificationsFor(
       Endpoint.bengleShotSample,
     ).listen(_handleProbeSample);
