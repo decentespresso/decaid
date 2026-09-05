@@ -978,6 +978,7 @@ class PluginLoaderService {
       'assets/plugins/dye2.reaplugin',
       'assets/plugins/decent-profile.reaplugin',
       'assets/plugins/shot-upload.reaplugin',
+      'assets/plugins/weather.reaplugin',
       'assets/plugins/dcamp.reaplugin',
     ];
   }

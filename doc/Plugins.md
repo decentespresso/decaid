@@ -801,9 +801,47 @@ it in Decaid UI.
 - HTTP/fetch cannot reach localhost or private IPs (except for the Decaid
   API); `host.transport` has no such restriction
 
+## Weather Plugin
+
+`weather.reaplugin` supplies local weather to a skin: the temperature now, and rain split
+by part of the day. It emits on the `weather` channel, so a skin reads it at
+`ws/v1/plugins/weather.reaplugin/weather`.
+
+It ships from [ChampionDesigns/decaid-weather-plugin](https://github.com/ChampionDesigns/decaid-weather-plugin)
+and is fetched, not committed — see **External First-Party Plugins** below. Do weather
+behaviour work in that repository, not against the generated Decaid asset.
+
+Settings are declared in the manifest, so the Plugins page generates the form: `Location`
+(a town or suburb, geocoded once and kept as coordinates), `RefreshMinutes`, and `Units`.
+
+### Why the plugin buckets the forecast
+
+Open-Meteo's daily answer carries one rain probability for the whole day. The question a
+person asks standing at a machine is narrower than that, so the plugin reads the hourly
+series and buckets it into three parts of a day: `AM` 06-12, `PM` 12-18, `NIGHT` 18-06.
+The night bucket wraps midnight, which is why it is held as a start hour and a length
+rather than a pair of bounds; at 02:00 the running night began at 18:00 the previous day.
+
+`periods` is emitted forward only, the running part first, so a client renders a rolling
+window without doing clock arithmetic of its own. The probability across a bucket is the
+peak rather than the mean: one likely hour inside an otherwise dry afternoon is the thing
+a reader wanted warning of, and an average hides it. Rainfall is summed.
+
+### Why it re-emits on a heartbeat
+
+`_handlePluginSocketEndpoint` subscribes a new socket to the live emit stream and replays
+nothing, so a client that connects between two fetches receives nothing until the next
+one. At a thirty-minute refresh that is a blank widget for up to half an hour after every
+reload. The plugin therefore re-emits its cached reading every thirty seconds. The same
+beat keeps `ageMinutes` advancing, which is what lets a client decide a reading has gone
+stale.
+
+A failed fetch does not clear the cache. The last reading keeps being published with its
+true age, and the client decides when it is too old to show.
+
 ## External First-Party Plugins
 
-DYE2 ships from [decentespresso/dye2](https://github.com/decentespresso/dye2), the Decent shot upload plugin ships from [decentespresso/shot-upload](https://github.com/decentespresso/shot-upload), and the dcamp community plugin ships from [decentespresso/decaid-dcamp-plugin](https://github.com/decentespresso/decaid-dcamp-plugin). Each repository publishes a `.reaplugin` directory as a release ZIP. CI and local setup run `scripts/fetch_dye2_plugin.sh`, `scripts/fetch_shot_upload_plugin.sh`, and `scripts/fetch_dcamp_plugin.sh` to download pinned releases, verify their checksums and manifest contracts, and unpack them into `assets/plugins/`. Bump a plugin's pinned version and checksum in a normal PR when its repository publishes a new release.
+DYE2 ships from [decentespresso/dye2](https://github.com/decentespresso/dye2), the Decent shot upload plugin ships from [decentespresso/shot-upload](https://github.com/decentespresso/shot-upload), the dcamp community plugin ships from [decentespresso/decaid-dcamp-plugin](https://github.com/decentespresso/decaid-dcamp-plugin), and the weather plugin ships from [ChampionDesigns/decaid-weather-plugin](https://github.com/ChampionDesigns/decaid-weather-plugin). Each repository publishes a `.reaplugin` directory as a release ZIP. CI and local setup run `scripts/fetch_dye2_plugin.sh`, `scripts/fetch_shot_upload_plugin.sh`, `scripts/fetch_dcamp_plugin.sh`, and `scripts/fetch_weather_plugin.sh` to download pinned releases, verify their checksums and manifest contracts, and unpack them into `assets/plugins/`. Bump a plugin's pinned version and checksum in a normal PR when its repository publishes a new release.
 
 `packages/dye2-plugin/` still holds the DYE2 plugin's original TypeScript + Vite source and is useful as a reference for advanced patterns (REST API client, HTML template rendering, Vite dev server — see `packages/dye2-plugin/README.md`), but it is **not** built or bundled by Decaid anymore and is not authoritative for what ships. Treat the external repositories as the source of truth; update the in-tree DYE2 copy only if it is being kept in sync deliberately.
 
@@ -886,7 +924,7 @@ older one does not.
 
 Bundled plugins published from a GitHub repo also take part in normal update
 checks. `bundledPluginRepos` in `plugin_source_service.dart` maps DYE2, shot
-upload, and dcamp to their canonical repositories. The first update check or visit to the
+upload, dcamp, and weather to their canonical repositories. The first update check or visit to the
 Plugins screen seeds `.rea_source.json` as a `github_release` source tagged with
 the installed manifest version. Existing installs from before source tracking
 are seeded the same way, so both plugins start receiving releases without a

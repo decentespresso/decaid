@@ -39,6 +39,14 @@ void main() {
       PluginPermissions.eventsMachine,
       PluginPermissions.eventsShots,
     },
+    'weather.reaplugin': {
+      PluginPermissions.log,
+      // The plugin fetches from Open-Meteo. Without `api` the request is
+      // refused and the plugin emits nothing at all.
+      PluginPermissions.api,
+      PluginPermissions.emit,
+      PluginPermissions.pluginStorage,
+    },
   };
   const versionsBeforePermissionEnforcement = <String, String>{
     'time-to-ready.reaplugin': '1.0.2',
