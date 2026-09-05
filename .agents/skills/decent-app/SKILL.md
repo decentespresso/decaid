@@ -5,7 +5,7 @@ description: Drive or verify a running Decent app via sb-dev, REST, WebSockets, 
 
 # Decent app runtime
 
-Use this skill to drive a running Decent Flutter app from the shell. Simulate mode is the default; `--real` uses BLE or USB hardware, with `--adb-forward` when the app runs on Android.
+Use this skill to drive a running Decent Flutter app from the shell. Simulate mode is the default; `--real` stops injecting `--dart-define=simulate=1` so BLE or USB hardware can be used, with `--adb-forward` when the app runs on Android. Persisted simulated-device settings still apply.
 
 This is an Agent Skills-compatible bundle. Codex discovers repository skills under `.agents/skills`; other clients may use different discovery locations. Claude Code uses the forwarder under `.claude/skills/decent-app/`.
 
@@ -53,8 +53,9 @@ scripts/sb-dev.sh start \
   --adb-forward \
   --connect-machine DE1 \
   --preferred-machine-id D9:11:0B:E6:9F:86
+curl -sf http://localhost:8080/api/v1/settings | jq -e '.simulatedDevices == []'
 curl -sf http://localhost:8080/api/v1/devices | jq .
 scripts/sb-dev.sh stop
 ```
 
-`--connect-machine` matches the scan result by name or ID. In real mode, use `--preferred-machine-id` when the saved preference must target a BLE MAC or UUID.
+Before a hardware smoke test, verify that `GET /api/v1/settings` reports an empty `simulatedDevices` list. See `lifecycle.md` for the preflight and cleanup commands. `--connect-machine` matches the scan result by name or ID. In real mode, use `--preferred-machine-id` when the saved preference must target a BLE MAC or UUID.

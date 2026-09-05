@@ -1,6 +1,6 @@
 # sb-dev lifecycle
 
-`scripts/sb-dev.sh` drives `flutter run` on macOS and Linux. It starts in simulate mode unless `--real` is passed, waits for the REST server, owns the Flutter process, and supports reload, restart, logs, and shutdown. Windows users should run `flutter run` directly and use the other skill files normally.
+`scripts/sb-dev.sh` drives `flutter run` on macOS and Linux. It injects `--dart-define=simulate=1` by default; `--real` omits that define. The script waits for the REST server, owns the Flutter process, and supports reload, restart, logs, and shutdown. Windows users should run `flutter run` directly and use the other skill files normally.
 
 ## Prerequisites
 
@@ -21,7 +21,7 @@ Run commands from the repository root as `scripts/sb-dev.sh <command>`.
 | `--connect-scale <name|id>` | In simulate mode, set `preferredScaleId`. |
 | `--preferred-machine-id <id>` | Explicitly set `preferredMachineId`; use a BLE MAC or UUID in real mode. |
 | `--preferred-scale-id <id>` | Explicitly set `preferredScaleId`. |
-| `--real` | Disable simulated-device registration. |
+| `--real` | Do not inject `--dart-define=simulate=1`; persisted simulated-device settings still apply. |
 | `--adb-forward` | Forward the REST port to an Android device until `stop`. |
 | `--dart-define <key=value>` | Pass an additional Dart define; repeat as needed. |
 
@@ -40,6 +40,24 @@ scripts/sb-dev.sh start \
   --adb-forward \
   --connect-machine DE1 \
   --preferred-machine-id D9:11:0B:E6:9F:86
+```
+
+`--real` does not clear simulations enabled in Settings. After settings load, the app combines dart-define devices with the persisted `simulatedDevices` selection. Before a hardware smoke test, verify that the persisted selection is empty:
+
+```bash
+curl -sf http://localhost:8080/api/v1/settings \
+  | jq -e '.simulatedDevices == []'
+```
+
+If the check fails, clear the selection and restart with the saved `--real` flags before testing hardware:
+
+```bash
+curl -sf -X POST http://localhost:8080/api/v1/settings \
+  -H 'content-type: application/json' \
+  -d '{"simulatedDevices":[]}'
+scripts/sb-dev.sh restart
+curl -sf http://localhost:8080/api/v1/settings \
+  | jq -e '.simulatedDevices == []'
 ```
 
 ### Status and logs
