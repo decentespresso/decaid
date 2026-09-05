@@ -524,6 +524,115 @@ void main() {
       await tester.pump();
       expect(exited, isTrue);
     });
+
+    testWidgets('escaped picker can connect the listed machine', (
+      tester,
+    ) async {
+      final machine = FakeDe1(deviceId: 'm1', name: 'DE1 #1');
+      discovery.addDevice(machine);
+      mockCm.emitStatus(
+        ConnectionStatus(
+          phase: ConnectionPhase.idle,
+          foundMachines: [machine],
+          error: connectError(),
+        ),
+      );
+
+      await tester.pumpWidget(
+        buildView(initialConnectionIntent: () => mockCm.scanAndConnect()),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('View found devices'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('DE1 #1'), findsOneWidget);
+      expect(find.text('Connect'), findsOneWidget);
+
+      await tester.tap(find.text('Connect'));
+      await tester.pump();
+      expect(mockCm.connectMachineCallCount, 1);
+    });
+
+    testWidgets('device-list override resets when a new scan starts', (
+      tester,
+    ) async {
+      final machine = FakeDe1(deviceId: 'm1', name: 'DE1 #1');
+      discovery.addDevice(machine);
+      mockCm.emitStatus(
+        ConnectionStatus(
+          phase: ConnectionPhase.idle,
+          foundMachines: [machine],
+          error: connectError(),
+        ),
+      );
+
+      await tester.pumpWidget(
+        buildView(initialConnectionIntent: () => mockCm.scanAndConnect()),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('View found devices'));
+      await tester.pumpAndSettle();
+      expect(find.text('Connection Error'), findsNothing);
+
+      mockCm.emitStatus(
+        const ConnectionStatus(phase: ConnectionPhase.scanning),
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(
+        find.textContaining('Scanning for your Decent machine'),
+        findsOneWidget,
+      );
+
+      mockCm.emitStatus(
+        ConnectionStatus(phase: ConnectionPhase.idle, error: connectError()),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Connection Error'), findsOneWidget);
+      expect(find.text('Retry'), findsOneWidget);
+
+      await tester.tap(find.text('Retry'));
+      await tester.pump();
+      expect(mockCm.scanAndConnectCallCount, 2);
+    });
+
+    testWidgets('scanning view reports real progress copy', (tester) async {
+      mockCm.emitStatus(
+        const ConnectionStatus(phase: ConnectionPhase.scanning),
+      );
+
+      await tester.pumpWidget(
+        buildView(initialConnectionIntent: () => mockCm.scanAndConnect()),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(
+        find.textContaining('Scanning for your Decent machine'),
+        findsOneWidget,
+      );
+
+      discovery.addDevice(FakeDe1(deviceId: 'm1', name: 'DE1 #1'));
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(
+        find.textContaining('Found 1 device. Still scanning'),
+        findsOneWidget,
+      );
+
+      await tester.pump(
+        ScanFlowView.scanTooLongThreshold + const Duration(seconds: 1),
+      );
+      expect(
+        find.textContaining('Scanning is taking longer than usual'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('devices are powered on and in range'),
+        findsOneWidget,
+      );
+    });
   });
 
   group('stale-scan recovery', () {

@@ -302,8 +302,8 @@ class ScanFlowViewState extends State<ScanFlowView> {
 
   String _scanningMessage() {
     if (_showTakingTooLong) {
-      return 'Scanning is taking longer than usual. Check that the machine is '
-          'powered on and in range.';
+      return 'Scanning is taking longer than usual. Check that your devices '
+          'are powered on and in range.';
     }
     if (_totalDiscovered == 0) {
       return 'Scanning for your Decent machine and scale...';
@@ -482,6 +482,18 @@ class ScanFlowViewState extends State<ScanFlowView> {
         _status.foundScales.isNotEmpty &&
         !_status.foundScales.any((s) => s.deviceId == preferredScaleId);
 
+    De1Interface? connectTarget;
+    if (_status.foundMachines.length == 1) {
+      connectTarget = _status.foundMachines.first;
+    } else if (preferredMachineId != null) {
+      for (final machine in _status.foundMachines) {
+        if (machine.deviceId == preferredMachineId) {
+          connectTarget = machine;
+          break;
+        }
+      }
+    }
+
     final machineHeader = preferredMachineNotFound
         ? "Your preferred machine wasn't found, but we discovered these:"
         : 'Machines';
@@ -569,6 +581,18 @@ class ScanFlowViewState extends State<ScanFlowView> {
                           const Text('ReScan'),
                         ],
                       ),
+                    ),
+                  ),
+                if (!isConnecting && _status.foundMachines.isNotEmpty)
+                  ShadButton(
+                    size: ShadButtonSize.sm,
+                    onPressed: connectTarget == null
+                        ? null
+                        : () => widget.connectionManager.connectMachine(
+                            connectTarget!,
+                          ),
+                    child: Text(
+                      connectTarget != null ? 'Connect' : 'Select a machine',
                     ),
                   ),
                 if (!isConnecting)
