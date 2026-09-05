@@ -8,7 +8,11 @@ Use this for unfamiliar or multi-subsystem tasks. For known files or exact symbo
 |------|-----------|------|
 | Any Dart code or test change | `doc/AI_TESTING_NOTES.md` | Domain-specific file below |
 | BLE transport, connection, GATT errors | `doc/AI_BLE_NOTES.md` | `lib/src/services/ble/`, `lib/src/controllers/connection/` |
-| Bengle machine (MMR surface, capability mixins, wake sync) | `doc/AI_BENGLE_NOTES.md` | `lib/src/models/device/impl/bengle/`, `lib/src/models/device/impl/de1/unified_de1/*_capability.dart` |
+| Bengle machine (MMR surface, capability mixins, wake sync) | `doc/device-notes/bengle.md` | `lib/src/models/device/impl/bengle/`, `lib/src/models/device/impl/de1/unified_de1/*_capability.dart` |
+| DE1 firmware, serial behavior, profile sync | `doc/device-notes/de1.md` | `lib/src/models/device/impl/de1/`, `lib/src/controllers/de1_controller.dart` |
+| Named scale protocols and readiness | `doc/device-notes/scales.md` | `lib/src/models/device/impl/`, `lib/src/controllers/scale_controller.dart` |
+| Named sensor protocols | `doc/device-notes/sensors.md` | `lib/src/models/device/impl/sensor/`, `lib/src/controllers/sensor_controller.dart` |
+| Simulated device behavior | `doc/device-notes/simulators.md` | `lib/src/services/simulated_device_service.dart`, `lib/src/models/device/impl/mock/` |
 | REST/WS endpoint changes | `doc/AI_API_NOTES.md`, read spec first | `lib/src/services/webserver/` |
 | DE1 machine state, shot state | — | `lib/src/controllers/de1_state_manager.dart`, `de1_controller.dart`, `shot_sequencer.dart` |
 | Profile/workflow serialization | `doc/Profiles.md` | `lib/src/models/data/`, `lib/src/daos/` |
@@ -37,7 +41,7 @@ When you change X, also check Y and Z.
 | Plugin API or permissions | `PluginManager`, `PluginHost`, [decentespresso/dye2](https://github.com/decentespresso/dye2), [decentespresso/shot-upload](https://github.com/decentespresso/shot-upload), [decentespresso/decaid-dcamp-plugin](https://github.com/decentespresso/decaid-dcamp-plugin), `doc/Plugins.md`, bundled plugin assets | Plugin host + bundled plugins must stay compatible |
 | WebUI / skin serving | `lib/src/webui_support/`, `lib/src/services/webserver/webui/`, `doc/Skins.md` | Skin install, serving, and metadata are coupled |
 | Device discovery | `DeviceMatcher`, `BleServiceIdentifier`, `ScanStateGuardian`, `ScanOrchestrator`, `doc/DeviceManagement.md` | Name matching, service verification, and scan lifecycle are interdependent |
-| `BatteryController` / charging | `charging_logic.dart`, `De1Controller`, DE1 FW behavior (auto-re-enables charger) | Charger mode logic depends on DE1 FW quirks |
+| `BatteryController` / charging | `charging_logic.dart`, `De1Controller`, `doc/device-notes/de1.md` | Charger mode logic depends on DE1 FW quirks |
 
 ## Focused Tests
 

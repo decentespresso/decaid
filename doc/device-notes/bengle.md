@@ -1,4 +1,4 @@
-# AI Bengle Notes
+# Bengle Device Notes
 
 Domain knowledge for the Bengle machine implementation
 (`lib/src/models/device/impl/bengle/`,
@@ -166,3 +166,35 @@ endpoints 404 only on non-Bengle machines.
 - Master toggle (userPresenceEnabled): when off, firmware must not own any
   timeout or wake table, so it receives timeout 0 and a cleared, disabled
   table (the wake table runs without the tablet).
+
+## Integrated scale
+
+When Bengle is connected, `BengleVirtualScale` is attached automatically and
+external scale scanning is skipped. The virtual scale appears in REST and
+WebSocket inventory, but connect and disconnect commands reject its ID because
+its lifecycle follows the machine.
+
+The 28-byte `0xA013` packet supplies machine telemetry, signed weight, firmware
+`GFlow`, and `MilkTemp`. Weight and flow feed `BengleVirtualScale`; `MilkTemp`
+drives the Bengle milk-probe sensor. Tare writes `ScaleTare`; autonomous
+stop-at-weight and stop-at-temperature use `EndOfShotWeight` and
+`TargetMilkTemp`.
+
+`GET /api/v1/machine/capabilities` includes `integratedScale` for Bengle and is
+empty for plain DE1 machines.
+
+## EBus tap
+
+Bengle composite devices with VID `0x2e8a`, PID `0x000a`, product name
+`Bengle`, and logical USB interface 2 expose the EBus tap sensor. Interface 0
+retains the machine identity; Android opens paired bulk-data interface 3 while
+preserving logical interface-2 identity.
+
+Each serial read chunk is emitted as base64 bytes without framing,
+compression, capture, or upload behavior. Writes send decoded bytes unchanged.
+The transport asserts DTR, permits one reader, and reports errors as
+disconnection rather than owning reconnects.
+
+Hardware checks must confirm concurrent machine and tap discovery, independent
+detach/replug behavior, duplicate-descriptor disambiguation on Android, and
+byte-exact raw snapshots without discovery writes.
