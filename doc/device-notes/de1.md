@@ -53,6 +53,19 @@ Older firmware ignores the request while refilling but keeps it latched, then
 sleeps immediately after refill. The firmware itself suppresses sleep while a
 refill kit is active.
 
+## Group-head controller start restriction
+
+When `MachineInfo.groupHeadControllerPresent` is true, DE1 firmware requires
+espresso and other dangerous operations to start at the group head for UL
+compliance. A remote BLE start request does not begin the operation; it only
+arms the ready state, shown as a white group-head indication. Remote stop
+requests remain supported.
+
+Do not bypass this restriction or present remote controls as capable of
+starting an active-GHC machine. Callers such as scale-button handlers must
+check the machine property before requesting a start, while still allowing
+them to request `idle` to stop an active operation.
+
 ## Serial behavior
 
 Exact USB product name `DE1` creates `UnifiedDe1`. Devices admitted through
