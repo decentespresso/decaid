@@ -65,7 +65,9 @@ All three steps are required, not optional.
 ## Code Style
 
 - Do not add explanatory comments to new or substantially rewritten code; use clear names and small functions. Preserve existing comments and required notices.
-- Put rationale, hardware constraints, and debugging history in the matching `doc/AI_*_NOTES.md` file.
+- Put cross-device rationale and debugging history in the matching
+  `doc/AI_*_NOTES.md` file. Put device-specific hardware and firmware
+  constraints in `doc/device-notes/`.
 - Prefer immutability when practical.
 - Constructor dependency injection — no service locators.
 - Stream subscriptions always cancelled in `dispose()`.
@@ -94,6 +96,7 @@ GitHub Issues on `decentespresso/decaid` is the canonical issue tracker. Use `gh
 
 - Fast file routing: `doc/AI_REPO_MAP.md`.
 - BLE footguns, transport threading, connection lifecycle: `doc/AI_BLE_NOTES.md`.
+- Device-specific hardware, protocols, and firmware behavior: `doc/device-notes/`.
 - Build, flash, simulate, platform quirks: `doc/AI_BUILD_NOTES.md`.
 - REST/WS API contracts and compat: `doc/AI_API_NOTES.md`.
 - Drift DB schema, migrations, SharedPreferences: `doc/AI_STORAGE_NOTES.md`.

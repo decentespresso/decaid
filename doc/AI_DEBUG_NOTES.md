@@ -86,26 +86,7 @@ flutter run --dart-define=simulate=1
 
 ## Profile Upload Failure Diagnosis
 
-**Symptom:** Machine pulses group-head LED magenta (~2 Hz), ignores all
-start requests (espresso, steam, hot water). The app reports the machine as
-connected and holding the selected profile. Re-selecting the same profile
-does nothing.
-
-**Root cause:** A profile upload died mid-sequence (GATT write timeout on a
-flaky BLE link), leaving the firmware's `ProfileDownloadInProgress` latch set.
-Two app caches (`_lastPushedProfile` and `_currentProfile`) then prevented
-the same-profile re-upload that would have cleared the latch.
-
-**Diagnosis steps:**
-1. Check the log for "setProfile failed" or "retrying" messages.
-2. Check the WebSocket `/ws/v1/devices` for `profileUploadFailed` error kind.
-3. The `WorkflowDeviceSync` logger shows retries at FINE/WARNING level.
-
-**Fix pattern:** The app now clears both caches on every connection edge and
-retries failed uploads automatically with capped exponential backoff. A full
-re-upload of any profile clears the latch. See `doc/AI_BLE_NOTES.md` for the
-cache architecture and `doc/plans/archive/profile-upload-recovery/design.md`
-for the full design rationale.
+See [`device-notes/de1.md`](device-notes/de1.md#failure-diagnosis).
 
 ## Blank Android skin after app resume
 
@@ -128,9 +109,7 @@ termination callback.
 
 # Scale Frame And Feed Failures
 
-An Acaia shot that stops at a weight far above the scale display can be a timer-bodied event-11 frame or a short frame reading bytes from an adjacent frame as weight. Confirm the scale implementation and protocol in the logs, then inspect frame length, event type, and event-11 selector. Selector `7` is timer and must never publish weight; selector `5` requires its complete six-byte weight body inside the same frame.
-
-An Acaia scale that is linked but publishes no weight must not be reported connected. Identification and configuration writes, settings frames, timer frames, and information frames do not establish readiness. Initialization must observe a valid weight frame or tear down and leave retry ownership with ConnectionManager.
+See [`device-notes/scales.md`](device-notes/scales.md#acaia).
 
 ## Keeping Notes Fresh
 

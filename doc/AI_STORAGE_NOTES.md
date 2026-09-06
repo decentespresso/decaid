@@ -83,11 +83,8 @@ Content-based hash IDs for deduplication. `ProfileController` manages the profil
 
 ### Legacy Profile Corpus Ingestion
 
-`tools/ingest_profiles.py` rejects de1app TCL profiles whose type is `settings_2a`
-or `settings_2b`, whether `advanced_shot` is empty or populated. de1app's stored
-`advanced_shot` is not authoritative for these simple-profile types. Reaprime does
-not maintain a duplicate implementation of de1app's frame generators; maintainers
-must generate final advanced-profile JSON externally before adding such a profile.
+This DE1-specific conversion constraint is documented in
+[`device-notes/de1.md`](device-notes/de1.md#protocol-source-of-truth).
 
 ## SharedPreferences Keys
 
