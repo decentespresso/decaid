@@ -25,6 +25,9 @@ import '../helpers/mock_settings_service.dart';
 class _FakeBlePlatform extends UniversalBlePlatform {
   final List<BleDevice> systemDevices = [];
   final Map<String, BleConnectionState> connectionStates = {};
+  Future<BleConnectionState> Function(String deviceId)?
+  getConnectionStateOverride;
+  int disconnectCalls = 0;
 
   final List<({ScanFilter? filter, PlatformConfig? config})> startScanCalls =
       [];
@@ -86,7 +89,18 @@ class _FakeBlePlatform extends UniversalBlePlatform {
   }) async {}
 
   @override
-  Future<void> disconnect(String deviceId) async {}
+  Future<void> disconnect(String deviceId) async {
+    disconnectDevice(deviceId);
+  }
+
+  void connectDevice(String deviceId) {
+    connectionStates[deviceId.toLowerCase()] = BleConnectionState.connected;
+  }
+
+  void disconnectDevice(String deviceId) {
+    disconnectCalls++;
+    connectionStates[deviceId.toLowerCase()] = BleConnectionState.disconnected;
+  }
 
   @override
   Future<List<BleService>> discoverServices(
@@ -141,9 +155,12 @@ class _FakeBlePlatform extends UniversalBlePlatform {
   Future<void> unpair(String deviceId) async {}
 
   @override
-  Future<BleConnectionState> getConnectionState(String deviceId) async =>
-      connectionStates[deviceId.toLowerCase()] ??
-      BleConnectionState.disconnected;
+  Future<BleConnectionState> getConnectionState(String deviceId) async {
+    final override = getConnectionStateOverride;
+    if (override != null) return override(deviceId);
+    return connectionStates[deviceId.toLowerCase()] ??
+        BleConnectionState.disconnected;
+  }
 
   @override
   Future<List<BleDevice>> getSystemDevices(List<String>? withServices) async {
@@ -152,20 +169,39 @@ class _FakeBlePlatform extends UniversalBlePlatform {
 }
 
 class _TrackingFakeBleTransport extends FakeBleTransport {
-  _TrackingFakeBleTransport({this.deviceId});
+  _TrackingFakeBleTransport({this.deviceId, this.onConnect, this.onDisconnect});
 
   final String? deviceId;
+  final Future<void> Function()? onConnect;
+  final Future<void> Function()? onDisconnect;
+  Stream<domain.ConnectionState>? connectionStateOverride;
 
   @override
   String get id => deviceId ?? super.id;
+
+  @override
+  Stream<domain.ConnectionState> get connectionState =>
+      connectionStateOverride ?? super.connectionState;
 
   int disconnectCalls = 0;
   int disposeCalls = 0;
   bool _disposed = false;
 
   @override
+  Future<void> connect() async {
+    final callback = onConnect;
+    if (callback != null) {
+      await callback();
+      return;
+    }
+    await super.connect();
+  }
+
+  @override
   Future<void> disconnect() async {
     disconnectCalls++;
+    final callback = onDisconnect;
+    if (callback != null) await callback();
     if (!_disposed) {
       await super.disconnect();
     }
@@ -178,6 +214,80 @@ class _TrackingFakeBleTransport extends FakeBleTransport {
 
     _disposed = true;
     await super.dispose();
+  }
+}
+
+class _DelayedCancelSubscription<T> implements StreamSubscription<T> {
+  _DelayedCancelSubscription(
+    this._delegate,
+    this._cancelRequested,
+    this._release,
+  );
+
+  final StreamSubscription<T> _delegate;
+  final Completer<void> _cancelRequested;
+  final Completer<void> _release;
+
+  @override
+  Future<void> cancel() async {
+    if (!_cancelRequested.isCompleted) _cancelRequested.complete();
+    await _release.future;
+    return _delegate.cancel();
+  }
+
+  @override
+  void onData(void Function(T)? handleData) => _delegate.onData(handleData);
+
+  @override
+  void onError(Function? handleError) => _delegate.onError(handleError);
+
+  @override
+  void onDone(void Function()? handleDone) => _delegate.onDone(handleDone);
+
+  @override
+  void pause([Future<void>? resumeSignal]) => _delegate.pause(resumeSignal);
+
+  @override
+  void resume() => _delegate.resume();
+
+  @override
+  bool get isPaused => _delegate.isPaused;
+
+  @override
+  Future<E> asFuture<E>([E? futureValue]) => _delegate.asFuture(futureValue);
+}
+
+class _DelayedCancelConnectionStream extends Stream<domain.ConnectionState> {
+  final _controller = StreamController<domain.ConnectionState>.broadcast();
+  final cancelRequested = Completer<void>();
+  final release = Completer<void>();
+  var _state = domain.ConnectionState.connected;
+  var _listenCount = 0;
+
+  void emit(domain.ConnectionState state) {
+    _state = state;
+    _controller.add(state);
+  }
+
+  @override
+  bool get isBroadcast => true;
+
+  @override
+  StreamSubscription<domain.ConnectionState> listen(
+    void Function(domain.ConnectionState)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) {
+    final delegate = _controller.stream.listen(
+      onData,
+      onError: onError,
+      onDone: onDone,
+      cancelOnError: cancelOnError,
+    );
+    _controller.add(_state);
+    if (++_listenCount != 1) return delegate;
+    return _DelayedCancelSubscription(delegate, cancelRequested, release);
   }
 }
 
@@ -847,6 +957,398 @@ void main() {
     );
 
     test(
+      'a connecting cached device is protected before native-state probing',
+      () async {
+        const deviceId = 'AA:BB:CC:DD:EE:05';
+        final transports = <_TrackingFakeBleTransport>[];
+        final sut = UniversalBleDiscoveryService(
+          watchSupportGate: () => true,
+          transportFactory:
+              ({
+                required device,
+                required stopScan,
+                required requestLargeMtuNonAndroid,
+                required lifecycleGate,
+              }) {
+                final transport = transportForModel(
+                  129,
+                  deviceId: device.deviceId,
+                );
+                transports.add(transport);
+                return transport;
+              },
+        );
+        addTearDown(sut.dispose);
+        platform.systemDevices.add(BleDevice(deviceId: deviceId, name: 'DE1'));
+        await sut.initialize();
+
+        const remembered = RememberedDevice(
+          id: deviceId,
+          name: 'DE1',
+          type: domain.DeviceType.machine,
+          implementation: DeviceImplementation.unifiedDe1,
+          transportType: TransportType.ble,
+        );
+        await sut.tryQuickConnect(remembered);
+        final cached = transports.single;
+        cached.emitConnectionState(domain.ConnectionState.connecting);
+        platform.connectionStates[deviceId.toLowerCase()] =
+            BleConnectionState.disconnected;
+
+        await sut.startDeviceWatch(_watchFilter);
+        platform.updateScanResult(BleDevice(deviceId: deviceId, name: 'DE1'));
+        await pump();
+
+        expect(transports, hasLength(1));
+        expect(cached.disconnectCalls, 0);
+      },
+    );
+
+    test(
+      'a connection becoming active during stale observation stays cached',
+      () async {
+        const deviceId = 'AA:BB:CC:DD:EE:06';
+        final probeObserved = Completer<void>();
+        final releaseProbe = Completer<void>();
+        final transports = <_TrackingFakeBleTransport>[];
+        final sut = UniversalBleDiscoveryService(
+          watchSupportGate: () => true,
+          transportFactory:
+              ({
+                required device,
+                required stopScan,
+                required requestLargeMtuNonAndroid,
+                required lifecycleGate,
+              }) {
+                final transport = transportForModel(
+                  129,
+                  deviceId: device.deviceId,
+                );
+                transports.add(transport);
+                return transport;
+              },
+        );
+        addTearDown(sut.dispose);
+        platform.systemDevices.add(BleDevice(deviceId: deviceId, name: 'DE1'));
+        await sut.initialize();
+        platform.connectionStates[deviceId.toLowerCase()] =
+            BleConnectionState.disconnected;
+        platform.getConnectionStateOverride = (_) async {
+          if (!probeObserved.isCompleted) probeObserved.complete();
+          await releaseProbe.future;
+          return BleConnectionState.disconnected;
+        };
+
+        const remembered = RememberedDevice(
+          id: deviceId,
+          name: 'DE1',
+          type: domain.DeviceType.machine,
+          implementation: DeviceImplementation.unifiedDe1,
+          transportType: TransportType.ble,
+        );
+        final emissions = <List<domain.Device>>[];
+        final subscription = sut.devices.listen(emissions.add);
+        addTearDown(subscription.cancel);
+        final connected = await sut.tryQuickConnect(remembered);
+        final cached = transports.single;
+
+        await sut.startDeviceWatch(_watchFilter);
+        platform.updateScanResult(BleDevice(deviceId: deviceId, name: 'DE1'));
+        await probeObserved.future;
+        cached.emitConnectionState(domain.ConnectionState.connecting);
+        releaseProbe.complete();
+        await pump(6);
+
+        expect(transports, hasLength(1));
+        expect(cached.disconnectCalls, 0);
+        expect(emissions.last, contains(same(connected)));
+      },
+    );
+
+    test(
+      'discovery does not disconnect behind a shared-native connect',
+      () async {
+        const deviceId = 'AA:BB:CC:DD:EE:07';
+        final connectStarted = Completer<void>();
+        final releaseConnect = Completer<void>();
+        final transports = <_TrackingFakeBleTransport>[];
+        final sut = UniversalBleDiscoveryService(
+          watchSupportGate: () => true,
+          transportFactory:
+              ({
+                required device,
+                required stopScan,
+                required requestLargeMtuNonAndroid,
+                required lifecycleGate,
+              }) {
+                final isReconnect = transports.isNotEmpty;
+                final transport = _TrackingFakeBleTransport(
+                  deviceId: device.deviceId,
+                  onConnect: () async {
+                    if (!isReconnect) {
+                      platform.connectDevice(device.deviceId);
+                      return;
+                    }
+                    await lifecycleGate.run(device.deviceId, () async {
+                      connectStarted.complete();
+                      await releaseConnect.future;
+                      platform.connectDevice(device.deviceId);
+                    });
+                  },
+                  onDisconnect: () async {
+                    platform.disconnectDevice(device.deviceId);
+                  },
+                )..queueOnConnectResponses(v13Model: 129, calFlowEst: 100);
+                transports.add(transport);
+                return transport;
+              },
+        );
+        addTearDown(sut.dispose);
+        platform.systemDevices.add(BleDevice(deviceId: deviceId, name: 'DE1'));
+        await sut.initialize();
+
+        const remembered = RememberedDevice(
+          id: deviceId,
+          name: 'DE1',
+          type: domain.DeviceType.machine,
+          implementation: DeviceImplementation.unifiedDe1,
+          transportType: TransportType.ble,
+        );
+        final first = await sut.tryQuickConnect(remembered);
+        platform.connectionStates[deviceId.toLowerCase()] =
+            BleConnectionState.disconnected;
+
+        final reconnect = sut.tryQuickConnect(remembered);
+        await connectStarted.future;
+        await sut.startDeviceWatch(_watchFilter);
+        platform.updateScanResult(BleDevice(deviceId: deviceId, name: 'DE1'));
+        await pump();
+        releaseConnect.complete();
+        await reconnect;
+
+        expect(transports, hasLength(2));
+        expect(transports.first.disconnectCalls, 0);
+        expect(platform.disconnectCalls, 0);
+        expect(
+          platform.connectionStates[deviceId.toLowerCase()],
+          BleConnectionState.connected,
+        );
+        expect(first, isNotNull);
+      },
+    );
+
+    test(
+      'unknown cached connection state is preserved without teardown',
+      () async {
+        const deviceId = 'AA:BB:CC:DD:EE:08';
+        final transports = <_TrackingFakeBleTransport>[];
+        final sut = UniversalBleDiscoveryService(
+          watchSupportGate: () => true,
+          transportFactory:
+              ({
+                required device,
+                required stopScan,
+                required requestLargeMtuNonAndroid,
+                required lifecycleGate,
+              }) {
+                final transport = transportForModel(
+                  129,
+                  deviceId: device.deviceId,
+                );
+                transports.add(transport);
+                return transport;
+              },
+        );
+        addTearDown(sut.dispose);
+        platform.systemDevices.add(BleDevice(deviceId: deviceId, name: 'DE1'));
+        await sut.initialize();
+
+        const remembered = RememberedDevice(
+          id: deviceId,
+          name: 'DE1',
+          type: domain.DeviceType.machine,
+          implementation: DeviceImplementation.unifiedDe1,
+          transportType: TransportType.ble,
+        );
+        await sut.tryQuickConnect(remembered);
+        final cached = transports.single;
+        cached.connectionStateOverride = Stream<domain.ConnectionState>.error(
+          TimeoutException('unknown'),
+        );
+
+        await sut.startDeviceWatch(_watchFilter);
+        platform.updateScanResult(BleDevice(deviceId: deviceId, name: 'DE1'));
+        await pump();
+
+        expect(transports, hasLength(1));
+        expect(cached.disconnectCalls, 0);
+      },
+    );
+
+    test(
+      'unknown native connection state is preserved without teardown',
+      () async {
+        const deviceId = 'AA:BB:CC:DD:EE:09';
+        final transports = <_TrackingFakeBleTransport>[];
+        final sut = UniversalBleDiscoveryService(
+          watchSupportGate: () => true,
+          transportFactory:
+              ({
+                required device,
+                required stopScan,
+                required requestLargeMtuNonAndroid,
+                required lifecycleGate,
+              }) {
+                final transport = transportForModel(
+                  129,
+                  deviceId: device.deviceId,
+                );
+                transports.add(transport);
+                return transport;
+              },
+        );
+        addTearDown(sut.dispose);
+        platform.systemDevices.add(BleDevice(deviceId: deviceId, name: 'DE1'));
+        await sut.initialize();
+        platform.getConnectionStateOverride = (_) async {
+          throw TimeoutException('unknown');
+        };
+
+        const remembered = RememberedDevice(
+          id: deviceId,
+          name: 'DE1',
+          type: domain.DeviceType.machine,
+          implementation: DeviceImplementation.unifiedDe1,
+          transportType: TransportType.ble,
+        );
+        await sut.tryQuickConnect(remembered);
+
+        await sut.startDeviceWatch(_watchFilter);
+        platform.updateScanResult(BleDevice(deviceId: deviceId, name: 'DE1'));
+        await pump();
+
+        expect(transports, hasLength(1));
+        expect(transports.single.disconnectCalls, 0);
+      },
+    );
+
+    test(
+      'a delayed normal-discovery disconnect cannot evict a replacement',
+      () async {
+        const deviceId = 'AA:BB:CC:DD:EE:0A';
+        final delayedState = _DelayedCancelConnectionStream();
+        final transports = <_TrackingFakeBleTransport>[];
+        final sut = UniversalBleDiscoveryService(
+          watchSupportGate: () => true,
+          transportFactory:
+              ({
+                required device,
+                required stopScan,
+                required requestLargeMtuNonAndroid,
+                required lifecycleGate,
+              }) {
+                final transport = transportForModel(
+                  129,
+                  deviceId: device.deviceId,
+                );
+                if (transports.isEmpty) {
+                  transport.connectionStateOverride = delayedState;
+                }
+                transports.add(transport);
+                return transport;
+              },
+        );
+        addTearDown(sut.dispose);
+        platform.systemDevices.add(BleDevice(deviceId: deviceId, name: 'DE1'));
+        await sut.initialize();
+        final emissions = <List<domain.Device>>[];
+        final subscription = sut.devices.listen(emissions.add);
+        addTearDown(subscription.cancel);
+
+        const remembered = RememberedDevice(
+          id: deviceId,
+          name: 'DE1',
+          type: domain.DeviceType.machine,
+          implementation: DeviceImplementation.unifiedDe1,
+          transportType: TransportType.ble,
+        );
+        await sut.startDeviceWatch(_watchFilter);
+        platform.updateScanResult(BleDevice(deviceId: deviceId, name: 'DE1'));
+        await pump();
+        expect(transports, hasLength(1));
+
+        platform.connectionStates[deviceId.toLowerCase()] =
+            BleConnectionState.disconnected;
+        platform.updateScanResult(BleDevice(deviceId: deviceId, name: 'DE1'));
+        await delayedState.cancelRequested.future;
+        await sut.tryQuickConnect(remembered);
+        delayedState.emit(domain.ConnectionState.disconnected);
+        await pump();
+
+        expect(emissions.any((devices) => devices.isEmpty), isFalse);
+        delayedState.release.complete();
+        await pump(6);
+      },
+    );
+
+    test(
+      'a delayed quick-connect disconnect cannot evict its replacement',
+      () async {
+        const deviceId = 'AA:BB:CC:DD:EE:0B';
+        final delayedState = _DelayedCancelConnectionStream();
+        final transports = <_TrackingFakeBleTransport>[];
+        final sut = UniversalBleDiscoveryService(
+          watchSupportGate: () => true,
+          transportFactory:
+              ({
+                required device,
+                required stopScan,
+                required requestLargeMtuNonAndroid,
+                required lifecycleGate,
+              }) {
+                final transport = transportForModel(
+                  129,
+                  deviceId: device.deviceId,
+                );
+                if (transports.isEmpty) {
+                  transport.connectionStateOverride = delayedState;
+                }
+                transports.add(transport);
+                return transport;
+              },
+        );
+        addTearDown(sut.dispose);
+        platform.systemDevices.add(BleDevice(deviceId: deviceId, name: 'DE1'));
+        await sut.initialize();
+        final emissions = <List<domain.Device>>[];
+        final subscription = sut.devices.listen(emissions.add);
+        addTearDown(subscription.cancel);
+
+        const remembered = RememberedDevice(
+          id: deviceId,
+          name: 'DE1',
+          type: domain.DeviceType.machine,
+          implementation: DeviceImplementation.unifiedDe1,
+          transportType: TransportType.ble,
+        );
+        await sut.startDeviceWatch(_watchFilter);
+        platform.updateScanResult(BleDevice(deviceId: deviceId, name: 'DE1'));
+        await pump();
+        expect(transports, hasLength(1));
+
+        final reconnect = sut.tryQuickConnect(remembered);
+        await delayedState.cancelRequested.future;
+        delayedState.emit(domain.ConnectionState.disconnected);
+        await pump();
+
+        expect(emissions.any((devices) => devices.isEmpty), isFalse);
+        delayedState.release.complete();
+        await reconnect;
+        await pump();
+      },
+    );
+
+    test(
       'fresh advertisement replaces a cached connected device after native link loss',
       () async {
         const deviceId = 'AA:BB:CC:DD:EE:03';
@@ -871,6 +1373,9 @@ void main() {
         addTearDown(sut.dispose);
         platform.systemDevices.add(BleDevice(deviceId: deviceId, name: 'DE1'));
         await sut.initialize();
+        final emissions = <List<domain.Device>>[];
+        final subscription = sut.devices.listen(emissions.add);
+        addTearDown(subscription.cancel);
 
         final remembered = RememberedDevice(
           id: deviceId,
@@ -882,6 +1387,8 @@ void main() {
         final connected = await sut.tryQuickConnect(remembered);
         expect(connected, isNotNull);
         expect(transports, hasLength(1));
+        platform.connectionStates[deviceId.toLowerCase()] =
+            BleConnectionState.disconnected;
         await sut.startDeviceWatch(_watchFilter);
 
         platform.updateScanResult(BleDevice(deviceId: deviceId, name: 'DE1'));
@@ -892,11 +1399,10 @@ void main() {
           hasLength(2),
           reason: 'fresh advertisement must create a new transport instance',
         );
-        expect(
-          transports.first.disconnectCalls,
-          greaterThanOrEqualTo(1),
-          reason: 'the stale cached instance must be disconnected',
-        );
+        expect(transports.first.disconnectCalls, 0);
+        expect(platform.disconnectCalls, 0);
+        expect(emissions.last, hasLength(1));
+        expect(emissions.last.single, isNot(same(connected)));
         await (connected as De1Interface).dispose();
       },
     );

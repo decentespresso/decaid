@@ -768,6 +768,49 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     }
   }
 
+  Future<ConnectionState?> _cachedConnectionState(Device device) async {
+    try {
+      final state = device.connectionState.first.then<ConnectionState?>(
+        (value) => value,
+      );
+      return await state.timeout(
+        const Duration(seconds: 2),
+        onTimeout: () => null,
+      );
+    } catch (e, st) {
+      log.fine(
+        'Cached connection-state check failed for ${device.deviceId}',
+        e,
+        st,
+      );
+      return null;
+    }
+  }
+
+  Future<bool> _evictCachedDevice(String deviceId, Device existing) async {
+    if (!identical(_devices[deviceId], existing)) return false;
+    _devices.remove(deviceId);
+    await _connections.remove(deviceId)?.cancel();
+    if (_devices.containsKey(deviceId)) return false;
+    _deviceStreamController.add(_devices.values.toList());
+    return true;
+  }
+
+  Future<void> _adoptCachedDevice(String deviceId, Device device) async {
+    _devices[deviceId] = device;
+    _deviceStreamController.add(_devices.values.toList());
+    await _connections.remove(deviceId)?.cancel();
+    if (!identical(_devices[deviceId], device)) return;
+    _connections[deviceId] = device.connectionState.listen((state) {
+      if (state != ConnectionState.disconnected ||
+          !identical(_devices[deviceId], device)) {
+        return;
+      }
+      _devices.remove(deviceId);
+      _deviceStreamController.add(_devices.values.toList());
+    });
+  }
+
   Future<void> _deviceScanned(BleDevice device) async {
     final deviceId = normalizeBleDeviceId(device.deviceId);
     if (_currentlyScanning.contains(deviceId)) return;
@@ -780,16 +823,24 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
 
       final existing = _devices[deviceId];
       if (existing != null) {
-        final state = await existing.connectionState.first.timeout(
-          const Duration(seconds: 2),
-          onTimeout: () => ConnectionState.disconnected,
-        );
-        if (state == ConnectionState.connected ||
-            state == ConnectionState.connecting) {
+        final state = await _cachedConnectionState(existing);
+        if (state == null ||
+            state == ConnectionState.connecting ||
+            state == ConnectionState.disconnecting) {
+          return;
+        }
+        if (state == ConnectionState.connected) {
           final nativeLink = await _nativeLinkState(existing.deviceId);
           if (nativeLink == null ||
               nativeLink == BleConnectionState.connected ||
               nativeLink == BleConnectionState.connecting) {
+            return;
+          }
+          if (!identical(_devices[deviceId], existing)) return;
+          final latestState = await _cachedConnectionState(existing);
+          if (latestState == null ||
+              latestState == ConnectionState.connecting ||
+              latestState == ConnectionState.disconnecting) {
             return;
           }
           log.warning(
@@ -797,14 +848,7 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
             'native link is ${nativeLink.name}',
           );
         }
-        _devices.remove(deviceId);
-        await _connections.remove(deviceId)?.cancel();
-        try {
-          await existing.disconnect();
-        } catch (e, st) {
-          log.fine('Failed to discard stale device $deviceId', e, st);
-        }
-        _deviceStreamController.add(_devices.values.toList());
+        if (!await _evictCachedDevice(deviceId, existing)) return;
       }
 
       final matchedDevice = await _candidate(
@@ -815,20 +859,9 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
         ),
       );
 
-      if (matchedDevice != null) {
-        _devices[deviceId] = matchedDevice;
-        _deviceStreamController.add(_devices.values.toList());
+      if (matchedDevice != null && !_devices.containsKey(deviceId)) {
+        await _adoptCachedDevice(deviceId, matchedDevice);
         log.fine("found new device: ${device.name}");
-
-        await _connections.remove(deviceId)?.cancel();
-        _connections[deviceId] = matchedDevice.connectionState.listen((
-          connectionState,
-        ) {
-          if (connectionState == ConnectionState.disconnected) {
-            _devices.remove(deviceId);
-            _deviceStreamController.add(_devices.values.toList());
-          }
-        });
       }
     } finally {
       _currentlyScanning.remove(deviceId);
@@ -913,15 +946,7 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
           }
         }
       }
-      _devices[key] = device;
-      _deviceStreamController.add(_devices.values.toList());
-      await _connections.remove(key)?.cancel();
-      _connections[key] = device.connectionState.listen((state) {
-        if (state == ConnectionState.disconnected) {
-          _devices.remove(key);
-          _deviceStreamController.add(_devices.values.toList());
-        }
-      });
+      await _adoptCachedDevice(key, device);
       log.info('Quick-connect succeeded for $deviceId');
       return device;
     } catch (e, st) {
