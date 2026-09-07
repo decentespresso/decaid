@@ -18,6 +18,7 @@ class UpdateCheckService {
   final PluginSourceService? _pluginSourceService;
 
   final bool _isAndroid;
+  final bool externallyManaged;
 
   final bool _isMacOS;
 
@@ -38,6 +39,7 @@ class UpdateCheckService {
     PluginSourceService? pluginSourceService,
     bool? platformIsAndroid,
     bool? platformIsMacOS,
+    this.externallyManaged = BuildInfo.appStore,
   }) : _settingsService = settingsService,
        _updater = updater ?? AndroidUpdater(owner: 'tadelv', repo: 'reaprime'),
        _webUIStorage = webUIStorage,
@@ -47,9 +49,10 @@ class UpdateCheckService {
     _state = BehaviorSubject.seeded(_snapshot(AppUpdatePhase.idle));
   }
 
-  UpdateInfo? get availableUpdate => _availableUpdate;
+  UpdateInfo? get availableUpdate =>
+      externallyManaged ? null : _availableUpdate;
 
-  bool get hasAvailableUpdate => _availableUpdate != null;
+  bool get hasAvailableUpdate => availableUpdate != null;
 
   Stream<AppUpdateState> get updateState => _state.stream;
 
@@ -62,7 +65,7 @@ class UpdateCheckService {
     double? progress,
     String? error,
   }) {
-    final update = _availableUpdate;
+    final update = availableUpdate;
     final hasUpdate = update != null;
     return AppUpdateState(
       phase: phase,
@@ -143,7 +146,7 @@ class UpdateCheckService {
       '${_isMacOS ? ' [skins only — Sparkle owns macOS app updates]' : ''}',
     );
 
-    if (_isMacOS) {
+    if (_isMacOS || externallyManaged) {
       await _updateManagedContent();
     } else {
       final lastCheck = await _settingsService.lastUpdateCheckTime();
@@ -190,6 +193,11 @@ class UpdateCheckService {
   }
 
   Future<UpdateInfo?> checkForUpdate() async {
+    if (externallyManaged) {
+      _availableUpdate = null;
+      _emit(AppUpdatePhase.idle);
+      return null;
+    }
     if (_isMacOS) {
       _log.info('macOS app updates are owned by Sparkle; skipping APK check');
       return null;
@@ -259,6 +267,11 @@ class UpdateCheckService {
   }
 
   void debugForceUpdate({String version = '99.0.0', String? downloadUrl}) {
+    if (externallyManaged) {
+      _availableUpdate = null;
+      _emit(AppUpdatePhase.idle);
+      return;
+    }
     _log.info('DEBUG: forcing fake update notification ($version)');
     _availableUpdate = UpdateInfo(
       version: version,

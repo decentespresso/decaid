@@ -41,6 +41,7 @@ Future<(UpdateCheckService, _RecordingUpdater)> _pumpSettingsView(
   bool sparkleConfigureFails = false,
   bool sparkleCheckThrows = false,
   bool serviceIsMacOS = false,
+  bool externallyManaged = false,
 }) async {
   TestWidgetsFlutterBinding.ensureInitialized();
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -70,6 +71,7 @@ Future<(UpdateCheckService, _RecordingUpdater)> _pumpSettingsView(
     updater: updater,
     platformIsAndroid: false,
     platformIsMacOS: serviceIsMacOS,
+    externallyManaged: externallyManaged,
   );
   if (initializeService) {
     await updateCheckService.initialize();
@@ -284,6 +286,26 @@ void main() {
       await tester.pump();
 
       expect(calls.where((c) => c.method == 'setAutomaticChecks'), isEmpty);
+    });
+
+    testWidgets('externally managed builds hide application update controls', (
+      tester,
+    ) async {
+      final calls = <MethodCall>[];
+      await _pumpSettingsView(
+        tester,
+        calls,
+        macos: false,
+        externallyManaged: true,
+      );
+
+      expect(find.text('Update channel'), findsNothing);
+      expect(find.text('Check for updates'), findsNothing);
+      expect(find.text('Automatic skin and plugin updates'), findsOneWidget);
+      expect(
+        find.text('Check for skin and plugin updates every 12 hours'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('non-macOS manual check keeps the existing Snackbar flow', (

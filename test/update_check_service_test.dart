@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/services/android_updater.dart';
@@ -21,6 +23,17 @@ class _RecordingPluginSourceService extends PluginSourceService {
 
   @override
   Future<void> updateAllPlugins() async {
+    updateCalls++;
+  }
+}
+
+class _RecordingWebUIStorage extends WebUIStorage {
+  _RecordingWebUIStorage(super.settingsController);
+
+  int updateCalls = 0;
+
+  @override
+  Future<void> updateAllSkins() async {
     updateCalls++;
   }
 }
@@ -88,14 +101,18 @@ UpdateInfo _update({String version = '9.9.9'}) => UpdateInfo(
 void main() {
   late _FakeUpdater updater;
   late MockSettingsService settingsService;
-  late WebUIStorage webUIStorage;
+  late _RecordingWebUIStorage webUIStorage;
   late _RecordingPluginSourceService pluginSourceService;
 
-  UpdateCheckService build({bool isAndroid = true, bool isMacOS = false}) {
+  UpdateCheckService build({
+    bool isAndroid = true,
+    bool isMacOS = false,
+    bool externallyManaged = false,
+  }) {
     updater = _FakeUpdater();
     settingsService = MockSettingsService();
     final settingsController = SettingsController(settingsService);
-    webUIStorage = WebUIStorage(settingsController);
+    webUIStorage = _RecordingWebUIStorage(settingsController);
     pluginSourceService = _RecordingPluginSourceService();
     return UpdateCheckService(
       settingsService: settingsService,
@@ -104,6 +121,7 @@ void main() {
       updater: updater,
       platformIsAndroid: isAndroid,
       platformIsMacOS: isMacOS,
+      externallyManaged: externallyManaged,
     );
   }
 
@@ -125,6 +143,9 @@ void main() {
       await svc.checkForUpdate();
 
       final s = svc.currentState;
+      expect(updater.checkCalls, 1);
+      expect(svc.availableUpdate?.version, '9.9.9');
+      expect(svc.hasAvailableUpdate, isTrue);
       expect(s.phase, AppUpdatePhase.available);
       expect(s.latestVersion, '9.9.9');
       expect(s.releaseNotes, 'shiny');
@@ -292,6 +313,90 @@ void main() {
     });
   });
 
+  group('externally managed builds', () {
+    test('constructor defaults ownership to the build setting', () {
+      final settings = MockSettingsService();
+      final svc = UpdateCheckService(
+        settingsService: settings,
+        webUIStorage: WebUIStorage(SettingsController(settings)),
+        updater: _FakeUpdater(),
+        platformIsAndroid: true,
+        platformIsMacOS: false,
+      );
+
+      expect(svc.externallyManaged, BuildInfo.appStore);
+      svc.dispose();
+    });
+
+    test(
+      'direct and debug checks cannot populate application update state',
+      () async {
+        final svc = build(externallyManaged: true);
+        updater.nextCheck = _update();
+
+        svc.debugForceUpdate();
+        expect(svc.availableUpdate, isNull);
+        expect(svc.hasAvailableUpdate, isFalse);
+        expect(svc.currentState.phase, AppUpdatePhase.idle);
+
+        final result = await svc.checkForUpdate();
+
+        expect(result, isNull);
+        expect(updater.checkCalls, 0);
+        expect(await settingsService.lastUpdateCheckTime(), isNull);
+        expect(svc.availableUpdate, isNull);
+        expect(svc.hasAvailableUpdate, isFalse);
+        expect(svc.currentState.phase, AppUpdatePhase.idle);
+        svc.dispose();
+      },
+    );
+
+    test(
+      'automatic startup and periodic checks update skins and plugins only',
+      () {
+        fakeAsync((async) {
+          final svc = build(externallyManaged: true);
+          updater.nextCheck = _update();
+          unawaited(settingsService.setLastUpdateCheckTime(DateTime.now()));
+
+          unawaited(svc.initialize());
+          async.flushMicrotasks();
+
+          expect(updater.checkCalls, 0);
+          expect(webUIStorage.updateCalls, 1);
+          expect(pluginSourceService.updateCalls, 1);
+          expect(svc.availableUpdate, isNull);
+          expect(svc.hasAvailableUpdate, isFalse);
+          expect(svc.currentState.phase, AppUpdatePhase.idle);
+
+          async.elapse(const Duration(hours: 12));
+          async.flushMicrotasks();
+
+          expect(updater.checkCalls, 0);
+          expect(webUIStorage.updateCalls, 2);
+          expect(pluginSourceService.updateCalls, 2);
+          expect(svc.availableUpdate, isNull);
+          expect(svc.hasAvailableUpdate, isFalse);
+          expect(svc.currentState.phase, AppUpdatePhase.idle);
+          svc.dispose();
+        });
+      },
+    );
+
+    test('requestCheck cannot create an application update', () async {
+      final svc = build(externallyManaged: true);
+      updater.nextCheck = _update();
+
+      await svc.requestCheck();
+
+      expect(updater.checkCalls, 0);
+      expect(svc.availableUpdate, isNull);
+      expect(svc.hasAvailableUpdate, isFalse);
+      expect(svc.currentState.phase, AppUpdatePhase.idle);
+      svc.dispose();
+    });
+  });
+
   group('requestCheck', () {
     test('coalesces while a check is in flight', () async {
       final svc = build();
@@ -345,6 +450,25 @@ void main() {
   });
 
   group('managed content', () {
+    test(
+      'a recent app check skips startup application and content updates',
+      () async {
+        final svc = build();
+        updater.nextCheck = _update();
+        await settingsService.setLastUpdateCheckTime(DateTime.now());
+
+        await svc.initialize();
+
+        expect(updater.checkCalls, 0);
+        expect(webUIStorage.updateCalls, 0);
+        expect(pluginSourceService.updateCalls, 0);
+        expect(svc.availableUpdate, isNull);
+        expect(svc.hasAvailableUpdate, isFalse);
+        expect(svc.currentState.phase, AppUpdatePhase.idle);
+        svc.dispose();
+      },
+    );
+
     test('enabling automatic checks also updates managed plugins', () async {
       final svc = build();
 
@@ -360,6 +484,7 @@ void main() {
       await svc.enableAutomaticChecks();
 
       expect(pluginSourceService.updateCalls, 1);
+      expect(webUIStorage.updateCalls, 1);
       svc.dispose();
     });
   });
