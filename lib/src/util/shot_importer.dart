@@ -22,7 +22,7 @@ class ShotImporter {
           'Expected JSON object in array, got ${item.runtimeType}',
         );
       }
-      final shot = ShotRecord.fromJson(item);
+      final shot = ShotRecord.fromRecordedJson(item);
       await storage.storeShot(shot);
       count++;
     }
@@ -37,7 +37,7 @@ class ShotImporter {
       throw FormatException('Expected JSON object, got ${json.runtimeType}');
     }
 
-    final shot = ShotRecord.fromJson(json);
+    final shot = ShotRecord.fromRecordedJson(json);
     await storage.storeShot(shot);
   }
 }

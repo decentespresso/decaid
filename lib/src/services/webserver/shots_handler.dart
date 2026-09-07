@@ -230,7 +230,7 @@ class ShotsHandler {
       _synchronizeLegacyAnnotationAliases(merged);
       merged['id'] = id;
 
-      final contentChanged = !ShotRecord.fromJson(
+      final contentChanged = !ShotRecord.fromRecordedJson(
         merged,
       ).sameContent(existingShot);
       merged['updatedAt'] =
@@ -241,7 +241,7 @@ class ShotsHandler {
                         existingShot.timestamp)
               .toIso8601String();
 
-      final updatedShot = ShotRecord.fromJson(merged);
+      final updatedShot = ShotRecord.fromRecordedJson(merged);
       await _controller.updateShot(updatedShot);
       _log.info("Broadcasting shotUpdated for ${updatedShot.id}");
       _pluginManager?.broadcastEvent('shotUpdated', {

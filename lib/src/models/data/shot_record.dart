@@ -76,7 +76,16 @@ class ShotRecord {
     };
   }
 
-  factory ShotRecord.fromJson(Map<String, dynamic> json) {
+  factory ShotRecord.fromJson(Map<String, dynamic> json) =>
+      ShotRecord._parse(json, recorded: false);
+
+  factory ShotRecord.fromRecordedJson(Map<String, dynamic> json) =>
+      ShotRecord._parse(json, recorded: true);
+
+  static ShotRecord _parse(
+    Map<String, dynamic> json, {
+    required bool recorded,
+  }) {
     ShotAnnotations? ann;
     if (json.containsKey('annotations')) {
       final annotations = json['annotations'];
@@ -103,7 +112,9 @@ class ShotRecord {
       measurements: (json["measurements"] as List)
           .map((e) => ShotSnapshot.fromJson(e))
           .toList(),
-      workflow: Workflow.fromJson(json["workflow"]),
+      workflow: recorded
+          ? Workflow.fromRecordedJson(json["workflow"])
+          : Workflow.fromJson(json["workflow"]),
       annotations: ann,
       stopReason: json["stopReason"] as String?,
       shotNotes: json.containsKey('annotations')

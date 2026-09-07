@@ -2,24 +2,38 @@ import 'dart:convert';
 
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/data/shot_record.dart' as domain;
 import 'package:reaprime/src/models/data/workflow.dart' as domain_workflow;
 import 'package:reaprime/src/services/database/database.dart';
 import 'package:reaprime/src/services/database/mappers/shot_mapper.dart';
+import 'package:reaprime/src/services/storage/drift_bean_storage.dart';
 import 'package:reaprime/src/services/storage/drift_storage_service.dart';
+import 'package:reaprime/src/services/webserver/shots_handler.dart';
+import 'package:shelf_plus/shelf_plus.dart';
 
 void main() {
   late AppDatabase db;
   late DriftStorageService storage;
+  late PersistenceController persistence;
+  late Handler handler;
 
   setUp(() {
     db = AppDatabase(NativeDatabase.memory());
     storage = DriftStorageService(db);
+    persistence = PersistenceController(storageService: storage);
+    final app = Router().plus;
+    ShotsHandler(
+      controller: persistence,
+      beanStorage: DriftBeanStorageService(db),
+    ).addRoutes(app);
+    handler = app.call;
   });
 
   tearDown(() async {
+    persistence.dispose();
     await db.close();
   });
 
@@ -111,6 +125,52 @@ void main() {
         'shot-good-1',
         'de1app-1626149813',
       ]);
+    });
+  });
+
+  group('updating de1app imported shots (gh#784)', () {
+    Future<Response> sendPut(String id, Map<String, dynamic> patch) async =>
+        handler(
+          Request(
+            'PUT',
+            Uri.parse('http://localhost/api/v1/shots/$id'),
+            headers: {'content-type': 'application/json'},
+            body: jsonEncode(patch),
+          ),
+        );
+
+    test('a step-less imported shot accepts an annotation patch', () async {
+      await insertShot(
+        'de1app-1626149813',
+        importedWorkflow(),
+        timestamp: DateTime.utc(2021, 7, 13),
+      );
+
+      final response = await sendPut('de1app-1626149813', {
+        'annotations': {'espressoNotes': 'imported, still editable'},
+      });
+
+      expect(response.statusCode, 200);
+      final restored = await storage.getShot('de1app-1626149813');
+      expect(restored!.annotations?.espressoNotes, 'imported, still editable');
+      expect(restored.workflow.profile.steps, isEmpty);
+    });
+
+    test('a title-less imported shot accepts an annotation patch', () async {
+      await insertShot(
+        'de1app-1626149814',
+        importedWorkflow(title: ''),
+        timestamp: DateTime.utc(2021, 7, 13),
+      );
+
+      final response = await sendPut('de1app-1626149814', {
+        'annotations': {'espressoNotes': 'no title, still editable'},
+      });
+
+      expect(response.statusCode, 200);
+      final restored = await storage.getShot('de1app-1626149814');
+      expect(restored!.annotations?.espressoNotes, 'no title, still editable');
+      expect(restored.workflow.profile.title, Profile.unknownTitle);
     });
   });
 

@@ -117,8 +117,9 @@ library, `POST`/`PUT /api/v1/profiles`, and DE1 profile upload, so a profile tha
 cannot be brewed is rejected at the boundary.
 
 `Profile.fromRecordedJson` relaxes those requirements and is reached only
-through `Workflow.fromRecordedJson`, which `ShotMapper.fromRow` uses to read the
-profile embedded in a stored shot's workflow. A shot's profile is a
+through `Workflow.fromRecordedJson`, which `ShotMapper.fromRow` and
+`ShotRecord.fromRecordedJson` use to read the profile embedded in a stored
+shot's workflow. A shot's profile is a
 record of what happened, and shots imported from de1app `.shot` files carry no
 profile steps at all. Missing or empty titles read back as `Unknown profile`;
 missing numeric fields read back as `0`. Never use it to load a profile the user

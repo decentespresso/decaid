@@ -101,6 +101,14 @@ strict parser refused to read those rows back, and because
 a single de1app import made `GET /api/v1/shots` return 500 and hid the entire
 history rather than one shot (issue #784).
 
+The same leniency has to hold for every path that re-reads a stored shot as
+JSON, not just the row mapper. `PUT /api/v1/shots/<id>` merges the patch into
+`existingShot.toJson()` and reparses the result, and `ShotImporter` reads back
+shots from a backup export, so both use `ShotRecord.fromRecordedJson`. With the
+strict parser there, an imported step-less shot read back fine but could not be
+annotated or re-imported. `ShotRecord.fromJson` stays strict for everything
+else.
+
 `ShotMapper.fromRows` now skips and logs a row it cannot map, so any future
 corruption costs its own shot instead of the whole list. Single-shot reads
 (`getShot`, `getLatestShot`) still surface the error, because there the failing
