@@ -58,6 +58,8 @@ The pre-change full-suite baseline has one unrelated intermittent failure in `te
 
 ## Hardware follow-up
 
+User-reported spot check: Bengle connected successfully on iPhone with this fix. This is not evidence that the full sleep/reconnect matrix passed.
+
 Code completion can prove the shared lifecycle invariant deterministically, but issue closure still requires the issue's field checks:
 
 - iOS affected DE1: sleeping connect, live snapshots, sleep-to-idle, forced snapshot-staleness reconnect, no repeated 10-second timeout loop;

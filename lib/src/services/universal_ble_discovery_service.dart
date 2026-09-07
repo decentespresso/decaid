@@ -770,12 +770,8 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
 
   Future<ConnectionState?> _cachedConnectionState(Device device) async {
     try {
-      final state = device.connectionState.first.then<ConnectionState?>(
-        (value) => value,
-      );
-      return await state.timeout(
+      return await device.connectionState.first.timeout(
         const Duration(seconds: 2),
-        onTimeout: () => null,
       );
     } catch (e, st) {
       log.fine(
@@ -829,8 +825,9 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
             state == ConnectionState.disconnecting) {
           return;
         }
+        if (state == ConnectionState.discovered) return;
         if (state == ConnectionState.connected) {
-          final nativeLink = await _nativeLinkState(existing.deviceId);
+          var nativeLink = await _nativeLinkState(existing.deviceId);
           if (nativeLink == null ||
               nativeLink == BleConnectionState.connected ||
               nativeLink == BleConnectionState.connecting) {
@@ -841,6 +838,12 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
           if (latestState == null ||
               latestState == ConnectionState.connecting ||
               latestState == ConnectionState.disconnecting) {
+            return;
+          }
+          nativeLink = await _nativeLinkState(existing.deviceId);
+          if (nativeLink == null ||
+              nativeLink == BleConnectionState.connected ||
+              nativeLink == BleConnectionState.connecting) {
             return;
           }
           log.warning(
