@@ -10,6 +10,13 @@ abstract class BLETransport extends DataTransport {
 
   Future<ConnectionState> getConnectionState();
 
+  Future<void> disconnectConfirmed() => Future.error(
+    UnsupportedError('Transport does not support confirmed BLE teardown'),
+  );
+
+  Future<void> unsubscribe(String serviceUUID, String characteristicUUID) =>
+      Future.error(UnsupportedError('Transport does not support unsubscribe'));
+
   Future<void> subscribe(
     String serviceUUID,
     String characteristicUUID,

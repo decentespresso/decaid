@@ -18,10 +18,14 @@ abstract interface class TransportHandoffScale {
   Future<void> disconnectForHandoff();
 }
 
+abstract interface class ScaleSnapshotHandoff {
+  void activateSnapshots();
+}
+
 class ScaleSnapshot {
   final DateTime timestamp;
   final double weight;
-  final int batteryLevel;
+  final int? batteryLevel;
   final Duration? timerValue;
   final double? flow;
 

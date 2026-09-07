@@ -4,6 +4,12 @@ Decaid exposes REST and WebSocket APIs on port 8080. Full OpenAPI specs are in [
 
 For skin development, see [`doc/Skins.md`](Skins.md). For plugin development, see [`doc/Plugins.md`](Plugins.md).
 
+The #809 work-in-progress manifest schema includes `transport.ble`, Scale
+capabilities, and BLE matchers. Public non-BLE Scale registration is implemented;
+runtime BLE binding and full API acceptance remain incomplete. See
+[the active design](plans/issue-809-design.md). This stage
+adds no routes or WebSocket messages.
+
 ---
 
 ## Admission control

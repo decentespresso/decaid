@@ -733,6 +733,11 @@ class PluginManager {
         __frozenTransportGlobal("__deviceRemoveHandlers", function (handle) {
           __mapDelete(__deviceHandlers, handle);
         });
+        __frozenTransportGlobal("__deviceHasHandler", function (handle, pluginId, generation, operation) {
+          const entry = __mapGet(__deviceHandlers, handle);
+          return !!entry && entry.pluginId === pluginId && entry.generation === generation &&
+            typeof entry.handlers[operation] === "function";
+        });
         __frozenTransportGlobal("__handleDeviceReply", function (msg) {
           const pending = __mapGet(__devicePending, msg.requestId);
           if (!pending || pending.bridgeToken !== msg.bridgeToken) return;
@@ -760,7 +765,7 @@ class PluginManager {
           }
           try {
             const handlerResult = operation === "connect"
-              ? handler(entry.connectTransport(invocationId))
+              ? handler(entry.connectTransport(invocationId, payload))
               : handler(payload);
             const promise = __nativeReflectApply(
               __nativePromiseResolve,
@@ -1178,23 +1183,58 @@ class PluginManager {
           }
           final typedDefinition = Map<String, dynamic>.from(definition);
           final driverId = typedDefinition['driverId'];
-          final declared =
-              _plugins[pluginId]?.manifest.drivers.any(
-                (driver) =>
-                    driver.id == driverId &&
-                    driver.type == PluginDriverType.sensor,
-              ) ??
-              false;
-          if (!declared) {
+          final declarations = _plugins[pluginId]!.manifest.drivers.where(
+            (driver) => driver.id == driverId,
+          );
+          if (declarations.isEmpty) {
             throw const PluginDeviceException(
               'Device driver is not declared by this plugin',
             );
+          }
+          final driver = declarations.single;
+          if (driver.type == PluginDriverType.scale) {
+            final requiredHandlers = {
+              'connect',
+              'disconnect',
+              if (driver.capabilities.contains(PluginScaleCapability.tare))
+                'tare',
+              if (driver.capabilities.contains(
+                PluginScaleCapability.timerControl,
+              )) ...[
+                'startTimer',
+                'stopTimer',
+                'resetTimer',
+              ],
+              if (driver.capabilities.contains(
+                PluginScaleCapability.displayControl,
+              )) ...[
+                'sleepDisplay',
+                'wakeDisplay',
+              ],
+            };
+            for (final operation in PluginDeviceOperation.values) {
+              final present =
+                  js
+                      .evaluate(
+                        'globalThis.__deviceHasHandler(${jsonEncode(registrationHandle)},'
+                        '${jsonEncode(pluginId)},$generation,${jsonEncode(operation.name)})',
+                      )
+                      .stringResult ==
+                  'true';
+              if (present != requiredHandlers.contains(operation.name)) {
+                throw PluginDeviceException(
+                  'Scale handler ${operation.name} does not match declared capabilities',
+                  code: 'invalid_argument',
+                );
+              }
+            }
           }
           final registered = await deviceService.register(
             pluginId: pluginId,
             generation: generation,
             registrationHandle: registrationHandle,
             definition: typedDefinition,
+            driver: driver,
             invoke: (operation, parameters) => _invokeDeviceHandler(
               pluginId,
               generation,
@@ -1218,6 +1258,9 @@ class PluginManager {
             generation: generation,
             registrationHandle: registrationHandle,
             snapshot: Map<String, dynamic>.from(snapshot),
+            session: data['session'] is String
+                ? data['session'] as String
+                : null,
           );
           _replyDevice(requestId, bridgeToken, result: const {});
         case 'reportDisconnected':
@@ -1225,6 +1268,9 @@ class PluginManager {
             pluginId: pluginId,
             generation: generation,
             registrationHandle: registrationHandle,
+            session: data['session'] is String
+                ? data['session'] as String
+                : null,
           );
           _replyDevice(requestId, bridgeToken, result: const {});
         case 'unregister':
@@ -1252,7 +1298,7 @@ class PluginManager {
         requestId,
         bridgeToken,
         error: error.message,
-        code: 'plugin_device_error',
+        code: error.code,
       );
     } catch (error) {
       _replyDevice(requestId, bridgeToken, error: error.toString());
@@ -1872,12 +1918,12 @@ class PluginManager {
         const devices = {
           register(definition, handlers) {
             const driver = definition && declaredDrivers.find((entry) => entry.id === definition.driverId);
-            if (!driver || driver.type !== "sensor") {
+            if (!driver || (driver.type !== "sensor" && driver.type !== "scale")) {
               return Promise.reject(new Error("Device driver is not declared by this plugin"));
             }
             if (!handlers || typeof handlers.connect !== "function" ||
                 typeof handlers.disconnect !== "function" ||
-                typeof handlers.execute !== "function") {
+                (driver.type === "sensor" && typeof handlers.execute !== "function")) {
               return Promise.reject(new Error("Device handlers connect, disconnect, and execute are required"));
             }
             const registrationHandle = "device_" + pluginGeneration + "_" + __deviceNonce + "_" + (++__deviceSeq);
@@ -1886,8 +1932,24 @@ class PluginManager {
               generation: pluginGeneration,
               bridgeToken: pluginBridgeToken,
               handlers: handlers,
-              connectTransport: (invocationId) =>
-                __connectTransport(registrationHandle, invocationId)
+              connectTransport: (invocationId, payload) => {
+                const transport = __connectTransport(registrationHandle, invocationId);
+                if (driver.type === "sensor") return transport;
+                const session = payload.session;
+                return Object.freeze({
+                  transport: transport,
+                  publish(snapshot) {
+                    return __deviceCall("publish", {
+                      registrationHandle: registrationHandle, session: session, snapshot: snapshot
+                    });
+                  },
+                  reportDisconnected() {
+                    return __deviceCall("reportDisconnected", {
+                      registrationHandle: registrationHandle, session: session
+                    });
+                  }
+                });
+              }
             });
             return __deviceCall("register", {
               registrationHandle: registrationHandle,
@@ -1919,6 +1981,10 @@ class PluginManager {
                     );
                   }
                 };
+                if (driver.type === "scale") {
+                  delete device.publish;
+                  delete device.reportDisconnected;
+                }
                 return Object.freeze(device);
               },
               (error) => {

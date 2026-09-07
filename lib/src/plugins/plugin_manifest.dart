@@ -1,4 +1,5 @@
 import 'package:collection/collection.dart';
+import 'plugin_ble_matcher.dart';
 
 List<String> parsePluginEnumValues(String key, dynamic schema) {
   if (schema is! Map || schema['type'] != 'enum') return const [];
@@ -19,7 +20,17 @@ String pluginSettingLabel(String key, dynamic schema) {
   return trimmed.isEmpty ? key : trimmed;
 }
 
-enum PluginDriverType { sensor }
+enum PluginDriverType { sensor, scale }
+
+enum PluginScaleCapability {
+  battery,
+  flow,
+  timerTelemetry,
+  tare,
+  timerControl,
+  displayControl,
+  disconnectToSleep,
+}
 
 List<PluginDriverDeclaration> parsePluginDrivers(dynamic json) {
   if (json == null) return const [];
@@ -33,14 +44,24 @@ List<PluginDriverDeclaration> parsePluginDrivers(dynamic json) {
   if (drivers.map((driver) => driver.id).toSet().length != drivers.length) {
     throw const FormatException('Plugin driver ids must be unique');
   }
+  if (drivers.where((driver) => driver.ble != null).length > 1) {
+    throw const FormatException('A plugin may declare at most 1 BLE driver');
+  }
   return List.unmodifiable(drivers);
 }
 
 class PluginDriverDeclaration {
   final String id;
   final PluginDriverType type;
+  final PluginBleMatcher? ble;
+  final Set<PluginScaleCapability> capabilities;
 
-  const PluginDriverDeclaration({required this.id, required this.type});
+  const PluginDriverDeclaration({
+    required this.id,
+    required this.type,
+    this.ble,
+    this.capabilities = const {},
+  });
 
   factory PluginDriverDeclaration.fromJson(dynamic json) {
     if (json is! Map || json['id'] is! String || json['type'] is! String) {
@@ -54,10 +75,51 @@ class PluginDriverDeclaration {
         type == null) {
       throw FormatException('Invalid plugin driver declaration: $json');
     }
-    return PluginDriverDeclaration(id: id, type: type);
+    final rawCapabilities = json['capabilities'] ?? const [];
+    if (rawCapabilities is! List ||
+        rawCapabilities.any((value) => value is! String) ||
+        rawCapabilities.toSet().length != rawCapabilities.length ||
+        (type != PluginDriverType.scale && rawCapabilities.isNotEmpty)) {
+      throw const FormatException('Invalid driver capabilities');
+    }
+    final capabilities = rawCapabilities.map((value) {
+      final capability = PluginScaleCapability.values.firstWhereOrNull(
+        (capability) => capability.name == value,
+      );
+      if (capability == null) {
+        throw const FormatException('Unknown Scale capability');
+      }
+      return capability;
+    }).toSet();
+    if (capabilities.contains(PluginScaleCapability.displayControl) &&
+        capabilities.contains(PluginScaleCapability.disconnectToSleep)) {
+      throw const FormatException('Scale display sleep capabilities conflict');
+    }
+    PluginBleMatcher? ble;
+    if (json.containsKey('ble')) {
+      final declaration = json['ble'];
+      if (declaration is! Map ||
+          declaration.length != 1 ||
+          !declaration.containsKey('match')) {
+        throw const FormatException('Invalid BLE declaration');
+      }
+      ble = PluginBleMatcher.fromJson(declaration['match']);
+    }
+    return PluginDriverDeclaration(
+      id: id,
+      type: type,
+      ble: ble,
+      capabilities: Set.unmodifiable(capabilities),
+    );
   }
 
-  Map<String, dynamic> toJson() => {'id': id, 'type': type.name};
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'type': type.name,
+    if (capabilities.isNotEmpty)
+      'capabilities': capabilities.map((value) => value.name).toList(),
+    if (ble != null) 'ble': {'match': ble!.toJson()},
+  };
 }
 
 class PluginManifest {
@@ -132,7 +194,8 @@ enum PluginPermissions {
   proxyDecentApiWrite('proxy.decent_api.write'),
   networkWebsocket('network.websocket'),
   networkTcp('network.tcp'),
-  networkTls('network.tls');
+  networkTls('network.tls'),
+  transportBle('transport.ble');
 
   final String wireName;
 

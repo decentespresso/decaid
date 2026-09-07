@@ -7123,7 +7123,7 @@ components:
           type: array
           items:
             type: string
-            enum: [log, api, emit, pluginStorage, events.machine, events.shots, events.workflow, proxy.decent_api, proxy.decent_api.write, network.websocket, network.tcp, network.tls]
+            enum: [log, api, emit, pluginStorage, events.machine, events.shots, events.workflow, proxy.decent_api, proxy.decent_api.write, network.websocket, network.tcp, network.tls, transport.ble]
         drivers:
           type: array
           maxItems: 8
@@ -7137,7 +7137,52 @@ components:
                 pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'
               type:
                 type: string
-                enum: [sensor]
+                enum: [sensor, scale]
+              capabilities:
+                type: array
+                uniqueItems: true
+                description: Scale-only capabilities. displayControl and disconnectToSleep are mutually exclusive.
+                items:
+                  type: string
+                  enum: [battery, flow, timerTelemetry, tare, timerControl, displayControl, disconnectToSleep]
+              ble:
+                type: object
+                additionalProperties: false
+                required: [match]
+                description: At most one driver per plugin may declare a BLE matcher. A declaration does not grant transport.ble permission.
+                properties:
+                  match:
+                    type: object
+                    additionalProperties: false
+                    minProperties: 1
+                    properties:
+                      name:
+                        type: object
+                        additionalProperties: false
+                        minProperties: 1
+                        maxProperties: 1
+                        description: Case-insensitive predicate; advertised names are not trimmed.
+                        properties:
+                          exact:
+                            type: string
+                            minLength: 1
+                            maxLength: 248
+                          prefix:
+                            type: string
+                            minLength: 1
+                            maxLength: 248
+                          contains:
+                            type: string
+                            minLength: 1
+                            maxLength: 248
+                      serviceUuids:
+                        type: array
+                        minItems: 1
+                        maxItems: 64
+                        description: Any-of services, combined with the name predicate using AND. Unavailable or incomplete metadata remains indeterminate.
+                        items:
+                          type: string
+                          pattern: '^([0-9a-fA-F]{4}|[0-9a-fA-F]{8}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$'
         settings:
           type: object
           description: >

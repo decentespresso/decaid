@@ -8,6 +8,10 @@ import 'package:reaprime/src/models/device/scan_filter.dart';
 import 'package:reaprime/src/models/device/sensor.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:rxdart/rxdart.dart';
+import 'plugin_device_contract.dart';
+import 'plugin_manifest.dart';
+import 'plugin_scale.dart';
+export 'plugin_device_contract.dart';
 
 const _maxPluginDevices = 8;
 const _maxPluginDevicePayloadBytes = 64 * 1024;
@@ -21,23 +25,6 @@ const _dataTypes = {
   'array',
 };
 
-enum PluginDeviceOperation { connect, disconnect, execute }
-
-typedef PluginDeviceInvoker =
-    Future<Map<String, dynamic>> Function(
-      PluginDeviceOperation operation,
-      Map<String, dynamic> payload,
-    );
-
-class PluginDeviceException implements Exception {
-  final String message;
-
-  const PluginDeviceException(this.message);
-
-  @override
-  String toString() => message;
-}
-
 class PluginDeviceRegistration {
   final String deviceId;
 
@@ -48,7 +35,8 @@ class PluginDeviceService implements DeviceDiscoveryService {
   final BehaviorSubject<List<Device>> _devices = BehaviorSubject.seeded(
     const [],
   );
-  final Map<(String, int, String), _PluginSensor> _registrations = {};
+  final Map<(String, int, String), PluginDeviceAdapter> _registrations = {};
+  final Set<(String, int, String)> _externalDiscovery = {};
   bool _disposed = false;
 
   @override
@@ -69,12 +57,47 @@ class PluginDeviceService implements DeviceDiscoveryService {
   @override
   Future<Device?> tryQuickConnect(RememberedDevice remembered) async => null;
 
+  void registerAdapter({
+    required String pluginId,
+    required int generation,
+    required String registrationHandle,
+    required PluginDeviceAdapter adapter,
+    bool externalDiscovery = false,
+  }) {
+    _ensureActive();
+    final key = (pluginId, generation, registrationHandle);
+    if (_registrations.containsKey(key) ||
+        _registrations.values.any(
+          (device) => device.deviceId == adapter.deviceId,
+        )) {
+      throw const PluginDeviceException('Plugin device already registered');
+    }
+    if (_registrations.keys
+                .where(
+                  (key) =>
+                      key.$1 == pluginId &&
+                      key.$2 == generation &&
+                      !_externalDiscovery.contains(key),
+                )
+                .length >=
+            _maxPluginDevices &&
+        !externalDiscovery) {
+      throw const PluginDeviceException(
+        'A plugin generation may register at most 8 devices',
+      );
+    }
+    _registrations[key] = adapter;
+    if (externalDiscovery) _externalDiscovery.add(key);
+    _publishDevices();
+  }
+
   Future<PluginDeviceRegistration> register({
     required String pluginId,
     required int generation,
     required String registrationHandle,
     required Map<String, dynamic> definition,
     required PluginDeviceInvoker invoke,
+    PluginDriverDeclaration? driver,
   }) async {
     _ensureActive();
     _checkPayloadSize(definition, 'Plugin device definition');
@@ -84,7 +107,9 @@ class PluginDeviceService implements DeviceDiscoveryService {
     final driverId = _requiredSafeString(definition, 'driverId');
     final instanceId = _requiredSafeString(definition, 'instanceId');
     final name = _requiredString(definition, 'name');
-    final vendor = _requiredString(definition, 'vendor');
+    final vendor = driver?.type == PluginDriverType.scale
+        ? ''
+        : _requiredString(definition, 'vendor');
     final key = (pluginId, generation, registrationHandle);
     if (_registrations.containsKey(key)) {
       throw const PluginDeviceException('Registration handle already exists');
@@ -102,14 +127,21 @@ class PluginDeviceService implements DeviceDiscoveryService {
     if (_registrations.values.any((sensor) => sensor.deviceId == deviceId)) {
       throw PluginDeviceException('Device already registered: $deviceId');
     }
-    final sensor = _PluginSensor(
-      deviceId: deviceId,
-      name: name,
-      vendor: vendor,
-      dataChannels: _parseDataChannels(definition['dataChannels']),
-      commands: _parseCommands(definition['commands']),
-      invoke: invoke,
-    );
+    final PluginDeviceAdapter sensor = driver?.type == PluginDriverType.scale
+        ? PluginScale(
+            deviceId: deviceId,
+            name: name,
+            capabilities: driver!.capabilities,
+            invoke: invoke,
+          )
+        : _PluginSensor(
+            deviceId: deviceId,
+            name: name,
+            vendor: vendor,
+            dataChannels: parsePluginDataChannels(definition['dataChannels']),
+            commands: parsePluginCommands(definition['commands']),
+            invoke: invoke,
+          );
     _registrations[key] = sensor;
     _publishDevices();
     return PluginDeviceRegistration(deviceId: deviceId);
@@ -120,23 +152,29 @@ class PluginDeviceService implements DeviceDiscoveryService {
     required int generation,
     required String registrationHandle,
     required Map<String, dynamic> snapshot,
+    String? session,
   }) {
     _ensureActive();
     _checkPayloadSize(snapshot, 'Plugin device snapshot');
-    _registration(pluginId, generation, registrationHandle).publish(snapshot);
+    _registration(
+      pluginId,
+      generation,
+      registrationHandle,
+    ).publish(snapshot, session: session);
   }
 
   void reportDisconnected({
     required String pluginId,
     required int generation,
     required String registrationHandle,
+    String? session,
   }) {
     _ensureActive();
     _registration(
       pluginId,
       generation,
       registrationHandle,
-    ).reportDisconnected();
+    ).reportDisconnected(session: session);
   }
 
   Future<void> unregister({
@@ -157,6 +195,7 @@ class PluginDeviceService implements DeviceDiscoveryService {
       disconnectError = error;
     }
     _registrations.remove(key);
+    _externalDiscovery.remove(key);
     await sensor.dispose();
     _publishDevices();
     if (disconnectError != null) {
@@ -191,9 +230,10 @@ class PluginDeviceService implements DeviceDiscoveryService {
     }
     final removed = keys
         .map((key) => _registrations.remove(key))
-        .whereType<_PluginSensor>()
+        .whereType<PluginDeviceAdapter>()
         .toList();
     await Future.wait(removed.map((sensor) => sensor.dispose()));
+    _externalDiscovery.removeAll(keys);
     if (!_devices.isClosed) _publishDevices();
     if (firstError != null) {
       Error.throwWithStackTrace(firstError!, firstStackTrace!);
@@ -205,11 +245,12 @@ class PluginDeviceService implements DeviceDiscoveryService {
     _disposed = true;
     final sensors = _registrations.values.toList();
     _registrations.clear();
+    _externalDiscovery.clear();
     await Future.wait(sensors.map((sensor) => sensor.dispose()));
     await _devices.close();
   }
 
-  _PluginSensor _registration(
+  PluginDeviceAdapter _registration(
     String pluginId,
     int generation,
     String registrationHandle,
@@ -222,7 +263,12 @@ class PluginDeviceService implements DeviceDiscoveryService {
   }
 
   void _publishDevices() {
-    _devices.add(List<Device>.of(_registrations.values));
+    _devices.add(
+      _registrations.entries
+          .where((entry) => !_externalDiscovery.contains(entry.key))
+          .map((entry) => entry.value)
+          .toList(),
+    );
   }
 
   void _ensureActive() {
@@ -230,7 +276,7 @@ class PluginDeviceService implements DeviceDiscoveryService {
   }
 }
 
-class _PluginSensor implements Sensor {
+class _PluginSensor implements Sensor, PluginDeviceAdapter {
   _PluginSensor({
     required this.deviceId,
     required this.name,
@@ -388,7 +434,8 @@ class _PluginSensor implements Sensor {
     return result;
   }
 
-  void publish(Map<String, dynamic> snapshot) {
+  @override
+  void publish(Map<String, dynamic> snapshot, {String? session}) {
     if (_disposed) throw const PluginDeviceException('Plugin device is closed');
     if (snapshot.length != _dataChannels.length ||
         !_dataChannels.keys.every(snapshot.containsKey)) {
@@ -407,12 +454,14 @@ class _PluginSensor implements Sensor {
     _data.add(Map.unmodifiable(snapshot));
   }
 
-  void reportDisconnected() {
+  @override
+  void reportDisconnected({String? session}) {
     if (_disposed) return;
     _connectionFence += 1;
     _connectionState.add(ConnectionState.disconnected);
   }
 
+  @override
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
@@ -438,7 +487,7 @@ String _requiredString(Map<String, dynamic> json, String key) {
   return value;
 }
 
-List<DataChannel> _parseDataChannels(dynamic json) {
+List<DataChannel> parsePluginDataChannels(dynamic json) {
   if (json is! List || json.isEmpty || json.length > 64) {
     throw const PluginDeviceException('Invalid plugin device dataChannels');
   }
@@ -463,7 +512,7 @@ List<DataChannel> _parseDataChannels(dynamic json) {
   return List.unmodifiable(channels);
 }
 
-List<CommandDescriptor> _parseCommands(dynamic json) {
+List<CommandDescriptor> parsePluginCommands(dynamic json) {
   if (json == null) return const [];
   if (json is! List || json.length > 64) {
     throw const PluginDeviceException('Invalid plugin device commands');

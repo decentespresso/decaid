@@ -81,6 +81,9 @@ class ScaleController {
     _scale = scale;
     _lastConnectedDeviceId = scale.deviceId;
     _scaleConnection = scale.connectionState.listen(_processConnection);
+    if (scale is ScaleSnapshotHandoff) {
+      (scale as ScaleSnapshotHandoff).activateSnapshots();
+    }
   }
 
   Future<void> adoptScale(Scale scale) async {
@@ -113,6 +116,9 @@ class ScaleController {
     _scale = scale;
     _lastConnectedDeviceId = scale.deviceId;
     _scaleConnection = scale.connectionState.listen(_processConnection);
+    if (scale is ScaleSnapshotHandoff) {
+      (scale as ScaleSnapshotHandoff).activateSnapshots();
+    }
   }
 
   void _onDisconnect() {

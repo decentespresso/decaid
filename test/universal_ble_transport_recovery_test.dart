@@ -32,6 +32,7 @@ class _FakeBlePlatform extends UniversalBlePlatform {
   BleDevice? scanResult;
   final List<Object> serviceDiscoveryResults = [];
   final List<String> disconnectCalls = [];
+  Completer<void>? disconnectRequested;
   final List<BleInputProperty> notificationProperties = [];
   final List<BleOutputProperty> writeProperties = [];
   final Set<BleOutputProperty> unsupportedWriteProperties = {};
@@ -85,6 +86,9 @@ class _FakeBlePlatform extends UniversalBlePlatform {
   @override
   Future<void> disconnect(String deviceId) async {
     disconnectCalls.add(deviceId);
+    if (disconnectRequested?.isCompleted == false) {
+      disconnectRequested!.complete();
+    }
     if (updateConnectionStateOnLifecycle) {
       connectionStateResult = BleConnectionState.disconnected;
     }
@@ -252,6 +256,56 @@ void main() {
       throwsA(isA<TimeoutException>()),
     );
   }
+
+  test('confirmed disconnect retains ownership until a native event', () async {
+    platform.emitDisconnectEvent = false;
+    platform.disconnectRequested = Completer<void>();
+    var completed = false;
+    final disconnect = transport.disconnectConfirmed().then(
+      (_) => completed = true,
+    );
+    await platform.disconnectRequested!.future;
+    expect(completed, isFalse);
+    platform.connectionStateResult = BleConnectionState.disconnected;
+    platform.updateConnection(deviceId, false);
+    await disconnect;
+    expect(completed, isTrue);
+  });
+
+  test(
+    'confirmed disconnect accepts a disconnected native link without an event',
+    () async {
+      platform.emitDisconnectEvent = false;
+      platform.connectionStateResult = BleConnectionState.disconnected;
+      await transport.disconnectConfirmed();
+      expect(
+        await transport.connectionState.first,
+        device.ConnectionState.disconnected,
+      );
+    },
+  );
+
+  test(
+    'unsubscribe removes forwarding and disables native notification',
+    () async {
+      final received = <int>[];
+      await transport.subscribe(
+        _serviceUuid,
+        _charUuid,
+        (bytes) => received.add(bytes.first),
+      );
+      await transport.unsubscribe(_serviceUuid, _charUuid);
+      platform.updateCharacteristicValue(
+        deviceId,
+        _charUuid,
+        Uint8List.fromList([1]),
+        null,
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(received, isEmpty);
+      expect(platform.notificationProperties.last, BleInputProperty.disabled);
+    },
+  );
 
   group('write property negotiation', () {
     test(
@@ -735,12 +789,16 @@ void main() {
       await pump();
 
       for (var i = 0; i < chars.length; i++) {
-        expect(newReceived[i], [
-          (i + 1) * 10,
-        ], reason: 'new callback for ${chars[i]} must receive the push');
-        expect(oldReceived[i], [
-          i + 1,
-        ], reason: 'old callback for ${chars[i]} must NOT receive the push');
+        expect(
+          newReceived[i],
+          [(i + 1) * 10],
+          reason: 'new callback for ${chars[i]} must receive the push',
+        );
+        expect(
+          oldReceived[i],
+          [i + 1],
+          reason: 'old callback for ${chars[i]} must NOT receive the push',
+        );
       }
     });
 

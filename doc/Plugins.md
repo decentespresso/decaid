@@ -322,6 +322,83 @@ const upload = await fetch("https://api.example.com/upload", {
 - `btoa()` for base64 encoding (polyfilled)
 - Standard JavaScript language features
 
+## BLE Declaration Work in Progress (#809)
+
+Manifest parsing accepts the separate `transport.ble` permission, `scale`
+driver type, Scale capabilities, and one `ble.match` declaration per plugin.
+This branch does not yet implement runtime BLE binding. Public non-BLE Scale
+registration is available as described below; end-to-end API and timing
+acceptance remain in progress.
+Accepting a declaration does not grant GATT access. See
+`doc/plans/issue-809-design.md` for the remaining implementation and tests.
+
+The matcher supports one case-insensitive `name` predicate (`exact`, `prefix`,
+or `contains`, 1-248 characters), and/or `serviceUuids` (1-64 UUIDs). It does not
+trim names. UUIDs accept 16-, 32-, and 128-bit forms and serialize as lowercase
+128-bit UUIDs. Name and service predicates combine with AND; the service list
+uses any-of semantics. Unknown keys and unconstrained matchers are invalid.
+
+Incomplete evidence remains indeterminate. A proven false predicate makes the
+matcher a non-match. A definite match cannot win against an indeterminate
+competing driver. Two definite matches conflict. Discovery and connection
+admission still need to use these arbitration primitives.
+
+### Non-BLE Scale Registration
+
+Declare a Scale driver in the manifest. No `transport.ble` permission is needed:
+
+```json
+"drivers": [{"id": "memory", "type": "scale"}]
+```
+
+A minimal synthetic Scale plugin can register an instance during `onLoad`:
+
+```javascript
+function createPlugin(host) {
+  return {
+    id: "example.scale",
+    onLoad() {
+      return host.devices.register({
+        driverId: "memory",
+        instanceId: "one",
+        name: "Memory Scale"
+      }, {
+        async connect(context) {
+          await context.publish({weight: 0});
+        },
+        disconnect() {}
+      });
+    }
+  };
+}
+```
+
+Each connect invocation receives a fresh context with `transport`,
+`publish(snapshot)`, and `reportDisconnected()`. Network `transport` uses the
+existing invocation-owned transport API and requires the corresponding network
+permission. Capture this context in protocol callbacks; do not look up a mutable
+current context when a delayed callback runs. The host rejects stale-session
+publications and failure reports. The persistent registration exposes `deviceId`
+and `unregister()`, not publication or failure-reporting methods.
+
+Weight is finite signed grams. Optional `battery` is an integer from 0 to 100;
+omission or null means unknown, including in existing controller serialization.
+Optional finite `flow` and nonnegative integer `timerMs` require `flow` and
+`timerTelemetry` capabilities respectively. Battery requires `battery`.
+Arbitrary timestamps and unknown publication fields are rejected.
+
+Declare optional commands in manifest `capabilities`: `tare` requires a `tare`
+handler; `timerControl` requires `startTimer`, `stopTimer`, and `resetTimer`;
+`displayControl` requires `sleepDisplay` and `wakeDisplay`. Host registration
+validates handlers against these declarations, including direct bridge calls.
+Unsupported operations fail with `unsupported_operation`, not success.
+Disconnect-to-sleep recovery policy is not yet complete in this branch.
+
+Readiness requires both successful `connect` completion and a valid weight.
+Up to 256 initialization samples are retained for controller activation, then
+delivered once. Initialization is bounded; invalid samples cannot mark ready.
+Publication-ingress timestamps are provisional pending the required timing gate.
+
 ## Network Transports (`host.transport`)
 
 `host.transport` exposes permission-gated outbound network transports: WebSocket
