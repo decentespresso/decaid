@@ -182,6 +182,9 @@ jobs:
       - name: Test release aliases
         run: scripts/test_release_aliases.sh
 
+      - name: Test Decent app skill docs
+        run: scripts/test_decent_app_skill.sh
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:

@@ -743,6 +743,15 @@ sensor is connected, skins can call the `measure` command through the existing
 Sensors API and read TDS, temperature, refractive index, and status values from
 the sensor data stream.
 
+`PluginDeviceService` is a `DeviceDiscoveryService` that contributes sensors
+registered by plugin generations. This keeps plugin-backed sensors on the same
+`DeviceController` → `SensorController` path as native sensors. Public identity
+comes from plugin id, declared driver id, and plugin-local instance id; unload
+removes the retiring generation without changing that identity for a later
+reload. Plugin connection handlers must complete protocol initialization before
+the sensor reports `connected`. Registrations are runtime-only and are not added
+to remembered-device selection.
+
 ### Bengle EBus tap
 
 Bengle composite devices (VID `0x2e8a`, PID `0x000a`) may expose a second CDC
@@ -892,6 +901,10 @@ attach recovery"). Explicit native, REST, and WebSocket scans call
 `idle → connectingMachine → ready` on success. On failure:
 `connectingMachine` is published before the attempt, then phase falls
 through to `scanning` (existing scan path).
+
+Android serial discovery replaces a registry entry when quick-connect detects
+a new device instance with the same `deviceId`, so REST and WebSocket inventory
+never retain the disconnected instance beside its connected replacement.
 
 ### Initial App Startup
 
@@ -1566,7 +1579,6 @@ _log.info('Found serial ports: $ports');
 - `lib/src/models/device/impl/mock_scale/` - Mock scale for testing
 
 ### UI Components
-- `lib/src/permissions_feature/permissions_view.dart` - Initial scan and DE1 selection
 - `lib/src/home_feature/tiles/status_tile.dart` - Connection status display
 - `lib/src/sample_feature/sample_item_list_view.dart` - Device list debugging
 

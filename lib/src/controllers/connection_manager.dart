@@ -759,6 +759,11 @@ class ConnectionManager {
 
   void markExpectingDisconnect(String deviceId) {
     _disconnectExpectations.mark(deviceId);
+    final scaleId = scaleController.lastConnectedDeviceId;
+    if (_disconnectSupervisor.isScaleConnected &&
+        scaleId == 'bengle-internal-$deviceId') {
+      _disconnectExpectations.mark(scaleId!);
+    }
   }
 
   @visibleForTesting

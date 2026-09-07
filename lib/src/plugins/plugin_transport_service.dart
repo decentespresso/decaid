@@ -72,6 +72,8 @@ class PluginTransportService {
     required String pluginId,
     required int generation,
     required Map<String, dynamic> options,
+    String? deviceRegistrationHandle,
+    String? deviceInvocationId,
   }) async {
     final kind = switch (options['kind']) {
       'websocket' => PluginTransportKind.websocket,
@@ -79,20 +81,36 @@ class PluginTransportService {
       'tls' => PluginTransportKind.tls,
       _ => throw const PluginTransportException('Unknown transport kind'),
     };
+    if (deviceRegistrationHandle != null &&
+        deviceInvocationId != null &&
+        _retiredDeviceConnects.contains((
+          pluginId,
+          generation,
+          deviceRegistrationHandle,
+          deviceInvocationId,
+        ))) {
+      throw const PluginTransportException('Plugin device connect retired');
+    }
     _checkLiveLimit(pluginId, generation);
     final record = _TransportRecord(
       handle: _newHandle(),
       pluginId: pluginId,
       generation: generation,
       kind: kind,
+      deviceRegistrationHandle: deviceRegistrationHandle,
+      deviceInvocationId: deviceInvocationId,
     );
     _records[record.handle] = record;
     try {
-      return switch (kind) {
-        PluginTransportKind.websocket => await _openWebSocket(record, options),
-        PluginTransportKind.tcp => await _openTcp(record, options),
-        PluginTransportKind.tls => await _openTls(record, options),
+      final result = await switch (kind) {
+        PluginTransportKind.websocket => _openWebSocket(record, options),
+        PluginTransportKind.tcp => _openTcp(record, options),
+        PluginTransportKind.tls => _openTls(record, options),
       };
+      if (record.terminal) {
+        throw const PluginTransportException('Plugin device connect retired');
+      }
+      return result;
     } catch (_) {
       _records.remove(record.handle);
       rethrow;
@@ -191,6 +209,69 @@ class PluginTransportService {
     _records.remove(record.handle);
   }
 
+  void retireDeviceConnect(
+    String pluginId,
+    int generation,
+    String registrationHandle,
+    String invocationId,
+  ) {
+    final key = (pluginId, generation, registrationHandle, invocationId);
+    _retiredDeviceConnects.add(key);
+    final owned = _records.values
+        .where(
+          (record) =>
+              record.pluginId == pluginId &&
+              record.generation == generation &&
+              record.deviceRegistrationHandle == registrationHandle &&
+              record.deviceInvocationId == invocationId &&
+              !record.terminal &&
+              record.webSocket == null &&
+              record.socket == null,
+        )
+        .toList();
+    for (final record in owned) {
+      _records.remove(record.handle);
+      record.terminal = true;
+    }
+  }
+
+  void finishDeviceConnect(
+    String pluginId,
+    int generation,
+    String registrationHandle,
+    String invocationId,
+  ) {
+    _retiredDeviceConnects.remove((
+      pluginId,
+      generation,
+      registrationHandle,
+      invocationId,
+    ));
+  }
+
+  Future<void> closeDeviceConnect(
+    String pluginId,
+    int generation,
+    String registrationHandle,
+    String invocationId,
+  ) async {
+    final owned = _records.values
+        .where(
+          (record) =>
+              record.pluginId == pluginId &&
+              record.generation == generation &&
+              record.deviceRegistrationHandle == registrationHandle &&
+              record.deviceInvocationId == invocationId,
+        )
+        .toList();
+    for (final record in owned) {
+      _records.remove(record.handle);
+      if (record.terminal) continue;
+      record.terminal = true;
+      await _closeNative(record);
+    }
+  }
+
   Future<void> closeAllForPlugin(String pluginId, int generation) async {
     final owned = _records.values
         .where(
@@ -213,7 +294,10 @@ class PluginTransportService {
       await _closeNative(record);
     }
     _records.clear();
+    _retiredDeviceConnects.clear();
   }
+
+  final Set<(String, int, String, String)> _retiredDeviceConnects = {};
 
   Future<TransportOpenResult> _openWebSocket(
     _TransportRecord record,
@@ -586,12 +670,16 @@ class _TransportRecord {
     required this.pluginId,
     required this.generation,
     required this.kind,
+    this.deviceRegistrationHandle,
+    this.deviceInvocationId,
   });
 
   final String handle;
   final String pluginId;
   final int generation;
   final PluginTransportKind kind;
+  final String? deviceRegistrationHandle;
+  final String? deviceInvocationId;
 
   WebSocket? webSocket;
   Socket? socket;

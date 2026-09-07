@@ -19,6 +19,47 @@ String pluginSettingLabel(String key, dynamic schema) {
   return trimmed.isEmpty ? key : trimmed;
 }
 
+enum PluginDriverType { sensor }
+
+List<PluginDriverDeclaration> parsePluginDrivers(dynamic json) {
+  if (json == null) return const [];
+  if (json is! List) {
+    throw const FormatException('Plugin drivers must be an array');
+  }
+  if (json.length > 8) {
+    throw const FormatException('A plugin may declare at most 8 drivers');
+  }
+  final drivers = json.map(PluginDriverDeclaration.fromJson).toList();
+  if (drivers.map((driver) => driver.id).toSet().length != drivers.length) {
+    throw const FormatException('Plugin driver ids must be unique');
+  }
+  return List.unmodifiable(drivers);
+}
+
+class PluginDriverDeclaration {
+  final String id;
+  final PluginDriverType type;
+
+  const PluginDriverDeclaration({required this.id, required this.type});
+
+  factory PluginDriverDeclaration.fromJson(dynamic json) {
+    if (json is! Map || json['id'] is! String || json['type'] is! String) {
+      throw const FormatException('Invalid plugin driver declaration');
+    }
+    final id = json['id'] as String;
+    final type = PluginDriverType.values.firstWhereOrNull(
+      (value) => value.name == json['type'],
+    );
+    if (!RegExp(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$').hasMatch(id) ||
+        type == null) {
+      throw FormatException('Invalid plugin driver declaration: $json');
+    }
+    return PluginDriverDeclaration(id: id, type: type);
+  }
+
+  Map<String, dynamic> toJson() => {'id': id, 'type': type.name};
+}
+
 class PluginManifest {
   final String id;
   final String name;
@@ -27,6 +68,7 @@ class PluginManifest {
   final String version;
   final int apiVersion;
   final Set<PluginPermissions> permissions;
+  final List<PluginDriverDeclaration> drivers;
   final Map<String, dynamic> settings;
   final PluginApi? api;
 
@@ -38,6 +80,7 @@ class PluginManifest {
     required this.version,
     required this.apiVersion,
     required this.permissions,
+    this.drivers = const [],
     required this.settings,
     required this.api,
   });
@@ -55,6 +98,7 @@ class PluginManifest {
       version: json['version'],
       apiVersion: json['apiVersion'],
       permissions: PluginPermissionsFromJson.fromJson(json['permissions']),
+      drivers: parsePluginDrivers(json['drivers']),
       settings: settings,
       api: PluginApi.fromJsonList(json['api']),
     );
@@ -69,6 +113,7 @@ class PluginManifest {
       'version': version,
       'apiVersion': apiVersion,
       'permissions': permissions.map((e) => e.wireName).toList(),
+      'drivers': drivers.map((driver) => driver.toJson()).toList(),
       'settings': settings,
       'api': api?.toJson(),
     };
@@ -82,6 +127,7 @@ enum PluginPermissions {
   pluginStorage('pluginStorage'),
   eventsMachine('events.machine'),
   eventsShots('events.shots'),
+  eventsWorkflow('events.workflow'),
   proxyDecentApi('proxy.decent_api'),
   proxyDecentApiWrite('proxy.decent_api.write'),
   networkWebsocket('network.websocket'),

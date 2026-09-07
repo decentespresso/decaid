@@ -395,6 +395,12 @@ same request prevent all fields from being stored (validation is atomic).
 | GET | `/api/v1/sensors/:id` | Get sensor manifest | |
 | POST | `/api/v1/sensors/:id/execute` | Execute sensor command | |
 
+Plugin-backed sensors registered through `host.devices` use this same API and
+the device inventory. Their stable IDs have the form
+`plugin:<pluginId>:<driverId>:<instanceId>`. Sensor manifests expose command
+result schemas as `resultsSchema`. See `Plugins.md` for registration and
+lifecycle rules.
+
 #### `Bengle EBus Tap` sensor
 
 The Bengle EBus tap (USB interface `2` of a composite Bengle, VID `0x2e8a` /

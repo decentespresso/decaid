@@ -83,6 +83,18 @@ void main() {
     },
   );
 
+  test('PluginManifest permissions match runtime wire values', () {
+    final properties = _pluginManifestSchema()['properties'] as YamlMap;
+    final permissions = properties['permissions'] as YamlMap;
+    final items = permissions['items'] as YamlMap;
+    final documented = (items['enum'] as YamlList).cast<String>().toSet();
+    final runtime = PluginPermissions.values
+        .map((value) => value.wireName)
+        .toSet();
+
+    expect(documented, runtime);
+  });
+
   test('every field bundled plugins use is documented', () {
     final documented = (_pluginSettingSchema()['properties'] as YamlMap).keys
         .cast<String>()

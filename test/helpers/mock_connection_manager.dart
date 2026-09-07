@@ -54,6 +54,7 @@ class MockConnectionManager extends ConnectionManager {
 
   int connectCallCount = 0;
   int scanAndConnectCallCount = 0;
+  int connectMachineCallCount = 0;
   int selectMachineCallCount = 0;
   int selectScaleCallCount = 0;
   int cancelSelectionSessionCallCount = 0;
@@ -103,6 +104,7 @@ class MockConnectionManager extends ConnectionManager {
     De1Interface machine, {
     bool automatic = false,
   }) async {
+    connectMachineCallCount++;
     if (shouldFailMachineConnect) {
       final error = ConnectionError(
         kind: ConnectionErrorKind.machineConnectFailed,

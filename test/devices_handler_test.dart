@@ -348,6 +348,26 @@ void main() {
         );
         expect(response.statusCode, 404);
       });
+
+      test(
+        'deliberate Bengle disconnect suppresses its internal-scale error',
+        () async {
+          final bengle = MockBengle();
+          mockDiscovery.addDevice(bengle);
+          await de1Controller.connectToDe1(bengle);
+          await scaleController.connectToScale(BengleVirtualScale(bengle));
+          await Future<void>.delayed(Duration.zero);
+
+          final response = await sendPut(
+            '/api/v1/devices/disconnect',
+            body: jsonEncode({'deviceId': bengle.deviceId}),
+          );
+          await Future<void>.delayed(Duration.zero);
+
+          expect(response.statusCode, 200);
+          expect(connectionManager.currentStatus.error, isNull);
+        },
+      );
     });
 
     group('scan endpoint', () {

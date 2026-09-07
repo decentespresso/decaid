@@ -2089,6 +2089,27 @@ void main() {
         expect(connectionManager.currentStatus.error, isNull);
       });
 
+      test(
+        'machine expectation also suppresses its connected Bengle scale',
+        () async {
+          mockScaleController.debugSetLastConnectedId(
+            'bengle-internal-machine-1',
+          );
+          mockScaleController.mockEmitConnectionState(
+            ConnectionState.connected,
+          );
+          await Future<void>.delayed(Duration.zero);
+
+          connectionManager.markExpectingDisconnect('machine-1');
+          connectionManager.debugNotifyMachineDisconnected('machine-1');
+          connectionManager.debugNotifyScaleDisconnected(
+            'bengle-internal-machine-1',
+          );
+
+          expect(connectionManager.currentStatus.error, isNull);
+        },
+      );
+
       test('unexpected disconnect emits scaleDisconnected', () {
         connectionManager.debugNotifyScaleDisconnected('50:78:7D:1F:AE:E1');
         expect(
