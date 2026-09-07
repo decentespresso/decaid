@@ -76,3 +76,7 @@ scale occupancy, `DeviceMatcher`, BLE permissions, stale discovery entries, and
 
 For Acaia weight errors, inspect frame length, event type, and event-11 selector.
 Timer frames and information frames must not establish readiness.
+
+## API metadata boundary
+
+Device inventory remains discovery-oriented, including connected, available, and remembered-absent scales. Connection-scoped metadata such as firmware revision and battery level is exposed through the generic connected-scale role-info endpoint, `GET /api/v1/scale/info`, rather than inventory entries or the device-inventory WebSocket.
