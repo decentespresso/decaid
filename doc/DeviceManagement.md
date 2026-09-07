@@ -207,6 +207,18 @@ Discovery services use name-based matching via `DeviceMatcher` to create appropr
    - Broadcast stream of discovered devices
    - Updates when new devices found or existing devices disconnect
 
+### BLE discovery cache ownership
+
+`UniversalBleDiscoveryService` owns discovered-device cache entries, not native
+connection teardown. A fresh advertisement preserves cached devices whose state
+is unknown, discovered, connecting, or disconnecting. A cached connected device
+is replaced only when repeated native probes confirm that its link is gone and
+its cache identity and Dart state remain stale across the intervening awaits.
+Cache replacement never calls `disconnect(deviceId)`; connection lifecycle
+owners perform native teardown. Disconnect listeners mutate the cache only when
+the emitting device instance still owns that entry, so delayed events from an
+older generation cannot remove its replacement.
+
 ### Android USB attach recovery
 
 `DeviceAttachNotifier` is an optional discovery-service capability.

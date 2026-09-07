@@ -189,6 +189,8 @@ A queue can produce only one wrapper timeout per faulted generation; followers a
 - Service verification during `onConnect()` via `BleServiceIdentifier`.
 - `ScanStateGuardian` guards against overlapping scans and tracks adapter state.
 - `ScanOrchestrator` manages single-scan lifecycle.
+- Discovery owns cache state, not native connection teardown. Duplicate advertisements preserve unknown, discovered, connecting, and disconnecting devices. A connected cache entry is replaced only after identity-fenced Dart and native rechecks confirm it is stale; replacement never calls native disconnect.
+- Cache disconnect listeners are device-instance-fenced so an older generation cannot evict its replacement.
 
 ## Sleep From NeedsWater (Refill State)
 
