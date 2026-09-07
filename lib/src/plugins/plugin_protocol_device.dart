@@ -73,8 +73,11 @@ abstract class PluginProtocolDevice extends PluginDeviceAdapter {
   Future<void> _connect() async {
     final disconnecting = _disconnecting;
     if (disconnecting != null) {
-      await disconnecting;
-      _disconnecting = null;
+      try {
+        await disconnecting;
+      } catch (error) {
+        _log.warning('Previous plugin device cleanup failed', error);
+      }
     }
     if (_disposed) throw const PluginDeviceException('Plugin device disposed');
     final session = const Uuid().v4();
@@ -122,6 +125,7 @@ abstract class PluginProtocolDevice extends PluginDeviceAdapter {
           'session': session,
         }).timeout(invocationTimeout);
       } finally {
+        _disconnecting = null;
         if (!_disposed) _state.add(ConnectionState.disconnected);
       }
     }();

@@ -1345,15 +1345,28 @@ class PluginManager {
     final retiredConnectInvocations = <String>[];
     if (operation == PluginDeviceOperation.disconnect) {
       final key = (pluginId, generation, registrationHandle);
-      retiredConnectInvocations.addAll(
-        _timedOutDeviceConnects.remove(key) ?? const <String>{},
-      );
+      retiredConnectInvocations.addAll({
+        ...?_timedOutDeviceConnects.remove(key),
+        for (final entry in _deviceConnectAttempts.entries)
+          if (entry.value.pluginId == pluginId &&
+              entry.value.generation == generation &&
+              entry.value.registrationHandle == registrationHandle)
+            entry.key,
+      });
       for (final connectInvocationId in retiredConnectInvocations) {
         _transportService.retireDeviceConnect(
           pluginId,
           generation,
           registrationHandle,
           connectInvocationId,
+        );
+        final pending = _pendingDeviceInvocations.remove(connectInvocationId);
+        pending?.timer.cancel();
+        pending?.completer.completeError(
+          const PluginDeviceException(
+            'Plugin device connect retired',
+            code: 'stale_session',
+          ),
         );
       }
     }

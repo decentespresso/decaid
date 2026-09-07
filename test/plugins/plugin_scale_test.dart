@@ -7,6 +7,40 @@ import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'package:reaprime/src/plugins/plugin_scale.dart';
 
 void main() {
+  for (final hangs in [false, true]) {
+    test(
+      'reconnect after ${hangs ? "timed-out" : "throwing"} disconnect',
+      () async {
+        late PluginScale scale;
+        scale = PluginScale(
+          deviceId: 'scale',
+          name: 'Scale',
+          capabilities: {},
+          invocationTimeout: const Duration(milliseconds: 30),
+          invoke: (operation, payload) async {
+            if (operation == PluginDeviceOperation.disconnect) {
+              if (hangs) return Completer<Map<String, dynamic>>().future;
+              throw StateError('cleanup failed');
+            }
+            if (operation == PluginDeviceOperation.connect) {
+              scale.publish({
+                'weight': 1,
+              }, session: payload['session'] as String);
+            }
+            return {};
+          },
+        );
+        addTearDown(scale.dispose);
+        await scale.onConnect();
+        await expectLater(
+          scale.disconnect(),
+          throwsA(hangs ? isA<TimeoutException>() : isA<StateError>()),
+        );
+        await scale.onConnect();
+      },
+    );
+  }
+
   test(
     'immediate disconnect cancels initialization before readiness',
     () async {

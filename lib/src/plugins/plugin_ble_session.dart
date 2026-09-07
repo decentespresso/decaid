@@ -288,13 +288,17 @@ class PluginBleSession {
               'Subscription replaced',
             );
           }
-          await transport.subscribe(service, characteristic, (bytes) {
-            if (!identical(_subscriptions[key], subscription) ||
-                subscription.removing != null ||
+          final subscribe = previous == null
+              ? transport.subscribe
+              : transport.resetSubscription;
+          await subscribe(service, characteristic, (bytes) {
+            final current = _subscriptions[key];
+            if (current == null ||
+                current.removing != null ||
                 !acceptsPublications) {
               return;
             }
-            _enqueue(subscription.id, bytes);
+            _enqueue(current.id, bytes);
           });
           return subscription.id;
         } catch (_) {

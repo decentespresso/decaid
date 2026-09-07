@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/models/device/scale.dart';
@@ -8,6 +10,87 @@ import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'plugin_test_helpers.dart';
 
 void main() {
+  test(
+    'retiring a suspended Scale connect rejects late transport opens',
+    () async {
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final sockets = <WebSocket>[];
+      server.listen((request) async {
+        sockets.add(await WebSocketTransformer.upgrade(request));
+      });
+      final manager = PluginManager(kvStore: FakeKeyValueStoreService());
+      addTearDown(() async {
+        await manager.dispose();
+        for (final socket in sockets) {
+          await socket.close();
+        }
+        await server.close(force: true);
+      });
+      final registered = manager.emitStream
+          .where((e) => e['event'] == 'registered')
+          .first;
+      final suspended = manager.emitStream
+          .where((e) => e['event'] == 'suspended')
+          .first;
+      final rejected = manager.emitStream
+          .where((e) => e['event'] == 'rejected')
+          .first;
+      await manager.loadPlugin(
+        id: 'retiring.scale',
+        manifest: testManifest(
+          'retiring.scale',
+          permissions: {
+            PluginPermissions.emit,
+            PluginPermissions.networkWebsocket,
+          },
+          drivers: const [
+            PluginDriverDeclaration(id: 'scale', type: PluginDriverType.scale),
+          ],
+        ),
+        settings: {},
+        jsCode:
+            '''
+        function createPlugin(host) {
+          return {id: "retiring.scale", onLoad() {
+            return host.devices.register({driverId: "scale", instanceId: "one", name: "Scale"}, {
+              async connect(context) {
+                const options = {kind: "websocket", url: "ws://127.0.0.1:${server.port}/"};
+                await context.transport.open(options);
+                await new Promise(resolve => {
+                  globalThis.resumeScale = resolve;
+                  host.emit("suspended", true);
+                });
+                try {
+                  await context.transport.open(options);
+                  host.emit("rejected", false);
+                } catch (error) { host.emit("rejected", true); }
+              },
+              disconnect() {}
+            }).then(() => host.emit("registered", true));
+          }};
+        }
+      ''',
+      );
+      await registered.timeout(const Duration(seconds: 2));
+      final scale = (await manager.deviceService.devices.first).single as Scale;
+      final connecting = expectLater(
+        scale.onConnect(),
+        throwsA(isA<PluginDeviceException>()),
+      );
+      await suspended.timeout(const Duration(seconds: 2));
+      expect(manager.liveTransportCount, 1);
+      await scale.disconnect();
+      await connecting;
+      manager.js.evaluate('globalThis.resumeScale()');
+      while (manager.js.executePendingJob() > 0) {}
+      expect(
+        (await rejected.timeout(const Duration(seconds: 2)))['payload'],
+        true,
+      );
+      expect(manager.liveTransportCount, 0);
+    },
+  );
+
   test(
     'direct Scale registration cannot omit a declared command handler',
     () async {

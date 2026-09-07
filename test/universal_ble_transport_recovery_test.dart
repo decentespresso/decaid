@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/device.dart' as device;
 import 'package:reaprime/src/models/errors.dart';
+import 'package:reaprime/src/plugins/plugin_ble_session.dart';
 import 'package:reaprime/src/services/ble/universal_ble_transport.dart';
 import 'package:universal_ble/universal_ble.dart';
 
@@ -707,6 +708,43 @@ void main() {
   });
 
   group('re-subscribe push channel (universal_ble broadcast controller)', () {
+    test(
+      'plugin replacement resets CCCD and fences old logical unsubscribe',
+      () async {
+        platform.updateConnectionStateOnLifecycle = true;
+        final events = <Map<String, dynamic>>[];
+        final session = PluginBleSession(
+          transport: transport,
+          authorized: () => true,
+          runtimeAlive: () => true,
+          eventSink: (event) async {
+            events.add(event);
+          },
+        );
+        await session.connect();
+        final args = {'service': _serviceUuid, 'characteristic': _charUuid};
+        final first = await session.call(session.id, 'subscribe', args);
+        final second = await session.call(session.id, 'subscribe', args);
+        await session.call(session.id, 'unsubscribe', {'subscription': first});
+        expect(platform.notificationProperties, [
+          BleInputProperty.notification,
+          BleInputProperty.disabled,
+          BleInputProperty.notification,
+        ]);
+        platform.updateCharacteristicValue(
+          deviceId,
+          _charUuid,
+          Uint8List.fromList([9]),
+          null,
+        );
+        await pump();
+        expect(events, hasLength(1));
+        expect(events.single['subscription'], second);
+        await session.retire();
+        await session.closed;
+      },
+    );
+
     const service = '0000a000-0000-1000-8000-00805f9b34fb';
     const chars = [
       '0000a00e-0000-1000-8000-00805f9b34fb',

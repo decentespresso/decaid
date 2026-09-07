@@ -110,7 +110,9 @@ ingress fallback for non-BLE/synthetic samples. Document clock-change behavior.
 
 - A replaces the issue's contradictory cleanup order with retirement followed by
   invocation-scoped cleanup and revocation before terminal notification.
-- B replaces missing-field negative matching with explicit uncertainty.
+- B replaces missing-field negative matching with explicit uncertainty. The
+  public #809 matcher contract was updated on 2026-09-07 to include this approved
+  amendment; complete negative evidence still produces noMatch.
 - C extends the public registration path, not just a Dart Scale constructor.
 - D makes publication-ingress timestamps provisional pending timing evidence.
 - Existing Sensor publish/reportDisconnected handles are generation-owned but
@@ -227,3 +229,28 @@ primitives still need wiring into discovery and the public GATT bridge. Scale
 REST/WS integration evidence, automatic optional calls, deliberate sleep policy,
 timing acceptance, Bookoo reference, preference/restart tests, and hardware
 validation remain open. Keep the design active and use Refs #809.
+
+### PR Review Corrections
+
+Review baseline: 5767a253198cc3e59e52009a87a78fcc041dc59a.
+
+- Retire all active manager connect invocation IDs for the registration before
+  dispatching disconnect, not just invocations that reached the manager timeout.
+  Cancel their watchdogs, settle pending callers, and reuse bounded disconnect
+  cleanup to close invocation-owned transports. Late JS results cannot authorize
+  more transport opens. The adapter still owns its readiness deadline.
+- Clear the adapter disconnect future in finally and tolerate a previous cleanup
+  error when reconnect waits for it. The original disconnect caller retains the error.
+- Use the existing native resetSubscription path for replacement. Native reset
+  retains its Dart listener, so tuple forwarding resolves the current logical ID;
+  an old logical unsubscribe cannot remove the replacement.
+- Regression tests first reproduced both reconnect failures, an authorized late
+  JS WebSocket open, and notification -> notification without a disabled step.
+  Focused Scale/manager/Sensor/BLE/native recovery suite: 67 passed, exit 0.
+- Full flutter test --no-pub: 3931 passed, 1 skipped, exit 0 (2m34s).
+  Raw log: .build/issue-809-review-tests.log.
+- flutter analyze --no-pub: No issues found, exit 0 (12.8s).
+- CI-compatible dart_style 3.1.13 formatting of lib and test: 806 files,
+  zero remaining changes. git diff --check: exit 0.
+
+These corrections do not complete the remaining integration or hardware gates.
