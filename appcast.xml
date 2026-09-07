@@ -6,6 +6,32 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Decaid</title>
         <item>
+            <title>0.8.6</title>
+            <pubDate>Mon, 07 Sep 2026 07:56:01 +0000</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>2669</sparkle:version>
+            <sparkle:shortVersionString>0.8.6</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* fix(ble): harden background scale-watch ownership by @tadelv in https://github.com/decentespresso/decaid/pull/773
+* chore(deps): pin flutter_js 0.8.6 by @ODevStudio in https://github.com/decentespresso/decaid/pull/776
+* feat(workflow): add water-volume stop override by @ODevStudio in https://github.com/decentespresso/decaid/pull/774
+* docs(skill): add application log inspection recipe by @tadelv in https://github.com/decentespresso/decaid/pull/779
+* fix(serial): deduplicate Android devices by ID by @ODevStudio in https://github.com/decentespresso/decaid/pull/782
+* fix: suppress Bengle internal scale disconnect error by @ODevStudio in https://github.com/decentespresso/decaid/pull/783
+* feat(plugins): register sensor-backed devices by @tadelv in https://github.com/decentespresso/decaid/pull/775
+* feat(plugins): expose workflow updates by @ODevStudio in https://github.com/decentespresso/decaid/pull/787
+* docs: refresh Decent app agent skill by @ODevStudio in https://github.com/decentespresso/decaid/pull/789
+* fix(scan): escape connect-error dead end and remove legacy discovery UI by @tadelv in https://github.com/decentespresso/decaid/pull/807
+* fix(ble): retry a write rejected for its write property by @allofmeng in https://github.com/decentespresso/decaid/pull/781
+
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.8.5...v0.8.6-beta.1
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.8.6-beta.1/decaid-macos-0.8.6-beta.1.zip" length="64393409" type="application/octet-stream" sparkle:edSignature="aHSHpDZLYeu3s5M97f0ujb5tfj5VhttSRZB3ReA8nOUJ1Xcq+Yd0Kg5pZSqezispYm0qREoQQZTwSxGY889uCw=="/>
+        </item>
+        <item>
             <title>0.8.5</title>
             <pubDate>Wed, 02 Sep 2026 12:54:34 +0000</pubDate>
             <sparkle:version>2624</sparkle:version>
@@ -320,6 +346,6 @@ See `doc/RELEASE.md` for install and verification instructions.
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: /5gQtLYBKQ+jSmFiB5U1nXfbz9zDM90IECaOpVkyl+4cwnnqyJ3x3crOEcCfYqZJ7s6Sb+bEQG3nQ6PXxuvcAQ==
-length: 27609
+edSignature: Jdz4qiyIOXncBXNFPUWv37Sw4+XgJYloALsSRJn9sOKfWOCnfasp1s7xa1oSKOmSrUsjwF53WuYqxgd8lRe6Ag==
+length: 29764
 -->
