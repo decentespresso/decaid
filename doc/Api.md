@@ -105,10 +105,13 @@ Pre-stream responses are `400` for malformed input, `404` for an unknown artifac
 
 | Method | Path | Description | Handler |
 |--------|------|-------------|---------|
+| GET | `/api/v1/scale/info` | Information for the currently connected scale | `scale_handler.dart` |
 | PUT | `/api/v1/scale/tare` | Tare the connected scale | `scale_handler.dart` |
 | PUT | `/api/v1/scale/timer/start` | Start scale timer | |
 | PUT | `/api/v1/scale/timer/stop` | Stop scale timer | |
 | PUT | `/api/v1/scale/timer/reset` | Reset scale timer | |
+
+`GET /api/v1/scale/info` is scoped to the currently connected scale. It returns `503` when no scale is connected and `{}` when connected metadata is not yet known. `firmwareVersion`, when present, is an opaque value reported by the scale (for example `R029`). `batteryLevel` is optional and nullable; unknown values are omitted, while `0` and `100` are valid readings. This endpoint is separate from device inventory.
 
 ### Devices
 
@@ -143,6 +146,8 @@ remembered and persist across restarts, shown as unavailable when offline, until
 forgotten via `PUT /api/v1/devices/forget` (deviceId in the JSON body or
 `?deviceId=` query). The same `available` field is on each device in the
 `ws/v1/devices` snapshot.
+
+`GET /api/v1/devices` and `/ws/v1/devices` are inventory-only surfaces. Their device entries contain identity, availability, and connection state, not connection metadata such as `deviceInfo`, `firmwareVersion`, or `batteryLevel`. A metadata refresh therefore does not emit an inventory update. Clients that need current connected-scale metadata should call `GET /api/v1/scale/info`; no scale metadata WebSocket is defined until a concrete live-update need exists.
 
 `available` describes inventory presence, not command ownership. A connected
 controller-owned device such as Bengle's integrated virtual scale is listed as
