@@ -365,7 +365,10 @@ void main() {
         id: 'memory.scale',
         manifest: testManifest(
           'memory.scale',
-          permissions: {PluginPermissions.emit},
+          permissions: {
+            PluginPermissions.emit,
+            PluginPermissions.networkWebsocket,
+          },
           drivers: const [
             PluginDriverDeclaration(
               id: 'scale',
@@ -386,6 +389,14 @@ void main() {
                 async connect(context) {
                   globalThis.previousScaleContext = globalThis.scaleContext;
                   globalThis.scaleContext = context;
+                  if (!globalThis.openOldScaleTransport) {
+                    globalThis.openOldScaleTransport = () => context.transport.open({
+                      kind: "websocket", url: "ws://127.0.0.1:1/"
+                    }).then(
+                      () => host.emit("old-open", "unexpected success"),
+                      error => host.emit("old-open", error.message)
+                    );
+                  }
                   await context.publish({weight: -2.5});
                 },
                 disconnect() {},
@@ -411,6 +422,19 @@ void main() {
       );
       await scale.disconnect();
       await controller.connectToScale(scale);
+      expect(manager.liveTransportCount, 0);
+      expect(manager.deviceConnectAttemptCount, 0);
+      expect(manager.retiredDeviceConnectCount, 0);
+      final oldOpen = manager.emitStream
+          .where((event) => event['event'] == 'old-open')
+          .first;
+      manager.js.evaluate('globalThis.openOldScaleTransport()');
+      while (manager.js.executePendingJob() > 0) {}
+      expect(
+        (await oldOpen.timeout(const Duration(seconds: 2)))['payload'],
+        'Plugin device connect retired',
+      );
+      expect(manager.liveTransportCount, 0);
       manager.js.evaluate('''
       globalThis.previousScaleContext.publish({weight: 99}).catch(error => {
         globalThis.staleScaleError = error.code;

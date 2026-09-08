@@ -332,3 +332,16 @@ Full local suite: 3941 passed, 1 skipped, zero failures. The CI active-time gate
 passes for every file. Analysis and formatting are clean. Events are recorded in
 .build/issue-809-runtime-gate-tests.json. Both fixed BLE-evidence review threads
 were marked resolved. The externally changed PR draft status was left unchanged.
+
+### Completed Connect With No Transports
+
+The subsequent review's claimed late-open bypass is already denied manager-side:
+hasDeviceConnectClaim with no matching active invocation fails before transport
+dispatch. Removing the completed invocation revokes its open authority; retaining
+an additional session record or transport fence is unnecessary for that denial.
+The real bridge registration test now saves the first connect context, completes
+connect and reconnect without any live transports, checks both bookkeeping counts
+are zero, and verifies old-context open returns "Plugin device connect retired".
+The fixture has network permission, so permission denial cannot mask the result.
+Full verification: 3941 passed, 1 skipped; all suites pass the 20-second active-time
+gate. Analysis and formatting are clean. Events: .build/issue-809-zero-transport-tests.json.
