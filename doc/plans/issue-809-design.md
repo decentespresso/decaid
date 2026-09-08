@@ -275,3 +275,22 @@ These corrections do not complete the remaining integration or hardware gates.
 - CI-compatible formatting: 806 files, zero remaining changes; diff check clean.
 
 Discovery integration and the other draft acceptance gaps remain open.
+
+### Suspended Connect Bookkeeping
+
+2026-09-08, review baseline 55193d20:
+
+- Retirement removes the manager connect attempt immediately, denying subsequent
+  claimed transport opens even if the JS Promise never settles.
+- The transport retirement fence remains through bounded cleanup and transport
+  closure, then finishDeviceConnect releases it in finally on success or failure.
+- Real QuickJS regression repeats four never-settling connect/disconnect cycles
+  for successful, throwing, and timed-out cleanup. Both tracking counts return
+  to zero before the next attempt. The previous late-open regression also checks
+  zero tracking counts before resuming its stale handler.
+- Before the fix, each cleanup variant retained one attempt and one fence.
+  Focused Scale/Sensor manager suite after the fix: 22 passed, exit 0.
+- Full-suite rerun: 3939 passed, 1 skipped, exit 0 (2m23s), recorded in
+  .build/issue-809-retirement-tests-rerun.log. The initial run had one WebUI
+  port-3001 bind failure; that test passed alone before the clean full rerun.
+- Analysis: No issues found. CI-compatible formatting and diff checks are clean.

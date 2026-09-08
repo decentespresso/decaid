@@ -10,6 +10,88 @@ import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'plugin_test_helpers.dart';
 
 void main() {
+  for (final cleanup in ['success', 'throws', 'hangs']) {
+    test(
+      'never-settling connects release bookkeeping after $cleanup cleanup',
+      () async {
+        final manager = PluginManager(
+          kvStore: FakeKeyValueStoreService(),
+          deviceInvocationTimeout: const Duration(milliseconds: 200),
+        );
+        addTearDown(manager.dispose);
+        final registered = manager.emitStream
+            .where((e) => e['event'] == 'registered')
+            .first;
+        await manager.loadPlugin(
+          id: 'hung.scale',
+          manifest: testManifest(
+            'hung.scale',
+            permissions: {PluginPermissions.emit},
+            drivers: const [
+              PluginDriverDeclaration(
+                id: 'scale',
+                type: PluginDriverType.scale,
+              ),
+            ],
+          ),
+          settings: {},
+          jsCode:
+              '''
+          function createPlugin(host) {
+            return {id: "hung.scale", onLoad() {
+              return host.devices.register({driverId: "scale", instanceId: "one", name: "Scale"}, {
+                connect() {
+                  host.emit("suspended", true);
+                  return new Promise(() => {});
+                },
+                disconnect() {
+                  if ("$cleanup" === "throws") throw new Error("cleanup failed");
+                  if ("$cleanup" === "hangs") return new Promise(() => {});
+                }
+              }).then(() => host.emit("registered", true));
+            }};
+          }
+        ''',
+        );
+        await registered.timeout(const Duration(seconds: 2));
+        final scale =
+            (await manager.deviceService.devices.first).single as Scale;
+        addTearDown((scale as PluginDeviceAdapter).dispose);
+        for (var attempt = 0; attempt < 4; attempt++) {
+          final suspended = manager.emitStream
+              .where((e) => e['event'] == 'suspended')
+              .first;
+          final connecting = expectLater(
+            scale.onConnect(),
+            throwsA(isA<PluginDeviceException>()),
+          );
+          await suspended.timeout(const Duration(seconds: 2));
+          expect(manager.deviceConnectAttemptCount, 1);
+          final disconnecting = scale.disconnect();
+          expect(manager.deviceConnectAttemptCount, 0);
+          expect(manager.retiredDeviceConnectCount, 1);
+          if (cleanup == 'success') {
+            await disconnecting;
+          } else {
+            await expectLater(
+              disconnecting,
+              throwsA(isA<PluginDeviceException>()),
+            );
+          }
+          await connecting;
+          expect(
+            [
+              manager.deviceConnectAttemptCount,
+              manager.retiredDeviceConnectCount,
+            ],
+            [0, 0],
+          );
+          expect(manager.liveTransportCount, 0);
+        }
+      },
+    );
+  }
+
   test(
     'retiring a suspended Scale connect rejects late transport opens',
     () async {
@@ -81,6 +163,8 @@ void main() {
       expect(manager.liveTransportCount, 1);
       await scale.disconnect();
       await connecting;
+      expect(manager.deviceConnectAttemptCount, 0);
+      expect(manager.retiredDeviceConnectCount, 0);
       manager.js.evaluate('globalThis.resumeScale()');
       while (manager.js.executePendingJob() > 0) {}
       expect(

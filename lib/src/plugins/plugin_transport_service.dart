@@ -67,6 +67,7 @@ class PluginTransportService {
 
   int get liveTransportCount =>
       _records.values.where((record) => !record.terminal).length;
+  int get retiredDeviceConnectCount => _retiredDeviceConnects.length;
 
   Future<TransportOpenResult> open({
     required String pluginId,

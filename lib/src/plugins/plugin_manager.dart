@@ -126,6 +126,9 @@ class PluginManager {
   De1Controller? get de1Controller => _de1controller;
   PluginManagerLifecycle get lifecycle => _lifecycle;
   int get liveTransportCount => _transportService.liveTransportCount;
+  int get deviceConnectAttemptCount => _deviceConnectAttempts.length;
+  int get retiredDeviceConnectCount =>
+      _transportService.retiredDeviceConnectCount;
   int get attachmentGeneration => _attachmentGeneration;
   int get activeSubscriptionCount =>
       (_de1Subscription == null ? 0 : 1) +
@@ -1354,6 +1357,7 @@ class PluginManager {
             entry.key,
       });
       for (final connectInvocationId in retiredConnectInvocations) {
+        _deviceConnectAttempts.remove(connectInvocationId);
         _transportService.retireDeviceConnect(
           pluginId,
           generation,
@@ -1463,6 +1467,15 @@ class PluginManager {
         await closeTransports();
       } catch (_) {}
       Error.throwWithStackTrace(error, stackTrace);
+    } finally {
+      for (final invocationId in invocationIds) {
+        _transportService.finishDeviceConnect(
+          pluginId,
+          generation,
+          registrationHandle,
+          invocationId,
+        );
+      }
     }
   }
 
