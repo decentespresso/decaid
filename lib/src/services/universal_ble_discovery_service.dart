@@ -836,6 +836,7 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
           if (!identical(_devices[deviceId], existing)) return;
           final latestState = await _cachedConnectionState(existing);
           if (latestState == null ||
+              latestState == ConnectionState.discovered ||
               latestState == ConnectionState.connecting ||
               latestState == ConnectionState.disconnecting) {
             return;
@@ -846,6 +847,15 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
               nativeLink == BleConnectionState.connecting) {
             return;
           }
+          if (!identical(_devices[deviceId], existing)) return;
+          final finalState = await _cachedConnectionState(existing);
+          if (finalState == null ||
+              finalState == ConnectionState.discovered ||
+              finalState == ConnectionState.connecting ||
+              finalState == ConnectionState.disconnecting) {
+            return;
+          }
+          if (!identical(_devices[deviceId], existing)) return;
           log.warning(
             'Replacing cached connected device $deviceId; '
             'native link is ${nativeLink.name}',

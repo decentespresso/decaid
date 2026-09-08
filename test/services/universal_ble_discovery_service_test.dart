@@ -1182,6 +1182,147 @@ void main() {
       },
     );
 
+    for (final (state, deviceId) in const [
+      (domain.ConnectionState.connecting, 'AA:BB:CC:DD:EE:12'),
+      (domain.ConnectionState.discovered, 'AA:BB:CC:DD:EE:15'),
+      (domain.ConnectionState.disconnecting, 'AA:BB:CC:DD:EE:16'),
+    ]) {
+      test(
+        'a cached device moving to ${state.name} during the final stale probe '
+        'stays cached',
+        () async {
+          final secondProbeStarted = Completer<void>();
+          final releaseSecondProbe = Completer<void>();
+          var probeCount = 0;
+          final transports = <_TrackingFakeBleTransport>[];
+          final sut = UniversalBleDiscoveryService(
+            watchSupportGate: () => true,
+            transportFactory:
+                ({
+                  required device,
+                  required stopScan,
+                  required requestLargeMtuNonAndroid,
+                  required lifecycleGate,
+                }) {
+                  final transport = transportForModel(
+                    129,
+                    deviceId: device.deviceId,
+                  );
+                  transports.add(transport);
+                  return transport;
+                },
+          );
+          addTearDown(sut.dispose);
+          platform.systemDevices.add(
+            BleDevice(deviceId: deviceId, name: 'DE1'),
+          );
+          await sut.initialize();
+          platform.getConnectionStateOverride = (_) async {
+            if (probeCount++ == 0) {
+              return BleConnectionState.disconnected;
+            }
+            secondProbeStarted.complete();
+            await releaseSecondProbe.future;
+            return BleConnectionState.disconnected;
+          };
+
+          final remembered = RememberedDevice(
+            id: deviceId,
+            name: 'DE1',
+            type: domain.DeviceType.machine,
+            implementation: DeviceImplementation.unifiedDe1,
+            transportType: TransportType.ble,
+          );
+          final emissions = <List<domain.Device>>[];
+          final subscription = sut.devices.listen(emissions.add);
+          addTearDown(subscription.cancel);
+          final connected = await sut.tryQuickConnect(remembered);
+          final cached = transports.single;
+
+          await sut.startDeviceWatch(_watchFilter);
+          platform.updateScanResult(BleDevice(deviceId: deviceId, name: 'DE1'));
+          await secondProbeStarted.future;
+          cached.emitConnectionState(state);
+          releaseSecondProbe.complete();
+          await pump(6);
+
+          expect(transports, hasLength(1));
+          expect(emissions.last, contains(same(connected)));
+          expect(cached.disconnectCalls, 0);
+          expect(platform.disconnectCalls, 0);
+        },
+      );
+    }
+
+    test('a cached device returning to discovered during stale probing stays '
+        'cached', () async {
+      const deviceId = 'AA:BB:CC:DD:EE:13';
+      final firstProbeObserved = Completer<void>();
+      final releaseFirstProbe = Completer<void>();
+      var nativeProbeCount = 0;
+      final transports = <_TrackingFakeBleTransport>[];
+      final sut = UniversalBleDiscoveryService(
+        watchSupportGate: () => true,
+        transportFactory:
+            ({
+              required device,
+              required stopScan,
+              required requestLargeMtuNonAndroid,
+              required lifecycleGate,
+            }) {
+              final transport = transportForModel(
+                129,
+                deviceId: device.deviceId,
+              );
+              transports.add(transport);
+              return transport;
+            },
+      );
+      addTearDown(sut.dispose);
+      platform.systemDevices.add(BleDevice(deviceId: deviceId, name: 'DE1'));
+      await sut.initialize();
+      platform.getConnectionStateOverride = (_) async {
+        if (nativeProbeCount++ == 0) {
+          firstProbeObserved.complete();
+          await releaseFirstProbe.future;
+          return BleConnectionState.disconnected;
+        }
+        return BleConnectionState.disconnected;
+      };
+
+      const remembered = RememberedDevice(
+        id: deviceId,
+        name: 'DE1',
+        type: domain.DeviceType.machine,
+        implementation: DeviceImplementation.unifiedDe1,
+        transportType: TransportType.ble,
+      );
+      final emissions = <List<domain.Device>>[];
+      final subscription = sut.devices.listen(emissions.add);
+      addTearDown(subscription.cancel);
+      final connected = await sut.tryQuickConnect(remembered);
+      final cached = transports.single;
+
+      await sut.startDeviceWatch(_watchFilter);
+      platform.updateScanResult(BleDevice(deviceId: deviceId, name: 'DE1'));
+      await firstProbeObserved.future;
+      cached.emitConnectionState(domain.ConnectionState.discovered);
+      releaseFirstProbe.complete();
+      await pump(6);
+
+      expect(transports, hasLength(1));
+      expect(emissions.last, contains(same(connected)));
+      expect(
+        nativeProbeCount,
+        1,
+        reason:
+            'discovered state must end stale probing after the '
+            'first native probe',
+      );
+      expect(cached.disconnectCalls, 0);
+      expect(platform.disconnectCalls, 0);
+    });
+
     test(
       'discovery does not disconnect behind a shared-native connect',
       () async {

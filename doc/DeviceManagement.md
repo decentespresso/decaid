@@ -214,6 +214,9 @@ connection teardown. A fresh advertisement preserves cached devices whose state
 is unknown, discovered, connecting, or disconnecting. A cached connected device
 is replaced only when repeated native probes confirm that its link is gone and
 its cache identity and Dart state remain stale across the intervening awaits.
+The final cache-identity and Dart-state validation runs after the last native
+probe, with no await permitted between that validation and removal of the cache
+entry, so a connection transition during the final probe cannot be missed.
 Cache replacement never calls `disconnect(deviceId)`; connection lifecycle
 owners perform native teardown. Disconnect listeners mutate the cache only when
 the emitting device instance still owns that entry, so delayed events from an
