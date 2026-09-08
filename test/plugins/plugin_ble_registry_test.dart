@@ -10,6 +10,140 @@ PluginDriverDeclaration driver(String id, Map<String, dynamic> match) =>
     });
 
 void main() {
+  test('name completeness reaches ownership decisions', () {
+    final registry = PluginBleRegistry();
+    addTearDown(registry.dispose);
+    registry.register(
+      pluginId: 'a',
+      generation: 1,
+      declaration: driver('one', {
+        'name': {'exact': 'bookoo'},
+      }),
+      permissions: {PluginPermissions.transportBle},
+      factoryHandle: 'a',
+    );
+    expect(
+      registry.decide(BleAdvertisementEvidence(nameComplete: true)).kind,
+      PluginBleOwnership.native,
+    );
+    expect(
+      registry.decide(BleAdvertisementEvidence(nameComplete: false)).kind,
+      PluginBleOwnership.pending,
+    );
+    expect(
+      registry.decide(BleAdvertisementEvidence()).kind,
+      PluginBleOwnership.native,
+    );
+    expect(
+      registry
+          .decide(BleAdvertisementEvidence(source: BleEvidenceSource.system))
+          .kind,
+      PluginBleOwnership.pending,
+    );
+  });
+
+  test('equally complete observations use freshness across sources', () {
+    for (final complete in [false, true]) {
+      final older = BleAdvertisementEvidence(
+        name: 'old',
+        nameComplete: complete,
+        serviceUuids: [],
+        servicesComplete: complete,
+        observedAt: DateTime.utc(2026, 9, 8),
+      );
+      final newer = BleAdvertisementEvidence(
+        name: 'new',
+        nameComplete: complete,
+        serviceUuids: [],
+        servicesComplete: complete,
+        source: BleEvidenceSource.system,
+        observedAt: DateTime.utc(2026, 9, 8, 0, 0, 1),
+      );
+      for (final observations in [
+        [older, newer],
+        [newer, older],
+      ]) {
+        final cache = BleAdvertisementCache()..beginGeneration(1);
+        for (final observation in observations) {
+          cache.record('one', 1, observation);
+        }
+        expect(cache.get('one'), same(newer));
+      }
+    }
+  });
+
+  test('complete absence cannot be erased by newer unavailable metadata', () {
+    final absent = BleAdvertisementEvidence(
+      nameComplete: true,
+      serviceUuids: [],
+      servicesComplete: true,
+      source: BleEvidenceSource.system,
+      observedAt: DateTime.utc(2026, 9, 8),
+    );
+    final unavailable = BleAdvertisementEvidence(
+      nameComplete: false,
+      serviceUuids: [],
+      servicesComplete: true,
+      observedAt: DateTime.utc(2026, 9, 8, 0, 0, 1),
+    );
+    for (final observations in [
+      [absent, unavailable],
+      [unavailable, absent],
+    ]) {
+      final cache = BleAdvertisementCache()..beginGeneration(1);
+      for (final observation in observations) {
+        cache.record('one', 1, observation);
+      }
+      expect(cache.get('one'), same(absent));
+    }
+  });
+
+  test(
+    'complete system evidence defeats incomplete advertisement in either order',
+    () {
+      final registry = PluginBleRegistry();
+      addTearDown(registry.dispose);
+      registry.register(
+        pluginId: 'a',
+        generation: 1,
+        declaration: driver('one', {
+          'name': {'exact': 'bookoo'},
+          'serviceUuids': ['0ffe'],
+        }),
+        permissions: {PluginPermissions.transportBle},
+        factoryHandle: 'a',
+      );
+      final advertisement = BleAdvertisementEvidence(
+        name: 'bookoo',
+        serviceUuids: [],
+        servicesComplete: false,
+        observedAt: DateTime.utc(2026, 9, 8),
+      );
+      final system = BleAdvertisementEvidence(
+        name: 'bookoo',
+        nameComplete: true,
+        serviceUuids: ['0ffe'],
+        servicesComplete: true,
+        source: BleEvidenceSource.system,
+        observedAt: DateTime.utc(2026, 9, 8, 0, 0, 1),
+      );
+      for (final observations in [
+        [advertisement, system],
+        [system, advertisement],
+      ]) {
+        final cache = BleAdvertisementCache()..beginGeneration(1);
+        for (final observation in observations) {
+          cache.record('one', 1, observation);
+        }
+        expect(cache.get('one'), same(system));
+        expect(
+          registry.decide(cache.get('one')!).kind,
+          PluginBleOwnership.plugin,
+        );
+      }
+    },
+  );
+
   test(
     'an empty system service list does not prove a negative advertisement',
     () {

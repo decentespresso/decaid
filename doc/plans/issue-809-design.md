@@ -22,7 +22,11 @@ The existing discovery service remains the sole scanner. Advertisement evidence
 is evaluated before native matching, including its empty-name gate. Evidence is
 owned by a discovery generation and physical ID, with source, observation time,
 and explicit field completeness. Complete observations replace older evidence;
-system metadata cannot erase a complete advertisement in the same generation.
+incomplete system metadata cannot erase a complete advertisement in the same
+generation.
+Complete observations outrank incomplete ones regardless of source; equally
+complete observations use observation time. A complete absent name is negative
+evidence, while unavailable name metadata remains indeterminate.
 Never merge observations across generations to manufacture a match.
 
 Matchers return match, noMatch, or indeterminate. AND predicates short-circuit
@@ -254,3 +258,20 @@ Review baseline: 5767a253198cc3e59e52009a87a78fcc041dc59a.
   zero remaining changes. git diff --check: exit 0.
 
 These corrections do not complete the remaining integration or hardware gates.
+
+### Evidence Completeness Corrections
+
+2026-09-08, review baseline 154f798a:
+
+- Name completeness now reaches matcher evaluation through registry evidence.
+  Known absence is noMatch; unavailable metadata remains indeterminate.
+- Cache replacement compares completeness before freshness, independently of
+  source, and retains whole observations without merging fields.
+- Matcher/registry tests: 18 passed, including both arrival orders, known absence,
+  unavailable metadata, freshness, and existing generation/no-merging coverage.
+- Full flutter test --no-pub: 3936 passed, 1 skipped, exit 0 (2m45s).
+  Raw log: .build/issue-809-evidence-tests.log.
+- flutter analyze --no-pub: No issues found, exit 0.
+- CI-compatible formatting: 806 files, zero remaining changes; diff check clean.
+
+Discovery integration and the other draft acceptance gaps remain open.

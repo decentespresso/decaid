@@ -338,9 +338,12 @@ trim names. UUIDs accept 16-, 32-, and 128-bit forms and serialize as lowercase
 128-bit UUIDs. Name and service predicates combine with AND; the service list
 uses any-of semantics. Unknown keys and unconstrained matchers are invalid.
 
-Incomplete evidence remains indeterminate. A proven false predicate makes the
-matcher a non-match. A definite match cannot win against an indeterminate
-competing driver. Two definite matches conflict. Discovery and connection
+Incomplete evidence remains indeterminate. A complete observation proving a
+required name is absent makes the matcher a non-match. The evidence cache keeps
+complete observations over incomplete ones regardless of source, uses observation
+time between equally complete records, and never merges records. A proven false
+predicate makes the matcher a non-match. A definite match cannot win against an
+indeterminate competing driver. Two definite matches conflict. Discovery and connection
 admission still need to use these arbitration primitives.
 
 ### Non-BLE Scale Registration

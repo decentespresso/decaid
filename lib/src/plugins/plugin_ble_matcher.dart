@@ -60,12 +60,14 @@ class PluginBleMatcher {
 
   PluginBleMatch evaluate({
     String? name,
+    bool nameComplete = false,
     Iterable<String>? serviceUuids,
     bool servicesComplete = true,
   }) {
     var unresolved = false;
     if (nameMode != null) {
       if (name == null) {
+        if (nameComplete) return PluginBleMatch.noMatch;
         unresolved = true;
       } else {
         final lower = name.toLowerCase();

@@ -4,6 +4,20 @@ import 'package:reaprime/src/plugins/plugin_manifest.dart';
 
 void main() {
   test(
+    'complete absent name is negative while unavailable name is unknown',
+    () {
+      final matcher = PluginBleMatcher.fromJson({
+        'name': {'exact': 'bookoo'},
+      });
+      expect(matcher.evaluate(nameComplete: true), PluginBleMatch.noMatch);
+      expect(
+        matcher.evaluate(nameComplete: false),
+        PluginBleMatch.indeterminate,
+      );
+    },
+  );
+
+  test(
     'normalizes Bluetooth UUID widths without accepting malformed input',
     () {
       for (final value in [

@@ -10,6 +10,7 @@ enum BleEvidenceSource { advertisement, system }
 
 class BleAdvertisementEvidence {
   final String? name;
+  final bool nameComplete;
   final List<String>? serviceUuids;
   final bool servicesComplete;
   final BleEvidenceSource source;
@@ -17,16 +18,23 @@ class BleAdvertisementEvidence {
 
   BleAdvertisementEvidence({
     this.name,
+    bool? nameComplete,
     List<String>? serviceUuids,
     bool? servicesComplete,
     this.source = BleEvidenceSource.advertisement,
     DateTime? observedAt,
-  }) : servicesComplete =
+  }) : nameComplete = nameComplete ?? source == BleEvidenceSource.advertisement,
+       servicesComplete =
            servicesComplete ?? source == BleEvidenceSource.advertisement,
        serviceUuids = serviceUuids == null
            ? null
            : List.unmodifiable(serviceUuids),
        observedAt = observedAt ?? clock.now();
+
+  bool get isComplete =>
+      (name != null || nameComplete) &&
+      serviceUuids != null &&
+      servicesComplete;
 }
 
 class BleAdvertisementCache {
@@ -47,9 +55,8 @@ class BleAdvertisementCache {
     final key = normalizeBleDeviceId(physicalId);
     final previous = _observations[key];
     if (previous != null &&
-        ((previous.source == BleEvidenceSource.advertisement &&
-                evidence.source == BleEvidenceSource.system) ||
-            (previous.source == evidence.source &&
+        ((previous.isComplete && !evidence.isComplete) ||
+            (previous.isComplete == evidence.isComplete &&
                 evidence.observedAt.isBefore(previous.observedAt)))) {
       return;
     }
@@ -154,6 +161,7 @@ class PluginBleRegistry {
     for (final driver in _drivers.values) {
       final result = driver.declaration.ble!.evaluate(
         name: evidence.name,
+        nameComplete: evidence.nameComplete,
         serviceUuids: evidence.serviceUuids,
         servicesComplete: evidence.servicesComplete,
       );
