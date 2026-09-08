@@ -13,6 +13,8 @@ import 'package:reaprime/src/models/errors.dart';
 import '../../scale.dart';
 
 class VariaAkuScale implements Scale {
+  @override
+  ScaleInfo? get scaleInfo => null;
   final Logger _log = Logger('VariaAkuScale');
 
   static final BleServiceIdentifier serviceIdentifier =

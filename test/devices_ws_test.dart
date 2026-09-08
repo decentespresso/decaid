@@ -129,6 +129,9 @@ void main() {
       expect(devices[0]['id'], 'scale-1');
       expect(devices[0]['name'], 'My Scale');
       expect(devices[0]['type'], 'scale');
+      expect(devices[0].containsKey('deviceInfo'), isFalse);
+      expect(devices[0].containsKey('firmwareVersion'), isFalse);
+      expect(devices[0].containsKey('batteryLevel'), isFalse);
 
       await channel.sink.close();
     });

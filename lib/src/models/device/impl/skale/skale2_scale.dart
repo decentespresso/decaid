@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -14,7 +15,7 @@ import 'package:reaprime/src/models/device/device.dart';
 
 import '../../scale.dart';
 
-class Skale2Scale implements Scale {
+class Skale2Scale implements Scale, DeviceInformationCapable {
   static final BleServiceIdentifier serviceIdentifier =
       BleServiceIdentifier.short('ff08');
   static final BleServiceIdentifier weightCharacteristic =
@@ -28,6 +29,10 @@ class Skale2Scale implements Scale {
   );
   static final BleServiceIdentifier batteryCharacteristic =
       BleServiceIdentifier.short('2a19');
+  static final BleServiceIdentifier deviceInformationService =
+      BleServiceIdentifier.short('180a');
+  static final BleServiceIdentifier firmwareRevisionCharacteristic =
+      BleServiceIdentifier.short('2a26');
 
   final String _deviceId;
 
@@ -36,7 +41,9 @@ class Skale2Scale implements Scale {
 
   final BLETransport _transport;
 
-  int _batteryLevel = 0;
+  int? _batteryLevel;
+  int? _batteryReadGeneration;
+  Timer? _batteryRefreshTimer;
 
   final _log = logging.Logger('Skale2Scale');
 
@@ -44,16 +51,28 @@ class Skale2Scale implements Scale {
 
   bool _buttonSubscribed = false;
 
+  int _connectionGeneration = 0;
+  StreamSubscription<ConnectionState>? _transportDisconnectSubscription;
+  String? _firmwareVersion;
+  bool _batterySupported = false;
+
+  final BehaviorSubject<DeviceInformation?> _deviceInformationController =
+      BehaviorSubject<DeviceInformation?>.seeded(null);
+
   static const _initStepDelay = Duration(milliseconds: 1000);
+  static const _batteryRefreshInterval = Duration(minutes: 30);
 
   Skale2Scale({
     required BLETransport transport,
     Duration initStepDelay = _initStepDelay,
+    Duration batteryRefreshInterval = _batteryRefreshInterval,
   }) : _transport = transport,
        _deviceId = transport.id,
-       _initStepDelayOverride = initStepDelay;
+       _initStepDelayOverride = initStepDelay,
+       _batteryRefreshIntervalOverride = batteryRefreshInterval;
 
   final Duration _initStepDelayOverride;
+  final Duration _batteryRefreshIntervalOverride;
 
   @override
   Stream<ScaleSnapshot> get currentSnapshot => _streamController.stream;
@@ -70,7 +89,7 @@ class Skale2Scale implements Scale {
   @override
   String get name => "Skale2";
 
-  final StreamController<ConnectionState> _connectionStateController =
+  final BehaviorSubject<ConnectionState> _connectionStateController =
       BehaviorSubject.seeded(ConnectionState.discovered);
 
   @override
@@ -78,24 +97,52 @@ class Skale2Scale implements Scale {
       _connectionStateController.stream;
 
   @override
+  DeviceInformation? get currentDeviceInformation =>
+      _deviceInformationController.value;
+
+  @override
+  ScaleInfo? get scaleInfo {
+    final info = currentDeviceInformation;
+    if (info == null) return null;
+    return ScaleInfo(
+      firmwareVersion: info.firmwareVersion,
+      batteryLevel: _batteryLevel,
+    );
+  }
+
+  @override
+  Stream<DeviceInformation?> get deviceInformation =>
+      _deviceInformationController.stream;
+
+  @override
   Future<void> onConnect() async {
-    if (await _transport.connectionState.first == ConnectionState.connected) {
+    final transportState = await _transport.connectionState.first;
+    if (transportState == ConnectionState.connected &&
+        _connectionStateController.value == ConnectionState.connected) {
       return;
     }
+
+    final generation = ++_connectionGeneration;
+    _stopBatteryRefresh();
+    _clearDeviceInformation();
     _connectionStateController.add(ConnectionState.connecting);
 
-    StreamSubscription<ConnectionState>? disconnectSub;
-
     try {
-      await _transport.connect();
+      if (transportState != ConnectionState.connected) {
+        await _transport.connect();
+      }
 
-      disconnectSub = _transport.connectionState
+      await _transportDisconnectSubscription?.cancel();
+      _transportDisconnectSubscription = _transport.connectionState
           .where((state) => state == ConnectionState.disconnected)
           .listen((_) {
+            if (generation != _connectionGeneration) return;
+            _connectionGeneration++;
             _connectionStateController.add(ConnectionState.disconnected);
             _weightSubscribed = false;
             _buttonSubscribed = false;
-            disconnectSub?.cancel();
+            _stopBatteryRefresh();
+            _clearDeviceInformation();
           });
 
       final services = await _transport.discoverServices();
@@ -105,11 +152,19 @@ class Skale2Scale implements Scale {
           'Discovered services: $services',
         );
       }
-      await _initScale();
+
+      await _initScale(services, generation);
+      if (!await _isConnectionActive(generation)) return;
       _connectionStateController.add(ConnectionState.connected);
-    } catch (e) {
-      _log.warning('Connect failed: $e');
-      disconnectSub?.cancel();
+      _startBatteryRefresh(generation);
+    } catch (e, st) {
+      if (generation != _connectionGeneration) return;
+      _log.warning('Connect failed', e, st);
+      _connectionGeneration++;
+      _stopBatteryRefresh();
+      await _transportDisconnectSubscription?.cancel();
+      _transportDisconnectSubscription = null;
+      _clearDeviceInformation();
       _connectionStateController.add(ConnectionState.disconnected);
       try {
         await _transport.disconnect();
@@ -118,37 +173,141 @@ class Skale2Scale implements Scale {
   }
 
   @override
-  disconnect() async {
-    await _transport.disconnect();
+  Future<void> disconnect() async {
+    _connectionGeneration++;
+    _stopBatteryRefresh();
+    _clearDeviceInformation();
+    try {
+      await _transport.disconnect();
+    } finally {
+      await _transportDisconnectSubscription?.cancel();
+      _transportDisconnectSubscription = null;
+      _weightSubscribed = false;
+      _buttonSubscribed = false;
+      _connectionStateController.add(ConnectionState.disconnected);
+    }
   }
 
   @override
   DeviceType get type => DeviceType.scale;
 
-  Future<void> _initScale() async {
+  Future<void> _initScale(List<String> services, int generation) async {
     await _sendDisplayOn();
     await _sendDisplayWeight();
 
     await Future.delayed(_initStepDelayOverride);
+    if (!await _isConnectionActive(generation)) return;
     await _subscribeWeight();
 
     await Future.delayed(_initStepDelayOverride);
+    if (!await _isConnectionActive(generation)) return;
     await _subscribeButton();
 
-    try {
-      final batteryData = await _transport.read(
-        batteryService.long,
-        batteryCharacteristic.long,
-      );
-      if (batteryData.isNotEmpty) {
-        _batteryLevel = batteryData[0];
-      }
-    } catch (_) {}
+    if (deviceInformationService.matchesAny(services)) {
+      await _readFirmwareVersion(generation);
+    }
+    if (!await _isConnectionActive(generation)) return;
+
+    _batterySupported = batteryService.matchesAny(services);
+    await _readBatteryLevel(generation);
+    if (!await _isConnectionActive(generation)) return;
 
     await Future.delayed(_initStepDelayOverride);
     await _sendDisplayOn();
     await _sendDisplayWeight();
     await _safeWrite(Uint8List.fromList([0x03]));
+  }
+
+  Future<void> _readBatteryLevel(int generation) async {
+    if (_batteryReadGeneration == generation ||
+        generation != _connectionGeneration ||
+        !_batterySupported) {
+      return;
+    }
+    _batteryReadGeneration = generation;
+    try {
+      int? level;
+      try {
+        final data = await _transport.read(
+          batteryService.long,
+          batteryCharacteristic.long,
+        );
+        if (data.length == 1 && data[0] <= 100) {
+          level = data[0];
+        }
+      } catch (e) {
+        _log.fine('Skale battery level unavailable: $e');
+      }
+      if (generation != _connectionGeneration ||
+          await _transport.connectionState.first != ConnectionState.connected) {
+        return;
+      }
+      _batteryLevel = level;
+      _publishDeviceInformation();
+    } finally {
+      if (_batteryReadGeneration == generation) {
+        _batteryReadGeneration = null;
+      }
+    }
+  }
+
+  void _startBatteryRefresh(int generation) {
+    _batteryRefreshTimer?.cancel();
+    if (!_batterySupported) return;
+    _batteryRefreshTimer = Timer.periodic(_batteryRefreshIntervalOverride, (_) {
+      _readBatteryLevel(generation);
+    });
+  }
+
+  void _stopBatteryRefresh() {
+    _batteryRefreshTimer?.cancel();
+    _batteryRefreshTimer = null;
+  }
+
+  Future<void> _readFirmwareVersion(int generation) async {
+    try {
+      final data = await _transport.read(
+        deviceInformationService.long,
+        firmwareRevisionCharacteristic.long,
+      );
+      if (!await _isConnectionActive(generation) || data.isEmpty) return;
+
+      final value = utf8
+          .decode(data)
+          .replaceFirst(RegExp(r'\x00+$'), '')
+          .trim();
+      if (value.isEmpty ||
+          value.runes.any((rune) => rune < 0x20 || rune == 0x7F)) {
+        return;
+      }
+
+      _firmwareVersion = value;
+      _publishDeviceInformation();
+    } on FormatException catch (e) {
+      _log.fine('Ignoring malformed Skale firmware revision: $e');
+    } catch (e) {
+      _log.fine('Skale firmware revision unavailable: $e');
+    }
+  }
+
+  Future<bool> _isConnectionActive(int generation) async {
+    if (generation != _connectionGeneration) return false;
+    return await _transport.connectionState.first == ConnectionState.connected;
+  }
+
+  void _publishDeviceInformation() {
+    final information = DeviceInformation(
+      firmwareVersion: _firmwareVersion,
+      batteryLevel: _batteryLevel,
+    );
+    _deviceInformationController.add(information.isEmpty ? null : information);
+  }
+
+  void _clearDeviceInformation() {
+    _firmwareVersion = null;
+    _batteryLevel = null;
+    _batterySupported = false;
+    _deviceInformationController.add(null);
   }
 
   Future<void> _subscribeWeight() async {
@@ -242,7 +401,7 @@ class Skale2Scale implements Scale {
       ScaleSnapshot(
         timestamp: DateTime.now(),
         weight: weight,
-        batteryLevel: _batteryLevel,
+        batteryLevel: _batteryLevel ?? 0,
       ),
     );
   }

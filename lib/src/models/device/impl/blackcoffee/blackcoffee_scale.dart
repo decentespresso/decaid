@@ -12,6 +12,8 @@ import 'package:reaprime/src/models/device/device.dart';
 import '../../scale.dart';
 
 class BlackCoffeeScale implements Scale {
+  @override
+  ScaleInfo? get scaleInfo => null;
   final Logger _log = Logger('BlackCoffeeScale');
 
   static final BleServiceIdentifier serviceIdentifier =

@@ -12,6 +12,8 @@ import 'package:rxdart/subjects.dart';
 
 class _TrackingScale implements Scale {
   @override
+  ScaleInfo? get scaleInfo => null;
+  @override
   final String deviceId;
   _TrackingScale(this.deviceId);
 

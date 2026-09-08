@@ -13,6 +13,8 @@ import 'package:rxdart/subjects.dart';
 import '../../scale.dart';
 
 class WeighMasterScale implements Scale {
+  @override
+  ScaleInfo? get scaleInfo => null;
   final Logger _log = Logger('WeighMasterScale');
 
   static final BleServiceIdentifier serviceIdentifier =

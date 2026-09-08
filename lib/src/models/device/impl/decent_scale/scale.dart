@@ -14,6 +14,8 @@ import 'package:reaprime/src/models/errors.dart';
 import 'package:rxdart/subjects.dart';
 
 class DecentScale implements Scale, TransportHandoffScale {
+  @override
+  ScaleInfo? get scaleInfo => null;
   static final BleServiceIdentifier serviceIdentifier =
       BleServiceIdentifier.short('fff0');
   static final BleServiceIdentifier dataCharacteristic =
