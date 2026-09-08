@@ -535,7 +535,9 @@ void main(List<String> args) async {
     pluginSourceService: PluginSourceService(pluginService),
   );
 
-  final macosUpdater = Platform.isMacOS ? MacOSUpdater() : null;
+  final macosUpdater = Platform.isMacOS && !BuildInfo.appStore
+      ? MacOSUpdater()
+      : null;
 
   try {
     await startWebServer(

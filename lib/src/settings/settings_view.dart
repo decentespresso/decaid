@@ -45,8 +45,7 @@ class SettingsView extends StatelessWidget {
         builder: (context, _) {
           final isMobile = Platform.isAndroid || Platform.isIOS;
           final managedContentOnly =
-              (updateCheckService?.externallyManaged ?? BuildInfo.appStore) &&
-              macosUpdater?.isSupported != true;
+              updateCheckService?.externallyManaged ?? BuildInfo.appStore;
           return ListView(
             children: [
               const SettingsSectionHeader('General'),
@@ -98,7 +97,8 @@ class SettingsView extends StatelessWidget {
                     } else {
                       await updateCheckService?.disableAutomaticChecks();
                     }
-                    if (macosUpdater?.isAvailable == true) {
+                    if (!managedContentOnly &&
+                        macosUpdater?.isAvailable == true) {
                       try {
                         await macosUpdater?.setAutomaticChecks(v);
                       } catch (e, st) {

@@ -308,6 +308,45 @@ void main() {
       );
     });
 
+    testWidgets('externally managed macOS hides application update controls '
+        'even when Sparkle is available', (tester) async {
+      final calls = <MethodCall>[];
+      await _pumpSettingsView(
+        tester,
+        calls,
+        macos: true,
+        externallyManaged: true,
+      );
+
+      expect(find.text('Update channel'), findsNothing);
+      expect(find.text('Check for updates'), findsNothing);
+      expect(find.text('Automatic skin and plugin updates'), findsOneWidget);
+      expect(
+        find.text('Check for skin and plugin updates every 12 hours'),
+        findsOneWidget,
+      );
+      expect(calls.where((c) => c.method == 'checkForUpdates'), isEmpty);
+    });
+
+    testWidgets('externally managed macOS content toggle does not drive '
+        'Sparkle even when Sparkle is available', (tester) async {
+      final calls = <MethodCall>[];
+      await _pumpSettingsView(
+        tester,
+        calls,
+        macos: true,
+        externallyManaged: true,
+      );
+
+      await tester.tap(
+        find.widgetWithText(ShadSwitch, 'Automatic skin and plugin updates'),
+      );
+      await tester.pumpAndSettle();
+
+      expect(calls.where((c) => c.method == 'setAutomaticChecks'), isEmpty);
+      expect(calls.where((c) => c.method == 'setChannel'), isEmpty);
+    });
+
     testWidgets('non-macOS manual check keeps the existing Snackbar flow', (
       tester,
     ) async {
