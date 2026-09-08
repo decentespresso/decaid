@@ -121,9 +121,7 @@ abstract class PluginProtocolDevice extends PluginDeviceAdapter {
     if (cancelled != null && !cancelled.isCompleted) cancelled.complete();
     return _disconnecting = () async {
       try {
-        await invoke(PluginDeviceOperation.disconnect, {
-          'session': session,
-        }).timeout(invocationTimeout);
+        await invoke(PluginDeviceOperation.disconnect, {'session': session});
       } finally {
         _disconnecting = null;
         if (!_disposed) _state.add(ConnectionState.disconnected);

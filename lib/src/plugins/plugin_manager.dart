@@ -1350,6 +1350,12 @@ class PluginManager {
       final key = (pluginId, generation, registrationHandle);
       retiredConnectInvocations.addAll({
         ...?_timedOutDeviceConnects.remove(key),
+        if (payload['session'] is String)
+          ..._transportService.deviceConnectInvocations(
+            pluginId,
+            generation,
+            registrationHandle,
+          ),
         for (final entry in _deviceConnectAttempts.entries)
           if (entry.value.pluginId == pluginId &&
               entry.value.generation == generation &&

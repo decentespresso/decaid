@@ -19,7 +19,11 @@ void main() {
           invocationTimeout: const Duration(milliseconds: 30),
           invoke: (operation, payload) async {
             if (operation == PluginDeviceOperation.disconnect) {
-              if (hangs) return Completer<Map<String, dynamic>>().future;
+              if (hangs) {
+                return Completer<Map<String, dynamic>>().future.timeout(
+                  const Duration(milliseconds: 60),
+                );
+              }
               throw StateError('cleanup failed');
             }
             if (operation == PluginDeviceOperation.connect) {

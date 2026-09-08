@@ -69,6 +69,21 @@ class PluginTransportService {
       _records.values.where((record) => !record.terminal).length;
   int get retiredDeviceConnectCount => _retiredDeviceConnects.length;
 
+  Set<String> deviceConnectInvocations(
+    String pluginId,
+    int generation,
+    String registrationHandle,
+  ) => _records.values
+      .where(
+        (record) =>
+            record.pluginId == pluginId &&
+            record.generation == generation &&
+            record.deviceRegistrationHandle == registrationHandle,
+      )
+      .map((record) => record.deviceInvocationId)
+      .whereType<String>()
+      .toSet();
+
   Future<TransportOpenResult> open({
     required String pluginId,
     required int generation,

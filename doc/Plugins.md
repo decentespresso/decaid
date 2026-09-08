@@ -384,6 +384,12 @@ current context when a delayed callback runs. The host rejects stale-session
 publications and failure reports. The persistent registration exposes `deviceId`
 and `unregister()`, not publication or failure-reporting methods.
 
+Scale disconnect remains in progress until the manager's bounded handler
+invocation and host transport cleanup finish. Reconnect waits for that retirement,
+including when the handler throws or times out. Host cleanup also closes transports
+opened by a connect handler that already completed; old handles cannot send into
+a replacement session. The adapter does not apply a separate disconnect timeout.
+
 Weight is finite signed grams. Optional `battery` is an integer from 0 to 100;
 omission or null means unknown, including in existing controller serialization.
 Optional finite `flow` and nonnegative integer `timerMs` require `flow` and

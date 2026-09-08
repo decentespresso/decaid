@@ -294,3 +294,26 @@ Discovery integration and the other draft acceptance gaps remain open.
   .build/issue-809-retirement-tests-rerun.log. The initial run had one WebUI
   port-3001 bind failure; that test passed alone before the clean full rerun.
 - Analysis: No issues found. CI-compatible formatting and diff checks are clean.
+
+### Disconnect Authority Boundary
+
+2026-09-08, review baseline 657f3356:
+
+- Removed the adapter's independent disconnect timeout. The manager bounds the
+  handler and closes invocation-owned transports before its future settles;
+  the adapter cannot publish disconnected or admit reconnect ahead of that future.
+- Scale retirement also gathers owned transport invocation IDs from the transport
+  records. A successfully completed connect no longer escapes host cleanup merely
+  because its pending invocation record has already been removed. Sensor behavior
+  and unrelated plugin-owned network transports remain unchanged.
+- Real WebSocket regressions use the production five-second adapter and ten-second
+  manager deadlines. Both suspended and successful first connects stay disconnecting
+  past five seconds. Replacement waits for manager cleanup; old-context send then
+  rejects, the server receives no frame, and only the replacement transport remains.
+- Both regressions failed against the prior implementation. Focused Scale/Sensor
+  manager and Scale adapter tests after the fix: 30 passed, exit 0.
+- Direct adapter test invokers now model the manager's bounded disconnect result,
+  rather than relying on a second adapter timeout to permit unsafe reconnect.
+- Full suite: 3941 passed, 1 skipped, exit 0 (2m37s), recorded in
+  .build/issue-809-disconnect-boundary-tests.log. Analysis and CI-compatible
+  formatting are clean; diff check passed. Existing draft acceptance gaps remain.

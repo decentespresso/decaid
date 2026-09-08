@@ -6,10 +6,123 @@ import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/plugins/plugin_device_service.dart';
 import 'package:reaprime/src/plugins/plugin_manager.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
+import 'package:reaprime/src/plugins/plugin_scale.dart';
+import 'package:reaprime/src/models/device/device.dart' as device;
 
 import 'plugin_test_helpers.dart';
 
 void main() {
+  for (final suspended in [false, true]) {
+    test(
+      'manager retirement gates reconnect after ${suspended ? "suspended" : "successful"} connect',
+      () async {
+        final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        final sockets = <WebSocket>[];
+        final frames = <dynamic>[];
+        server.listen((request) async {
+          final socket = await WebSocketTransformer.upgrade(request);
+          sockets.add(socket);
+          socket.listen(frames.add);
+        });
+        final manager = PluginManager(kvStore: FakeKeyValueStoreService());
+        addTearDown(() async {
+          await manager.dispose();
+          for (final socket in sockets) {
+            await socket.close();
+          }
+          await server.close(force: true);
+        });
+        final registered = manager.emitStream
+            .where((e) => e['event'] == 'registered')
+            .first;
+        final opened = manager.emitStream
+            .where((e) => e['event'] == 'opened')
+            .first;
+        await manager.loadPlugin(
+          id: 'boundary.scale',
+          manifest: testManifest(
+            'boundary.scale',
+            permissions: {
+              PluginPermissions.emit,
+              PluginPermissions.networkWebsocket,
+            },
+            drivers: const [
+              PluginDriverDeclaration(
+                id: 'scale',
+                type: PluginDriverType.scale,
+              ),
+            ],
+          ),
+          settings: {},
+          jsCode:
+              '''
+          function createPlugin(host) {
+            let connections = 0;
+            return {id: "boundary.scale", onLoad() {
+              return host.devices.register({driverId: "scale", instanceId: "one", name: "Scale"}, {
+                async connect(context) {
+                  connections++;
+                  const opened = await context.transport.open({kind: "websocket", url: "ws://127.0.0.1:${server.port}/"});
+                  if (connections === 1) {
+                    globalThis.oldScaleSend = () => context.transport.send(opened.handle, {type: "text", data: "stale"})
+                      .then(() => host.emit("stale-send", false), () => host.emit("stale-send", true));
+                    host.emit("opened", true);
+                    if ($suspended) await new Promise(() => {});
+                  }
+                  await context.publish({weight: 1});
+                },
+                disconnect() { if (connections === 1) return new Promise(() => {}); }
+              }).then(() => host.emit("registered", true));
+            }};
+          }
+        ''',
+        );
+        await registered.timeout(const Duration(seconds: 2));
+        final scale =
+            (await manager.deviceService.devices.first).single as PluginScale;
+        final first = scale.onConnect();
+        final firstFinished = suspended
+            ? expectLater(first, throwsA(anything))
+            : first;
+        await opened.timeout(const Duration(seconds: 2));
+        if (!suspended) await firstFinished;
+        var disconnectSettled = false;
+        final disconnected = expectLater(scale.disconnect(), throwsA(anything))
+            .then((_) {
+              disconnectSettled = true;
+            });
+        await firstFinished;
+        var reconnected = false;
+        final replacement = scale.onConnect().then((_) {
+          reconnected = true;
+        });
+        await Future<void>.delayed(
+          scale.invocationTimeout + const Duration(milliseconds: 200),
+        );
+        expect(disconnectSettled, false);
+        expect(reconnected, false);
+        expect(
+          await scale.connectionState.first,
+          device.ConnectionState.disconnecting,
+        );
+        expect(manager.liveTransportCount, 1);
+        await disconnected;
+        await replacement;
+        expect(manager.liveTransportCount, 1);
+        final rejected = manager.emitStream
+            .where((e) => e['event'] == 'stale-send')
+            .first;
+        manager.js.evaluate('globalThis.oldScaleSend()');
+        while (manager.js.executePendingJob() > 0) {}
+        expect(
+          (await rejected.timeout(const Duration(seconds: 2)))['payload'],
+          true,
+        );
+        expect(frames, isEmpty);
+      },
+    );
+  }
+
   for (final cleanup in ['success', 'throws', 'hangs']) {
     test(
       'never-settling connects release bookkeeping after $cleanup cleanup',
