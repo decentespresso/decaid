@@ -18,9 +18,13 @@ import 'package:reaprime/src/models/device/remembered_device.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/settings/feature_flags.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
+import 'package:reaprime/src/plugins/plugin_manager.dart';
+import 'package:reaprime/src/plugins/plugin_manifest.dart';
+import 'package:reaprime/src/plugins/plugin_ble_matcher.dart';
 
 import '../helpers/fake_ble_transport.dart';
 import '../helpers/mock_settings_service.dart';
+import '../plugins/plugin_test_helpers.dart';
 
 class _FakeBlePlatform extends UniversalBlePlatform {
   final List<BleDevice> systemDevices = [];
@@ -199,6 +203,9 @@ class _TrackingFakeBleTransport extends FakeBleTransport {
     }
     await super.connect();
   }
+
+  @override
+  Future<void> disconnectConfirmed() => disconnect();
 
   @override
   Future<void> disconnect() async {
@@ -910,6 +917,62 @@ void main() {
   });
 
   group('quick-connect identity policy', () {
+    for (final apple in [true, false]) {
+      test(
+        'quick-connect uses only fresh system names with apple=$apple',
+        () async {
+          final manager = PluginManager(kvStore: FakeKeyValueStoreService());
+          addTearDown(manager.dispose);
+          manager.bleService.registry.register(
+            pluginId: 'bookoo',
+            generation: 1,
+            declaration: PluginDriverDeclaration(
+              id: 'scale',
+              type: PluginDriverType.scale,
+              ble: PluginBleMatcher.fromJson({
+                'name': {'exact': 'Bookoo'},
+              }),
+            ),
+            permissions: {PluginPermissions.transportBle},
+            factoryHandle: 'factory',
+          );
+          const deviceId = 'AA:BB:CC:DD:EE:01';
+          platform.systemDevices.add(
+            BleDevice(deviceId: deviceId, name: 'DE1'),
+          );
+          final transport = transportForModel(129);
+          final sut = UniversalBleDiscoveryService(
+            requiresSystemDevice: () => apple,
+            pluginBleService: () => manager.bleService,
+            transportFactory:
+                ({
+                  required device,
+                  required stopScan,
+                  required requestLargeMtuNonAndroid,
+                  required lifecycleGate,
+                }) => transport,
+          );
+          addTearDown(sut.dispose);
+          await sut.initialize();
+          final result = await sut.tryQuickConnect(
+            const RememberedDevice(
+              id: deviceId,
+              name: 'DE1',
+              type: domain.DeviceType.machine,
+              implementation: DeviceImplementation.unifiedDe1,
+              transportType: TransportType.ble,
+            ),
+          );
+          if (apple) {
+            expect(result, isA<De1Interface>());
+            await (result as De1Interface).dispose();
+          } else {
+            expect(result, isNull);
+          }
+        },
+      );
+    }
+
     test(
       'remembered UnifiedDe1 accepts Bengle wire model in degraded mode',
       () async {

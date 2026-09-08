@@ -44,11 +44,14 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     implements DeviceWatchCapable {
   UniversalBleDiscoveryService({
     bool Function()? watchSupportGate,
+    bool Function()? requiresSystemDevice,
     bool Function()? requestLargeMtuNonAndroid,
     BleTransportFactory? transportFactory,
     PluginBleService Function()? pluginBleService,
     this.scanDuration = const Duration(seconds: 15),
   }) : _watchSupportGate = watchSupportGate ?? (() => Platform.isAndroid),
+       _requiresSystemDevice =
+           requiresSystemDevice ?? (() => Platform.isIOS || Platform.isMacOS),
        requestLargeMtuNonAndroid = requestLargeMtuNonAndroid ?? (() => false),
        _transportFactory = transportFactory ?? _defaultTransportFactory,
        _pluginBleService = pluginBleService;
@@ -68,6 +71,7 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
   }
 
   final bool Function() _watchSupportGate;
+  final bool Function() _requiresSystemDevice;
   final BleTransportFactory _transportFactory;
   final Duration scanDuration;
   final BleLifecycleGate _lifecycleGate = BleLifecycleGate();
@@ -1165,12 +1169,22 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     final key = normalizeBleDeviceId(deviceId);
 
     BleDevice? bleDevice;
-    if (Platform.isIOS || Platform.isMacOS) {
+    if (_requiresSystemDevice()) {
       bleDevice = await _findSystemDevice(deviceId);
       if (bleDevice == null) {
         log.info('Quick-connect: device $deviceId not in system cache');
         return null;
       }
+      _bleEvidence.record(
+        deviceId,
+        _scanGeneration,
+        BleAdvertisementEvidence(
+          name: bleDevice.name,
+          serviceUuids: bleDevice.services,
+          source: BleEvidenceSource.system,
+          servicesComplete: false,
+        ),
+      );
     } else {
       bleDevice = BleDevice(deviceId: deviceId, name: remembered.name);
     }

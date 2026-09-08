@@ -2100,7 +2100,9 @@ class PluginManager {
         const declaredDrivers = ${jsonEncode(manifest.drivers.map((driver) => driver.toJson()).toList())};
         $pluginBleBridgeJs
         const devices = {
-          bindDriver: __bindBleDriver,
+          bindDriver: ${manifest.permissions.contains(PluginPermissions.transportBle)}
+            ? __bindBleDriver
+            : () => rejectPermission("transport.ble"),
           register(definition, handlers) {
             const driver = definition && declaredDrivers.find((entry) => entry.id === definition.driverId);
             if (!driver || (driver.type !== "sensor" && driver.type !== "scale")) {

@@ -1653,6 +1653,10 @@ and remembered native quick-connect. Initial scanning waits for plugin loading
 to settle, including failed or disabled plugins. Factories do not perform
 hardware initialization during registration.
 
+On Apple platforms, remembered quick-connect records fresh system-device names
+and services before arbitration, with service evidence still incomplete. Persisted
+remembered names are not fresh ownership evidence on any platform.
+
 One definite plugin match wins only when no other matcher is unresolved. Multiple
 definite matches conflict; missing or incomplete required evidence stays pending.
 A complete observation proving a required field absent is a definite non-match.

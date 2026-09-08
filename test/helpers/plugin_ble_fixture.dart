@@ -15,6 +15,7 @@ class PluginBleFixtureTransport extends FakeBleTransport {
   final operations = <String>[];
   Completer<void>? teardown;
   int connectCalls = 0;
+  int disconnectCalls = 0;
   int disposeCalls = 0;
   final disposed = Completer<void>();
 
@@ -66,6 +67,7 @@ class PluginBleFixtureTransport extends FakeBleTransport {
 
   @override
   Future<void> disconnectConfirmed() async {
+    disconnectCalls++;
     await teardown?.future;
     if (!states.isClosed) states.add(ConnectionState.disconnected);
   }

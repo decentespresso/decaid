@@ -458,6 +458,11 @@ caller-facing timeout must never imply that the native link has closed.
 discarding a candidate which never reserved ownership must not disconnect another
 owner's link.
 
+Plugin arbitration uses the native cache's identity-fenced eviction and adoption
+helpers. Cache eviction never disconnects a native candidate. Plugin candidate
+retirement rechecks binding occupancy and physical claims after asynchronous
+listener cancellation; active or unconfirmed-teardown bindings remain owned.
+
 Discovery records whole observations before its native empty-name gate. System
 metadata is incomplete; it cannot erase complete advertisements. Observations
 arriving during async candidate creation are replayed and admission rechecks the

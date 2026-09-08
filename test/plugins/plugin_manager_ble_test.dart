@@ -72,6 +72,43 @@ PluginManifest bleSensorManifest({String id = 'ble.sensor'}) => testManifest(
 );
 
 void main() {
+  test(
+    'bindDriver without transport.ble rejects with PluginPermissionError',
+    () async {
+      final manager = PluginManager(kvStore: FakeKeyValueStoreService());
+      addTearDown(manager.dispose);
+      final event = manager.emitStream.firstWhere(
+        (event) => event['event'] == 'denied',
+      );
+      await manager.loadPlugin(
+        id: 'ble.sensor',
+        manifest: testManifest(
+          'ble.sensor',
+          permissions: {PluginPermissions.emit},
+          drivers: bleSensorManifest().drivers,
+        ),
+        settings: {},
+        jsCode: '''
+        function createPlugin(host) {
+          return {id: 'ble.sensor', async onLoad() {
+            try {
+              await host.devices.bindDriver('humidity', {create() { return {}; }});
+            } catch (error) {
+              host.emit('denied', {name: error.name, message: error.message});
+            }
+          }};
+        }
+      ''',
+      );
+      expect((await event.timeout(const Duration(seconds: 2)))['payload'], {
+        'name': 'PluginPermissionError',
+        'message':
+            'Plugin ble.sensor requires manifest permission transport.ble',
+      });
+      expect(manager.bleService.registry.hasDrivers, isFalse);
+    },
+  );
+
   Future<Sensor> candidate(
     PluginManager manager,
     List<PluginBleFixtureTransport> transports, {
@@ -99,6 +136,24 @@ void main() {
         settings: {},
         jsCode: source,
       );
+
+  test('cache retirement preserves an occupied plugin binding', () async {
+    final manager = PluginManager(kvStore: FakeKeyValueStoreService());
+    addTearDown(manager.dispose);
+    await load(manager);
+    final transports = <PluginBleFixtureTransport>[];
+    final sensor = await candidate(manager, transports);
+    await sensor.onConnect();
+    await manager.bleService.discardInactive(sensor);
+    expect(manager.bleService.bindingCount, 1);
+    expect(manager.bleService.registry.activeBindingCount, 1);
+    expect(transports.single.disconnectCalls, 0);
+    expect(transports.single.disposeCalls, 0);
+    await sensor.disconnect();
+    await manager.bleService.discardInactive(sensor);
+    expect(manager.bleService.bindingCount, 0);
+    expect(manager.bleService.registry.activeBindingCount, 0);
+  });
 
   for (final cleanup in [
     'throw Error("cleanup");',

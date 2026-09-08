@@ -198,6 +198,7 @@ void main() {
       final replacement = fixture.next;
       await fixture.load();
       expect((await replacement).implementation, DeviceImplementation.plugin);
+      expect(fixture.transports.every((t) => t.disconnectCalls == 0), isTrue);
       await oldNative.onConnect();
       expect(fixture.transports.every((t) => t.connectCalls == 0), isTrue);
       final fallback = fixture.next;
