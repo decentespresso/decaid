@@ -10,6 +10,7 @@ import 'package:reaprime/src/services/storage/app_directories.dart';
 import 'package:reaprime/src/services/storage/kv_store_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:reaprime/src/plugins/plugin_device_service.dart';
+import 'plugin_ble_registry.dart';
 import 'package:reaprime/src/plugins/plugin_manager.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'package:reaprime/src/plugins/plugin_package.dart';
@@ -70,6 +71,7 @@ class PluginLoaderService {
          kvStore: kvStore,
          decentProxyService: decentProxyService,
          deviceService: deviceService,
+         bleRegistry: PluginBleRegistry(initiallyReady: false),
        );
 
   bool _initialized = false;
@@ -96,6 +98,8 @@ class PluginLoaderService {
     } catch (_) {
       _initialization = null;
       rethrow;
+    } finally {
+      pluginManager.bleService.registry.finishInitialLoading();
     }
   }
 

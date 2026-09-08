@@ -5,6 +5,7 @@ enum PluginDeviceOperation {
   disconnect,
   execute,
   create,
+  bleEvent,
   tare,
   startTimer,
   stopTimer,

@@ -444,20 +444,7 @@ class _PluginSensor implements Sensor, PluginDeviceAdapter {
   @override
   void publish(Map<String, dynamic> snapshot, {String? session}) {
     if (_disposed) throw const PluginDeviceException('Plugin device is closed');
-    if (snapshot.length != _dataChannels.length ||
-        !_dataChannels.keys.every(snapshot.containsKey)) {
-      throw const PluginDeviceException(
-        'Plugin device snapshot must contain every declared data channel',
-      );
-    }
-    for (final entry in snapshot.entries) {
-      final channel = _dataChannels[entry.key];
-      if (channel == null || !_matchesType(entry.value, channel.type)) {
-        throw PluginDeviceException(
-          'Invalid value for plugin device channel ${entry.key}',
-        );
-      }
-    }
+    validatePluginSensorSnapshot(snapshot, _dataChannels);
     _data.add(Map.unmodifiable(snapshot));
   }
 
@@ -477,6 +464,30 @@ class _PluginSensor implements Sensor, PluginDeviceAdapter {
     await _connectionState.close();
   }
 }
+
+void validatePluginSensorSnapshot(
+  Map<String, dynamic> snapshot,
+  Map<String, DataChannel> channels,
+) {
+  _checkPayloadSize(snapshot, 'Plugin device snapshot');
+  if (snapshot.length != channels.length ||
+      !channels.keys.every(snapshot.containsKey)) {
+    throw const PluginDeviceException(
+      'Plugin device snapshot must contain every declared data channel',
+    );
+  }
+  for (final entry in snapshot.entries) {
+    final channel = channels[entry.key];
+    if (channel == null || !_matchesType(entry.value, channel.type)) {
+      throw PluginDeviceException(
+        'Invalid value for plugin device channel ${entry.key}',
+      );
+    }
+  }
+}
+
+void validatePluginDevicePayload(Object payload, String name) =>
+    _checkPayloadSize(payload, name);
 
 String _requiredSafeString(Map<String, dynamic> json, String key) {
   final value = _requiredString(json, key);

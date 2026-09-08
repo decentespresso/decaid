@@ -31,9 +31,10 @@ class _BleSubscription {
   final String id = const Uuid().v4();
   final String service;
   final String characteristic;
+  final String? listener;
   final Completer<void> settled = Completer<void>();
   Future<void>? removing;
-  _BleSubscription(this.service, this.characteristic);
+  _BleSubscription(this.service, this.characteristic, this.listener);
 }
 
 class PluginBleSession {
@@ -274,7 +275,19 @@ class PluginBleSession {
             'Subscription limit reached',
           );
         }
-        final subscription = _BleSubscription(service, characteristic);
+        final listener = args['listener'];
+        if (listener != null &&
+            (listener is! String || listener.length > 128)) {
+          throw const PluginBleException(
+            'invalid_argument',
+            'Invalid BLE listener',
+          );
+        }
+        final subscription = _BleSubscription(
+          service,
+          characteristic,
+          listener as String?,
+        );
         _subscriptions[key] = subscription;
         try {
           if (previous != null) {
@@ -298,9 +311,14 @@ class PluginBleSession {
                 !acceptsPublications) {
               return;
             }
-            _enqueue(current.id, bytes);
+            _enqueue(current, bytes);
           });
-          return subscription.id;
+          return listener == null
+              ? subscription.id
+              : {
+                  'subscription': subscription.id,
+                  'replacedListener': previous?.listener,
+                };
         } catch (_) {
           if (identical(_subscriptions[key], subscription)) {
             _subscriptions.remove(key);
@@ -331,7 +349,7 @@ class PluginBleSession {
     }
   }
 
-  void _enqueue(String subscription, Uint8List bytes) {
+  void _enqueue(_BleSubscription subscription, Uint8List bytes) {
     if (_notifications.length >= maxQueuedEvents ||
         _queuedBytes + bytes.length > maxQueuedBytes) {
       _log.warning(
@@ -344,7 +362,8 @@ class PluginBleSession {
       {
         'type': 'notification',
         'session': id,
-        'subscription': subscription,
+        'subscription': subscription.id,
+        if (subscription.listener != null) 'listener': subscription.listener,
         'data': base64Encode(bytes),
       },
       bytes.length,

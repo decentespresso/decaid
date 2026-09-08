@@ -1645,6 +1645,33 @@ sequence as normal connection. It receives the same generation and
 device protections — a stale init from an adopted machine is rejected
 identically.
 
+## Plugin BLE Ownership
+
+The existing BLE discovery service arbitrates plugin ownership before native
+matching, including nameless advertisements, system results, background watch,
+and remembered native quick-connect. Initial scanning waits for plugin loading
+to settle, including failed or disabled plugins. Factories do not perform
+hardware initialization during registration.
+
+One definite plugin match wins only when no other matcher is unresolved. Multiple
+definite matches conflict; missing or incomplete required evidence stays pending.
+A complete observation proving a required field absent is a definite non-match.
+Pending and conflict exclude native fallback and remain visible in BLE diagnostics
+through the normal scan deadline. Evidence is generation-scoped and replaced as
+whole observations, never merged across packets.
+
+Loading or unloading a driver re-evaluates unconnected candidates. Occupied links
+keep their ownership until teardown; native admission and plugin admission both
+reserve the normalized physical ID before connecting. A failed plugin handshake
+does not trigger native fallback in the same attempt. A timed-out teardown retains
+the claim until native disconnection is confirmed. Adapter loss revokes sessions
+without attempting protocol cleanup over a lost link.
+
+Plugin Sensors join the existing SensorController and REST/WebSocket APIs. Their
+public IDs include plugin, driver, and physical identity. Remembered plugin IDs
+are not reconstructed through native quick-connect: fresh discovery must establish
+current ownership. See `doc/Plugins.md` for the session-bound GATT contract.
+
 ## Glossary
 
 - **BLE:** Bluetooth Low Energy, wireless protocol for IoT devices

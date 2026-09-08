@@ -7,6 +7,10 @@ import 'package:flutter_js/flutter_js.dart';
 import 'package:logging/logging.dart';
 
 import 'plugin_manifest.dart';
+import 'plugin_ble_bridge.dart';
+import 'plugin_ble_registry.dart';
+import 'plugin_ble_service.dart';
+import 'plugin_ble_session.dart';
 import 'plugin_decent_proxy_bridge.dart';
 import 'plugin_device_service.dart';
 import 'plugin_runtime.dart';
@@ -18,6 +22,7 @@ import '../controllers/workflow_controller.dart';
 import '../models/device/de1_interface.dart';
 import '../models/device/machine.dart';
 import '../services/account/decent_proxy_service.dart';
+import '../services/ble/ble_exception_mapper.dart';
 
 enum _PendingOpKind { fetch, pluginHttp, decentProxy }
 
@@ -95,6 +100,7 @@ class PluginManager {
   final Duration transportCloseTimeout;
   final Duration deviceInvocationTimeout;
   final PluginDeviceService deviceService;
+  late final PluginBleService bleService;
 
   De1Controller? _de1controller;
   StreamSubscription<De1Interface?>? _de1Subscription;
@@ -122,6 +128,7 @@ class PluginManager {
   int _deviceInvocationSequence = 0;
 
   final Set<(String, int)> _deviceDisconnectCleanup = {};
+  final Map<String, Set<Future<void>>> _bleRegistrations = {};
 
   De1Controller? get de1Controller => _de1controller;
   PluginManagerLifecycle get lifecycle => _lifecycle;
@@ -151,6 +158,7 @@ class PluginManager {
     this.transportCloseTimeout = const Duration(seconds: 5),
     this.deviceInvocationTimeout = const Duration(seconds: 10),
     PluginDeviceService? deviceService,
+    PluginBleRegistry? bleRegistry,
   }) : js = js ?? getJavascriptRuntime(xhr: false),
        deviceService = deviceService ?? PluginDeviceService() {
     _decentProxyBridge = PluginDecentProxyBridge(
@@ -164,6 +172,44 @@ class PluginManager {
       connectSecureSocket: connectSecureSocket,
       closeTimeout: transportCloseTimeout,
     );
+    bleService = PluginBleService(
+      registry: bleRegistry ?? PluginBleRegistry(),
+      invocationTimeout: deviceInvocationTimeout,
+      invoke: (driver, handle, operation, payload) => _invokeDeviceHandler(
+        driver.pluginId,
+        driver.generation,
+        handle,
+        operation,
+        payload,
+      ),
+      runtimeAlive: (driver) =>
+          (_pluginGenerations[driver.pluginId] == driver.generation &&
+              _plugins[driver.pluginId]?.isAlive == true) ||
+          _isDeviceDisconnectCleanup(driver.pluginId, driver.generation),
+      hasHandler: (driver, handle, operation) =>
+          this.js
+              .evaluate(
+                'globalThis.__deviceHasHandler(${jsonEncode(handle)},'
+                '${jsonEncode(driver.pluginId)},${driver.generation},${jsonEncode(operation)})',
+              )
+              .stringResult ==
+          'true',
+      eventSink: (driver, handle, event) async {
+        await _invokeDeviceHandler(
+          driver.pluginId,
+          driver.generation,
+          handle,
+          PluginDeviceOperation.bleEvent,
+          event,
+        );
+      },
+      removeHandlers: (handle) {
+        if (_lifecycle == PluginManagerLifecycle.disposed) return;
+        this.js.evaluate(
+          'globalThis.__deviceRemoveHandlers(${jsonEncode(handle)});',
+        );
+      },
+    );
     _bootstrapJs();
   }
 
@@ -174,6 +220,7 @@ class PluginManager {
   }
 
   Future<void> dispose() {
+    bleService.registry.stopConnections();
     final existing = _disposeFuture;
     if (existing != null) return existing;
 
@@ -734,6 +781,7 @@ class PluginManager {
           __mapSet(__deviceHandlers, handle, entry);
         });
         __frozenTransportGlobal("__deviceRemoveHandlers", function (handle) {
+          __mapGet(__deviceHandlers, handle)?.dispose?.();
           __mapDelete(__deviceHandlers, handle);
         });
         __frozenTransportGlobal("__deviceHasHandler", function (handle, pluginId, generation, operation) {
@@ -811,10 +859,14 @@ class PluginManager {
         });
         __frozenTransportGlobal("__clearDeviceHandlersForPlugin", function (pluginId) {
           __mapForEach(__deviceHandlers, (entry, handle) => {
-            if (entry.pluginId === pluginId) __mapDelete(__deviceHandlers, handle);
+            if (entry.pluginId === pluginId) {
+              entry.dispose?.();
+              __mapDelete(__deviceHandlers, handle);
+            }
           });
         });
         __frozenTransportGlobal("__clearAllDeviceHandlers", function () {
+          __mapForEach(__deviceHandlers, entry => entry.dispose?.());
           __mapClear(__deviceHandlers);
         });
 
@@ -1023,7 +1075,19 @@ class PluginManager {
         final msg = raw as Map<String, dynamic>;
         final pluginId = _pluginIdForBridgeMessage(msg, 'devices');
         if (pluginId != null) {
-          unawaited(_handleDeviceMessage(pluginId, msg));
+          final operation = _handleDeviceMessage(pluginId, msg);
+          if (msg['type'] == 'bindDriver') {
+            final pending = _bleRegistrations.putIfAbsent(pluginId, () => {});
+            pending.add(operation);
+            unawaited(
+              operation.whenComplete(() {
+                pending.remove(operation);
+                if (pending.isEmpty) _bleRegistrations.remove(pluginId);
+              }),
+            );
+          } else {
+            unawaited(operation);
+          }
         }
       } catch (e, st) {
         _log.warning("Invalid plugin device message", e, st);
@@ -1133,9 +1197,14 @@ class PluginManager {
         type == 'invocationResult' &&
         pending != null &&
         (pending.operation == PluginDeviceOperation.connect ||
-            pending.operation == PluginDeviceOperation.disconnect) &&
+            pending.operation == PluginDeviceOperation.disconnect ||
+            pending.operation == PluginDeviceOperation.bleEvent) &&
         _isDeviceDisconnectCleanup(pluginId, generation);
-    if (_lifecycle != PluginManagerLifecycle.active && !cleanupInvocation) {
+    final cleanupGatt =
+        type == 'gatt' && _isDeviceDisconnectCleanup(pluginId, generation);
+    if (_lifecycle != PluginManagerLifecycle.active &&
+        !cleanupInvocation &&
+        !cleanupGatt) {
       return;
     }
     if (type == 'invocationResult') {
@@ -1164,8 +1233,9 @@ class PluginManager {
       _completeDeviceInvocation(pluginId, generation, data);
       return;
     }
-    if (generation != _pluginGenerations[pluginId] ||
-        _plugins[pluginId]?.isAlive != true) {
+    if ((generation != _pluginGenerations[pluginId] ||
+            _plugins[pluginId]?.isAlive != true) &&
+        !cleanupGatt) {
       return;
     }
     final requestId = msg['requestId'];
@@ -1177,6 +1247,73 @@ class PluginManager {
         throw const PluginDeviceException('Invalid registration handle');
       }
       switch (type) {
+        case 'bindDriver':
+          final declarations = _plugins[pluginId]!.manifest.drivers.where(
+            (driver) => driver.id == data['driverId'],
+          );
+          if (declarations.isEmpty ||
+              !js
+                  .evaluate(
+                    'globalThis.__deviceHasHandler(${jsonEncode(registrationHandle)},'
+                    '${jsonEncode(pluginId)},$generation,"create")',
+                  )
+                  .stringResult
+                  .contains('true')) {
+            throw const PluginDeviceException(
+              'BLE factory must name a declared driver',
+            );
+          }
+          bleService.registry.register(
+            pluginId: pluginId,
+            generation: generation,
+            declaration: declarations.single,
+            factoryHandle: registrationHandle,
+            permissions: _plugins[pluginId]!.manifest.permissions,
+          );
+          _replyDevice(requestId, bridgeToken, result: const {});
+        case 'gatt':
+          final authority = data['authority'];
+          final operation = data['operation'];
+          final args = data['args'];
+          if (authority is! String || operation is! String || args is! Map) {
+            throw const PluginBleException(
+              'invalid_argument',
+              'Invalid GATT request',
+            );
+          }
+          final value = await bleService.call(
+            pluginId,
+            generation,
+            registrationHandle,
+            authority,
+            operation,
+            Map<String, dynamic>.from(args),
+          );
+          _replyDevice(requestId, bridgeToken, result: {'value': value});
+        case 'blePublish':
+          final snapshot = data['snapshot'];
+          if (snapshot is! Map) {
+            throw const PluginBleException(
+              'invalid_argument',
+              'Invalid BLE snapshot',
+            );
+          }
+          bleService.publish(
+            pluginId,
+            generation,
+            registrationHandle,
+            Map<String, dynamic>.from(snapshot),
+            data['session'] as String?,
+          );
+          _replyDevice(requestId, bridgeToken, result: const {});
+        case 'bleDisconnected':
+          bleService.reportDisconnected(
+            pluginId,
+            generation,
+            registrationHandle,
+            data['session'] as String?,
+          );
+          _replyDevice(requestId, bridgeToken, result: const {});
         case 'register':
           final definition = data['definition'];
           if (definition is! Map) {
@@ -1296,6 +1433,13 @@ class PluginManager {
         default:
           throw const PluginDeviceException('Unknown plugin device operation');
       }
+    } on PluginBleException catch (error) {
+      _replyDevice(
+        requestId,
+        bridgeToken,
+        error: error.message,
+        code: error.code,
+      );
     } on PluginDeviceException catch (error) {
       _replyDevice(
         requestId,
@@ -1304,7 +1448,12 @@ class PluginManager {
         code: error.code,
       );
     } catch (error) {
-      _replyDevice(requestId, bridgeToken, error: error.toString());
+      _replyDevice(
+        requestId,
+        bridgeToken,
+        error: error.toString(),
+        code: type == 'gatt' ? bleBridgeErrorCode(error) : null,
+      );
     }
   }
 
@@ -1338,7 +1487,8 @@ class PluginManager {
         generation == _pluginGenerations[pluginId] &&
         _plugins[pluginId]?.isAlive == true;
     final cleanupDisconnect =
-        operation == PluginDeviceOperation.disconnect &&
+        (operation == PluginDeviceOperation.disconnect ||
+            operation == PluginDeviceOperation.bleEvent) &&
         _isDeviceDisconnectCleanup(pluginId, generation);
     if (!isCurrent && !cleanupDisconnect) {
       return Future.error(
@@ -1505,7 +1655,8 @@ class PluginManager {
       pending.completer.completeError(PluginDeviceException(error.toString()));
       return;
     }
-    if (pending.operation != PluginDeviceOperation.execute) {
+    if (pending.operation != PluginDeviceOperation.execute &&
+        pending.operation != PluginDeviceOperation.create) {
       pending.completer.complete(const {});
       return;
     }
@@ -1947,7 +2098,9 @@ class PluginManager {
           });
         };
         const declaredDrivers = ${jsonEncode(manifest.drivers.map((driver) => driver.toJson()).toList())};
+        $pluginBleBridgeJs
         const devices = {
+          bindDriver: __bindBleDriver,
           register(definition, handlers) {
             const driver = definition && declaredDrivers.find((entry) => entry.id === definition.driverId);
             if (!driver || (driver.type !== "sensor" && driver.type !== "scale")) {
@@ -2109,6 +2262,9 @@ class PluginManager {
       while (js.executePendingJob() > 0) {}
 
       runtime.markRunning();
+      while (_bleRegistrations[id]?.isNotEmpty == true) {
+        await Future.wait(_bleRegistrations[id]!.toList());
+      }
       if (identical(_plugins[id], runtime) &&
           generation == _pluginGenerations[id]) {
         final workflowController = _workflowController;
@@ -2252,6 +2408,12 @@ class PluginManager {
     );
     _deviceDisconnectCleanup.add((pluginId, retiringGeneration));
     try {
+      try {
+        await bleService.removeGeneration(pluginId, retiringGeneration);
+      } catch (error, stackTrace) {
+        firstError ??= error;
+        firstStackTrace ??= stackTrace;
+      }
       await deviceService.removeAllForPlugin(
         pluginId,
         retiringGeneration,
@@ -2496,6 +2658,7 @@ class PluginManager {
       firstStackTrace ??= stackTrace;
     }
     try {
+      await bleService.dispose();
       await deviceService.dispose();
     } catch (error, stackTrace) {
       firstError ??= error;

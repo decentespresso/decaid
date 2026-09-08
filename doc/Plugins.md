@@ -712,8 +712,71 @@ is not remembered across app restarts. On plugin unload, Decaid runs each
 device's `disconnect()` handler, removes every device, and rejects in-flight
 commands owned by the retiring generation, even if `onUnload()` fails. Late
 publications and command results from older generations
-are ignored. BLE-backed drivers, discovery, probing and grinder registration are
-not supported by this first sensor registration contract.
+are ignored. BLE-backed drivers use the separate binding contract below;
+probing and grinder registration are not supported.
+
+### BLE Driver Binding (`host.devices.bindDriver`)
+
+Declare a BLE matcher and `transport.ble` permission, then bind its factory from
+`onLoad()`. Binding does not open a connection or register a synthetic device.
+The existing scanner selects physical candidates before invoking the factory.
+
+```json
+{
+  "permissions": ["transport.ble"],
+  "drivers": [{
+    "id": "humidity",
+    "type": "sensor",
+    "ble": {"match": {"serviceUuids": ["180f"]}}
+  }]
+}
+```
+
+`await host.devices.bindDriver('humidity', {create(device) { ... }})` binds one
+factory per plugin generation. `create` must synchronously return `connect`,
+`disconnect`, and `execute` handlers plus Sensor `vendor`, `dataChannels`, and
+`commands` metadata using the schema above. Async factories are rejected: all
+hardware initialization belongs in `connect(context)`. The frozen factory input
+contains `id`, `name`, and `advertisement` (`name`, `nameComplete`, `serviceUuids`,
+`servicesComplete`). It has no publication or GATT authority.
+
+The public ID is `plugin:<pluginId>:<driverId>:<normalizedPhysicalId>`, stable
+across reloads and reconnects. Sensor inventory, commands, and snapshots use the
+existing REST/WebSocket paths. Each connection receives a fresh context:
+
+- `context.publish(snapshot)` and `context.reportDisconnected()` belong only to
+  that connection. Retaining a context cannot authorize a replacement session.
+- `context.gatt.discoverServices()` returns normalized 128-bit service UUIDs.
+- `read(service, characteristic)` returns base64 bytes.
+- `writeWithResponse(service, characteristic, base64)` and
+  `writeWithoutResponse(service, characteristic, base64)` select acknowledgement
+  explicitly. Unsupported acknowledged writes are not silently downgraded.
+- `subscribe(service, characteristic, callback)` returns an object with an async
+  `unsubscribe()`. The callback receives base64 bytes and may run before subscribe
+  resolves. Replacing the same tuple resets native notifications; the old logical
+  unsubscribe cannot remove the replacement.
+- `onDisconnect(callback)` installs one terminal listener for the session.
+
+These GATT methods are on `context.gatt`. UUID input accepts Bluetooth aliases
+but native calls always use 128-bit UUIDs. Resolving `connect` declares protocol
+readiness. `disconnect({gatt})` receives separate, bounded cleanup authority for
+discover/read/write only. Link loss or adapter revocation skips protocol cleanup.
+After retirement, normal GATT calls and publications fail even if a JavaScript
+Promise never settles. Physical ownership remains reserved until native teardown
+is confirmed; a cleanup deadline alone cannot authorize another connection.
+
+Limits per session are 16 pending GATT operations, 8 subscriptions, 256 queued
+notification events / 64 KiB, and 16 KiB per read or write. Notification overflow
+retires the session rather than dropping protocol data silently. Production permits
+one active physical binding per plugin generation. Definitions and Sensor payloads
+retain the 64 KiB JSON limit. Bridge failures carry `code`, including
+`stale_session`, `permission_denied`, `resource_limit`, `attribute_unavailable`,
+`link_lost`, and `timeout`; other native BLE codes are preserved.
+
+BLE Scale bindings reuse the Scale adapter and declared capability checks. The
+current checkpoint proves the Sensor path with a fake BLE edge; Bookoo hardware,
+Scale timing acceptance, automatic optional Scale operations, and sleep policy
+remain #809 follow-up work.
 
 ## Plugin Lifecycle
 

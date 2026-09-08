@@ -443,6 +443,34 @@ stalled write resume later and overwrite a newer one. Bound the actual
 unbounded read instead; a real anti-wedge mechanism needs explicit
 cancellation or fencing.
 
+## Plugin BLE Binding (#809 Checkpoint)
+
+`PluginBleBinding` reserves the physical ID before transport creation and owns a
+fresh `PluginBleSession` per connect. Factory metadata has no mutable publication
+target: all publication and GATT closures capture a session capability. Do not
+move those closures onto a persistent factory object when adding Scale protocols.
+
+Retirement and native teardown are different boundaries. The session fences normal
+operations immediately, permits only bounded cleanup reads/writes, then awaits
+`disconnectConfirmed`. If confirmation times out, retain the physical claim. A
+caller-facing timeout must never imply that the native link has closed.
+`BleAdmissionTransport` applies the same physical exclusion to native candidates;
+discarding a candidate which never reserved ownership must not disconnect another
+owner's link.
+
+Discovery records whole observations before its native empty-name gate. System
+metadata is incomplete; it cannot erase complete advertisements. Observations
+arriving during async candidate creation are replayed and admission rechecks the
+current registry/evidence. Watch filter changes use the existing scan owner rather
+than a second scanner. Initial loader settlement gates native fallback.
+
+Real-JS integration fixtures are in `test/plugins/plugin_manager_ble_test.dart`,
+`plugin_ble_native_bridge_test.dart`, and `plugin_ble_sensor_api_test.dart`. The
+last drives actual HTTP/WebSocket clients through DeviceController, SensorController,
+the JS bridge, and a fake GATT edge. Native bridge coverage uses
+UniversalBleTransport to prove CCCD reset and write-property error behavior.
+These checks do not replace hardware or Scale timing acceptance.
+
 ## Keeping Notes Fresh
 
 Add lessons that would have saved debugging time: new footguns, thread-safety constraints, connection-lifecycle changes, non-obvious symptoms, and cross-transport dependencies. Prune stale claims. Prefer fewer, sharper notes over long background.

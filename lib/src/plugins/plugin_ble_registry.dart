@@ -105,12 +105,41 @@ class PluginBleRegistry {
   final int activeBindingLimit;
   final Map<String, PluginBleDriver> _drivers = {};
   final Map<String, PluginBleClaim> _claims = {};
+  final Map<String, Object> _nativeClaims = {};
+  final Completer<void> _ready = Completer<void>();
   final StreamController<int> _changes = StreamController.broadcast();
   int _revision = 0;
   bool _closed = false;
+  bool _acceptingConnections = true;
 
-  PluginBleRegistry({this.activeBindingLimit = 1}) {
+  PluginBleRegistry({this.activeBindingLimit = 1, bool initiallyReady = true}) {
     if (activeBindingLimit < 1) throw ArgumentError.value(activeBindingLimit);
+    if (initiallyReady) _ready.complete();
+  }
+
+  Future<void> get ready => _ready.future;
+  bool get acceptingConnections => !_closed && _acceptingConnections;
+  void stopConnections() => _acceptingConnections = false;
+  void finishInitialLoading() {
+    if (!_ready.isCompleted) _ready.complete();
+  }
+
+  bool isClaimed(String physicalId) =>
+      _claims.containsKey(normalizeBleDeviceId(physicalId)) ||
+      _nativeClaims.containsKey(normalizeBleDeviceId(physicalId));
+
+  Object reserveNative(String physicalId) {
+    if (!acceptingConnections || isClaimed(physicalId)) {
+      throw StateError('Physical BLE device is owned or registry closed');
+    }
+    final claim = Object();
+    _nativeClaims[normalizeBleDeviceId(physicalId)] = claim;
+    return claim;
+  }
+
+  void releaseNative(String physicalId, Object claim) {
+    final id = normalizeBleDeviceId(physicalId);
+    if (identical(_nativeClaims[id], claim)) _nativeClaims.remove(id);
   }
 
   Stream<int> get changes => _changes.stream;
@@ -184,8 +213,10 @@ class PluginBleRegistry {
 
   PluginBleClaim reserve(PluginBleDriver driver, String physicalId) {
     final key = normalizeBleDeviceId(physicalId);
-    if (!isCurrent(driver)) throw StateError('Stale BLE driver');
-    if (_claims.containsKey(key)) {
+    if (!acceptingConnections || !isCurrent(driver)) {
+      throw StateError('Stale BLE driver');
+    }
+    if (isClaimed(key)) {
       throw StateError('Physical BLE device is owned');
     }
     if (_claims.values
@@ -217,6 +248,7 @@ class PluginBleRegistry {
   Future<void> dispose() async {
     if (_closed) return;
     _closed = true;
+    finishInitialLoading();
     _drivers.clear();
     await _changes.close();
   }

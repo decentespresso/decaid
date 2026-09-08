@@ -150,6 +150,26 @@ void main() {
     expect(await service.shouldAutoLoad(pluginId), isFalse);
   });
 
+  test(
+    'initial BLE readiness settles even when an auto-loaded plugin fails',
+    () async {
+      final restarted = PluginLoaderService(kvStore: _FakeKvStore());
+      addTearDown(restarted.dispose);
+      var ready = false;
+      final readiness = restarted.pluginManager.bleService.registry.ready.then((
+        _,
+      ) {
+        ready = true;
+      });
+      await Future<void>.delayed(Duration.zero);
+      expect(ready, isFalse);
+      await restarted.initialize();
+      await readiness.timeout(const Duration(seconds: 2));
+      expect(restarted.isPluginLoaded(pluginId), isFalse);
+      expect(restarted.pluginManager.bleService.registry.hasDrivers, isFalse);
+    },
+  );
+
   test('missing plugin code also counts as a load failure', () async {
     File('${tempDir.path}/plugins/$pluginId/plugin.js').deleteSync();
 

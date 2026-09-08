@@ -280,9 +280,12 @@ void main(List<String> args) async {
 
   final List<DeviceDiscoveryService> services = [];
   final pluginDeviceService = PluginDeviceService();
+  late final PluginLoaderService pluginService;
   services.add(pluginDeviceService);
 
-  final bleDiscoveryService = UniversalBleDiscoveryService();
+  final bleDiscoveryService = UniversalBleDiscoveryService(
+    pluginBleService: () => pluginService.pluginManager.bleService,
+  );
   if (!cliArgs.serial) {
     services.add(bleDiscoveryService);
   } else {
@@ -502,7 +505,7 @@ void main(List<String> args) async {
   };
   webUIService.skinProxyTokenRevoker = proxyTokenService.revokeSkinToken;
 
-  final PluginLoaderService pluginService = PluginLoaderService(
+  pluginService = PluginLoaderService(
     kvStore: HiveStoreService(defaultNamespace: "plugins")..initialize(),
     decentProxyService: decentProxyService,
     credentialStore: credentialStore,

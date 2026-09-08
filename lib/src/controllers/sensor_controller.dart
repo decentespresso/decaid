@@ -32,7 +32,19 @@ class SensorController {
       ..clear()
       ..addEntries(sensors.map((s) => MapEntry(s.deviceId, s)));
     _publishSensors();
-    await Future.wait(sensors.map((s) => s.onConnect()));
+    await Future.wait(
+      sensors.map((sensor) async {
+        try {
+          await sensor.onConnect();
+        } catch (error, stackTrace) {
+          _log.warning(
+            'Sensor connect failed: ${sensor.deviceId}',
+            error,
+            stackTrace,
+          );
+        }
+      }),
+    );
   }
 
   Future<void> register(Sensor sensor) async {
