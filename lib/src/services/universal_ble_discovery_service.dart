@@ -85,10 +85,12 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
   Future<void> _registryReconciliation = Future.value();
   bool _watchIncludesPluginDrivers = false;
 
-  void _beginBleEvidence() {
+  void _advanceScanGeneration() {
+    _scanGeneration++;
     _bleEvidence.beginGeneration(_scanGeneration);
     _bleObservations.clear();
     _pluginOwnership.clear();
+    _dirtyObservations.clear();
   }
 
   bool _nativeEligible(String id) {
@@ -311,7 +313,7 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     _cancelWatchScanSub();
     if (_scanOwner == BleScanOwner.watch) {
       _scanPhase = stopOsScan ? BleScanPhase.stopping : BleScanPhase.idle;
-      _scanGeneration++;
+      _advanceScanGeneration();
     }
     if (stopOsScan) {
       try {
@@ -383,8 +385,7 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     final adapterGen = _watchAdapterGeneration;
     _scanOwner = BleScanOwner.watch;
     _scanPhase = BleScanPhase.starting;
-    _scanGeneration++;
-    _beginBleEvidence();
+    _advanceScanGeneration();
     final generation = _scanGeneration;
 
     _watchScanSub = UniversalBle.scanStream.listen((result) async {
@@ -516,7 +517,7 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
       _scanOwner = BleScanOwner.none;
       _scanPhase = BleScanPhase.idle;
       _scanStopError = null;
-      _scanGeneration++;
+      _advanceScanGeneration();
       _setWatchState(
         _watchRequested == null
             ? DeviceWatchState.inactive
@@ -802,8 +803,7 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
 
     _scanOwner = BleScanOwner.burst;
     _scanPhase = BleScanPhase.starting;
-    _scanGeneration++;
-    _beginBleEvidence();
+    _advanceScanGeneration();
     final generation = _scanGeneration;
     _scanStopError = null;
     StreamSubscription<BleDevice>? sub;

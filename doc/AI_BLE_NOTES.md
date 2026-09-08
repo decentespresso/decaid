@@ -469,6 +469,11 @@ arriving during async candidate creation are replayed and admission rechecks the
 current registry/evidence. Watch filter changes use the existing scan owner rather
 than a second scanner. Initial loader settlement gates native fallback.
 
+Every scan-generation advance also resets evidence, observations, ownership
+decisions, and queued observation work. Watch stop and adapter recovery are
+generation boundaries too; otherwise fresh Apple quick-connect system evidence
+is rejected by the previous cache generation.
+
 Real-JS integration fixtures are in `test/plugins/plugin_manager_ble_test.dart`,
 `plugin_ble_native_bridge_test.dart`, and `plugin_ble_sensor_api_test.dart`. The
 last drives actual HTTP/WebSocket clients through DeviceController, SensorController,

@@ -917,9 +917,13 @@ void main() {
   });
 
   group('quick-connect identity policy', () {
-    for (final apple in [true, false]) {
+    for (final (apple, stopWatch) in [
+      (true, false),
+      (false, false),
+      (true, true),
+    ]) {
       test(
-        'quick-connect uses only fresh system names with apple=$apple',
+        'quick-connect uses only fresh system names with apple=$apple, stopWatch=$stopWatch',
         () async {
           final manager = PluginManager(kvStore: FakeKeyValueStoreService());
           addTearDown(manager.dispose);
@@ -942,6 +946,7 @@ void main() {
           );
           final transport = transportForModel(129);
           final sut = UniversalBleDiscoveryService(
+            watchSupportGate: () => true,
             requiresSystemDevice: () => apple,
             pluginBleService: () => manager.bleService,
             transportFactory:
@@ -954,6 +959,10 @@ void main() {
           );
           addTearDown(sut.dispose);
           await sut.initialize();
+          if (stopWatch) {
+            await sut.startDeviceWatch(_watchFilter);
+            await sut.stopDeviceWatch();
+          }
           final result = await sut.tryQuickConnect(
             const RememberedDevice(
               id: deviceId,
