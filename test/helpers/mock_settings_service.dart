@@ -18,6 +18,7 @@ class MockSettingsService extends SettingsService {
   bool _blockOnNoScale = false;
   bool _blockTareDuringShot = false;
   bool _stopHotWaterAtWeight = true;
+  Map<String, bool> _scaleButtonStartsEspressoByDevice = {};
   String? _preferredMachineId;
   String? _preferredScaleId;
   String _defaultSkinId = 'streamline.js';
@@ -99,6 +100,13 @@ class MockSettingsService extends SettingsService {
   @override
   Future<void> setStopHotWaterAtWeight(bool value) async =>
       _stopHotWaterAtWeight = value;
+  @override
+  Future<Map<String, bool>> scaleButtonStartsEspressoByDevice() async =>
+      Map.of(_scaleButtonStartsEspressoByDevice);
+  @override
+  Future<void> setScaleButtonStartsEspressoByDevice(
+    Map<String, bool> value,
+  ) async => _scaleButtonStartsEspressoByDevice = Map.of(value);
   final List<String?> preferredMachineIdWrites = [];
   bool failSetPreferredMachineId = false;
 

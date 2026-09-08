@@ -50,6 +50,7 @@ void main() {
       expect(settings['scalePowerMode'], 'disabled');
       expect(settings['blockTareDuringShot'], isFalse);
       expect(settings['stopHotWaterAtWeight'], isTrue);
+      expect(settings['scaleButtonStartsEspressoByDevice'], isEmpty);
       expect(settings['automaticUpdateCheck'], isTrue);
       expect(settings['chargingMode'], 'disabled');
       expect(settings['nightModeEnabled'], isFalse);
@@ -88,6 +89,8 @@ void main() {
       await controller.setStopHotWaterAtWeight(false);
       await controller.setHotWaterFlowMultiplier(0.5);
       await controller.setBlockTareDuringShot(true);
+      await controller.setScaleButtonStartsEspressoForDevice('scale-a', true);
+      await controller.setScaleButtonStartsEspressoForDevice('scale-b', true);
       await controller.setLowBatteryBrightnessLimit(true);
       await controller.setKeepAwake(false);
       final exported = await exportSettings(section);
@@ -98,6 +101,8 @@ void main() {
       await controller.setStopHotWaterAtWeight(true);
       await controller.setHotWaterFlowMultiplier(0.3);
       await controller.setBlockTareDuringShot(false);
+      await controller.setScaleButtonStartsEspressoForDevice('scale-a', false);
+      await controller.setScaleButtonStartsEspressoForDevice('scale-b', false);
       await controller.setLowBatteryBrightnessLimit(false);
       await controller.setKeepAwake(true);
 
@@ -114,6 +119,10 @@ void main() {
       expect(controller.stopHotWaterAtWeight, isFalse);
       expect(controller.hotWaterFlowMultiplier, 0.5);
       expect(controller.blockTareDuringShot, isTrue);
+      expect(controller.scaleButtonStartsEspressoByDevice, {
+        'scale-a': true,
+        'scale-b': true,
+      });
       expect(controller.lowBatteryBrightnessLimit, isTrue);
       expect(controller.keepAwake, isFalse);
     });
@@ -169,6 +178,21 @@ void main() {
       expect(result.errors, hasLength(2));
       expect(result.errors[0], contains('Invalid gatewayMode'));
       expect(result.errors[1], contains('Invalid scalePowerMode'));
+    });
+
+    test('rejects a non-boolean scale button setting', () async {
+      final result = await importSectionJson(
+        section,
+        '{"settings":{"scaleButtonStartsEspressoByDevice":{"scale-a":"yes"}}}',
+        ConflictStrategy.overwrite,
+      );
+
+      expect(controller.scaleButtonStartsEspressoByDevice, isEmpty);
+      expect(result.errors, hasLength(1));
+      expect(
+        result.errors.single,
+        contains('Invalid scaleButtonStartsEspressoByDevice'),
+      );
     });
 
     test('counts settings imported before a later field fails', () async {

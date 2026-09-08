@@ -14,9 +14,14 @@ class ScaleController {
 
   StreamSubscription<ConnectionState>? _scaleConnection;
   StreamSubscription<ScaleSnapshot>? _scaleSnapshot;
+  StreamSubscription<ScaleButton>? _scaleButtons;
+
+  final StreamController<ScaleButton> _buttonController =
+      StreamController.broadcast();
 
   String? _lastConnectedDeviceId;
   String? get lastConnectedDeviceId => _lastConnectedDeviceId;
+  String? get currentConnectedDeviceId => _scale?.deviceId;
   int _connectionGeneration = 0;
   int get connectionGeneration => _connectionGeneration;
   bool _snapshotSessionActive = false;
@@ -32,11 +37,16 @@ class ScaleController {
     _scaleSnapshot = null;
     _scaleConnection?.cancel();
     _scaleConnection = null;
+    _scaleButtons?.cancel();
+    _scaleButtons = null;
     if (!_connectionController.isClosed) {
       _connectionController.close();
     }
     if (!_weightSnapshotController.isClosed) {
       _weightSnapshotController.close();
+    }
+    if (!_buttonController.isClosed) {
+      _buttonController.close();
     }
     _snapshotSessionActive = false;
     _currentWeightSnapshot = null;
@@ -81,6 +91,7 @@ class ScaleController {
     _scale = scale;
     _lastConnectedDeviceId = scale.deviceId;
     _scaleConnection = scale.connectionState.listen(_processConnection);
+    _subscribeToButtons(scale);
   }
 
   Future<void> adoptScale(Scale scale) async {
@@ -113,6 +124,24 @@ class ScaleController {
     _scale = scale;
     _lastConnectedDeviceId = scale.deviceId;
     _scaleConnection = scale.connectionState.listen(_processConnection);
+    _subscribeToButtons(scale);
+  }
+
+  Stream<ScaleButton> get buttonPresses => _buttonController.stream;
+
+  void _subscribeToButtons(Scale scale) {
+    _scaleButtons?.cancel();
+    final generation = _connectionGeneration;
+    if (scale is! ScaleButtonCapable) {
+      _scaleButtons = null;
+      return;
+    }
+    final buttonScale = scale as ScaleButtonCapable;
+    _scaleButtons = buttonScale.buttonPresses.listen((button) {
+      if (_connectionGeneration == generation) {
+        _buttonController.add(button);
+      }
+    });
   }
 
   void _onDisconnect() {
@@ -121,8 +150,10 @@ class ScaleController {
     _currentWeightSnapshot = null;
     _scaleSnapshot?.cancel();
     _scaleConnection?.cancel();
+    _scaleButtons?.cancel();
     _scale = null;
     _scaleConnection = null;
+    _scaleButtons = null;
     _resetDisplayEstimator();
     _kalmanEstimator = null;
     _lastSnapshotTime = null;

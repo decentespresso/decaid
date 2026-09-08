@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:reaprime/src/models/data/profile.dart';
@@ -14,11 +15,13 @@ class TestDe1 implements De1Interface {
   final String _deviceId;
   final String _name;
   final String serialNumber;
+  final bool groupHeadControllerPresent;
 
   TestDe1({
     String deviceId = 'test-de1',
     String name = 'TestDe1',
     this.serialNumber = '1',
+    this.groupHeadControllerPresent = false,
   }) : _deviceId = deviceId,
        _name = name;
   final BehaviorSubject<MachineSnapshot> snapshotSubject =
@@ -69,6 +72,7 @@ class TestDe1 implements De1Interface {
   }
 
   final List<MachineState> requestedStates = [];
+  Completer<void>? requestStateGate;
 
   void emitSnapshot(MachineSnapshot snapshot) {
     snapshotSubject.add(snapshot);
@@ -105,13 +109,14 @@ class TestDe1 implements De1Interface {
     version: '1',
     model: '1',
     serialNumber: serialNumber,
-    groupHeadControllerPresent: false,
+    groupHeadControllerPresent: groupHeadControllerPresent,
     extra: {},
   );
 
   @override
   Future<void> requestState(MachineState newState) async {
     requestedStates.add(newState);
+    await requestStateGate?.future;
   }
 
   @override

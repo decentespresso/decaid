@@ -1,7 +1,14 @@
-import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/src/services/webserver_service.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/settings/settings_service.dart';
+import 'package:reaprime/src/webui_support/webui_service.dart';
+import 'package:reaprime/src/webui_support/webui_storage.dart';
+import 'package:shelf_plus/shelf_plus.dart';
 
 import '../helpers/mock_settings_service.dart';
 
@@ -77,6 +84,111 @@ void main() {
       await controller.setStopHotWaterAtWeight(false);
       expect(controller.stopHotWaterAtWeight, isFalse);
       expect(await mockService.stopHotWaterAtWeight(), isFalse);
+    });
+  });
+
+  group('scaleButtonStartsEspressoByDevice', () {
+    test(
+      'defaults to an empty map and persists independent device values',
+      () async {
+        expect(controller.scaleButtonStartsEspressoByDevice, isEmpty);
+
+        await controller.setScaleButtonStartsEspressoForDevice('scale-a', true);
+        await controller.setScaleButtonStartsEspressoForDevice('scale-b', true);
+        await controller.setScaleButtonStartsEspressoForDevice(
+          'scale-a',
+          false,
+        );
+
+        expect(controller.scaleButtonStartsEspressoByDevice, {'scale-b': true});
+        expect(await mockService.scaleButtonStartsEspressoByDevice(), {
+          'scale-b': true,
+        });
+
+        final reloaded = SettingsController(mockService);
+        await reloaded.loadSettings();
+        expect(reloaded.scaleButtonStartsEspressoByDevice, {'scale-b': true});
+        reloaded.dispose();
+      },
+    );
+  });
+
+  group('scaleButtonStartsEspressoByDevice settings API', () {
+    late RouterPlus app;
+    late WebUIStorage storage;
+    late Directory tempDir;
+
+    setUp(() async {
+      tempDir = await Directory.systemTemp.createTemp('decaid-settings-');
+      storage = WebUIStorage(controller);
+      storage.debugInitWithWebUIDir(tempDir);
+      app = Router().plus;
+      SettingsHandler(
+        controller: controller,
+        service: WebUIService(listLocalAddresses: () async => []),
+        webUIStorage: storage,
+      ).addRoutes(app);
+    });
+
+    tearDown(() async {
+      if (tempDir.existsSync()) await tempDir.delete(recursive: true);
+    });
+
+    test(
+      'GET reports an object and POST persists independent device values',
+      () async {
+        final get = await app.call(
+          Request('GET', Uri.parse('http://localhost/api/v1/settings')),
+        );
+        expect(
+          (jsonDecode(await get.readAsString())
+              as Map)['scaleButtonStartsEspressoByDevice'],
+          isEmpty,
+        );
+
+        final post = await app.call(
+          Request(
+            'POST',
+            Uri.parse('http://localhost/api/v1/settings'),
+            body: jsonEncode({
+              'scaleButtonStartsEspressoByDevice': {'scale-a': true},
+            }),
+          ),
+        );
+        expect(post.statusCode, 200);
+        expect(controller.scaleButtonStartsEspressoByDevice, {'scale-a': true});
+        final oldGet = await app.call(
+          Request('GET', Uri.parse('http://localhost/api/v1/settings')),
+        );
+        final oldGetJson = jsonDecode(await oldGet.readAsString()) as Map;
+        expect(oldGetJson.containsKey('scaleButtonStartsEspresso'), isFalse);
+      },
+    );
+
+    test('POST rejects invalid object values', () async {
+      final response = await app.call(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/api/v1/settings'),
+          body: jsonEncode({
+            'scaleButtonStartsEspressoByDevice': {'scale-a': 'yes'},
+          }),
+        ),
+      );
+      expect(response.statusCode, 400);
+      expect(controller.scaleButtonStartsEspressoByDevice, isEmpty);
+    });
+
+    test('POST rejects the removed global setting', () async {
+      final response = await app.call(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/api/v1/settings'),
+          body: jsonEncode({'scaleButtonStartsEspresso': true}),
+        ),
+      );
+      expect(response.statusCode, 400);
+      expect(controller.scaleButtonStartsEspressoByDevice, isEmpty);
     });
   });
 

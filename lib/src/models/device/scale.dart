@@ -1,6 +1,7 @@
 import 'device.dart';
 
 abstract class Scale extends Device {
+  ScaleInfo? get scaleInfo => null;
   Stream<ScaleSnapshot> get currentSnapshot;
 
   Future<void> tare();
@@ -14,8 +15,26 @@ abstract class Scale extends Device {
   Future<void> resetTimer() async {}
 }
 
+class ScaleInfo {
+  final String? firmwareVersion;
+  final int? batteryLevel;
+
+  const ScaleInfo({this.firmwareVersion, this.batteryLevel});
+
+  Map<String, dynamic> toJson() => {
+    if (firmwareVersion != null) 'firmwareVersion': firmwareVersion,
+    if (batteryLevel != null) 'batteryLevel': batteryLevel,
+  };
+}
+
 abstract interface class TransportHandoffScale {
   Future<void> disconnectForHandoff();
+}
+
+enum ScaleButton { circle, square }
+
+abstract interface class ScaleButtonCapable {
+  Stream<ScaleButton> get buttonPresses;
 }
 
 class ScaleSnapshot {
