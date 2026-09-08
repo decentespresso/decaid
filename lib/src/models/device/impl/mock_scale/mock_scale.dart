@@ -12,6 +12,8 @@ import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:rxdart/subjects.dart';
 
 class MockScale implements Scale, SimulatedDevice {
+  @override
+  ScaleInfo? get scaleInfo => null;
   final BehaviorSubject<ConnectionState> _connectionSubject =
       BehaviorSubject.seeded(ConnectionState.discovered);
 

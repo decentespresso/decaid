@@ -12,6 +12,8 @@ import 'package:reaprime/src/models/device/device.dart';
 import '../../scale.dart';
 
 class DifluidScale implements Scale {
+  @override
+  ScaleInfo? get scaleInfo => null;
   final Logger _log = Logger('DifluidScale');
 
   static final BleServiceIdentifier serviceIdentifier =

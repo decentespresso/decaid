@@ -12,6 +12,8 @@ import 'package:reaprime/src/models/errors.dart';
 import 'package:rxdart/subjects.dart';
 
 class HDSSerial implements Scale, TransportHandoffScale {
+  @override
+  ScaleInfo? get scaleInfo => null;
   late Logger _log;
   final SerialTransport _transport;
 

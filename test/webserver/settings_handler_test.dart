@@ -68,6 +68,28 @@ void main() {
     });
   });
 
+  group('skalePoweredByUsbByDevice', () {
+    test('keeps values independent per exact device ID', () async {
+      await controller.setSkalePoweredByUsb('skale-a', true);
+      await controller.setSkalePoweredByUsb('skale-b', false);
+
+      expect(controller.isSkalePoweredByUsb('skale-a'), isTrue);
+      expect(controller.isSkalePoweredByUsb('skale-b'), isFalse);
+      expect(await mockService.skalePoweredByUsbByDevice(), {'skale-a': true});
+    });
+
+    test('loads the persisted value', () async {
+      await mockService.setSkalePoweredByUsbByDevice({
+        'skale-a': true,
+        'skale-b': false,
+      });
+      final loaded = SettingsController(mockService);
+      await loaded.loadSettings();
+      expect(loaded.skalePoweredByUsbByDevice, {'skale-a': true});
+      loaded.dispose();
+    });
+  });
+
   group('stopHotWaterAtWeight', () {
     test('defaults to true', () {
       expect(controller.stopHotWaterAtWeight, isTrue);

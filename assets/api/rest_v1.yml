@@ -1050,6 +1050,21 @@ paths:
           description: No machine connected or machine write queue full
 
   # Scale API
+  /api/v1/scale/info:
+    get:
+      summary: Get connected scale information
+      description: Returns metadata for the currently connected scale.
+      tags: [Scale]
+      responses:
+        "200":
+          description: Connected scale information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScaleInfo'
+        "503":
+          description: No scale is connected
+
   /api/v1/scale/tare:
     put:
       summary: Tare Scale
@@ -5427,6 +5442,16 @@ paths:
 
 components:
   schemas:
+    ScaleInfo:
+      type: object
+      properties:
+        firmwareVersion:
+          type: string
+        batteryLevel:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 100
     BleDiagnosticsSnapshot:
       type: object
       required: [timestamp, ble, connection]
@@ -6437,6 +6462,11 @@ components:
           type: string
           nullable: true
           example: "AA:BB:CC:DD:EE:FF"
+        skalePoweredByUsbByDevice:
+          description: Exact Skale device IDs mapped to manual USB power declarations. Boolean values are accepted; false removes the device ID. Only enabled IDs are stored and returned. Omitted IDs default to false; enabled devices suppress battery reads and report the USB source with manual provenance.
+          type: object
+          additionalProperties:
+            type: boolean
         defaultSkinId:
           description: ID of the default WebUI skin to serve
           type: string
@@ -6535,6 +6565,11 @@ components:
           type: string
           nullable: true
           example: "AA:BB:CC:DD:EE:FF"
+        skalePoweredByUsbByDevice:
+          description: Exact Skale device IDs mapped to manual USB power declarations. Only enabled IDs are returned; omitted IDs default to false.
+          type: object
+          additionalProperties:
+            type: boolean
         defaultSkinId:
           description: ID of the default WebUI skin being served
           type: string

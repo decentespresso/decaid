@@ -24,6 +24,13 @@ Read this when changing REST endpoints, WebSocket topics, API specs, auth proxy,
 - Content-based hash IDs for profile deduplication (`ProfileController`).
 - ETag / `If-None-Match` support on cacheable resources (#203).
 
+## Device inventory and connected-scale metadata
+
+- `GET /api/v1/devices` and `/ws/v1/devices` are inventory-only surfaces. They must not include connection-scoped metadata such as `deviceInfo`, `firmwareVersion`, or `batteryLevel`.
+- Metadata refreshes do not emit inventory updates. Do not add a metadata WebSocket until a concrete live-update need exists.
+- `GET /api/v1/scale/info` reports only the currently connected scale. Disconnected requests return `503`; a connected scale with unknown metadata returns `{}`. `firmwareVersion` is optional and opaque. `batteryLevel` is optional/nullable where supported; unknown values are omitted, and `0`/`100` are valid.
+- Keep connected-scale metadata separate from remembered-device inventory state; use the scale-info endpoint for it.
+
 ### Admission Control
 
 `/api/` requests pass through a process-local gate after authentication and inside

@@ -36,6 +36,8 @@ class AcaiaTimings {
 }
 
 class AcaiaScale implements Scale {
+  @override
+  ScaleInfo? get scaleInfo => null;
   static final _ipsService = BleServiceIdentifier.short('1820');
   static final _ipsCharacteristic = BleServiceIdentifier.short('2a80');
   static final _pyxisService = BleServiceIdentifier.long(

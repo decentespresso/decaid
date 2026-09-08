@@ -1,4 +1,5 @@
 import 'package:collection/collection.dart';
+import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/services/android_updater.dart';
@@ -41,6 +42,7 @@ class SettingsController with ChangeNotifier {
   String? _preferredMachineId;
 
   String? _preferredScaleId;
+  Map<String, bool> _skalePoweredByUsbByDevice = {};
 
   String _defaultSkinId = 'streamline.js';
 
@@ -87,6 +89,10 @@ class SettingsController with ChangeNotifier {
   bool get stopHotWaterAtWeight => _stopHotWaterAtWeight;
   String? get preferredMachineId => _preferredMachineId;
   String? get preferredScaleId => _preferredScaleId;
+  Map<String, bool> get skalePoweredByUsbByDevice =>
+      Map.unmodifiable(_skalePoweredByUsbByDevice);
+  bool isSkalePoweredByUsb(String deviceId) =>
+      _skalePoweredByUsbByDevice[deviceId] ?? false;
   String get defaultSkinId => _defaultSkinId;
   bool get automaticUpdateCheck => _automaticUpdateCheck;
   UpdateChannel get updateChannel => _updateChannel;
@@ -127,6 +133,8 @@ class SettingsController with ChangeNotifier {
     _stopHotWaterAtWeight = await _settingsService.stopHotWaterAtWeight();
     _preferredMachineId = await _settingsService.preferredMachineId();
     _preferredScaleId = await _settingsService.preferredScaleId();
+    _skalePoweredByUsbByDevice = await _settingsService
+        .skalePoweredByUsbByDevice();
     _defaultSkinId = await _settingsService.defaultSkinId();
     _automaticUpdateCheck = await _settingsService.automaticUpdateCheck();
     _updateChannel = await _settingsService.updateChannel();
@@ -317,6 +325,26 @@ class SettingsController with ChangeNotifier {
     }
     _preferredScaleId = scaleId;
     await _settingsService.setPreferredScaleId(scaleId);
+    notifyListeners();
+  }
+
+  Future<void> setSkalePoweredByUsb(String deviceId, bool value) =>
+      setSkalePoweredByUsbByDevice({
+        ..._skalePoweredByUsbByDevice,
+        deviceId: value,
+      });
+
+  Future<void> setSkalePoweredByUsbByDevice(Map<String, bool> value) async {
+    final normalized = Map.fromEntries(
+      value.entries.where((entry) => entry.value),
+    );
+    if (mapEquals(normalized, _skalePoweredByUsbByDevice)) {
+      return;
+    }
+    _skalePoweredByUsbByDevice = normalized;
+    await _settingsService.setSkalePoweredByUsbByDevice(
+      _skalePoweredByUsbByDevice,
+    );
     notifyListeners();
   }
 

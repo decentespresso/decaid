@@ -1,6 +1,7 @@
 # Device Management in Decaid
 
 This document explains how devices (DE1 machines, scales, sensors) are discovered, connected, and managed throughout the Decaid application lifecycle.
+Open the management page from Settings > Devices or from the dashboard.
 
 ## Table of Contents
 
@@ -808,6 +809,38 @@ of vanishing. Cross-transport (BLE/USB/WiFi) by construction.
   serial USB stable id or — on macOS where vid/pid is unreadable — the port
   path). Moving a USB device to a different physical port yields a new id (new
   remembered entry); Forget removes the stale one.
+
+### Connected-session device information
+
+Devices may implement the optional `DeviceInformationCapable` interface for
+connected-session metadata. The Devices page follows that stream and replaces
+subscriptions when a same-ID device instance is rebuilt during reconnect.
+REST clients read connected-scale metadata from `GET /api/v1/scale/info`.
+The `/api/v1/devices` and `/ws/v1/devices` inventories remain inventory-only:
+they do not include `deviceInfo` or emit updates for metadata refreshes.
+
+Skale reads the standard Device Information Firmware Revision String
+(`0x180A` / `0x2A26`) as best-effort metadata after service discovery. Missing,
+empty, malformed, late, or failed reads do not fail the scale connection. The
+opaque revision is cleared on disconnect and is display-only; Decaid does not
+download or install Skale firmware.
+
+Skale also reads the standard Battery Level characteristic (`0x180F` / `0x2A19`)
+on connect and every 30 minutes while connected. Only a single-byte value in
+the device-reported `0..100` range is published; unavailable or invalid reads
+clear the connected-session value. Battery metadata is nullable and appears in
+the Devices UI and the connected-scale `GET /api/v1/scale/info` response when
+available.
+
+Each connected USB-configurable Skale row in Settings > Devices provides an
+opt-in `skalePoweredByUsbByDevice` override through its settings button. Values
+are keyed by exact device ID, default to `false`, and are persisted and
+exported. This is a manual power-source declaration for each Skale device;
+while enabled, that device's battery reads and refresh polling stop, its
+battery value is cleared, and metadata reports `powerSource: usb` with
+`powerSourceProvenance: manualOverride`. Disabling it immediately resumes a
+battery read and the normal refresh interval. Other scale implementations and
+other Skale devices are unaffected.
 
 ### Bengle integrated scale
 

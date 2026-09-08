@@ -333,7 +333,10 @@ void main(List<String> args) async {
   final profileController = ProfileController(storage: profileStorage);
   await profileController.initialize();
 
-  final deviceController = DeviceController(services);
+  final deviceController = DeviceController(
+    services,
+    settingsController: settingsController,
+  );
   deviceController.telemetryService = telemetryService;
   final de1Controller = De1Controller(controller: deviceController)
     ..defaultWorkflow = workflowController.currentWorkflow;

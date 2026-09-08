@@ -81,6 +81,50 @@ class _SpySettingsService implements SettingsService {
 }
 
 void main() {
+  group('SettingsController Skale USB settings', () {
+    test('keeps values independent per exact device ID', () async {
+      final settings = MockSettingsService();
+      final controller = SettingsController(settings);
+      await controller.setSkalePoweredByUsb('skale-a', true);
+      await controller.setSkalePoweredByUsb('skale-b', false);
+
+      expect(controller.isSkalePoweredByUsb('skale-a'), isTrue);
+      expect(controller.isSkalePoweredByUsb('skale-b'), isFalse);
+      expect(await settings.skalePoweredByUsbByDevice(), {'skale-a': true});
+      controller.dispose();
+    });
+
+    test('loads the persisted values', () async {
+      final settings = MockSettingsService();
+      await settings.setSkalePoweredByUsbByDevice({
+        'skale-a': true,
+        'skale-b': false,
+      });
+      final controller = SettingsController(settings);
+      await controller.loadSettings();
+
+      expect(controller.skalePoweredByUsbByDevice, {'skale-a': true});
+      expect(controller.isSkalePoweredByUsb('skale-b'), isFalse);
+      controller.dispose();
+    });
+
+    test('removes disabled IDs and filters disabled map entries', () async {
+      final settings = MockSettingsService();
+      final controller = SettingsController(settings);
+
+      await controller.setSkalePoweredByUsbByDevice({
+        'skale-a': true,
+        'skale-b': false,
+      });
+      expect(controller.skalePoweredByUsbByDevice, {'skale-a': true});
+
+      await controller.setSkalePoweredByUsb('skale-a', false);
+      expect(controller.skalePoweredByUsbByDevice, isEmpty);
+      expect(await settings.skalePoweredByUsbByDevice(), isEmpty);
+      controller.dispose();
+    });
+  });
+
   group('SettingsController.enableSimulatedDevicesForSession', () {
     test('sets simulatedDevices in memory', () {
       final spy = _SpySettingsService();
