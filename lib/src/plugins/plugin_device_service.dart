@@ -32,6 +32,12 @@ class PluginDeviceRegistration {
 }
 
 class PluginDeviceService implements DeviceDiscoveryService {
+  final Duration scaleInvocationTimeout;
+
+  PluginDeviceService({
+    this.scaleInvocationTimeout = const Duration(seconds: 5),
+  });
+
   final BehaviorSubject<List<Device>> _devices = BehaviorSubject.seeded(
     const [],
   );
@@ -133,6 +139,7 @@ class PluginDeviceService implements DeviceDiscoveryService {
             name: name,
             capabilities: driver!.capabilities,
             invoke: invoke,
+            invocationTimeout: scaleInvocationTimeout,
           )
         : _PluginSensor(
             deviceId: deviceId,

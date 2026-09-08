@@ -317,3 +317,18 @@ Discovery integration and the other draft acceptance gaps remain open.
 - Full suite: 3941 passed, 1 skipped, exit 0 (2m37s), recorded in
   .build/issue-809-disconnect-boundary-tests.log. Analysis and CI-compatible
   formatting are clean; diff check passed. Existing draft acceptance gaps remain.
+
+### CI Runtime Gate
+
+2026-09-08: CI run 34208704713 passed the assertions but rejected the Scale
+manager suite's 21.212 seconds of active time against its 20-second limit.
+PluginDeviceService now forwards an injectable Scale invocation deadline while
+retaining the five-second production default. The two retirement regressions use
+250 ms for the adapter and one second for the manager, checking at 300 ms that
+reconnect remains blocked. This preserves production deadline ordering without
+two ten-second waits; no timeout or assertion was removed from the regression.
+
+Full local suite: 3941 passed, 1 skipped, zero failures. The CI active-time gate
+passes for every file. Analysis and formatting are clean. Events are recorded in
+.build/issue-809-runtime-gate-tests.json. Both fixed BLE-evidence review threads
+were marked resolved. The externally changed PR draft status was left unchanged.

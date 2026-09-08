@@ -24,7 +24,13 @@ void main() {
           sockets.add(socket);
           socket.listen(frames.add);
         });
-        final manager = PluginManager(kvStore: FakeKeyValueStoreService());
+        final manager = PluginManager(
+          kvStore: FakeKeyValueStoreService(),
+          deviceInvocationTimeout: const Duration(seconds: 1),
+          deviceService: PluginDeviceService(
+            scaleInvocationTimeout: const Duration(milliseconds: 250),
+          ),
+        );
         addTearDown(() async {
           await manager.dispose();
           for (final socket in sockets) {
@@ -97,7 +103,7 @@ void main() {
           reconnected = true;
         });
         await Future<void>.delayed(
-          scale.invocationTimeout + const Duration(milliseconds: 200),
+          scale.invocationTimeout + const Duration(milliseconds: 50),
         );
         expect(disconnectSettled, false);
         expect(reconnected, false);
