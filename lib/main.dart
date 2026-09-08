@@ -69,6 +69,7 @@ import 'package:reaprime/src/services/app_log_upload_service.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import 'package:reaprime/src/services/storage/hive_store_service.dart';
+import 'package:reaprime/src/database_failure_view.dart';
 import 'package:reaprime/src/services/universal_ble_discovery_service.dart';
 import 'package:reaprime/src/services/simulated_device_service.dart';
 import 'package:reaprime/src/services/webserver/data_export/backup_data_sources.dart';
@@ -306,6 +307,16 @@ void main(List<String> args) async {
     log.info("enabling simulated devices from dart-define: $dartDefineDevices");
   }
   final appDatabase = AppDatabase.defaults();
+  final databaseStartupError = await appDatabase.openForStartup(log);
+  if (databaseStartupError != null) {
+    runApp(
+      DatabaseFailureApp(
+        logFilePath: '$logDir/log.txt',
+        detail: databaseStartupError.runtimeType.toString(),
+      ),
+    );
+    return;
+  }
 
   final persistenceController = PersistenceController(
     storageService: DriftStorageService(appDatabase),

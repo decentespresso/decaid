@@ -73,6 +73,13 @@ Persistence uses Drift (SQLite) via `AppDatabase`. DAOs in `lib/src/daos/`, mapp
 
 **Schema v5 (shot revision metadata):** `shot_records.createdAt`/`updatedAt` were added as nullable TEXT and backfilled from `timestamp` during the 4→5 migration, so pre-v5 rows carry a real DB-level revision instead of NULL. `ShotMapper.fromRow` still falls back to `timestamp` for any row with NULL fields (e.g. rows inserted without stamps). The revision contract (bookkeeping extras do not advance `updatedAt`, PUT cannot write the fields) is documented in `doc/Api.md` under Shots → Modification tracking.
 
+**Migration lesson from #811 (0.8.5 startup failures):** Drift only writes `PRAGMA user_version` after `beforeOpen`/`onUpgrade` completes, and the upgrade body is NOT automatically transactional. An interrupted multi-step migration can therefore leave a partially upgraded physical schema (e.g. only `created_at` added) while `user_version` stays at the old value; the next open re-enters the same step and the unconditional `ADD COLUMN` fails with `duplicate column name`. Rules for future migrations:
+
+- Wrap the whole `onUpgrade` body in an explicit Drift `transaction()` so any failed step rolls back atomically and the next open retries from a known state.
+- Make each step resume-safe/idempotent where it can reconcile a partial physical schema: inspect `PRAGMA table_info(...)` and apply only the missing work instead of blind `ADD COLUMN`/`CREATE TABLE`. `shot_records` v5 columns (`created_at`/`updated_at`, nullable TEXT) are validated against `PRAGMA table_info` metadata (TEXT, notnull=0, pk=0, no default or an explicit NULL literal default) before being reused.
+- Test partially-applied states (each column subset present at the old `user_version`, NULL and non-NULL value mixes), not only clean `N -> N+1` fixtures.
+- Unknown/incompatible states fail closed and preserve the DB (no drop/recreate/reset/rename fallback); surface them for assisted recovery instead of silently reshaping user data.
+
 ## Profile Storage
 
 Content-based hash IDs for deduplication. `ProfileController` manages the profile library:
