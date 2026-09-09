@@ -9,6 +9,7 @@ import 'package:reaprime/src/services/macos_updater.dart';
 import 'package:reaprime/src/services/update_check_service.dart';
 import 'package:reaprime/src/settings/battery_charging_settings_page.dart';
 import 'package:reaprime/src/settings/common.dart';
+import 'package:reaprime/src/settings/device_management_page.dart';
 import 'package:reaprime/src/settings/presence_settings_page.dart';
 import 'package:reaprime/src/settings/charging_mode.dart';
 import 'package:reaprime/src/settings/update_dialog.dart';
@@ -49,6 +50,15 @@ class SettingsView extends StatelessWidget {
           return ListView(
             children: [
               const SettingsSectionHeader('General'),
+              SettingsTile(
+                icon: Icons.devices_outlined,
+                label: 'Devices',
+                trailing: const Icon(Icons.chevron_right, size: 20),
+                onTap: () => Navigator.of(
+                  context,
+                ).pushNamed(DeviceManagementPage.routeName),
+              ),
+              const SettingsDivider(),
               SettingsTile(
                 icon: Icons.palette_outlined,
                 label: 'Appearance',

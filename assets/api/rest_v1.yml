@@ -1050,6 +1050,21 @@ paths:
           description: No machine connected or machine write queue full
 
   # Scale API
+  /api/v1/scale/info:
+    get:
+      summary: Get connected scale information
+      description: Returns metadata for the currently connected scale.
+      tags: [Scale]
+      responses:
+        "200":
+          description: Connected scale information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScaleInfo'
+        "503":
+          description: No scale is connected
+
   /api/v1/scale/tare:
     put:
       summary: Tare Scale
@@ -5442,6 +5457,12 @@ components:
           additionalProperties: true
       additionalProperties: true
 
+    ScaleInfo:
+      type: object
+      properties:
+        firmwareVersion:
+          type: string
+          description: Opaque scale firmware version, when reported.
     FlowSmoothingConfig:
       type: object
       required: [windowMs, movingAverageSamples]

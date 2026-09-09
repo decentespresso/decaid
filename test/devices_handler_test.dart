@@ -13,6 +13,7 @@ import 'package:reaprime/src/models/device/impl/bengle/bengle_virtual_scale.dart
 import 'package:reaprime/src/models/device/impl/bengle/mock_bengle.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
+import 'package:rxdart/rxdart.dart';
 
 import 'helpers/mock_device_discovery_service.dart';
 import 'helpers/mock_settings_service.dart';
@@ -430,6 +431,9 @@ void main() {
         expect(body[0]['id'], 'AA:BB:CC:DD:EE:FF');
         expect(body[0]['name'], 'Test Scale');
         expect(body[0]['type'], 'scale');
+        expect(body[0].containsKey('deviceInfo'), isFalse);
+        expect(body[0].containsKey('firmwareVersion'), isFalse);
+        expect(body[0].containsKey('batteryLevel'), isFalse);
       });
 
       test('returns a connected scale that is outside discovery', () async {
@@ -605,6 +609,25 @@ void main() {
           .timeout(Duration(seconds: 2));
 
       expect(aggregator.activeDeviceSubscriptionCount, 0);
+    });
+
+    test('metadata refresh does not emit an inventory update', () async {
+      final scale = _MetadataScale(deviceId: 'scale-1', name: 'Scale 1');
+      addTearDown(scale.dispose);
+      mockDiscovery.addDevice(scale);
+
+      await aggregator.stateStream
+          .where((s) => (s['devices'] as List).isNotEmpty)
+          .first
+          .timeout(Duration(seconds: 2));
+
+      final updates = <Map<String, dynamic>>[];
+      final subscription = aggregator.stateStream.skip(1).listen(updates.add);
+      scale.emitMetadata(const DeviceInformation(firmwareVersion: 'R029'));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await subscription.cancel();
+
+      expect(updates, isEmpty);
     });
 
     test('emits update when device connection state changes', () async {
@@ -791,4 +814,26 @@ class _BlockingTestScale extends TestScale {
 
   @override
   Future<void> onConnect() => blocker.future;
+}
+
+class _MetadataScale extends TestScale implements DeviceInformationCapable {
+  _MetadataScale({required super.deviceId, required super.name});
+
+  final BehaviorSubject<DeviceInformation?> _metadata = BehaviorSubject.seeded(
+    null,
+  );
+
+  @override
+  DeviceInformation? get currentDeviceInformation => _metadata.value;
+
+  @override
+  Stream<DeviceInformation?> get deviceInformation => _metadata.stream;
+
+  void emitMetadata(DeviceInformation metadata) => _metadata.add(metadata);
+
+  @override
+  void dispose() {
+    _metadata.close();
+    super.dispose();
+  }
 }

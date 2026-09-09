@@ -443,6 +443,18 @@ stalled write resume later and overwrite a newer one. Bound the actual
 unbounded read instead; a real anti-wedge mechanism needs explicit
 cancellation or fencing.
 
+## Skale firmware metadata
+
+Skale exposes its revision through the standard Device Information Service
+Firmware Revision String (`0x180A` / `0x2A26`). Treat it as opaque,
+connected-session metadata such as `R029`: discover the optional service before
+reading, decode strict UTF-8, ignore empty/malformed values and read failures,
+and fence the result by connection generation so a late read cannot repopulate
+metadata after disconnect or reconnect.
+
+Atomax does not publish a firmware update contract, so Decaid displays the
+revision only and does not infer update availability or implement Skale DFU.
+
 ## Keeping Notes Fresh
 
 Add lessons that would have saved debugging time: new footguns, thread-safety constraints, connection-lifecycle changes, non-obvious symptoms, and cross-transport dependencies. Prune stale claims. Prefer fewer, sharper notes over long background.

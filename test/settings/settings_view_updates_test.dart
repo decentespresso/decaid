@@ -111,6 +111,13 @@ Future<(UpdateCheckService, _RecordingUpdater)> _pumpSettingsView(
 
 void main() {
   group('SettingsView updates', () {
+    testWidgets('shows device management entry', (tester) async {
+      final calls = <MethodCall>[];
+      await _pumpSettingsView(tester, calls, macos: false);
+
+      expect(find.text('Devices'), findsOneWidget);
+    });
+
     testWidgets('macOS manual check delegates to Sparkle without a Snackbar', (
       tester,
     ) async {

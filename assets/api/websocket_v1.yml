@@ -973,4 +973,3 @@ components:
           minimum: 0
           maximum: 100
           description: Brightness value (required when command is setBrightness).
-
