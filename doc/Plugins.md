@@ -809,9 +809,10 @@ retain the 64 KiB JSON limit. Bridge failures carry `code`, including
 `link_lost`, and `timeout`; other native BLE codes are preserved.
 
 BLE Scale bindings reuse the Scale adapter and declared capability checks. The
-current checkpoint proves the Sensor path with a fake BLE edge; Bookoo hardware,
-Scale timing acceptance, automatic optional Scale operations, and sleep policy
-remain #809 follow-up work.
+current checkpoint proves the Sensor path with a fake BLE edge; the opt-in
+Felicita Arc and Bookoo examples exercise BLE Scale bindings with fake GATT.
+Bookoo hardware, Felicita hardware, Scale timing acceptance, automatic optional
+Scale operations, and sleep policy remain #809 follow-up work.
 
 ## Plugin Lifecycle
 
