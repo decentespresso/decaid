@@ -31,9 +31,7 @@ List<Map<String, Object?>> _shotSchema(File file) {
           },
         )
         .toList();
-    schema.sort(
-      (a, b) => (a['name'] as String).compareTo(b['name'] as String),
-    );
+    schema.sort((a, b) => (a['name'] as String).compareTo(b['name'] as String));
     return schema;
   } finally {
     db.close();
