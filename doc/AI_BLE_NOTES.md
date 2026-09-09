@@ -445,6 +445,11 @@ cancellation or fencing.
 
 ## Plugin BLE Binding (#809 Checkpoint)
 
+Bookoo's opt-in JS reference lives under `examples/plugins/bookoo-mini.reaplugin`.
+Shared native/plugin byte fixtures are in `test/helpers/bookoo_packets.dart`.
+The driver's valid-packet silence deadline is two seconds, a provisional protocol
+health policy pending hardware cadence measurements, not a native GATT timeout.
+
 Notification provenance is captured before JS dispatch. An optional opaque token
 round-trips through the callback and publication; host validation supplies the
 Scale timestamp. Four-event/100 ms trace tests reproduced collapsed timestamps

@@ -7,6 +7,7 @@ import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:rxdart/rxdart.dart';
+import '../../helpers/bookoo_packets.dart';
 
 class _BookooTransport extends BLETransport {
   final BehaviorSubject<ConnectionState> states = BehaviorSubject.seeded(
@@ -78,17 +79,7 @@ class _BookooTransport extends BLETransport {
 }
 
 List<int> _packet(double grams, {int? battery = 50}) {
-  final magnitude = (grams.abs() * 100).round();
-  final packet = List<int>.filled(20, 0);
-  packet[0] = 0x03;
-  packet[1] = 0x0B;
-  packet[6] = grams < 0 ? 0x2D : 0x2B;
-  packet[7] = magnitude >> 16;
-  packet[8] = magnitude >> 8;
-  packet[9] = magnitude;
-  if (battery != null) packet[13] = battery;
-  packet[19] = packet.take(19).fold(0, (sum, byte) => sum ^ byte);
-  return packet;
+  return bookooPacket(grams, battery: battery);
 }
 
 void main() {
@@ -160,12 +151,15 @@ void main() {
     await scale.startTimer();
     await scale.stopTimer();
     await scale.resetTimer();
-    expect(transport.writes, [
-      [0x03, 0x0A, 0x01, 0, 0, 0x08],
-      [0x03, 0x0A, 0x04, 0, 0, 0x0D],
-      [0x03, 0x0A, 0x05, 0, 0, 0x0C],
-      [0x03, 0x0A, 0x06, 0, 0, 0x0F],
-    ]);
+    expect(transport.writes, bookooCommands);
+  });
+
+  test('shared plugin malformed packet fixtures emit nothing', () async {
+    for (final packet in invalidBookooPackets()) {
+      transport.emit(packet);
+    }
+    await Future<void>.delayed(Duration.zero);
+    expect(snapshots, isEmpty);
   });
 
   test('disconnected command failure is ignored', () async {

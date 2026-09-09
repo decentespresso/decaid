@@ -1647,6 +1647,11 @@ identically.
 
 ## Plugin BLE Ownership
 
+The Bookoo example retains a distinct stable plugin ID through reload and restart.
+Tests persist it via normal Scale connection, prove remembered quick-connect misses,
+then rediscover/connect the same ID. With the plugin absent, native Bookoo remains
+available for explicit selection without replacing the saved plugin preference.
+
 Plugin Scales with `disconnectToSleep` mark deliberate sleep before disconnecting
 in display-off power mode. Host Scale recovery pauses until an awake machine
 snapshot, just as radio-disconnect power management waits for wake. Protocol

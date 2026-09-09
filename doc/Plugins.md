@@ -3,6 +3,11 @@
 
 ## BLE Scale Sample Time
 
+The opt-in reference at `examples/plugins/bookoo-mini.reaplugin` implements the
+native Bookoo packet/command contract in JS using this path. It is not bundled.
+Its README separates deterministic API/protocol tests from required hardware
+acceptance and documents the provisional protocol-silence deadline.
+
 BLE notification callbacks receive `(base64Data, sample)`. The optional opaque
 `sample` token identifies a host-timestamped notification. After decoding, use
 `await session.publish({weight: grams}, sample)` to retain its ingress time even
