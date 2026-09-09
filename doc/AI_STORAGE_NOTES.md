@@ -103,16 +103,28 @@ history rather than one shot (issue #784).
 
 The same leniency has to hold for every path that re-reads a stored shot as
 JSON, not just the row mapper. `PUT /api/v1/shots/<id>` merges the patch into
-`existingShot.toJson()` and reparses the result, and `ShotImporter` reads back
-shots from a backup export, so both use `ShotRecord.fromRecordedJson`. With the
-strict parser there, an imported step-less shot read back fine but could not be
-annotated or re-imported. `ShotRecord.fromJson` stays strict for everything
-else.
+`existingShot.toJson()` and reparses the result; `ShotImporter`
+(`lib/src/util/shot_importer.dart`) reads shots from a standalone backup file;
+and `ShotExportSection.importJson` (`lib/src/services/webserver/data_export/shot_export_section.dart`)
+is the restore side of the app's own `/backup` archive endpoint. All three use
+`ShotRecord.fromRecordedJson`. With the strict parser there, an imported
+step-less shot read back fine but could not be annotated, re-imported, or
+restored from a `/backup` archive. `ShotRecord.fromJson` stays strict for
+everything else.
 
 `ShotMapper.fromRows` now skips and logs a row it cannot map, so any future
 corruption costs its own shot instead of the whole list. Single-shot reads
 (`getShot`, `getLatestShot`) still surface the error, because there the failing
 row is the answer.
+
+`ShotExportSection.exportJson` (wired from `pageShotsForExport` in
+`lib/main.dart`) pages through `ShotDao.getShotsForExport` and treats a page
+shorter than the requested page size as end-of-stream. Because
+`ShotMapper.fromRows` drops unmappable rows, a raw page that happened to
+contain one would come back short even with more rows waiting, truncating the
+backup. `pageShotsForExport` re-queries past a dropped row, using the raw
+row's cursor (not the last successfully mapped shot's) to advance, until it
+either fills the requested page or the table is genuinely exhausted.
 
 ### Legacy Profile Corpus Ingestion
 

@@ -59,7 +59,9 @@ class ShotExportSection implements DataExportSection {
 
     await for (final event in input.valuesAtDepth(1)) {
       try {
-        final record = ShotRecord.fromJson(event.value as Map<String, dynamic>);
+        final record = ShotRecord.fromRecordedJson(
+          event.value as Map<String, dynamic>,
+        );
         final existing = await _controller.storageService.getShot(record.id);
 
         if (existing != null) {

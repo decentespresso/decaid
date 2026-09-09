@@ -44,6 +44,7 @@ import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/services/android_updater.dart';
 import 'package:reaprime/src/services/wifi/wifi_scale_discovery_service.dart';
 import 'package:reaprime/src/services/database/database.dart' hide Workflow;
+import 'package:reaprime/src/models/data/shot_record.dart' as domain;
 import 'package:reaprime/src/services/database/mappers/shot_mapper.dart';
 import 'package:reaprime/src/services/database/mappers/steam_mapper.dart';
 import 'package:reaprime/src/services/database/mappers/bean_mapper.dart';
@@ -149,6 +150,34 @@ Set<SimulatedDevicesTypes> _parseSimulateFlag(String value) {
       .map((e) => SimulatedDevicesTypesFromString.fromString(e))
       .whereType<SimulatedDevicesTypes>()
       .toSet();
+}
+
+/// Pages shots for backup export, skipping unreadable rows without letting
+/// them shrink the page below [limit] while more rows remain -- otherwise the
+/// exporter's `page.length < pageSize` end-of-stream check would truncate a
+/// backup at the first unreadable row (gh#784).
+Future<List<domain.ShotRecord>> pageShotsForExport(
+  AppDatabase appDatabase,
+  int limit, {
+  DateTime? afterTimestamp,
+  DateTime? afterCreatedAt,
+  String? afterId,
+}) async {
+  final result = <domain.ShotRecord>[];
+  DateTime? cursorTimestamp = afterTimestamp;
+  String? cursorId = afterId;
+  while (result.length < limit) {
+    final rows = await appDatabase.shotDao.getShotsForExport(
+      limit: limit - result.length,
+      cursorTimestamp: cursorTimestamp,
+      cursorId: cursorId,
+    );
+    if (rows.isEmpty) break;
+    cursorTimestamp = rows.last.timestamp;
+    cursorId = rows.last.id;
+    result.addAll(ShotMapper.fromRows(rows));
+  }
+  return result;
 }
 
 Future<void> _printStoragePaths() async {
@@ -554,14 +583,14 @@ void main(List<String> args) async {
       grinderStorage: grinderStorage,
       connectionManager: connectionManager,
       backupSources: BackupDataSources(
-        pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) async {
-          final rows = await appDatabase.shotDao.getShotsForExport(
-            limit: limit,
-            cursorTimestamp: afterTimestamp,
-            cursorId: afterId,
-          );
-          return ShotMapper.fromRows(rows);
-        },
+        pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) =>
+            pageShotsForExport(
+              appDatabase,
+              limit,
+              afterTimestamp: afterTimestamp,
+              afterCreatedAt: afterCreatedAt,
+              afterId: afterId,
+            ),
         pageSteams: (limit, {afterTimestamp, afterCreatedAt, afterId}) async {
           final rows = await appDatabase.steamDao.getSteamsForExport(
             limit: limit,

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/main.dart' as app;
 import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
 import 'package:reaprime/src/models/data/profile.dart';
@@ -11,8 +12,11 @@ import 'package:reaprime/src/services/database/database.dart';
 import 'package:reaprime/src/services/database/mappers/shot_mapper.dart';
 import 'package:reaprime/src/services/storage/drift_bean_storage.dart';
 import 'package:reaprime/src/services/storage/drift_storage_service.dart';
+import 'package:reaprime/src/services/webserver/data_export/shot_export_section.dart';
 import 'package:reaprime/src/services/webserver/shots_handler.dart';
 import 'package:shelf_plus/shelf_plus.dart';
+
+import '../data_export/streaming_test_helpers.dart';
 
 void main() {
   late AppDatabase db;
@@ -218,6 +222,63 @@ void main() {
         throwsA(isA<Object>()),
       );
     });
+  });
+
+  group('backup export (gh#784)', () {
+    test(
+      'an unreadable row does not truncate the rest of a paged backup',
+      () async {
+        await insertShot(
+          'shot-good-1',
+          WorkflowController().currentWorkflow,
+          timestamp: DateTime.utc(2026, 9, 1),
+        );
+        await insertShot(
+          'shot-good-2',
+          WorkflowController().currentWorkflow,
+          timestamp: DateTime.utc(2026, 9, 2),
+        );
+        await db
+            .into(db.shotRecords)
+            .insert(
+              ShotRecordsCompanion.insert(
+                id: 'shot-corrupt',
+                timestamp: DateTime.utc(2026, 9, 3),
+                workflowJson: const <String, dynamic>{
+                  'name': 'no profile at all',
+                },
+                measurementsJson: jsonEncode(const []),
+              ),
+            );
+        await insertShot(
+          'shot-good-3',
+          WorkflowController().currentWorkflow,
+          timestamp: DateTime.utc(2026, 9, 4),
+        );
+
+        final section = ShotExportSection(
+          controller: persistence,
+          pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) =>
+              app.pageShotsForExport(
+                db,
+                limit,
+                afterTimestamp: afterTimestamp,
+                afterCreatedAt: afterCreatedAt,
+                afterId: afterId,
+              ),
+          pageSize: 2,
+        );
+        final sink = CapturingJsonSink();
+        await section.exportJson(sink);
+
+        final decoded = jsonDecode(sink.json) as List;
+        expect(decoded.map((s) => s['id']), [
+          'shot-good-3',
+          'shot-good-2',
+          'shot-good-1',
+        ]);
+      },
+    );
   });
 
   group('the profile library stays strict', () {

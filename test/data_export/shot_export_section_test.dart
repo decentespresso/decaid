@@ -497,6 +497,54 @@ void main() {
       expect(storage.shots, isEmpty);
     });
 
+    test(
+      'imports a recorded shot with a step-less imported profile (gh#784)',
+      () async {
+        final storage = _TestShotStorage();
+        final section = ShotExportSection(
+          controller: PersistenceController(storageService: storage.service),
+          pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) async =>
+              [],
+        );
+
+        final stepLessWorkflow = Workflow(
+          id: 'workflow-1',
+          name: 'Test Workflow',
+          description: '',
+          profile: Profile(
+            version: '2',
+            title: 'de1app profile',
+            author: '',
+            notes: '',
+            beverageType: BeverageType.espresso,
+            steps: const [],
+            tankTemperature: 0,
+            targetVolumeCountStart: 0,
+          ),
+          steamSettings: SteamSettings.defaults(),
+          hotWaterData: HotWaterData.defaults(),
+          rinseData: RinseData.defaults(),
+        ).toJson();
+
+        final result = await importSectionJson(
+          section,
+          jsonEncode([
+            {
+              'id': 'de1app-1626149813',
+              'timestamp': '2021-07-13T00:00:00Z',
+              'measurements': <Object?>[],
+              'workflow': stepLessWorkflow,
+            },
+          ]),
+          ConflictStrategy.skip,
+        );
+
+        expect(result.errors, isEmpty);
+        expect(result.imported, 1);
+        expect(storage.shots['de1app-1626149813'], isNotNull);
+      },
+    );
+
     test('rejects a non-array payload without importing', () async {
       final storage = _TestShotStorage();
       final section = ShotExportSection(
