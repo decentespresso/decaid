@@ -8,9 +8,10 @@ import 'package:universal_ble/universal_ble.dart';
 import 'fake_ble_transport.dart';
 
 class PluginBleFixtureTransport extends FakeBleTransport {
-  PluginBleFixtureTransport(this.physicalId);
+  PluginBleFixtureTransport(this.physicalId, {this.services = const ['180f']});
 
   final String physicalId;
+  final List<String> services;
   final states = BehaviorSubject.seeded(ConnectionState.discovered);
   final operations = <String>[];
   Completer<void>? teardown;
@@ -33,7 +34,7 @@ class PluginBleFixtureTransport extends FakeBleTransport {
   }
 
   @override
-  Future<List<String>> discoverServices() async => ['180f'];
+  Future<List<String>> discoverServices() async => services;
 
   @override
   Future<void> subscribe(

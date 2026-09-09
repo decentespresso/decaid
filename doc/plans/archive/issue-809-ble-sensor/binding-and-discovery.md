@@ -1,6 +1,7 @@
 # BLE binding and Sensor checkpoint
 
-Status: draft checkpoint. Follows merged PR #813; does not complete #809.
+Status: review-ready BLE binding and Sensor checkpoint (#820). Follows merged
+PR #813; does not complete #809.
 Baseline: 4939dbb799c60ddf47a7db0a0388859201af572e (origin/main).
 Branch: odev/issue-809-ble-sensor-checkpoint.
 Contract: #809 and the assignment amendments A-D, reviewed 2026-09-08.
@@ -47,9 +48,14 @@ replacement, missing-attribute errors, cancellation, and no acknowledged-write
 downgrade. Existing Scale and non-BLE Sensor tests remain part of the full suite.
 
 Broad timing/interleaving fuzzing, exhaustive reload-during-selection coverage,
-and physical BLE acceptance remain merge-readiness work. The PR records the final
+and physical BLE acceptance remain broader #809 acceptance work, not claims of
+this checkpoint. The PR records the final
 format, analysis, full-test, native-build, and runtime-smoke evidence.
 
 Bookoo protocol/hardware, Scale measurement timing acceptance, optional automatic
 Scale operations and sleep policy remain subsequent #809 checkpoints, not claims
-of this draft. Existing Scale and non-BLE Sensor compatibility must remain green.
+of #820. Its merge boundary is host-owned BLE arbitration/lifecycle and Sensor
+integration through existing controllers and APIs, verified with a fake BLE edge.
+Contract tests preserve an occupied native owner until normal teardown and keep
+loaded declarations without runtime bindings native-eligible.
+Existing Scale and non-BLE Sensor compatibility must remain green.

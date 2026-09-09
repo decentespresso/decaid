@@ -35,7 +35,10 @@ class _Fixture {
             required requestLargeMtuNonAndroid,
             required lifecycleGate,
           }) {
-            final transport = PluginBleFixtureTransport(device.deviceId);
+            final transport = PluginBleFixtureTransport(
+              device.deviceId,
+              services: const ['180f', '0ffe'],
+            );
             transports.add(transport);
             return transport;
           },
@@ -205,6 +208,80 @@ void main() {
       await fixture.manager.unloadPlugin('ble.sensor');
       expect((await fallback).implementation, DeviceImplementation.bookooScale);
       expect(fixture.devices.every((list) => list.length <= 1), isTrue);
+    },
+  );
+
+  test(
+    'connected native owner survives driver binding until normal teardown',
+    () async {
+      final fixture = _Fixture();
+      addTearDown(fixture.dispose);
+      await fixture.start();
+      final candidate = fixture.next;
+      fixture.advertise();
+      final native = await candidate;
+      await native.onConnect();
+      expect(
+        await native.connectionState.first,
+        domain.ConnectionState.connected,
+      );
+      expect(fixture.manager.bleService.registry.isClaimed('AA:BB'), isTrue);
+      final transport = fixture.transports.single;
+
+      await fixture.load();
+      fixture.advertise();
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      expect(fixture.devices.last.single, same(native));
+      expect(
+        await native.connectionState.first,
+        domain.ConnectionState.connected,
+      );
+      expect(fixture.manager.bleService.bindingCount, 0);
+      expect(fixture.transports, [same(transport)]);
+      expect(transport.connectCalls, 1);
+      expect(transport.disconnectCalls, 0);
+      expect(transport.disposeCalls, 0);
+
+      await native.disconnect();
+      expect(fixture.manager.bleService.registry.isClaimed('AA:BB'), isFalse);
+      final replacement = fixture.next;
+      fixture.advertise();
+      final plugin = await replacement;
+      expect(plugin.implementation, DeviceImplementation.plugin);
+      await plugin.onConnect();
+      expect(fixture.transports, hasLength(2));
+      expect(fixture.transports.last.connectCalls, 1);
+      expect(transport.disconnectCalls, 1);
+      await plugin.disconnect();
+    },
+  );
+
+  test(
+    'loaded declaration without runtime binding retains native selection',
+    () async {
+      final fixture = _Fixture();
+      addTearDown(fixture.dispose);
+      await fixture.start();
+      await fixture.manager.loadPlugin(
+        id: 'ble.sensor',
+        manifest: bleSensorManifest(),
+        settings: {},
+        jsCode: "function createPlugin(host) { return {id: 'ble.sensor'}; }",
+      );
+      expect(fixture.manager.loadedPlugins, hasLength(1));
+      expect(fixture.manager.bleService.registry.hasDrivers, isFalse);
+      final candidate = fixture.next;
+      fixture.advertise();
+      final native = await candidate;
+      expect(native.implementation, DeviceImplementation.bookooScale);
+      await native.onConnect();
+      expect(
+        await native.connectionState.first,
+        domain.ConnectionState.connected,
+      );
+      expect(fixture.manager.bleService.bindingCount, 0);
+      expect(fixture.transports.single.connectCalls, 1);
+      await native.disconnect();
     },
   );
 
