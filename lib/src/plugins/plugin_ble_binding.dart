@@ -166,9 +166,19 @@ class PluginBleBinding {
     return session.call(authority, operation, args);
   }
 
-  void publish(Map<String, dynamic> snapshot, String? domainSession) {
+  void publish(
+    Map<String, dynamic> snapshot,
+    String? domainSession, {
+    String? sample,
+  }) {
     _checkPublication(domainSession);
-    device.publish(snapshot, session: domainSession);
+    final timestamp = sample == null ? null : _session!.consumeSample(sample);
+    final target = device;
+    if (target is PluginScale) {
+      target.publish(snapshot, session: domainSession, timestamp: timestamp);
+    } else {
+      target.publish(snapshot, session: domainSession);
+    }
   }
 
   void reportDisconnected(String? domainSession) {

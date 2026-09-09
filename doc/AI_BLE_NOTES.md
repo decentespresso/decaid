@@ -445,6 +445,12 @@ cancellation or fencing.
 
 ## Plugin BLE Binding (#809 Checkpoint)
 
+Notification provenance is captured before JS dispatch. An optional opaque token
+round-trips through the callback and publication; host validation supplies the
+Scale timestamp. Four-event/100 ms trace tests reproduced collapsed timestamps
+without it. Keep the two-second expiry aligned with shot freshness, retain bounded
+session ownership, and measure arrival delay separately from timestamp quality.
+
 `PluginBleBinding` reserves the physical ID before transport creation and owns a
 fresh `PluginBleSession` per connect. Factory metadata has no mutable publication
 target: all publication and GATT closures capture a session capability. Do not

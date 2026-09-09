@@ -1292,7 +1292,8 @@ class PluginManager {
           _replyDevice(requestId, bridgeToken, result: {'value': value});
         case 'blePublish':
           final snapshot = data['snapshot'];
-          if (snapshot is! Map) {
+          final sample = data['sample'];
+          if (snapshot is! Map || (sample != null && sample is! String)) {
             throw const PluginBleException(
               'invalid_argument',
               'Invalid BLE snapshot',
@@ -1304,6 +1305,7 @@ class PluginManager {
             registrationHandle,
             Map<String, dynamic>.from(snapshot),
             data['session'] as String?,
+            sample: sample as String?,
           );
           _replyDevice(requestId, bridgeToken, result: const {});
         case 'bleDisconnected':

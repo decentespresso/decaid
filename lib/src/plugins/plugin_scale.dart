@@ -16,6 +16,7 @@ class PluginScale extends PluginProtocolDevice
   final List<ScaleSnapshot> _handoff = [];
   Completer<void> _firstWeight = Completer<void>();
   bool _active = false;
+  DateTime? _lastTimestamp;
 
   PluginScale({
     required super.deviceId,
@@ -39,6 +40,7 @@ class PluginScale extends PluginProtocolDevice
     _firstWeight = Completer<void>();
     _handoff.clear();
     _active = false;
+    _lastTimestamp = null;
   }
 
   @override
@@ -54,7 +56,11 @@ class PluginScale extends PluginProtocolDevice
   }
 
   @override
-  void publish(Map<String, dynamic> snapshot, {String? session}) {
+  void publish(
+    Map<String, dynamic> snapshot, {
+    String? session,
+    DateTime? timestamp,
+  }) {
     checkSession(session);
     final weight = snapshot['weight'];
     final battery = snapshot['battery'];
@@ -94,8 +100,16 @@ class PluginScale extends PluginProtocolDevice
         code: 'resource_limit',
       );
     }
+    final acceptedAt = timestamp ?? clock.now();
+    if (_lastTimestamp != null && acceptedAt.isBefore(_lastTimestamp!)) {
+      throw const PluginDeviceException(
+        'Scale sample precedes the last publication',
+        code: 'stale_sample',
+      );
+    }
+    _lastTimestamp = acceptedAt;
     final sample = ScaleSnapshot(
-      timestamp: clock.now(),
+      timestamp: acceptedAt,
       weight: weight.toDouble(),
       batteryLevel: battery as int?,
       flow: (flow as num?)?.toDouble(),

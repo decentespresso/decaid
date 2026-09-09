@@ -9,6 +9,7 @@ import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:uuid/uuid.dart';
 
 import 'plugin_ble_matcher.dart';
+import 'plugin_sample_provenance.dart';
 
 enum PluginBleSessionState {
   connecting,
@@ -53,6 +54,9 @@ class PluginBleSession {
   final Map<(String, String), _BleSubscription> _subscriptions = {};
   final Set<Completer<Object?>> _pending = {};
   final Queue<(Map<String, dynamic>, int)> _notifications = Queue();
+  late final PluginSampleProvenance _samples = PluginSampleProvenance(
+    onClockRollback: revoke,
+  );
   final Completer<void> _closed = Completer<void>();
   final Completer<void> _cleanupInterrupted = Completer<void>();
   StreamSubscription<ConnectionState>? _connectionSubscription;
@@ -81,6 +85,13 @@ class PluginBleSession {
   int get subscriptionCount => _subscriptions.length;
   int get pendingOperationCount => _pending.length;
   int get queuedEventCount => _notifications.length;
+  DateTime consumeSample(String token) {
+    if (!acceptsPublications) {
+      throw const PluginBleException('stale_session', 'BLE session retired');
+    }
+    return _samples.consume(token);
+  }
+
   bool get acceptsPublications =>
       authorized() &&
       runtimeAlive() &&
@@ -350,6 +361,11 @@ class PluginBleSession {
   }
 
   void _enqueue(_BleSubscription subscription, Uint8List bytes) {
+    final sample = _samples.capture();
+    if (!acceptsPublications) {
+      _samples.clear();
+      return;
+    }
     if (_notifications.length >= maxQueuedEvents ||
         _queuedBytes + bytes.length > maxQueuedBytes) {
       _log.warning(
@@ -365,6 +381,7 @@ class PluginBleSession {
         'subscription': subscription.id,
         if (subscription.listener != null) 'listener': subscription.listener,
         'data': base64Encode(bytes),
+        'sample': sample,
       },
       bytes.length,
     ));
@@ -406,6 +423,7 @@ class PluginBleSession {
         _state == PluginBleSessionState.initializing ||
         _state == PluginBleSessionState.ready;
     _state = PluginBleSessionState.retiring;
+    _samples.clear();
     _notifications.clear();
     _queuedBytes = 0;
     _rejectPending();

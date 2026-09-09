@@ -193,8 +193,13 @@ class PluginBleService {
     int generation,
     String handle,
     Map<String, dynamic> snapshot,
-    String? session,
-  ) => _binding(pluginId, generation, handle).publish(snapshot, session);
+    String? session, {
+    String? sample,
+  }) => _binding(
+    pluginId,
+    generation,
+    handle,
+  ).publish(snapshot, session, sample: sample);
 
   void reportDisconnected(
     String pluginId,

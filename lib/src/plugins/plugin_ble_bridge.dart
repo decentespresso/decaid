@@ -19,11 +19,19 @@ const __bindBleDriver = (driverId, factory) => {
     const handle = payload.registrationHandle;
     const sessions = new Map();
     const cleanups = new Set();
+    const recoverableSampleErrors = new WeakMap();
     const stale = () => Object.assign(new Error('BLE session retired'), {code: 'stale_session'});
     const context = (payload, cleanup) => {
       const authority = payload.gattSession;
       const callbacks = new Map();
-      const record = { callbacks, disconnected: false, delivered: false, onDisconnect: null };
+      const record = {
+        callbacks,
+        disconnected: false,
+        delivered: false,
+        onDisconnect: null,
+        callbackEpoch: 0,
+        activeCallbackEpoch: 0
+      };
       if (!cleanup) sessions.set(authority, record);
       else cleanups.add(record);
       const call = (operation, args = {}) => record.disconnected
@@ -67,8 +75,18 @@ const __bindBleDriver = (driverId, factory) => {
       if (cleanup) return Object.freeze({gatt});
       return Object.freeze({
         gatt,
-        publish: snapshot => record.disconnected ? Promise.reject(stale()) : __deviceCall('blePublish', {
-          registrationHandle: handle, session: payload.session, snapshot
+        publish: (snapshot, sample) => record.disconnected ? Promise.reject(stale()) : __deviceCall('blePublish', {
+          registrationHandle: handle, session: payload.session, snapshot, sample
+        }).catch(error => {
+          if (sample != null && error && error.code === 'stale_sample' &&
+              (typeof error === 'object' || typeof error === 'function') &&
+              record.activeCallbackEpoch !== 0) {
+            recoverableSampleErrors.set(error, {
+              record,
+              epoch: record.activeCallbackEpoch
+            });
+          }
+          throw error;
         }),
         reportDisconnected: () => record.disconnected ? Promise.reject(stale()) : __deviceCall('bleDisconnected', {
           registrationHandle: handle, session: payload.session
@@ -93,7 +111,23 @@ const __bindBleDriver = (driverId, factory) => {
         return;
       }
       const callback = record.callbacks.get(event.listener);
-      if (callback && !record.disconnected) await callback(event.data);
+      if (callback && !record.disconnected) {
+        const epoch = ++record.callbackEpoch;
+        record.activeCallbackEpoch = epoch;
+        try {
+          await callback(event.data, event.sample);
+        } catch (error) {
+          const provenance = error &&
+            (typeof error === 'object' || typeof error === 'function')
+              ? recoverableSampleErrors.get(error) : null;
+          if (!provenance || provenance.record !== record || provenance.epoch !== epoch) {
+            throw error;
+          }
+          recoverableSampleErrors.delete(error);
+        } finally {
+          if (record.activeCallbackEpoch === epoch) record.activeCallbackEpoch = 0;
+        }
+      }
     };
     __deviceSetHandlers(handle, {
       pluginId, generation: pluginGeneration, bridgeToken: pluginBridgeToken,

@@ -1,6 +1,30 @@
 
 # Decaid Plugin Development Guide
 
+## BLE Scale Sample Time
+
+BLE notification callbacks receive `(base64Data, sample)`. The optional opaque
+`sample` token identifies a host-timestamped notification. After decoding, use
+`await session.publish({weight: grams}, sample)` to retain its ingress time even
+when JavaScript dispatch/publication is delayed. No timestamp supplied by JS is
+trusted. Existing one-argument callbacks/publications remain compatible.
+
+Tokens are binding/session-owned, single-use, ordered, and expire after two
+seconds (the existing shot freshness window). At most 256 tokens are retained;
+the oldest token is discarded when that bound is reached, without dropping the
+notification itself. A foreign, duplicate, out-of-order, evicted, or expired token
+returns `stale_sample`. That rejection remains visible to plugin code, but if it
+escapes a notification callback the host drops that sample and continues the
+subscription. Other callback failures remain fatal. Retirement invalidates all
+tokens. A backward clock change retires the BLE session rather than leaving
+publication blocked behind its previous timestamp. Reconnect establishes a fresh
+timestamp sequence and follows normal Scale recovery policy.
+
+Omitting the token retains publication-ingress time for non-BLE or synthetic
+measurements. Do not use that fallback to disguise delayed notification samples.
+Accurate sample timestamps do not reduce delivery latency or recover stop commands
+missed while JavaScript was stalled.
+
 Plugin Scale commands report stable error codes through the existing Scale REST
 routes, including `unsupported_operation` for undeclared tare or timer support.
 Automatic shot timer failures are logged without aborting the shot. A Scale with
