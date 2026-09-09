@@ -58,6 +58,7 @@ All three steps are required, not optional.
 - Never import 3rd-party BLE libraries (e.g. `universal_ble`) outside `lib/src/services/ble/`.
 - All BLE operations use 128-bit UUID format.
 - Scale write paths must catch `DeviceNotConnectedException` at the lowest-level write helper.
+- Every persisted Drift schema change must include a migration test from the previous production schema/version using a real SQLite database or fixture; fresh-database tests alone are not sufficient. When the migration transforms or backfills data, assert representative data preservation/transformation too.
 - Keep Flutter build and run flows non-interactive. Prefer `--dart-define=simulate=1` for smoke tests.
 - Use prefixed imports for domain models that share names with Drift-generated code: `import '...shot_record.dart' as domain;` or `hide Workflow` on the database import.
 - No emojis in comments or documentation.
