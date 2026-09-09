@@ -1,5 +1,10 @@
 # API Reference
 
+Scale REST command failures preserve the existing HTTP 500 response and `error`
+message. Plugin Scale failures additionally include `code`; unsupported optional
+operations use `unsupported_operation`. Native timer no-op behavior is unchanged.
+The four tare/timer 500 responses share the OpenAPI `ScaleCommandError` schema.
+
 Decaid exposes REST and WebSocket APIs on port 8080. Full OpenAPI specs are in [`assets/api/rest_v1.yml`](../assets/api/rest_v1.yml) and [`assets/api/websocket_v1.yml`](../assets/api/websocket_v1.yml). Interactive docs are available at port 4001 when the app is running.
 
 For skin development, see [`doc/Skins.md`](Skins.md). For plugin development, see [`doc/Plugins.md`](Plugins.md).

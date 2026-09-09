@@ -1647,6 +1647,14 @@ identically.
 
 ## Plugin BLE Ownership
 
+Plugin Scales with `disconnectToSleep` mark deliberate sleep before disconnecting
+in display-off power mode. Host Scale recovery pauses until an awake machine
+snapshot, just as radio-disconnect power management waits for wake. Protocol
+failure outside deliberate sleep still follows normal recovery policy.
+Intermediate `disconnecting` cleanup preserves the previous connected state for
+terminal disconnect classification; an expected sleep consumes its expectation
+without starting recovery.
+
 The existing BLE discovery service arbitrates plugin ownership before native
 matching, including nameless advertisements, system results, background watch,
 and remembered native quick-connect. Initial scanning waits for plugin loading

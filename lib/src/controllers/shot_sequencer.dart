@@ -386,7 +386,9 @@ class ShotSequencer {
             scaleController.tare().catchError(
               (e) => _log.warning("Failed to tare scale at shot start", e),
             );
-            scaleController.connectedScale().resetTimer();
+            scaleController.connectedScale().resetTimer().catchError(
+              (e) => _log.warning('Failed to reset scale timer', e),
+            );
           }
           _state = ShotState.preheating;
           _stateStream.add(_state);
@@ -414,7 +416,9 @@ class ShotSequencer {
             scaleController.tare().catchError(
               (e) => _log.warning("Failed to tare scale for pour", e),
             );
-            scaleController.connectedScale().startTimer();
+            scaleController.connectedScale().startTimer().catchError(
+              (e) => _log.warning('Failed to start scale timer', e),
+            );
             _scaleTared = true;
           }
 
@@ -504,7 +508,9 @@ class ShotSequencer {
       case ShotState.stopping:
         _volumeCountingActive = false;
         if (_bypassSAW == false && scale != null && !_scaleLost) {
-          scaleController.connectedScale().stopTimer();
+          scaleController.connectedScale().stopTimer().catchError(
+            (e) => _log.warning('Failed to stop scale timer', e),
+          );
         }
 
         _refineStoppingYield(scale);

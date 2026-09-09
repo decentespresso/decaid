@@ -29,6 +29,7 @@ class DisconnectSupervisor {
   De1Interface? _latestDe1;
   device.ConnectionState _latestScaleState = device.ConnectionState.discovered;
   String? _lastKnownMachineId;
+  bool _scaleHadConnection = false;
 
   Completer<void>? _machineSeenCompleter;
   String? _awaitedMachineId;
@@ -119,11 +120,15 @@ class DisconnectSupervisor {
       final wasConnected =
           _latestScaleState == device.ConnectionState.connected;
       _latestScaleState = state;
+      final hadConnection = _scaleHadConnection;
+      if (state != device.ConnectionState.disconnecting) {
+        _scaleHadConnection = state == device.ConnectionState.connected;
+      }
       _log.fine('scale connection update: ${state.name}');
       if (!wasConnected && state == device.ConnectionState.connected) {
         _onScaleConnected?.call();
       }
-      if (wasConnected &&
+      if (hadConnection &&
           state == device.ConnectionState.disconnected &&
           !_isConnectingScale()) {
         final id = _scaleLastConnectedId() ?? _preferredScaleId();

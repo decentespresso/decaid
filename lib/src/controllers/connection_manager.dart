@@ -151,9 +151,17 @@ class ConnectionManager {
 
   bool get _machineConnected => _disconnectSupervisor.isMachineConnected;
   bool get _scaleConnected => _disconnectSupervisor.isScaleConnected;
+  bool _scaleSleepRequested = false;
   bool get _scaleReconnectBlockedByPowerMode =>
-      settingsController.scalePowerMode == ScalePowerMode.disconnect &&
-      _latestMachineState == MachineState.sleeping;
+      _scaleSleepRequested ||
+      (settingsController.scalePowerMode == ScalePowerMode.disconnect &&
+          _latestMachineState == MachineState.sleeping);
+
+  void markScaleSleeping(String deviceId) {
+    _scaleSleepRequested = true;
+    markExpectingDisconnect(deviceId);
+    _pauseScaleReconnectForPowerMode();
+  }
 
   late final DisconnectSupervisor _disconnectSupervisor;
   late final ScanOrchestrator _scanOrchestrator;
@@ -1478,6 +1486,7 @@ class ConnectionManager {
         final state = snapshot.state.state;
         if (_latestMachineState == state) return;
         _latestMachineState = state;
+        if (state != MachineState.sleeping) _scaleSleepRequested = false;
         if (_scaleReconnectBlockedByPowerMode) {
           _log.fine(
             'Machine is sleeping and scale power mode is disconnect; '

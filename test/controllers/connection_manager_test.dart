@@ -2224,6 +2224,9 @@ void main() {
 
           mockScanner.scanCompleter = Completer<void>();
           mockScaleController.mockEmitConnectionState(
+            ConnectionState.disconnecting,
+          );
+          mockScaleController.mockEmitConnectionState(
             ConnectionState.disconnected,
           );
           await mockScanner.scanningStream.firstWhere((s) => s);
@@ -2239,55 +2242,69 @@ void main() {
         },
       );
 
-      test(
-        'scale power disconnect pauses while sleeping and resumes when awake',
-        () async {
-          await settingsController.setPreferredScaleId('pref-scale');
-          await settingsController.setScalePowerMode(ScalePowerMode.disconnect);
-          connectionManager.scaleReconnectBaseDelay = Duration.zero;
+      for (final powerMode in [
+        ScalePowerMode.disconnect,
+        ScalePowerMode.displayOff,
+      ]) {
+        test(
+          'scale sleep pauses recovery and resumes when awake with $powerMode',
+          () async {
+            await settingsController.setPreferredScaleId('pref-scale');
+            await settingsController.setScalePowerMode(powerMode);
+            connectionManager.scaleReconnectBaseDelay = Duration.zero;
 
-          final fakeDe1 = _FakeDe1(deviceId: 'connected-de1');
-          mockScaleController.mockEmitConnectionState(
-            ConnectionState.connected,
-          );
-          mockScaleController.debugSetLastConnectedId('pref-scale');
-          mockDe1Controller.de1Subject.add(fakeDe1);
-          await Future<void>.delayed(Duration.zero);
-          fakeDe1.emitState(MachineState.idle);
-          await Future<void>.delayed(Duration.zero);
+            final fakeDe1 = _FakeDe1(deviceId: 'connected-de1');
+            mockScaleController.mockEmitConnectionState(
+              ConnectionState.connected,
+            );
+            mockScaleController.debugSetLastConnectedId('pref-scale');
+            mockDe1Controller.de1Subject.add(fakeDe1);
+            await Future<void>.delayed(Duration.zero);
+            fakeDe1.emitState(MachineState.idle);
+            await Future<void>.delayed(Duration.zero);
 
-          final scanningEvents = <bool>[];
-          final sub = mockScanner.scanningStream.listen(scanningEvents.add);
+            final scanningEvents = <bool>[];
+            final sub = mockScanner.scanningStream.listen(scanningEvents.add);
 
-          fakeDe1.emitState(MachineState.sleeping);
-          connectionManager.markExpectingDisconnect('pref-scale');
-          mockScaleController.mockEmitConnectionState(
-            ConnectionState.disconnected,
-          );
-          await Future<void>.delayed(Duration.zero);
-          await Future<void>.delayed(Duration.zero);
+            fakeDe1.emitState(MachineState.sleeping);
+            if (powerMode == ScalePowerMode.displayOff) {
+              connectionManager.markScaleSleeping('pref-scale');
+            }
+            connectionManager.markExpectingDisconnect('pref-scale');
+            mockScaleController.mockEmitConnectionState(
+              ConnectionState.disconnecting,
+            );
+            mockScaleController.mockEmitConnectionState(
+              ConnectionState.disconnected,
+            );
+            await Future<void>.delayed(Duration.zero);
+            await Future<void>.delayed(Duration.zero);
 
-          expect(
-            scanningEvents,
-            isNot(contains(true)),
-            reason: 'sleeping + ScalePowerMode.disconnect must not scan',
-          );
+            expect(
+              scanningEvents,
+              isNot(contains(true)),
+              reason: 'sleeping + ScalePowerMode.disconnect must not scan',
+            );
 
-          mockScanner.scanCompleter = Completer<void>();
-          fakeDe1.emitState(MachineState.idle);
-          await mockScanner.scanningStream.firstWhere((s) => s);
+            mockScanner.scanCompleter = Completer<void>();
+            fakeDe1.emitState(MachineState.idle);
+            await mockScanner.scanningStream.firstWhere((s) => s);
 
-          mockScanner.addDevice(TestScale(deviceId: 'pref-scale'));
-          await Future<void>.delayed(Duration.zero);
-          await Future<void>.delayed(Duration.zero);
-          mockScanner.completeScan();
-          await Future<void>.delayed(Duration.zero);
+            mockScanner.addDevice(TestScale(deviceId: 'pref-scale'));
+            await Future<void>.delayed(Duration.zero);
+            await Future<void>.delayed(Duration.zero);
+            mockScanner.completeScan();
+            await Future<void>.delayed(Duration.zero);
 
-          expect(mockScaleController.connectCalls, hasLength(1));
-          expect(mockScaleController.connectCalls.first.deviceId, 'pref-scale');
-          await sub.cancel();
-        },
-      );
+            expect(mockScaleController.connectCalls, hasLength(1));
+            expect(
+              mockScaleController.connectCalls.first.deviceId,
+              'pref-scale',
+            );
+            await sub.cancel();
+          },
+        );
+      }
 
       test(
         'sleeping during an active scale scan stops it and blocks reconnect',

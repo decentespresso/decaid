@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:async';
+import 'package:reaprime/src/models/device/scale.dart';
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
@@ -586,6 +587,10 @@ class De1StateManager with WidgetsBindingObserver {
         final scale = _scaleController.connectedScale();
 
         if (scalePowerMode == ScalePowerMode.displayOff) {
+          if (scale is DisconnectToSleepScale &&
+              (scale as DisconnectToSleepScale).disconnectsToSleep) {
+            _connectionManager.markScaleSleeping(scale.deviceId);
+          }
           scale.sleepDisplay().catchError((e) {
             _logger.warning('Failed to sleep scale display: $e');
           });

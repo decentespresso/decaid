@@ -59,6 +59,22 @@ class _TestDe1Controller extends De1Controller {
   }
 }
 
+class _FailingTimerScale extends TestScale {
+  final calls = <String>[];
+
+  Future<void> fail(String operation) async {
+    calls.add(operation);
+    throw StateError('unsupported_operation');
+  }
+
+  @override
+  Future<void> startTimer() => fail('start');
+  @override
+  Future<void> stopTimer() => fail('stop');
+  @override
+  Future<void> resetTimer() => fail('reset');
+}
+
 class _TestScaleController extends ScaleController {
   final TestScale testScale;
   final BehaviorSubject<ConnectionState> _connectionState;
@@ -789,6 +805,41 @@ void main() {
         );
 
         shotSequencer.dispose();
+      });
+    });
+
+    test('automatic timer failures do not escape shot sequencing', () {
+      fakeAsync((async) {
+        final optionalScale = _FailingTimerScale();
+        scaleController.dispose();
+        scaleController = _TestScaleController(optionalScale);
+        scaleController.emitWeight(0);
+        final sequencer = ShotSequencer(
+          scaleController: scaleController,
+          de1controller: de1Controller,
+          persistenceController: persistenceController,
+          targetProfile: profile,
+          targetYield: 36,
+          bypassSAW: false,
+          blockOnNoScale: false,
+          weightFlowMultiplier: 0,
+          volumeFlowMultiplier: 0,
+          stepExitArbiterEnabled: true,
+        );
+        async.elapse(const Duration(milliseconds: 10));
+        driveToPouring(sequencer);
+        async.elapse(const Duration(milliseconds: 10));
+        for (var i = 0; i < 2; i++) {
+          scaleController.emitWeight(i + 1.0);
+          testDe1.emitStateAndSubstate(
+            MachineState.espresso,
+            MachineSubstate.pouringDone,
+          );
+          async.elapse(const Duration(milliseconds: 100));
+        }
+        expect(optionalScale.calls, containsAll(['reset', 'start', 'stop']));
+        sequencer.dispose();
+        optionalScale.dispose();
       });
     });
 

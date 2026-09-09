@@ -1054,6 +1054,7 @@ paths:
     put:
       summary: Tare Scale
       description: |
+        Unsupported plugin Scale tare returns 500 with `code: unsupported_operation`.
         Tares the connected scale. If `blockTareDuringShot` is enabled and an
         app-tracked espresso shot is actively brewing (not idle/finished), the
         request is rejected with `400` rather than tared — see
@@ -1086,39 +1087,63 @@ paths:
                     type: string
         "404":
           description: Scale not found
+        "500":
+          description: Scale command failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScaleCommandError"
 
   /api/v1/scale/timer/start:
     put:
       summary: Start Scale Timer
-      description: Starts the timer on the connected scale. No-op if the scale doesn't support hardware timers.
+      description: >
+        Starts the timer on the connected scale. Native scales without timers retain their no-op behavior.
+        Unsupported plugin Scale timers return 500 with `code: unsupported_operation`.
       tags: [Scale]
       responses:
         "200":
           description: Timer started
         "500":
           description: No scale connected or error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScaleCommandError"
 
   /api/v1/scale/timer/stop:
     put:
       summary: Stop Scale Timer
-      description: Stops the timer on the connected scale. No-op if the scale doesn't support hardware timers.
+      description: >
+        Stops the timer on the connected scale. Native scales without timers retain their no-op behavior.
+        Unsupported plugin Scale timers return 500 with `code: unsupported_operation`.
       tags: [Scale]
       responses:
         "200":
           description: Timer stopped
         "500":
           description: No scale connected or error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScaleCommandError"
 
   /api/v1/scale/timer/reset:
     put:
       summary: Reset Scale Timer
-      description: Resets the timer on the connected scale. No-op if the scale doesn't support hardware timers.
+      description: >
+        Resets the timer on the connected scale. Native scales without timers retain their no-op behavior.
+        Unsupported plugin Scale timers return 500 with `code: unsupported_operation`.
       tags: [Scale]
       responses:
         "200":
           description: Timer reset
         "500":
           description: No scale connected or error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScaleCommandError"
 
   # Sensors API handling
   /api/v1/sensors:
@@ -5427,6 +5452,15 @@ paths:
 
 components:
   schemas:
+    ScaleCommandError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+          description: Optional plugin error code, including unsupported_operation.
     BleDiagnosticsSnapshot:
       type: object
       required: [timestamp, ble, connection]

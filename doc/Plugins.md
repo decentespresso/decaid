@@ -1,6 +1,12 @@
 
 # Decaid Plugin Development Guide
 
+Plugin Scale commands report stable error codes through the existing Scale REST
+routes, including `unsupported_operation` for undeclared tare or timer support.
+Automatic shot timer failures are logged without aborting the shot. A Scale with
+`disconnectToSleep` uses host deliberate-sleep policy: display-off disconnects it
+without recovery until the machine wakes. No plugin reconnect loop is needed.
+
 ## Overview
 
 > **Note on naming:** Plugin JS APIs use `Rea`-prefixed names (`fetchReaSettings`, `updateReaSetting`, `convertReaToVisualizerFormat`) for backwards compatibility with existing plugins. These were not renamed during the app rename from ReaPrime to Decaid.

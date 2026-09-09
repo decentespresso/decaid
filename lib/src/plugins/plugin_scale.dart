@@ -9,7 +9,7 @@ import 'plugin_manifest.dart';
 import 'plugin_protocol_device.dart';
 
 class PluginScale extends PluginProtocolDevice
-    implements Scale, ScaleSnapshotHandoff {
+    implements Scale, ScaleSnapshotHandoff, DisconnectToSleepScale {
   final Set<PluginScaleCapability> capabilities;
   final StreamController<ScaleSnapshot> _snapshots =
       StreamController.broadcast();
@@ -29,6 +29,9 @@ class PluginScale extends PluginProtocolDevice
 
   @override
   DeviceType get type => DeviceType.scale;
+  @override
+  bool get disconnectsToSleep =>
+      capabilities.contains(PluginScaleCapability.disconnectToSleep);
   @override
   Stream<ScaleSnapshot> get currentSnapshot => _snapshots.stream;
   @override
@@ -109,16 +112,18 @@ class PluginScale extends PluginProtocolDevice
   Future<void> _optional(
     PluginScaleCapability capability,
     PluginDeviceOperation operation,
-  ) {
+  ) async {
     if (!capabilities.contains(capability)) {
-      return Future.error(
-        PluginDeviceException(
-          '${operation.name} is unsupported',
-          code: 'unsupported_operation',
-        ),
+      throw ScaleOperationException(
+        '${operation.name} is unsupported',
+        code: 'unsupported_operation',
       );
     }
-    return command(operation);
+    try {
+      await command(operation);
+    } on PluginDeviceException catch (error) {
+      throw ScaleOperationException(error.message, code: error.code);
+    }
   }
 
   @override
@@ -140,8 +145,7 @@ class PluginScale extends PluginProtocolDevice
     PluginDeviceOperation.resetTimer,
   );
   @override
-  Future<void> sleepDisplay() =>
-      capabilities.contains(PluginScaleCapability.disconnectToSleep)
+  Future<void> sleepDisplay() => disconnectsToSleep
       ? disconnect()
       : _optional(
           PluginScaleCapability.displayControl,

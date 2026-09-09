@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
+import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/plugins/plugin_device_service.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'package:reaprime/src/plugins/plugin_scale.dart';
@@ -105,7 +106,16 @@ void main() {
       expect(weights, [-1.25]);
       expect(controller.currentWeightSnapshot!.battery, isNull);
       await scale.disconnect();
-      await expectLater(scale.tare(), throwsA(isA<PluginDeviceException>()));
+      await expectLater(
+        scale.tare(),
+        throwsA(
+          isA<ScaleOperationException>().having(
+            (e) => e.code,
+            'code',
+            'unsupported_operation',
+          ),
+        ),
+      );
       expect(
         () => scale.publish({'weight': 2}, session: firstSession),
         throwsA(isA<PluginDeviceException>()),
@@ -140,7 +150,7 @@ void main() {
       await expectLater(
         scale.startTimer(),
         throwsA(
-          isA<PluginDeviceException>().having(
+          isA<ScaleOperationException>().having(
             (e) => e.code,
             'code',
             'unsupported_operation',
@@ -159,6 +169,35 @@ void main() {
       await scale.dispose();
     },
   );
+
+  test('plugin command failures become Scale operation errors', () async {
+    late PluginScale scale;
+    scale = PluginScale(
+      deviceId: 'scale',
+      name: 'Scale',
+      capabilities: {PluginScaleCapability.tare},
+      invoke: (operation, payload) async {
+        if (operation == PluginDeviceOperation.connect) {
+          scale.publish({'weight': 1}, session: payload['session'] as String);
+        }
+        if (operation == PluginDeviceOperation.tare) {
+          throw const PluginDeviceException('busy', code: 'device_busy');
+        }
+        return {};
+      },
+    );
+    await scale.onConnect();
+    await expectLater(
+      scale.tare(),
+      throwsA(
+        isA<ScaleOperationException>()
+            .having((e) => e.code, 'code', 'device_busy')
+            .having((e) => e.message, 'message', 'busy'),
+      ),
+    );
+    await scale.disconnect();
+    await scale.dispose();
+  });
 
   test(
     'invalid weights and undeclared telemetry cannot satisfy readiness',

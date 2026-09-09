@@ -13,7 +13,11 @@ import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/services/storage/storage_service.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
+import 'package:reaprime/src/settings/scale_power_mode.dart';
 import 'package:rxdart/rxdart.dart';
+import 'package:reaprime/src/plugins/plugin_scale.dart';
+import 'package:reaprime/src/plugins/plugin_manifest.dart';
+import 'package:reaprime/src/plugins/plugin_device_contract.dart';
 
 import '../helpers/mock_device_discovery_service.dart';
 import '../helpers/mock_device_scanner.dart';
@@ -114,6 +118,42 @@ void main() {
     testDe1.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
     await pump(6);
   }
+
+  test('plugin display-off disconnect sleeps until machine wake', () async {
+    mockScanner.supportsWatch = true;
+    await settingsController.setPreferredScaleId('plugin-scale');
+    await settingsController.setScalePowerMode(ScalePowerMode.displayOff);
+    final operations = <PluginDeviceOperation>[];
+    late PluginScale scale;
+    scale = PluginScale(
+      deviceId: 'plugin-scale',
+      name: 'Scale',
+      capabilities: {PluginScaleCapability.disconnectToSleep},
+      invoke: (operation, payload) async {
+        operations.add(operation);
+        if (operation == PluginDeviceOperation.connect) {
+          scale.publish({'weight': 1}, session: payload['session'] as String);
+        }
+        return {};
+      },
+    );
+    addTearDown(scale.dispose);
+    await scaleController.connectToScale(scale);
+    de1Controller.connect(testDe1);
+    await pump();
+    testDe1.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
+    await pump();
+    testDe1.emitStateAndSubstate(MachineState.sleeping, MachineSubstate.idle);
+    await pump(6);
+    expect(operations, contains(PluginDeviceOperation.disconnect));
+    expect(mockScanner.scanCallCount, 0);
+    final watchStarts = mockScanner.startWatchCallCount;
+    await pump(6);
+    expect(mockScanner.startWatchCallCount, watchStarts);
+    testDe1.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
+    await pump(6);
+    expect(mockScanner.startWatchCallCount, greaterThan(watchStarts));
+  });
 
   test('wake with watch support and a preferred scale skips the '
       'scale-only burst scan', () async {

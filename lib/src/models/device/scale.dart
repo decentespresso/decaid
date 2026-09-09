@@ -14,12 +14,26 @@ abstract class Scale extends Device {
   Future<void> resetTimer() async {}
 }
 
+class ScaleOperationException implements Exception {
+  final String message;
+  final String code;
+
+  const ScaleOperationException(this.message, {required this.code});
+
+  @override
+  String toString() => message;
+}
+
 abstract interface class TransportHandoffScale {
   Future<void> disconnectForHandoff();
 }
 
 abstract interface class ScaleSnapshotHandoff {
   void activateSnapshots();
+}
+
+abstract interface class DisconnectToSleepScale {
+  bool get disconnectsToSleep;
 }
 
 class ScaleSnapshot {

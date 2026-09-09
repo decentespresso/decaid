@@ -40,7 +40,10 @@ class ScaleHandler {
             await _controller.tare();
           } catch (e) {
             _log.warning('tare command failed', e);
-            return jsonError({'error': e.toString()});
+            return jsonError({
+              'error': e.toString(),
+              if (e is ScaleOperationException) 'code': e.code,
+            });
           }
           return jsonOk(null);
         default:
@@ -68,7 +71,10 @@ class ScaleHandler {
         }
       } catch (e) {
         _log.warning('timer $command command failed', e);
-        return jsonError({'error': e.toString()});
+        return jsonError({
+          'error': e.toString(),
+          if (e is ScaleOperationException) 'code': e.code,
+        });
       }
     });
     app.get('/ws/v1/scale/snapshot', admittedWebSocketHandler(_handleSnapshot));
