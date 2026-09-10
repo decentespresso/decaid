@@ -271,6 +271,27 @@ flutter test test/unit/services/webserver/port_binding_test.dart
 flutter test test/unit/services/webserver/api_docs_server_port_test.dart
 flutter test test/unit/ui/webserver_port_conflict_app_test.dart
 ```
+## Profile Step Limiters
+
+A step limiter is `{value, range}`. `value` is required and refused by name when
+absent: defaulting it would turn a garbage limiter into a silent OFF on the
+machine, which is a wrong shot rather than a visible error.
+
+`range` is the falloff band below the cap and is optional on upload. Omitted or
+an explicit `null` both mean a hard cap at `value`, because range 0 is the DE1
+wire's own encoding of "no band" and is what the mock's hard-clamp branch already
+implements. Real libraries carry steps whose limiter has no range, and a client
+arming one sends `{"value": x}` with no range at all. A response never carries a
+null range, because an omitted one is stored as 0.
+
+`rest_v1.yml` marks `range` `nullable: true`. In OpenAPI 3.0.3 dropping a
+property from `required` permits omission only; without `nullable` the published
+contract would still refuse the explicit null the parser accepts.
+
+`POST /api/v1/profiles` used to answer such a body with a 500 while
+`PUT /api/v1/profiles/{id}` answered 400: a limiter carrying only a `value` threw
+a `TypeError`, and only the update path caught it. Both now catch it and answer
+400.
 
 ## Keeping Notes Fresh
 
