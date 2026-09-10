@@ -82,7 +82,21 @@ endpoints 404 only on non-Bengle machines.
   0x555043 in APIView.cpp — keep in sync) so an "LEDs off" strip never
   blanks a lit switch.
 - The live FrontLEDColor/RearLEDColor registers are persisted snapshots
-  overwritten on every state change; not a configuration surface.
+  overwritten on every state change; not a configuration surface. They are the
+  PREVIEW surface instead: `previewLedStrip` writes only these, so a colour is
+  shown without being decided, and `applyLEDsForGivenState` recomputes them from
+  the stored pair at the next sleep/wake transition. This is the only way to show
+  an asleep colour to someone editing it on an awake machine, because a stored
+  colour is applied only when the machine is already in that state.
+- Neither path writes a colour the machine already has. `setLedStrip` compares
+  each zone against the held palette, quantized the same way, and writes only what
+  moved: every one of the four stored registers reaches flash, so four writes per
+  save was four flash writes whatever changed. `previewLedStrip` remembers what
+  each live register was last sent and drops a repeated frame, because a colour
+  picker sends a frame per render and a resting finger otherwise keeps the write
+  path busy. `setLedStrip` clears that memory: a stored write makes the firmware
+  re-apply the pair for the current state, so the live registers have moved and
+  what they show is no longer the app's to remember.
 - The firmware stores 8 bits per RGB channel, so the app quantizes
   (`& 0xFF00`) before writing and publishes exactly the quantized
   representation that was written.
