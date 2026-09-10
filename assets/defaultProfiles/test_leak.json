@@ -1,0 +1,51 @@
+{
+  "version": "2",
+  "title": "Test/for a small leak",
+  "author": "Decent",
+  "notes": "Put a blind (no hole) portafilter basket into your portafilter, and then run this profile to see if there are any water leaks in your machine.  Once pressure is reached, water will be turned off and pressure held.  A small mount of pressure loss is normal, because of leaking around the pump's valve.  After two minutes of no flow, your pressure should be above 8 bar.",
+  "beverage_type": "calibrate",
+  "steps": [
+    {
+      "name": "preinfusion",
+      "pump": "pressure",
+      "transition": "smooth",
+      "temperature": "0.0",
+      "sensor": "coffee",
+      "seconds": "10.0",
+      "volume": "500.0",
+      "weight": "0.0",
+      "pressure": "10.0",
+      "flow": "8.0"
+    },
+    {
+      "name": "rise and hold",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "0.0",
+      "sensor": "coffee",
+      "seconds": "5.0",
+      "volume": "500.0",
+      "weight": "0.0",
+      "pressure": "10.0",
+      "flow": "0.0"
+    },
+    {
+      "name": "hold at no flow",
+      "pump": "flow",
+      "transition": "fast",
+      "temperature": "0.0",
+      "sensor": "coffee",
+      "seconds": "120.0",
+      "volume": "500.0",
+      "weight": "0.0",
+      "flow": "0.0",
+      "pressure": "10.0"
+    }
+  ],
+  "tank_temperature": "0.0",
+  "target_weight": "0.0",
+  "target_volume": "0.0",
+  "target_volume_count_start": "1",
+  "type": "advanced",
+  "hidden": "0"
+}
