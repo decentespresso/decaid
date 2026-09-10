@@ -45,10 +45,7 @@ void main() {
       await controller.connectToScale(scale);
       expect(await scale.connectionState.first, ConnectionState.connected);
       expect(transport.disconnectCalls, 0);
-      expect(
-        transport.subscribers.keys.single,
-        bookooDataCharacteristicUuid,
-      );
+      expect(transport.subscribers.keys.single, bookooDataCharacteristicUuid);
       await scale.disconnect();
       expect(manager.activeTimerCount, 0);
     },
@@ -149,10 +146,7 @@ void main() {
         await Future<void>.delayed(Duration.zero);
         final transport = transports.last;
         await transport.subscribed.future;
-        expect(
-          transport.subscribers.keys.single,
-          bookooDataCharacteristicUuid,
-        );
+        expect(transport.subscribers.keys.single, bookooDataCharacteristicUuid);
         for (final invalid in invalidBookooPackets()) {
           transport.emit(invalid);
         }
@@ -270,8 +264,11 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       expect(samples.map((sample) => sample.weight), [2]);
 
+      final weightThree = newScale.currentSnapshot.firstWhere(
+        (sample) => sample.weight == 3,
+      );
       newTransport.emit(bookooPacket(3));
-      await Future<void>.delayed(Duration.zero);
+      await weightThree.timeout(const Duration(seconds: 1));
       expect(samples.map((sample) => sample.weight), [2, 3]);
       await newScale.disconnect();
     },

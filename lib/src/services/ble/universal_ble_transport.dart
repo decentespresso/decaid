@@ -169,13 +169,32 @@ class UniversalBleTransport extends BLETransport {
           if (update.isConnected) {
             _connectionStateSubject.add(device.ConnectionState.connected);
           } else {
-            if (_maintenanceGeneration == generation) return;
-            _recoveringQueueGeneration = null;
-            final reason = update.error ?? 'unknown';
-            _log.warning('Transport disconnected: $reason');
-            _publishDisconnected();
+            final maintenance = _maintenanceGeneration == generation;
+            if (maintenance) return;
+            unawaited(_confirmDisconnect(generation, update.error));
           }
         });
+  }
+
+  Future<void> _confirmDisconnect(int generation, String? error) async {
+    BleConnectionState state;
+    try {
+      state = await UniversalBle.getConnectionState(
+        _device.deviceId,
+        timeout: _linkProbeTimeout,
+      );
+    } catch (_) {
+      state = BleConnectionState.disconnected;
+    }
+    if (_connectionGeneration != generation || _disposed) return;
+    if (state == BleConnectionState.connected ||
+        state == BleConnectionState.connecting) {
+      return;
+    }
+    if (_maintenanceGeneration == generation) return;
+    _recoveringQueueGeneration = null;
+    _log.warning('Transport disconnected: ${error ?? 'unknown'}');
+    _publishDisconnected();
   }
 
   Future<void> _doConnectBlueZ([int? maintenanceGeneration]) async {

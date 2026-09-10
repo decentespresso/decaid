@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:reaprime/src/models/device/device.dart' as device;
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'package:reaprime/src/plugins/plugin_manager.dart';
 
@@ -50,6 +51,7 @@ class FelicitaPluginTransport extends PluginBleFixtureTransport {
     this.subscriptionDelay = Duration.zero,
     this.subscriptionFailure,
     this.writeFailure,
+    this.connectFailure,
   });
 
   final List<int>? firstPacket;
@@ -57,7 +59,18 @@ class FelicitaPluginTransport extends PluginBleFixtureTransport {
   final Duration subscriptionDelay;
   final Object? subscriptionFailure;
   final Object? writeFailure;
+  final Object? connectFailure;
   final subscribed = Completer<void>();
+
+  @override
+  Future<void> connect() async {
+    connectCalls++;
+    if (connectFailure != null) {
+      states.add(device.ConnectionState.disconnected);
+      throw connectFailure!;
+    }
+    states.add(device.ConnectionState.connected);
+  }
 
   @override
   Future<List<String>> discoverServices() async =>

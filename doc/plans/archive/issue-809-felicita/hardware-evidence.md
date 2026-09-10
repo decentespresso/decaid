@@ -26,9 +26,19 @@ Hardware verification of fix (same running app, no restart): connect HTTP 200, d
 
 Local suite after fix: full `test/plugins/` 340 passed, 1 failed. The one failure is pre-existing (also fails on the pre-change baseline): `test/plugins/bookoo_plugin_test.dart` "Bookoo reload preserves identity and fences the retired generation" expects samples `[2,3]`, gets `[2.0]`.
 
-### Second, separate host bug (pre-existing, not fixed here)
+### Second, separate host bug (historical checkpoint; since resolved)
 
-Post-reconnect live notifications are lost: only the subscribe-time first packet publishes; later notifications from the replacement session never reach the domain device. Reproduced independently on the unchanged same-binding reconnect path (`same-binding reconnect still publishes live samples` probe: attempt 0 already drops the post-reconnect emit) and matches the failing Bookoo reload test above. First-session live notifications work (continuous hardware samples). Implication for PR #823: reconnect/readiness state tests pass while live notification flow after reconnect is broken.
+At this checkpoint, post-reconnect live notifications were lost: only the subscribe-time first packet published; later notifications from the replacement session never reached the domain device. This matched the failing Bookoo reload test above. The follow-up reconnect work fixed this host issue and added deterministic live-notification coverage.
+
+### Follow-up hardware verification — 2026-09-10
+
+- Ran Decaid on the same Android tablet in real mode with persisted simulations disabled.
+- The first Felicita connect returned Android GATT status 133. Scale Debug showed a retryable connection error; no `stale_session` exception escaped.
+- Retry succeeded without rescanning. Android completed service discovery and enabled FFE1 notifications.
+- The run exposed a separate Scale Debug omission: direct plugin-scale debugging did not activate `ScaleSnapshotHandoff`, so delivered samples eventually failed with `Scale handoff buffer full`. Scale Debug now activates the handoff after `onConnect()` succeeds, matching `ScaleController` ordering.
+- After hot restart, Felicita connected on the first attempt. Weight continued updating, and tare plus timer start, stop and reset all worked.
+- Explicit Disconnect returned immediately. Android logged `GATT_Disconnect`, a status-0 connection-state callback, `BluetoothGatt.close()` and `unregisterApp()`; the physical connection indicator turned off about one second later. No teardown timeout or retained-ownership warning occurred.
+- Focused reconnect/debug tests: 45 passed. `flutter analyze`: no issues. Serialized full suite: 4051 passed, one skipped. `git diff --check`: clean.
 
 ### Open caveats
 

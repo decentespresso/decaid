@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/scale.dart';
+import 'package:reaprime/src/models/device/transport/ble_connect_exception.dart';
 import 'package:reaprime/src/plugins/plugin_ble_registry.dart';
 import 'package:reaprime/src/plugins/plugin_manager.dart';
 
@@ -74,7 +75,7 @@ void main() {
   });
 
   test(
-    'stale callbacks from the retired binding cannot publish or reconnect',
+    'failed transport connect preserves its native error and releases ownership',
     () async {
       final manager = PluginManager(kvStore: FakeKeyValueStoreService());
       addTearDown(manager.dispose);
@@ -95,6 +96,9 @@ void main() {
                   final transport = FelicitaPluginTransport(
                     'AA:BB',
                     firstPacket: felicitaPacket(1),
+                    connectFailure: transports.isEmpty
+                        ? BleConnectException(code: '133')
+                        : null,
                   );
                   transports.add(transport);
                   return transport;
@@ -103,12 +107,76 @@ void main() {
               as Scale;
 
       final first = await createCandidate();
+      await expectLater(
+        first.onConnect(),
+        throwsA(
+          isA<BleConnectException>().having(
+            (error) => error.code,
+            'code',
+            '133',
+          ),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(manager.bleService.registry.activeBindingCount, 0);
+
       await first.onConnect();
+      expect(first.connectionState, emits(ConnectionState.connected));
+      expect(transports, hasLength(2));
+      await first.disconnect();
+
+      final second = await createCandidate();
+      expect(identical(second, first), isFalse);
+      await second.onConnect();
+      expect(second.connectionState, emits(ConnectionState.connected));
+      expect(transports, hasLength(3));
+      await second.disconnect();
+    },
+  );
+
+  test(
+    'stale callbacks from the retired binding cannot publish or reconnect',
+    () async {
+      final manager = PluginManager(kvStore: FakeKeyValueStoreService());
+      addTearDown(manager.dispose);
+      await loadFelicitaPlugin(manager);
+      final evidence = BleAdvertisementEvidence(name: 'Felicita Arc');
+      final transports = <FelicitaPluginTransport>[];
+
+      Future<Scale> createCandidate() async =>
+          await manager.bleService.createCandidate(
+                driver: manager.bleService.registry
+                    .decide(evidence)
+                    .drivers
+                    .single,
+                physicalId: 'AA:BB',
+                evidence: evidence,
+                admit: () => true,
+                createTransport: () {
+                  final transport = FelicitaPluginTransport(
+                    'AA:BB',
+                    firstPacket: felicitaPacket(transports.isEmpty ? 1 : 2),
+                  );
+                  transports.add(transport);
+                  return transport;
+                },
+              )
+              as Scale;
+
+      final first = await createCandidate();
+      final firstSamples = <ScaleSnapshot>[];
+      final firstSubscription = first.currentSnapshot.listen(firstSamples.add);
+      addTearDown(firstSubscription.cancel);
+      await first.onConnect();
+      (first as ScaleSnapshotHandoff).activateSnapshots();
+      await Future<void>.delayed(Duration.zero);
+      expect(firstSamples.map((sample) => sample.weight), [1]);
       final stale = transports[0].subscribers[felicitaCharacteristicUuid]!;
       await first.disconnect();
 
       final second = await createCandidate();
       expect(identical(second, first), isFalse);
+      expect(second.deviceId, first.deviceId);
       final samples = <ScaleSnapshot>[];
       final subscription = second.currentSnapshot.listen(samples.add);
       addTearDown(subscription.cancel);
@@ -117,12 +185,19 @@ void main() {
       (second as ScaleSnapshotHandoff).activateSnapshots();
       await secondConnect;
       await Future<void>.delayed(Duration.zero);
-      expect(samples.map((sample) => sample.weight), [1]);
+      expect(samples.map((sample) => sample.weight), [2]);
+      final weightFour = second.currentSnapshot.firstWhere(
+        (sample) => sample.weight == 4,
+      );
+      transports[1].emit(felicitaPacket(3));
+      transports[1].emit(felicitaPacket(4));
+      await weightFour.timeout(const Duration(seconds: 1));
+      expect(samples.map((sample) => sample.weight), [2, 3, 4]);
 
       // The retired transport callback cannot publish into the new session.
       stale(Uint8List.fromList(felicitaPacket(99)));
       await Future<void>.delayed(Duration.zero);
-      expect(samples.map((sample) => sample.weight), [1]);
+      expect(samples.map((sample) => sample.weight), [2, 3, 4]);
 
       // The retired device object cannot command the replacement session.
       await expectLater(

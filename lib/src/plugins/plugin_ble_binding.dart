@@ -140,9 +140,9 @@ class PluginBleBinding {
       rethrow;
     }
     _session = session;
-    _domainSession = payload['session'] as String;
     unawaited(session.closed.then((_) => registry.release(claim)));
     await session.connect();
+    _domainSession = payload['session'] as String;
     try {
       return await invokeHandler(operation, {
         ...payload,

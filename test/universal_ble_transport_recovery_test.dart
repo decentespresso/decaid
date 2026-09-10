@@ -90,9 +90,7 @@ class _FakeBlePlatform extends UniversalBlePlatform {
     if (disconnectRequested?.isCompleted == false) {
       disconnectRequested!.complete();
     }
-    if (updateConnectionStateOnLifecycle) {
-      connectionStateResult = BleConnectionState.disconnected;
-    }
+    connectionStateResult = BleConnectionState.disconnected;
     if (emitDisconnectEvent) updateConnection(deviceId, false);
   }
 
@@ -636,6 +634,7 @@ void main() {
     });
 
     test('advert while transport already disconnected is ignored', () async {
+      platform.connectionStateResult = BleConnectionState.disconnected;
       platform.updateConnection(deviceId, false);
       await pump(10);
       expect(observedStates, contains(device.ConnectionState.disconnected));
@@ -708,6 +707,36 @@ void main() {
   });
 
   group('re-subscribe push channel (universal_ble broadcast controller)', () {
+    test(
+      'stale disconnect update is ignored while native link is connected',
+      () async {
+        final received = <int>[];
+        await transport.subscribe(_serviceUuid, _charUuid, (value) {
+          received.add(value.first);
+        });
+        platform.connectionStateResult = BleConnectionState.connected;
+        platform.updateConnection(deviceId, false);
+        await pump();
+        expect(
+          observedStates,
+          isNot(contains(device.ConnectionState.disconnected)),
+        );
+        platform.updateCharacteristicValue(
+          deviceId,
+          _charUuid,
+          Uint8List.fromList([2]),
+          null,
+        );
+        platform.updateCharacteristicValue(
+          deviceId,
+          _charUuid,
+          Uint8List.fromList([3]),
+          null,
+        );
+        await pump();
+        expect(received, [2, 3]);
+      },
+    );
     test(
       'plugin replacement resets CCCD and fences old logical unsubscribe',
       () async {
@@ -1030,6 +1059,7 @@ void main() {
         ),
       );
 
+      await pump(10);
       expect(
         states.where((state) => state == device.ConnectionState.disconnected),
         hasLength(1),

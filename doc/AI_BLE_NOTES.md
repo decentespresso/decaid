@@ -461,6 +461,12 @@ fresh `PluginBleSession` per connect. Factory metadata has no mutable publicatio
 target: all publication and GATT closures capture a session capability. Do not
 move those closures onto a persistent factory object when adding Scale protocols.
 
+Expose the domain session only after `PluginBleSession.connect()` succeeds. Android
+GATT-133 can emit a disconnect event before the native connect Future reports its
+error; exposing the domain session earlier lets terminal cleanup cancel the domain
+connect and masks the actionable BLE error as `stale_session`. The Scale debug view
+owns connect failures and lets the user retry the same binding without rescanning.
+
 Retirement and native teardown are different boundaries. The session fences normal
 operations immediately, permits only bounded cleanup reads/writes, then awaits
 `disconnectConfirmed`. If confirmation times out, retain the physical claim. A

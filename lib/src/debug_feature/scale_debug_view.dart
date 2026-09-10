@@ -13,11 +13,24 @@ class ScaleDebugView extends StatefulWidget {
 
 class _ScaleDebugViewState extends State<ScaleDebugView> {
   var _lastDate = DateTime.now();
+  Object? _connectError;
 
   @override
   void initState() {
     super.initState();
-    widget.scale.onConnect();
+    _connect();
+  }
+
+  Future<void> _connect() async {
+    if (mounted) setState(() => _connectError = null);
+    try {
+      await widget.scale.onConnect();
+      if (widget.scale case final ScaleSnapshotHandoff handoff) {
+        handoff.activateSnapshots();
+      }
+    } catch (error) {
+      if (mounted) setState(() => _connectError = error);
+    }
   }
 
   @override
@@ -43,35 +56,48 @@ class _ScaleDebugViewState extends State<ScaleDebugView> {
           ),
         ],
       ),
-      body: StreamBuilder<ScaleSnapshot>(
-        stream: widget.scale.currentSnapshot,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.active) {
-            final diff =
-                snapshot.data?.timestamp.difference(_lastDate) ?? Duration.zero;
-            _lastDate = snapshot.data?.timestamp ?? DateTime.now();
-            return _buildActiveView(theme, snapshot.data!, diff);
-          } else if (snapshot.connectionState == ConnectionState.waiting) {
-            return Center(
-              child: Row(
+      body: _connectError == null
+          ? StreamBuilder<ScaleSnapshot>(
+              stream: widget.scale.currentSnapshot,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.active) {
+                  final diff =
+                      snapshot.data?.timestamp.difference(_lastDate) ??
+                      Duration.zero;
+                  _lastDate = snapshot.data?.timestamp ?? DateTime.now();
+                  return _buildActiveView(theme, snapshot.data!, diff);
+                } else if (snapshot.connectionState ==
+                    ConnectionState.waiting) {
+                  return Center(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                        const SizedBox(width: 8),
+                        Text('Connecting…', style: theme.textTheme.muted),
+                      ],
+                    ),
+                  );
+                }
+                return Center(
+                  child: Text('Waiting for data', style: theme.textTheme.muted),
+                );
+              },
+            )
+          : Center(
+              child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                  const SizedBox(width: 8),
-                  Text('Connecting…', style: theme.textTheme.muted),
+                  const Text('Unable to connect to scale'),
+                  const SizedBox(height: 12),
+                  ShadButton(onPressed: _connect, child: const Text('Retry')),
                 ],
               ),
-            );
-          }
-          return Center(
-            child: Text('Waiting for data', style: theme.textTheme.muted),
-          );
-        },
-      ),
+            ),
     );
   }
 

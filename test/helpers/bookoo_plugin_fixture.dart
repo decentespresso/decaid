@@ -11,8 +11,7 @@ import 'plugin_ble_fixture.dart';
 const bookooPluginPath = 'examples/plugins/bookoo-mini.reaplugin';
 const bookooServiceUuid = '00000ffe-0000-1000-8000-00805f9b34fb';
 const bookooDataCharacteristicUuid = '0000ff11-0000-1000-8000-00805f9b34fb';
-const bookooCommandCharacteristicUuid =
-    '0000ff12-0000-1000-8000-00805f9b34fb';
+const bookooCommandCharacteristicUuid = '0000ff12-0000-1000-8000-00805f9b34fb';
 
 PluginManifest bookooManifest() => PluginManifest.fromJson(
   jsonDecode(File('$bookooPluginPath/manifest.json').readAsStringSync()),
