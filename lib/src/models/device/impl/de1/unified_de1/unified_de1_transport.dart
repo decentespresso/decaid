@@ -14,6 +14,8 @@ import 'package:reaprime/src/models/device/transport/logical_endpoint.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/models/device/transport/serial_port.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/serial_response_correlator.dart';
+import 'package:reaprime/src/models/device/impl/de1/unified_de1/bengle_est_sample.dart'
+    show bengleEstSampleBytes;
 import 'package:rxdart/rxdart.dart';
 
 const _defaultShotSettingsFrame = <int>[
@@ -62,8 +64,22 @@ class UnifiedDe1Transport {
   Stream<ByteData> get waterLevels => _waterLevelsSubject.asBroadcastStream();
   Stream<ByteData> get mmr => _mmrSubject.asBroadcastStream();
   Stream<ByteData> get fwMapRequest => _fwMapRequestSubject.asBroadcastStream();
+  // Bengle 0xA014 fused puck-estimator sample (16 bytes, +5-byte Rev-2 tail).
+  // Serial/CDC only — fed by the `[T]` dispatch (subscribed via the `<+T>` in
+  // `_serialConnect`), never over BLE. Seeded with a ZERO-LENGTH frame on
+  // purpose: `parseBengleEstSample` drops anything under 16 bytes, so before
+  // any real `[T]` arrives the snapshot merge sees "no estimator data" and
+  // every fused key stays absent. A 16-zero seed would instead decode to fused
+  // fields pinned at 0.0.
+  BehaviorSubject<ByteData> _estimatorSubject = BehaviorSubject.seeded(
+    ByteData(0),
+  );
+
   Stream<ByteData> get bengleShotSample => _bengleShotSampleSubject.stream;
   Stream<ByteData> get calibration => _calibrationSubject.asBroadcastStream();
+
+  // 0xA014 fused puck-estimator frames (serial `[T]` only).
+  Stream<ByteData> get estimator => _estimatorSubject.asBroadcastStream();
 
   String _currentBuffer = "";
 
@@ -177,6 +193,48 @@ class UnifiedDe1Transport {
     );
   }
 
+  /// Subscribe the BengleEstSample stream, when the machine actually offers it.
+  ///
+  /// On BLE this is CONDITIONAL and must stay that way. Firmware predating the
+  /// characteristic's GATT registration does not expose it, and a CCCD write
+  /// against a characteristic the peripheral never registered stalls the
+  /// command queue — so the presence check is a safety gate, not an
+  /// optimisation. A transport that cannot enumerate characteristics returns an
+  /// empty list and we skip, which is the fail-closed outcome.
+  ///
+  /// On serial nothing to do: `_serialConnect` already sends the unconditional
+  /// `<+T>`, where no such stall hazard exists and a machine without the
+  /// observer simply never emits a frame.
+  Future<bool> subscribeEstimator() async {
+    if (transportType != TransportType.ble) return true;
+    final t = _transport;
+    if (t is! BLETransport) return false;
+
+    // Normalise BOTH sides: this is a safety gate, so it must not depend on a
+    // transport honouring a casing convention.
+    final present = (await t.discoverCharacteristics(
+      de1ServiceUUID,
+    )).map((c) => c.toLowerCase()).toSet();
+    final wanted = Endpoint.estimator.uuid.toLowerCase();
+    if (!present.contains(wanted)) {
+      _log.info(
+        'BengleEstSample characteristic not present on this machine; '
+        'skipping the estimator subscribe (firmware predates it, or the '
+        'transport cannot enumerate characteristics)',
+      );
+      return false;
+    }
+
+    await t.subscribe(
+      de1ServiceUUID,
+      Endpoint.estimator.uuid,
+      (data) => _estimatorNotification(
+        ByteData.sublistView(Uint8List.fromList(data)),
+      ),
+    );
+    return true;
+  }
+
   Future<void> subscribeBengleShotSample() async {
     switch (transportType) {
       case TransportType.ble:
@@ -231,6 +289,12 @@ class UnifiedDe1Transport {
     await _transport.writeCommand("<+${Endpoint.readFromMMR.representation}>");
     await _transport.writeCommand("<+${Endpoint.fwMapRequest.representation}>");
     await _transport.writeCommand("<+${Endpoint.calibration.representation}>");
+    // Bengle 0xA014 estimator stream. Serial-only and unconditional: the
+    // serial parser has no missing-characteristic stall hazard, and a plain
+    // DE1 or an older Bengle firmware simply never emits `[T]`. Deliberately
+    // NOT subscribed over BLE. (0xA013 `<+S>` is no longer subscribed here --
+    // upstream moved it into the gated subscribeBengleShotSample path.)
+    await _transport.writeCommand("<+${Endpoint.estimator.representation}>");
 
     await _transport.writeCommand("<B>02");
 
@@ -258,6 +322,7 @@ class UnifiedDe1Transport {
       _bengleShotSampleSubject.close();
     }
     if (!_calibrationSubject.isClosed) _calibrationSubject.close();
+    if (!_estimatorSubject.isClosed) _estimatorSubject.close();
 
     await _transport.dispose();
   }
@@ -300,6 +365,9 @@ class UnifiedDe1Transport {
             '<-${Endpoint.bengleShotSample.representation}>',
           );
         }
+        await _transport.writeCommand(
+          "<-${Endpoint.estimator.representation}>",
+        );
         break;
       case TransportType.ble:
         break;
@@ -333,6 +401,8 @@ class UnifiedDe1Transport {
     _bengleShotSampleSubject = ReplaySubject(maxSize: 1);
     _calibrationSubject = PublishSubject();
     _bengleShotSampleEnabled = false;
+    _estimatorSubject.close();
+    _estimatorSubject = BehaviorSubject.seeded(ByteData(0));
   }
 
   static final _messagePattern = RegExp(r'(\[[A-Z]\][0-9A-Fa-f\s]*?)(?=\[|\n)');
@@ -418,6 +488,8 @@ class UnifiedDe1Transport {
           _calibrationNotification(data);
         case "S":
           _bengleShotSampleNotification(data);
+        case "T":
+          _estimatorNotification(data);
         default:
           if (!_serialResponses.complete(representation, data)) {
             _log.warning("unhandled de1 message: $input");
@@ -467,6 +539,26 @@ class UnifiedDe1Transport {
     }
     _bengleShotSampleSubject.add(data);
   }
+
+  // Route a 0xA014 `[T]` estimator frame to the subject, dropping a truncated
+  // frame (< 16 bytes) so the downstream decoder never hits a RangeError.
+  void _estimatorNotification(ByteData d) {
+    if (d.lengthInBytes < bengleEstSampleBytes) {
+      _log.warning(
+        'Dropping short estimator frame '
+        '(${d.lengthInBytes} < $bengleEstSampleBytes bytes)',
+      );
+      return;
+    }
+    _estimatorSubject.add(d);
+  }
+
+  /// Test seam behind [UnifiedDe1.debugInjectEstimator]: push a raw 0xA014
+  /// frame into the pipeline exactly as the serial `[T]` dispatch would.
+  /// Production only ever feeds this subject over serial; the snapshot-merge
+  /// pipeline test runs a Bengle over BLE (where identity gating is
+  /// straightforward) and injects estimator frames without a live serial link.
+  void debugInjectEstimator(ByteData frame) => _estimatorNotification(frame);
 
   void _stateNotification(ByteData d) {
     if (d.lengthInBytes < _minStateBytes) {
@@ -600,6 +692,8 @@ class UnifiedDe1Transport {
         return _latestSerialFrame(e, _shotSampleSubject, timeout);
       case Endpoint.bengleShotSample:
         return _latestSerialFrame(e, _bengleShotSampleSubject, timeout);
+      case Endpoint.estimator:
+        return _latestSerialFrame(e, _estimatorSubject, timeout);
       case Endpoint.stateInfo:
         return _latestSerialFrame(e, _stateSubject, timeout);
       case Endpoint.calibration:
