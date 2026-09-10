@@ -502,9 +502,11 @@ class MockDe1 implements De1Interface, SimulatedDevice {
   bool _stepExitConditionMet(ProfileStep step) {
     final exit = step.exit;
     if (exit == null || exit.value <= 0) return false;
-    final reading = exit.type == ExitType.flow
-        ? _lastSnapshot.flow
-        : _lastSnapshot.pressure;
+    final reading = switch (exit.type) {
+      ExitType.pressure => _lastSnapshot.pressure,
+      ExitType.flow => _lastSnapshot.flow,
+      ExitType.power => 0.1 * _lastSnapshot.pressure * _lastSnapshot.flow,
+    };
     return exit.condition == ExitCondition.over
         ? reading >= exit.value
         : reading <= exit.value;
