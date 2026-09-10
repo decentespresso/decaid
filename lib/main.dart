@@ -152,10 +152,6 @@ Set<SimulatedDevicesTypes> _parseSimulateFlag(String value) {
       .toSet();
 }
 
-/// Pages shots for backup export, skipping unreadable rows without letting
-/// them shrink the page below [limit] while more rows remain -- otherwise the
-/// exporter's `page.length < pageSize` end-of-stream check would truncate a
-/// backup at the first unreadable row (gh#784).
 Future<List<domain.ShotRecord>> pageShotsForExport(
   AppDatabase appDatabase,
   int limit, {
