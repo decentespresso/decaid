@@ -1698,8 +1698,8 @@ packages:
     dependency: "direct main"
     description:
       path: "."
-      ref: "2.2.6"
-      resolved-ref: "6116abba1d1c00fb66ecce1d14cc5314d7c184f1"
+      ref: "9c50e12fcc33b061fe37e7037c69e44e30d96c79"
+      resolved-ref: "9c50e12fcc33b061fe37e7037c69e44e30d96c79"
       url: "https://github.com/tadelv/universal_ble.git"
     source: git
     version: "2.2.6"

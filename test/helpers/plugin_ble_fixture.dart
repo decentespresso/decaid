@@ -98,6 +98,13 @@ class PluginBleFixturePlatform extends UniversalBlePlatform {
   Object? writeError;
   BleDevice? firstAdvertisement;
 
+  /// Leading connect calls that fail, to exercise transport recovery.
+  int connectFailures = 0;
+  int connectCalls = 0;
+
+  /// Native operations in order, so a test can assert a recovery sequence.
+  final operations = <String>[];
+
   @override
   Future<void> connect(
     String deviceId, {
@@ -105,6 +112,15 @@ class PluginBleFixturePlatform extends UniversalBlePlatform {
     bool autoConnect = false,
     ConnectionPlatformConfig? platformConfig,
   }) async {
+    connectCalls++;
+    operations.add('connect');
+    if (connectFailures > 0) {
+      connectFailures--;
+      throw UniversalBleException(
+        code: UniversalBleErrorCode.failed,
+        message: 'simulated native connect failure',
+      );
+    }
     connectionStates[deviceId] = BleConnectionState.connected;
     updateConnection(deviceId, true);
   }
@@ -119,7 +135,11 @@ class PluginBleFixturePlatform extends UniversalBlePlatform {
   Future<List<BleService>> discoverServices(
     String deviceId,
     bool withDescriptors,
-  ) async => [BleService('0000180f-0000-1000-8000-00805f9b34fb', [])];
+  ) async {
+    operations.add('discoverServices');
+    return [BleService('0000180f-0000-1000-8000-00805f9b34fb', [])];
+  }
+
   @override
   Future<void> setNotifiable(
     String deviceId,
@@ -149,6 +169,10 @@ class PluginBleFixturePlatform extends UniversalBlePlatform {
     return Uint8List.fromList([52]);
   }
 
+  /// Holds native writes open so a test can keep the device queue occupied.
+  bool hangWrites = false;
+  Completer<void>? writeBlocker;
+
   @override
   Future<void> writeValue(
     String deviceId,
@@ -159,6 +183,7 @@ class PluginBleFixturePlatform extends UniversalBlePlatform {
   ) async {
     writeProperties.add(bleOutputProperty);
     if (writeError case final error?) throw error;
+    if (hangWrites) await (writeBlocker ?? Completer<void>()).future;
   }
 
   @override
@@ -170,6 +195,7 @@ class PluginBleFixturePlatform extends UniversalBlePlatform {
     PlatformConfig? platformConfig,
   }) async {
     scanFilters.add(scanFilter);
+    operations.add('startScan');
     scanning = true;
     if (!started.isCompleted) started.complete();
     if (firstAdvertisement case final device?) updateScanResult(device);
@@ -177,6 +203,7 @@ class PluginBleFixturePlatform extends UniversalBlePlatform {
 
   @override
   Future<void> stopScan() async {
+    operations.add('stopScan');
     scanning = false;
   }
 

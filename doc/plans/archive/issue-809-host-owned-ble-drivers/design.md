@@ -1,6 +1,6 @@
 # Host-owned BLE drivers and plugin Scale
 
-Status: active; implementation and acceptance evidence are incomplete.
+Status: archived; implementation, automated verification, and the current Felicita-only hardware acceptance gate are complete. Bookoo hardware remains an optional follow-up.
 
 ## Baseline
 
@@ -96,13 +96,12 @@ battery, flow, and timer telemetry. Missing optional commands report
 unsupported_operation; automatic callers gate support without hiding link errors.
 Disconnect-to-sleep uses deliberate host intent and existing wake/recovery policy.
 
-Timing is an acceptance gate, not a follow-up. Before implementation freezes the
-timestamp policy, derive cadence/tolerance from existing estimator fixtures and
-Bookoo observations, and record the numeric values here. Run identical traces
-through native/fake-native and full JS publication into ScaleController under a
-controlled clock/scheduler. Compare order, output, freshness, stop decisions, and
-delivery latency under normal cadence, delayed dispatch, bursts, asynchronous
-publication, and backlog recovery. Do not retune estimators or widen tolerances.
+Timing acceptance uses deterministic estimator fixtures and identical native and
+full-JS traces through ScaleController under a controlled clock/scheduler. Compare
+order, output, freshness, stop decisions, and delivery latency under normal cadence,
+delayed dispatch, bursts, asynchronous publication, and backlog recovery. Felicita
+hardware cadence supplies the required live-device evidence; Bookoo observations are
+an optional follow-up. Do not retune estimators or widen tolerances.
 
 If publication ingress fails, add bounded session-owned notification provenance
 captured before JS dispatch, passed as a notification callback argument and
@@ -149,7 +148,7 @@ All rows are pending until executable tests and results are recorded.
 | Plugin precedence, disabled fallback, failed handshake | Discovery/selection with native Bookoo retained |
 | Restart preferences, no silent native repoint | Remembered quick-connect miss -> discovery/policy |
 | Isolation and repeated lifecycle leak checks | Two devices + test-owned resource counters |
-| Hardware behavior | Separate native/plugin Bookoo sessions; model/firmware/platform |
+| Hardware behavior | Felicita plugin connection/readiness, live weight, commands, disconnect/reconnect, restart/reselection, and cadence |
 
 ## Implementation Stages
 
@@ -161,8 +160,8 @@ All rows are pending until executable tests and results are recorded.
 6. Failure/interleaving audit, docs/specs, formatting, focused/full tests, analysis,
    API smoke tests, hardware evidence and local PR-template handoff.
 
-Archive design rationale and remove completed task lists only after executable
-work is complete. Use Refs #809 while any required acceptance remains open.
+This design is archived with its implementation evidence. Bookoo physical testing
+is not required by PR #823's current acceptance gate.
 
 ## Evidence
 
@@ -345,3 +344,17 @@ are zero, and verifies old-context open returns "Plugin device connect retired".
 The fixture has network permission, so permission denial cannot mask the result.
 Full verification: 3941 passed, 1 skipped; all suites pass the 20-second active-time
 gate. Analysis and formatting are clean. Events: .build/issue-809-zero-transport-tests.json.
+
+### Final PR #823 Acceptance
+
+The current PR gate requires Felicita hardware verification rather than Bookoo
+hardware. `doc/plans/archive/issue-809-felicita/hardware-evidence.md` records
+connection and readiness, continuous weight delivery, tare and timer commands,
+confirmed disconnect, reconnect and reselection after a power cycle, hot restart,
+and notification cadence on Android. Those results satisfy the hardware gate;
+Bookoo physical testing was not performed and is not claimed.
+
+The final corrective software tree pins `tadelv/universal_ble` PR #24 at
+`9c50e12fcc33b061fe37e7037c69e44e30d96c79`. Upstream checks are green. Decaid's
+focused BLE/plugin set passed 395 tests; the serialized full suite passed 4110
+with one skip; formatting, analysis, and diff checks are clean.

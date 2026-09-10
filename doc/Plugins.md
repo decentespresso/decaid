@@ -793,8 +793,17 @@ existing REST/WebSocket paths. Each connection receives a fresh context:
 - `onDisconnect(callback)` installs one terminal listener for the session.
 
 These GATT methods are on `context.gatt`. UUID input accepts Bluetooth aliases
-but native calls always use 128-bit UUIDs. Resolving `connect` declares protocol
-readiness. `disconnect({gatt})` receives separate, bounded cleanup authority for
+but native calls always use 128-bit UUIDs. The host establishes the physical BLE
+session before `connect` runs. That acquisition and its platform recovery follow
+the transport's own policy and are not bounded by the plugin invocation timeout;
+the `connect` handler, and the readiness that resolves it, still are. Resolving
+`connect` declares protocol
+readiness. The plugin owns that readiness: a plugin that creates a first-packet
+readiness promise must attach its own rejection handler when it creates it,
+because startup can fail before the promise is awaited and a later link loss or
+silence watchdog would otherwise reject an unobserved promise. The Bookoo
+reference plugin shows that pattern. `disconnect({gatt})` receives separate,
+bounded cleanup authority for
 discover/read/write only. Link loss or adapter revocation skips protocol cleanup.
 After retirement, normal GATT calls and publications fail even if a JavaScript
 Promise never settles. Physical ownership remains reserved until native teardown
@@ -809,10 +818,11 @@ retain the 64 KiB JSON limit. Bridge failures carry `code`, including
 `link_lost`, and `timeout`; other native BLE codes are preserved.
 
 BLE Scale bindings reuse the Scale adapter and declared capability checks. The
-current checkpoint proves the Sensor path with a fake BLE edge; the opt-in
-Felicita Arc and Bookoo examples exercise BLE Scale bindings with fake GATT.
-Bookoo hardware, Felicita hardware, Scale timing acceptance, automatic optional
-Scale operations, and sleep policy remain #809 follow-up work.
+opt-in Felicita Arc and Bookoo examples exercise BLE Scale bindings with fake GATT.
+Felicita hardware verification covers live notifications, weight, tare, timer
+commands, confirmed disconnect, reconnect/reselection, and observed cadence.
+Bookoo hardware is optional follow-up work; its device-specific silence threshold
+remains provisional.
 
 ## Plugin Lifecycle
 

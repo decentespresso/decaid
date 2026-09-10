@@ -12,6 +12,7 @@ class PluginBoundSensor extends PluginProtocolDevice implements Sensor {
     required super.name,
     required super.invoke,
     required super.transportType,
+    super.prepareConnection,
     required super.onReady,
     required super.invocationTimeout,
     required Map<String, dynamic> definition,

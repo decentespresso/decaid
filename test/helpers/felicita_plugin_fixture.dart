@@ -52,6 +52,7 @@ class FelicitaPluginTransport extends PluginBleFixtureTransport {
     this.subscriptionFailure,
     this.writeFailure,
     this.connectFailure,
+    this.connectBlocker,
   });
 
   final List<int>? firstPacket;
@@ -60,11 +61,24 @@ class FelicitaPluginTransport extends PluginBleFixtureTransport {
   final Object? subscriptionFailure;
   final Object? writeFailure;
   final Object? connectFailure;
+
+  /// Holds physical acquisition open so a test can decide when it lands.
+  final Completer<void>? connectBlocker;
+
+  /// Completes when physical acquisition starts, so a test never has to sleep
+  /// to know which phase it is in.
+  final acquisitionStarted = Completer<void>();
+
+  /// Completes when the plugin's first protocol call lands.
+  final servicesRequested = Completer<void>();
   final subscribed = Completer<void>();
+  int discoverServicesCalls = 0;
 
   @override
   Future<void> connect() async {
     connectCalls++;
+    if (!acquisitionStarted.isCompleted) acquisitionStarted.complete();
+    await connectBlocker?.future;
     if (connectFailure != null) {
       states.add(device.ConnectionState.disconnected);
       throw connectFailure!;
@@ -73,8 +87,11 @@ class FelicitaPluginTransport extends PluginBleFixtureTransport {
   }
 
   @override
-  Future<List<String>> discoverServices() async =>
-      servicePresent ? [felicitaServiceUuid] : [];
+  Future<List<String>> discoverServices() async {
+    discoverServicesCalls++;
+    if (!servicesRequested.isCompleted) servicesRequested.complete();
+    return servicePresent ? [felicitaServiceUuid] : [];
+  }
 
   @override
   Future<void> subscribe(

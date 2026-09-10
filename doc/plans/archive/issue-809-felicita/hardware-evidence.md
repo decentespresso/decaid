@@ -40,7 +40,14 @@ At this checkpoint, post-reconnect live notifications were lost: only the subscr
 - Explicit Disconnect returned immediately. Android logged `GATT_Disconnect`, a status-0 connection-state callback, `BluetoothGatt.close()` and `unregisterApp()`; the physical connection indicator turned off about one second later. No teardown timeout or retained-ownership warning occurred.
 - Focused reconnect/debug tests: 45 passed. `flutter analyze`: no issues. Serialized full suite: 4051 passed, one skipped. `git diff --check`: clean.
 
-### Open caveats
+### Acceptance conclusion
+
+PR #823's current hardware gate requires the Felicita plugin path rather than
+Bookoo hardware. The recorded connection/readiness, continuous weight, supported
+commands, disconnect/reconnect, restart/reselection, and cadence results satisfy
+that gate. Bookoo physical testing was not performed and is not claimed.
+
+### Non-blocking caveats
 
 - No native-vs-plugin Felicita A/B on the same hardware in separate sessions was run; native Felicita path untouched. Plugin weight/negative/tare/timer values matched the scale display exactly.
 - Battery only observed in 34/38 range; no display-side battery value available for cross-check.

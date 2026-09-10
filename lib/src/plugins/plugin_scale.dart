@@ -24,6 +24,7 @@ class PluginScale extends PluginProtocolDevice
     required super.invoke,
     required Set<PluginScaleCapability> capabilities,
     super.transportType,
+    super.prepareConnection,
     super.onReady,
     super.invocationTimeout,
   }) : capabilities = Set.unmodifiable(capabilities);

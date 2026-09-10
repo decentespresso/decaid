@@ -17,6 +17,7 @@ abstract class PluginProtocolDevice extends PluginDeviceAdapter {
   @override
   final TransportType transportType;
   final PluginDeviceInvoker invoke;
+  final Future<void> Function(String session)? prepareConnection;
   final void Function()? onReady;
   final Duration invocationTimeout;
   final BehaviorSubject<ConnectionState> _state = BehaviorSubject.seeded(
@@ -34,6 +35,7 @@ abstract class PluginProtocolDevice extends PluginDeviceAdapter {
     required this.name,
     required this.invoke,
     this.transportType = TransportType.unknown,
+    this.prepareConnection,
     this.onReady,
     this.invocationTimeout = const Duration(seconds: 5),
   });
@@ -87,7 +89,14 @@ abstract class PluginProtocolDevice extends PluginDeviceAdapter {
     beginSamples();
     final readiness = waitForReadiness();
     _state.add(ConnectionState.connecting);
+    var prepared = false;
     try {
+      final prepare = prepareConnection;
+      if (prepare != null) {
+        await prepare(session);
+        prepared = true;
+        checkSession(session);
+      }
       final initialization = () async {
         await invoke(PluginDeviceOperation.connect, {'session': session});
         await readiness;
@@ -103,6 +112,10 @@ abstract class PluginProtocolDevice extends PluginDeviceAdapter {
       if (_session == session) {
         try {
           await disconnect();
+        } catch (_) {}
+      } else if (prepared) {
+        try {
+          await invoke(PluginDeviceOperation.disconnect, {'session': session});
         } catch (_) {}
       }
       Error.throwWithStackTrace(error, stackTrace);

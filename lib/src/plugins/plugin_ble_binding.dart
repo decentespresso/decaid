@@ -24,6 +24,7 @@ class PluginBleBinding {
   late final PluginDeviceAdapter device;
   PluginBleSession? _session;
   String? _domainSession;
+  String? _preparedDomainSession;
   bool _disposed = false;
   Future<void>? _disposal;
 
@@ -49,6 +50,7 @@ class PluginBleBinding {
             name: name,
             invoke: invoke,
             transportType: TransportType.ble,
+            prepareConnection: prepareConnection,
             onReady: () => _session!.markReady(),
             invocationTimeout: invocationTimeout,
             definition: definition,
@@ -58,6 +60,7 @@ class PluginBleBinding {
             name: name,
             invoke: invoke,
             transportType: TransportType.ble,
+            prepareConnection: prepareConnection,
             onReady: () => _session!.markReady(),
             invocationTimeout: invocationTimeout,
             capabilities: driver.declaration.capabilities,
@@ -67,41 +70,9 @@ class PluginBleBinding {
   bool get occupied =>
       _session != null && _session!.state != PluginBleSessionState.closed;
 
-  void revoke() => _session?.revoke();
-
-  Future<Map<String, dynamic>> invoke(
-    PluginDeviceOperation operation,
-    Map<String, dynamic> payload,
-  ) async {
-    if (operation == PluginDeviceOperation.disconnect) {
-      final session = _session;
-      _domainSession = null;
-      if (session != null) {
-        await session.retire(
-          cleanup: (authority) async {
-            await invokeHandler(operation, {'gattSession': authority});
-          },
-        );
-        await session.closed.timeout(invocationTimeout);
-      }
-      return const {};
-    }
+  Future<void> prepareConnection(String domainSession) async {
     if (_disposed || !registry.isCurrent(driver) || !runtimeAlive()) {
       throw const PluginBleException('stale_session', 'BLE binding retired');
-    }
-    if (operation != PluginDeviceOperation.connect) {
-      final session = _session;
-      if (session == null || session.state != PluginBleSessionState.ready) {
-        throw const PluginBleException(
-          'stale_session',
-          'BLE device is not ready',
-        );
-      }
-      final result = await invokeHandler(operation, payload);
-      if (!identical(_session, session) || !session.acceptsPublications) {
-        throw const PluginBleException('stale_session', 'BLE command retired');
-      }
-      return result;
     }
     if (occupied) {
       throw const PluginBleException(
@@ -140,18 +111,68 @@ class PluginBleBinding {
       rethrow;
     }
     _session = session;
+    _preparedDomainSession = domainSession;
     unawaited(session.closed.then((_) => registry.release(claim)));
     await session.connect();
-    _domainSession = payload['session'] as String;
-    try {
-      return await invokeHandler(operation, {
-        ...payload,
-        'gattSession': session.id,
-      });
-    } catch (_) {
-      await session.retire();
-      rethrow;
+  }
+
+  void revoke() => _session?.revoke();
+
+  Future<Map<String, dynamic>> invoke(
+    PluginDeviceOperation operation,
+    Map<String, dynamic> payload,
+  ) async {
+    if (operation == PluginDeviceOperation.disconnect) {
+      final session = _session;
+      _domainSession = null;
+      _preparedDomainSession = null;
+      if (session != null) {
+        await session.retire(
+          cleanup: (authority) async {
+            await invokeHandler(operation, {'gattSession': authority});
+          },
+        );
+        await session.closed.timeout(invocationTimeout);
+      }
+      return const {};
     }
+    if (_disposed || !registry.isCurrent(driver) || !runtimeAlive()) {
+      throw const PluginBleException('stale_session', 'BLE binding retired');
+    }
+    if (operation == PluginDeviceOperation.connect) {
+      final session = _session;
+      if (session == null ||
+          session.state != PluginBleSessionState.initializing ||
+          _preparedDomainSession != payload['session']) {
+        throw const PluginBleException(
+          'stale_session',
+          'BLE session was not prepared',
+        );
+      }
+      _preparedDomainSession = null;
+      _domainSession = payload['session'] as String;
+      try {
+        return await invokeHandler(operation, {
+          ...payload,
+          'gattSession': session.id,
+        });
+      } catch (_) {
+        await session.retire();
+        rethrow;
+      }
+    }
+    final session = _session;
+    if (session == null || session.state != PluginBleSessionState.ready) {
+      throw const PluginBleException(
+        'stale_session',
+        'BLE device is not ready',
+      );
+    }
+    final result = await invokeHandler(operation, payload);
+    if (!identical(_session, session) || !session.acceptsPublications) {
+      throw const PluginBleException('stale_session', 'BLE command retired');
+    }
+    return result;
   }
 
   Future<Object?> call(

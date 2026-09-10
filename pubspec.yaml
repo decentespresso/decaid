@@ -45,7 +45,10 @@ dependencies:
   universal_ble:
     git:
       url: https://github.com/tadelv/universal_ble.git
-      ref: 2.2.6
+      # Held on this commit (unreleased): confirms link state before the
+      # automatic queue drain, so a stale disconnect update cannot cancel the
+      # current connection's queued GATT work. Re-pin once it is released.
+      ref: 9c50e12fcc33b061fe37e7037c69e44e30d96c79
   shared_preferences: ^2.5.3
   # share_plus HELD at 12.x — 13.x requires win32 ^6, which conflicts with
   # file_picker 11's win32 ^5.9 pin. 13.x is only SDK-floor bumps, no API gain.

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:reaprime/src/models/device/device.dart' as device;
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'package:reaprime/src/plugins/plugin_manager.dart';
 
@@ -29,11 +30,22 @@ class BookooPluginTransport extends PluginBleFixtureTransport {
     this.firstPacket,
     this.servicePresent = true,
     this.subscriptionDelay = Duration.zero,
+    this.subscriptionFailure,
   });
   final List<int>? firstPacket;
   final bool servicePresent;
   final Duration subscriptionDelay;
+  final Object? subscriptionFailure;
   final subscribed = Completer<void>();
+
+  /// Fires the platform's connection update for this device, standing in for a
+  /// device-initiated or lost link. A link that is already torn down has
+  /// nothing left to drop.
+  void dropLink() {
+    if (states.isClosed) return;
+    states.add(device.ConnectionState.disconnected);
+  }
+
   @override
   Future<List<String>> discoverServices() async =>
       servicePresent ? [bookooServiceUuid] : [];
@@ -53,6 +65,7 @@ class BookooPluginTransport extends PluginBleFixtureTransport {
     if (subscriptionDelay != Duration.zero) {
       await Future<void>.delayed(subscriptionDelay);
     }
+    if (subscriptionFailure != null) throw subscriptionFailure!;
     subscribers[characteristic] = callback;
     if (firstPacket != null) callback(Uint8List.fromList(firstPacket!));
     if (!subscribed.isCompleted) subscribed.complete();

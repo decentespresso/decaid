@@ -108,6 +108,135 @@ void main() {
     );
   }
 
+  Future<Scale> bookooCandidate(
+    PluginManager manager,
+    BookooPluginTransport transport,
+  ) async {
+    final evidence = BleAdvertisementEvidence(
+      name: 'BOOKOO',
+      serviceUuids: ['0ffe'],
+    );
+    return await manager.bleService.createCandidate(
+          driver: manager.bleService.registry.decide(evidence).drivers.single,
+          physicalId: 'AA:BB',
+          evidence: evidence,
+          admit: () => true,
+          createTransport: () => transport,
+        )
+        as Scale;
+  }
+
+  test(
+    'Bookoo refused subscription fails the attempt without leftovers',
+    () async {
+      final manager = PluginManager(kvStore: FakeKeyValueStoreService());
+      addTearDown(manager.dispose);
+      await loadBookooPlugin(manager);
+      final transport = BookooPluginTransport(
+        'AA:BB',
+        subscriptionFailure: StateError('Bookoo subscription refused'),
+      );
+      final scale = await bookooCandidate(manager, transport);
+      final states = <ConnectionState>[];
+      final subscription = scale.connectionState.listen(states.add);
+      addTearDown(subscription.cancel);
+
+      final outcome = await scale.onConnect().then<Object?>(
+        (_) => null,
+        onError: (Object error) => error,
+      );
+      expect(
+        outcome,
+        isNotNull,
+        reason: 'a refused subscription must fail the attempt',
+      );
+
+      // Startup teardown already retired the session here, so a late link drop
+      // cannot be delivered through this seam: the abandoned readiness promise
+      // and its later disconnect rejection are asserted by the plugin-runtime
+      // harness in scripts/test_bookoo_readiness_rejection.mjs. This test covers
+      // the observable leftovers instead.
+      transport.dropLink();
+      await pumpEventQueue();
+
+      expect(states, isNot(contains(ConnectionState.connected)));
+      expect(manager.activeTimerCount, 0);
+      expect(manager.bleService.registry.activeBindingCount, 0);
+    },
+  );
+
+  test(
+    'Bookoo disconnect before the first packet reports the disconnect',
+    () async {
+      final manager = PluginManager(kvStore: FakeKeyValueStoreService());
+      addTearDown(manager.dispose);
+      await loadBookooPlugin(manager);
+      final transport = BookooPluginTransport('AA:BB');
+      final scale = await bookooCandidate(manager, transport);
+
+      final connecting = scale.onConnect().then<Object?>(
+        (_) => null,
+        onError: (Object error) => error,
+      );
+      await transport.subscribed.future;
+      transport.dropLink();
+
+      final outcome = await connecting;
+      expect(
+        outcome,
+        isNotNull,
+        reason: 'a link loss before readiness must fail the attempt',
+      );
+      expect(await scale.connectionState.first, ConnectionState.disconnected);
+      expect(manager.activeTimerCount, 0);
+      expect(manager.bleService.registry.activeBindingCount, 0);
+    },
+  );
+
+  test('Bookoo keeps publishing after readiness', () async {
+    final manager = PluginManager(kvStore: FakeKeyValueStoreService());
+    final controller = ScaleController();
+    addTearDown(() async {
+      controller.dispose();
+      await manager.dispose();
+    });
+    await loadBookooPlugin(manager);
+    final transport = BookooPluginTransport(
+      'AA:BB',
+      firstPacket: bookooPacket(1),
+    );
+    final scale = await bookooCandidate(manager, transport);
+    final samples = <WeightSnapshot>[];
+    final subscription = controller.weightSnapshot.listen(samples.add);
+    addTearDown(subscription.cancel);
+
+    await controller.connectToScale(scale);
+    expect(await scale.connectionState.first, ConnectionState.connected);
+
+    transport.emit(bookooPacket(-12.5));
+    await pumpEventQueue();
+
+    expect(
+      samples,
+      isNotEmpty,
+      reason: 'a successful start must not stop the live session',
+    );
+    expect(samples.last.weight, closeTo(-12.5, 1e-9));
+    expect(
+      manager.activeTimerCount,
+      1,
+      reason: 'the live session keeps exactly one silence watchdog armed',
+    );
+
+    await scale.disconnect();
+    await pumpEventQueue();
+    expect(
+      manager.activeTimerCount,
+      0,
+      reason: 'teardown must not leave a watchdog armed',
+    );
+  });
+
   test(
     'Bookoo JS validates native fixtures, readiness, commands and reconnect',
     () async {
@@ -150,7 +279,7 @@ void main() {
         for (final invalid in invalidBookooPackets()) {
           transport.emit(invalid);
         }
-        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await pumpEventQueue();
         expect(await scale.connectionState.first, ConnectionState.connecting);
         expect(samples, isEmpty);
         final firstSample = controller.weightSnapshot.first;

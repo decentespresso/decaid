@@ -45,35 +45,54 @@ function createPlugin(host) {
               const state = {session, stopped: false, timer: null};
               active = state;
               let battery = null;
-              const services = await session.gatt.discoverServices();
-              if (!services.includes(service)) throw new Error("Bookoo service unavailable");
               let ready;
               let failed;
+              let settled = false;
               const firstPacket = new Promise((resolve, reject) => {ready = resolve; failed = reject;});
+              firstPacket.catch(() => {});
+              function succeed() {
+                if (!settled) {
+                  settled = true;
+                  ready();
+                }
+              }
+              function fail(error) {
+                if (!settled) {
+                  settled = true;
+                  failed(error);
+                }
+              }
               function watchPackets() {
                 clearTimeout(state.timer);
                 state.timer = setTimeout(() => {
                   stop(state);
-                  failed(new Error("Bookoo protocol silence"));
+                  fail(new Error("Bookoo protocol silence"));
                   session.reportDisconnected().catch(() => {});
                 }, 2000);
               }
-              session.gatt.onDisconnect(() => {
+              try {
+                const services = await session.gatt.discoverServices();
+                if (!services.includes(service)) throw new Error("Bookoo service unavailable");
+                session.gatt.onDisconnect(() => {
+                  stop(state);
+                  fail(new Error("Bookoo disconnected before readiness"));
+                });
+                await session.gatt.subscribe(service, dataCharacteristic, async (data, sample) => {
+                  if (state.stopped) return;
+                  const decoded = decode(data);
+                  if (!decoded) return;
+                  watchPackets();
+                  if (decoded.battery <= 100) battery = decoded.battery;
+                  await session.publish({weight: decoded.weight, battery}, sample);
+                  if (!state.stopped) succeed();
+                });
+                if (!state.stopped && state.timer === null) watchPackets();
+                await firstPacket;
+              } catch (error) {
                 stop(state);
-                failed(new Error("Bookoo disconnected before readiness"));
-              });
-              await session.gatt.subscribe(service, dataCharacteristic, async (data, sample) => {
-                if (state.stopped) return;
-                const decoded = decode(data);
-                if (!decoded) return;
-                watchPackets();
-                if (decoded.battery <= 100) battery = decoded.battery;
-                await session.publish({weight: decoded.weight, battery}, sample);
-                if (state.stopped) return;
-                ready();
-              });
-              if (!state.stopped && state.timer === null) watchPackets();
-              await firstPacket;
+                fail(error);
+                throw error;
+              }
             },
             disconnect() { stop(active); },
             tare() { return command(1); },

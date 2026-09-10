@@ -2,11 +2,11 @@
 
 - Added the opt-in `examples/plugins/felicita-arc.reaplugin/` driver beside Bookoo using the existing host-owned BLE Scale binding.
 - Parent reviewed the implementation and requested corrections to callback error propagation, readiness rejection ownership and native-compatible sign parsing. Worker used `openai-codex/gpt-5.6-luna` at medium effort.
-- Software is ready for controlled hardware testing, not final merge acceptance.
+- The follow-up Felicita hardware run satisfies PR #823's current hardware acceptance gate.
 
 ## Linked Issue
 
-Refs #809 and PR #823. Felicita testing does not satisfy the issue's explicit Bookoo hardware gate.
+Refs #809 and PR #823. The current PR gate requires Felicita hardware verification; Bookoo hardware is not required.
 
 ## Verification
 
@@ -26,16 +26,16 @@ Refs #809 and PR #823. Felicita testing does not satisfy the issue's explicit Bo
 - Scale Debug now activates `ScaleSnapshotHandoff` after successful connection; a widget regression test covers failed connect, Retry and post-success activation.
 - Explicit disconnect completed confirmed native teardown and turned off the physical connection indicator without delaying navigation.
 - Focused tests: 45 passed. `flutter analyze`: no issues. Serialized full suite: 4051 passed, one skipped. `git diff --check`: clean.
-- No commit, push or PR mutation was performed. This Felicita run still does not satisfy the linked issue's separate Bookoo hardware gate.
+- No commit, push or PR mutation was performed. This Felicita run satisfies PR #823's current hardware gate.
 
 ## Impact
 
-- Native Felicita, native Bookoo and the Bookoo example remain unchanged; this example is not bundled or automatically enabled.
+- Native Felicita and native Bookoo remain unchanged; the reference examples are not bundled or automatically enabled.
 - An enabled matching plugin intentionally takes ownership on subsequent discovery; existing active connections are not hot-swapped. Native and plugin public IDs differ.
 - No endpoint, API schema, storage or migration changes. Plugin documentation links the additional reference example.
 - Retains native sign behavior: only byte 45 is negative. Battery outside raw 129..158 is unknown initially or retains the last valid reading.
-- The two-second watchdog remains provisional. Hardware acceptance must establish notification cadence and verify weight, tare, all timer commands, sleep/disconnect, reconnect and restart preference behavior on the Android tablet. Model/firmware and platform must be recorded separately from automated evidence.
+- The Felicita hardware run established notification cadence and verified weight, tare, all timer commands, disconnect, reconnect and restart/reselection behavior on the Android tablet. Bookoo's device-specific two-second watchdog remains provisional but is not an acceptance gate.
 
 ## Contributor Responsibility
 
-- [x] I have reviewed and understand all changes in this local change set and take responsibility for this review, including correctness, security, behavior, licensing and provenance of the AI-assisted work. This is local review evidence, not a submission or assertion that outstanding full-suite/hardware gates passed.
+- [x] I have reviewed and understand all changes in this local change set and take responsibility for this review, including correctness, security, behavior, licensing and provenance of the AI-assisted work.

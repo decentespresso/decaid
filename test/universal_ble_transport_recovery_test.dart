@@ -590,6 +590,156 @@ void main() {
     );
   });
 
+  group('stale disconnect vs queued GATT work', () {
+    Future<Object?> startWrite(int byte) => transport
+        .write(_serviceUuid, _charUuid, Uint8List.fromList([byte]))
+        .then<Object?>((_) => null, onError: (Object error) => error);
+
+    test(
+      'stale disconnect update keeps in-flight and queued GATT work alive',
+      () async {
+        final notifications = <int>[];
+        await transport.subscribe(_serviceUuid, _charUuid, (value) {
+          notifications.add(value.first);
+        });
+
+        platform.hangWrites = true;
+        final writeBlocker = Completer<void>();
+        platform.writeBlocker = writeBlocker;
+
+        final inFlight = startWrite(1);
+        await pumpEventQueue();
+        final queued = startWrite(2);
+        await pumpEventQueue();
+        expect(
+          platform.writeCalls,
+          1,
+          reason: 'the second write must stay queued behind the first',
+        );
+
+        // Late physical-id disconnect for a link the OS still reports
+        // connected: the event must not dispose the current queue.
+        platform.connectionStateResult = BleConnectionState.connected;
+        platform.updateConnection(deviceId, false);
+        await pumpEventQueue();
+
+        expect(
+          platform.writeCalls,
+          1,
+          reason:
+              'confirming a live link must not dispatch queued work while the '
+              'in-flight write is still running',
+        );
+
+        writeBlocker.complete();
+        expect(await inFlight, isNull);
+        expect(
+          await queued,
+          isNull,
+          reason: 'a stale disconnect event must not cancel queued work',
+        );
+        await pumpEventQueue();
+
+        expect(platform.writeCalls, 2);
+        expect(
+          UniversalBle.getQueueDiagnostics(deviceId).state,
+          QueueDiagnosticsState.running,
+          reason: 'the device queue must survive a stale event',
+        );
+        expect(
+          observedStates,
+          isNot(contains(device.ConnectionState.disconnected)),
+        );
+
+        platform.updateCharacteristicValue(
+          deviceId,
+          _charUuid,
+          Uint8List.fromList([7]),
+          null,
+        );
+        await pumpEventQueue();
+        expect(notifications, [7]);
+      },
+    );
+
+    test('genuine disconnect cancels queued GATT work exactly once', () async {
+      platform.hangWrites = true;
+      final writeBlocker = Completer<void>();
+      platform.writeBlocker = writeBlocker;
+
+      final inFlight = startWrite(1);
+      await pumpEventQueue();
+      final queued = startWrite(2);
+      await pumpEventQueue();
+
+      platform.connectionStateResult = BleConnectionState.disconnected;
+      platform.updateConnection(deviceId, false);
+      await pumpEventQueue();
+
+      expect(await queued, isA<DeviceNotConnectedException>());
+      expect(
+        platform.writeCalls,
+        1,
+        reason: 'no operation may start against the dead link',
+      );
+      expect(
+        observedStates.where(
+          (state) => state == device.ConnectionState.disconnected,
+        ),
+        hasLength(1),
+      );
+
+      writeBlocker.complete();
+      expect(await inFlight, isNull);
+      await pumpEventQueue();
+      expect(
+        platform.writeCalls,
+        1,
+        reason: 'a failed connection must not dispatch later work',
+      );
+
+      platform.connectionStateResult = BleConnectionState.connected;
+      platform.updateConnection(deviceId, true);
+      await pumpEventQueue();
+      expect(observedStates, contains(device.ConnectionState.connected));
+
+      platform.hangWrites = false;
+      await transport.write(_serviceUuid, _charUuid, Uint8List.fromList([3]));
+      expect(platform.writeCalls, 2);
+    });
+
+    test('genuine disconnect still cancels queued work while the link probe is '
+        'pending', () async {
+      platform.hangWrites = true;
+      final writeBlocker = Completer<void>();
+      platform.writeBlocker = writeBlocker;
+      final probe = Completer<BleConnectionState>();
+      platform.connectionStateBlocker = probe;
+
+      final inFlight = startWrite(1);
+      await pumpEventQueue();
+      final queued = startWrite(2);
+      await pumpEventQueue();
+
+      platform.updateConnection(deviceId, false);
+      await pumpEventQueue();
+
+      writeBlocker.complete();
+      expect(await inFlight, isNull);
+      await pumpEventQueue();
+      expect(
+        platform.writeCalls,
+        1,
+        reason: 'queued work must stay held until the disconnect is confirmed',
+      );
+
+      probe.complete(BleConnectionState.disconnected);
+      await pumpEventQueue();
+      expect(await queued, isA<DeviceNotConnectedException>());
+      expect(platform.writeCalls, 1);
+    });
+  });
+
   group('advertising-while-connected detection (fix 2)', () {
     test(
       'own advert + OS reporting disconnected → emits disconnected',

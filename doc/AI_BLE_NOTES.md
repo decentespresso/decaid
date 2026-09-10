@@ -183,6 +183,24 @@ A queue can produce only one wrapper timeout per faulted generation; followers a
 
 `operationCancelled` means local queue recovery, never physical disconnect. It is benign Crashlytics noise. `deviceDisconnected` remains reserved for a confirmed or forced physical disconnect. The legacy `Exception('Queue Cancelled')` string sentinel is not part of the 2.2.1 path.
 
+## Stale Disconnect vs Queued GATT Work
+
+`universal_ble` installs an automatic per-device queue drain (`UniversalBle._wireQueueDrain`) that disposes a device's queue on every raw `isConnected == false` connection update. Decaid runs `QueueType.perDevice` (`universal_ble_discovery_service.dart`), so that drain is keyed on the same id as every queued Decaid GATT call: `BleCommandQueue.clearQueue` removes the queue and `Queue.dispose` completes every pending caller with `deviceDisconnected`.
+
+A platform can publish that update late for a link that a newer connection attempt already re-established. `UniversalBleTransport._confirmDisconnect()` already probes the OS link before publishing the domain disconnect, but that probe cannot run early enough to protect queued callers: the dependency drains them in the same stream dispatch, and the rejected caller then reaches `_handleGattError()`'s gone-device branch and reports `disconnected`. Suppressing that later state does not restore the cancelled callers, so the destructive action has to be fixed at its owner.
+
+Decaid therefore pins `universal_ble` on the unreleased commit `9c50e12fcc33b061fe37e7037c69e44e30d96c79` (a merge of `tadelv/universal_ble` `main` into `tadelv/universal_ble` PR #24). It confirms the authoritative link state before draining and holds the device queue while that confirmation is in flight, so a genuine disconnect still cancels pending commands before the next one can dispatch. The hold is owned by the newest confirmation for that device: `connected` or `connecting` releases it, an inconclusive confirmation clears it, a queue created while the hold is live starts held, and a superseded confirmation can neither resume nor clear. Releasing a live-link hold resumes dispatch only once the active command has completed, so a confirmed stale disconnect cannot run two commands on the same device at once. Re-pin to a released tag once that change lands.
+
+`test/universal_ble_transport_recovery_test.dart`, group `stale disconnect vs queued GATT work`, guards the Decaid side of that contract: a stale update must leave the in-flight and queued writes alive with the queue still `running`, confirming the stale update as connected must not dispatch the queued write while the in-flight write is still running, a genuine disconnect must still cancel exactly once and publish exactly one `disconnected`, and a genuine disconnect whose link probe is still pending must hold queued work instead of dispatching it.
+
+## Plugin Connection Deadlines
+
+A host-bound BLE plugin device connects in two phases. `PluginProtocolDevice.prepareConnection` establishes the physical BLE session and `PluginBleBinding` owns admission, claim reservation and `session.connect()` there; only then does the plugin's own `connect` handler run, and only then does `invocationTimeout` bound protocol startup and readiness.
+
+The split exists because platform acquisition and recovery are transport policy: a slow Android connect, a BlueZ cache-refresh retry, or an MTU negotiation can legitimately outlive any budget a plugin timeout would pick, and killing them there reports a healthy recovery as a plugin failure. Raising the plugin timeout instead would only move the same ownership error and weaken the bound on a stalled plugin, so the phases stay separate. Cancellation or disposal in either phase must settle without publishing `connected` and must retire the physical session the attempt prepared, even when the logical session was already cleared.
+
+A plugin that creates a first-packet readiness promise must attach its own rejection handler when it creates it. Startup can fail before that promise is awaited, and a later disconnect or silence watchdog would otherwise reject an unobserved promise. The Bookoo reference plugin and `scripts/test_bookoo_readiness_rejection.mjs` show the pattern and its regression.
+
 ## BLE Scanning
 
 - Device discovery uses unfiltered scans with name-based matching (`DeviceMatcher`).
