@@ -190,7 +190,9 @@ class _TrackingFakeBleTransport extends FakeBleTransport {
   Stream<domain.ConnectionState> get connectionState =>
       connectionStateOverride ?? super.connectionState;
 
-  int disconnectCalls = 0;
+  // disconnectCalls is inherited from FakeBleTransport, which now counts it.
+  // Re-declaring it here would SHADOW the parent's field, so the parent's
+  // disconnectCalls++ would update a different variable than the test reads.
   int disposeCalls = 0;
   bool _disposed = false;
 

@@ -28,6 +28,8 @@ const _defaultShotSettingsFrame = <int>[
   0x00,
 ];
 
+const _firmwareMapPollReadTimeout = Duration(seconds: 2);
+
 class UnifiedDe1Transport {
   final DataTransport _transport;
   final TransportType transportType;
@@ -689,6 +691,31 @@ class UnifiedDe1Transport {
         );
       }
     }
+  }
+
+  /// Rationale and transport constraints: `doc/AI_BLE_NOTES.md`, "Firmware
+  /// Update: Erase/Verify Poll Fallback".
+  Future<ByteData> readFwMapRequestFresh() async {
+    final t = _transport;
+    if (transportType == TransportType.serial && t is SerialTransport) {
+      // The subject replays its current value, so skip one - but only when it
+      // holds one, or the first poll of a connection swallows the frame it
+      // provoked.
+      final source = _fwMapRequestSubject.hasValue
+          ? _fwMapRequestSubject.stream.skip(1)
+          : _fwMapRequestSubject.stream;
+      final next = source.first.timeout(_firmwareMapPollReadTimeout);
+      next.ignore();
+      await t.writeCommand('<+${Endpoint.fwMapRequest.representation}>');
+      return next;
+    }
+    if (transportType == TransportType.ble) {
+      return _bleRead(
+        Endpoint.fwMapRequest,
+        timeout: _firmwareMapPollReadTimeout,
+      );
+    }
+    return read(Endpoint.fwMapRequest);
   }
 
   Future<void> write(LogicalEndpoint endpoint, Uint8List data) async {

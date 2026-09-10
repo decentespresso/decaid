@@ -71,8 +71,8 @@ class UnifiedDe1 implements De1Interface {
 
   UnifiedDe1({
     required DataTransport transport,
-    this.firmwareEraseTimeout = const Duration(seconds: 30),
-    this.firmwareVerificationTimeout = const Duration(seconds: 30),
+    this.firmwareEraseTimeout = const Duration(seconds: 60),
+    this.firmwareVerificationTimeout = const Duration(seconds: 120),
     this.calibrationTimeout = const Duration(seconds: 4),
   }) : _transport = UnifiedDe1Transport(transport: transport);
 

@@ -1,5 +1,7 @@
 part of 'unified_de1.dart';
 
+const _firmwareMapPollInterval = Duration(milliseconds: 250);
+
 extension UnifiedDe1Firmware on UnifiedDe1 {
   Future<void> _updateFirmware(
     Uint8List fwImage,
@@ -53,6 +55,7 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
         cancelToken,
         firmwareEraseTimeout,
         'Timed out waiting for firmware erase',
+        _isEraseComplete,
       );
 
       _throwIfFirmwareCancelled(cancelToken);
@@ -75,6 +78,7 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
         cancelToken,
         firmwareVerificationTimeout,
         'Timed out waiting for firmware verification',
+        _isTerminalVerificationResponse,
       );
       if (!_isSuccessfulFirmwareVerification(verification)) {
         throw StateError(
@@ -120,16 +124,52 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
     _FirmwareCancellationToken cancelToken,
     Duration timeout,
     String timeoutMessage,
-  ) {
-    return Future.any([
-      response.timeout(
+    bool Function(FWMapRequestData response) predicate,
+  ) async {
+    final stop = Completer<void>();
+    try {
+      // Future.any marks every branch handled, so a losing branch that errors
+      // raises no unhandled async error.
+      return await Future.any([
+        response,
+        cancelToken.cancelled.then<FWMapRequestData>(
+          (_) => throw const FirmwareUpdateCancelledException(),
+        ),
+        _pollFirmwareResponse(predicate, cancelToken, stop.future),
+      ]).timeout(
         timeout,
         onTimeout: () => throw TimeoutException(timeoutMessage),
-      ),
-      cancelToken.cancelled.then<FWMapRequestData>(
-        (_) => throw const FirmwareUpdateCancelledException(),
-      ),
-    ]);
+      );
+    } finally {
+      if (!stop.isCompleted) stop.complete();
+    }
+  }
+
+  Future<FWMapRequestData> _pollFirmwareResponse(
+    bool Function(FWMapRequestData response) predicate,
+    _FirmwareCancellationToken cancelToken,
+    Future<void> stop,
+  ) async {
+    var stopped = false;
+    unawaited(stop.then((_) => stopped = true));
+    while (!stopped && !cancelToken.isCancelled) {
+      try {
+        final data = await _transport.readFwMapRequestFresh();
+        if (stopped || cancelToken.isCancelled) break;
+        final response = FWMapRequestData.from(data);
+        if (predicate(response)) return response;
+      } catch (e) {
+        _log.fine('firmware map poll read failed: $e');
+      }
+      await Future.any<void>([
+        Future<void>.delayed(_firmwareMapPollInterval),
+        stop,
+        cancelToken.cancelled,
+      ]);
+    }
+    // A never-completing future: as a losing Future.any branch it must
+    // produce no late result once another branch has won.
+    return Completer<FWMapRequestData>().future;
   }
 
   bool _isEraseComplete(FWMapRequestData response) {

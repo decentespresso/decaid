@@ -28,7 +28,8 @@ class FakeBleTransport extends BLETransport {
 
   final Map<int, List<int>> _rawResponses = {};
 
-  final Map<String, Queue<Uint8List>> _readQueue = {};
+  /// Each entry is either a [Uint8List] payload to return or an error to throw.
+  final Map<String, Queue<Object>> _readQueue = {};
   final Queue<Uint8List> _firmwareMapResponses = Queue<Uint8List>();
 
   final Set<int> failMmrReadsForAddresses = {};
@@ -38,6 +39,9 @@ class FakeBleTransport extends BLETransport {
   final Map<int, int> failMmrWriteOrdinalForAddresses = {};
 
   final Map<int, int> _mmrWriteCounts = {};
+
+  int connectCalls = 0;
+  int disconnectCalls = 0;
 
   final List<FakeBleWrite> writes = [];
 
@@ -62,7 +66,13 @@ class FakeBleTransport extends BLETransport {
   }
 
   void queueRead(String characteristicUUID, Uint8List bytes) {
-    _readQueue.putIfAbsent(characteristicUUID, Queue.new).add(bytes);
+    _readQueue.putIfAbsent(characteristicUUID, Queue<Object>.new).add(bytes);
+  }
+
+  /// Throws [error] from the next `read()` on [characteristicUUID], in order
+  /// with any [queueRead] payloads.
+  void queueReadError(String characteristicUUID, Object error) {
+    _readQueue.putIfAbsent(characteristicUUID, Queue<Object>.new).add(error);
   }
 
   void queueFirmwareMapResponse(List<int> bytes) {
@@ -105,10 +115,14 @@ class FakeBleTransport extends BLETransport {
   Future<ConnectionState> getConnectionState() async => _connState.value;
 
   @override
-  Future<void> connect() async {}
+  Future<void> connect() async {
+    connectCalls++;
+  }
 
   @override
-  Future<void> disconnect() async {}
+  Future<void> disconnect() async {
+    disconnectCalls++;
+  }
 
   @override
   Future<List<String>> discoverServices() async => [de1ServiceUUID];
@@ -120,7 +134,11 @@ class FakeBleTransport extends BLETransport {
     Duration? timeout,
   }) async {
     final q = _readQueue[characteristicUUID];
-    if (q != null && q.isNotEmpty) return q.removeFirst();
+    if (q != null && q.isNotEmpty) {
+      final next = q.removeFirst();
+      if (next is Uint8List) return next;
+      throw next;
+    }
     return Uint8List(20);
   }
 

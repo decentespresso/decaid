@@ -487,6 +487,63 @@ the JS bridge, and a fake GATT edge. Native bridge coverage uses
 UniversalBleTransport to prove CCCD reset and write-property error behavior.
 These checks do not replace hardware or Scale timing acceptance.
 
+## Firmware Update: Erase/Verify Poll Fallback
+
+Some DE1 firmwares never emit the terminal firmware-map notification after erase
+or after verify. The old flow awaited that notify alone, so an update on such a
+machine timed out near completion even though the flash had finished.
+
+`UnifiedDe1Firmware._waitForFirmwareResponse` now races the existing notify
+future against `_pollFirmwareResponse`, which re-reads `fwMapRequest`
+(`Endpoint.fwMapRequest` / A009 / `[I]`) every 250 ms until a terminal response
+matches the stage predicate. Whichever arrives first wins. Firmware that does
+notify completes exactly as before; the poll simply loses the race.
+
+Terminal frames are 7 bytes: window, erase, map, then three error bytes. Erase
+and verify reach terminal on error `ff ff ff`; verify succeeds only on
+`ff ff fd`.
+
+### Both transports need a FRESH read
+
+`UnifiedDe1Transport.readFwMapRequestFresh` exists because neither transport's
+normal read path returns a current register value here.
+
+On **serial**, `_serialRead` hands back the last pushed `[I]` frame, which never
+changes once the firmware stops emitting the notify. `fwMapRequest` is already
+continuously `<+I>`-subscribed, and the firmware treats an add-notify as a
+force-update, so re-sending `<+I>` provokes a fresh `[I]`. Do not send the
+matching `<-I>` the way `_serialSingleNotifyRead` does: dropping the continuous
+subscription mid-update would blind the notify path that a stock DE1 still
+relies on.
+
+The read arms on the NEXT `[I]` frame before it provokes one. The subject
+replays its current value to a new listener, so the read skips one value - but
+only when the subject holds one. The subject is no longer seeded upstream, so an
+unconditional `skip(1)` would swallow the very frame the first poll of a
+connection provoked, and that read would time out.
+
+On **BLE**, a genuine GATT read of A009 returns the current value, but it must
+go through `_bleRead` rather than the public `read()`. `read()` recovers from a
+timeout with a disconnect and reconnect. This poll fires repeatedly across the
+flash-busy erase and verify windows, and tearing the link down mid-update would
+corrupt the in-flight firmware write. A failed poll read throws instead; the
+loop logs it and retries on the next cadence tick.
+
+### Timeout bounds
+
+| Bound | Value | Purpose |
+|---|---|---|
+| `_firmwareMapPollInterval` | 250 ms | Poll cadence. |
+| `_firmwareMapPollReadTimeout` | 2 s | Per-read bound, so one stalled read cannot hang the loop. |
+| `firmwareEraseTimeout` | 60 s | Whole erase stage. |
+| `firmwareVerificationTimeout` | 120 s | Whole verify stage. |
+
+The stage bounds were 30 s each. On-device erase and verify of a larger image
+can outlast 30 s while the machine emits only non-terminal frames, which tripped
+the outer timeout near completion. The stage bound is the only limit on the
+poll loop, so raising it grants more poll iterations and nothing else. A
+genuinely stuck erase still fails.
+
 ## Keeping Notes Fresh
 
 Add lessons that would have saved debugging time: new footguns, thread-safety constraints, connection-lifecycle changes, non-obvious symptoms, and cross-transport dependencies. Prune stale claims. Prefer fewer, sharper notes over long background.

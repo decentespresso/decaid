@@ -15,8 +15,6 @@ class PluginBleFixtureTransport extends FakeBleTransport {
   final states = BehaviorSubject.seeded(ConnectionState.discovered);
   final operations = <String>[];
   Completer<void>? teardown;
-  int connectCalls = 0;
-  int disconnectCalls = 0;
   int disposeCalls = 0;
   final disposed = Completer<void>();
 
