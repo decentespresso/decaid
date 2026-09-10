@@ -7,6 +7,37 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
         <title>Decaid</title>
         <item>
             <title>0.8.6</title>
+            <pubDate>Thu, 10 Sep 2026 13:19:20 +0000</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>2734</sparkle:version>
+            <sparkle:shortVersionString>0.8.6</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* fix(updates): respect externally managed app builds by @tadelv in https://github.com/decentespresso/decaid/pull/815
+* WIP: host-owned BLE drivers and plugin Scale support (#809) by @ODevStudio in https://github.com/decentespresso/decaid/pull/813
+* fix(ble): prevent stale discovery cache from disconnecting active links by @tadelv in https://github.com/decentespresso/decaid/pull/812
+* fix(storage): resume partial v5 migrations and fail startup safely by @tadelv in https://github.com/decentespresso/decaid/pull/824
+* Plugin BLE binding and Sensor discovery checkpoint by @ODevStudio in https://github.com/decentespresso/decaid/pull/820
+* Plugin Scale API and sleep-policy checkpoint by @ODevStudio in https://github.com/decentespresso/decaid/pull/821
+* Plugin Scale measurement-timing checkpoint by @ODevStudio in https://github.com/decentespresso/decaid/pull/822
+* fix(webui): give each skin a stable origin, so its browser storage survives by @ChampionDesigns in https://github.com/decentespresso/decaid/pull/790
+* fix(api): refuse an explicit null targetYield on PUT /api/v1/workflow by @ChampionDesigns in https://github.com/decentespresso/decaid/pull/791
+* fix(api): PUT /machine/ledStrip echoes the palette the machine stored by @ChampionDesigns in https://github.com/decentespresso/decaid/pull/794
+* report pausedSteam and puffing as themselves, not as idle by @ChampionDesigns in https://github.com/decentespresso/decaid/pull/800
+* docs(plugins): the http endpoint contract, and the query pass-through pinned by @ChampionDesigns in https://github.com/decentespresso/decaid/pull/796
+* fix(shots): read back shots imported from de1app by @allofmeng in https://github.com/decentespresso/decaid/pull/786
+* fix(webserver): refuse to boot when a fixed port is already bound by @ChampionDesigns in https://github.com/decentespresso/decaid/pull/799
+* Bookoo reference BLE Scale checkpoint by @ODevStudio in https://github.com/decentespresso/decaid/pull/823
+* fix(update): a failed update check must say so, not look like "up to date" by @ChampionDesigns in https://github.com/decentespresso/decaid/pull/792
+
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.8.6-beta.1...v0.8.6-beta.2
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.8.6-beta.2/decaid-macos-0.8.6-beta.2.zip" length="64634692" type="application/octet-stream" sparkle:edSignature="HLeNg1USuD1kTALqYDJV1ab0aP7thFZYTFT19PPjO7Ejjz80OYNF1PQhJBsSFgJfuJu6nFcganJ1OQrDqHTCCw=="/>
+        </item>
+        <item>
+            <title>0.8.6</title>
             <pubDate>Mon, 07 Sep 2026 07:56:01 +0000</pubDate>
             <sparkle:channel>beta</sparkle:channel>
             <sparkle:version>2669</sparkle:version>
@@ -346,6 +377,6 @@ See `doc/RELEASE.md` for install and verification instructions.
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: Jdz4qiyIOXncBXNFPUWv37Sw4+XgJYloALsSRJn9sOKfWOCnfasp1s7xa1oSKOmSrUsjwF53WuYqxgd8lRe6Ag==
-length: 29764
+edSignature: WgPciSAYoDE6+Pp6ST3sbDqp+igYT1DoPJ1OCTAzI2RvtNuwm6V2BBFedrbYYXyu34KGuErdPwovGQejGbvdDw==
+length: 32752
 -->
