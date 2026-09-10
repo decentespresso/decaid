@@ -6,6 +6,7 @@ import 'package:clock/clock.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/controllers/connection/connection_timings.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
+import 'package:reaprime/src/controllers/machine_settings_write_report.dart';
 import 'package:reaprime/src/home_feature/forms/hot_water_form.dart';
 import 'package:reaprime/src/home_feature/forms/steam_form.dart';
 import 'package:reaprime/src/models/data/shot_state_event.dart';
@@ -13,6 +14,8 @@ import 'package:reaprime/src/models/data/workflow.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/firmware_update_state.dart';
+import 'package:reaprime/src/models/device/impl/de1/de1.models.dart'
+    show MMRItem;
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:rxdart/subjects.dart';
@@ -609,7 +612,7 @@ class De1Controller {
     _publishFlushFlow(newFlow);
   }
 
-  Future<void> updateMachineSettings({
+  Future<MachineSettingsWriteReport> updateMachineSettings({
     bool? usb,
     int? fan,
     double? flushTemp,
@@ -620,28 +623,121 @@ class De1Controller {
     int? tankTemp,
     int? steamPurgeMode,
   }) async {
+    final results = <String, MachineSettingWriteResult>{};
+
     await runDeviceWrite((device) async {
-      if (usb != null) await device.setUsbChargerMode(usb);
-      if (fan != null) await device.setFanThreshhold(fan);
-      if (flushTemp != null) await device.setFlushTemperature(flushTemp);
-      if (flushFlow != null) await device.setFlushFlow(flushFlow);
-      if (flushTimeout != null) await device.setFlushTimeout(flushTimeout);
-      if (hotWaterFlow != null) await device.setHotWaterFlow(hotWaterFlow);
-      if (steamFlow != null) await device.setSteamFlow(steamFlow);
-      if (tankTemp != null) await device.setTankTempThreshold(tankTemp);
+      if (usb != null) {
+        await device.setUsbChargerMode(usb);
+        results['usb'] = await _verifyWrite(usb, device.getUsbChargerMode);
+      }
+      if (fan != null) {
+        await device.setFanThreshhold(fan);
+        results['fan'] = await _verifyWrite(fan, device.getFanThreshhold);
+      }
+      if (flushTemp != null) {
+        await device.setFlushTemperature(flushTemp);
+        results['flushTemp'] = await _verifyWrite(
+          flushTemp,
+          device.getFlushTemperature,
+          tolerance: _halfLsb(MMRItem.flushTemp),
+        );
+      }
+      if (flushFlow != null) {
+        await device.setFlushFlow(flushFlow);
+        results['flushFlow'] = await _verifyWrite(
+          flushFlow,
+          device.getFlushFlow,
+          tolerance: _halfLsb(MMRItem.flushFlowRate),
+        );
+      }
+      if (flushTimeout != null) {
+        await device.setFlushTimeout(flushTimeout);
+        results['flushTimeout'] = await _verifyWrite(
+          flushTimeout,
+          device.getFlushTimeout,
+          tolerance: _halfLsb(MMRItem.flushTimeout),
+        );
+      }
+      if (hotWaterFlow != null) {
+        await device.setHotWaterFlow(hotWaterFlow);
+        results['hotWaterFlow'] = await _verifyWrite(
+          hotWaterFlow,
+          device.getHotWaterFlow,
+          tolerance: _halfLsb(MMRItem.hotWaterFlowRate),
+        );
+      }
+      if (steamFlow != null) {
+        await device.setSteamFlow(steamFlow);
+        results['steamFlow'] = await _verifyWrite(
+          steamFlow,
+          device.getSteamFlow,
+          tolerance: _halfLsb(MMRItem.targetSteamFlow),
+        );
+      }
+      if (tankTemp != null) {
+        await device.setTankTempThreshold(tankTemp);
+        results['tankTemp'] = await _verifyWrite(
+          tankTemp,
+          device.getTankTempThreshold,
+        );
+      }
       if (steamPurgeMode != null) {
         await device.setSteamPurgeMode(steamPurgeMode);
+        results['steamPurgeMode'] = await _verifyWrite(
+          steamPurgeMode,
+          device.getSteamPurgeMode,
+        );
       }
     });
+
     if (flushTemp != null || flushFlow != null || flushTimeout != null) {
       _publishRinseSettings(
-        targetTemperature: flushTemp,
-        flow: flushFlow,
-        duration: flushTimeout,
+        targetTemperature: _publishable(results['flushTemp'], flushTemp),
+        flow: _publishable(results['flushFlow'], flushFlow),
+        duration: _publishable(results['flushTimeout'], flushTimeout),
       );
     }
-    if (hotWaterFlow != null) _publishHotWaterFlow(hotWaterFlow);
-    if (steamFlow != null) _publishSteamFlow(steamFlow);
+    if (hotWaterFlow != null) {
+      _publishHotWaterFlow(
+        _publishable(results['hotWaterFlow'], hotWaterFlow)!,
+      );
+    }
+    if (steamFlow != null) {
+      _publishSteamFlow(_publishable(results['steamFlow'], steamFlow)!);
+    }
+
+    return MachineSettingsWriteReport(results);
+  }
+
+  static double _halfLsb(MMRItem item) => item.readScale / 2;
+
+  Future<MachineSettingWriteResult> _verifyWrite<T>(
+    T requested,
+    Future<T> Function() readBack, {
+    double tolerance = 0,
+  }) async {
+    try {
+      return MachineSettingWriteResult.verified(
+        requested: requested,
+        actual: await readBack(),
+        tolerance: tolerance,
+      );
+    } on MmrTimeoutException catch (e) {
+      _log.warning('settings write read-back failed: $e');
+      return MachineSettingWriteResult.unverified(requested);
+    } on TimeoutException catch (e) {
+      _log.warning('settings write read-back timed out: $e');
+      return MachineSettingWriteResult.unverified(requested);
+    }
+  }
+
+  static double? _publishable(
+    MachineSettingWriteResult? result,
+    double? requested,
+  ) {
+    if (result == null) return null;
+    final actual = result.actual;
+    return actual is num ? actual.toDouble() : requested;
   }
 
   void _publishSteamFlow(double newFlow) {

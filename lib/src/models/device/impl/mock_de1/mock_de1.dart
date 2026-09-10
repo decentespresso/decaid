@@ -15,6 +15,8 @@ import 'package:reaprime/src/models/device/simulated_device.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:rxdart/subjects.dart';
+import 'package:reaprime/src/models/device/impl/de1/de1.models.dart'
+    show MMRItem;
 
 // ignore: unused_field
 enum _SimulationType { espresso, steam, hotWater, idle }
@@ -703,7 +705,12 @@ class MockDe1 implements De1Interface, SimulatedDevice {
 
   @override
   Future<void> setFanThreshhold(int temp) async {
-    _fanThreshhold = temp;
+    // The firmware clamps this write; the mock must too, or a read-back
+    // verification cannot tell "applied" from "adjusted".
+    _fanThreshhold = temp.clamp(
+      MMRItem.fanThreshold.min!,
+      MMRItem.fanThreshold.max!,
+    );
   }
 
   int _fanThreshhold = 50;
