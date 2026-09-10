@@ -63,7 +63,7 @@ class _PendingDeviceInvocation {
   final String registrationHandle;
   final PluginDeviceOperation operation;
   final Completer<Map<String, dynamic>> completer;
-  final Timer timer;
+  final Timer? timer;
 }
 
 class PluginHttpError implements Exception {
@@ -181,6 +181,8 @@ class PluginManager {
         handle,
         operation,
         payload,
+        protocolBoundsConnectStartup:
+            operation == PluginDeviceOperation.connect,
       ),
       runtimeAlive: (driver) =>
           (_pluginGenerations[driver.pluginId] == driver.generation &&
@@ -290,7 +292,7 @@ class PluginManager {
       _pluginBridgeTokens.clear();
       _pluginIdsByBridgeToken.clear();
       for (final pending in _pendingDeviceInvocations.values) {
-        pending.timer.cancel();
+        pending.timer?.cancel();
         if (!pending.completer.isCompleted) {
           pending.completer.completeError(
             const PluginDeviceException('Plugin manager disposed'),
@@ -1482,8 +1484,9 @@ class PluginManager {
     int generation,
     String registrationHandle,
     PluginDeviceOperation operation,
-    Map<String, dynamic> payload,
-  ) {
+    Map<String, dynamic> payload, {
+    bool protocolBoundsConnectStartup = false,
+  }) {
     final isCurrent =
         _lifecycle == PluginManagerLifecycle.active &&
         generation == _pluginGenerations[pluginId] &&
@@ -1523,7 +1526,7 @@ class PluginManager {
           connectInvocationId,
         );
         final pending = _pendingDeviceInvocations.remove(connectInvocationId);
-        pending?.timer.cancel();
+        pending?.timer?.cancel();
         pending?.completer.completeError(
           const PluginDeviceException(
             'Plugin device connect retired',
@@ -1535,28 +1538,33 @@ class PluginManager {
     final invocationId =
         '${pluginId}_${generation}_device_${++_deviceInvocationSequence}';
     final completer = Completer<Map<String, dynamic>>();
-    final timer = Timer(deviceInvocationTimeout, () {
-      final pending = _pendingDeviceInvocations.remove(invocationId);
-      if (pending?.operation == PluginDeviceOperation.connect) {
-        final key = (
-          pending!.pluginId,
-          pending.generation,
-          pending.registrationHandle,
-        );
-        _timedOutDeviceConnects
-            .putIfAbsent(key, () => <String>{})
-            .add(invocationId);
-        _transportService.retireDeviceConnect(
-          pending.pluginId,
-          pending.generation,
-          pending.registrationHandle,
-          invocationId,
-        );
-      }
-      pending?.completer.completeError(
-        const PluginDeviceException('Plugin device invocation timed out'),
-      );
-    });
+    final protocolOwnsStartup =
+        protocolBoundsConnectStartup &&
+        operation == PluginDeviceOperation.connect;
+    final timer = protocolOwnsStartup
+        ? null
+        : Timer(deviceInvocationTimeout, () {
+            final pending = _pendingDeviceInvocations.remove(invocationId);
+            if (pending?.operation == PluginDeviceOperation.connect) {
+              final key = (
+                pending!.pluginId,
+                pending.generation,
+                pending.registrationHandle,
+              );
+              _timedOutDeviceConnects
+                  .putIfAbsent(key, () => <String>{})
+                  .add(invocationId);
+              _transportService.retireDeviceConnect(
+                pending.pluginId,
+                pending.generation,
+                pending.registrationHandle,
+                invocationId,
+              );
+            }
+            pending?.completer.completeError(
+              const PluginDeviceException('Plugin device invocation timed out'),
+            );
+          });
     _pendingDeviceInvocations[invocationId] = _PendingDeviceInvocation(
       pluginId: pluginId,
       generation: generation,
@@ -1582,7 +1590,7 @@ class PluginManager {
       while (js.executePendingJob() > 0) {}
     } catch (error) {
       final pending = _pendingDeviceInvocations.remove(invocationId);
-      pending?.timer.cancel();
+      pending?.timer?.cancel();
       if (operation == PluginDeviceOperation.connect) {
         _deviceConnectAttempts.remove(invocationId);
       }
@@ -1651,7 +1659,7 @@ class PluginManager {
       return;
     }
     _pendingDeviceInvocations.remove(invocationId);
-    pending.timer.cancel();
+    pending.timer?.cancel();
     final error = payload['error'];
     if (error != null) {
       pending.completer.completeError(PluginDeviceException(error.toString()));
@@ -1695,7 +1703,7 @@ class PluginManager {
         .toList();
     for (final id in ids) {
       final pending = _pendingDeviceInvocations.remove(id)!;
-      pending.timer.cancel();
+      pending.timer?.cancel();
       if (!pending.completer.isCompleted) {
         pending.completer.completeError(PluginDeviceException(reason));
       }

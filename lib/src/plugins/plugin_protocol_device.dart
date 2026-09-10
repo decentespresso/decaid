@@ -101,10 +101,16 @@ abstract class PluginProtocolDevice extends PluginDeviceAdapter {
         await invoke(PluginDeviceOperation.connect, {'session': session});
         await readiness;
       }();
-      await Future.any([
-        initialization,
-        cancelled.future,
+      final cancelledDuringStartup = await Future.any<bool>([
+        initialization.then((_) => false),
+        cancelled.future.then((_) => true),
       ]).timeout(invocationTimeout);
+      if (cancelledDuringStartup) {
+        throw const PluginDeviceException(
+          'Plugin device connect cancelled',
+          code: 'stale_session',
+        );
+      }
       checkSession(session);
       onReady?.call();
       _state.add(ConnectionState.connected);

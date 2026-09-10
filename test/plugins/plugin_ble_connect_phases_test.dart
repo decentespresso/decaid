@@ -345,6 +345,11 @@ void main() {
       expect(transport.disconnectCalls, greaterThanOrEqualTo(1));
       await Future<void>.delayed(Duration.zero);
       expect(manager.bleService.registry.activeBindingCount, 0);
+      expect(
+        manager.deviceConnectAttemptCount,
+        0,
+        reason: 'cleanup must not leave a pending BLE connect attempt',
+      );
     },
   );
 
