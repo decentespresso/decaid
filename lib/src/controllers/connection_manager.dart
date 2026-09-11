@@ -1156,6 +1156,7 @@ class ConnectionManager {
       scales: scales,
       preferredMachineId: preferredMachineId,
       preferredScaleId: preferredScaleId,
+      dosingScaleId: settingsController.dosingScaleId,
       scanReport: scanReport,
     );
     _selectionSession = selectionSession;

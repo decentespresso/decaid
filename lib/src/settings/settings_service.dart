@@ -33,6 +33,12 @@ abstract class SettingsService {
   Future<String?> preferredMachineId();
   Future<void> setPreferredMachineId(String? machineId);
   Future<String?> preferredScaleId();
+
+  /// The scale reserved for weighing the dose. Null when there is only
+  /// one scale, which is the ordinary case.
+  Future<String?> dosingScaleId();
+
+  Future<void> setDosingScaleId(String? scaleId);
   Future<void> setPreferredScaleId(String? scaleId);
   Future<String> defaultSkinId();
   Future<void> setDefaultSkinId(String skinId);
@@ -248,6 +254,20 @@ class SharedPreferencesSettingsService extends SettingsService {
       await prefs.remove(SettingsKeys.preferredScaleId.name);
     } else {
       await prefs.setString(SettingsKeys.preferredScaleId.name, scaleId);
+    }
+  }
+
+  @override
+  Future<String?> dosingScaleId() async {
+    return await prefs.getString(SettingsKeys.dosingScaleId.name);
+  }
+
+  @override
+  Future<void> setDosingScaleId(String? scaleId) async {
+    if (scaleId == null) {
+      await prefs.remove(SettingsKeys.dosingScaleId.name);
+    } else {
+      await prefs.setString(SettingsKeys.dosingScaleId.name, scaleId);
     }
   }
 
@@ -536,6 +556,7 @@ enum SettingsKeys {
   stopHotWaterAtWeight,
   preferredMachineId,
   preferredScaleId,
+  dosingScaleId,
   defaultSkinId,
   automaticUpdateCheck,
   updateChannel,
