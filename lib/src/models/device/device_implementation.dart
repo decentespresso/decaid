@@ -16,6 +16,7 @@ enum DeviceImplementation {
   hiroiaScale,
   atomheartScale,
   weighMasterScale,
+  timemoreScale,
   decentTemp,
   difluidR2Sensor,
   debugPort,
