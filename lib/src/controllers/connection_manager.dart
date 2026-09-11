@@ -16,6 +16,7 @@ import 'package:reaprime/src/controllers/connection/scan_report_builder.dart';
 import 'package:reaprime/src/controllers/connection/status_publisher.dart';
 import 'package:reaprime/src/controllers/connection_error.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
+import 'package:reaprime/src/controllers/dosing_scale_controller.dart';
 import 'package:reaprime/src/controllers/remembered_devices_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/models/device/bengle_interface.dart';
@@ -118,6 +119,10 @@ class ConnectionManager {
   final DeviceScanner deviceScanner;
   final De1Controller de1Controller;
   final ScaleController scaleController;
+
+  /// Optional: present only when a scale has been reserved for weighing
+  /// the dose. Nothing in the brewing path reads it.
+  final DosingScaleController? dosingScaleController;
   final SettingsController settingsController;
 
   final RememberedDevicesController? rememberedDevices;
@@ -259,6 +264,7 @@ class ConnectionManager {
     required this.deviceScanner,
     required this.de1Controller,
     required this.scaleController,
+    this.dosingScaleController,
     required this.settingsController,
     this.rememberedDevices,
     Duration deviceAttachSettleDelay = const Duration(milliseconds: 500),
@@ -1572,10 +1578,41 @@ class ConnectionManager {
     ScanReportBuilder scanReport,
   ) async {
     if (machine is BengleInterface) {
+      // The integrated scale takes the brewing slot and external discovery is
+      // skipped for the duration, so there is nothing to weigh a dose on.
       await _attachBengleVirtualScale(machine);
       return;
     }
-    await _applyScalePolicy(scales, preferredScaleId, scanReport);
+    final dosingScaleId = settingsController.dosingScaleId;
+    if (dosingScaleId == null) {
+      await _applyScalePolicy(scales, preferredScaleId, scanReport);
+      return;
+    }
+    final brewScales = scales
+        .where((scale) => scale.deviceId != dosingScaleId)
+        .toList();
+    final dosing = scales
+        .where((scale) => scale.deviceId == dosingScaleId)
+        .firstOrNull;
+    await _applyScalePolicy(brewScales, preferredScaleId, scanReport);
+    if (dosing != null) {
+      await _attachDosingScale(dosing);
+    }
+  }
+
+  Future<void> _attachDosingScale(Scale scale) async {
+    final controller = dosingScaleController;
+    if (controller == null) return;
+    if (controller.currentConnectionState == ConnectionState.connected &&
+        controller.lastConnectedDeviceId == scale.deviceId) {
+      return;
+    }
+    try {
+      await controller.connectToScale(scale);
+      _log.info('Dosing scale connected: ${scale.deviceId}');
+    } catch (e, st) {
+      _log.warning('Failed to connect dosing scale ${scale.deviceId}', e, st);
+    }
   }
 
   Future<void> _attachBengleVirtualScale(BengleInterface machine) async {

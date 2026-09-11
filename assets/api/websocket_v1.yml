@@ -79,6 +79,21 @@ channels:
         $ref: '#/components/messages/ScaleSnapshot'
       scaleStatusMessage:
         $ref: '#/components/messages/ScaleStatus'
+  DosingScaleSnapshot:
+    description: >
+      Weight from the scale reserved for weighing the dose, when one is
+      configured. Separate from `ws/v1/scale/snapshot`, which stays the
+      brewing scale: nothing about a shot is measured here, and a client
+      that does not weigh doses can ignore this channel entirely. Frames
+      and status behave as on the brewing channel; the socket is held open
+      across connect/disconnect cycles. No dosing scale configured means
+      the channel stays open reporting `{"status":"disconnected"}`.
+    address: ws/v1/scale/dosing/snapshot
+    messages:
+      dosingScaleSnapshotMessage:
+        $ref: '#/components/messages/ScaleSnapshot'
+      dosingScaleStatusMessage:
+        $ref: '#/components/messages/ScaleStatus'
   MachineRaw:
     description: >
       Opening the socket before a machine connects does not close it. It remains

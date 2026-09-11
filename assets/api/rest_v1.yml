@@ -1071,6 +1071,29 @@ paths:
           description: No machine connected or machine write queue full
 
   # Scale API
+  /api/v1/scale/dosing/tare:
+    put:
+      summary: Tare the dosing scale
+      description: |
+        Tares the scale reserved for weighing the dose, if one is
+        configured (`dosingScaleId`). Separate from
+        `PUT /api/v1/scale/tare`, which tares the brewing scale and is
+        unchanged by this endpoint's existence.
+
+        The shot-lockout that `blockTareDuringShot` applies to the
+        brewing scale does not apply here: no part of a shot reads this
+        scale, so taring it mid-pour cannot affect stop-at-weight.
+      tags: [Scale]
+      responses:
+        "200":
+          description: Dosing scale tared
+        "404":
+          description: Unknown command
+        "500":
+          description: >
+            No dosing scale connected, or the scale rejected the command.
+            An unsupported operation returns `code: unsupported_operation`.
+
   /api/v1/scale/tare:
     put:
       summary: Tare Scale

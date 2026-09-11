@@ -81,11 +81,37 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                   _buildSection(
                     title: 'Auto-connect Scale',
                     icon: Icons.scale_outlined,
-                    devices: _scales,
+                    devices: _scales
+                        .where(
+                          (d) =>
+                              d.deviceId !=
+                              widget.settingsController.dosingScaleId,
+                        )
+                        .toList(),
                     selectedId: widget.settingsController.preferredScaleId,
                     emptyLabel: 'scales',
                     onSelected: (id) async {
                       await widget.settingsController.setPreferredScaleId(id);
+                      if (mounted) _showSavedSnackbar();
+                    },
+                  ),
+                  // A second scale for weighing the dose. The one chosen here
+                  // is never picked for brewing, which is what keeps the shot
+                  // on the scale under the cup.
+                  _buildSection(
+                    title: 'Dosing Scale',
+                    icon: Icons.balance_outlined,
+                    devices: _scales
+                        .where(
+                          (d) =>
+                              d.deviceId !=
+                              widget.settingsController.preferredScaleId,
+                        )
+                        .toList(),
+                    selectedId: widget.settingsController.dosingScaleId,
+                    emptyLabel: 'scales',
+                    onSelected: (id) async {
+                      await widget.settingsController.setDosingScaleId(id);
                       if (mounted) _showSavedSnackbar();
                     },
                   ),

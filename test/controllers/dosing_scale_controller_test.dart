@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/connection/connection_selection_session.dart';
+import 'package:reaprime/src/controllers/connection/policy_resolver.dart';
 import 'package:reaprime/src/controllers/connection/scan_report_builder.dart';
 import 'package:reaprime/src/controllers/dosing_scale_controller.dart';
 import 'package:reaprime/src/models/device/device.dart';
@@ -132,6 +133,71 @@ void main() {
       session.invalidate();
 
       expect(session.acceptsScale(one), isFalse);
+    });
+  });
+
+  // The list the brewing policy is given is the real decision point --
+  // `acceptsScale` is API surface nothing calls. These cover the split the
+  // connection manager makes before handing that list over.
+  group('the list brewing is offered', () {
+    List<Scale> brewCandidates(List<Scale> scales, String? dosingScaleId) =>
+        dosingScaleId == null
+        ? scales
+        : scales.where((s) => s.deviceId != dosingScaleId).toList();
+
+    test('one scale each: brewing sees only its own', () {
+      final brew = _FakeScale('brew-1');
+      final dosing = _FakeScale('dosing-1');
+      final offered = brewCandidates([brew, dosing], 'dosing-1');
+
+      expect(offered, [brew]);
+      final action = resolveScalePolicy(
+        scales: offered,
+        preferredScaleId: null,
+      );
+      expect(action, isA<ConnectScaleAction>());
+      expect((action as ConnectScaleAction).scale.deviceId, 'brew-1');
+    });
+
+    test('without the split, two scales would ask the user to choose', () {
+      final brew = _FakeScale('brew-1');
+      final dosing = _FakeScale('dosing-1');
+      final action = resolveScalePolicy(
+        scales: [brew, dosing],
+        preferredScaleId: null,
+      );
+      expect(action, isA<ScalePickerAction>());
+    });
+
+    test('no dosing scale set leaves the list untouched', () {
+      final one = _FakeScale('scale-1');
+      final two = _FakeScale('scale-2');
+      expect(brewCandidates([one, two], null), [one, two]);
+    });
+
+    test('only the dosing scale in range leaves brewing with nothing', () {
+      final dosing = _FakeScale('dosing-1');
+      final offered = brewCandidates([dosing], 'dosing-1');
+
+      expect(offered, isEmpty);
+      expect(
+        resolveScalePolicy(scales: offered, preferredScaleId: null),
+        isA<NoScaleAction>(),
+      );
+    });
+
+    test('a preferred brew scale still wins among the rest', () {
+      final brew = _FakeScale('brew-1');
+      final other = _FakeScale('brew-2');
+      final dosing = _FakeScale('dosing-1');
+      final offered = brewCandidates([brew, other, dosing], 'dosing-1');
+
+      final action = resolveScalePolicy(
+        scales: offered,
+        preferredScaleId: 'brew-2',
+      );
+      expect(action, isA<ConnectScaleAction>());
+      expect((action as ConnectScaleAction).scale.deviceId, 'brew-2');
     });
   });
 
