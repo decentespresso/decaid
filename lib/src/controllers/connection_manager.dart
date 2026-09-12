@@ -1595,20 +1595,34 @@ class ConnectionManager {
         .where((scale) => scale.deviceId == dosingScaleId)
         .firstOrNull;
     await _applyScalePolicy(brewScales, preferredScaleId, scanReport);
-    if (dosing != null) {
-      await _attachDosingScale(dosing);
+    if (dosing == null) {
+      _log.fine(
+        'Dosing scale $dosingScaleId not among the ${scales.length} scales '
+        'this scan found; nothing to attach',
+      );
+      return;
     }
+    await _attachDosingScale(dosing);
   }
 
   Future<void> _attachDosingScale(Scale scale) async {
     final controller = dosingScaleController;
-    if (controller == null) return;
-    if (controller.currentConnectionState == ConnectionState.connected &&
-        controller.lastConnectedDeviceId == scale.deviceId) {
+    if (controller == null) {
+      _log.fine('No dosing scale controller wired; skipping attach');
       return;
     }
+    if (controller.currentConnectionState == ConnectionState.connected &&
+        controller.lastConnectedDeviceId == scale.deviceId) {
+      _log.fine('Dosing scale ${scale.deviceId} already connected');
+      return;
+    }
+    _log.info('Connecting dosing scale ${scale.deviceId}');
     try {
-      await controller.connectToScale(scale);
+      // Counted as connection work like the brewing connect is, so a scan
+      // cannot start on top of it, and bounded by the same timeout.
+      await _trackConnectionWork(
+        () => controller.connectToScale(scale),
+      ).timeout(_connectTimeout);
       _log.info('Dosing scale connected: ${scale.deviceId}');
     } catch (e, st) {
       _log.warning('Failed to connect dosing scale ${scale.deviceId}', e, st);

@@ -38,11 +38,31 @@ class DosingScaleController {
 
   Future<void> connectToScale(Scale scale) async {
     await _releaseCurrent(keeping: scale.deviceId);
+    _scaleSnapshot = scale.currentSnapshot.listen(_processSnapshot);
+    try {
+      await scale.onConnect();
+    } catch (e) {
+      log.warning('Dosing scale failed to connect (onConnect threw)', e);
+      _scaleSnapshot?.cancel();
+      _scaleSnapshot = null;
+      _connectionController.add(ConnectionState.disconnected);
+      rethrow;
+    }
+    final state = await scale.connectionState.first;
+    if (state != ConnectionState.connected) {
+      log.warning('Dosing scale failed to connect (state: ${state.name})');
+      _scaleSnapshot?.cancel();
+      _scaleSnapshot = null;
+      _connectionController.add(ConnectionState.disconnected);
+      throw StateError('Dosing scale failed to connect (state: ${state.name})');
+    }
     _scale = scale;
     _lastConnectedDeviceId = scale.deviceId;
-    _scaleSnapshot = scale.currentSnapshot.listen(_processSnapshot);
     _scaleConnection = scale.connectionState.listen(_processConnection);
-    await scale.onConnect();
+    if (scale is ScaleSnapshotHandoff) {
+      (scale as ScaleSnapshotHandoff).activateSnapshots();
+    }
+    _connectionController.add(ConnectionState.connected);
   }
 
   Future<void> adoptScale(Scale scale) async {
