@@ -70,11 +70,7 @@ class _FakeScale extends Scale {
 
   void emitWeight(double grams) {
     _snapshots.add(
-      ScaleSnapshot(
-        timestamp: DateTime.now(),
-        weight: grams,
-        batteryLevel: 80,
-      ),
+      ScaleSnapshot(timestamp: DateTime.now(), weight: grams, batteryLevel: 80),
     );
   }
 
