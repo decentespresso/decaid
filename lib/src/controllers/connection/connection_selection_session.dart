@@ -11,6 +11,11 @@ class ConnectionSelectionSession {
   final List<Scale> scales;
   final String? preferredMachineId;
   final String? preferredScaleId;
+
+  /// The scale reserved for weighing the dose, if one is set. Brewing
+  /// never selects it: with two scales in range this is the only thing
+  /// that says which of them the shot is weighed on.
+  final String? dosingScaleId;
   final ScanReportBuilder scanReport;
 
   ConnectionSelectionSessionState _state =
@@ -21,6 +26,7 @@ class ConnectionSelectionSession {
     required List<Scale> scales,
     required this.preferredMachineId,
     required this.preferredScaleId,
+    this.dosingScaleId,
     required this.scanReport,
   }) : machines = List.unmodifiable(machines),
        scales = List.unmodifiable(scales);
@@ -34,7 +40,11 @@ class ConnectionSelectionSession {
 
   bool acceptsScale(Scale scale) =>
       isActive &&
+      !isDosingScale(scale.deviceId) &&
       scales.any((candidate) => candidate.deviceId == scale.deviceId);
+
+  bool isDosingScale(String deviceId) =>
+      dosingScaleId != null && dosingScaleId == deviceId;
 
   ScanReport? finish({
     required ScanTerminationReason reason,

@@ -26,6 +26,7 @@ import 'package:reaprime/src/controllers/steam_sequencer.dart';
 import 'package:reaprime/src/controllers/connection_error.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
+import 'package:reaprime/src/controllers/dosing_scale_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/remembered_device_sources.dart';
 import 'package:reaprime/src/controllers/remembered_devices_controller.dart';
@@ -411,6 +412,8 @@ void main(List<String> args) async {
   final de1Controller = De1Controller(controller: deviceController)
     ..defaultWorkflow = workflowController.currentWorkflow;
   final scaleController = ScaleController();
+  // Only exists once a scale has been reserved for weighing the dose.
+  final dosingScaleController = DosingScaleController();
   final sensorController = SensorController(controller: deviceController);
 
   final rememberedDevicesController = RememberedDevicesController(
@@ -427,6 +430,7 @@ void main(List<String> args) async {
     deviceScanner: deviceController,
     de1Controller: de1Controller,
     scaleController: scaleController,
+    dosingScaleController: dosingScaleController,
     settingsController: settingsController,
     rememberedDevices: rememberedDevicesController,
   );
@@ -620,6 +624,7 @@ void main(List<String> args) async {
       deviceController,
       de1Controller,
       scaleController,
+      dosingScaleController,
       settingsController,
       sensorController,
       workflowController,

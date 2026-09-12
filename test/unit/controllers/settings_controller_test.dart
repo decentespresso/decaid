@@ -19,6 +19,7 @@ class _SpySettingsService implements SettingsService {
   final Map<String, bool?> _featureFlags = {};
   String? _preferredMachineId;
   String? _preferredScaleId;
+  String? _dosingScaleId;
 
   @override
   Future<Set<SimulatedDevicesTypes>> simulateDevices() async =>
@@ -71,6 +72,11 @@ class _SpySettingsService implements SettingsService {
   @override
   Future<void> setPreferredScaleId(String? scaleId) async =>
       _preferredScaleId = scaleId;
+  @override
+  Future<String?> dosingScaleId() async => _dosingScaleId;
+  @override
+  Future<void> setDosingScaleId(String? scaleId) async =>
+      _dosingScaleId = scaleId;
 
   @override
   dynamic noSuchMethod(Invocation invocation) {

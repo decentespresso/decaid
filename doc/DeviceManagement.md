@@ -664,6 +664,7 @@ This is the safety net. Device implementations should ALSO catch
 Device preferences are stored via `SettingsController`:
 - `preferredMachineId` — auto-set on successful machine connection
 - `preferredScaleId` — auto-set on successful scale connection
+- `dosingScaleId` — chosen by hand in device management; never auto-set
 - Configurable in Settings → Device Management
 
 Identity remains per transport. BLE and USB IDs for the same physical machine
@@ -829,6 +830,20 @@ of vanishing. Cross-transport (BLE/USB/WiFi) by construction.
 When a Bengle is the connected machine, its integrated scale is auto-attached
 to `ScaleController` as a virtual `BengleVirtualScale`. The integrated scale
 always wins on Bengle: external scale scanning is skipped entirely, and
+## Dosing scale
+
+A second scale can be reserved for weighing the dose. The scale named by
+`dosingScaleId` is removed from the list the brewing scale policy is offered,
+so a shot is always weighed on the other one, and is connected instead to
+`DosingScaleController` — a separate controller with its own connection and
+snapshot stream that no part of a shot reads. Its weight is served on
+`ws/v1/scale/dosing/snapshot` and tared with `PUT /api/v1/scale/dosing/tare`;
+the brewing scale's own endpoints are unchanged.
+
+With no `dosingScaleId` set, scale selection behaves exactly as it did before
+the setting existed. A Bengle takes the brewing slot with its integrated
+scale and skips external discovery, so no dosing scale is connected then.
+
 `preferredScaleId` is ignored while a Bengle is connected. Multi-scale
 support (external scale alongside the integrated scale) is on the roadmap. The
 REST and WebSocket device inventories include the attached virtual scale even

@@ -117,6 +117,7 @@ Pre-stream responses are `400` for malformed input, `404` for an unknown artifac
 | Method | Path | Description | Handler |
 |--------|------|-------------|---------|
 | PUT | `/api/v1/scale/tare` | Tare the connected scale | `scale_handler.dart` |
+| PUT | `/api/v1/scale/dosing/tare` | Tare the dosing scale, when one is configured | `dosing_scale_handler.dart` |
 | PUT | `/api/v1/scale/timer/start` | Start scale timer | |
 | PUT | `/api/v1/scale/timer/stop` | Stop scale timer | |
 | PUT | `/api/v1/scale/timer/reset` | Reset scale timer | |
@@ -610,6 +611,7 @@ All WebSocket endpoints are on port 8080 at `/ws/v1/...`. See [`assets/api/webso
 | Path | Description | Data |
 |------|-------------|------|
 | `/ws/v1/machine/snapshot` | Machine state stream (~10Hz). Re-binds across a machine reconnect — see [Machine sockets re-bind](#machine-sockets-re-bind-across-a-reconnect). | Temps, pressures, flow, state |
+| `/ws/v1/scale/dosing/snapshot` | Weight from the scale reserved for weighing the dose, when one is configured. Never carries a shot: nothing in the brewing path reads this scale. Same frames and status behaviour as the brewing channel. | Weight, battery |
 | `/ws/v1/scale/snapshot` | Scale weight/flow stream. Device-provided flow is passed through; weight-only scales use Decaid's estimator. Stays open across scale disconnects; emits `{"status":"connected"\|"disconnected"}` frames on state change. | Weight, flow, battery |
 | `/ws/v1/machine/shotSettings` | Shot settings changes. Re-binds across a machine reconnect. | Target temp, volume, weight |
 | `/ws/v1/machine/waterLevels` | Water level changes. Re-binds across a machine reconnect. | Current/limit levels |

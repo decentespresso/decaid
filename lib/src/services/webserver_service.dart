@@ -11,6 +11,7 @@ import 'package:reaprime/src/controllers/remembered_devices_controller.dart';
 import 'package:reaprime/src/models/device/remembered_device.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/controllers/profile_controller.dart';
+import 'package:reaprime/src/controllers/dosing_scale_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/controllers/sensor_controller.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
@@ -106,6 +107,7 @@ import 'webserver/feedback_handler.dart';
 
 part 'webserver/de1handler.dart';
 part 'webserver/scale_handler.dart';
+part 'webserver/dosing_scale_handler.dart';
 part 'webserver/devices_handler.dart';
 part 'webserver/settings_handler.dart';
 part 'webserver/sensors_handler.dart';
@@ -137,6 +139,7 @@ Future<void> startWebServer(
   DeviceController deviceController,
   De1Controller de1Controller,
   ScaleController scaleController,
+  DosingScaleController? dosingScaleController,
   SettingsController settingsController,
   SensorController sensorController,
   WorkflowController workflowController,
@@ -177,6 +180,9 @@ Future<void> startWebServer(
     de1Controller: de1Controller,
     settingsController: settingsController,
   );
+  final dosingScaleHandler = dosingScaleController == null
+      ? null
+      : DosingScaleHandler(controller: dosingScaleController);
   final deviceHandler = DevicesHandler(
     controller: deviceController,
     batteryController: batteryController,
@@ -352,6 +358,7 @@ Future<void> startWebServer(
       de1Handler,
       firmwareHandler,
       scaleHandler,
+      dosingScaleHandler,
       settingsHandler,
       sensorsHandler,
       workflowHandler,
@@ -394,6 +401,7 @@ Handler _init(
   De1Handler de1Handler,
   FirmwareHandler firmwareHandler,
   ScaleHandler scaleHandler,
+  DosingScaleHandler? dosingScaleHandler,
   SettingsHandler settingsHandler,
   SensorsHandler sensorsHandler,
   WorkflowHandler workflowHandler,
@@ -431,6 +439,7 @@ Handler _init(
   de1Handler.addRoutes(app);
   firmwareHandler.addRoutes(app);
   scaleHandler.addRoutes(app);
+  dosingScaleHandler?.addRoutes(app);
   settingsHandler.addRoutes(app);
   sensorsHandler.addRoutes(app);
   workflowHandler.addRoutes(app);
