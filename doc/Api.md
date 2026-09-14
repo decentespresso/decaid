@@ -71,8 +71,9 @@ For browser clients on a different origin, `ETag` is exposed via `Access-Control
 | Method | Path | Description | Handler |
 |--------|------|-------------|---------|
 | GET | `/api/v1/machine/info` | Machine model, firmware, features | `de1handler.dart` |
-| GET | `/api/v1/machine/state` | Current machine state + substate. The steam substates `pausedSteam` and `puffing` report as themselves; both used to report as `idle` | |
-| PUT | `/api/v1/machine/state/{newState}` | Request state change (`idle`, `sleep`, `espresso`, …) | |
+| GET | `/api/v1/machine/state` | Current machine state + substate, plus the captured `deviceId` and `connectionGeneration` used by guarded actions. The steam substates `pausedSteam` and `puffing` report as themselves; both used to report as `idle` | `de1handler.dart` |
+| GET | `/api/v1/scale/connections` | Primary scale connection identity (`deviceId`, opaque `connectionId`, and `selectionId`), or `null` when unavailable | `de1handler.dart` |
+| PUT | `/api/v1/machine/state/{newState}` | Request state change (`idle`, `sleep`, `espresso`, …). `guarded: true` accepts only an identity-fenced idle-to-espresso start or espresso-to-idle stop; stale sources return 409 and non-primary roles return 400. Malformed JSON or a non-boolean `guarded` value returns 400. Bodies without `guarded`, with `guarded: false`, and bodyless requests retain legacy behavior | `de1handler.dart` |
 | GET | `/api/v1/machine/settings` | DE1 machine settings (temps, flows) | |
 | POST | `/api/v1/machine/settings` | Update machine settings (one grouped, serialized device write per request) | |
 | POST | `/api/v1/machine/shotSettings` | Update shot settings (steam temp, hot water, target volume, group temp) | |

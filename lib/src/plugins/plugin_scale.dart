@@ -1,15 +1,21 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:clock/clock.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/scale.dart';
+import 'package:rxdart/rxdart.dart';
 
 import 'plugin_device_contract.dart';
 import 'plugin_manifest.dart';
 import 'plugin_protocol_device.dart';
 
 class PluginScale extends PluginProtocolDevice
-    implements Scale, ScaleSnapshotHandoff, DisconnectToSleepScale {
+    implements
+        Scale,
+        DeviceInformationCapable,
+        ScaleSnapshotHandoff,
+        DisconnectToSleepScale {
   final Set<PluginScaleCapability> capabilities;
   final StreamController<ScaleSnapshot> _snapshots =
       StreamController.broadcast();
@@ -17,6 +23,9 @@ class PluginScale extends PluginProtocolDevice
   Completer<void> _firstWeight = Completer<void>();
   bool _active = false;
   DateTime? _lastTimestamp;
+  final BehaviorSubject<DeviceInformation?> _information =
+      BehaviorSubject.seeded(null);
+  static const _maxMetadataPayloadBytes = 64 * 1024;
 
   PluginScale({
     required super.deviceId,
@@ -32,12 +41,17 @@ class PluginScale extends PluginProtocolDevice
   @override
   DeviceType get type => DeviceType.scale;
   @override
+  DeviceInformation? get currentDeviceInformation => _information.value;
+  @override
+  Stream<DeviceInformation?> get deviceInformation => _information.stream;
+  @override
   bool get disconnectsToSleep =>
       capabilities.contains(PluginScaleCapability.disconnectToSleep);
   @override
   Stream<ScaleSnapshot> get currentSnapshot => _snapshots.stream;
   @override
   void beginSamples() {
+    _clearInformation();
     _firstWeight = Completer<void>();
     _handoff.clear();
     _active = false;
@@ -46,6 +60,55 @@ class PluginScale extends PluginProtocolDevice
 
   @override
   Future<void> waitForReadiness() => _firstWeight.future;
+
+  void publishInfo(Map<String, dynamic> info, {String? session}) {
+    checkSession(session);
+    final firmwareVersion = info['firmwareVersion'];
+    final batteryLevel = info['batteryLevel'];
+    if (info.keys.any(
+          (key) => !const {'firmwareVersion', 'batteryLevel'}.contains(key),
+        ) ||
+        (firmwareVersion != null && firmwareVersion is! String) ||
+        (batteryLevel != null &&
+            (batteryLevel is! int ||
+                batteryLevel < 0 ||
+                batteryLevel > 100 ||
+                !capabilities.contains(PluginScaleCapability.battery)))) {
+      throw const PluginDeviceException(
+        'Invalid Scale metadata',
+        code: 'invalid_argument',
+      );
+    }
+    if (utf8.encode(jsonEncode(info)).length > _maxMetadataPayloadBytes) {
+      throw const PluginDeviceException(
+        'Plugin device metadata exceeds 64 KiB',
+        code: 'resource_limit',
+      );
+    }
+    final current = _information.value;
+    final information = DeviceInformation(
+      firmwareVersion: info.containsKey('firmwareVersion')
+          ? firmwareVersion as String?
+          : current?.firmwareVersion,
+      batteryLevel: info.containsKey('batteryLevel')
+          ? batteryLevel as int?
+          : current?.batteryLevel,
+    );
+    _information.add(information.isEmpty ? null : information);
+  }
+
+  void _clearInformation() {
+    if (!_information.isClosed && _information.value != null) {
+      _information.add(null);
+    }
+  }
+
+  @override
+  Future<void> disconnect() {
+    _clearInformation();
+    return super.disconnect();
+  }
+
   @override
   void activateSnapshots() {
     if (_active) return;
@@ -174,7 +237,9 @@ class PluginScale extends PluginProtocolDevice
   @override
   Future<void> dispose() async {
     _handoff.clear();
+    _clearInformation();
     await super.dispose();
     await _snapshots.close();
+    await _information.close();
   }
 }
