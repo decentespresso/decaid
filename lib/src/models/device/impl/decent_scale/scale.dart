@@ -217,6 +217,7 @@ class DecentScale
           }),
         );
       }
+      if (connectionAttempt != _connectionAttempt) return;
       _maintenanceTimer?.cancel();
       _notificationWatchdog?.cancel();
       _ticksSinceLastNotification = 0;
@@ -227,6 +228,7 @@ class DecentScale
       if (await _device.getConnectionState() != ConnectionState.connected) {
         throw const DeviceNotConnectedException.scale();
       }
+      if (connectionAttempt != _connectionAttempt) return;
       if (attempt != _profileAttempt) return;
       _connectionStateController.add(ConnectionState.connected);
       _startMaintenance();
@@ -235,8 +237,19 @@ class DecentScale
         Error.throwWithStackTrace(e, stackTrace);
       }
       _log.warning('Failed to initialize scale: $e');
-      await subscription?.cancel();
-      subscription = null;
+      final ownedSubscription = subscription;
+      if (ownedSubscription != null) {
+        await ownedSubscription.cancel();
+        if (connectionAttempt != _connectionAttempt) {
+          Error.throwWithStackTrace(e, stackTrace);
+        }
+        if (identical(subscription, ownedSubscription)) {
+          subscription = null;
+        }
+      }
+      if (connectionAttempt != _connectionAttempt) {
+        Error.throwWithStackTrace(e, stackTrace);
+      }
       _stopMaintenance();
       try {
         await _device.disconnect();
