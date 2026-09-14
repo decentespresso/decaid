@@ -1,5 +1,20 @@
 # Device Management in Decaid
 
+## Scale connection ownership
+
+ScaleController owns the single primary scale used by brewing and shot logic.
+Additional scales are runtime-only auxiliary sessions in the auxiliary scale
+registry. Auxiliary sessions have no persisted preference or Decaid role; an
+explicit API client selects a discovered device and supplies the auxiliary
+connection role. Primary automatic selection excludes reserved auxiliary IDs.
+Disconnect releases only that auxiliary reservation after transport cleanup.
+
+When a Bengle is primary, automatic external primary-scale selection remains
+disabled and the integrated Bengle scale remains the ScaleController scale.
+Explicit auxiliary discovery and connection still use the normal device scanner
+and may connect an external scale concurrently. Auxiliary snapshots and tare
+commands never enter ShotSequencer or stop-at-weight logic.
+
 This document explains how devices (DE1 machines, scales, sensors) are discovered, connected, and managed throughout the Decaid application lifecycle.
 Open the management page from Settings > Devices or from the dashboard.
 
@@ -1117,6 +1132,26 @@ Constraints:
   logout or successful account replacement clears the account's cached machine
   list and mappings.
 
+### Guarded plugin machine actions
+
+The REST machine-state route has an opt-in guarded body for plugin-owned
+primary scale controls. `GET /api/v1/scale/connections` supplies the primary
+scale's physical device ID and opaque connection and selection identities. A
+guarded espresso start requires the captured machine connection and
+generation, an idle snapshot, an inactive group-head controller, the same
+primary scale connection, and a non-full gateway. These preconditions are
+rechecked immediately before the queued write.
+
+A guarded espresso-to-idle stop requires the corresponding espresso snapshot
+and source identity. It goes directly through the machine request path so a
+full gateway or queued-start backpressure cannot delay the stop. The hardware
+request remains asynchronous. Every accepted idle stop advances a controller
+cancellation epoch, so an older queued guarded start cannot run after the
+stop. Non-primary source roles are rejected with 400. Auxiliary scale meaning
+is client-assigned and does not participate in this machine-action API.
+Legacy bodyless and
+ordinary unguarded requests retain their existing behavior.
+
 ### Hot water stop-at-weight
 
 **Files:** `lib/src/controllers/hot_water_sequencer.dart` (wiring),
@@ -1710,7 +1745,9 @@ without attempting protocol cleanup over a lost link.
 Plugin Sensors join the existing SensorController and REST/WebSocket APIs. Their
 public IDs include plugin, driver, and physical identity. Remembered plugin IDs
 are not reconstructed through native quick-connect: fresh discovery must establish
-current ownership. See `doc/Plugins.md` for the session-bound GATT contract.
+current ownership. A BLE plugin driver may keep up to 4 physical bindings active
+at once; each binding owns its own transport, session, publications, and teardown
+claim. See `doc/Plugins.md` for the session-bound GATT contract.
 
 ## Glossary
 

@@ -11,6 +11,10 @@ info:
 
     These channels provide live updates from the DE1 espresso machine, scale,
     sensors, and connected devices.
+
+    External sensor identifiers in the SensorSnapshot path are one URI path
+    component: clients percent-encode them once and the host decodes them once
+    at the sensor route boundary. Invalid UTF-8 is rejected with HTTP 400.
 x-admission-control:
   windowSeconds: 1
   globalOpenConnections: 128
@@ -79,6 +83,25 @@ channels:
         $ref: '#/components/messages/ScaleSnapshot'
       scaleStatusMessage:
         $ref: '#/components/messages/ScaleStatus'
+  ScaleSnapshotById:
+    description: >
+      Real-time snapshot stream for one connected primary or auxiliary scale.
+      The id is an opaque URI path component encoded once by the client. The
+      socket remains bound to that device id and is cleaned up when closed.
+      Both primary and auxiliary snapshots use the raw scale payload
+      (`batteryLevel`, `timerValue`, and `flow`); this addressed stream does
+      not enter shot state.
+    address: ws/v1/scales/{id}/snapshot
+    parameters:
+      id:
+        description: Opaque connected scale device id.
+        schema:
+          type: string
+    messages:
+      scaleSnapshotMessage:
+        $ref: '#/components/messages/AddressedScaleSnapshot'
+      scaleStatusMessage:
+        $ref: '#/components/messages/ScaleStatus'
   MachineRaw:
     description: >
       Opening the socket before a machine connects does not close it. It remains
@@ -125,7 +148,7 @@ channels:
     address: ws/v1/sensors/{id}/snapshot
     parameters:
       id:
-        description: Unique sensor identifier.
+        description: External sensor ID as one percent-encoded URI path component.
     messages:
       sensorSnapshotMessage:
         $ref: '#/components/messages/SensorSnapshot'
@@ -226,6 +249,10 @@ operations:
     action: receive
     channel:
       $ref: '#/channels/ScaleSnapshot'
+  scaleSnapshotById:
+    action: receive
+    channel:
+      $ref: '#/channels/ScaleSnapshotById'
   machineRawResponse:
     action: receive
     channel:
@@ -305,6 +332,11 @@ components:
       title: Scale Snapshot
       payload:
         $ref: '#/components/schemas/ScaleSnapshot'
+    AddressedScaleSnapshot:
+      name: AddressedScaleSnapshot
+      title: Addressed Scale Snapshot
+      payload:
+        $ref: '#/components/schemas/AddressedScaleSnapshot'
     ScaleStatus:
       name: ScaleStatus
       title: Scale connection status
@@ -526,6 +558,25 @@ components:
           type: integer
           nullable: true
           description: Timer elapsed time in milliseconds. Null if scale doesn't support timers or timer hasn't been started.
+    AddressedScaleSnapshot:
+      type: object
+      description: Raw snapshot emitted by an addressed primary or auxiliary scale stream.
+      required: [timestamp, weight, batteryLevel, timerValue, flow]
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        weight:
+          type: number
+        batteryLevel:
+          type: integer
+          nullable: true
+        timerValue:
+          type: integer
+          nullable: true
+        flow:
+          type: number
+          nullable: true
     ScaleStatus:
       type: object
       description: >
@@ -878,6 +929,11 @@ components:
             /api/v1/devices/forget endpoint. Availability does not imply command
             ownership; controller-owned devices may be inventory-only.
           example: true
+        connectionRole:
+          type: string
+          enum: [primary, auxiliary]
+          nullable: false
+          description: Present only for connected scale entries.
 
     DeviceConnectResult:
       type: object
@@ -902,6 +958,11 @@ components:
           type: string
           nullable: true
           description: Human-readable command error on non-successful outcomes.
+        connectionRole:
+          type: string
+          enum: [primary, auxiliary]
+          nullable: false
+          description: Present for successful scale connect outcomes.
 
     DevicesCommand:
       type: object
@@ -922,6 +983,11 @@ components:
             Controller-owned inventory devices such as Bengle's integrated
             virtual scale reject both commands because their lifecycle follows
             the machine.
+        connectionRole:
+          type: string
+          enum: [primary, auxiliary]
+          nullable: false
+          description: Optional local role for scale connect commands.
         connect:
           type: boolean
           description: Whether to scan first and automatically fill missing machine and scale slots without replacing connected devices (scan command only).
@@ -980,4 +1046,3 @@ components:
           minimum: 0
           maximum: 100
           description: Brightness value (required when command is setBrightness).
-

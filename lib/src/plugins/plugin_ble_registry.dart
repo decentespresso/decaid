@@ -102,6 +102,8 @@ class PluginBleClaim {
 }
 
 class PluginBleRegistry {
+  static const maxActiveBindingLimit = 4;
+
   final int activeBindingLimit;
   final Map<String, PluginBleDriver> _drivers = {};
   final Map<String, PluginBleClaim> _claims = {};
@@ -112,8 +114,13 @@ class PluginBleRegistry {
   bool _closed = false;
   bool _acceptingConnections = true;
 
-  PluginBleRegistry({this.activeBindingLimit = 1, bool initiallyReady = true}) {
-    if (activeBindingLimit < 1) throw ArgumentError.value(activeBindingLimit);
+  PluginBleRegistry({
+    this.activeBindingLimit = maxActiveBindingLimit,
+    bool initiallyReady = true,
+  }) {
+    if (activeBindingLimit < 1 || activeBindingLimit > maxActiveBindingLimit) {
+      throw ArgumentError.value(activeBindingLimit);
+    }
     if (initiallyReady) _ready.complete();
   }
 

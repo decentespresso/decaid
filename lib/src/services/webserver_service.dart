@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
+
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart' hide Router, Visibility, ConnectionState;
 import 'package:flutter/services.dart';
@@ -18,16 +19,19 @@ import 'package:reaprime/src/models/data/profile_record.dart';
 import 'package:reaprime/src/models/data/shot_state_event.dart';
 import 'package:reaprime/src/models/data/utils.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/scale_calibration.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/models/device/sensor.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
+import 'package:reaprime/src/plugins/plugin_protocol_device.dart';
 import 'package:reaprime/src/plugins/plugin_source.dart';
 import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/services/storage/hive_store_service.dart';
 import 'package:reaprime/src/services/webserver/json_response.dart';
+import 'package:reaprime/src/services/webserver/opaque_path_component.dart';
 import 'package:reaprime/src/services/webserver/bounded_request_body.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
@@ -62,8 +66,10 @@ import 'package:reaprime/src/webui_support/webui_storage.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
+
 import 'dart:convert';
 import 'dart:typed_data';
+
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/device/bengle_interface.dart';
@@ -84,6 +90,7 @@ import 'package:reaprime/src/services/account/proxy_token_service.dart';
 import 'package:reaprime/src/services/webserver/proxy_auth_middleware.dart';
 import 'package:reaprime/src/controllers/battery_controller.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
+import 'package:reaprime/src/controllers/auxiliary_scale_registry.dart';
 import 'package:reaprime/src/controllers/connection_error.dart';
 import 'package:reaprime/src/controllers/display_controller.dart';
 import 'package:reaprime/src/controllers/presence_controller.dart';
@@ -100,6 +107,7 @@ import 'package:reaprime/src/services/webserver/wifi_scale_handler.dart';
 import 'package:reaprime/src/services/wifi/wifi_scale_discovery_service.dart';
 import 'package:mime/mime.dart';
 import 'package:path/path.dart' as p;
+import 'package:uuid/uuid.dart';
 import 'package:reaprime/src/models/device/device.dart' as device;
 
 import 'webserver/feedback_handler.dart';
@@ -174,6 +182,7 @@ Future<void> startWebServer(
   );
   final scaleHandler = ScaleHandler(
     controller: scaleController,
+    auxiliaryScaleRegistry: connectionManager.auxiliaryScaleRegistry,
     de1Controller: de1Controller,
     settingsController: settingsController,
   );

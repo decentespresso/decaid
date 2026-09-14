@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:reaprime/src/controllers/connection_error.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
+import 'package:reaprime/src/controllers/auxiliary_scale_registry.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart' as dev;
 import 'package:reaprime/src/models/device/machine.dart';
@@ -140,8 +141,10 @@ class MockConnectionManager extends ConnectionManager {
   }
 
   @override
-  Future<ConnectionResult> connectScale(device_scale.Scale scale) async =>
-      const ConnectionResult.succeeded();
+  Future<ConnectionResult> connectScale(
+    device_scale.Scale scale, {
+    ScaleConnectionRole role = ScaleConnectionRole.primary,
+  }) async => const ConnectionResult.succeeded();
 
   @override
   Future<ConnectionResult> selectScale(device_scale.Scale scale) async {

@@ -5,6 +5,7 @@ class De1Handler {
   final De1Controller _controller;
   final ScaleController _scaleController;
   final WorkflowController _workflowController;
+  final String _scaleRuntimeIdentity = const Uuid().v4();
   final log = Logger("De1WebHandler");
 
   De1Handler({
@@ -20,6 +21,7 @@ class De1Handler {
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/machine/info', _infoHandler);
     app.get('/api/v1/machine/state', _stateHandler);
+    app.get('/api/v1/scale/connections', _scaleConnectionsHandler);
     app.put('/api/v1/machine/state/<newState>', _requestStateHandler);
     app.post('/api/v1/machine/profile', _profileHandler);
     app.options('/api/v1/machine/profile', (Request r) {
@@ -810,10 +812,68 @@ class De1Handler {
     });
   }
 
+  Future<Response> _scaleConnectionsHandler(Request request) async {
+    return jsonOk({
+      'primary': _scaleConnectionProjection(
+        role: 'primary',
+        generation: _scaleController.connectionGeneration,
+        state: _scaleController.currentConnectionState,
+        scale: _connectedPrimaryScaleOrNull(),
+      ),
+    });
+  }
+
+  Scale? _connectedPrimaryScaleOrNull() {
+    try {
+      if (_scaleController.currentConnectionState !=
+          device.ConnectionState.connected) {
+        return null;
+      }
+      return _scaleController.connectedScale();
+    } catch (_) {}
+    return null;
+  }
+
+  Map<String, String>? _scaleConnectionProjection({
+    required String role,
+    required int generation,
+    required device.ConnectionState state,
+    required Scale? scale,
+  }) {
+    if (state != device.ConnectionState.connected || scale == null) return null;
+    final connectionId = _scaleConnectionId(role, generation, scale);
+    if (connectionId == null) return null;
+    return {
+      'deviceId': scale.deviceId,
+      'connectionId': connectionId,
+      'selectionId': _scaleSelectionId(role, generation),
+    };
+  }
+
+  String _scaleSelectionId(String role, int generation) =>
+      '$_scaleRuntimeIdentity:$role:$generation';
+
+  String? _scaleConnectionId(String role, int generation, Scale scale) {
+    if (scale.implementation == DeviceImplementation.plugin) {
+      if (scale is! PluginProtocolDevice) return null;
+      return (scale as PluginProtocolDevice).connectionId;
+    }
+    return 'native:$_scaleRuntimeIdentity:$role:$generation';
+  }
+
   Future<Response> _stateHandler(Request request) async {
     return withDe1((De1Interface de1) async {
-      var snapshot = await de1.currentSnapshot.first;
-      return jsonOk(snapshot.toJson());
+      final generation = _controller.connectionGeneration;
+      final snapshot = await de1.currentSnapshot.first;
+      if (generation != _controller.connectionGeneration ||
+          !identical(de1, _controller.connectedDe1OrNull)) {
+        return jsonConflict({'error': 'Machine changed while reading state'});
+      }
+      return jsonOk({
+        ...snapshot.toJson(),
+        'deviceId': de1.deviceId,
+        'connectionGeneration': generation,
+      });
     });
   }
 
@@ -823,6 +883,34 @@ class De1Handler {
   ) async {
     return withDe1((de1) async {
       var requestState = MachineState.values.byName(newState);
+      final body = await readBoundedRequestBodyString(
+        request,
+        maxBytes: smallRequestBodyBytes,
+        timeout: smallRequestBodyTimeout,
+      );
+      final guarded = body.trim().isEmpty
+          ? null
+          : _parseGuardedAction(body, requestState);
+      if (guarded is _GuardedActionParseFailure) {
+        return jsonBadRequest({'error': guarded.message});
+      }
+      final action = guarded is _GuardedActionParseSuccess
+          ? guarded.action
+          : null;
+      if (action != null) {
+        if (requestState == MachineState.espresso &&
+            _settingsController.gatewayMode == GatewayMode.full) {
+          return _guardedActionRejected('full_gateway');
+        }
+        final accepted = await _controller.requestGuardedMachineState(
+          action,
+          sourceStillValid: () => _sourceStillValid(action.sourceScale),
+          startStillAllowed: () =>
+              _settingsController.gatewayMode != GatewayMode.full,
+        );
+        if (!accepted) return _guardedActionRejected('stale_precondition');
+        return jsonOk(null);
+      }
       final blockOnNoScale = _settingsController.blockOnNoScale;
       final scaleConnected =
           _scaleController.currentConnectionState ==
@@ -855,6 +943,122 @@ class De1Handler {
       return jsonOk(null);
     });
   }
+
+  _GuardedActionParseResult? _parseGuardedAction(
+    String body,
+    MachineState targetState,
+  ) {
+    final dynamic decoded;
+    try {
+      decoded = jsonDecode(body);
+    } catch (_) {
+      return const _GuardedActionParseFailure('Invalid JSON body');
+    }
+    if (decoded is! Map || !decoded.containsKey('guarded')) return null;
+    final guardedFlag = decoded['guarded'];
+    if (guardedFlag is! bool) {
+      return const _GuardedActionParseFailure('Invalid guarded flag');
+    }
+    if (!guardedFlag) return null;
+    final expectedMachineId = decoded['expectedMachineId'];
+    final expectedMachineGeneration = decoded['expectedMachineGeneration'];
+    final expectedState = decoded['expectedState'];
+    final requireInactiveGhc = decoded['requireInactiveGhc'];
+    final source = decoded['sourceScale'];
+    if (expectedMachineId is! String ||
+        expectedMachineId.isEmpty ||
+        expectedMachineGeneration is! int ||
+        expectedMachineGeneration < 0 ||
+        expectedState is! String ||
+        requireInactiveGhc is! bool ||
+        source is! Map) {
+      return const _GuardedActionParseFailure('Invalid guarded action');
+    }
+    final role = source['role'];
+    final deviceId = source['deviceId'];
+    final connectionId = source['connectionId'];
+    final selectionId = source['selectionId'];
+    if (role != 'primary' ||
+        deviceId is! String ||
+        deviceId.isEmpty ||
+        connectionId is! String ||
+        connectionId.isEmpty ||
+        selectionId is! String ||
+        selectionId.isEmpty) {
+      return const _GuardedActionParseFailure('Invalid sourceScale');
+    }
+    final expected = MachineState.values.where(
+      (state) => state.name == expectedState,
+    );
+    if (expected.length != 1 ||
+        (expected.single != MachineState.espresso &&
+            expected.single != MachineState.idle)) {
+      return const _GuardedActionParseFailure('Invalid machine state guard');
+    }
+    if ((targetState == MachineState.espresso &&
+            expected.single != MachineState.idle) ||
+        (targetState == MachineState.idle &&
+            expected.single != MachineState.espresso)) {
+      return const _GuardedActionParseFailure(
+        'Guarded machine state transition is not allowed',
+      );
+    }
+    if ((targetState == MachineState.espresso && requireInactiveGhc != true) ||
+        (targetState == MachineState.idle && requireInactiveGhc != false) ||
+        (targetState != MachineState.espresso &&
+            targetState != MachineState.idle)) {
+      return const _GuardedActionParseFailure('Invalid GHC guard');
+    }
+    return _GuardedActionParseSuccess(
+      GuardedMachineAction(
+        targetState: targetState,
+        expectedMachineId: expectedMachineId,
+        expectedMachineGeneration: expectedMachineGeneration,
+        expectedState: expected.single,
+        requireInactiveGhc: requireInactiveGhc,
+        sourceScale: GuardedScaleSource(
+          role: role,
+          deviceId: deviceId,
+          connectionId: connectionId,
+          selectionId: selectionId,
+        ),
+      ),
+    );
+  }
+
+  bool _sourceStillValid(GuardedScaleSource source) {
+    try {
+      if (source.role != 'primary') return false;
+      final controller = _scaleController;
+      if (controller.currentConnectionState !=
+              device.ConnectionState.connected ||
+          controller.lastConnectedDeviceId != source.deviceId) {
+        return false;
+      }
+      if (source.selectionId !=
+          _scaleSelectionId(source.role, controller.connectionGeneration)) {
+        return false;
+      }
+      final scale = controller.connectedScale();
+      final connectionId = _scaleConnectionId(
+        source.role,
+        controller.connectionGeneration,
+        scale,
+      );
+      if (connectionId == null || connectionId != source.connectionId) {
+        return false;
+      }
+    } catch (_) {
+      return false;
+    }
+    return true;
+  }
+
+  Response _guardedActionRejected(String reason) => jsonConflict({
+    'error': 'Guarded machine action rejected',
+    'type': 'guarded_action_rejected',
+    'reason': reason,
+  });
 
   Future<Response> _profileHandler(Request request) async {
     return withDe1((_) async {
@@ -990,4 +1194,20 @@ class De1Handler {
       },
     );
   }
+}
+
+sealed class _GuardedActionParseResult {
+  const _GuardedActionParseResult();
+}
+
+final class _GuardedActionParseFailure extends _GuardedActionParseResult {
+  const _GuardedActionParseFailure(this.message);
+
+  final String message;
+}
+
+final class _GuardedActionParseSuccess extends _GuardedActionParseResult {
+  const _GuardedActionParseSuccess(this.action);
+
+  final GuardedMachineAction action;
 }

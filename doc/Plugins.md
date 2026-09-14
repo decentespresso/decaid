@@ -166,6 +166,41 @@ function createPlugin(host) {
 }
 ```
 
+## Guarded machine actions
+
+Plugins that own the primary scale can use `GET /api/v1/scale/connections` to
+capture its current `deviceId`, opaque `connectionId`, and `selectionId`. The
+projection contains only the primary role in this single-device stage.
+
+Pass the captured identity together with a fresh machine state response when
+requesting a guarded transition:
+
+```json
+{
+  "guarded": true,
+  "expectedMachineId": "de1-serial-123",
+  "expectedMachineGeneration": 7,
+  "expectedState": "idle",
+  "requireInactiveGhc": true,
+  "sourceScale": {
+    "role": "primary",
+    "deviceId": "scale-1",
+    "connectionId": "plugin-session-9",
+    "selectionId": "runtime:primary:7"
+  }
+}
+```
+
+Use `PUT /api/v1/machine/state/espresso` for a guarded start and
+`PUT /api/v1/machine/state/idle` for a guarded stop. A start requires an idle
+machine and inactive group-head controller; a stop requires an espresso
+machine and bypasses the queued write path and full gateway start restriction.
+Both transitions recheck the machine, source identity, and gateway before the
+hardware request. A stale source is rejected with 409; a non-primary source is
+rejected with 400. Malformed
+nonempty JSON and a non-boolean `guarded` key are rejected with 400; bodyless,
+ordinary legacy JSON, and `guarded: false` requests keep legacy behavior.
+
 ## Host API
 
 The `host` object provides these methods:
@@ -361,11 +396,8 @@ const upload = await fetch("https://api.example.com/upload", {
 
 Manifest parsing accepts the separate `transport.ble` permission, `scale`
 driver type, Scale capabilities, and one `ble.match` declaration per plugin.
-This branch does not yet implement runtime BLE binding. Public non-BLE Scale
-registration is available as described below; end-to-end API and timing
-acceptance remain in progress.
-Accepting a declaration does not grant GATT access. See
-`doc/plans/issue-809-design.md` for the remaining implementation and tests.
+Runtime BLE binding and public non-BLE Scale registration are available as
+described below. Accepting a declaration does not grant GATT access.
 
 The matcher supports one case-insensitive `name` predicate (`exact`, `prefix`,
 or `contains`, 1-248 characters), and/or `serviceUuids` (1-64 UUIDs). It does not
@@ -411,8 +443,10 @@ function createPlugin(host) {
 }
 ```
 
-Each connect invocation receives a fresh context with `transport`,
-`publish(snapshot)`, and `reportDisconnected()`. Network `transport` uses the
+Each connect invocation receives a fresh context with `connectionId`,
+`transport`, `publish(snapshot)`, `publishInfo(info)`, and
+`reportDisconnected()`. `connectionId` is an opaque, read-only identity for
+that connection session; it is not GATT authority. Network `transport` uses the
 existing invocation-owned transport API and requires the corresponding network
 permission. Capture this context in protocol callbacks; do not look up a mutable
 current context when a delayed callback runs. The host rejects stale-session
@@ -430,6 +464,14 @@ omission or null means unknown, including in existing controller serialization.
 Optional finite `flow` and nonnegative integer `timerMs` require `flow` and
 `timerTelemetry` capabilities respectively. Battery requires `battery`.
 Arbitrary timestamps and unknown publication fields are rejected.
+
+`publishInfo({firmwareVersion, batteryLevel})` publishes connected-session
+metadata for Scale drivers only. `firmwareVersion` is an opaque string or
+`null`; `batteryLevel` is an integer from 0 through 100 or `null`. Unknown
+fields, invalid types, and Sensor metadata are rejected. Metadata is cleared on
+connect, disconnect, replacement, failure, unload, and stale-session cleanup;
+it is not included in device inventory. A non-null `batteryLevel` requires the
+Scale driver's `battery` capability.
 
 Declare optional commands in manifest `capabilities`: `tare` requires a `tare`
 handler; `timerControl` requires `startTimer`, `stopTimer`, and `resetTimer`;
@@ -781,6 +823,9 @@ existing REST/WebSocket paths. Each connection receives a fresh context:
 
 - `context.publish(snapshot)` and `context.reportDisconnected()` belong only to
   that connection. Retaining a context cannot authorize a replacement session.
+- Scale contexts also expose `connectionId` and `publishInfo(info)`; the ID is
+  session identity only, and metadata is connected-session state rather than
+  inventory data.
 - `context.gatt.discoverServices()` returns normalized 128-bit service UUIDs.
 - `read(service, characteristic)` returns base64 bytes.
 - `writeWithResponse(service, characteristic, base64)` and
@@ -812,7 +857,7 @@ is confirmed; a cleanup deadline alone cannot authorize another connection.
 Limits per session are 16 pending GATT operations, 8 subscriptions, 256 queued
 notification events / 64 KiB, and 16 KiB per read or write. Notification overflow
 retires the session rather than dropping protocol data silently. Production permits
-one active physical binding per plugin generation. Definitions and Sensor payloads
+up to 4 active physical bindings per plugin generation. Definitions and Sensor payloads
 retain the 64 KiB JSON limit. Bridge failures carry `code`, including
 `stale_session`, `permission_denied`, `resource_limit`, `attribute_unavailable`,
 `link_lost`, and `timeout`; other native BLE codes are preserved.

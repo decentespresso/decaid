@@ -25,6 +25,7 @@ import 'package:reaprime/src/controllers/hot_water_sequencer.dart';
 import 'package:reaprime/src/controllers/steam_sequencer.dart';
 import 'package:reaprime/src/controllers/connection_error.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
+import 'package:reaprime/src/controllers/auxiliary_scale_registry.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/remembered_device_sources.dart';
@@ -411,6 +412,7 @@ void main(List<String> args) async {
   final de1Controller = De1Controller(controller: deviceController)
     ..defaultWorkflow = workflowController.currentWorkflow;
   final scaleController = ScaleController();
+  final auxiliaryScaleRegistry = AuxiliaryScaleRegistry();
   final sensorController = SensorController(controller: deviceController);
 
   final rememberedDevicesController = RememberedDevicesController(
@@ -427,6 +429,7 @@ void main(List<String> args) async {
     deviceScanner: deviceController,
     de1Controller: de1Controller,
     scaleController: scaleController,
+    auxiliaryScaleRegistry: auxiliaryScaleRegistry,
     settingsController: settingsController,
     rememberedDevices: rememberedDevicesController,
   );
