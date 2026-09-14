@@ -1725,3 +1725,17 @@ current ownership. See `doc/Plugins.md` for the session-bound GATT contract.
 - **State Manager:** Orchestrator for machine state changes and related behaviors
 - **UUID:** Universally Unique Identifier, used to identify BLE services/devices
 - **Service Mapping:** Dictionary mapping UUIDs to device factory functions
+
+## Plugin device settings
+
+The native device-management page lists machines, scales, and sensors. A
+plugin device may expose an optional driver-declared HTTP settings endpoint.
+When the host validates that endpoint against the loaded plugin manifest and
+`api` permission, the page offers a settings action for that device. It opens
+the plugin-owned page with the exact public device ID and name, preserving
+per-physical-instance ownership and the plugin's existing persistence
+authority. Devices are removed from eligibility when their binding retires.
+
+The action uses the platform's in-app browser where supported and its normal
+fallback otherwise. A failed launch is shown in the native page. No native
+settings schema or duplicate persistence store is created.

@@ -7241,6 +7241,10 @@ components:
               type:
                 type: string
                 enum: [sensor, scale]
+              settingsEndpoint:
+                type: string
+                pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'
+                description: Optional declared HTTP endpoint used by native per-device settings UI. Requires the api permission and a matching HTTP entry in the manifest api list.
               capabilities:
                 type: array
                 uniqueItems: true

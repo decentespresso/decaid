@@ -374,6 +374,11 @@ Settings fields include: `gatewayMode`, `themeMode`, `logLevel`, `weightFlowMult
 | ANY | `/api/v1/plugins/:id/:endpoint` | Plugin HTTP endpoint; requires `api` and returns 403 without it | |
 | WS | `/ws/v1/plugins/:id/:endpoint` | Plugin WebSocket endpoint | |
 
+Plugin driver manifests may declare a `settingsEndpoint` that names a declared
+HTTP endpoint for the native per-device settings action. The host validates
+the endpoint and `api` permission; the plugin page remains responsible for
+per-device validation and persistence.
+
 Plugin setting updates use patch semantics for every field: an omitted field
 preserves the existing value, a field sent as `null` clears it, and a secure
 field sent as its returned `{ "isSet": true|false }` object preserves the

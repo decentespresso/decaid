@@ -3,20 +3,27 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/plugins/plugin_device_contract.dart';
+import 'package:reaprime/src/settings/plugin_device_settings.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+typedef DeviceSettingsLauncher = Future<bool> Function(Uri uri);
 
 class DeviceManagementPage extends StatefulWidget {
   const DeviceManagementPage({
     super.key,
     required this.settingsController,
     required this.deviceController,
+    this.settingsLauncher,
   });
 
   static const routeName = '/devices';
 
   final SettingsController settingsController;
   final DeviceController deviceController;
+  final DeviceSettingsLauncher? settingsLauncher;
 
   @override
   State<DeviceManagementPage> createState() => _DeviceManagementPageState();
@@ -58,6 +65,15 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
   List<Device> get _scales =>
       _devices.where((d) => d.type == DeviceType.scale).toList();
 
+  List<Device> get _sensors => _devices
+      .where(
+        (d) =>
+            d.type == DeviceType.sensor &&
+            d is DeviceSettingsCapable &&
+            d.deviceSettings != null,
+      )
+      .toList();
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -85,6 +101,16 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                       if (mounted) _showSavedSnackbar();
                     },
                   ),
+                  if (_sensors.isNotEmpty)
+                    _buildSection(
+                      title: 'Sensors',
+                      icon: Icons.sensors_outlined,
+                      devices: _sensors,
+                      selectedId: null,
+                      emptyLabel: 'sensors',
+                      selectable: false,
+                      onSelected: (_) async {},
+                    ),
                   _buildSection(
                     title: 'Auto-connect Scale',
                     icon: Icons.scale_outlined,
@@ -112,6 +138,7 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
     required String? selectedId,
     required String emptyLabel,
     required Future<void> Function(String?) onSelected,
+    bool selectable = true,
   }) {
     return ShadCard(
       padding: const EdgeInsets.all(16),
@@ -133,12 +160,13 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
             ],
           ),
           const SizedBox(height: 12),
-          _buildDeviceRadio(
-            name: 'None',
-            subtitle: 'No auto-connect',
-            isSelected: selectedId == null,
-            onTap: () => onSelected(null),
-          ),
+          if (selectable)
+            _buildDeviceRadio(
+              name: 'None',
+              subtitle: 'No auto-connect',
+              isSelected: selectedId == null,
+              onTap: () => onSelected(null),
+            ),
           if (devices.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
@@ -154,8 +182,10 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
               (device) => _buildDeviceRadio(
                 name: device.name,
                 subtitle: _deviceSubtitle(device),
-                isSelected: selectedId == device.deviceId,
-                onTap: () => onSelected(device.deviceId),
+                isSelected: selectable && selectedId == device.deviceId,
+                onTap: selectable ? () => onSelected(device.deviceId) : null,
+                showSelection: selectable,
+                trailing: _settingsButton(device),
               ),
             ),
         ],
@@ -196,7 +226,9 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
     required String name,
     required String subtitle,
     required bool isSelected,
-    required VoidCallback onTap,
+    required VoidCallback? onTap,
+    bool showSelection = true,
+    Widget? trailing,
   }) {
     return InkWell(
       onTap: onTap,
@@ -205,17 +237,20 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
         padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
         child: Row(
           children: [
-            Icon(
-              isSelected
-                  ? Icons.radio_button_checked
-                  : Icons.radio_button_unchecked,
-              size: 20,
-              color: isSelected
-                  ? Theme.of(context).colorScheme.primary
-                  : Theme.of(
-                      context,
-                    ).colorScheme.onSurface.withValues(alpha: 0.6),
-            ),
+            if (showSelection)
+              Icon(
+                isSelected
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+                size: 20,
+                color: isSelected
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.6),
+              )
+            else
+              const Icon(Icons.sensors_outlined, size: 20),
             const SizedBox(width: 8),
             Expanded(
               child: Column(
@@ -233,10 +268,44 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                 ],
               ),
             ),
+            ?trailing,
           ],
         ),
       ),
     );
+  }
+
+  Widget? _settingsButton(Device device) {
+    if (device is! DeviceSettingsCapable || device.deviceSettings == null) {
+      return null;
+    }
+    return IconButton(
+      tooltip: 'Device settings',
+      icon: const Icon(Icons.settings_outlined),
+      onPressed: () => _openDeviceSettings(device),
+    );
+  }
+
+  Future<void> _openDeviceSettings(Device device) async {
+    if (!widget.deviceController.devices.any(
+      (current) => identical(current, device),
+    )) {
+      _showSettingsError();
+      return;
+    }
+    bool launched = false;
+    try {
+      final uri = pluginDeviceSettingsUriForDevice(
+        device as DeviceSettingsCapable,
+      );
+      launched =
+          await (widget.settingsLauncher?.call(uri) ??
+              launchUrl(uri, mode: LaunchMode.inAppBrowserView));
+    } catch (_) {
+      launched = false;
+    }
+    if (!mounted) return;
+    if (!launched) _showSettingsError();
   }
 
   String _truncatedId(String id) {
@@ -254,6 +323,14 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
           content: Text('Preference saved. Takes effect on next app start.'),
           duration: Duration(seconds: 3),
         ),
+      );
+  }
+
+  void _showSettingsError() {
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        const SnackBar(content: Text('Unable to open device settings.')),
       );
   }
 }

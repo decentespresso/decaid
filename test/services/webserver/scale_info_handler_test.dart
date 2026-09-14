@@ -7,6 +7,9 @@ import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/models/device/scale.dart';
+import 'package:reaprime/src/plugins/plugin_device_contract.dart';
+import 'package:reaprime/src/plugins/plugin_manifest.dart';
+import 'package:reaprime/src/plugins/plugin_scale.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:shelf_plus/shelf_plus.dart';
@@ -88,6 +91,59 @@ void main() {
     expect(response.statusCode, 200);
     expect(jsonDecode(await response.readAsString()), isEmpty);
   });
+
+  test(
+    'selects metadata from the active scale without leaking prior info',
+    () async {
+      final native = _InfoScale(
+        const DeviceInformation(firmwareVersion: 'native-r1', batteryLevel: 91),
+      );
+      final metadataFree = TestScale(deviceId: 'metadata-free');
+      late PluginScale plugin;
+      plugin = PluginScale(
+        deviceId: 'plugin-scale',
+        name: 'Plugin Scale',
+        capabilities: {PluginScaleCapability.battery},
+        invoke: (operation, payload) async {
+          if (operation == PluginDeviceOperation.connect) {
+            plugin.publish({
+              'weight': 1,
+            }, session: payload['session'] as String);
+          }
+          return {};
+        },
+      );
+      await plugin.onConnect();
+      plugin.publishInfo({
+        'firmwareVersion': 'plugin-r2',
+        'batteryLevel': 42,
+      }, session: plugin.connectionId);
+      final controller = _SwitchingScaleController(native);
+      addTearDown(controller.dispose);
+      addTearDown(native.dispose);
+      addTearDown(metadataFree.dispose);
+      addTearDown(plugin.dispose);
+
+      Future<Map<String, dynamic>> readInfo() async {
+        final response = await requestInfo(controller);
+        expect(response.statusCode, 200);
+        return jsonDecode(await response.readAsString())
+            as Map<String, dynamic>;
+      }
+
+      expect(await readInfo(), {
+        'firmwareVersion': 'native-r1',
+        'batteryLevel': 91,
+      });
+      controller.select(plugin);
+      expect(await readInfo(), {
+        'firmwareVersion': 'plugin-r2',
+        'batteryLevel': 42,
+      });
+      controller.select(metadataFree);
+      expect(await readInfo(), isEmpty);
+    },
+  );
 }
 
 class _InfoScale extends TestScale implements DeviceInformationCapable {
@@ -106,6 +162,19 @@ class _FixedScaleController extends ScaleController {
   _FixedScaleController(this._scale);
 
   final Scale _scale;
+
+  @override
+  Scale connectedScale() => _scale;
+}
+
+class _SwitchingScaleController extends ScaleController {
+  _SwitchingScaleController(this._scale);
+
+  Scale _scale;
+
+  void select(Scale scale) {
+    _scale = scale;
+  }
 
   @override
   Scale connectedScale() => _scale;
