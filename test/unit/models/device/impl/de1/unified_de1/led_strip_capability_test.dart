@@ -95,7 +95,7 @@ void main() {
     );
 
     test(
-      'setLedStrip writes the palette write-through with 8-bit RGB',
+      'setLedStrip writes ONLY the colour that changed, with 8-bit RGB',
       () async {
         await connect();
         transport.writes.clear();
@@ -119,7 +119,7 @@ void main() {
         final writes = transport.writes
             .where((w) => w.characteristicUUID == Endpoint.writeToMMR.uuid)
             .toList();
-        expect(writes.length, 4);
+        expect(writes.length, 1);
 
         void expectWrite(BengleMmr mmr, int rgb) {
           final frame = writes.firstWhere(
@@ -141,9 +141,6 @@ void main() {
           expect(payload.getUint32(0, Endian.little), rgb);
         }
 
-        expectWrite(BengleMmr.frontLedAwake, 0xFF8000);
-        expectWrite(BengleMmr.frontLedSleep, 0x302010);
-        expectWrite(BengleMmr.rearLedAwake, 0x00FF00);
         expectWrite(BengleMmr.rearLedSleep, 0x000000);
 
         final state = (await bengle.getLedStripState())!;
@@ -151,6 +148,71 @@ void main() {
         expect(state.frontSwitch.awake, const Color16(0xFF00, 0x8000, 0x0000));
       },
     );
+
+    List<FakeBleWrite> mmrWrites() => transport.writes
+        .where((w) => w.characteristicUUID == Endpoint.writeToMMR.uuid)
+        .toList();
+
+    test('re-saving the palette already held writes nothing', () async {
+      await connect();
+      final held = (await bengle.getLedStripState())!;
+      transport.writes.clear();
+
+      await bengle.setLedStrip(held);
+
+      expect(mmrWrites(), isEmpty);
+    });
+
+    test(
+      'a preview frame that repeats the shown colour writes nothing',
+      () async {
+        await connect();
+        const colour = Color16(0x1100, 0x2200, 0x3300);
+        await bengle.previewLedStrip(front: colour);
+        transport.writes.clear();
+
+        await bengle.previewLedStrip(front: colour);
+
+        expect(
+          mmrWrites(),
+          isEmpty,
+          reason: 'a finger resting on one colour must stop writing',
+        );
+      },
+    );
+
+    test('a preview frame that moves is written', () async {
+      await connect();
+      await bengle.previewLedStrip(
+        front: const Color16(0x1100, 0x2200, 0x3300),
+      );
+      transport.writes.clear();
+
+      await bengle.previewLedStrip(
+        front: const Color16(0x4400, 0x5500, 0x6600),
+      );
+
+      expect(mmrWrites().length, 1);
+    });
+
+    test('a save forgets what the strips were showing', () async {
+      await connect();
+      const colour = Color16(0x1100, 0x2200, 0x3300);
+      await bengle.previewLedStrip(front: colour);
+      await bengle.setLedStrip(
+        LedStripState(
+          frontStrip: ZoneLedState(
+            awake: const Color16(0x9900, 0x9900, 0x9900),
+            sleeping: Color16.off,
+          ),
+        ),
+      );
+      transport.writes.clear();
+
+      await bengle.previewLedStrip(front: colour);
+
+      expect(mmrWrites().length, 1);
+    });
 
     test('non-byte-aligned 16-bit input is quantized in the cache', () async {
       await connect();
