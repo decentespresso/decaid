@@ -17,6 +17,7 @@ import 'package:reaprime/src/models/device/impl/skale/skale2_scale.dart';
 import 'package:reaprime/src/models/device/impl/smartchef/smartchef_scale.dart';
 import 'package:reaprime/src/models/device/impl/varia/varia_aku_scale.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
+import 'package:reaprime/src/models/device/impl/timemore/timemore_scale.dart';
 import 'package:reaprime/src/models/device/impl/weighmaster/weighmaster_scale.dart';
 
 class DeviceMatcher {
@@ -34,6 +35,7 @@ class DeviceMatcher {
       HiroiaScale.serviceIdentifier.long,
       AtomheartScale.serviceIdentifier.long,
       WeighMasterScale.serviceIdentifier.long,
+      TimemoreScale.serviceIdentifier.long,
       ...AcaiaScale.advertisedServiceUuids,
     ],
     DeviceType.machine => [UnifiedDe1.advertisingIdentifier.long],
@@ -104,6 +106,10 @@ class DeviceMatcher {
     }
     if (name == 'WeighMaster Scale') {
       return DeviceImplementation.weighMasterScale;
+    }
+    if (nameLower.startsWith('basic3 link') ||
+        nameLower.startsWith('timemore')) {
+      return DeviceImplementation.timemoreScale;
     }
     return null;
   }
@@ -177,6 +183,10 @@ class DeviceMatcher {
     }
     if (name == 'WeighMaster Scale') {
       return WeighMasterScale(transport: transport);
+    }
+    if (nameLower.startsWith('basic3 link') ||
+        nameLower.startsWith('timemore')) {
+      return TimemoreScale(transport: transport);
     }
 
     return null;
