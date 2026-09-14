@@ -4,6 +4,7 @@ import 'package:logging/logging.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
+import 'package:reaprime/src/controllers/sensor_controller.dart';
 import 'package:reaprime/src/controllers/step_exit_arbiter.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/data/shot_snapshot.dart';
@@ -21,6 +22,15 @@ class ShotSequencer {
   final ScaleController scaleController;
   final PersistenceController persistenceController;
   final Profile targetProfile;
+
+  /// Optional so every existing construction site keeps working; when absent,
+  /// shots simply record no sensor channels, exactly as before.
+  final SensorController? sensorController;
+
+  /// deviceId -> that sensor's latest frame, refreshed as frames arrive and
+  /// copied into each ShotSnapshot.
+  final Map<String, Map<String, dynamic>> _latestSensorFrames = {};
+  final Map<String, StreamSubscription<Map<String, dynamic>>> _sensorSubs = {};
 
   final Logger _log = Logger("ShotSequencer");
 
@@ -62,6 +72,7 @@ class ShotSequencer {
     required this.de1controller,
     required this.persistenceController,
     required this.targetProfile,
+    this.sensorController,
     required this.targetYield,
     double? targetWaterVolume,
     required bool bypassSAW,
@@ -114,16 +125,63 @@ class ShotSequencer {
     _snapshotSubscription = de1controller.connectedDe1().currentSnapshot.listen(
       (machine) {
         _syncScaleConnectionGeneration();
+        _syncSensorSubscriptions();
         _processSnapshot(
-          ShotSnapshot(machine: machine, scale: _scaleFor(machine)),
+          ShotSnapshot(
+            machine: machine,
+            scale: _scaleFor(machine),
+            sensors: _sensorFrames(),
+          ),
         );
       },
       onError: (error) => _log.warning("Error processing DE1 snapshot: $error"),
     );
   }
 
+  /// Attach to any sensor that has appeared and drop any that has gone.
+  ///
+  /// Re-checked per snapshot rather than once at start: a sensor can register
+  /// MID-SHOT -- the Bengle puck estimator registers on its first decoded
+  /// frame, so binding only at shot start would miss it on every shot where the
+  /// observer had not yet spoken.
+  void _syncSensorSubscriptions() {
+    final controller = sensorController;
+    if (controller == null) return;
+    final current = controller.sensors;
+
+    for (final entry in current.entries) {
+      if (_sensorSubs.containsKey(entry.key)) continue;
+      final id = entry.key;
+      _sensorSubs[id] = entry.value.data.listen(
+        (frame) => _latestSensorFrames[id] = frame,
+        onError: (Object e) =>
+            _log.warning('sensor $id data error, dropping its channel: $e'),
+      );
+    }
+
+    for (final id in _sensorSubs.keys.toList()) {
+      if (current.containsKey(id)) continue;
+      _sensorSubs.remove(id)?.cancel();
+      // Keep the last frame rather than deleting it: a sensor that drops out
+      // mid-shot should leave its samples in the record, not retroactively
+      // vanish from the ones already taken.
+    }
+  }
+
+  Map<String, Map<String, dynamic>>? _sensorFrames() {
+    if (_latestSensorFrames.isEmpty) return null;
+    return {
+      for (final e in _latestSensorFrames.entries)
+        e.key: Map<String, dynamic>.from(e.value),
+    };
+  }
+
   void dispose() {
     _log.fine("dispose");
+    for (final sub in _sensorSubs.values) {
+      sub.cancel();
+    }
+    _sensorSubs.clear();
     _snapshotSubscription?.cancel();
     _scaleConnectionSubscription?.cancel();
     _scaleWeightSubscription?.cancel();
