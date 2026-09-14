@@ -139,3 +139,23 @@ class FirmwareImageValidationException implements Exception {
   @override
   String toString() => 'FirmwareImageValidationException: $reason';
 }
+
+/// Thrown by `UnifiedDe1._assertProfileModeSupported` when a profile using a
+/// per-frame Power/Lever pump mode or a HOLD transition is uploaded to a
+/// machine that cannot run it — either the connected device is not a Bengle
+/// (the modes are protocol-v2 by definition), or its firmware did not advertise
+/// the matching ProfileModeCaps bit.
+///
+/// This refusal is PERMANENT for a given connection: the capability cannot
+/// appear without a firmware update followed by a reconnect, so callers must
+/// PARK on it rather than retry (`WorkflowDeviceSync` catches this type
+/// specifically and stops retrying). The REST boundary maps it to a clean 400
+/// with [message]; a generic `StateError` from elsewhere stays a 500.
+class ProfileModeUnsupportedException implements Exception {
+  final String message;
+
+  const ProfileModeUnsupportedException(this.message);
+
+  @override
+  String toString() => 'ProfileModeUnsupportedException: $message';
+}

@@ -3,7 +3,13 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/data/profile.dart'
-    show ExitCondition, ExitType, Profile;
+    show
+        ExitCondition,
+        ExitType,
+        Profile,
+        ProfileStepFlow,
+        ProfileStepLever,
+        TransitionType;
 import 'package:reaprime/src/models/data/profile_hash.dart';
 
 void main() {
@@ -140,5 +146,61 @@ void main() {
         'Baseline • High Contact • 8 Bar',
       ]),
     );
+  });
+
+  group('Lever Classic demo (bundled lever pump-mode demo)', () {
+    Profile leverDemo() {
+      final p = profiles['lever_classic_demo.json'];
+      expect(
+        p,
+        isNotNull,
+        reason: 'lever_classic_demo.json must be listed in the manifest',
+      );
+      return p!;
+    }
+
+    test('is present and parses its pump:"lever" step from the bundle', () {
+      final p = leverDemo();
+      expect(p.title, 'Lever Classic demo');
+      // The last step is the lever step — proves the values-as-strings bundle
+      // parses through ProfileStepLever (leverSpring/leverGive via parseDouble).
+      final lever = p.steps.last;
+      expect(lever, isA<ProfileStepLever>());
+      final l = lever as ProfileStepLever;
+      expect(l.pressure, 9.0); // P0
+      expect(l.leverSpring, 0.9);
+      expect(l.leverGive, 1.5);
+      // The demo must START at 9 bar and decline under its spring/give. A
+      // `smooth` lever step would set the interpolate bit and ramp P0 up across
+      // the whole frame — the opposite of a lever decline — so the transition
+      // must be `fast`.
+      expect(l.transition, TransitionType.fast);
+    });
+
+    test('carries the tablet-authored numeric tweaks', () {
+      final p = leverDemo();
+      // fast-fill flow raised to 12 ml/s; per-step volume caps disabled (0).
+      final fill = p.steps.first as ProfileStepFlow;
+      expect(fill.flow, 12.0);
+      for (final s in p.steps) {
+        expect(s.volume, 0.0, reason: '${s.name} volume cap disabled');
+      }
+      expect(p.targetWeight, 36.0);
+    });
+
+    test('round-trips losslessly through the profile model', () {
+      final p = leverDemo();
+      final restored = Profile.fromJson(p.toJson());
+      expect(restored, equals(p));
+    });
+
+    test('notes and author name the capability, not the firmware family', () {
+      final p = leverDemo();
+      // Author is the plain app name (no parenthetical firmware qualifier).
+      expect(p.author, 'reaprime');
+      // The requirement is phrased as a capability, not a private firmware name.
+      expect(p.notes, contains('lever profile steps'));
+      expect(p.notes, contains('a stock machine will refuse it'));
+    });
   });
 }
