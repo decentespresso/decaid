@@ -452,6 +452,7 @@ void main() {
             'state': 'connected',
             'type': 'scale',
             'available': true,
+            'connectionRole': 'primary',
           },
         ]);
       });
@@ -475,6 +476,197 @@ void main() {
                 '${scale.deviceId}',
           });
         }
+      });
+    });
+
+    group('connectionRole', () {
+      test('an unknown role is refused before anything connects', () async {
+        final scale = TestScale(deviceId: 'role-1', name: 'Scale');
+        mockDiscovery.addDevice(scale);
+        await Future.delayed(Duration.zero);
+
+        final response = await sendPut(
+          '/api/v1/devices/connect',
+          body: jsonEncode({'deviceId': scale.deviceId, 'connectionRole': 'x'}),
+        );
+        expect(response.statusCode, 400);
+        expect(
+          jsonDecode(await response.readAsString())['error'],
+          contains('connectionRole'),
+        );
+        expect(connectionManager.auxiliaryScales.deviceIds, isEmpty);
+      });
+
+      test('auxiliary is only defined for scales', () async {
+        final sensor = TestSensor(deviceId: 'role-sensor');
+        mockDiscovery.addDevice(sensor);
+        await Future.delayed(Duration.zero);
+
+        final response = await sendPut(
+          '/api/v1/devices/connect',
+          body: jsonEncode({
+            'deviceId': sensor.deviceId,
+            'connectionRole': 'auxiliary',
+          }),
+        );
+        expect(response.statusCode, 400);
+        expect(connectionManager.auxiliaryScales.deviceIds, isEmpty);
+      });
+
+      test('auxiliary holds the scale without making it the primary', () async {
+        final scale = TestScale(deviceId: 'role-aux', name: 'Scale');
+        mockDiscovery.addDevice(scale);
+        await Future.delayed(Duration.zero);
+
+        final response = await sendPut(
+          '/api/v1/devices/connect',
+          body: jsonEncode({
+            'deviceId': scale.deviceId,
+            'connectionRole': 'auxiliary',
+          }),
+        );
+        expect(response.statusCode, 200);
+        expect(connectionManager.auxiliaryScales.deviceIds, {'role-aux'});
+        expect(
+          scaleController.currentConnectionState,
+          isNot(ConnectionState.connected),
+        );
+      });
+
+      test('asking twice is the same request twice', () async {
+        final scale = TestScale(deviceId: 'role-twice', name: 'Scale');
+        mockDiscovery.addDevice(scale);
+        await Future.delayed(Duration.zero);
+
+        for (var i = 0; i < 2; i++) {
+          final response = await sendPut(
+            '/api/v1/devices/connect',
+            body: jsonEncode({
+              'deviceId': scale.deviceId,
+              'connectionRole': 'auxiliary',
+            }),
+          );
+          expect(response.statusCode, 200);
+        }
+        expect(connectionManager.auxiliaryScales.deviceIds, {'role-twice'});
+      });
+
+      test('the role also travels as a query parameter', () async {
+        final scale = TestScale(deviceId: 'role-query', name: 'Scale');
+        mockDiscovery.addDevice(scale);
+        await Future.delayed(Duration.zero);
+
+        final response = await sendPut(
+          '/api/v1/devices/connect'
+          '?deviceId=role-query&connectionRole=auxiliary',
+        );
+        expect(response.statusCode, 200);
+        expect(connectionManager.auxiliaryScales.deviceIds, {'role-query'});
+      });
+
+      test('no role connects the way it always has', () async {
+        final scale = TestScale(deviceId: 'role-none', name: 'Scale');
+        mockDiscovery.addDevice(scale);
+        await Future.delayed(Duration.zero);
+
+        final response = await sendPut(
+          '/api/v1/devices/connect',
+          body: jsonEncode({'deviceId': scale.deviceId}),
+        );
+        expect(response.statusCode, 200);
+        expect(connectionManager.auxiliaryScales.deviceIds, isEmpty);
+      });
+
+      test('disconnect lets go of the hold', () async {
+        final scale = TestScale(deviceId: 'role-release', name: 'Scale');
+        mockDiscovery.addDevice(scale);
+        await Future.delayed(Duration.zero);
+
+        await sendPut(
+          '/api/v1/devices/connect',
+          body: jsonEncode({
+            'deviceId': scale.deviceId,
+            'connectionRole': 'auxiliary',
+          }),
+        );
+        expect(connectionManager.auxiliaryScales.deviceIds, {'role-release'});
+
+        final response = await sendPut(
+          '/api/v1/devices/disconnect',
+          body: jsonEncode({'deviceId': scale.deviceId}),
+        );
+        expect(response.statusCode, 200);
+        expect(connectionManager.auxiliaryScales.deviceIds, isEmpty);
+      });
+
+      test('the brewing scale cannot also be held as auxiliary', () async {
+        final scale = TestScale(deviceId: 'role-both', name: 'Scale');
+        mockDiscovery.addDevice(scale);
+        await Future.delayed(Duration.zero);
+
+        await sendPut(
+          '/api/v1/devices/connect',
+          body: jsonEncode({'deviceId': scale.deviceId}),
+        );
+        expect(scaleController.lastConnectedDeviceId, 'role-both');
+
+        final response = await sendPut(
+          '/api/v1/devices/connect',
+          body: jsonEncode({
+            'deviceId': scale.deviceId,
+            'connectionRole': 'auxiliary',
+          }),
+        );
+        expect(response.statusCode, 409);
+        expect(connectionManager.auxiliaryScales.deviceIds, isEmpty);
+      });
+
+      test('a machine-held primary and an auxiliary coexist', () async {
+        final bengle = MockBengle();
+        await bengle.onConnect();
+        addTearDown(bengle.onDisconnect);
+        await scaleController.connectToScale(BengleVirtualScale(bengle));
+
+        final external = TestScale(deviceId: 'role-external', name: 'Scale');
+        mockDiscovery.addDevice(external);
+        await Future.delayed(Duration.zero);
+
+        final response = await sendPut(
+          '/api/v1/devices/connect',
+          body: jsonEncode({
+            'deviceId': external.deviceId,
+            'connectionRole': 'auxiliary',
+          }),
+        );
+        expect(response.statusCode, 200);
+
+        final list =
+            jsonDecode(await (await sendGet('/api/v1/devices')).readAsString())
+                as List;
+        final roles = {
+          for (final device in list) device['id']: device['connectionRole'],
+        };
+        expect(roles['bengle-internal-MockBengle'], 'primary');
+        expect(roles['role-external'], 'auxiliary');
+      });
+
+      test('shutdown lets go of every hold', () async {
+        final scale = TestScale(deviceId: 'role-shutdown', name: 'Scale');
+        mockDiscovery.addDevice(scale);
+        await Future.delayed(Duration.zero);
+
+        await sendPut(
+          '/api/v1/devices/connect',
+          body: jsonEncode({
+            'deviceId': scale.deviceId,
+            'connectionRole': 'auxiliary',
+          }),
+        );
+        expect(connectionManager.auxiliaryScales.deviceIds, {'role-shutdown'});
+
+        await connectionManager.shutdown();
+
+        expect(connectionManager.auxiliaryScales.deviceIds, isEmpty);
       });
     });
   });

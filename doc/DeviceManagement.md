@@ -479,6 +479,8 @@ Automatic `connect()` scans may early-connect preferred devices as they appear. 
    - No preferred, multiple → show picker (`machinePicker`)
 2. **Scale phase** — after machine resolution, apply the same policy to a missing scale. If no machine is found, an unambiguous scale can still connect while the overall phase remains `idle`. Machine ambiguity is resolved before scale ambiguity, and selecting a machine continues with scale candidates retained from the same scan. Bengle skips external-scale policy because its integrated scale always owns the slot.
 
+Scales held as auxiliary (see [Auxiliary scales](#auxiliary-scales)) are removed from the candidate list before the scale policy runs, and `ConnectionSelectionSession.acceptsScale` rejects them for late arrivals. Two scales in range with one held therefore auto-connect the other instead of showing a picker. A held scale that is also the preferred one is still excluded, which leaves the policy with a picker or nothing — the user is asked rather than quietly weighed on the wrong scale.
+
 The `ScanReport` covers this full selection session. It is finalized after any
 picker continuation and retained scale work complete; a newer full scan or a
 disconnect finalizes the superseded session as cancelled.
@@ -743,6 +745,41 @@ Future<void> connectToScale(Scale scale) async {
 - `connectionState`: Scale connection status (`BehaviorSubject<ConnectionState>`)
 - `weightSnapshot`: Processed weight data with flow calculation
 - `currentConnectionState`: Synchronous getter for current state
+
+### Auxiliary scales
+
+**File:** `lib/src/controllers/auxiliary_scale_registry.dart`
+
+One scale is semantically special: the primary one, owned by `ScaleController`,
+the scale a shot is weighed on. Everything else a client wants a scale for is
+outside the gateway's knowledge, so the gateway does not model it.
+
+`AuxiliaryScaleRegistry` holds the scales a client has explicitly asked to keep
+open beside the primary one, keyed by device id. Each is an
+`AuxiliaryScaleSession`: its own connection lifecycle, its own
+`ScaleSnapshot` stream, `tare()`, and a generation fence so a connect that
+finishes late cannot deliver into a session that has since been replaced.
+
+What the registry is, and the whole of it:
+
+- A hold is created only by an explicit request — `connectionRole: auxiliary`
+  on `PUT /api/v1/devices/connect`. Nothing creates one on its own.
+- Automatic selection never takes a held scale, and nothing in the brewing path
+  reads one. `ScaleController` remains the only scale a shot knows about.
+- Holds are runtime-only. No setting, no database row, nothing survives a
+  restart.
+- The registry attaches no meaning to a scale. There is no dosing role, no
+  grinder role; what the scale is for is the client's business.
+
+`ConnectionManager` owns the registry and enforces that a device is one thing at
+a time: `connectAuxiliaryScale` refuses the current primary scale, `_connectScale`
+refuses a held one, and both report `ConnectionResult.conflict()`. Releasing a
+hold (`releaseAuxiliaryScale`, reached by `PUT /api/v1/devices/disconnect`)
+disconnects the device and returns it to ordinary eligibility.
+
+Held ids surface as `connectionRole` on connected scales in the device
+inventory, and the sessions answer at `/api/v1/scales/{id}/tare` and
+`/ws/v1/scales/{id}/snapshot`. See [Api.md](Api.md#auxiliary-scales).
 
 ### SensorController
 

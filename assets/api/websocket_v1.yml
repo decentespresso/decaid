@@ -79,6 +79,34 @@ channels:
         $ref: '#/components/messages/ScaleSnapshot'
       scaleStatusMessage:
         $ref: '#/components/messages/ScaleStatus'
+  AddressedScaleSnapshot:
+    description: >
+      Readings from one named scale, whether it is the primary scale or one a
+      client asked this host to hold open as `auxiliary` (see connectionRole on
+      PUT /api/v1/devices/connect). A client using a single scale never needs
+      this channel: ws/v1/scale/snapshot is unchanged and still means the
+      primary scale.
+
+      Frames here are what the device itself reports. The primary scale's own
+      channel carries the brewing-enriched form on top of that -- smoothed
+      flow filled in for weight-only scales -- because that is what a shot is
+      scored on; a scale being used for anything else has no use for it.
+
+      Status frames follow the same rules as ws/v1/scale/snapshot: one on open
+      and one on every connection-state change. Opening the socket for an id
+      no scale is connected under emits `{"status":"disconnected"}` and closes.
+    address: ws/v1/scales/{id}/snapshot
+    parameters:
+      id:
+        description: >
+          Device id of a connected scale, percent-encoded exactly once. Scale
+          ids contain ':' (BLE) and '/' (serial paths), both of which must be
+          encoded.
+    messages:
+      addressedScaleSnapshotMessage:
+        $ref: '#/components/messages/AddressedScaleSnapshot'
+      scaleStatusMessage:
+        $ref: '#/components/messages/ScaleStatus'
   MachineRaw:
     description: >
       Opening the socket before a machine connects does not close it. It remains
@@ -226,6 +254,10 @@ operations:
     action: receive
     channel:
       $ref: '#/channels/ScaleSnapshot'
+  addressedScaleSnapshot:
+    action: receive
+    channel:
+      $ref: '#/channels/AddressedScaleSnapshot'
   machineRawResponse:
     action: receive
     channel:
@@ -305,6 +337,11 @@ components:
       title: Scale Snapshot
       payload:
         $ref: '#/components/schemas/ScaleSnapshot'
+    AddressedScaleSnapshot:
+      name: AddressedScaleSnapshot
+      title: Scale snapshot from a named scale
+      payload:
+        $ref: '#/components/schemas/AddressedScaleSnapshot'
     ScaleStatus:
       name: ScaleStatus
       title: Scale connection status
@@ -526,12 +563,40 @@ components:
           type: integer
           nullable: true
           description: Timer elapsed time in milliseconds. Null if scale doesn't support timers or timer hasn't been started.
+    AddressedScaleSnapshot:
+      type: object
+      description: >
+        One reading from a scale addressed by id on
+        `ws/v1/scales/{id}/snapshot`. This is the device-level frame, not the
+        brewing-enriched `ScaleSnapshot` the primary scale's own channel
+        carries: field names differ, and `flow` is null on a scale that does
+        not measure it rather than being estimated.
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        weight:
+          type: number
+          description: Current weight reading in grams.
+        batteryLevel:
+          type: integer
+          nullable: true
+          description: Scale battery level (0-100). Null if the scale does not report battery.
+        timerValue:
+          type: integer
+          nullable: true
+          description: Timer elapsed time in milliseconds. Null if the scale has no timer or it has not been started.
+        flow:
+          type: number
+          nullable: true
+          description: Device-reported gravimetric flow. Null on a scale that does not report one; this channel does not estimate it.
     ScaleStatus:
       type: object
       description: >
-        Connection status frame emitted by ws/v1/scale/snapshot when the
-        socket opens and whenever scale connection state changes. Clients
-        should keep the socket open across disconnected periods.
+        Connection status frame emitted by ws/v1/scale/snapshot and
+        ws/v1/scales/{id}/snapshot when the socket opens and whenever scale
+        connection state changes. Clients should keep the socket open across
+        disconnected periods.
       properties:
         status:
           type: string

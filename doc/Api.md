@@ -121,8 +121,20 @@ Pre-stream responses are `400` for malformed input, `404` for an unknown artifac
 | PUT | `/api/v1/scale/timer/start` | Start scale timer | |
 | PUT | `/api/v1/scale/timer/stop` | Stop scale timer | |
 | PUT | `/api/v1/scale/timer/reset` | Reset scale timer | |
+| PUT | `/api/v1/scales/{id}/tare` | Tare a scale named by id | `scales_handler.dart` |
 
 `GET /api/v1/scale/info` is scoped to the currently connected scale. It returns `503` when no scale is connected and `{}` when connected metadata is not yet known. `firmwareVersion`, when present, is an opaque value reported by the scale (for example `R029`). `batteryLevel` is optional and nullable; unknown values are omitted, while `0` and `100` are valid readings. This endpoint is separate from device inventory.
+
+**Addressing a scale by id.** Everything under `/api/v1/scale/...` means *the*
+scale — the one a shot is weighed on. `/api/v1/scales/{id}/tare` names a
+particular scale instead, and answers for the primary scale and for any scale
+held as `auxiliary` (see [Auxiliary scales](#auxiliary-scales)). A client that
+uses one scale never needs it. `{id}` is an opaque device id in a single path
+component: percent-encode it exactly once, since scale ids contain `:` (BLE)
+and `/` (serial paths). A malformed id is `400`; an id no connected scale
+answers to is `404`. The `blockTareDuringShot` lockout is a property of the
+primary scale's own route and does not apply here: a scale held as auxiliary is
+not the one the shot is scored on.
 
 ### Devices
 
@@ -159,6 +171,54 @@ forgotten via `PUT /api/v1/devices/forget` (deviceId in the JSON body or
 `ws/v1/devices` snapshot.
 
 `GET /api/v1/devices` and `/ws/v1/devices` are inventory-only surfaces. Their device entries contain identity, availability, and connection state, not connection metadata such as `deviceInfo`, `firmwareVersion`, or `batteryLevel`. A metadata refresh therefore does not emit an inventory update. Clients that need current connected-scale metadata should call `GET /api/v1/scale/info`; no scale metadata WebSocket is defined until a concrete live-update need exists.
+
+#### Auxiliary scales
+
+One scale is special: the primary one, the scale a shot is weighed on. It is
+what `ScaleController` owns, what `/api/v1/scale/...` and
+`/ws/v1/scale/snapshot` address, and the only scale any brewing logic reads.
+
+A client that needs a second scale for its own purposes — weighing a dose,
+comparing two scales, anything the gateway has no opinion about — asks for it on
+connect:
+
+```
+PUT /api/v1/devices/connect
+{"deviceId": "AA:BB:CC:DD:EE:FF", "connectionRole": "auxiliary"}
+```
+
+`connectionRole` also travels as `?connectionRole=`. Omitted or `"primary"`
+means what connect has always meant, so no existing client changes.
+
+What `auxiliary` buys, and its whole definition:
+
+- The scale is held open and reachable at `/api/v1/scales/{id}/tare` and
+  `/ws/v1/scales/{id}/snapshot`.
+- Automatic scale selection never takes it. With two scales in range and one
+  held, the other is connected for brewing without asking the user.
+- Nothing in the brewing path reads it. It cannot become the scale a shot is
+  scored on while the hold stands.
+- The hold is runtime-only. Nothing is persisted, and a restart leaves no trace
+  of it; a client that wants the scale again asks again.
+
+What it does not mean: the gateway does not know or record what the scale is
+*for*. There is no dosing role, no grinder role, no per-purpose endpoint. The
+role describes how this host is holding the device, and that is all.
+
+Rules at the edges:
+
+- Asking twice for the same scale is the same request twice (`200`).
+- Asking for the scale that is already the primary one is `409`, and so is
+  asking to make a held scale the primary one — a device is one thing at a time.
+  Release it first.
+- `connectionRole: "auxiliary"` on anything that is not a scale is `400`, as is
+  any other role value.
+- `PUT /api/v1/devices/disconnect` releases the hold and disconnects, which
+  makes the device an ordinary candidate for brewing again.
+
+`GET /api/v1/devices` and `/ws/v1/devices` report `connectionRole` on every
+connected scale, so a client can see which is which without having asked. It is
+absent for disconnected devices and for everything that is not a scale.
 
 `available` describes inventory presence, not command ownership. A connected
 controller-owned device such as Bengle's integrated virtual scale is listed as
@@ -621,6 +681,7 @@ All WebSocket endpoints are on port 8080 at `/ws/v1/...`. See [`assets/api/webso
 | `/ws/v1/machine/raw` | Raw BLE characteristic data. Re-binds across a machine reconnect; writes go to the currently-bound machine. | Hex-encoded bytes |
 | `/ws/v1/machine/shotState` | Shot sequencer state + decision feed: why a step advanced, why the shot stopped. Replays the latest frame on connect; idle between shots; not gated on a connected machine. | `event` (`state`\|`decision`\|`terminal`), `shotId`, shot phase, machine context, `decision {kind, reason, details, data}` |
 | `/ws/v1/devices` | Device discovery + `ConnectionManager` status (phase, found devices, ambiguity, errors). Also accepts `scan`/`connect`/`disconnect` commands. | Device list, `connectionStatus` |
+| `/ws/v1/scales/:id/snapshot` | Readings from one named scale, primary or auxiliary. Device-level frames (`batteryLevel`, `flow` null when the scale does not measure it) — not the brewing-enriched form on `/ws/v1/scale/snapshot`. Same `{"status":...}` frames; an id no scale answers to gets `disconnected` and the socket closes. | Weight, battery, timer |
 | `/ws/v1/sensors/:id/snapshot` | Sensor data stream. Re-binds across replacement or transient removal/re-add of the same sensor ID. | Sensor-specific |
 | `/ws/v1/plugins/:id/:endpoint` | Plugin WebSocket proxy | Plugin-specific |
 | `/ws/v1/logs` | App log stream | Timestamped log entries |

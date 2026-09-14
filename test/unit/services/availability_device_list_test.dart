@@ -192,5 +192,64 @@ void main() {
         expect(list.map((d) => d['id']).toList(), ['m1', 's1', 's2']);
       });
     });
+
+    group('connectionRole', () {
+      test('tells the two connected scales apart', () async {
+        final list = await buildAvailabilityDeviceList(
+          [
+            _FakeDevice('s1', 'S1', DeviceType.scale),
+            _FakeDevice('s2', 'S2', DeviceType.scale),
+          ],
+          const [],
+          primaryScaleId: 's1',
+          auxiliaryScaleIds: const {'s2'},
+        );
+        final byId = {for (final d in list) d['id']: d};
+        expect(byId['s1']!['connectionRole'], 'primary');
+        expect(byId['s2']!['connectionRole'], 'auxiliary');
+      });
+
+      test('is absent when the host is holding nothing', () async {
+        final list = await buildAvailabilityDeviceList([
+          _FakeDevice('s1', 'S1', DeviceType.scale),
+        ], const []);
+        expect(list[0].containsKey('connectionRole'), isFalse);
+      });
+
+      test('is absent for a scale that is not connected', () async {
+        final list = await buildAvailabilityDeviceList(
+          [
+            _FakeDevice(
+              's1',
+              'S1',
+              DeviceType.scale,
+              ConnectionState.disconnected,
+            ),
+          ],
+          const [],
+          primaryScaleId: 's1',
+        );
+        expect(list[0].containsKey('connectionRole'), isFalse);
+      });
+
+      test('is absent for a machine', () async {
+        final list = await buildAvailabilityDeviceList(
+          [_FakeDevice('m1', 'M1', DeviceType.machine)],
+          const [],
+          primaryScaleId: 'm1',
+        );
+        expect(list[0].containsKey('connectionRole'), isFalse);
+      });
+
+      test('an auxiliary hold outranks a stale primary id', () async {
+        final list = await buildAvailabilityDeviceList(
+          [_FakeDevice('s1', 'S1', DeviceType.scale)],
+          const [],
+          primaryScaleId: 's1',
+          auxiliaryScaleIds: const {'s1'},
+        );
+        expect(list[0]['connectionRole'], 'auxiliary');
+      });
+    });
   });
 }

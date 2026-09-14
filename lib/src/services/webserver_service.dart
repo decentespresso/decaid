@@ -96,6 +96,8 @@ import 'package:reaprime/src/services/webserver/info_handler.dart';
 import 'package:reaprime/src/services/webserver/ble_diagnostics_handler.dart';
 import 'package:reaprime/src/services/webserver/debug_handler.dart';
 import 'package:reaprime/src/services/firmware/bundled_firmware_catalog.dart';
+import 'package:reaprime/src/controllers/auxiliary_scale_registry.dart';
+import 'package:reaprime/src/services/webserver/opaque_path_component.dart';
 import 'package:reaprime/src/services/webserver/wifi_scale_handler.dart';
 import 'package:reaprime/src/services/wifi/wifi_scale_discovery_service.dart';
 import 'package:mime/mime.dart';
@@ -106,6 +108,7 @@ import 'webserver/feedback_handler.dart';
 
 part 'webserver/de1handler.dart';
 part 'webserver/scale_handler.dart';
+part 'webserver/scales_handler.dart';
 part 'webserver/devices_handler.dart';
 part 'webserver/settings_handler.dart';
 part 'webserver/sensors_handler.dart';
@@ -137,6 +140,7 @@ Future<void> startWebServer(
   DeviceController deviceController,
   De1Controller de1Controller,
   ScaleController scaleController,
+  AuxiliaryScaleRegistry auxiliaryScales,
   SettingsController settingsController,
   SensorController sensorController,
   WorkflowController workflowController,
@@ -176,6 +180,10 @@ Future<void> startWebServer(
     controller: scaleController,
     de1Controller: de1Controller,
     settingsController: settingsController,
+  );
+  final scalesHandler = ScalesHandler(
+    primary: scaleController,
+    auxiliary: auxiliaryScales,
   );
   final deviceHandler = DevicesHandler(
     controller: deviceController,
@@ -352,6 +360,7 @@ Future<void> startWebServer(
       de1Handler,
       firmwareHandler,
       scaleHandler,
+      scalesHandler,
       settingsHandler,
       sensorsHandler,
       workflowHandler,
@@ -394,6 +403,7 @@ Handler _init(
   De1Handler de1Handler,
   FirmwareHandler firmwareHandler,
   ScaleHandler scaleHandler,
+  ScalesHandler scalesHandler,
   SettingsHandler settingsHandler,
   SensorsHandler sensorsHandler,
   WorkflowHandler workflowHandler,
@@ -431,6 +441,7 @@ Handler _init(
   de1Handler.addRoutes(app);
   firmwareHandler.addRoutes(app);
   scaleHandler.addRoutes(app);
+  scalesHandler.addRoutes(app);
   settingsHandler.addRoutes(app);
   sensorsHandler.addRoutes(app);
   workflowHandler.addRoutes(app);

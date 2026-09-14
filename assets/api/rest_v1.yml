@@ -66,6 +66,18 @@ paths:
                         Remembered devices are those the user has connected to;
                         they persist across restarts until forgotten via
                         /api/v1/devices/forget.
+                    connectionRole:
+                      type: string
+                      enum: [primary, auxiliary]
+                      description: >
+                        Present only for a connected scale. "primary" is the
+                        scale a shot is weighed on -- the one /api/v1/scale/*
+                        and ws/v1/scale/snapshot address. "auxiliary" is a
+                        scale a client asked this host to hold open beside it;
+                        it is addressed only by id, is never chosen by
+                        automatic scale selection, and is never used to score a
+                        shot. The role says how the host is holding the device,
+                        not what the client is using it for.
         "500":
           description: Internal Server Error
           content:
@@ -152,6 +164,13 @@ paths:
           required: false
           schema:
             type: string
+        - name: connectionRole
+          description: Query-parameter form of the request body's connectionRole.
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [primary, auxiliary]
       requestBody:
         description: JSON object with deviceId
         required: false
@@ -163,6 +182,21 @@ paths:
                 deviceId:
                   type: string
                   description: The id of the device, previously discovered with /api/v1/devices/scan request
+                connectionRole:
+                  type: string
+                  enum: [primary, auxiliary]
+                  description: >
+                    How this host should hold the device. Omitted or "primary"
+                    means what connect has always meant. "auxiliary" is defined
+                    for scales only and asks the host to hold the scale open
+                    beside the primary one: it does not become the scale a shot
+                    is weighed on, automatic selection never takes it, and it is
+                    reachable only through /api/v1/scales/{id}/... and
+                    ws/v1/scales/{id}/snapshot. The hold is runtime-only and is
+                    not remembered across restarts. Asking twice for the same
+                    scale is the same request twice; asking for the scale that
+                    is already the primary one is 409. Release it with
+                    /api/v1/devices/disconnect.
               required:
                 - deviceId
       responses:
@@ -173,11 +207,13 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeviceConnectResult"
         "400":
-          description: "Missing deviceId"
+          description: >
+            Missing deviceId, an unrecognised connectionRole, or
+            connectionRole "auxiliary" on a device that is not a scale.
         "404":
           description: "Device not found"
         "409":
-          description: "Connection conflicts with another operation, a stale selection, or an inventory-only device"
+          description: "Connection conflicts with another operation, a stale selection, an inventory-only device, or a scale that is already the primary one"
           content:
             application/json:
               schema:
@@ -1123,6 +1159,54 @@ paths:
                     type: string
         "404":
           description: Scale not found
+        "500":
+          description: Scale command failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScaleCommandError"
+
+  /api/v1/scales/{id}/tare:
+    put:
+      summary: Tare a scale by id
+      description: |
+        Tares the scale named by `id`, whether it is the primary scale or one
+        held as `auxiliary` (see `connectionRole` on
+        /api/v1/devices/connect). A client using a single scale never needs
+        this route: /api/v1/scale/tare is unchanged and still means the primary
+        scale.
+
+        `id` is an opaque device id carried as one path component, so it is
+        percent-encoded exactly once by the client and decoded exactly once
+        here. Scale ids contain ':' (BLE) and '/' (serial paths), both of which
+        must be encoded.
+
+        The `blockTareDuringShot` lockout applies to the primary scale's own
+        route only: a scale held as auxiliary is not the one the shot is scored
+        on, so a tare on it cannot spoil stop-at-weight.
+      tags: [Scale]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Percent-encoded device id of a connected scale.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Scale tared successfully
+        "400":
+          description: Malformed scale id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: No scale with that id is connected, or unknown command
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "500":
           description: Scale command failed
           content:

@@ -128,6 +128,8 @@ class DevicesStateAggregator {
       devices,
       _rememberedController?.remembered ?? const [],
       preferredScaleId: _preferredScaleId?.call(),
+      primaryScaleId: _connectionManager.scaleController.lastConnectedDeviceId,
+      auxiliaryScaleIds: _connectionManager.auxiliaryScales.deviceIds,
     );
 
     final snapshot = <String, dynamic>{
@@ -267,6 +269,8 @@ class DevicesHandler {
       ),
       _rememberedController?.remembered ?? const [],
       preferredScaleId: _preferredScaleId?.call(),
+      primaryScaleId: _connectionManager.scaleController.lastConnectedDeviceId,
+      auxiliaryScaleIds: _connectionManager.auxiliaryScales.deviceIds,
     );
   }
 
@@ -297,6 +301,54 @@ class DevicesHandler {
     return req.requestedUri.queryParameters['deviceId'];
   }
 
+  /// The body can only be read once, so connect reads it once and takes both
+  /// fields from it. `connectionRole: auxiliary` asks for the device to be held
+  /// open with no gateway-defined meaning; absent -- which is every client
+  /// written before this existed -- and `primary` both mean what connect has
+  /// always meant.
+  Future<({String? deviceId, String? connectionRole})> _extractConnectFields(
+    Request req,
+  ) async {
+    final query = req.requestedUri.queryParameters;
+    String body;
+    try {
+      body = await readBoundedRequestBodyString(
+        req,
+        maxBytes: smallRequestBodyBytes,
+        timeout: smallRequestBodyTimeout,
+      );
+    } on RequestBodyReadException {
+      rethrow;
+    } catch (e, st) {
+      _log.warning('failed to read request body', e, st);
+      return (
+        deviceId: query['deviceId'],
+        connectionRole: query['connectionRole'],
+      );
+    }
+    String? deviceId;
+    String? connectionRole;
+    if (body.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(body);
+        if (decoded is Map<String, dynamic>) {
+          if (decoded['deviceId'] is String) {
+            deviceId = decoded['deviceId'] as String;
+          }
+          if (decoded['connectionRole'] is String) {
+            connectionRole = decoded['connectionRole'] as String;
+          }
+        }
+      } on FormatException {
+        // Not valid JSON -- fall through to the query parameters.
+      }
+    }
+    return (
+      deviceId: deviceId ?? query['deviceId'],
+      connectionRole: connectionRole ?? query['connectionRole'],
+    );
+  }
+
   Future<Response> _handleForget(Request req) async {
     final remembered = _rememberedController;
     if (remembered == null) {
@@ -314,9 +366,14 @@ class DevicesHandler {
 
   Future<Response> _handleConnect(Request req) async {
     final devices = _controller.devices;
-    final deviceId = await _extractDeviceId(req);
+    final fields = await _extractConnectFields(req);
+    final deviceId = fields.deviceId;
     if (deviceId == null) {
       return jsonBadRequest({'error': 'Missing deviceId'});
+    }
+    final role = fields.connectionRole;
+    if (role != null && role != 'primary' && role != 'auxiliary') {
+      return jsonBadRequest({'error': 'Unknown connectionRole: $role'});
     }
     final device = devices.firstWhereOrNull((e) => e.deviceId == deviceId);
     if (device == null) {
@@ -324,7 +381,14 @@ class DevicesHandler {
       if (error != null) return jsonConflict({'error': error});
       return jsonNotFound({'error': 'Device not found: $deviceId'});
     }
-    final result = await _connectDevice(device);
+    if (role == 'auxiliary' && device.type != DeviceType.scale) {
+      return jsonBadRequest({
+        'error': 'connectionRole auxiliary is only defined for scales',
+      });
+    }
+    final result = role == 'auxiliary'
+        ? await _connectionManager.connectAuxiliaryScale(device as Scale)
+        : await _connectDevice(device);
     final body = await _connectResultBody(device, result);
     return switch (result.outcome) {
       ConnectionOutcome.connected ||
@@ -346,6 +410,13 @@ class DevicesHandler {
       final error = _inventoryOnlyCommandError(deviceId);
       if (error != null) return jsonConflict({'error': error});
       return jsonNotFound({'error': 'Device not found: $deviceId'});
+    }
+    if (_connectionManager.auxiliaryScales.holds(device.deviceId)) {
+      // Releasing the hold is what disconnects it, and it is what makes the
+      // device an ordinary candidate for brewing again.
+      _connectionManager.markExpectingDisconnect(device.deviceId);
+      await _connectionManager.releaseAuxiliaryScale(device.deviceId);
+      return jsonOk(null);
     }
     _connectionManager.markExpectingDisconnect(device.deviceId);
     await device.disconnect();
@@ -615,16 +686,21 @@ class DeviceListEntry {
     required this.type,
     required this.state,
     required this.available,
+    this.connectionRole,
   });
 
-  DeviceListEntry.live(Device device, ConnectionState state)
-    : this._(
-        id: device.deviceId,
-        name: device.name,
-        type: device.type,
-        state: state,
-        available: true,
-      );
+  DeviceListEntry.live(
+    Device device,
+    ConnectionState state, {
+    String? connectionRole,
+  }) : this._(
+         id: device.deviceId,
+         name: device.name,
+         type: device.type,
+         state: state,
+         available: true,
+         connectionRole: connectionRole,
+       );
 
   DeviceListEntry.remembered(RememberedDevice r)
     : this._(
@@ -635,12 +711,19 @@ class DeviceListEntry {
         available: false,
       );
 
+  /// How this host is holding the device, for scales that are connected:
+  /// `primary` is the one a shot is weighed on, `auxiliary` is one a client
+  /// asked to keep open. It says nothing about what the client is using it
+  /// for -- that is the client's business, and deliberately not recorded here.
+  final String? connectionRole;
+
   Map<String, dynamic> toJson() => {
     'name': name,
     'id': id,
     'state': state.name,
     'type': type.name,
     'available': available,
+    if (connectionRole != null) 'connectionRole': connectionRole,
   };
 }
 
@@ -648,13 +731,23 @@ Future<List<Map<String, dynamic>>> buildAvailabilityDeviceList(
   List<Device> liveDevices,
   List<RememberedDevice> remembered, {
   String? preferredScaleId,
+  String? primaryScaleId,
+  Set<String> auxiliaryScaleIds = const {},
 }) async {
   final entries = <DeviceListEntry>[];
   final liveIds = <String>{};
   for (final device in liveDevices) {
     final state = await device.connectionState.first;
     liveIds.add(device.deviceId);
-    entries.add(DeviceListEntry.live(device, state));
+    String? role;
+    if (device.type == DeviceType.scale && state == ConnectionState.connected) {
+      if (auxiliaryScaleIds.contains(device.deviceId)) {
+        role = 'auxiliary';
+      } else if (primaryScaleId != null && primaryScaleId == device.deviceId) {
+        role = 'primary';
+      }
+    }
+    entries.add(DeviceListEntry.live(device, state, connectionRole: role));
   }
   for (final r in remembered) {
     if (liveIds.contains(r.id)) continue;

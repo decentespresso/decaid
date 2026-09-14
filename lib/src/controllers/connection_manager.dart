@@ -15,6 +15,7 @@ import 'package:reaprime/src/controllers/connection/scan_orchestrator.dart';
 import 'package:reaprime/src/controllers/connection/scan_report_builder.dart';
 import 'package:reaprime/src/controllers/connection/status_publisher.dart';
 import 'package:reaprime/src/controllers/connection_error.dart';
+import 'package:reaprime/src/controllers/auxiliary_scale_registry.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/remembered_devices_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
@@ -118,6 +119,11 @@ class ConnectionManager {
   final DeviceScanner deviceScanner;
   final De1Controller de1Controller;
   final ScaleController scaleController;
+
+  /// Scales held open for a client's own purposes. Auto-selection skips them
+  /// and nothing in the brewing path reads them; this manager only knows they
+  /// are spoken for.
+  final AuxiliaryScaleRegistry auxiliaryScales;
   final SettingsController settingsController;
 
   final RememberedDevicesController? rememberedDevices;
@@ -259,11 +265,13 @@ class ConnectionManager {
     required this.deviceScanner,
     required this.de1Controller,
     required this.scaleController,
+    AuxiliaryScaleRegistry? auxiliaryScales,
     required this.settingsController,
     this.rememberedDevices,
     Duration deviceAttachSettleDelay = const Duration(milliseconds: 500),
     Duration? connectTimeout,
-  }) : _connectTimeout =
+  }) : auxiliaryScales = auxiliaryScales ?? AuxiliaryScaleRegistry(),
+       _connectTimeout =
            connectTimeout ??
            (Platform.isLinux
                ? const Duration(seconds: 60)
@@ -1203,6 +1211,7 @@ class ConnectionManager {
       scales: scales,
       preferredMachineId: preferredMachineId,
       preferredScaleId: preferredScaleId,
+      auxiliaryScaleIds: auxiliaryScales.deviceIds,
       scanReport: scanReport,
     );
     _selectionSession = selectionSession;
@@ -1653,17 +1662,28 @@ class ConnectionManager {
       _log.fine('Scale already connected, skipping scale phase');
       return;
     }
+    final held = auxiliaryScales.deviceIds;
+    final selectable = held.isEmpty
+        ? scales
+        : scales.where((s) => !held.contains(s.deviceId)).toList();
+    if (selectable.length != scales.length) {
+      _log.fine(
+        'Scale phase: ${scales.length - selectable.length} of ${scales.length} '
+        'scales are held as auxiliary and are not candidates for brewing',
+      );
+    }
     _log.fine(
-      'Scale phase: ${scales.length} scales, preferredScaleId=$preferredScaleId',
+      'Scale phase: ${selectable.length} scales, '
+      'preferredScaleId=$preferredScaleId',
     );
     final action = resolveScalePolicy(
-      scales: scales,
+      scales: selectable,
       preferredScaleId: preferredScaleId,
     );
     switch (action) {
       case ConnectScaleAction(scale: final s):
         final result = await _connectScaleTracked(s, scanReport);
-        final alternatives = scales.where((scale) => scale != s).toList();
+        final alternatives = selectable.where((scale) => scale != s).toList();
         if (!result.success &&
             result.error != null &&
             alternatives.isNotEmpty) {
@@ -1858,6 +1878,44 @@ class ConnectionManager {
     }
   }
 
+  /// Holds [scale] open beside the primary one. Asking twice is the same
+  /// request twice; asking for the scale the shot is weighed on is a conflict,
+  /// because a device cannot be both.
+  Future<ConnectionResult> connectAuxiliaryScale(Scale scale) async {
+    if (_shuttingDown) return const ConnectionResult.conflict();
+    if (auxiliaryScales.holds(scale.deviceId)) {
+      return const ConnectionResult.alreadyConnected();
+    }
+    if (_scaleConnected &&
+        scaleController.lastConnectedDeviceId == scale.deviceId) {
+      _log.warning(
+        'connectAuxiliaryScale: ${scale.deviceId} is the brewing scale',
+      );
+      return const ConnectionResult.conflict();
+    }
+    _log.info('Holding ${scale.deviceId} as an auxiliary scale');
+    try {
+      // Counted as connection work like a brewing connect is, so a scan cannot
+      // start on top of it, and bounded by the same timeout.
+      await _trackConnectionWork(
+        () => auxiliaryScales.connect(scale),
+      ).timeout(_connectTimeout);
+      return const ConnectionResult.succeeded();
+    } on TimeoutException catch (e, st) {
+      _log.warning('Auxiliary scale ${scale.deviceId} timed out', e, st);
+      await auxiliaryScales.release(scale.deviceId);
+      return ConnectionResult.timedOut('Auxiliary scale connect timed out');
+    } catch (e, st) {
+      _log.warning('Auxiliary scale ${scale.deviceId} failed', e, st);
+      return ConnectionResult.failed(e.toString());
+    }
+  }
+
+  /// Lets go of an auxiliary scale, which makes the device an ordinary
+  /// candidate for brewing again.
+  Future<void> releaseAuxiliaryScale(String deviceId) =>
+      auxiliaryScales.release(deviceId);
+
   Future<ConnectionResult> connectScale(Scale scale) {
     if (_shuttingDown) {
       return Future.value(const ConnectionResult.conflict());
@@ -1866,6 +1924,13 @@ class ConnectionManager {
   }
 
   Future<ConnectionResult> _connectScale(Scale scale) async {
+    if (auxiliaryScales.holds(scale.deviceId)) {
+      _log.warning(
+        'connectScale: ${scale.deviceId} is held as auxiliary; release it '
+        'before making it the brewing scale',
+      );
+      return const ConnectionResult.conflict();
+    }
     if (_isConnectingScale) {
       _log.fine('connectScale: already connecting, skipping');
       return const ConnectionResult.conflict();
@@ -2194,10 +2259,16 @@ class ConnectionManager {
     } catch (error, stackTrace) {
       _log.warning('Scale disconnect failed', error, stackTrace);
     }
+    try {
+      await auxiliaryScales.releaseAll();
+    } catch (error, stackTrace) {
+      _log.warning('Auxiliary scale release failed', error, stackTrace);
+    }
   }
 
   Future<void> dispose() async {
     await shutdown();
+    await auxiliaryScales.dispose();
     await de1Controller.dispose();
     scaleController.dispose();
     _disconnectSupervisor.dispose();
