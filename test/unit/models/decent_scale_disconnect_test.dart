@@ -332,6 +332,7 @@ void main() {
       expect(states, isNot(contains(ConnectionState.connected)));
       expect(states.last, ConnectionState.disconnected);
       expect(_hasCommand(transport, 0x0A, 0x02), isFalse);
+      expect(_hasCommand(transport, 0x22), isFalse);
       transport.dispose();
     });
   });
@@ -420,7 +421,7 @@ void main() {
     fakeAsync((async) {
       final (:scale, :transport) = _sleepingReconnect(
         async,
-        responseSubscribeCalls: const [1, 4],
+        responseSubscribeCalls: const [1, 2, 3, 4, 5, 6],
       );
       var firstWoke = false;
       var secondWoke = false;
@@ -430,15 +431,25 @@ void main() {
 
       scale.sleepDisplay();
       async.flushMicrotasks();
+      final writesBeforeSecondWake = transport.writes.length;
       scale.wakeDisplay().then((_) => secondWoke = true);
       async.flushMicrotasks();
-      expect(secondWoke, isFalse);
       _elapse(async, const Duration(seconds: 2));
       expect(transport.subscribeCalls, 4);
+      _elapse(async, const Duration(seconds: 2));
+      _elapse(async, const Duration(seconds: 1));
       _elapse(async, const Duration(milliseconds: 100));
 
       expect(firstWoke, isTrue);
       expect(secondWoke, isTrue);
+      expect(
+        transport.writes
+            .sublist(writesBeforeSecondWake)
+            .any(
+              (data) => data[1] == 0x0A && data[2] == 0x04 && data[3] == 0x00,
+            ),
+        isTrue,
+      );
       scale.disconnectForHandoff();
       async.flushMicrotasks();
       transport.dispose();

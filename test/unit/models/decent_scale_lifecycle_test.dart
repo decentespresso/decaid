@@ -5,6 +5,7 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/impl/decent_scale/scale.dart';
+import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:rxdart/rxdart.dart';
 
@@ -13,9 +14,12 @@ class _LifecycleBleTransport extends BLETransport {
 
   final BehaviorSubject<ConnectionState> _connectionState =
       BehaviorSubject.seeded(ConnectionState.disconnected);
+  ConnectionState _nativeState = ConnectionState.disconnected;
   bool respondToVoltage;
+  bool failSoftSleep = false;
   final writes = <Uint8List>[];
   void Function(Uint8List)? notificationCallback;
+  void Function(Uint8List)? firstNotificationCallback;
   int disconnectCalls = 0;
 
   @override
@@ -28,16 +32,18 @@ class _LifecycleBleTransport extends BLETransport {
   Stream<ConnectionState> get connectionState => _connectionState.stream;
 
   @override
-  Future<ConnectionState> getConnectionState() async => _connectionState.value;
+  Future<ConnectionState> getConnectionState() async => _nativeState;
 
   @override
   Future<void> connect() async {
+    _nativeState = ConnectionState.connected;
     _connectionState.add(ConnectionState.connected);
   }
 
   @override
   Future<void> disconnect() async {
     disconnectCalls++;
+    _nativeState = ConnectionState.disconnected;
     _connectionState.add(ConnectionState.disconnected);
   }
 
@@ -53,6 +59,7 @@ class _LifecycleBleTransport extends BLETransport {
     void Function(Uint8List) callback,
   ) async {
     notificationCallback = callback;
+    firstNotificationCallback ??= callback;
   }
 
   @override
@@ -62,6 +69,7 @@ class _LifecycleBleTransport extends BLETransport {
     void Function(Uint8List) callback,
   ) async {
     notificationCallback = callback;
+    firstNotificationCallback ??= callback;
   }
 
   @override
@@ -81,6 +89,14 @@ class _LifecycleBleTransport extends BLETransport {
   }) async {
     final frame = Uint8List.fromList(data);
     writes.add(frame);
+    if (failSoftSleep &&
+        frame.length == 7 &&
+        frame[1] == 0x0A &&
+        frame[2] == 0x04 &&
+        frame[3] == 0x01) {
+      _nativeState = ConnectionState.disconnected;
+      throw const DeviceNotConnectedException.scale();
+    }
     if (frame.length == 7 && frame[1] == 0x0A && frame[2] == 0x01) {
       scheduleMicrotask(
         () => emitNotification([0x03, 0x0A, 0x00, 0x00, 0x64, 0x01, 0x20]),
@@ -169,18 +185,26 @@ void main() {
       await _disposeScale(scale, transport);
     });
 
-    test('late profile evidence after sleep is ignored', () async {
-      final transport = _LifecycleBleTransport();
-      final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale);
-      await scale.sleepDisplay();
-      transport.writes.clear();
+    test('late profile evidence after sleep is ignored', () {
+      fakeAsync((async) {
+        final transport = _LifecycleBleTransport();
+        final scale = DecentScale(transport: transport);
+        scale.onConnect();
+        async.flushMicrotasks();
+        expect(_hasCommand(transport, 0x22), isTrue);
 
-      transport.emitNotification([0x03, 0x22, 0x00, 0x64, 0x00, 0x00, 0x00]);
+        scale.sleepDisplay();
+        async.flushMicrotasks();
+        transport.emitNotification([0x03, 0x22, 0x00, 0x64, 0x00, 0x00, 0x00]);
+        async.flushMicrotasks();
 
-      expect(scale.disconnectsToSleep, isTrue);
-      expect(_hasCommand(transport, 0x0A, 0x04), isFalse);
-      await _disposeScale(scale, transport);
+        expect(scale.disconnectsToSleep, isTrue);
+        expect(_hasCommand(transport, 0x0A, 0x04), isFalse);
+        scale.disconnectForHandoff();
+        async.flushMicrotasks();
+        transport.dispose();
+        async.flushMicrotasks();
+      });
     });
 
     test('profile does not leak across connections', () async {
@@ -236,11 +260,54 @@ void main() {
       expect(
         transport.writes
             .where((data) => data[1] == 0x0A && data[2] == 0x04)
-            .every((data) => data[4] == 0x00),
+            .every((data) => data[5] == 0x00),
         isTrue,
       );
       await _disposeScale(scale, transport);
     });
+
+    test('failed HDS SoftSleep disconnects the scale', () async {
+      final transport = _LifecycleBleTransport(respondToVoltage: true);
+      final scale = DecentScale(transport: transport);
+      await _connectAndSettle(scale);
+      transport.failSoftSleep = true;
+
+      await scale.sleepDisplay();
+
+      expect(transport.disconnectCalls, greaterThanOrEqualTo(1));
+      expect(
+        await transport.getConnectionState(),
+        ConnectionState.disconnected,
+      );
+      expect(scale.disconnectsToSleep, isFalse);
+      await transport.dispose();
+    });
+
+    test(
+      'stale subscription evidence cannot promote a newer attempt',
+      () async {
+        final transport = _LifecycleBleTransport(respondToVoltage: false);
+        final scale = DecentScale(transport: transport);
+        scale.onConnect();
+        await pumpEventQueue();
+        final staleCallback = transport.firstNotificationCallback!;
+
+        await scale.sleepDisplay();
+        await scale.onConnect();
+        await scale.wakeDisplay();
+        await pumpEventQueue();
+        transport.writes.clear();
+
+        staleCallback(
+          Uint8List.fromList([0x03, 0x22, 0x00, 0x64, 0x00, 0x00, 0x00]),
+        );
+        await pumpEventQueue();
+
+        expect(scale.disconnectsToSleep, isTrue);
+        expect(_hasCommand(transport, 0x0A, 0x04), isFalse);
+        await _disposeScale(scale, transport);
+      },
+    );
 
     test('confirmed HDS wake writes SoftSleep exit', () async {
       final transport = _LifecycleBleTransport(respondToVoltage: true);
@@ -259,7 +326,7 @@ void main() {
       expect(
         transport.writes
             .where((data) => data[1] == 0x0A)
-            .every((data) => data[4] == 0x00),
+            .every((data) => data[5] == 0x00),
         isTrue,
       );
       await _disposeScale(scale, transport);
@@ -284,7 +351,7 @@ void main() {
       expect(
         transport.writes
             .where((data) => data[1] == 0x0A)
-            .every((data) => data[4] == 0x00),
+            .every((data) => data[5] == 0x00),
         isTrue,
       );
       expect(

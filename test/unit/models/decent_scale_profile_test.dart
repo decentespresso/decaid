@@ -51,6 +51,38 @@ void main() {
       expect(profile.capabilities.unreliableCommandBuffer, isFalse);
     });
 
+    test('decodes original firmware markers and capabilities', () {
+      final v10 = DecentScaleProfile.fromEvidence(
+        statusResponseSeen: true,
+        sawTimestampedWeightFrame: false,
+        voltageProbeAccepted: false,
+        originalFirmwareMarker: 0xFE,
+      );
+      expect(v10.originalFirmwareVersion, '1.0');
+      expect(v10.capabilities, DecentScaleCapabilities.conservative);
+
+      final v11 = DecentScaleProfile.fromEvidence(
+        statusResponseSeen: true,
+        sawTimestampedWeightFrame: false,
+        voltageProbeAccepted: false,
+        originalFirmwareMarker: 0x02,
+      );
+      expect(v11.originalFirmwareVersion, '1.1');
+      expect(v11.capabilities, DecentScaleCapabilities.originalReliable);
+      expect(v11.capabilities.unreliableCommandBuffer, isFalse);
+      expect(v11.capabilities.supportsPowerOff, isFalse);
+
+      final v12 = DecentScaleProfile.fromEvidence(
+        statusResponseSeen: true,
+        sawTimestampedWeightFrame: false,
+        voltageProbeAccepted: false,
+        originalFirmwareMarker: 0x03,
+      );
+      expect(v12.originalFirmwareVersion, '1.2');
+      expect(v12.capabilities.supportsPowerOff, isTrue);
+      expect(v12.capabilities.unreliableCommandBuffer, isFalse);
+    });
+
     test('parses HDS voltage and derives HDS capabilities', () {
       final parsed = parseDecentVoltageFrame(
         frame([0x03, 0x22, 0x01, 0x89, 0x00, 0x00]),
@@ -60,15 +92,17 @@ void main() {
       expect(parsed!.voltage, 39.3);
 
       final profile = DecentScaleProfile.fromEvidence(
-        statusResponseSeen: false,
+        statusResponseSeen: true,
         sawTimestampedWeightFrame: false,
         voltageProbeAccepted: true,
+        originalFirmwareMarker: 0x02,
       );
       expect(profile.identity, DecentScaleIdentity.halfDecentScale);
       expect(profile.capabilities, DecentScaleCapabilities.halfDecent);
       expect(profile.capabilities.supportsSoftSleep, isTrue);
       expect(profile.capabilities.supportsHdsExtendedCommands, isTrue);
       expect(profile.isHds, isTrue);
+      expect(profile.originalFirmwareVersion, isNull);
     });
 
     test('does not infer HDS without an accepted voltage probe', () {

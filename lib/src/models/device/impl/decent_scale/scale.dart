@@ -56,7 +56,7 @@ class DecentScale
   bool _desiredDisplaySleeping = false;
 
   DecentScaleProfile _profile = DecentScaleProfile.conservative;
-  int _evidenceGeneration = -1;
+  int _profileAttempt = 0;
   Completer<void>? _statusEvidence;
   Completer<void>? _voltageEvidence;
   bool _statusResponseSeen = false;
@@ -103,7 +103,8 @@ class DecentScale
     Duration? timeout,
   }) async {
     try {
-      return await _writeCommand(commandBytes, timeout: timeout);
+      final write = _writeCommand(commandBytes, timeout: timeout);
+      return timeout == null ? await write : await write.timeout(timeout);
     } catch (error) {
       _log.warning(
         'Nonessential scale write failed (link may still be alive): '
@@ -152,17 +153,18 @@ class DecentScale
     }
     _connectionStateController.add(ConnectionState.connecting);
     _stopMaintenance();
-    final generation = _maintenanceGeneration;
-    _armProfileEvidence(generation);
+    final attempt = _armProfileEvidence();
 
     try {
       await _waitForNotificationRecovery();
       await _device.connect();
 
       await subscription?.cancel();
-      subscription = _device.connectionState
+      late final StreamSubscription<ConnectionState> transportListener;
+      transportListener = _device.connectionState
           .where((state) => state == ConnectionState.disconnected)
           .listen((_) {
+            if (!identical(subscription, transportListener)) return;
             _log.info("Transport disconnected");
             unawaited(
               _disconnect(powerOff: false).catchError((
@@ -177,6 +179,7 @@ class DecentScale
               }),
             );
           });
+      subscription = transportListener;
 
       final services = await _device.discoverServices();
       if (!serviceIdentifier.matchesAny(services)) {
@@ -186,11 +189,11 @@ class DecentScale
         );
       }
       if (_isSleeping) {
-        await _registerNotifications();
+        await _registerNotifications(attempt);
       } else {
-        await _confirmDataChannel();
+        await _confirmDataChannel(attempt);
         unawaited(
-          _negotiateProfile(generation).catchError((
+          _negotiateProfile(attempt).catchError((
             Object error,
             StackTrace stackTrace,
           ) {
@@ -212,9 +215,13 @@ class DecentScale
       if (await _device.getConnectionState() != ConnectionState.connected) {
         throw const DeviceNotConnectedException.scale();
       }
+      if (attempt != _profileAttempt) return;
       _connectionStateController.add(ConnectionState.connected);
       _startMaintenance();
     } catch (e, stackTrace) {
+      if (attempt != _profileAttempt) {
+        Error.throwWithStackTrace(e, stackTrace);
+      }
       _log.warning('Failed to initialize scale: $e');
       await subscription?.cancel();
       subscription = null;
@@ -286,8 +293,8 @@ class DecentScale
     _notificationWatchdog = null;
   }
 
-  void _armProfileEvidence(int generation) {
-    _evidenceGeneration = generation;
+  int _armProfileEvidence() {
+    final attempt = ++_profileAttempt;
     _profile = DecentScaleProfile.conservative;
     _statusResponseSeen = false;
     _statusFirmwareMarker = null;
@@ -296,29 +303,39 @@ class DecentScale
     _voltageProbeAccepted = false;
     _statusEvidence = Completer<void>();
     _voltageEvidence = Completer<void>();
+    _log.info(
+      'Decent scale: initial profile=${_profile.identity.name} '
+      'capabilities=${_profile.capabilities.labels.join(',')}',
+    );
+    return attempt;
   }
 
-  bool _isCurrentProfileGeneration(int generation) =>
-      generation == _evidenceGeneration &&
-      !_isSleeping &&
-      !_isDisconnecting &&
-      _connectionStateController.value != ConnectionState.disconnected;
-
-  Future<void> _negotiateProfile(int generation) async {
-    _log.info('Decent scale: profile negotiation started');
-    final statusSeen = await _awaitStatusEvidence();
-    if (!_isCurrentProfileGeneration(generation)) return;
-    _statusResponseSeen = statusSeen;
-    final voltageAccepted = await _probeHdsCapabilities();
-    if (!_isCurrentProfileGeneration(generation)) return;
-    _voltageProbeAccepted = voltageAccepted;
+  void _applyProfileEvidence() {
     _profile = DecentScaleProfile.fromEvidence(
-      statusResponseSeen: statusSeen,
+      statusResponseSeen: _statusResponseSeen,
       sawTimestampedWeightFrame: _sawTimestampedWeightFrame,
       voltageProbeAccepted: _voltageProbeAccepted,
       originalFirmwareMarker: _statusFirmwareMarker,
       hdsFirmwareVersion: _hdsFirmwareVersion,
     );
+  }
+
+  bool _isCurrentProfileAttempt(int attempt) =>
+      attempt == _profileAttempt &&
+      !_isSleeping &&
+      !_isDisconnecting &&
+      _connectionStateController.value != ConnectionState.disconnected;
+
+  Future<void> _negotiateProfile(int attempt) async {
+    _log.info('Decent scale: profile negotiation started');
+    final statusSeen = await _awaitStatusEvidence();
+    if (!_isCurrentProfileAttempt(attempt)) return;
+    _statusResponseSeen = statusSeen;
+    _applyProfileEvidence();
+    final voltageAccepted = await _probeHdsCapabilities(attempt);
+    if (!_isCurrentProfileAttempt(attempt)) return;
+    _voltageProbeAccepted = _voltageProbeAccepted || voltageAccepted;
+    _applyProfileEvidence();
     _log.info(
       'Decent scale: profile=${_profile.identity.name} '
       'capabilities=${_profile.capabilities.labels.join(',')}',
@@ -342,43 +359,47 @@ class DecentScale
     }
   }
 
-  Future<bool> _probeHdsCapabilities() async {
+  Future<bool> _probeHdsCapabilities(int attempt) async {
     final evidence = _voltageEvidence;
-    if (evidence == null) return false;
+    if (evidence == null || !_isCurrentProfileAttempt(attempt)) {
+      return _voltageProbeAccepted;
+    }
     final sent = await _writeNonEssentialCommand([
       0x22,
       0x00,
       0x00,
       0x00,
       0x00,
-    ]);
-    if (!sent) {
+    ], timeout: _profileProbeTimeout);
+    if (!_isCurrentProfileAttempt(attempt) || !sent) {
       _log.info('Decent scale: HDS voltage probe: no response');
-      return false;
+      return _voltageProbeAccepted;
     }
     try {
       await evidence.future.timeout(_profileProbeTimeout);
       _log.info('Decent scale: HDS voltage probe accepted');
-      return true;
     } on TimeoutException {
       _log.info('Decent scale: HDS voltage probe: no response');
-      return false;
     }
+    return _voltageProbeAccepted;
   }
 
-  Future<bool> _confirmDataChannel({bool Function()? isCurrent}) async {
-    bool current() => isCurrent?.call() ?? true;
+  Future<bool> _confirmDataChannel(
+    int attempt, {
+    bool Function()? isCurrent,
+  }) async {
+    bool current() => attempt == _profileAttempt && (isCurrent?.call() ?? true);
     final firstNotification = Completer<void>();
     _initializationNotification = firstNotification;
     try {
-      for (var attempt = 0; attempt < 2; attempt++) {
-        if (attempt == 0) {
-          await _registerNotifications();
+      for (var retry = 0; retry < 2; retry++) {
+        if (retry == 0) {
+          await _registerNotifications(attempt);
         } else {
           await _device.resetSubscription(
             serviceIdentifier.long,
             dataCharacteristic.long,
-            _parseNotification,
+            (data) => _parseNotification(data, attempt),
           );
         }
         if (!current()) return false;
@@ -389,7 +410,7 @@ class DecentScale
           return current();
         } on TimeoutException {
           if (!current()) return false;
-          if (attempt == 1) {
+          if (retry == 1) {
             await _readSilentDataChannelDiagnostic();
             rethrow;
           }
@@ -491,11 +512,15 @@ class DecentScale
   Future<void> sleepDisplay() async {
     _desiredDisplaySleeping = true;
     _displayGeneration++;
+    _profileAttempt++;
     _isSleeping = true;
     _notificationWatchdog?.cancel();
     if (_profile.capabilities.supportsSoftSleep) {
       _log.info('Putting Decent Scale display to sleep');
       await _sendOledOff();
+      if (await _device.getConnectionState() != ConnectionState.connected) {
+        await _disconnect(powerOff: false);
+      }
       return;
     }
     _log.info('Decent scale: disconnecting for sleep (SoftSleep unavailable)');
@@ -525,16 +550,17 @@ class DecentScale
       while (!_desiredDisplaySleeping) {
         final generation = _displayGeneration;
         _isSleeping = false;
-        _armProfileEvidence(_maintenanceGeneration);
+        final attempt = _armProfileEvidence();
         _notificationWatchdog?.cancel();
         try {
           final confirmed = await _confirmDataChannel(
+            attempt,
             isCurrent: () =>
                 generation == _displayGeneration && !_desiredDisplaySleeping,
           );
           if (!confirmed) continue;
           unawaited(
-            _negotiateProfile(_maintenanceGeneration).catchError((
+            _negotiateProfile(attempt).catchError((
               Object error,
               StackTrace stackTrace,
             ) {
@@ -596,9 +622,10 @@ class DecentScale
     }
   }
 
-  Future<void> _registerNotifications() async {
+  Future<void> _registerNotifications(int attempt) async {
     await _waitForNotificationRecovery();
-    await _subscribeNotifications();
+    if (attempt != _profileAttempt) return;
+    await _subscribeNotifications(attempt);
   }
 
   Future<void> _waitForNotificationRecovery() async {
@@ -610,17 +637,17 @@ class DecentScale
     }
   }
 
-  Future<void> _subscribeNotifications() async {
+  Future<void> _subscribeNotifications(int attempt) async {
     await _device.subscribe(
       serviceIdentifier.long,
       dataCharacteristic.long,
-      _parseNotification,
+      (data) => _parseNotification(data, attempt),
     );
   }
 
   Future<void> _retryNotifications() async {
     if (_notificationRecovery != null || _isDisconnecting) return;
-    final operation = _subscribeNotifications();
+    final operation = _subscribeNotifications(_profileAttempt);
     _notificationRecovery = operation;
     try {
       await operation;
@@ -646,7 +673,8 @@ class DecentScale
     }
   }
 
-  void _parseNotification(List<int> data) {
+  void _parseNotification(List<int> data, int attempt) {
+    if (attempt != _profileAttempt) return;
     final frameType = _dataFrameType(data);
     if (frameType == null) return;
     if (!(_initializationNotification?.isCompleted ?? true)) {
@@ -658,14 +686,21 @@ class DecentScale
     _resetNotificationWatchdog();
     _log.finest("$hashCode recv: ${data[1].toHex()}");
     if (frameType == 'weight') {
-      _recordWeightFrame(data);
+      _recordWeightFrame(data, attempt);
       _parseWeight(data);
     } else if (frameType == 'status') {
-      _recordStatusFrame(data);
+      _recordStatusFrame(data, attempt);
     } else {
-      _recordVoltageFrame(data);
+      _recordVoltageFrame(data, attempt);
     }
   }
+
+  static String? _originalFirmwareVersion(int marker) => switch (marker) {
+    0xFE => '1.0',
+    0x02 => '1.1',
+    0x03 => '1.2',
+    _ => null,
+  };
 
   static String? _dataFrameType(List<int> data) {
     if (data.length < 2 || data[0] != 0x03) return null;
@@ -693,29 +728,48 @@ class DecentScale
 
   int _batteryLevel = 100;
 
-  void _recordWeightFrame(List<int> data) {
-    if (!_isCurrentProfileGeneration(_evidenceGeneration)) return;
-    if (data.length == 10) _sawTimestampedWeightFrame = true;
+  void _recordWeightFrame(List<int> data, int attempt) {
+    if (!_isCurrentProfileAttempt(attempt)) return;
+    if (data.length == 10) {
+      _sawTimestampedWeightFrame = true;
+      _applyProfileEvidence();
+    }
   }
 
-  void _recordStatusFrame(List<int> data) {
-    if (!_isCurrentProfileGeneration(_evidenceGeneration)) return;
+  void _recordStatusFrame(List<int> data, int attempt) {
+    if (!_isCurrentProfileAttempt(attempt)) return;
     final frame = parseDecentStatusFrame(data);
     if (frame == null) return;
     _statusResponseSeen = true;
     _statusFirmwareMarker = frame.originalFirmwareMarker;
     _hdsFirmwareVersion = frame.hdsFirmwareVersion;
     _batteryLevel = min(frame.batteryLevel, 100);
-    _log.fine("status response: ${data.map((e) => e.toRadixString(16))}");
+    _applyProfileEvidence();
+    final marker = frame.originalFirmwareMarker
+        .toRadixString(16)
+        .padLeft(2, '0');
+    final originalVersion = _originalFirmwareVersion(
+      frame.originalFirmwareMarker,
+    );
+    final evidence = originalVersion == null
+        ? 'original-fw=0x$marker'
+        : 'original-fw=0x$marker fw=$originalVersion';
+    final hdsVersion = frame.hdsFirmwareVersion;
+    _log.info(
+      'status response: $evidence'
+      '${hdsVersion == null ? '' : ' hds-fw=$hdsVersion'}',
+    );
     if (!(_statusEvidence?.isCompleted ?? true)) {
       _statusEvidence!.complete();
     }
   }
 
-  void _recordVoltageFrame(List<int> data) {
-    if (!_isCurrentProfileGeneration(_evidenceGeneration)) return;
+  void _recordVoltageFrame(List<int> data, int attempt) {
+    if (!_isCurrentProfileAttempt(attempt)) return;
     final frame = parseDecentVoltageFrame(data);
     if (frame == null) return;
+    _voltageProbeAccepted = true;
+    _applyProfileEvidence();
     _log.fine('voltage response: ${frame.voltage}');
     if (!(_voltageEvidence?.isCompleted ?? true)) {
       _voltageEvidence!.complete();

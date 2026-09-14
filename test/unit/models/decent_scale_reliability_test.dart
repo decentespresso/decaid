@@ -16,12 +16,14 @@ class _ReliabilityBleTransport extends BLETransport {
       [0x03, 0x0A, 0x00, 0x00, 100, 0x00, 0x00],
     ],
     this.respondToVoltageProbe = false,
+    this.hangVoltageProbe = false,
     this.writeError,
     this.disconnectOnDeviceNotConnectedWrite = true,
   });
 
   final List<List<int>> initialNotifications;
   final bool respondToVoltageProbe;
+  final bool hangVoltageProbe;
   Object? Function(Uint8List data, int writeNumber)? writeError;
   final bool disconnectOnDeviceNotConnectedWrite;
   final _connectionState = BehaviorSubject<ConnectionState>.seeded(
@@ -115,6 +117,9 @@ class _ReliabilityBleTransport extends BLETransport {
         scheduleMicrotask(() => emitNotification(notification));
       }
     }
+    if (frame[1] == 0x22 && hangVoltageProbe) {
+      await Completer<void>().future;
+    }
     if (frame[1] == 0x22 && respondToVoltageProbe) {
       scheduleMicrotask(
         () => emitNotification([0x03, 0x22, 0x01, 0x89, 0x00, 0x00, 0xAB]),
@@ -186,7 +191,7 @@ void main() {
       fakeAsync((async) {
         final transport = _ReliabilityBleTransport(
           initialNotifications: const [
-            [0x03, 0x0A, 0x00, 0x00, 100, 0x01, 0x00],
+            [0x03, 0x0A, 0x00, 0x00, 100, 0xFE, 0x00],
             [0x03, 0xCE, 0x00, 100, 0x00, 0x00, 0x00],
           ],
         );
@@ -249,6 +254,44 @@ void main() {
   });
 
   group('reliable profiles', () {
+    test('records one tare for original v1.1', () {
+      fakeAsync((async) {
+        final transport = _ReliabilityBleTransport(
+          initialNotifications: const [
+            [0x03, 0x0A, 0x00, 0x00, 100, 0x02, 0x00],
+          ],
+        );
+        final scale = DecentScale(transport: transport);
+        _settleConnection(async, scale, transport);
+        transport.writes.clear();
+
+        scale.tare();
+        async.flushMicrotasks();
+        _elapse(async, const Duration(milliseconds: 50));
+        expect(_commandWrites(transport, 0x0F, 0x00), hasLength(1));
+        _close(async, scale, transport);
+      });
+    });
+
+    test('records one tare for original v1.2 marker and powers off', () async {
+      final transport = _ReliabilityBleTransport(
+        initialNotifications: const [
+          [0x03, 0x0A, 0x00, 0x00, 100, 0x03, 0x00],
+        ],
+      );
+      final scale = DecentScale(transport: transport);
+      await scale.onConnect();
+      await pumpEventQueue();
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+      transport.writes.clear();
+
+      await scale.tare();
+      expect(_commandWrites(transport, 0x0F, 0x00), hasLength(1));
+      await scale.disconnect();
+      expect(_commandWrites(transport, 0x0A, 0x02), hasLength(1));
+      await transport.dispose();
+    });
+
     test('does not duplicate tare for a v1.2 timestamped profile', () {
       fakeAsync((async) {
         final transport = _ReliabilityBleTransport(
@@ -281,6 +324,22 @@ void main() {
         expect(_commandWrites(transport, 0x0F, 0x00), hasLength(1));
         _close(async, scale, transport);
       });
+    });
+  });
+
+  test('hanging voltage probe is bounded and keeps the link connected', () {
+    fakeAsync((async) {
+      final transport = _ReliabilityBleTransport(hangVoltageProbe: true);
+      final scale = DecentScale(transport: transport);
+      final errors = <Object>[];
+      runZonedGuarded(() {
+        scale.onConnect();
+      }, (error, stack) => errors.add(error));
+      async.flushMicrotasks();
+      _elapse(async, const Duration(milliseconds: 900));
+      expect(transport.nativeState, ConnectionState.connected);
+      expect(errors, isEmpty);
+      _close(async, scale, transport);
     });
   });
 

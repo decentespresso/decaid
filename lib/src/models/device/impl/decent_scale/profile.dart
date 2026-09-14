@@ -4,6 +4,12 @@ library;
 
 enum DecentScaleIdentity { unknown, originalDecentScale, halfDecentScale }
 
+const _originalFirmwareVersions = <int, String>{
+  0xFE: '1.0',
+  0x02: '1.1',
+  0x03: '1.2',
+};
+
 class DecentScaleCapabilities {
   final bool supportsSoftSleep;
   final bool supportsPowerOff;
@@ -33,6 +39,24 @@ class DecentScaleCapabilities {
         supportsPowerOff: true,
         unreliableCommandBuffer: false,
         usesTimestampedWeightFrames: true,
+        supportsHdsExtendedCommands: false,
+      );
+
+  static const DecentScaleCapabilities originalReliable =
+      DecentScaleCapabilities(
+        supportsSoftSleep: false,
+        supportsPowerOff: false,
+        unreliableCommandBuffer: false,
+        usesTimestampedWeightFrames: false,
+        supportsHdsExtendedCommands: false,
+      );
+
+  static const DecentScaleCapabilities originalPowerOff =
+      DecentScaleCapabilities(
+        supportsSoftSleep: false,
+        supportsPowerOff: true,
+        unreliableCommandBuffer: false,
+        usesTimestampedWeightFrames: false,
         supportsHdsExtendedCommands: false,
       );
 
@@ -89,6 +113,7 @@ class DecentScaleProfile {
   final DecentScaleIdentity identity;
   final DecentScaleCapabilities capabilities;
   final int? originalFirmwareMarker;
+  final String? originalFirmwareVersion;
   final DecentHdsFirmwareVersion? hdsFirmwareVersion;
   final bool sawTimestampedWeightFrame;
   final bool voltageProbeAccepted;
@@ -97,6 +122,7 @@ class DecentScaleProfile {
     required this.identity,
     required this.capabilities,
     required this.originalFirmwareMarker,
+    required this.originalFirmwareVersion,
     required this.hdsFirmwareVersion,
     required this.sawTimestampedWeightFrame,
     required this.voltageProbeAccepted,
@@ -106,6 +132,7 @@ class DecentScaleProfile {
     identity: DecentScaleIdentity.unknown,
     capabilities: DecentScaleCapabilities.conservative,
     originalFirmwareMarker: null,
+    originalFirmwareVersion: null,
     hdsFirmwareVersion: null,
     sawTimestampedWeightFrame: false,
     voltageProbeAccepted: false,
@@ -123,18 +150,28 @@ class DecentScaleProfile {
         identity: DecentScaleIdentity.halfDecentScale,
         capabilities: DecentScaleCapabilities.halfDecent,
         originalFirmwareMarker: originalFirmwareMarker,
+        originalFirmwareVersion: null,
         hdsFirmwareVersion: hdsFirmwareVersion,
         sawTimestampedWeightFrame: sawTimestampedWeightFrame,
         voltageProbeAccepted: true,
       );
     }
     if (statusResponseSeen || sawTimestampedWeightFrame) {
+      final originalFirmwareVersion = sawTimestampedWeightFrame
+          ? '1.2'
+          : _originalFirmwareVersions[originalFirmwareMarker];
+      final capabilities = sawTimestampedWeightFrame
+          ? DecentScaleCapabilities.originalTimestamped
+          : switch (originalFirmwareMarker) {
+              0x02 => DecentScaleCapabilities.originalReliable,
+              0x03 => DecentScaleCapabilities.originalPowerOff,
+              _ => DecentScaleCapabilities.conservative,
+            };
       return DecentScaleProfile(
         identity: DecentScaleIdentity.originalDecentScale,
-        capabilities: sawTimestampedWeightFrame
-            ? DecentScaleCapabilities.originalTimestamped
-            : DecentScaleCapabilities.conservative,
+        capabilities: capabilities,
         originalFirmwareMarker: originalFirmwareMarker,
+        originalFirmwareVersion: originalFirmwareVersion,
         hdsFirmwareVersion: hdsFirmwareVersion,
         sawTimestampedWeightFrame: sawTimestampedWeightFrame,
         voltageProbeAccepted: false,
@@ -144,6 +181,7 @@ class DecentScaleProfile {
       identity: DecentScaleIdentity.unknown,
       capabilities: DecentScaleCapabilities.conservative,
       originalFirmwareMarker: originalFirmwareMarker,
+      originalFirmwareVersion: null,
       hdsFirmwareVersion: hdsFirmwareVersion,
       sawTimestampedWeightFrame: false,
       voltageProbeAccepted: false,
@@ -158,6 +196,7 @@ class DecentScaleProfile {
   String toString() =>
       'DecentScaleProfile(identity: $identity, capabilities: ${capabilities.labels}, '
       'originalFirmwareMarker: $originalFirmwareMarker, '
+      'originalFirmwareVersion: $originalFirmwareVersion, '
       'hdsFirmwareVersion: $hdsFirmwareVersion, '
       'sawTimestampedWeightFrame: $sawTimestampedWeightFrame, '
       'voltageProbeAccepted: $voltageProbeAccepted)';
