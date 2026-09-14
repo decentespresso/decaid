@@ -147,6 +147,28 @@ cancellation.
 
 **Field triage:** `ScaleWatch` logs sightings at INFO. `Background device watch started` with no `Preferred scale … sighted` → scan/screen problem (this footgun, or unfiltered-scan screen-off suspension). `sighted` with no connect → connect-path problem.
 
+## Decent Scale / HDS Profile Negotiation (#839)
+
+**Symptom:** An original full-height Decent Scale connects and streams weight, then drops with Android GATT 133 during a periodic write; repeated disconnects shortly after the DE1 enters sleep.
+
+**Root cause:** `DecentScale` mixed the shared Decent protocol with HDS-only behaviour — unconditional HDS SoftSleep (`0A 04`), a LED/status write every other 4s maintenance tick, and a trailing heartbeat byte of `01` on tare while heartbeat support is disabled.
+
+**Design:** identity is evidence, capabilities control behaviour. `profile.dart` holds `DecentScaleIdentity`, `DecentScaleCapabilities`, and pure frame parsers; a connection starts conservative and only widens on positive protocol evidence.
+
+- A `0x0A` status response or a 10-byte timestamped weight frame identifies an original Decent Scale (the timestamped variant adds power off and drops the unreliable command buffer).
+- Only a valid `0x22` voltage response promotes to HDS (adds SoftSleep and extended commands).
+- Unidentified scales stay conservative: shared weighing/tare/timer only, never `0A 04`, never power off.
+
+**Rules that came out of this:**
+
+- Maintenance is read-only. No periodic LED/status writes; notification age alone drives re-subscribe (12s) and disconnect (20s).
+- No heartbeat subsystem at all; every heartbeat-control byte is `00`.
+- Negotiation is unawaited so `connected` is still published promptly. It is guarded by the maintenance generation, so a late status/voltage frame after sleep, or a stale initialization attempt, cannot promote capabilities on a newer connection.
+- Nonessential writes (LED/status, SoftSleep, power off) tolerate transient failures while notifications are still arriving; tare/timer still fail loudly.
+- The 50ms duplicate write from the canonical de1app is applied only to profiles with the unreliable command buffer (7-byte weight frames).
+
+**Known gap:** status byte 5 is retained as an opaque `originalFirmwareMarker`. Sub-version labelling (v1.0 vs v1.1 vs v1.2) is not derived from a marker table; v1.2 is inferred from timestamped weight frames, and the remaining split needs hardware capture.
+
 ## Gone-Device Error Handling
 
 `UniversalBleTransport._handleGattError()` catches `UniversalBleException` with gone-device codes:
