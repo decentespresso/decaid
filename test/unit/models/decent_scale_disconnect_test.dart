@@ -94,6 +94,7 @@ class _RecordingBleTransport extends BLETransport {
   _RecordingBleTransport({
     ConnectionState nativeState = ConnectionState.disconnected,
     this.responseSubscribeCalls = const [1],
+    this.respondToVoltageProbe = true,
   }) : _nativeState = nativeState;
 
   final BehaviorSubject<ConnectionState> _connectionState =
@@ -113,6 +114,7 @@ class _RecordingBleTransport extends BLETransport {
   int? disconnectOnWrite;
   bool failSubscriptions = false;
   final List<int> responseSubscribeCalls;
+  final bool respondToVoltageProbe;
   Uint8List diagnosticRead = Uint8List(0);
 
   @override
@@ -208,6 +210,11 @@ class _RecordingBleTransport extends BLETransport {
         respondedSubscribeCall < subscribeCalls) {
       respondedSubscribeCall = subscribeCalls;
       scheduleMicrotask(() => emitNotification([0x03, 0x0A, 0, 0, 100, 0, 0]));
+    }
+    if (data.length == 7 && data[1] == 0x22 && respondToVoltageProbe) {
+      scheduleMicrotask(
+        () => emitNotification([0x03, 0x22, 0x01, 0x89, 0x00, 0x00, 0xAB]),
+      );
     }
   }
 
@@ -357,6 +364,31 @@ void main() {
     });
   });
 
+  test('original scale disconnects for sleep without SoftSleep', () async {
+    final transport = _RecordingBleTransport(
+      responseSubscribeCalls: const [1, 3],
+      respondToVoltageProbe: false,
+    );
+    final scale = DecentScale(transport: transport);
+    await scale.onConnect();
+    await pumpEventQueue();
+    transport.writes.clear();
+
+    await scale.sleepDisplay();
+
+    expect(transport.disconnectCalls, 1);
+    expect(_hasCommand(transport, 0x0A, 0x04), isFalse);
+
+    await scale.onConnect();
+    await scale.wakeDisplay();
+    final snapshot = scale.currentSnapshot.first;
+    transport.emitNotification([0x03, 0xCE, 0x00, 100, 0x00, 0x00, 0x00]);
+    expect((await snapshot).weight, 10);
+
+    await scale.disconnectForHandoff();
+    await transport.dispose();
+  });
+
   test('sleep supersedes a silent wake before its retry', () {
     fakeAsync((async) {
       final (:scale, :transport) = _sleepingReconnect(
@@ -407,8 +439,6 @@ void main() {
 
       expect(firstWoke, isTrue);
       expect(secondWoke, isTrue);
-      expect(transport.writes.last[2], 0x04);
-      expect(transport.writes.last[3], 0);
       scale.disconnectForHandoff();
       async.flushMicrotasks();
       transport.dispose();
@@ -483,9 +513,9 @@ void main() {
   );
 
   test(
-    'native drop on the second initialization write never publishes connected',
+    'native drop on the initialization write never publishes connected',
     () async {
-      final transport = _RecordingBleTransport()..disconnectOnWrite = 2;
+      final transport = _RecordingBleTransport()..disconnectOnWrite = 1;
       final scale = DecentScale(transport: transport);
       final states = <ConnectionState>[];
       final subscription = scale.connectionState.listen(states.add);
@@ -496,9 +526,9 @@ void main() {
       );
       await Future<void>.delayed(Duration.zero);
 
-      expect(transport.writes, hasLength(2));
+      expect(transport.writes, hasLength(1));
       expect(
-        transport.writes.first,
+        transport.writes.single,
         orderedEquals([0x03, 0x0A, 0x01, 0x01, 0x00, 0x00, 0x09]),
       );
       expect(states, isNot(contains(ConnectionState.connected)));
@@ -540,6 +570,7 @@ void main() {
       final scale = DecentScale(transport: transport);
 
       await scale.onConnect();
+      await pumpEventQueue();
 
       expect(_hasCommand(transport, 0x0F), isFalse);
       expect(
@@ -651,6 +682,7 @@ void main() {
       final explicitTransport = _RecordingBleTransport();
       final explicitScale = DecentScale(transport: explicitTransport);
       await explicitScale.onConnect();
+      await pumpEventQueue();
       explicitTransport.writes.clear();
 
       await explicitScale.disconnect();
@@ -664,6 +696,7 @@ void main() {
     final transport = _RecordingBleTransport();
     final scale = DecentScale(transport: transport);
     await scale.onConnect();
+    await pumpEventQueue();
 
     for (final data in [
       [0x03, 0x0A, 0x00, 0x00],

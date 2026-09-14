@@ -5,6 +5,7 @@ import 'package:reaprime/src/models/device/ble_service_identifier.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
+import 'package:reaprime/src/models/device/impl/decent_scale/profile.dart';
 import 'package:reaprime/src/models/device/impl/decent_scale/protocol.dart';
 import 'package:reaprime/src/services/serial/serial_service_desktop.dart';
 import 'package:logging/logging.dart' as logging;
@@ -13,7 +14,8 @@ import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:rxdart/subjects.dart';
 
-class DecentScale implements Scale, TransportHandoffScale {
+class DecentScale
+    implements Scale, TransportHandoffScale, DisconnectToSleepScale {
   static final BleServiceIdentifier serviceIdentifier =
       BleServiceIdentifier.short('fff0');
   static final BleServiceIdentifier dataCharacteristic =
@@ -21,8 +23,9 @@ class DecentScale implements Scale, TransportHandoffScale {
   static final BleServiceIdentifier writeCharacteristic =
       BleServiceIdentifier.short('36f5');
 
-  static final bool isUsingHeartBeat = false;
   static const _initializationProbeTimeout = Duration(seconds: 2);
+  static const _profileProbeTimeout = Duration(milliseconds: 800);
+  static const _duplicateCommandDelay = Duration(milliseconds: 50);
   static const _weightFrameLengths = {7, 10};
 
   final String _deviceId;
@@ -34,14 +37,14 @@ class DecentScale implements Scale, TransportHandoffScale {
 
   final logging.Logger _log = logging.Logger("Decent scale");
 
-  Timer? _heartbeatTimer;
+  Timer? _maintenanceTimer;
 
   static const _watchdogWarningTicks = 3;
   static const _watchdogDisconnectTicks = 5;
   int _ticksSinceLastNotification = 0;
   bool _watchdogRetryAttempted = false;
   int _totalNotifications = 0;
-  int _heartbeatTotalTicks = 0;
+  int _maintenanceTicks = 0;
 
   Timer? _notificationWatchdog;
   Future<void>? _notificationRecovery;
@@ -51,6 +54,16 @@ class DecentScale implements Scale, TransportHandoffScale {
   int _maintenanceGeneration = 0;
   int _displayGeneration = 0;
   bool _desiredDisplaySleeping = false;
+
+  DecentScaleProfile _profile = DecentScaleProfile.conservative;
+  int _evidenceGeneration = -1;
+  Completer<void>? _statusEvidence;
+  Completer<void>? _voltageEvidence;
+  bool _statusResponseSeen = false;
+  int? _statusFirmwareMarker;
+  DecentHdsFirmwareVersion? _hdsFirmwareVersion;
+  bool _sawTimestampedWeightFrame = false;
+  bool _voltageProbeAccepted = false;
 
   DecentScale({required BLETransport transport})
     : _deviceId = transport.id,
@@ -80,7 +93,28 @@ class DecentScale implements Scale, TransportHandoffScale {
     if (!await _writeCommand(commandBytes)) {
       throw const DeviceNotConnectedException.scale();
     }
+    if (!_profile.capabilities.unreliableCommandBuffer) return;
+    await Future<void>.delayed(_duplicateCommandDelay);
+    await _writeCommand(commandBytes);
   }
+
+  Future<bool> _writeNonEssentialCommand(
+    List<int> commandBytes, {
+    Duration? timeout,
+  }) async {
+    try {
+      return await _writeCommand(commandBytes, timeout: timeout);
+    } catch (error) {
+      _log.warning(
+        'Nonessential scale write failed (link may still be alive): '
+        '$error',
+      );
+      return false;
+    }
+  }
+
+  @override
+  bool get disconnectsToSleep => !_profile.capabilities.supportsSoftSleep;
 
   @override
   Stream<ScaleSnapshot> get currentSnapshot => _streamController.stream;
@@ -118,6 +152,8 @@ class DecentScale implements Scale, TransportHandoffScale {
     }
     _connectionStateController.add(ConnectionState.connecting);
     _stopMaintenance();
+    final generation = _maintenanceGeneration;
+    _armProfileEvidence(generation);
 
     try {
       await _waitForNotificationRecovery();
@@ -153,17 +189,26 @@ class DecentScale implements Scale, TransportHandoffScale {
         await _registerNotifications();
       } else {
         await _confirmDataChannel();
+        unawaited(
+          _negotiateProfile(generation).catchError((
+            Object error,
+            StackTrace stackTrace,
+          ) {
+            _log.warning(
+              'Decent scale: profile negotiation failed',
+              error,
+              stackTrace,
+            );
+          }),
+        );
       }
-      _heartbeatTimer?.cancel();
+      _maintenanceTimer?.cancel();
       _notificationWatchdog?.cancel();
       _ticksSinceLastNotification = 0;
       _watchdogRetryAttempted = false;
       _totalNotifications = 0;
-      _heartbeatTotalTicks = 0;
+      _maintenanceTicks = 0;
       _resetNotificationWatchdog();
-      if (isUsingHeartBeat && !await _sendHeartBeat()) {
-        throw const DeviceNotConnectedException.scale();
-      }
       if (await _device.getConnectionState() != ConnectionState.connected) {
         throw const DeviceNotConnectedException.scale();
       }
@@ -190,13 +235,13 @@ class DecentScale implements Scale, TransportHandoffScale {
   }
 
   void _startMaintenance() {
-    final generation = ++_maintenanceGeneration;
+    final generation = _maintenanceGeneration;
     _scheduleMaintenance(generation);
   }
 
   void _scheduleMaintenance(int generation) {
-    _heartbeatTimer?.cancel();
-    _heartbeatTimer = Timer(const Duration(seconds: 4), () {
+    _maintenanceTimer?.cancel();
+    _maintenanceTimer = Timer(const Duration(seconds: 4), () {
       unawaited(_runMaintenance(generation));
     });
   }
@@ -204,10 +249,7 @@ class DecentScale implements Scale, TransportHandoffScale {
   Future<void> _runMaintenance(int generation) async {
     if (!_isCurrentMaintenance(generation)) return;
     try {
-      _heartbeatTotalTicks++;
-      if (_heartbeatTotalTicks.isEven && !_isSleeping) {
-        await _requestBatteryData();
-      }
+      _maintenanceTicks++;
       if (!_isSleeping) {
         _ticksSinceLastNotification++;
         if (_ticksSinceLastNotification >= _watchdogDisconnectTicks) {
@@ -220,7 +262,6 @@ class DecentScale implements Scale, TransportHandoffScale {
           await _retryNotifications();
         }
       }
-      await _sendHeartBeat();
     } on TimeoutException catch (error) {
       _log.warning('Scale maintenance timed out: $error');
     } catch (error, stackTrace) {
@@ -239,10 +280,90 @@ class DecentScale implements Scale, TransportHandoffScale {
 
   void _stopMaintenance() {
     _maintenanceGeneration++;
-    _heartbeatTimer?.cancel();
-    _heartbeatTimer = null;
+    _maintenanceTimer?.cancel();
+    _maintenanceTimer = null;
     _notificationWatchdog?.cancel();
     _notificationWatchdog = null;
+  }
+
+  void _armProfileEvidence(int generation) {
+    _evidenceGeneration = generation;
+    _profile = DecentScaleProfile.conservative;
+    _statusResponseSeen = false;
+    _statusFirmwareMarker = null;
+    _hdsFirmwareVersion = null;
+    _sawTimestampedWeightFrame = false;
+    _voltageProbeAccepted = false;
+    _statusEvidence = Completer<void>();
+    _voltageEvidence = Completer<void>();
+  }
+
+  bool _isCurrentProfileGeneration(int generation) =>
+      generation == _evidenceGeneration &&
+      !_isSleeping &&
+      !_isDisconnecting &&
+      _connectionStateController.value != ConnectionState.disconnected;
+
+  Future<void> _negotiateProfile(int generation) async {
+    _log.info('Decent scale: profile negotiation started');
+    final statusSeen = await _awaitStatusEvidence();
+    if (!_isCurrentProfileGeneration(generation)) return;
+    _statusResponseSeen = statusSeen;
+    final voltageAccepted = await _probeHdsCapabilities();
+    if (!_isCurrentProfileGeneration(generation)) return;
+    _voltageProbeAccepted = voltageAccepted;
+    _profile = DecentScaleProfile.fromEvidence(
+      statusResponseSeen: statusSeen,
+      sawTimestampedWeightFrame: _sawTimestampedWeightFrame,
+      voltageProbeAccepted: _voltageProbeAccepted,
+      originalFirmwareMarker: _statusFirmwareMarker,
+      hdsFirmwareVersion: _hdsFirmwareVersion,
+    );
+    _log.info(
+      'Decent scale: profile=${_profile.identity.name} '
+      'capabilities=${_profile.capabilities.labels.join(',')}',
+    );
+    if (_profile.capabilities.supportsSoftSleep) {
+      await _writeNonEssentialCommand([0x0A, 0x04, 0x00, 0x00, 0x00]);
+    } else {
+      _log.info('Decent scale: SoftSleep withheld (capability not detected)');
+    }
+  }
+
+  Future<bool> _awaitStatusEvidence() async {
+    final evidence = _statusEvidence;
+    if (evidence == null) return false;
+    try {
+      await evidence.future.timeout(_profileProbeTimeout);
+      return _statusResponseSeen;
+    } on TimeoutException {
+      _log.info('Decent scale: status probe: no response');
+      return false;
+    }
+  }
+
+  Future<bool> _probeHdsCapabilities() async {
+    final evidence = _voltageEvidence;
+    if (evidence == null) return false;
+    final sent = await _writeNonEssentialCommand([
+      0x22,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+    ]);
+    if (!sent) {
+      _log.info('Decent scale: HDS voltage probe: no response');
+      return false;
+    }
+    try {
+      await evidence.future.timeout(_profileProbeTimeout);
+      _log.info('Decent scale: HDS voltage probe accepted');
+      return true;
+    } on TimeoutException {
+      _log.info('Decent scale: HDS voltage probe: no response');
+      return false;
+    }
   }
 
   Future<bool> _confirmDataChannel({bool Function()? isCurrent}) async {
@@ -261,11 +382,8 @@ class DecentScale implements Scale, TransportHandoffScale {
           );
         }
         if (!current()) return false;
-        final requestSent = await _sendOledOn(isCurrent: current);
+        await _sendLedOnAndRequestStatus(isCurrent: current);
         if (!current()) return false;
-        if (!requestSent) {
-          throw const DeviceNotConnectedException.scale();
-        }
         try {
           await firstNotification.future.timeout(_initializationProbeTimeout);
           return current();
@@ -314,7 +432,7 @@ class DecentScale implements Scale, TransportHandoffScale {
       return;
     }
     _isDisconnecting = true;
-    final uptimeSec = _heartbeatTotalTicks * 4;
+    final uptimeSec = _maintenanceTicks * 4;
     _log.info(
       "disconnecting (notifications=$_totalNotifications, "
       "uptime=${uptimeSec}s, powerOff=$powerOff)",
@@ -323,12 +441,14 @@ class DecentScale implements Scale, TransportHandoffScale {
     subscription = null;
     activeSubscription?.cancel();
     _stopMaintenance();
-    if (powerOff) {
+    if (powerOff && _profile.capabilities.supportsPowerOff) {
       try {
         await _sendPowerOff().timeout(const Duration(seconds: 2));
       } catch (e) {
         _log.fine('power-off write skipped (device likely already off): $e');
       }
+    } else if (powerOff) {
+      _log.info('Decent scale: power-off withheld (capability not detected)');
     }
     try {
       await _device.disconnect();
@@ -340,50 +460,29 @@ class DecentScale implements Scale, TransportHandoffScale {
 
   @override
   Future<void> tare() async {
-    await _writeRequiredCommand([0x0F, 0x00, 0x00, 0x00, 0x01]);
+    await _writeRequiredCommand([0x0F, 0x00, 0x00, 0x00, 0x00]);
   }
 
-  Future<bool> _sendHeartBeat() async {
-    if (!isUsingHeartBeat) {
-      return true;
-    }
-    _log.finest("send hb");
-    try {
-      final sent = await _writeCommand(
-        [0x0A, 0x03, 0xFF, 0xFF, 0x00],
-        timeout: const Duration(seconds: 2),
-        withResponse: true,
-      );
-      if (!sent) {
-        await _disconnect(powerOff: false);
-      }
-      return sent;
-    } catch (e) {
-      _log.warning('Heartbeat write failed (transient): $e');
-      return true;
-    }
-  }
-
-  Future<bool> _requestBatteryData() async {
-    final heartbeatByte = isUsingHeartBeat ? 0x01 : 0x00;
-    return _writeCommand([0x0A, 0x01, 0x01, 0x00, heartbeatByte]);
-  }
-
-  Future<bool> _sendOledOn({bool Function()? isCurrent}) async {
+  Future<bool> _sendLedOnAndRequestStatus({bool Function()? isCurrent}) async {
     if (isCurrent?.call() == false) return false;
-    final heartbeatByte = isUsingHeartBeat ? 0x01 : 0x00;
-    if (!await _requestBatteryData()) {
-      return false;
+    final sent = await _writeNonEssentialCommand([
+      0x0A,
+      0x01,
+      0x01,
+      0x00,
+      0x00,
+    ]);
+    if (!sent &&
+        await _device.getConnectionState() != ConnectionState.connected) {
+      throw const DeviceNotConnectedException.scale();
     }
-    await Future.delayed(Duration(milliseconds: 100));
-    if (isCurrent?.call() == false) return false;
-    return _writeCommand([0x0A, 0x04, 0x00, 0x00, heartbeatByte]);
+    return sent;
   }
 
   Future<void> _sendOledOff() async {
-    await _writeCommand([0x0A, 0x04, 0x01, 0x00, 0x01]);
-    await Future.delayed(Duration(milliseconds: 100));
-    await _writeCommand([0x0A, 0x00, 0x01, 0x00, 0x01]);
+    await _writeNonEssentialCommand([0x0A, 0x04, 0x01, 0x00, 0x00]);
+    await Future.delayed(const Duration(milliseconds: 100));
+    await _writeNonEssentialCommand([0x0A, 0x00, 0x00, 0x00, 0x00]);
   }
 
   bool _isSleeping = false;
@@ -394,19 +493,24 @@ class DecentScale implements Scale, TransportHandoffScale {
     _displayGeneration++;
     _isSleeping = true;
     _notificationWatchdog?.cancel();
-    _log.info('Putting Decent Scale display to sleep');
-    await _sendOledOff();
+    if (_profile.capabilities.supportsSoftSleep) {
+      _log.info('Putting Decent Scale display to sleep');
+      await _sendOledOff();
+      return;
+    }
+    _log.info('Decent scale: disconnecting for sleep (SoftSleep unavailable)');
+    await _disconnect(powerOff: false);
   }
 
   Future<void> _sendPowerOff() async {
     _log.info("sending power off");
-    await _writeCommand([
+    await _writeNonEssentialCommand([
       0x0A,
       0x02,
       0x00,
       0x00,
       0x00,
-    ], timeout: Duration(seconds: 10));
+    ], timeout: const Duration(seconds: 10));
   }
 
   @override
@@ -421,6 +525,7 @@ class DecentScale implements Scale, TransportHandoffScale {
       while (!_desiredDisplaySleeping) {
         final generation = _displayGeneration;
         _isSleeping = false;
+        _armProfileEvidence(_maintenanceGeneration);
         _notificationWatchdog?.cancel();
         try {
           final confirmed = await _confirmDataChannel(
@@ -428,6 +533,18 @@ class DecentScale implements Scale, TransportHandoffScale {
                 generation == _displayGeneration && !_desiredDisplaySleeping,
           );
           if (!confirmed) continue;
+          unawaited(
+            _negotiateProfile(_maintenanceGeneration).catchError((
+              Object error,
+              StackTrace stackTrace,
+            ) {
+              _log.warning(
+                'Decent scale: profile negotiation failed',
+                error,
+                stackTrace,
+              );
+            }),
+          );
           _ticksSinceLastNotification = 0;
           _watchdogRetryAttempted = false;
           _resetNotificationWatchdog();
@@ -541,9 +658,12 @@ class DecentScale implements Scale, TransportHandoffScale {
     _resetNotificationWatchdog();
     _log.finest("$hashCode recv: ${data[1].toHex()}");
     if (frameType == 'weight') {
+      _recordWeightFrame(data);
       _parseWeight(data);
+    } else if (frameType == 'status') {
+      _recordStatusFrame(data);
     } else {
-      _parseStatusResponse(data);
+      _recordVoltageFrame(data);
     }
   }
 
@@ -555,6 +675,7 @@ class DecentScale implements Scale, TransportHandoffScale {
       return 'weight';
     }
     if (command == 0x0A && data.length == 7) return 'status';
+    if (command == 0x22 && data.length == 7) return 'voltage';
     return null;
   }
 
@@ -571,9 +692,33 @@ class DecentScale implements Scale, TransportHandoffScale {
   }
 
   int _batteryLevel = 100;
-  void _parseStatusResponse(List<int> data) {
-    final level = data[4];
+
+  void _recordWeightFrame(List<int> data) {
+    if (!_isCurrentProfileGeneration(_evidenceGeneration)) return;
+    if (data.length == 10) _sawTimestampedWeightFrame = true;
+  }
+
+  void _recordStatusFrame(List<int> data) {
+    if (!_isCurrentProfileGeneration(_evidenceGeneration)) return;
+    final frame = parseDecentStatusFrame(data);
+    if (frame == null) return;
+    _statusResponseSeen = true;
+    _statusFirmwareMarker = frame.originalFirmwareMarker;
+    _hdsFirmwareVersion = frame.hdsFirmwareVersion;
+    _batteryLevel = min(frame.batteryLevel, 100);
     _log.fine("status response: ${data.map((e) => e.toRadixString(16))}");
-    _batteryLevel = min(level, 100);
+    if (!(_statusEvidence?.isCompleted ?? true)) {
+      _statusEvidence!.complete();
+    }
+  }
+
+  void _recordVoltageFrame(List<int> data) {
+    if (!_isCurrentProfileGeneration(_evidenceGeneration)) return;
+    final frame = parseDecentVoltageFrame(data);
+    if (frame == null) return;
+    _log.fine('voltage response: ${frame.voltage}');
+    if (!(_voltageEvidence?.isCompleted ?? true)) {
+      _voltageEvidence!.complete();
+    }
   }
 }
