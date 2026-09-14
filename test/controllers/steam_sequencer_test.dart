@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
+import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/controllers/sensor_controller.dart';
 import 'package:reaprime/src/controllers/steam_sequencer.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
@@ -16,8 +17,13 @@ import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/scan_filter.dart';
 import 'package:reaprime/src/models/device/sensor.dart';
+import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
+import 'package:reaprime/src/models/device/impl/bengle/bengle_milk_probe.dart';
+import 'package:reaprime/src/plugins/plugin_device_service.dart';
+import 'package:reaprime/src/plugins/plugin_manifest.dart';
+import 'package:reaprime/src/plugins/plugin_scale.dart';
 import 'package:reaprime/src/services/storage/storage_service.dart';
 import 'package:rxdart/rxdart.dart';
 
@@ -99,6 +105,7 @@ class _BengleTestMachine extends _TestMachine implements BengleInterface {
 
   final BehaviorSubject<bool> _probeAttachedSubject =
       BehaviorSubject<bool>.seeded(false);
+  final BehaviorSubject<double> _probeTemperatureSubject = BehaviorSubject();
 
   @override
   Stream<bool> get probeAttached => _probeAttachedSubject.stream;
@@ -106,9 +113,16 @@ class _BengleTestMachine extends _TestMachine implements BengleInterface {
   void setProbeAttached(bool attached) => _probeAttachedSubject.add(attached);
 
   @override
+  Stream<double> get probeTemperature => _probeTemperatureSubject.stream;
+
+  void emitProbeTemperature(double celsius) =>
+      _probeTemperatureSubject.add(celsius);
+
+  @override
   Future<void> dispose() async {
     await super.dispose();
     await _probeAttachedSubject.close();
+    await _probeTemperatureSubject.close();
   }
 }
 
@@ -511,6 +525,144 @@ void main() {
           m.dispose();
           await sensors.unregister(objectSensor.deviceId);
           await sensors.unregister(probe.deviceId);
+        }
+      },
+    );
+
+    test(
+      'actual plugin adapters coexist with two scales and a Bengle probe',
+      () async {
+        final pluginDevices = PluginDeviceService();
+        addTearDown(pluginDevices.dispose);
+        late PluginScale firstScale;
+        late PluginScale secondScale;
+
+        await pluginDevices.register(
+          pluginId: 'mixed-adapters',
+          generation: 1,
+          registrationHandle: 'scale-one',
+          definition: {
+            'driverId': 'scale',
+            'instanceId': 'one',
+            'name': 'Scale One',
+          },
+          driver: const PluginDriverDeclaration(
+            id: 'scale',
+            type: PluginDriverType.scale,
+          ),
+          invoke: (operation, payload) async {
+            if (operation == PluginDeviceOperation.connect) {
+              firstScale.publish({
+                'weight': 1.0,
+              }, session: payload['session'] as String);
+            }
+            return {};
+          },
+        );
+        await pluginDevices.register(
+          pluginId: 'mixed-adapters',
+          generation: 1,
+          registrationHandle: 'scale-two',
+          definition: {
+            'driverId': 'scale',
+            'instanceId': 'two',
+            'name': 'Scale Two',
+          },
+          driver: const PluginDriverDeclaration(
+            id: 'scale',
+            type: PluginDriverType.scale,
+          ),
+          invoke: (operation, payload) async {
+            if (operation == PluginDeviceOperation.connect) {
+              secondScale.publish({
+                'weight': 2.0,
+              }, session: payload['session'] as String);
+            }
+            return {};
+          },
+        );
+        for (final entry in [('e64-one', 'E64 One'), ('e64-two', 'E64 Two')]) {
+          await pluginDevices.register(
+            pluginId: 'mixed-adapters',
+            generation: 1,
+            registrationHandle: entry.$1,
+            definition: {
+              'driverId': 'e64ws',
+              'instanceId': entry.$1,
+              'name': entry.$2,
+              'vendor': 'Mahlkoenig',
+              'dataChannels': [
+                {'key': 'state', 'type': 'object'},
+              ],
+              'commands': const [],
+            },
+            invoke: (operation, payload) async => {},
+          );
+        }
+
+        final registered = await pluginDevices.devices.firstWhere(
+          (devices) => devices.length == 4,
+        );
+        final e64Sensors = registered.whereType<Sensor>().toList();
+        final scales = registered.whereType<Scale>().toList();
+        expect(e64Sensors, hasLength(2));
+        expect(scales, hasLength(2));
+        firstScale = scales[0] as PluginScale;
+        secondScale = scales[1] as PluginScale;
+
+        final scaleControllers = [ScaleController(), ScaleController()];
+        addTearDown(() {
+          for (final controller in scaleControllers) {
+            controller.dispose();
+          }
+        });
+        await Future.wait([
+          scaleControllers[0].connectToScale(scales[0]),
+          scaleControllers[1].connectToScale(scales[1]),
+        ]);
+        await settle();
+        expect(
+          scaleControllers.map(
+            (controller) => controller.currentWeightSnapshot?.weight,
+          ),
+          [1.0, 2.0],
+        );
+
+        for (final probeFirst in [true, false]) {
+          final machine = _BengleTestMachine();
+          final probe = BengleMilkProbe(bengle: machine);
+          final orderedSensors = probeFirst
+              ? [probe, ...e64Sensors]
+              : [...e64Sensors, probe];
+          for (final sensor in orderedSensors) {
+            await sensors.register(sensor);
+          }
+          await e64Sensors.first.disconnect();
+          await e64Sensors.first.onConnect();
+          de1.emit(machine);
+          await settle();
+          machine.setProbeAttached(false);
+          await settle();
+          machine.setProbeAttached(true);
+          machine.emitProbeTemperature(55.0);
+          machine.emit(_snap(state: MachineState.steam));
+          await settle();
+          machine.emit(_snap(state: MachineState.steam));
+          await settle();
+          machine.emit(_snap(state: MachineState.idle));
+          await settle();
+          expect(
+            storage.persisted.last.measurements.last.milkTemperature,
+            55.0,
+          );
+          storage.persisted.clear();
+          de1.emit(null);
+          await settle();
+          await sensors.unregister(probe.deviceId);
+          for (final sensor in e64Sensors) {
+            await sensors.unregister(sensor.deviceId);
+          }
+          await machine.dispose();
         }
       },
     );
