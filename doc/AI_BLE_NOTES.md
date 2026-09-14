@@ -163,7 +163,7 @@ cancellation.
 
 - Maintenance is read-only. No periodic LED/status writes; notification age alone drives re-subscribe (12s) and disconnect (20s).
 - No heartbeat subsystem at all; every heartbeat-control byte is `00`.
-- Negotiation is unawaited so `connected` is still published promptly. It is guarded by the maintenance generation, so a late status/voltage frame after sleep, or a stale initialization attempt, cannot promote capabilities on a newer connection.
+- Negotiation is unawaited so `connected` is still published promptly. Evidence is guarded by a profile-attempt token that is bound into the notification callback and re-armed on every connect and wake, so a late status/voltage frame after sleep, or a stale initialization attempt, cannot promote capabilities on a newer connection. Connection ownership uses a separate connection-attempt token: a superseded `onConnect()` returns before it can cancel the live transport listener or the maintenance loop.
 - Nonessential writes (LED/status, SoftSleep, power off) tolerate transient failures while notifications are still arriving; tare/timer still fail loudly.
 - The 50ms duplicate write from the canonical de1app is applied only to profiles with the unreliable command buffer (7-byte weight frames).
 

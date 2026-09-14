@@ -338,6 +338,7 @@ void main() {
       async.flushMicrotasks();
       _elapse(async, const Duration(milliseconds: 900));
       expect(transport.nativeState, ConnectionState.connected);
+      expect(scale.debugCompletedNegotiations, 1);
       expect(errors, isEmpty);
       _close(async, scale, transport);
     });

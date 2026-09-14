@@ -8,6 +8,7 @@ import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/models/device/impl/decent_scale/profile.dart';
 import 'package:reaprime/src/models/device/impl/decent_scale/protocol.dart';
 import 'package:reaprime/src/services/serial/serial_service_desktop.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:logging/logging.dart' as logging;
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/scale.dart';
@@ -57,6 +58,7 @@ class DecentScale
 
   DecentScaleProfile _profile = DecentScaleProfile.conservative;
   int _profileAttempt = 0;
+  int _connectionAttempt = 0;
   Completer<void>? _statusEvidence;
   Completer<void>? _voltageEvidence;
   bool _statusResponseSeen = false;
@@ -64,6 +66,11 @@ class DecentScale
   DecentHdsFirmwareVersion? _hdsFirmwareVersion;
   bool _sawTimestampedWeightFrame = false;
   bool _voltageProbeAccepted = false;
+
+  int _completedNegotiations = 0;
+
+  @visibleForTesting
+  int get debugCompletedNegotiations => _completedNegotiations;
 
   DecentScale({required BLETransport transport})
     : _deviceId = transport.id,
@@ -153,13 +160,17 @@ class DecentScale
     }
     _connectionStateController.add(ConnectionState.connecting);
     _stopMaintenance();
+    final connectionAttempt = ++_connectionAttempt;
     final attempt = _armProfileEvidence();
 
     try {
       await _waitForNotificationRecovery();
+      if (connectionAttempt != _connectionAttempt) return;
       await _device.connect();
+      if (connectionAttempt != _connectionAttempt) return;
 
       await subscription?.cancel();
+      if (connectionAttempt != _connectionAttempt) return;
       late final StreamSubscription<ConnectionState> transportListener;
       transportListener = _device.connectionState
           .where((state) => state == ConnectionState.disconnected)
@@ -182,6 +193,7 @@ class DecentScale
       subscription = transportListener;
 
       final services = await _device.discoverServices();
+      if (connectionAttempt != _connectionAttempt) return;
       if (!serviceIdentifier.matchesAny(services)) {
         throw Exception(
           'Expected service ${serviceIdentifier.long} not found. '
@@ -219,7 +231,7 @@ class DecentScale
       _connectionStateController.add(ConnectionState.connected);
       _startMaintenance();
     } catch (e, stackTrace) {
-      if (attempt != _profileAttempt) {
+      if (connectionAttempt != _connectionAttempt) {
         Error.throwWithStackTrace(e, stackTrace);
       }
       _log.warning('Failed to initialize scale: $e');
@@ -345,6 +357,7 @@ class DecentScale
     } else {
       _log.info('Decent scale: SoftSleep withheld (capability not detected)');
     }
+    _completedNegotiations++;
   }
 
   Future<bool> _awaitStatusEvidence() async {
@@ -388,6 +401,7 @@ class DecentScale
     int attempt, {
     bool Function()? isCurrent,
   }) async {
+    if (attempt != _profileAttempt) return false;
     bool current() => attempt == _profileAttempt && (isCurrent?.call() ?? true);
     final firstNotification = Completer<void>();
     _initializationNotification = firstNotification;

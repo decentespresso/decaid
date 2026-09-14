@@ -77,7 +77,68 @@ class _DisconnectedBleTransport extends BLETransport {
   }
 }
 
-class _HangingBleTransport extends _DisconnectedBleTransport {
+class _HangingPowerOffTransport extends BLETransport {
+  final BehaviorSubject<ConnectionState> _connectionState =
+      BehaviorSubject.seeded(ConnectionState.discovered);
+  ConnectionState _nativeState = ConnectionState.disconnected;
+  void Function(Uint8List)? notificationCallback;
+  final writes = <Uint8List>[];
+
+  @override
+  String get id => 'decent-scale-hanging-power-off';
+
+  @override
+  String get name => 'Hanging Power Off Scale';
+
+  @override
+  Stream<ConnectionState> get connectionState => _connectionState.stream;
+
+  @override
+  Future<ConnectionState> getConnectionState() async => _nativeState;
+
+  @override
+  Future<void> connect() async {
+    _nativeState = ConnectionState.connected;
+    _connectionState.add(ConnectionState.connected);
+  }
+
+  @override
+  Future<void> disconnect() async {
+    _nativeState = ConnectionState.disconnected;
+    _connectionState.add(ConnectionState.disconnected);
+  }
+
+  @override
+  Future<List<String>> discoverServices() async => [
+    DecentScale.serviceIdentifier.long,
+  ];
+
+  @override
+  Future<Uint8List> read(
+    String serviceUUID,
+    String characteristicUUID, {
+    Duration? timeout,
+  }) async => Uint8List(0);
+
+  @override
+  Future<void> subscribe(
+    String serviceUUID,
+    String characteristicUUID,
+    void Function(Uint8List) callback,
+  ) async {
+    notificationCallback = callback;
+  }
+
+  @override
+  Future<void> resetSubscription(
+    String serviceUUID,
+    String characteristicUUID,
+    void Function(Uint8List) callback,
+  ) => subscribe(serviceUUID, characteristicUUID, callback);
+
+  @override
+  Future<void> setTransportPriority(bool prioritized) async {}
+
   @override
   Future<void> write(
     String serviceUUID,
@@ -85,8 +146,32 @@ class _HangingBleTransport extends _DisconnectedBleTransport {
     Uint8List data, {
     bool withResponse = true,
     Duration? timeout,
-  }) {
-    return Completer<void>().future;
+  }) async {
+    writes.add(Uint8List.fromList(data));
+    if (data.length == 7 && data[1] == 0x0A && data[2] == 0x01) {
+      scheduleMicrotask(
+        () => notificationCallback?.call(
+          Uint8List.fromList([0x03, 0x0A, 0, 0, 100, 0, 0]),
+        ),
+      );
+      return;
+    }
+    if (data.length == 7 && data[1] == 0x22) {
+      scheduleMicrotask(
+        () => notificationCallback?.call(
+          Uint8List.fromList([0x03, 0x22, 0x01, 0x89, 0, 0, 0]),
+        ),
+      );
+      return;
+    }
+    if (data.length == 7 && data[1] == 0x0A && data[2] == 0x02) {
+      return Completer<void>().future;
+    }
+  }
+
+  @override
+  Future<void> dispose() async {
+    await _connectionState.close();
   }
 }
 
@@ -417,7 +502,7 @@ void main() {
     });
   });
 
-  test('latest wake runs after a superseded wake probe', () {
+  test('latest wake wins after a superseded wake probe', () {
     fakeAsync((async) {
       final (:scale, :transport) = _sleepingReconnect(
         async,
@@ -767,8 +852,15 @@ void main() {
 
   test('disconnect() returns within the power-off timeout window when the '
       'BLE write hangs forever', () async {
-    final transport = _HangingBleTransport();
+    final transport = _HangingPowerOffTransport();
     final scale = DecentScale(transport: transport);
+    await scale.onConnect();
+    await pumpEventQueue();
+    expect(
+      transport.writes.any((data) => data[1] == 0x22),
+      isTrue,
+      reason: 'the profile must be proven HDS before power off is sent',
+    );
 
     final stopwatch = Stopwatch()..start();
     await scale.disconnect();
@@ -781,7 +873,13 @@ void main() {
           'A hung BLE write must not stall the disconnect sequence — '
           'common on flaky links after wake-from-sleep.',
     );
+    expect(
+      transport.writes.any(
+        (data) => data.length == 7 && data[1] == 0x0A && data[2] == 0x02,
+      ),
+      isTrue,
+    );
 
-    transport.dispose();
+    await transport.dispose();
   }, timeout: const Timeout(Duration(seconds: 10)));
 }
