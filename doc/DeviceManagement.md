@@ -1710,7 +1710,9 @@ without attempting protocol cleanup over a lost link.
 Plugin Sensors join the existing SensorController and REST/WebSocket APIs. Their
 public IDs include plugin, driver, and physical identity. Remembered plugin IDs
 are not reconstructed through native quick-connect: fresh discovery must establish
-current ownership. See `doc/Plugins.md` for the session-bound GATT contract.
+current ownership. A BLE plugin driver may keep up to 4 physical bindings active
+at once; each binding owns its own transport, session, publications, and teardown
+claim. See `doc/Plugins.md` for the session-bound GATT contract.
 
 ## Glossary
 
