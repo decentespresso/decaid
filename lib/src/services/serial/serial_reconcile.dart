@@ -1,4 +1,81 @@
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/services/serial/utils.dart';
+
+final _serialAliasPattern = RegExp(r'^(?:cu|tty)\.(.+)$');
+
+class SerialPortMetadata {
+  final String path;
+  final String name;
+  final String transport;
+  final String? productName;
+  final int? vid;
+  final int? pid;
+  final String? serial;
+  final int? interfaceNumber;
+
+  const SerialPortMetadata({
+    required this.path,
+    required this.name,
+    required this.transport,
+    this.productName,
+    this.vid,
+    this.pid,
+    this.serial,
+    this.interfaceNumber,
+  });
+
+  String get canonicalId =>
+      computeUsbStableId(
+        vid: vid,
+        pid: pid,
+        serial: serial,
+        interfaceNumber: interfaceNumber,
+      ) ??
+      'serial-${path.split('/').last}';
+
+  Set<String> get acceptedIds => {canonicalId, ...desktopSerialLegacyIds(path)};
+}
+
+Set<String> desktopSerialLegacyIds(String portPath) {
+  final basename = portPath.split('/').last;
+  final match = _serialAliasPattern.firstMatch(basename);
+  if (match == null) return {'serial-$basename'};
+  final suffix = match.group(1)!;
+  return {'serial-cu.$suffix', 'serial-tty.$suffix'};
+}
+
+List<SerialPortMetadata> dedupeSerialCandidates(
+  List<SerialPortMetadata> candidates,
+) {
+  final result = <SerialPortMetadata>[];
+  final indexes = <String, int>{};
+  for (final candidate in candidates) {
+    final basename = candidate.path.split('/').last;
+    final stableId = computeUsbStableId(
+      vid: candidate.vid,
+      pid: candidate.pid,
+      serial: candidate.serial,
+      interfaceNumber: candidate.interfaceNumber,
+    );
+    final aliasMatch = _serialAliasPattern.firstMatch(basename);
+    final key =
+        stableId ??
+        (aliasMatch == null
+            ? 'path:${candidate.canonicalId}'
+            : 'alias:${aliasMatch.group(1)}');
+    final existingIndex = indexes[key];
+    if (existingIndex == null) {
+      indexes[key] = result.length;
+      result.add(candidate);
+      continue;
+    }
+    final existingBasename = result[existingIndex].path.split('/').last;
+    if (basename.startsWith('cu.') && existingBasename.startsWith('tty.')) {
+      result[existingIndex] = candidate;
+    }
+  }
+  return result;
+}
 
 class TrackedPortSnapshot {
   final String path;

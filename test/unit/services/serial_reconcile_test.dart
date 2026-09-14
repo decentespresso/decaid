@@ -274,4 +274,96 @@ void main() {
       );
     });
   });
+
+  group('serial identity candidates', () {
+    SerialPortMetadata metadata(
+      String path, {
+      int? vid,
+      int? pid,
+      String? serial,
+      int? interfaceNumber,
+    }) => SerialPortMetadata(
+      path: path,
+      name: path.split('/').last,
+      transport: 'USB',
+      vid: vid,
+      pid: pid,
+      serial: serial,
+      interfaceNumber: interfaceNumber,
+    );
+
+    test('canonicalId uses USB metadata or the path basename', () {
+      expect(
+        metadata(
+          '/dev/cu.X',
+          vid: 0x1234,
+          pid: 0xabcd,
+          serial: 'abc',
+        ).canonicalId,
+        'usb-1234-abcd-abc',
+      );
+      expect(metadata('/dev/ttyUSB0').canonicalId, 'serial-ttyUSB0');
+    });
+
+    test('interface numbers produce distinct IDs and candidates', () {
+      final machine = metadata('/dev/ttyUSB0', vid: 1, pid: 2, serial: 'abc');
+      final tap = metadata(
+        '/dev/ttyUSB1',
+        vid: 1,
+        pid: 2,
+        serial: 'abc',
+        interfaceNumber: 1,
+      );
+
+      expect(tap.canonicalId, 'usb-1-2-abc-if01');
+      expect(dedupeSerialCandidates([machine, tap]), [machine, tap]);
+    });
+
+    test('USB aliases collapse and prefer cu regardless of input order', () {
+      final cu = metadata('/dev/cu.X', vid: 1, pid: 2, serial: 'abc');
+      final tty = metadata('/dev/tty.X', vid: 1, pid: 2, serial: 'abc');
+
+      expect(dedupeSerialCandidates([tty, cu]), [cu]);
+      expect(dedupeSerialCandidates([cu, tty]), [cu]);
+    });
+
+    test('same canonical USB ID collapses within one batch', () {
+      final first = metadata('/dev/ttyUSB0', vid: 1, pid: 2, serial: 'abc');
+      final second = metadata('/dev/ttyUSB1', vid: 1, pid: 2, serial: 'abc');
+
+      expect(dedupeSerialCandidates([first, second]), [first]);
+    });
+
+    test('non-alias paths retain the first candidate', () {
+      final first = metadata('/dev/COM5', vid: 1, pid: 2, serial: 'abc');
+      final second = metadata('/dev/cu.X', vid: 1, pid: 2, serial: 'abc');
+
+      expect(dedupeSerialCandidates([first, second]), [first]);
+    });
+
+    test('macOS aliases without USB metadata collapse and prefer cu', () {
+      final cu = metadata('/dev/cu.X');
+      final tty = metadata('/dev/tty.X');
+
+      expect(dedupeSerialCandidates([tty, cu]), [cu]);
+    });
+
+    test('legacy IDs cover macOS aliases and other port names', () {
+      expect(desktopSerialLegacyIds('/dev/cu.wchusbserial535A0000011'), {
+        'serial-cu.wchusbserial535A0000011',
+        'serial-tty.wchusbserial535A0000011',
+      });
+      expect(desktopSerialLegacyIds('/dev/ttyUSB0'), {'serial-ttyUSB0'});
+    });
+
+    test('acceptedIds includes canonical and legacy IDs', () {
+      final candidate = metadata('/dev/cu.X', vid: 1, pid: 2, serial: 'abc');
+
+      expect(candidate.acceptedIds, {
+        'usb-1-2-abc',
+        'serial-cu.X',
+        'serial-tty.X',
+      });
+    });
+  });
 }
