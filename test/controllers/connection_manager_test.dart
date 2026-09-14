@@ -603,6 +603,60 @@ void main() {
         },
       );
 
+      test(
+        'quick-connect preferred-id failure keeps the connection and the legacy id',
+        () async {
+          await connectionManager.dispose();
+          mockDe1Controller = MockDe1Controller(
+            controller: DeviceController([dummyDiscoveryService]),
+          );
+          mockSettingsService.setRememberedDevices(
+            RememberedDevice.encodeList([
+              const RememberedDevice(
+                id: 'serial-cu.X',
+                name: 'DE1',
+                type: DeviceType.machine,
+              ),
+            ]),
+          );
+          final remembered = RememberedDevicesController(
+            machineConnections: const Stream.empty(),
+            scaleConnections: const Stream.empty(),
+            settings: mockSettingsService,
+          );
+          await remembered.initialize();
+          await settingsController.setPreferredMachineId('serial-cu.X');
+          mockSettingsService.failSetPreferredMachineId = true;
+          final device = _FakeDe1(deviceId: 'usb-1a86-55d3-535A');
+          mockScanner.quickConnectResult = device;
+          connectionManager = ConnectionManager(
+            deviceScanner: mockScanner,
+            de1Controller: mockDe1Controller,
+            scaleController: mockScaleController,
+            settingsController: settingsController,
+            rememberedDevices: remembered,
+          );
+
+          final connect = connectionManager.connect();
+          await Future<void>.delayed(Duration.zero);
+          mockDe1Controller.de1Subject.add(device);
+          await connect;
+
+          expect(
+            mockDe1Controller.de1Subject.value?.deviceId,
+            'usb-1a86-55d3-535A',
+          );
+          expect(connectionManager.currentStatus.phase, ConnectionPhase.ready);
+          expect(settingsController.preferredMachineId, 'serial-cu.X');
+          expect(
+            remembered.remembered.map((d) => d.id),
+            contains('serial-cu.X'),
+          );
+          mockSettingsService.failSetPreferredMachineId = false;
+          await remembered.dispose();
+        },
+      );
+
       test('explicit scan bypasses machine quick-connect', () async {
         await connectionManager.dispose();
         await settingsController.setPreferredMachineId('pref-de1');

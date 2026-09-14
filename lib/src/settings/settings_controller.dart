@@ -306,8 +306,14 @@ class SettingsController with ChangeNotifier {
     if (machineId == _preferredMachineId) {
       return;
     }
+    final previous = _preferredMachineId;
     _preferredMachineId = machineId;
-    await _settingsService.setPreferredMachineId(machineId);
+    try {
+      await _settingsService.setPreferredMachineId(machineId);
+    } catch (_) {
+      _preferredMachineId = previous;
+      rethrow;
+    }
     notifyListeners();
   }
 

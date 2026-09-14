@@ -1038,15 +1038,15 @@ class ConnectionManager {
   ) async {
     if (rememberedId == canonicalId) return;
     final registry = rememberedDevices;
-    if (registry != null) {
+    if (registry == null) return;
+    final movesPreferred =
+        settingsController.preferredMachineId == rememberedId;
+    if (movesPreferred) {
       try {
-        await registry.replaceAliasOnConnect(
-          aliasId: rememberedId,
-          canonicalId: canonicalId,
-        );
+        await settingsController.setPreferredMachineId(canonicalId);
       } catch (e, st) {
         _log.warning(
-          'Quick-connect: alias migration failed for $rememberedId',
+          'Quick-connect: preferred machine id migration failed for $rememberedId',
           e,
           st,
         );
@@ -1054,15 +1054,27 @@ class ConnectionManager {
       }
     }
     try {
-      if (settingsController.preferredMachineId == rememberedId) {
-        await settingsController.setPreferredMachineId(canonicalId);
-      }
+      await registry.replaceAliasOnConnect(
+        aliasId: rememberedId,
+        canonicalId: canonicalId,
+      );
     } catch (e, st) {
       _log.warning(
-        'Quick-connect: preferred machine id migration failed for $rememberedId',
+        'Quick-connect: alias migration failed for $rememberedId',
         e,
         st,
       );
+      if (movesPreferred) {
+        try {
+          await settingsController.setPreferredMachineId(rememberedId);
+        } catch (e, st) {
+          _log.warning(
+            'Quick-connect: preferred machine id restore failed for $rememberedId',
+            e,
+            st,
+          );
+        }
+      }
     }
   }
 

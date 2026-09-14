@@ -47,34 +47,70 @@ Set<String> desktopSerialLegacyIds(String portPath) {
 List<SerialPortMetadata> dedupeSerialCandidates(
   List<SerialPortMetadata> candidates,
 ) {
-  final result = <SerialPortMetadata>[];
-  final indexes = <String, int>{};
+  final aliasIndexes = <String, int>{};
+  final merged = <SerialPortMetadata>[];
   for (final candidate in candidates) {
-    final basename = candidate.path.split('/').last;
-    final stableId = computeUsbStableId(
-      vid: candidate.vid,
-      pid: candidate.pid,
-      serial: candidate.serial,
-      interfaceNumber: candidate.interfaceNumber,
+    final aliasMatch = _serialAliasPattern.firstMatch(
+      _basename(candidate.path),
     );
-    final aliasMatch = _serialAliasPattern.firstMatch(basename);
-    final key =
-        stableId ??
-        (aliasMatch == null
-            ? 'path:${candidate.canonicalId}'
-            : 'alias:${aliasMatch.group(1)}');
-    final existingIndex = indexes[key];
-    if (existingIndex == null) {
-      indexes[key] = result.length;
-      result.add(candidate);
+    if (aliasMatch == null) {
+      merged.add(candidate);
       continue;
     }
-    final existingBasename = result[existingIndex].path.split('/').last;
-    if (basename.startsWith('cu.') && existingBasename.startsWith('tty.')) {
-      result[existingIndex] = candidate;
+    final alias = aliasMatch.group(1)!;
+    final existingIndex = aliasIndexes[alias];
+    if (existingIndex == null) {
+      aliasIndexes[alias] = merged.length;
+      merged.add(candidate);
+    } else {
+      merged[existingIndex] = _preferCu(merged[existingIndex], candidate);
     }
   }
+
+  final result = <SerialPortMetadata>[];
+  final seenIds = <String>{};
+  for (final candidate in merged) {
+    if (seenIds.add(candidate.canonicalId)) result.add(candidate);
+  }
   return result;
+}
+
+Set<String> trackedSerialIdentities({
+  required Iterable<String> trackedIds,
+  required Iterable<String> trackedPaths,
+}) => {
+  ...trackedIds,
+  for (final path in trackedPaths) ...desktopSerialLegacyIds(path),
+};
+
+String _basename(String path) => path.split('/').last;
+
+bool _isCuPath(String path) => _basename(path).startsWith('cu.');
+
+SerialPortMetadata _preferCu(
+  SerialPortMetadata existing,
+  SerialPortMetadata incoming,
+) => _isCuPath(incoming.path) && !_isCuPath(existing.path)
+    ? _mergeUsbMetadata(incoming, existing)
+    : _mergeUsbMetadata(existing, incoming);
+
+SerialPortMetadata _mergeUsbMetadata(
+  SerialPortMetadata preferred,
+  SerialPortMetadata other,
+) {
+  final preferredHasUsb = preferred.vid != null && preferred.pid != null;
+  final otherHasUsb = other.vid != null && other.pid != null;
+  final usb = preferredHasUsb || !otherHasUsb ? preferred : other;
+  return SerialPortMetadata(
+    path: preferred.path,
+    name: preferred.name,
+    transport: preferred.transport,
+    productName: preferred.productName ?? other.productName,
+    vid: usb.vid,
+    pid: usb.pid,
+    serial: usb.serial,
+    interfaceNumber: usb.interfaceNumber,
+  );
 }
 
 class TrackedPortSnapshot {

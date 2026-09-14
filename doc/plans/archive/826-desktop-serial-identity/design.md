@@ -58,16 +58,6 @@ Bengle) stays canonical; `serial-<basename>` is compatibility-only.
 dedup; two genuinely distinct machines may share metadata. Migration happens
 only after serial enumeration or quick-connect positively matched the port.
 
-## Milestones
-
-1. `SerialPortMetadata` + `dedupeSerialCandidates` + `desktopSerialLegacyIds`,
-   unit tests in `test/unit/services/serial_reconcile_test.dart`.
-2. Wire the resolver through `SerialServiceDesktop` scan, probe and transport.
-3. `RememberedDevicesController.replaceAliasOnConnect` + rollback tests.
-4. `ConnectionManager` quick-connect alias migration + tests.
-5. `doc/DeviceManagement.md` canonical/legacy ID note, format, analyze, full
-   test suite.
-
 ## Acceptance
 
 - Reporter's CH340 DE1 on macOS appears once and connects through `/dev/cu.*`.

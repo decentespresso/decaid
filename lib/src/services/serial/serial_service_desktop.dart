@@ -249,6 +249,10 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
     final trackedStableIds = _portPathToDevice.values
         .map((d) => d.deviceId)
         .toSet();
+    final trackedIdentities = trackedSerialIdentities(
+      trackedIds: trackedStableIds,
+      trackedPaths: _portPathToDevice.keys,
+    );
 
     final metadataByPath = <String, SerialPortMetadata>{};
     for (final path in ports) {
@@ -266,7 +270,7 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
         if (_portPathToDevice.containsKey(path)) return false;
         if (_selfDisconnectedPaths.contains(path)) return false;
         if (_nonDecentPorts.contains(path)) return false;
-        if (trackedStableIds.contains(metadata.canonicalId)) return false;
+        if (metadata.acceptedIds.any(trackedIdentities.contains)) return false;
         return serialPortMatchesCandidate(
           name: metadata.name,
           transport: metadata.transport,
@@ -394,16 +398,36 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
     );
   }
 
+  _DesktopSerialPort _registerTransport(
+    SerialPort port,
+    SerialPortMetadata candidate, {
+    bool dtrOn = false,
+    bool decodeUtf8Text = true,
+  }) {
+    try {
+      final transport = _DesktopSerialPort(
+        port: port,
+        canonicalId: candidate.canonicalId,
+        dtrOn: dtrOn,
+        decodeUtf8Text: decodeUtf8Text,
+      );
+      _portPathToTransport[candidate.path] = transport;
+      return transport;
+    } catch (_) {
+      try {
+        port.dispose();
+      } catch (_) {}
+      rethrow;
+    }
+  }
+
   Future<Device?> _detectDevice(SerialPortMetadata candidate) async {
     final id = candidate.path;
-    final port = SerialPort(candidate.path);
     _log.info(
       "detecting: ${candidate.name} ; ${candidate.productName} ; ${candidate.transport}",
     );
-    if (candidate.transport == "Bluetooth") {
-      port.dispose();
-      return null;
-    }
+    if (candidate.transport == "Bluetooth") return null;
+    final port = SerialPort(candidate.path);
 
     final vid = candidate.vid;
     final pid = candidate.pid;
@@ -419,23 +443,18 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
         "Bengle EBus tap on interface $interfaceNumber ($id)"
         " — no protocol probe",
       );
-      final transport = _DesktopSerialPort(
-        port: port,
-        canonicalId: candidate.canonicalId,
+      final transport = _registerTransport(
+        port,
+        candidate,
         dtrOn: true,
         decodeUtf8Text: false,
       );
-      _portPathToTransport[candidate.path] = transport;
       final device = BengleDebugPort(transport: transport);
       _portPathToDeviceId[candidate.path] = device.deviceId;
       return device;
     }
 
-    final transport = _DesktopSerialPort(
-      port: port,
-      canonicalId: candidate.canonicalId,
-    );
-    _portPathToTransport[candidate.path] = transport;
+    final transport = _registerTransport(port, candidate);
     if (productName == "DE1") {
       final device = UnifiedDe1(transport: transport);
       _portPathToDeviceId[candidate.path] = device.deviceId;
@@ -609,7 +628,7 @@ class _DesktopSerialPort implements SerialTransport {
        _id = canonicalId,
        _dtrOn = dtrOn,
        _decodeUtf8Text = decodeUtf8Text {
-    _log = Logger("SerialPort:${port.name}");
+    _log = Logger("SerialPort:${_safePortName() ?? 'unknown'}");
     _cachedName;
   }
 

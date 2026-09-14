@@ -323,8 +323,14 @@ void main() {
       final cu = metadata('/dev/cu.X', vid: 1, pid: 2, serial: 'abc');
       final tty = metadata('/dev/tty.X', vid: 1, pid: 2, serial: 'abc');
 
-      expect(dedupeSerialCandidates([tty, cu]), [cu]);
-      expect(dedupeSerialCandidates([cu, tty]), [cu]);
+      for (final result in [
+        dedupeSerialCandidates([tty, cu]),
+        dedupeSerialCandidates([cu, tty]),
+      ]) {
+        expect(result, hasLength(1));
+        expect(result.single.path, '/dev/cu.X');
+        expect(result.single.canonicalId, 'usb-1-2-abc');
+      }
     });
 
     test('same canonical USB ID collapses within one batch', () {
@@ -345,7 +351,35 @@ void main() {
       final cu = metadata('/dev/cu.X');
       final tty = metadata('/dev/tty.X');
 
-      expect(dedupeSerialCandidates([tty, cu]), [cu]);
+      final result = dedupeSerialCandidates([tty, cu]);
+      expect(result, hasLength(1));
+      expect(result.single.path, '/dev/cu.X');
+      expect(result.single.canonicalId, 'serial-cu.X');
+    });
+
+    test('mixed metadata macOS aliases collapse and keep the USB id', () {
+      final cu = metadata('/dev/cu.X', vid: 1, pid: 2, serial: 'abc');
+      final bareTty = metadata('/dev/tty.X');
+
+      for (final batch in [
+        [cu, bareTty],
+        [bareTty, cu],
+      ]) {
+        final result = dedupeSerialCandidates(batch);
+        expect(result, hasLength(1));
+        expect(result.single.path, '/dev/cu.X');
+        expect(result.single.canonicalId, 'usb-1-2-abc');
+      }
+    });
+
+    test('trackedSerialIdentities unions tracked ids and alias ids', () {
+      expect(
+        trackedSerialIdentities(
+          trackedIds: {'usb-1-2-abc'},
+          trackedPaths: {'/dev/cu.X'},
+        ),
+        {'usb-1-2-abc', 'serial-cu.X', 'serial-tty.X'},
+      );
     });
 
     test('legacy IDs cover macOS aliases and other port names', () {
