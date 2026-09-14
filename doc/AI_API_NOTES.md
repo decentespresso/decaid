@@ -129,6 +129,16 @@ could not produce.
 - `SteamSequencer` manages steam session lifecycle (start on entry, finalize on exit).
 - Presence tracking via `PresenceController` — client keep-alive.
 
+## Guarded machine actions
+
+The opt-in guarded machine-state body is source-bound to the single primary
+scale used by brewing. `GET /api/v1/scale/connections` returns exactly one
+`primary` property containing either `null` or `deviceId`, `connectionId`, and
+`selectionId`. Guarded `sourceScale.role` must be `primary`; other role values
+are rejected before any machine write. Existing unguarded machine-state and
+singular scale routes retain their behavior. This contract does not assign a
+workflow purpose to auxiliary scales.
+
 ## Auth Proxy
 
 **Design (PR #296):** Rea acts as an auth-enriching reverse proxy. Clients call Rea endpoints (e.g., `GET /api/v1/account/proxy/support/api/...`), Rea attaches Basic Auth from the secure store, forwards to `decentespresso.com`, returns response body + status as-is.

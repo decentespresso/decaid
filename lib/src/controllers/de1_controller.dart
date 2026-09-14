@@ -20,6 +20,38 @@ import 'package:rxdart/subjects.dart';
 part 'de1_controller.defaults.dart';
 part 'de1_controller.governor.dart';
 
+final class GuardedScaleSource {
+  const GuardedScaleSource({
+    required this.role,
+    required this.deviceId,
+    required this.connectionId,
+    required this.selectionId,
+  });
+
+  final String role;
+  final String deviceId;
+  final String connectionId;
+  final String selectionId;
+}
+
+final class GuardedMachineAction {
+  const GuardedMachineAction({
+    required this.targetState,
+    required this.expectedMachineId,
+    required this.expectedMachineGeneration,
+    required this.expectedState,
+    required this.requireInactiveGhc,
+    required this.sourceScale,
+  });
+
+  final MachineState targetState;
+  final String expectedMachineId;
+  final int expectedMachineGeneration;
+  final MachineState expectedState;
+  final bool requireInactiveGhc;
+  final GuardedScaleSource sourceScale;
+}
+
 class De1Controller {
   final DeviceController _deviceController;
 
@@ -111,6 +143,7 @@ class De1Controller {
 
   int _connectionGeneration = 0;
   String _connectionMachineIdentity = '';
+  int _guardedStartEpoch = 0;
 
   final BehaviorSubject<int?> _initSettledSubject = BehaviorSubject.seeded(
     null,
@@ -695,9 +728,113 @@ class De1Controller {
 
   Future<void> requestMachineState(MachineState state) {
     if (state == MachineState.idle) {
-      return connectedDe1().requestState(state);
+      final device = connectedDe1();
+      _guardedStartEpoch++;
+      return device.requestState(state);
     }
     return runDeviceWrite((device) => device.requestState(state));
+  }
+
+  Future<bool> requestGuardedMachineState(
+    GuardedMachineAction action, {
+    required bool Function() sourceStillValid,
+    required bool Function() startStillAllowed,
+  }) async {
+    if (action.targetState != MachineState.espresso &&
+        action.targetState != MachineState.idle) {
+      return false;
+    }
+    if ((action.targetState == MachineState.espresso &&
+            (action.expectedState != MachineState.idle ||
+                !action.requireInactiveGhc)) ||
+        (action.targetState == MachineState.idle &&
+            (action.expectedState != MachineState.espresso ||
+                action.requireInactiveGhc))) {
+      return false;
+    }
+    final device = connectedDe1OrNull;
+    final generation = _connectionGeneration;
+    final startEpoch = _guardedStartEpoch;
+    if (device == null ||
+        device.deviceId != action.expectedMachineId ||
+        generation != action.expectedMachineGeneration ||
+        !sourceStillValid()) {
+      return false;
+    }
+    if (action.targetState == MachineState.espresso && !startStillAllowed()) {
+      return false;
+    }
+
+    final MachineSnapshot snapshot;
+    try {
+      snapshot = await device.currentSnapshot.first;
+    } catch (_) {
+      return false;
+    }
+    if (!_guardedStateMatches(device, snapshot, action) ||
+        !sourceStillValid() ||
+        (action.targetState == MachineState.espresso &&
+            startEpoch != _guardedStartEpoch)) {
+      return false;
+    }
+    if (generation != _connectionGeneration ||
+        !identical(device, connectedDe1OrNull)) {
+      return false;
+    }
+
+    if (action.targetState == MachineState.idle) {
+      _guardedStartEpoch++;
+      await device.requestState(MachineState.idle);
+      return true;
+    }
+
+    try {
+      return await runDeviceWrite((queued) async {
+        final MachineSnapshot queuedSnapshot;
+        try {
+          queuedSnapshot = await queued.currentSnapshot.first;
+        } catch (_) {
+          return false;
+        }
+        if (generation != _connectionGeneration ||
+            startEpoch != _guardedStartEpoch ||
+            !identical(queued, device) ||
+            !identical(queued, connectedDe1OrNull) ||
+            !_guardedStateMatches(queued, queuedSnapshot, action) ||
+            !sourceStillValid() ||
+            !startStillAllowed()) {
+          return false;
+        }
+        await queued.requestState(MachineState.espresso);
+        return true;
+      });
+    } on StateError catch (error) {
+      if (error.message.startsWith('Machine changed')) return false;
+      rethrow;
+    }
+  }
+
+  bool _guardedStateMatches(
+    De1Interface device,
+    MachineSnapshot snapshot,
+    GuardedMachineAction action,
+  ) {
+    try {
+      if (snapshot.state.state != action.expectedState) return false;
+      if (!action.requireInactiveGhc) return true;
+      final info = device.machineInfo;
+      if (info.version.isEmpty ||
+          info.model.isEmpty ||
+          info.serialNumber.isEmpty ||
+          info.version == '0' ||
+          info.model == 'Unknown' ||
+          info.serialNumber == '0') {
+        return false;
+      }
+      return !info.groupHeadControllerPresent;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<bool> requestMachineStateIf(
