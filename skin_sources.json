@@ -26,5 +26,9 @@
   {
     "type": "github_release",
     "repo": "decentespresso/insight-js"
+  },
+  {
+    "type": "github_release",
+    "repo": "ChampionDesigns/decal"
   }
 ]
