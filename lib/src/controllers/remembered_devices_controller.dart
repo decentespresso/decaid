@@ -139,6 +139,37 @@ class RememberedDevicesController {
     _emit();
   }
 
+  Future<void> replaceAliasOnConnect({
+    required String aliasId,
+    required String canonicalId,
+  }) async {
+    if (aliasId == canonicalId) return;
+    final alias = _registry[aliasId];
+    if (alias == null) return;
+
+    final snapshot = Map<String, RememberedDevice>.from(_registry);
+    _registry.remove(aliasId);
+    if (!_registry.containsKey(canonicalId)) {
+      _registry[canonicalId] = RememberedDevice(
+        id: canonicalId,
+        name: alias.name,
+        type: alias.type,
+        implementation: alias.implementation,
+        transportType: alias.transportType,
+      );
+    }
+    try {
+      await _persist();
+    } catch (_) {
+      _registry
+        ..clear()
+        ..addAll(snapshot);
+      rethrow;
+    }
+    _log.info('replaced $aliasId with $canonicalId');
+    _emit();
+  }
+
   Future<void> _persist() async {
     try {
       await _settings.setRememberedDevices(
