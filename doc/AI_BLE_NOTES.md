@@ -167,7 +167,9 @@ cancellation.
 - Nonessential writes (LED/status, SoftSleep, power off) tolerate transient failures while notifications are still arriving; tare/timer still fail loudly.
 - The 50ms duplicate write from the canonical de1app is applied only to profiles with the unreliable command buffer (7-byte weight frames).
 
-**Known gap:** status byte 5 is retained as an opaque `originalFirmwareMarker`. Sub-version labelling (v1.0 vs v1.1 vs v1.2) is not derived from a marker table; v1.2 is inferred from timestamped weight frames, and the remaining split needs hardware capture.
+**Firmware decode:** status byte 5 is decoded against `{0xFE: 1.0, 0x02: 1.1, 0x03: 1.2}` (the public `pydecentscale` client's table, consistent with the plan's `original-fw=0x02 -> fw=1.1` example). Only v1.0 needs the 50ms duplicate command; only v1.2 supports power off. A timestamped 10-byte weight frame independently proves v1.2+. An unrecognised marker stays conservative.
+
+**Known gap:** the marker table comes from a third-party client, not from Decent firmware source. Sub-version labelling needs confirmation against the original full-height hardware before the duplicate/power-off gates are trusted in the field.
 
 ## Gone-Device Error Handling
 
