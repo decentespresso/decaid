@@ -85,6 +85,7 @@ Discovery services are responsible for scanning and creating device instances. E
   - `lib/src/services/serial/serial_service_android.dart` (Android)
   - `lib/src/services/serial/serial_service.dart` (factory)
 - **Discovery:** Enumerates serial ports, probes for device identification
+- **Desktop serial identity:** One canonical id is resolved once per enumerated port: `usb-{vid}-{pid}-{serial}` (plus `-ifNN` for interfaces above 0) when USB descriptors are available, otherwise `serial-<basename>`. Candidates are deduplicated before probing, so a macOS adapter exposed as both `/dev/cu.X` and `/dev/tty.X` appears once and `/dev/cu.X` is the endpoint probed. The resolved id is injected into the transport and is the value used for scan dedup, `Device.deviceId`, remembered devices and API inventory. `serial-<basename>` stays accepted as a legacy quick-connect alias; after a successful alias connect the remembered record and `preferredMachineId` migrate to the canonical id. Android keeps its existing `UsbDevice.deviceId`-suffixed identities.
 - **HDS USB readiness:** `HDSSerial` enables the 10 Hz OpenScale binary stream and remains `connecting` until a checksum-valid weight frame arrives. Its buffered decoder accepts fragmented/coalesced frames mixed with firmware text; only valid weight frames refresh the watchdog.
 
   DE1-family detection uses product names and the normal protocol probe:
