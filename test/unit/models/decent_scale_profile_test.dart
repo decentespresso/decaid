@@ -107,15 +107,7 @@ void main() {
 
     test('rejects corrupt capability evidence checksums', () {
       expect(
-        parseDecentVoltageFrame([
-          0x03,
-          0x22,
-          0x01,
-          0x89,
-          0x00,
-          0x00,
-          0xAB,
-        ]),
+        parseDecentVoltageFrame([0x03, 0x22, 0x01, 0x89, 0x00, 0x00, 0xAB]),
         isNull,
       );
       expect(
