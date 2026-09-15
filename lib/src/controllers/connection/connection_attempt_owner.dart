@@ -45,7 +45,7 @@ class ConnectionAttemptOwner {
   }
 
   bool _cancel(ConnectionAttemptLease lease, String? reason) {
-    if (!isCurrent(lease)) return false;
+    if (!isCurrent(lease) || lease._cancelled) return false;
     lease._cancelled = true;
     lease._cancelReason = reason;
     return true;
