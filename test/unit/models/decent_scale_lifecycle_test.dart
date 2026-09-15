@@ -548,40 +548,43 @@ void main() {
       },
     );
 
-    test('latest wake wins after wake-sleep-wake during a pending exit', () async {
-      final transport = _LifecycleBleTransport(
-        respondToVoltage: true,
-        statusNotification: _hdsV3114Status,
-      );
-      final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale, timeout: _fastSettle);
-      await scale.sleepDisplay();
+    test(
+      'latest wake wins after wake-sleep-wake during a pending exit',
+      () async {
+        final transport = _LifecycleBleTransport(
+          respondToVoltage: true,
+          statusNotification: _hdsV3114Status,
+        );
+        final scale = DecentScale(transport: transport);
+        await _connectAndSettle(scale, timeout: _fastSettle);
+        await scale.sleepDisplay();
 
-      final exitWrite = Completer<void>();
-      transport.blockSoftSleepExit = exitWrite;
-      transport.writes.clear();
-      final firstWake = scale.wakeDisplay();
-      await pumpEventQueue();
-      expect(_countCommand(transport, 0x0A, 0x04, 0x00), 1);
+        final exitWrite = Completer<void>();
+        transport.blockSoftSleepExit = exitWrite;
+        transport.writes.clear();
+        final firstWake = scale.wakeDisplay();
+        await pumpEventQueue();
+        expect(_countCommand(transport, 0x0A, 0x04, 0x00), 1);
 
-      await scale.sleepDisplay();
-      var latestWakeCompleted = false;
-      final latestWake = scale.wakeDisplay().whenComplete(
-        () => latestWakeCompleted = true,
-      );
-      await pumpEventQueue();
-      expect(latestWakeCompleted, isFalse);
+        await scale.sleepDisplay();
+        var latestWakeCompleted = false;
+        final latestWake = scale.wakeDisplay().whenComplete(
+          () => latestWakeCompleted = true,
+        );
+        await pumpEventQueue();
+        expect(latestWakeCompleted, isFalse);
 
-      exitWrite.complete();
-      transport.blockSoftSleepExit = null;
-      await Future.wait([firstWake, latestWake]);
-      await pumpEventQueue();
+        exitWrite.complete();
+        transport.blockSoftSleepExit = null;
+        await Future.wait([firstWake, latestWake]);
+        await pumpEventQueue();
 
-      expect(latestWakeCompleted, isTrue);
-      expect(_hasCommand(transport, 0x0A, 0x01), isTrue);
-      expect(await transport.getConnectionState(), ConnectionState.connected);
-      await _disposeScale(scale, transport);
-    });
+        expect(latestWakeCompleted, isTrue);
+        expect(_hasCommand(transport, 0x0A, 0x01), isTrue);
+        expect(await transport.getConnectionState(), ConnectionState.connected);
+        await _disposeScale(scale, transport);
+      },
+    );
 
     test(
       'exhausted exit does not fake a reconnect on the next same-connection wake',
