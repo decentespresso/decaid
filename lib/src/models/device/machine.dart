@@ -63,6 +63,41 @@ class MachineSnapshot {
     required this.steamTemperature,
   });
 
+  // Derived hydraulic channels R / Z / W, computed on read from the raw
+  // [pressure] and [flow] fields — never stored — so already-recorded history
+  // shots gain these channels with zero migration ([fromJson] does not read
+  // them; [toJson] recomputes them).
+
+  /// Shared gate for the derived channels: returns [value] only when
+  /// `flow >= 0.3 mL/s && pressure >= 0.3 bar` (below that the ratios are
+  /// numerically meaningless noise) and inputs and result are finite. The
+  /// finite guard is mandatory: `jsonEncode` throws on NaN/Infinity and
+  /// [toJson] is streamed on the live `/ws/v1/machine/snapshot` websocket.
+  double? _derivedOrNull(double value) {
+    if (flow < 0.3 || pressure < 0.3) return null;
+    if (!flow.isFinite || !pressure.isFinite || !value.isFinite) return null;
+    return value;
+  }
+
+  /// Puck hydraulic resistance **R = P / F²** in bar·s²/mL².
+  ///
+  /// How strongly the puck resists water flow; rises as the puck compacts
+  /// or clogs, drops on channeling/erosion. `null` (and omitted from
+  /// [toJson]) unless flow ≥ 0.3 mL/s and pressure ≥ 0.3 bar.
+  double? get puckResistance => _derivedOrNull(pressure / (flow * flow));
+
+  /// Hydraulic load impedance **Z = P / F** in bar·s/mL.
+  ///
+  /// Pressure-to-flow ratio at the current operating point (the "AC"
+  /// analogue of [puckResistance]). Same ≥ 0.3 gating as [puckResistance].
+  double? get loadImpedance => _derivedOrNull(pressure / flow);
+
+  /// Hydraulic power delivered to the puck **W = 0.1 · P · F** in watts
+  /// (1 bar × 1 mL/s = 0.1 W; espresso is roughly 0.5–4 W).
+  ///
+  /// Same ≥ 0.3 gating as [puckResistance].
+  double? get hydraulicPower => _derivedOrNull(0.1 * pressure * flow);
+
   MachineSnapshot copyWith({
     DateTime? timestamp,
     MachineStateSnapshot? state,
@@ -108,6 +143,12 @@ class MachineSnapshot {
       'targetGroupTemperature': targetGroupTemperature,
       'profileFrame': profileFrame,
       'steamTemperature': steamTemperature,
+      // Derived channels. Keys are OMITTED (not null) when gated — old skins
+      // never see them, and consumers can rely on key presence as the
+      // validity signal.
+      if (puckResistance != null) 'puckResistance': puckResistance,
+      if (loadImpedance != null) 'loadImpedance': loadImpedance,
+      if (hydraulicPower != null) 'hydraulicPower': hydraulicPower,
     };
   }
 
