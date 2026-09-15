@@ -210,7 +210,7 @@ The app supports several command-line flags for headless/calibration-station use
 
 ```bash
 ./flutter_with_commit.sh run --dart-define=simulate=1 \
-  --serial=<mac>              # Auto-connect to specific DE1 by MAC
+  --serial                    # Serial-only mode; skip BLE service creation
   --bypass-onboarding         # Skip onboarding, go straight to launcher
   --direct                    # Skip scan, connect directly to --serial device
   --skin=<id>                 # Pre-select skin by ID
@@ -220,7 +220,7 @@ The app supports several command-line flags for headless/calibration-station use
   --trust-all-consent         # Trust every account-proxy caller for this process
 ```
 
-All flags are optional. Combine as needed. `--no-account` is specifically for headless Linux stations where `libsecret` blocks on XDG secrets portal. Consent keys use `skin:<installed-id>`, `plugin:<id>`, or `api:<token-id>`; API token labels are presentation-only. Both trust flags are session-only and are never persisted. With `flutter run`, pass each app flag separately as `--dart-entrypoint-args=<flag>`; `--dart-define` does not populate `main()` arguments.
+All flags are optional. Combine as needed. `--no-account` is specifically for headless Linux stations where `libsecret` blocks on XDG secrets portal. Consent keys use `skin:<installed-id>`, `plugin:<id>`, or `api:<token-id>`; API token labels are presentation-only. Both trust flags are session-only and are never persisted. With `flutter run`, pass each app flag separately as `--dart-entrypoint-args=<flag>`; `--dart-define` does not populate `main()` arguments. With `scripts/sb-dev.sh`, pass each app flag separately as `--app-arg <flag>` and repeat `--app-arg` for multiple flags.
 
 ## Dev-Loop Skill
 
