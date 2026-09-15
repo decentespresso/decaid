@@ -17,6 +17,7 @@ class ScaleController {
 
   String? _lastConnectedDeviceId;
   String? get lastConnectedDeviceId => _lastConnectedDeviceId;
+  Scale? get connectedScaleOrNull => _scale;
   int _connectionGeneration = 0;
   int get connectionGeneration => _connectionGeneration;
   bool _snapshotSessionActive = false;
@@ -45,6 +46,7 @@ class ScaleController {
   Future<void> connectToScale(Scale scale) async {
     final previous = _scale;
     _onDisconnect();
+    final generation = _connectionGeneration;
     if (previous != null && previous.deviceId != scale.deviceId) {
       try {
         if (previous is TransportHandoffScale) {
@@ -59,21 +61,50 @@ class ScaleController {
         );
       }
     }
-    _scaleSnapshot = scale.currentSnapshot.listen(_processSnapshot);
+    final snapshotSubscription = scale.currentSnapshot.listen(_processSnapshot);
+    _scaleSnapshot = snapshotSubscription;
     try {
       await scale.onConnect();
     } catch (e) {
       log.warning('Scale failed to connect (onConnect threw)', e);
-      _scaleSnapshot?.cancel();
-      _scaleSnapshot = null;
-      _connectionController.add(ConnectionState.disconnected);
+      await snapshotSubscription.cancel();
+      if (identical(_scaleSnapshot, snapshotSubscription)) {
+        _scaleSnapshot = null;
+      }
+      if (generation == _connectionGeneration) {
+        _connectionController.add(ConnectionState.disconnected);
+      }
       rethrow;
     }
+    if (generation != _connectionGeneration) {
+      log.fine(
+        'Ignoring stale scale connect completion for ${scale.deviceId} '
+        '(attempt=$generation, current=$_connectionGeneration)',
+      );
+      await snapshotSubscription.cancel();
+      if (identical(_scaleSnapshot, snapshotSubscription)) {
+        _scaleSnapshot = null;
+      }
+      return;
+    }
     final state = await scale.connectionState.first;
+    if (generation != _connectionGeneration) {
+      log.fine(
+        'Ignoring stale scale readiness for ${scale.deviceId} '
+        '(attempt=$generation, current=$_connectionGeneration)',
+      );
+      await snapshotSubscription.cancel();
+      if (identical(_scaleSnapshot, snapshotSubscription)) {
+        _scaleSnapshot = null;
+      }
+      return;
+    }
     if (state != ConnectionState.connected) {
       log.warning('Scale failed to connect (state: ${state.name})');
-      _scaleSnapshot?.cancel();
-      _scaleSnapshot = null;
+      await snapshotSubscription.cancel();
+      if (identical(_scaleSnapshot, snapshotSubscription)) {
+        _scaleSnapshot = null;
+      }
       _connectionController.add(ConnectionState.disconnected);
       throw StateError('Scale failed to connect (state: ${state.name})');
     }
@@ -84,6 +115,10 @@ class ScaleController {
     if (scale is ScaleSnapshotHandoff) {
       (scale as ScaleSnapshotHandoff).activateSnapshots();
     }
+  }
+
+  void invalidatePendingConnectionAttempt() {
+    _connectionGeneration++;
   }
 
   Future<void> adoptScale(Scale scale) async {
@@ -168,7 +203,7 @@ class ScaleController {
 
   MovingAverage weightFlowAverage = MovingAverage(defaultMovingAverageSamples);
   FlowCalculator _flowCalculator = FlowCalculator(
-    windowDuration: defaultSmoothingWindow,
+    windowDuration: _smoothingWindow,
   );
 
   DateTime? _lastSnapshotTime;
