@@ -554,6 +554,9 @@ class DecentScale implements Scale, TransportHandoffScale {
   bool _softSleepExitRequired = false;
   int? _sleepConnectionAttempt;
 
+  static const int _softSleepExitAttempts = 2;
+  static const Duration _softSleepExitRetryDelay = Duration(milliseconds: 200);
+
   @override
   Future<void> sleepDisplay() async {
     _desiredDisplaySleeping = true;
@@ -606,6 +609,7 @@ class DecentScale implements Scale, TransportHandoffScale {
     final mustExitSoftSleep = wasSoftSleep || _softSleepExitRequired;
     final reconnected =
         wasAsleep && _sleepConnectionAttempt != _connectionAttempt;
+    final sleepConnectionAttempt = _sleepConnectionAttempt;
     _sleepMode = _DecentScaleSleepMode.awake;
     _sleepConnectionAttempt = null;
     try {
@@ -657,9 +661,13 @@ class DecentScale implements Scale, TransportHandoffScale {
           _watchdogRetryAttempted = false;
           _resetNotificationWatchdog();
           return;
-        } catch (_) {
+        } catch (error) {
           if (generation == _displayGeneration && !_desiredDisplaySleeping) {
-            await _disconnect(powerOff: false);
+            if (error is _SoftSleepExitException) {
+              _sleepConnectionAttempt = sleepConnectionAttempt;
+            } else {
+              await _disconnect(powerOff: false);
+            }
             rethrow;
           }
         }
@@ -671,26 +679,34 @@ class DecentScale implements Scale, TransportHandoffScale {
 
   Future<bool> _attemptSoftSleepExit(int generation) async {
     final exited = await _exitSoftSleep();
-    if (exited &&
-        generation == _displayGeneration &&
-        !_desiredDisplaySleeping) {
-      _softSleepExitRequired = false;
+    if (!exited ||
+        generation != _displayGeneration ||
+        _desiredDisplaySleeping) {
+      return false;
     }
-    return exited;
+    _softSleepExitRequired = false;
+    return true;
   }
 
   Future<bool> _ensureSoftSleepExited(int generation) async {
-    final exited = await _attemptSoftSleepExit(generation);
+    for (var attempt = 0; attempt < _softSleepExitAttempts; attempt++) {
+      if (generation != _displayGeneration || _desiredDisplaySleeping) {
+        return false;
+      }
+      if (await _attemptSoftSleepExit(generation)) return true;
+      if (attempt + 1 < _softSleepExitAttempts) {
+        await Future<void>.delayed(_softSleepExitRetryDelay);
+      }
+    }
     if (generation != _displayGeneration || _desiredDisplaySleeping) {
       return false;
     }
-    if (!exited) {
-      _sleepMode = _DecentScaleSleepMode.softSleep;
-      _log.warning(
-        'Decent scale: SoftSleep exit not confirmed; retrying on next wake',
-      );
-    }
-    return exited;
+    _sleepMode = _DecentScaleSleepMode.softSleep;
+    _log.warning(
+      'Decent scale: SoftSleep exit failed after '
+      '$_softSleepExitAttempts attempts',
+    );
+    throw const _SoftSleepExitException();
   }
 
   bool _timerCommandInFlight = false;
@@ -884,3 +900,10 @@ class DecentScale implements Scale, TransportHandoffScale {
 }
 
 enum _DecentScaleSleepMode { awake, displayOff, softSleep }
+
+class _SoftSleepExitException implements Exception {
+  const _SoftSleepExitException();
+
+  @override
+  String toString() => 'Decent scale SoftSleep exit was not acknowledged';
+}

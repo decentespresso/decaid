@@ -35,6 +35,9 @@ class _LifecycleBleTransport extends BLETransport {
   void Function(Uint8List)? firstNotificationCallback;
   int disconnectCalls = 0;
   int connectCalls = 0;
+  int subscribeCalls = 0;
+  int resetSubscriptionCalls = 0;
+  Completer<void>? blockSoftSleepExit;
 
   @override
   String get id => 'decent-scale-lifecycle-test';
@@ -73,6 +76,7 @@ class _LifecycleBleTransport extends BLETransport {
     String characteristicUUID,
     void Function(Uint8List) callback,
   ) async {
+    subscribeCalls++;
     notificationCallback = callback;
     firstNotificationCallback ??= callback;
   }
@@ -83,6 +87,7 @@ class _LifecycleBleTransport extends BLETransport {
     String characteristicUUID,
     void Function(Uint8List) callback,
   ) async {
+    resetSubscriptionCalls++;
     notificationCallback = callback;
     firstNotificationCallback ??= callback;
   }
@@ -104,6 +109,13 @@ class _LifecycleBleTransport extends BLETransport {
   }) async {
     final frame = Uint8List.fromList(data);
     writes.add(frame);
+    if (frame.length == 7 &&
+        frame[1] == 0x0A &&
+        frame[2] == 0x04 &&
+        frame[3] == 0x00) {
+      final blocker = blockSoftSleepExit;
+      if (blocker != null) await blocker.future;
+    }
     if (softSleepExitFailures > 0 &&
         frame.length == 7 &&
         frame[1] == 0x0A &&
@@ -190,6 +202,19 @@ int _indexOfCommand(
   int? subcommand,
   int? param,
 ]) => transport.writes.indexWhere(
+  (data) =>
+      data.length >= 4 &&
+      data[1] == command &&
+      (subcommand == null || data[2] == subcommand) &&
+      (param == null || data[3] == param),
+);
+
+int _lastIndexOfCommand(
+  _LifecycleBleTransport transport,
+  int command, [
+  int? subcommand,
+  int? param,
+]) => transport.writes.lastIndexWhere(
   (data) =>
       data.length >= 4 &&
       data[1] == command &&
@@ -388,7 +413,7 @@ void main() {
       await _disposeScale(scale, transport);
     });
 
-    test('a failed SoftSleep exit is retried on the next wake', () async {
+    test('a failed SoftSleep exit is retried within the same wake', () async {
       final transport = _LifecycleBleTransport(
         respondToVoltage: true,
         statusNotification: _hdsV3114Status,
@@ -402,8 +427,42 @@ void main() {
       await scale.wakeDisplay();
       await pumpEventQueue();
 
-      expect(_countCommand(transport, 0x0A, 0x04, 0x00), 1);
+      final ledIndex = _indexOfCommand(transport, 0x0A, 0x01);
+      expect(_countCommand(transport, 0x0A, 0x04, 0x00), 2);
+      expect(ledIndex, greaterThanOrEqualTo(0));
+      expect(
+        _lastIndexOfCommand(transport, 0x0A, 0x04, 0x00),
+        lessThan(ledIndex),
+      );
+      expect(transport.disconnectCalls, 0);
+
+      transport.writes.clear();
+      await scale.wakeDisplay();
+      await pumpEventQueue();
+      expect(_countCommand(transport, 0x0A, 0x04, 0x00), 0);
+      await _disposeScale(scale, transport);
+    });
+
+    test('exhausted SoftSleep exit attempts keep the obligation', () async {
+      final transport = _LifecycleBleTransport(
+        respondToVoltage: true,
+        statusNotification: _hdsV3114Status,
+      );
+      final scale = DecentScale(transport: transport);
+      await _connectAndSettle(scale);
+      await scale.sleepDisplay();
+
+      transport.softSleepExitFailures = 5;
+      transport.writes.clear();
+      await expectLater(scale.wakeDisplay(), throwsA(isA<Exception>()));
+      await pumpEventQueue();
+
+      expect(_countCommand(transport, 0x0A, 0x04, 0x00), 2);
       expect(_countCommand(transport, 0x0A, 0x01), 0);
+      expect(transport.disconnectCalls, 0);
+      expect(await transport.getConnectionState(), ConnectionState.connected);
+
+      transport.softSleepExitFailures = 0;
       transport.writes.clear();
       await scale.wakeDisplay();
       await pumpEventQueue();
@@ -416,6 +475,106 @@ void main() {
       await _disposeScale(scale, transport);
     });
 
+    test('a superseding sleep cancels the SoftSleep exit retry', () async {
+      final transport = _LifecycleBleTransport(
+        respondToVoltage: true,
+        statusNotification: _hdsV3114Status,
+      );
+      final scale = DecentScale(transport: transport);
+      await _connectAndSettle(scale);
+      await scale.sleepDisplay();
+
+      transport.softSleepExitFailures = 5;
+      transport.writes.clear();
+      var wakeCompleted = false;
+      final wake = scale.wakeDisplay().whenComplete(() => wakeCompleted = true);
+      await pumpEventQueue();
+      expect(_countCommand(transport, 0x0A, 0x04, 0x00), 1);
+      expect(wakeCompleted, isFalse);
+      await scale.sleepDisplay();
+      expect(_countCommand(transport, 0x0A, 0x04, 0x00), 1);
+      await wake;
+
+      expect(_countCommand(transport, 0x0A, 0x01), 0);
+      expect(transport.disconnectCalls, 0);
+      expect(await transport.getConnectionState(), ConnectionState.connected);
+      await _disposeScale(scale, transport);
+    });
+
+    test(
+      'a superseding sleep during a pending exit cancels the wake',
+      () async {
+        final transport = _LifecycleBleTransport(
+          respondToVoltage: true,
+          statusNotification: _hdsV3114Status,
+        );
+        final scale = DecentScale(transport: transport);
+        await _connectAndSettle(scale);
+        await scale.sleepDisplay();
+
+        transport.emitDisconnected();
+        await pumpEventQueue();
+        await scale.onConnect();
+        await pumpEventQueue();
+
+        final exitWrite = Completer<void>();
+        transport.blockSoftSleepExit = exitWrite;
+        transport.writes.clear();
+        var wakeCompleted = false;
+        final wake = scale.wakeDisplay().whenComplete(
+          () => wakeCompleted = true,
+        );
+        await pumpEventQueue();
+        expect(_countCommand(transport, 0x0A, 0x04, 0x00), 1);
+        expect(wakeCompleted, isFalse);
+
+        final subscribes = transport.subscribeCalls;
+        final resets = transport.resetSubscriptionCalls;
+        final disconnects = transport.disconnectCalls;
+        await scale.sleepDisplay();
+        exitWrite.complete();
+        await wake;
+        transport.blockSoftSleepExit = null;
+
+        expect(transport.subscribeCalls, subscribes);
+        expect(transport.resetSubscriptionCalls, resets);
+        expect(transport.disconnectCalls, disconnects);
+        expect(_countCommand(transport, 0x0A, 0x04, 0x00), 1);
+        expect(_countCommand(transport, 0x0A, 0x01), 0);
+        expect(await transport.getConnectionState(), ConnectionState.connected);
+        await _disposeScale(scale, transport);
+      },
+    );
+
+    test(
+      'exhausted exit does not fake a reconnect on the next same-connection wake',
+      () async {
+        final transport = _LifecycleBleTransport(
+          respondToVoltage: true,
+          statusNotification: _hdsV3114Status,
+        );
+        final scale = DecentScale(transport: transport);
+        await _connectAndSettle(scale);
+        await scale.sleepDisplay();
+
+        transport.softSleepExitFailures = 5;
+        await expectLater(scale.wakeDisplay(), throwsA(isA<Exception>()));
+        await pumpEventQueue();
+
+        transport.softSleepExitFailures = 0;
+        transport.writes.clear();
+        final subscribes = transport.subscribeCalls;
+        final resets = transport.resetSubscriptionCalls;
+        await scale.wakeDisplay();
+        await pumpEventQueue();
+
+        expect(transport.subscribeCalls, subscribes);
+        expect(transport.resetSubscriptionCalls, resets);
+        expect(_countCommand(transport, 0x0A, 0x04, 0x00), 1);
+        await _disposeScale(scale, transport);
+      },
+    );
+
     test('sleep after a failed exit keeps the obligation', () async {
       final transport = _LifecycleBleTransport(
         respondToVoltage: true,
@@ -425,8 +584,8 @@ void main() {
       await _connectAndSettle(scale);
       await scale.sleepDisplay();
 
-      transport.softSleepExitFailures = 1;
-      await scale.wakeDisplay();
+      transport.softSleepExitFailures = 2;
+      await expectLater(scale.wakeDisplay(), throwsA(isA<Exception>()));
       await pumpEventQueue();
 
       transport.respondToVoltage = false;
