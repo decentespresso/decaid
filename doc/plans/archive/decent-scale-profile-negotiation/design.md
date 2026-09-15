@@ -141,13 +141,18 @@ comes from the public `pydecentscale` client, not Decent firmware source, and is
 kept as a known gap: the timestamped 10-byte weight frame independently proves
 v1.2+, so only the duplicate-write and power-off gates depend on the table.
 
+## Command reliability and evidence integrity
+
+- The tare sequence byte advances once per logical tare. On profiles that need
+  the v1.0 dropped-command workaround, the retry reuses the exact same frame and
+  therefore the same sequence byte.
+- There is no global XOR enforcement on ordinary 7-byte weight/status traffic;
+  existing BLE compatibility remains tolerant. Frames that widen capabilities
+  are stricter: HDS `0x22` responses and 10-byte timestamped-weight evidence
+  must have a valid XOR checksum before they can promote the profile.
+
 ## Deferred
 
-- No tare-counter increment: the official protocol marks the incremented integer
-  optional and always-zero is valid.
-- No global XOR checksum enforcement on HDS weight frames: official DS
-  documentation marks XOR validation over BLE deprecated. Integrity checking is
-  confined to using a frame as capability evidence.
 - HDS 2.6.3-3.0.0 uses shared display-off until a reliable capability probe for
   SoftSleep exists (they report no version, so the `>= 3` gate is never
   satisfied).
