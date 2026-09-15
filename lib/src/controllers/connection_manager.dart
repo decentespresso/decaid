@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:collection/collection.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/controllers/connection/attach_reconnect_coordinator.dart';
+import 'package:reaprime/src/controllers/connection/connection_attempt_owner.dart';
 import 'package:reaprime/src/controllers/connection/connection_attempt_policy.dart';
 import 'package:reaprime/src/controllers/connection/connection_selection_session.dart';
 import 'package:reaprime/src/controllers/connection/disconnect_expectations.dart';
@@ -138,6 +139,13 @@ class ConnectionManager {
   bool _isConnecting = false;
   bool _isConnectingMachine = false;
   bool _isConnectingScale = false;
+  final ConnectionAttemptOwner _connectAttemptOwner = ConnectionAttemptOwner();
+  ConnectionAttemptLease? _activeMachineAttempt;
+  De1Interface? _activeMachineCandidate;
+  Future<void>? _activeMachineCleanup;
+  ConnectionAttemptLease? _activeScaleAttempt;
+  Scale? _activeScaleCandidate;
+  Future<void>? _activeScaleCleanup;
   bool _activeScaleOnlyScan = false;
   bool _shuttingDown = false;
   Future<void>? _shutdownFuture;
@@ -623,6 +631,7 @@ class ConnectionManager {
         _adapterRecoveryNeeded = true;
         _adapterRecoveryTimer?.cancel();
         _adapterRecoveryTimer = null;
+        _cancelBleConnectionAttempts('adapter state ${state.name}');
         if (previous == AdapterState.poweredOn) {
           deviceScanner.stopScan();
         }
@@ -796,6 +805,8 @@ class ConnectionManager {
     }
     if (_isConnecting) {
       _explicitScanGeneration++;
+      _cancelMachineConnectAttempt('explicit scan superseded automatic work', automaticOnly: true);
+      _cancelScaleConnectAttempt('explicit scan superseded automatic work', automaticOnly: true);
       deviceScanner.stopScan();
       _queuedExplicitScan = Completer<void>();
       return _queuedExplicitScan!.future;
@@ -1405,7 +1416,7 @@ class ConnectionManager {
       );
       return;
     }
-    await connectScale(scale);
+    await _trackConnectionWork(() => _connectScale(scale, automatic: true));
   }
 
   void _maybeSchedulePreferredScaleReconnect() {
@@ -1735,7 +1746,20 @@ class ConnectionManager {
         de1Controller.connectedDe1OrNull?.deviceId == machine.deviceId) {
       return const ConnectionResult.alreadyConnected();
     }
+    final attempt = _connectAttemptOwner.acquire(
+      machine.deviceId,
+      automatic: automatic,
+    );
+    if (attempt == null) {
+      _log.fine(
+        'connectMachine: ${machine.deviceId} still owned by a retiring attempt',
+      );
+      return const ConnectionResult.conflict();
+    }
     _isConnectingMachine = true;
+    _activeMachineAttempt = attempt;
+    _activeMachineCandidate = machine;
+    _activeMachineCleanup = null;
     final selectionSession =
         currentStatus.pendingAmbiguity == AmbiguityReason.machinePicker
         ? _selectionSession
@@ -1753,10 +1777,31 @@ class ConnectionManager {
       ),
     );
 
+    final source = _trackConnectionWork(
+      () => de1Controller.connectToDe1(machine),
+    );
+    var sourceSettled = false;
+    source.then<void>(
+      (_) => sourceSettled = true,
+      onError: (Object _, StackTrace __) => sourceSettled = true,
+    );
+    var callerTimedOut = false;
+
     try {
-      await _trackConnectionWork(
-        () => de1Controller.connectToDe1(machine),
-      ).timeout(_connectTimeout);
+      await source.timeout(
+        _connectTimeout,
+        onTimeout: () {
+          callerTimedOut = true;
+          _cancelMachineConnectAttempt('caller timeout');
+          throw TimeoutException(
+            'Machine connect timed out after $_connectTimeout',
+          );
+        },
+      );
+      if (!attempt.mayAdopt ||
+          !identical(de1Controller.connectedDe1OrNull, machine)) {
+        return const ConnectionResult.conflict();
+      }
       if (automatic && _automaticMachineAttemptSuperseded) {
         // This connect was in flight when USB intent latched; it may still
         // have completed its transport connect, but it must not persist its
@@ -1793,6 +1838,11 @@ class ConnectionManager {
       }
       return const ConnectionResult.succeeded();
     } catch (e) {
+      if (attempt.cancelled && e is! TimeoutException) {
+        final result = const ConnectionResult.conflict();
+        selectionSession?.scanReport.recordResult(machine.deviceId, result);
+        return result;
+      }
       final result = e is TimeoutException
           ? ConnectionResult.timedOut(e.toString())
           : ConnectionResult.failed(e.toString());
@@ -1854,7 +1904,17 @@ class ConnectionManager {
       _emit(machineError);
       return result;
     } finally {
-      _isConnectingMachine = false;
+      if (callerTimedOut || !sourceSettled) {
+        _retireMachineAttempt(attempt, source);
+      } else {
+        final cleanup = identical(_activeMachineAttempt, attempt)
+            ? _activeMachineCleanup
+            : null;
+        if (attempt.cancelled && cleanup != null) {
+          await cleanup;
+        }
+        _releaseMachineAttempt(attempt);
+      }
     }
   }
 
@@ -1862,10 +1922,15 @@ class ConnectionManager {
     if (_shuttingDown) {
       return Future.value(const ConnectionResult.conflict());
     }
-    return _trackConnectionWork(() => _connectScale(scale));
+    return _trackConnectionWork(
+      () => _connectScale(scale, automatic: false),
+    );
   }
 
-  Future<ConnectionResult> _connectScale(Scale scale) async {
+  Future<ConnectionResult> _connectScale(
+    Scale scale, {
+    required bool automatic,
+  }) async {
     if (_isConnectingScale) {
       _log.fine('connectScale: already connecting, skipping');
       return const ConnectionResult.conflict();
@@ -1881,7 +1946,20 @@ class ConnectionManager {
       );
       return const ConnectionResult.conflict();
     }
+    final attempt = _connectAttemptOwner.acquire(
+      scale.deviceId,
+      automatic: automatic,
+    );
+    if (attempt == null) {
+      _log.fine(
+        'connectScale: ${scale.deviceId} still owned by a retiring attempt',
+      );
+      return const ConnectionResult.conflict();
+    }
     _isConnectingScale = true;
+    _activeScaleAttempt = attempt;
+    _activeScaleCandidate = scale;
+    _activeScaleCleanup = null;
     _log.fine('connectScale: connecting to ${scale.name} (${scale.deviceId})');
 
     _publishStatus(
@@ -1892,10 +1970,31 @@ class ConnectionManager {
       ),
     );
 
+    final source = _trackConnectionWork(
+      () => scaleController.connectToScale(scale),
+    );
+    var sourceSettled = false;
+    source.then<void>(
+      (_) => sourceSettled = true,
+      onError: (Object _, StackTrace __) => sourceSettled = true,
+    );
+    var callerTimedOut = false;
+
     try {
-      await _trackConnectionWork(
-        () => scaleController.connectToScale(scale),
-      ).timeout(_connectTimeout);
+      await source.timeout(
+        _connectTimeout,
+        onTimeout: () {
+          callerTimedOut = true;
+          _cancelScaleConnectAttempt('caller timeout');
+          throw TimeoutException(
+            'Scale connect timed out after $_connectTimeout',
+          );
+        },
+      );
+      if (!attempt.mayAdopt ||
+          !identical(scaleController.connectedScaleOrNull, scale)) {
+        return const ConnectionResult.conflict();
+      }
       if (_scaleReconnectBlockedByPowerMode) {
         markExpectingDisconnect(scale.deviceId);
         _publishStatus(
@@ -1918,6 +2017,16 @@ class ConnectionManager {
       );
       return const ConnectionResult.succeeded();
     } catch (e) {
+      if (attempt.cancelled && e is! TimeoutException) {
+        _publishStatus(
+          currentStatus.copyWith(
+            phase: _machineConnected
+                ? ConnectionPhase.ready
+                : ConnectionPhase.idle,
+          ),
+        );
+        return const ConnectionResult.conflict();
+      }
       _publishStatus(
         currentStatus.copyWith(
           phase: _machineConnected
@@ -1946,8 +2055,142 @@ class ConnectionManager {
           ? ConnectionResult.timedOut(e.toString())
           : ConnectionResult.failed(e.toString());
     } finally {
-      _isConnectingScale = false;
+      if (callerTimedOut || !sourceSettled) {
+        _retireScaleAttempt(attempt, source);
+      } else {
+        final cleanup = identical(_activeScaleAttempt, attempt)
+            ? _activeScaleCleanup
+            : null;
+        if (attempt.cancelled && cleanup != null) {
+          await cleanup;
+        }
+        _releaseScaleAttempt(attempt);
+      }
     }
+  }
+
+  Future<void> _cleanupMachineCandidate(De1Interface machine) async {
+    try {
+      await machine.disconnect();
+    } catch (e, st) {
+      _log.fine(
+        'Retiring machine cleanup failed for ${machine.deviceId}',
+        e,
+        st,
+      );
+    }
+  }
+
+  Future<void> _cleanupScaleCandidate(Scale scale) async {
+    try {
+      await scale.disconnect();
+    } catch (e, st) {
+      _log.fine(
+        'Retiring scale cleanup failed for ${scale.deviceId}',
+        e,
+        st,
+      );
+    }
+  }
+
+  Future<void>? _cancelMachineConnectAttempt(
+    String reason, {
+    bool automaticOnly = false,
+  }) {
+    final attempt = _activeMachineAttempt;
+    if (attempt == null || (automaticOnly && !attempt.automatic)) return null;
+    if (!attempt.cancel(reason: reason)) return _activeMachineCleanup;
+    de1Controller.invalidatePendingConnectionAttempt();
+    final candidate = _activeMachineCandidate;
+    final cleanup = candidate == null
+        ? Future<void>.value()
+        : _trackConnectionWork(() => _cleanupMachineCandidate(candidate));
+    _activeMachineCleanup = cleanup;
+    return cleanup;
+  }
+
+  Future<void>? _cancelScaleConnectAttempt(
+    String reason, {
+    bool automaticOnly = false,
+  }) {
+    final attempt = _activeScaleAttempt;
+    if (attempt == null || (automaticOnly && !attempt.automatic)) return null;
+    if (!attempt.cancel(reason: reason)) return _activeScaleCleanup;
+    scaleController.invalidatePendingConnectionAttempt();
+    final candidate = _activeScaleCandidate;
+    final cleanup = candidate == null
+        ? Future<void>.value()
+        : _trackConnectionWork(() => _cleanupScaleCandidate(candidate));
+    _activeScaleCleanup = cleanup;
+    return cleanup;
+  }
+
+  void _cancelBleConnectionAttempts(String reason) {
+    if (_activeMachineCandidate?.transportType == TransportType.ble) {
+      _cancelMachineConnectAttempt(reason);
+    }
+    if (_activeScaleCandidate?.transportType == TransportType.ble) {
+      _cancelScaleConnectAttempt(reason);
+    }
+  }
+
+  Future<void> _observeRetiringSource(
+    Future<void> source,
+    String description,
+  ) async {
+    try {
+      await source;
+    } catch (e, st) {
+      _log.fine('$description settled with an error after cancellation', e, st);
+    }
+  }
+
+  void _retireMachineAttempt(
+    ConnectionAttemptLease attempt,
+    Future<void> source,
+  ) {
+    final cleanup = identical(_activeMachineAttempt, attempt)
+        ? _activeMachineCleanup
+        : null;
+    unawaited(
+      Future.wait<void>([
+        _observeRetiringSource(source, 'Machine attempt ${attempt.generation}'),
+        cleanup ?? Future<void>.value(),
+      ]).whenComplete(() => _releaseMachineAttempt(attempt)),
+    );
+  }
+
+  void _retireScaleAttempt(
+    ConnectionAttemptLease attempt,
+    Future<void> source,
+  ) {
+    final cleanup = identical(_activeScaleAttempt, attempt)
+        ? _activeScaleCleanup
+        : null;
+    unawaited(
+      Future.wait<void>([
+        _observeRetiringSource(source, 'Scale attempt ${attempt.generation}'),
+        cleanup ?? Future<void>.value(),
+      ]).whenComplete(() => _releaseScaleAttempt(attempt)),
+    );
+  }
+
+  void _releaseMachineAttempt(ConnectionAttemptLease attempt) {
+    attempt.settle();
+    if (!identical(_activeMachineAttempt, attempt)) return;
+    _activeMachineAttempt = null;
+    _activeMachineCandidate = null;
+    _activeMachineCleanup = null;
+    _isConnectingMachine = false;
+  }
+
+  void _releaseScaleAttempt(ConnectionAttemptLease attempt) {
+    attempt.settle();
+    if (!identical(_activeScaleAttempt, attempt)) return;
+    _activeScaleAttempt = null;
+    _activeScaleCandidate = null;
+    _activeScaleCleanup = null;
+    _isConnectingScale = false;
   }
 
   Future<ConnectionResult> selectScale(Scale scale) async {
@@ -2043,7 +2286,9 @@ class ConnectionManager {
     ScanReportBuilder scanReport,
   ) async {
     scanReport.markAttempted(scale.deviceId);
-    final result = await connectScale(scale);
+    final result = await _trackConnectionWork(
+      () => _connectScale(scale, automatic: true),
+    );
     scanReport.recordResult(scale.deviceId, result);
     return result;
   }
@@ -2070,6 +2315,8 @@ class ConnectionManager {
 
   void cancelActiveScan() {
     _explicitScanGeneration++;
+    _cancelMachineConnectAttempt('scan cancelled', automaticOnly: true);
+    _cancelScaleConnectAttempt('scan cancelled', automaticOnly: true);
     deviceScanner.stopScan();
     final queued = _queuedExplicitScan;
     _queuedExplicitScan = null;
@@ -2104,6 +2351,7 @@ class ConnectionManager {
   }
 
   Future<void> disconnectMachine() async {
+    final retiringCleanup = _cancelMachineConnectAttempt('explicit disconnect');
     _handleMachineDisconnected();
     _disconnectSupervisor.markMachineOffline();
     _publishStatus(currentStatus.copyWith(phase: ConnectionPhase.idle));
@@ -2112,9 +2360,11 @@ class ConnectionManager {
       markExpectingDisconnect(de1.deviceId);
       await de1.disconnect();
     }
+    if (retiringCleanup != null) await retiringCleanup;
   }
 
   Future<void> disconnectScale() async {
+    final retiringCleanup = _cancelScaleConnectAttempt('explicit disconnect');
     _cancelSelectionSession(emitReport: true);
     _cancelScaleReacquisition();
     try {
@@ -2122,6 +2372,7 @@ class ConnectionManager {
       markExpectingDisconnect(scale.deviceId);
       await scale.disconnect();
     } catch (_) {}
+    if (retiringCleanup != null) await retiringCleanup;
   }
 
   Future<void> shutdown() {
@@ -2136,6 +2387,8 @@ class ConnectionManager {
 
   Future<void> _performShutdown() async {
     _explicitScanGeneration++;
+    _cancelMachineConnectAttempt('shutdown');
+    _cancelScaleConnectAttempt('shutdown');
     _cancelSelectionSession(emitReport: false);
     _stopMachineRecovery();
     _stopWatchingConnectedMachineState();
