@@ -67,6 +67,7 @@ class DecentScale implements Scale, TransportHandoffScale {
   bool _voltageProbeAccepted = false;
 
   int _completedNegotiations = 0;
+  int _tareCounter = 0;
 
   @visibleForTesting
   int get debugCompletedNegotiations => _completedNegotiations;
@@ -522,7 +523,9 @@ class DecentScale implements Scale, TransportHandoffScale {
 
   @override
   Future<void> tare() async {
-    await _writeRequiredCommand([0x0F, 0x00, 0x00, 0x00, 0x00]);
+    final counter = _tareCounter;
+    _tareCounter = (_tareCounter + 1) & 0xFF;
+    await _writeRequiredCommand([0x0F, counter, 0x00, 0x00, 0x00]);
   }
 
   Future<bool> _sendLedOnAndRequestStatus({bool Function()? isCurrent}) async {
@@ -604,22 +607,24 @@ class DecentScale implements Scale, TransportHandoffScale {
   }
 
   Future<void> _runWakeDisplay() async {
-    final wasAsleep = _sleepMode != _DecentScaleSleepMode.awake;
-    final wasSoftSleep = _sleepMode == _DecentScaleSleepMode.softSleep;
-    final mustExitSoftSleep = wasSoftSleep || _softSleepExitRequired;
-    final reconnected =
-        wasAsleep && _sleepConnectionAttempt != _connectionAttempt;
-    final sleepConnectionAttempt = _sleepConnectionAttempt;
-    _sleepMode = _DecentScaleSleepMode.awake;
-    _sleepConnectionAttempt = null;
     try {
       while (!_desiredDisplaySleeping) {
         final generation = _displayGeneration;
+        final wasAsleep = _sleepMode != _DecentScaleSleepMode.awake;
+        final wasSoftSleep = _sleepMode == _DecentScaleSleepMode.softSleep;
+        final mustExitSoftSleep = wasSoftSleep || _softSleepExitRequired;
+        final reconnected =
+            wasAsleep && _sleepConnectionAttempt != _connectionAttempt;
+        final sleepConnectionAttempt = _sleepConnectionAttempt;
+        _sleepMode = _DecentScaleSleepMode.awake;
+        _sleepConnectionAttempt = null;
         _notificationWatchdog?.cancel();
         try {
           if (reconnected) {
             if (mustExitSoftSleep &&
                 !await _ensureSoftSleepExited(generation)) {
+              if (_desiredDisplaySleeping) return;
+              if (generation != _displayGeneration) continue;
               return;
             }
             final attempt = _profileAttempt;
@@ -628,9 +633,13 @@ class DecentScale implements Scale, TransportHandoffScale {
               isCurrent: () =>
                   generation == _displayGeneration && !_desiredDisplaySleeping,
             );
-            if (!confirmed) continue;
+            if (!confirmed) {
+              if (_desiredDisplaySleeping) return;
+              continue;
+            }
             if (generation != _displayGeneration || _desiredDisplaySleeping) {
-              return;
+              if (_desiredDisplaySleeping) return;
+              continue;
             }
             unawaited(
               _negotiateProfile(attempt).catchError((
@@ -647,6 +656,8 @@ class DecentScale implements Scale, TransportHandoffScale {
           } else {
             if (mustExitSoftSleep &&
                 !await _ensureSoftSleepExited(generation)) {
+              if (_desiredDisplaySleeping) return;
+              if (generation != _displayGeneration) continue;
               return;
             }
             await _sendLedOnAndRequestStatus(
@@ -655,7 +666,8 @@ class DecentScale implements Scale, TransportHandoffScale {
             );
           }
           if (generation != _displayGeneration || _desiredDisplaySleeping) {
-            return;
+            if (_desiredDisplaySleeping) return;
+            continue;
           }
           _ticksSinceLastNotification = 0;
           _watchdogRetryAttempted = false;
@@ -670,6 +682,7 @@ class DecentScale implements Scale, TransportHandoffScale {
             }
             rethrow;
           }
+          if (_desiredDisplaySleeping) return;
         }
       }
     } finally {
@@ -852,7 +865,8 @@ class DecentScale implements Scale, TransportHandoffScale {
 
   void _recordWeightFrame(List<int> data, int attempt) {
     if (!_isCurrentProfileAttempt(attempt)) return;
-    if (data.length == 10) {
+    final frame = parseDecentWeightFrame(data);
+    if (frame?.timestamped == true) {
       _sawTimestampedWeightFrame = true;
       _applyProfileEvidence();
     }
