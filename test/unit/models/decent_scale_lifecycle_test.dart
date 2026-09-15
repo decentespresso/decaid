@@ -10,6 +10,8 @@ import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:rxdart/rxdart.dart';
 
+const _fastSettle = Duration(milliseconds: 100);
+
 const _originalV11Status = [0x03, 0x0A, 0x00, 0x00, 0x64, 0x02, 0x00];
 const _hdsV258Status = [0x03, 0x0A, 0x00, 0x00, 0x64, 0x02, 0x58];
 const _hdsV3114Status = [0x03, 0x0A, 0x00, 0x00, 0x64, 0x03, 0x1E];
@@ -392,7 +394,7 @@ void main() {
         statusNotification: _hdsV3114Status,
       );
       final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale);
+      await _connectAndSettle(scale, timeout: _fastSettle);
       expect(scale.debugProfile.capabilities.supportsSoftSleep, isTrue);
       transport.failSoftSleep = true;
       transport.writes.clear();
@@ -419,7 +421,7 @@ void main() {
         statusNotification: _hdsV3114Status,
       );
       final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale);
+      await _connectAndSettle(scale, timeout: _fastSettle);
       await scale.sleepDisplay();
 
       transport.softSleepExitFailures = 1;
@@ -449,7 +451,7 @@ void main() {
         statusNotification: _hdsV3114Status,
       );
       final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale);
+      await _connectAndSettle(scale, timeout: _fastSettle);
       await scale.sleepDisplay();
 
       transport.softSleepExitFailures = 5;
@@ -481,7 +483,7 @@ void main() {
         statusNotification: _hdsV3114Status,
       );
       final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale);
+      await _connectAndSettle(scale, timeout: _fastSettle);
       await scale.sleepDisplay();
 
       transport.softSleepExitFailures = 5;
@@ -509,7 +511,7 @@ void main() {
           statusNotification: _hdsV3114Status,
         );
         final scale = DecentScale(transport: transport);
-        await _connectAndSettle(scale);
+        await _connectAndSettle(scale, timeout: _fastSettle);
         await scale.sleepDisplay();
 
         transport.emitDisconnected();
@@ -554,7 +556,7 @@ void main() {
           statusNotification: _hdsV3114Status,
         );
         final scale = DecentScale(transport: transport);
-        await _connectAndSettle(scale);
+        await _connectAndSettle(scale, timeout: _fastSettle);
         await scale.sleepDisplay();
 
         transport.softSleepExitFailures = 5;
@@ -581,7 +583,7 @@ void main() {
         statusNotification: _hdsV3114Status,
       );
       final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale);
+      await _connectAndSettle(scale, timeout: _fastSettle);
       await scale.sleepDisplay();
 
       transport.softSleepExitFailures = 2;
@@ -683,7 +685,7 @@ void main() {
           statusNotification: _hdsV3114Status,
         );
         final scale = DecentScale(transport: transport);
-        await _connectAndSettle(scale);
+        await _connectAndSettle(scale, timeout: _fastSettle);
         await scale.sleepDisplay();
 
         transport.emitDisconnected();
