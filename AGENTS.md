@@ -55,6 +55,10 @@ All three steps are required, not optional.
 
 ## Hard Rules
 
+- Genuinely opaque external IDs in adopted REST and WebSocket paths are
+  encoded once by clients and decoded once with
+  `decodeOpaquePathComponent`; host-assigned UUID resource IDs keep their
+  existing route contracts. See `doc/AI_API_NOTES.md`.
 - Never import 3rd-party BLE libraries (e.g. `universal_ble`) outside `lib/src/services/ble/`.
 - All BLE operations use 128-bit UUID format.
 - Scale write paths must catch `DeviceNotConnectedException` at the lowest-level write helper.
@@ -108,6 +112,11 @@ GitHub Issues on `decentespresso/decaid` is the canonical issue tracker. Use `gh
 - Knowledge graph: `code-review-graph` MCP tools. Use `rg` or direct file reads for exact names, paths, and one-hop lookups. Use the graph for multi-hop impact analysis, callers-of-callers, affected flows, architectural exploration, and test reachability.
 
 ## Naming Reference
+
+For auxiliary scale work, `ScaleController` owns the single primary scale and
+shot-facing behavior. `AuxiliaryScaleRegistry` owns runtime-only auxiliary
+sessions; API handlers may address either role by ID, but auxiliary sessions
+must not alter `preferredScaleId`, shot sequencing, or legacy singular routes.
 
 | Layer | Value |
 |-------|-------|

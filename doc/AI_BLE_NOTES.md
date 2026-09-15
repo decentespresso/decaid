@@ -1,5 +1,18 @@
 # AI BLE Notes
 
+## Concurrent scale ownership
+
+ScaleController remains the primary scale owner. Auxiliary scales are held by a
+runtime registry keyed by device ID, with one physical device claim at a time.
+Claims reserve IDs before asynchronous connect work, retain closing reservations
+until subscriptions and transport cleanup settle, and release only the owning
+session. Auxiliary sessions forward device snapshots independently and do not
+feed shot or primary-scale state.
+
+The primary policy filters auxiliary reservations from automatic and picker
+selection. Explicit auxiliary connection is a separate intent and remains
+available while automatic Bengle primary selection skips external scales.
+
 Read this when changing BLE transport, scanning, connection lifecycle, GATT error handling, or transport abstractions. Skip it for pure REST/WS, UI, profile, or plugin changes.
 
 ## Source Of Truth

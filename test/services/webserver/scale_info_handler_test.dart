@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
+import 'package:reaprime/src/controllers/auxiliary_scale_registry.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/models/device/device.dart';
@@ -32,10 +33,13 @@ void main() {
 
   Future<Response> requestInfo(ScaleController controller) async {
     final app = Router().plus;
+    final registry = AuxiliaryScaleRegistry();
+    addTearDown(registry.dispose);
     ScaleHandler(
       controller: controller,
       de1Controller: de1Controller,
       settingsController: settingsController,
+      auxiliaryScaleRegistry: registry,
     ).addRoutes(app);
     return app.call(
       Request('GET', Uri.parse('http://localhost/api/v1/scale/info')),

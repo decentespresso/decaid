@@ -24,6 +24,19 @@ Read this when changing REST endpoints, WebSocket topics, API specs, auth proxy,
 - Content-based hash IDs for profile deduplication (`ProfileController`).
 - ETag / `If-None-Match` support on cacheable resources (#203).
 
+### Opaque external route IDs
+
+Sensor IDs supplied by external plugins are opaque strings: clients
+percent-encode one path component once, and the sensor route boundary decodes
+it once with `decodeOpaquePathComponent` before REST lookup or WebSocket
+subscription/rebind matching. Preserve literal `%`, `%ZZ`, trailing `%`,
+reserved characters, Unicode, plus signs, and `%252F` decode-once behavior;
+invalid UTF-8 is rejected with HTTP 400 at the Shelf boundary.
+
+`Request.url.queryParameters` is already decoded and must not use the path
+helper. Host-assigned UUID resource IDs, plugin/KV/skin/file/command paths,
+and account-proxy normalization retain their existing route contracts.
+
 ### Patch Nullability
 
 `rejectExplicitNulls()` in `json_patch.dart` is the shared helper for refusing an explicit
@@ -125,6 +138,16 @@ could not produce.
 ## WebSocket Conventions
 
 - WebSocket topics are path-based: `/ws/v1/machine/state`, `/ws/v1/machine/shotState`, `/ws/v1/scale/snapshot`, etc.
+
+Scale paths are split by compatibility boundary: singular `/scale/*` routes
+remain primary-only, while `/scales/{id}/tare` and
+`/ws/v1/scales/{id}/snapshot` address a connected primary or auxiliary scale.
+Scale IDs are opaque URI path components: clients encode once and handlers use
+the shared one-decode helper. Auxiliary sessions are runtime-only and never
+enter shot sequencing or persisted preferences.
+The addressed snapshot stream uses the raw `ScaleSnapshot.toJson()` payload
+for both roles (`timestamp`, `weight`, `batteryLevel`, `timerValue`, `flow`);
+the legacy singular stream retains its existing `WeightSnapshot` payload.
 - `ShotSequencer` emits structured `ShotDecision`s (why a step advanced, why the shot stopped).
 - `SteamSequencer` manages steam session lifecycle (start on entry, finalize on exit).
 - Presence tracking via `PresenceController` — client keep-alive.

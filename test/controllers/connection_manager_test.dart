@@ -5,6 +5,7 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/connection_error.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
+import 'package:reaprime/src/controllers/auxiliary_scale_registry.dart';
 import 'package:reaprime/src/controllers/remembered_devices_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/models/device/remembered_device.dart';
@@ -109,6 +110,21 @@ class _TrackingScale extends TestScale {
 
   @override
   Future<void> disconnect() async => disconnectOrder.add('scale');
+}
+
+class _BlockingScale extends TestScale {
+  _BlockingScale(String deviceId)
+    : super(deviceId: deviceId, initialState: ConnectionState.discovered);
+
+  final Completer<void> started = Completer<void>();
+  final Completer<void> proceed = Completer<void>();
+
+  @override
+  Future<void> onConnect() async {
+    started.complete();
+    await proceed.future;
+    setConnectionState(ConnectionState.connected);
+  }
 }
 
 class _FailingFakeDe1 implements De1Interface {
@@ -235,6 +251,112 @@ void main() {
       expect(connectionManager.currentStatus.phase, ConnectionPhase.idle);
       expect(connectionManager.currentStatus.error, isNull);
     });
+
+    test(
+      'auxiliary connect is runtime-only and same-role idempotent',
+      () async {
+        final scale = TestScale(
+          deviceId: 'auxiliary-scale',
+          initialState: ConnectionState.connected,
+        );
+
+        final first = await connectionManager.connectScale(
+          scale,
+          role: ScaleConnectionRole.auxiliary,
+        );
+        final second = await connectionManager.connectScale(
+          scale,
+          role: ScaleConnectionRole.auxiliary,
+        );
+
+        expect(first.outcome, ConnectionOutcome.connected);
+        expect(second.outcome, ConnectionOutcome.alreadyConnected);
+        expect(settingsController.preferredScaleId, isNull);
+        expect(
+          connectionManager.auxiliaryScaleRegistry.connectedDeviceIds,
+          contains('auxiliary-scale'),
+        );
+      },
+    );
+
+    test(
+      'primary and auxiliary pending claims conflict in both directions',
+      () async {
+        final realScaleController = ScaleController();
+        final manager = ConnectionManager(
+          deviceScanner: mockScanner,
+          de1Controller: mockDe1Controller,
+          scaleController: realScaleController,
+          settingsController: settingsController,
+        );
+        addTearDown(() async {
+          await manager.dispose();
+          realScaleController.dispose();
+        });
+        final primary = _BlockingScale('primary-pending');
+        final auxiliary = _BlockingScale('auxiliary-pending');
+
+        final primaryConnect = manager.connectScale(primary);
+        await primary.started.future;
+        final auxiliaryConflict = await manager.connectScale(
+          TestScale(
+            deviceId: 'primary-pending',
+            initialState: ConnectionState.connected,
+          ),
+          role: ScaleConnectionRole.auxiliary,
+        );
+        expect(auxiliaryConflict.outcome, ConnectionOutcome.conflict);
+        primary.proceed.complete();
+        expect((await primaryConnect).success, isTrue);
+
+        await manager.disconnectScale();
+        final auxiliaryConnect = manager.connectScale(
+          auxiliary,
+          role: ScaleConnectionRole.auxiliary,
+        );
+        await auxiliary.started.future;
+        final primaryConflict = await manager.connectScale(
+          TestScale(
+            deviceId: 'auxiliary-pending',
+            initialState: ConnectionState.connected,
+          ),
+        );
+        expect(primaryConflict.outcome, ConnectionOutcome.conflict);
+        auxiliary.proceed.complete();
+        expect((await auxiliaryConnect).success, isTrue);
+      },
+    );
+
+    test(
+      'releasing auxiliary reservation allows primary selection again',
+      () async {
+        final scale = TestScale(
+          deviceId: 'reusable-scale',
+          initialState: ConnectionState.connected,
+        );
+        await connectionManager.connectScale(
+          scale,
+          role: ScaleConnectionRole.auxiliary,
+        );
+        expect(
+          connectionManager.auxiliaryScaleRegistry.isReserved('reusable-scale'),
+          isTrue,
+        );
+        await connectionManager.auxiliaryScaleRegistry.disconnect(
+          'reusable-scale',
+        );
+        expect(
+          connectionManager.auxiliaryScaleRegistry.isReserved('reusable-scale'),
+          isFalse,
+        );
+        final primary = TestScale(
+          deviceId: 'reusable-scale',
+          initialState: ConnectionState.connected,
+        );
+        expect((await connectionManager.connectScale(primary)).success, isTrue);
+        expect(settingsController.preferredScaleId, 'reusable-scale');
+      },
+    );
 
     group('shutdown', () {
       test('stops active scan and discards queued and future work', () async {

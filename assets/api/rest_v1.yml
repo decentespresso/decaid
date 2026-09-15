@@ -5,6 +5,11 @@ info:
   description: |
     This API provides endpoints to retrieve a list of Bluetooth devices, trigger a scan for new devices, manage DE1 espresso machine state and settings, and interact with a connected scale.
 
+    External sensor IDs are opaque URI path components: clients percent-encode
+    them once and the host decodes them once at the sensor route boundary.
+    Host-assigned UUID resource IDs retain their existing route contracts.
+    Invalid UTF-8 in a percent-encoded sensor ID is rejected with HTTP 400.
+
     Requests under `/api/` are subject to process-local admission limits. A
     per-client limit returns 429 and a global limit returns 503; both include
     `Retry-After: 1`. Saturated requests are rejected rather than queued.
@@ -45,27 +50,7 @@ paths:
               schema:
                 type: array
                 items:
-                  type: object
-                  properties:
-                    name:
-                      type: string
-                    id:
-                      type: string
-                    state:
-                      type: string
-                      enum: [connected, disconnected]
-                    type:
-                      type: string
-                      enum: [machine, scale, sensor]
-                    available:
-                      type: boolean
-                      description: >
-                        true if the device is currently present in discovery or
-                        is actively connected; false for a remembered device
-                        that is not present (reported with state "disconnected").
-                        Remembered devices are those the user has connected to;
-                        they persist across restarts until forgotten via
-                        /api/v1/devices/forget.
+                  $ref: "#/components/schemas/DeviceInventory"
         "500":
           description: Internal Server Error
           content:
@@ -128,6 +113,12 @@ paths:
       responses:
         "200":
           description: Scan started successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DeviceInventory"
         "500":
           description: Internal Server Error
           content:
@@ -152,6 +143,14 @@ paths:
           required: false
           schema:
             type: string
+        - name: connectionRole
+          description: Optional local role for a scale connection.
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [primary, auxiliary]
+            nullable: false
       requestBody:
         description: JSON object with deviceId
         required: false
@@ -163,6 +162,14 @@ paths:
                 deviceId:
                   type: string
                   description: The id of the device, previously discovered with /api/v1/devices/scan request
+                connectionRole:
+                  type: string
+                  enum: [primary, auxiliary]
+                  nullable: false
+                  default: primary
+                  description: >
+                    Local scale connection role. Omitted is equivalent to primary;
+                    auxiliary is runtime-only and applies only to scale devices.
               required:
                 - deviceId
       responses:
@@ -173,7 +180,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeviceConnectResult"
         "400":
-          description: "Missing deviceId"
+          description: Missing deviceId or invalid connectionRole (including explicit null)
         "404":
           description: "Device not found"
         "409":
@@ -1130,6 +1137,49 @@ paths:
               schema:
                 $ref: "#/components/schemas/ScaleCommandError"
 
+  /api/v1/scales/{id}/tare:
+    put:
+      summary: Tare a connected scale by device id
+      description: >
+        Tares the connected primary or auxiliary scale identified by the opaque
+        URI path component. Primary tare retains the shot safety gate above;
+        auxiliary tare is independent of shot state.
+      tags: [Scale]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Scale tared successfully
+        "400":
+          description: >
+            Invalid percent-encoded scale id or primary tare rejected by the
+            active shot safety gate.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ScaleCommandError"
+                  - type: object
+                    required: [details, type]
+                    properties:
+                      details:
+                        type: string
+                      type:
+                        type: string
+                        enum: [block_tare_during_shot]
+        "404":
+          description: Scale not found or not connected
+        "500":
+          description: Scale command failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScaleCommandError"
+
   /api/v1/scale/timer/start:
     put:
       summary: Start Scale Timer
@@ -1212,6 +1262,7 @@ paths:
           required: true
           schema:
             type: string
+          description: External sensor ID as one percent-encoded URI path component.
       responses:
         "200":
           description: Full sensor manifest
@@ -1221,6 +1272,8 @@ paths:
                 $ref: "#/components/schemas/SensorManifest"
         "404":
           description: Sensor not found
+        "400":
+          description: Invalid UTF-8 in a percent-encoded sensor ID
 
   /api/v1/sensors/{id}/execute:
     post:
@@ -1232,6 +1285,7 @@ paths:
           required: true
           schema:
             type: string
+          description: External sensor ID as one percent-encoded URI path component.
       requestBody:
         required: true
         content:
@@ -1259,6 +1313,8 @@ paths:
                     nullable: true
         "404":
           description: Sensor not found
+        "400":
+          description: Invalid UTF-8 in a percent-encoded sensor ID
 
   # REA settings API
   /api/v1/settings:
@@ -5627,6 +5683,34 @@ components:
           type: string
           description: Error message (on failure)
 
+    DeviceInventory:
+      type: object
+      properties:
+        name:
+          type: string
+        id:
+          type: string
+        state:
+          type: string
+          enum: [discovered, connecting, connected, disconnecting, disconnected]
+        type:
+          type: string
+          enum: [machine, scale, sensor]
+        available:
+          type: boolean
+          description: >
+            true if the device is currently present in discovery or is actively
+            connected; false for a remembered device that is not present
+            (reported with state "disconnected"). Remembered devices persist
+            across restarts until forgotten via /api/v1/devices/forget.
+        connectionRole:
+          type: string
+          enum: [primary, auxiliary]
+          nullable: false
+          description: >
+            Present only for connected scale entries. Disconnected and
+            remembered entries omit this runtime ownership field.
+
     DeviceConnectResult:
       type: object
       required: [deviceId, operation, outcome, state, connectionError]
@@ -5651,6 +5735,11 @@ components:
         error:
           type: string
           nullable: true
+        connectionRole:
+          type: string
+          enum: [primary, auxiliary]
+          nullable: false
+          description: Present for successful scale connections.
 
     ConnectionError:
       type: object

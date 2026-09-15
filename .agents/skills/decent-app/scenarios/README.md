@@ -10,6 +10,7 @@ Pick the scenario that matches the task and run it before calling related work d
 | API pressure hardening | `scenarios/api-pressure-hardening.md` |
 | Bengle cup warmer, preheat, and capability discovery | `scenarios/bengle-cup-warmer.md` |
 | Bengle integrated scale | `scenarios/bengle-integrated-scale.md` |
+| Bengle primary with an auxiliary scale | `scenarios/auxiliary-scale-connections.md` |
 | Bengle LED strip v2 | `scenarios/bengle-led-strip.md` |
 | Bengle scale calibration | `scenarios/bengle-scale-calibration.md` |
 | Bengle firmware wake-schedule sync | `scenarios/bengle-wake-schedule.md` |

@@ -63,6 +63,12 @@ class DevicesStateAggregator {
         _emitState();
       }),
     );
+    _subscriptions.add(
+      _connectionManager.auxiliaryScaleRegistry.changes.skip(1).listen((_) {
+        _updateDeviceSubscriptions(_inventoryDevices());
+        _emitState();
+      }),
+    );
 
     final remembered = _rememberedController;
     if (remembered != null) {
@@ -128,6 +134,7 @@ class DevicesStateAggregator {
       devices,
       _rememberedController?.remembered ?? const [],
       preferredScaleId: _preferredScaleId?.call(),
+      connectionRoles: _rolesFor(_connectionManager),
     );
 
     final snapshot = <String, dynamic>{
@@ -170,6 +177,7 @@ class DevicesStateAggregator {
   List<Device> _inventoryDevices() => _devicesForInventory(
     _controller.devices,
     _connectionManager.scaleController,
+    _connectionManager.auxiliaryScaleRegistry,
   );
 
   void dispose() {
@@ -264,9 +272,11 @@ class DevicesHandler {
       _devicesForInventory(
         _controller.devices,
         _connectionManager.scaleController,
+        _connectionManager.auxiliaryScaleRegistry,
       ),
       _rememberedController?.remembered ?? const [],
       preferredScaleId: _preferredScaleId?.call(),
+      connectionRoles: _rolesFor(_connectionManager),
     );
   }
 
@@ -314,9 +324,13 @@ class DevicesHandler {
 
   Future<Response> _handleConnect(Request req) async {
     final devices = _controller.devices;
-    final deviceId = await _extractDeviceId(req);
+    final request = await _extractConnectRequest(req);
+    final deviceId = request.deviceId;
     if (deviceId == null) {
       return jsonBadRequest({'error': 'Missing deviceId'});
+    }
+    if (request.invalidRole) {
+      return jsonBadRequest({'error': 'Invalid connectionRole'});
     }
     final device = devices.firstWhereOrNull((e) => e.deviceId == deviceId);
     if (device == null) {
@@ -324,8 +338,14 @@ class DevicesHandler {
       if (error != null) return jsonConflict({'error': error});
       return jsonNotFound({'error': 'Device not found: $deviceId'});
     }
-    final result = await _connectDevice(device);
-    final body = await _connectResultBody(device, result);
+    if (device.type != DeviceType.scale &&
+        request.role == ScaleConnectionRole.auxiliary) {
+      return jsonBadRequest({
+        'error': 'connectionRole auxiliary is only valid for scales',
+      });
+    }
+    final result = await _connectDevice(device, role: request.role);
+    final body = await _connectResultBody(device, result, role: request.role);
     return switch (result.outcome) {
       ConnectionOutcome.connected ||
       ConnectionOutcome.alreadyConnected => jsonOk(body),
@@ -335,6 +355,64 @@ class DevicesHandler {
     };
   }
 
+  Future<({String? deviceId, ScaleConnectionRole role, bool invalidRole})>
+  _extractConnectRequest(Request req) async {
+    try {
+      final body = await readBoundedRequestBodyString(
+        req,
+        maxBytes: smallRequestBodyBytes,
+        timeout: smallRequestBodyTimeout,
+      );
+      if (body.isNotEmpty) {
+        final decoded = jsonDecode(body);
+        if (decoded is Map<String, dynamic>) {
+          final hasBodyRole = decoded.containsKey('connectionRole');
+          return (
+            deviceId: decoded['deviceId'] is String
+                ? decoded['deviceId'] as String
+                : req.requestedUri.queryParameters['deviceId'],
+            role: _parseConnectionRole(
+              hasBodyRole
+                  ? decoded['connectionRole']
+                  : req.requestedUri.queryParameters['connectionRole'],
+            ),
+            invalidRole: hasBodyRole
+                ? !_isValidConnectionRoleValue(decoded['connectionRole'])
+                : req.requestedUri.queryParameters.containsKey(
+                        'connectionRole',
+                      ) &&
+                      !_isValidConnectionRoleValue(
+                        req.requestedUri.queryParameters['connectionRole'],
+                      ),
+          );
+        }
+      }
+    } on RequestBodyReadException {
+      rethrow;
+    } on FormatException {
+      _log.fine('Ignoring malformed request body');
+    }
+    return (
+      deviceId: req.requestedUri.queryParameters['deviceId'],
+      role: _parseConnectionRole(
+        req.requestedUri.queryParameters['connectionRole'],
+      ),
+      invalidRole:
+          req.requestedUri.queryParameters.containsKey('connectionRole') &&
+          !_isValidConnectionRoleValue(
+            req.requestedUri.queryParameters['connectionRole'],
+          ),
+    );
+  }
+
+  bool _isValidConnectionRoleValue(Object? value) =>
+      value == 'primary' || value == 'auxiliary';
+
+  ScaleConnectionRole _parseConnectionRole(Object? value) => switch (value) {
+    'auxiliary' => ScaleConnectionRole.auxiliary,
+    _ => ScaleConnectionRole.primary,
+  };
+
   Future<Response> _handleDisconnect(Request req) async {
     final devices = _controller.devices;
     final deviceId = await _extractDeviceId(req);
@@ -343,12 +421,22 @@ class DevicesHandler {
     }
     final device = devices.firstWhereOrNull((e) => e.deviceId == deviceId);
     if (device == null) {
+      if (_connectionManager.auxiliaryScaleRegistry.isReserved(deviceId)) {
+        await _connectionManager.auxiliaryScaleRegistry.disconnect(deviceId);
+        return jsonOk(null);
+      }
       final error = _inventoryOnlyCommandError(deviceId);
       if (error != null) return jsonConflict({'error': error});
       return jsonNotFound({'error': 'Device not found: $deviceId'});
     }
-    _connectionManager.markExpectingDisconnect(device.deviceId);
-    await device.disconnect();
+    if (_connectionManager.auxiliaryScaleRegistry.isReserved(device.deviceId)) {
+      await _connectionManager.auxiliaryScaleRegistry.disconnect(
+        device.deviceId,
+      );
+    } else {
+      _connectionManager.markExpectingDisconnect(device.deviceId);
+      await device.disconnect();
+    }
 
     return jsonOk(null);
   }
@@ -447,7 +535,26 @@ class DevicesHandler {
           );
           return;
         }
-        await _sendConnectResult(device, socket);
+        if (data.containsKey('connectionRole') &&
+            !_isValidConnectionRoleValue(data['connectionRole'])) {
+          socket.sink.add(jsonEncode({'error': 'Invalid connectionRole'}));
+          return;
+        }
+        if (device.type != DeviceType.scale &&
+            _parseConnectionRole(data['connectionRole']) ==
+                ScaleConnectionRole.auxiliary) {
+          socket.sink.add(
+            jsonEncode({
+              'error': 'connectionRole auxiliary is only valid for scales',
+            }),
+          );
+          return;
+        }
+        await _sendConnectResult(
+          device,
+          socket,
+          role: _parseConnectionRole(data['connectionRole']),
+        );
 
       case 'disconnect':
         final deviceId = data['deviceId'] as String?;
@@ -461,6 +568,16 @@ class DevicesHandler {
           (e) => e.deviceId == deviceId,
         );
         if (device == null) {
+          if (_connectionManager.auxiliaryScaleRegistry.isReserved(deviceId)) {
+            try {
+              await _connectionManager.auxiliaryScaleRegistry.disconnect(
+                deviceId,
+              );
+            } catch (e) {
+              socket.sink.add(jsonEncode({'error': 'Disconnect failed: $e'}));
+            }
+            return;
+          }
           socket.sink.add(
             jsonEncode({
               'error':
@@ -470,10 +587,20 @@ class DevicesHandler {
           );
           return;
         }
-        _connectionManager.markExpectingDisconnect(device.deviceId);
-        device.disconnect().catchError((e) {
+        try {
+          if (_connectionManager.auxiliaryScaleRegistry.isReserved(
+            device.deviceId,
+          )) {
+            await _connectionManager.auxiliaryScaleRegistry.disconnect(
+              device.deviceId,
+            );
+          } else {
+            _connectionManager.markExpectingDisconnect(device.deviceId);
+            await device.disconnect();
+          }
+        } catch (e) {
           socket.sink.add(jsonEncode({'error': 'Disconnect failed: $e'}));
-        });
+        }
 
       default:
         socket.sink.add(jsonEncode({'error': 'Unknown command: $command'}));
@@ -481,9 +608,14 @@ class DevicesHandler {
   }
 
   String? _inventoryOnlyCommandError(String deviceId) {
+    if (_connectionManager.auxiliaryScaleRegistry.connectionFor(deviceId) !=
+        null) {
+      return null;
+    }
     final inventoryOnly = _devicesForInventory(
       const [],
       _connectionManager.scaleController,
+      _connectionManager.auxiliaryScaleRegistry,
     ).any((device) => device.deviceId == deviceId);
     return inventoryOnly
         ? 'Device is inventory-only and cannot be controlled here: $deviceId'
@@ -492,11 +624,12 @@ class DevicesHandler {
 
   Future<void> _sendConnectResult(
     Device device,
-    WebSocketChannel socket,
-  ) async {
+    WebSocketChannel socket, {
+    ScaleConnectionRole role = ScaleConnectionRole.primary,
+  }) async {
     try {
-      final result = await _connectDevice(device);
-      final body = await _connectResultBody(device, result);
+      final result = await _connectDevice(device, role: role);
+      final body = await _connectResultBody(device, result, role: role);
       socket.sink.add(
         jsonEncode(
           result.success
@@ -514,7 +647,10 @@ class DevicesHandler {
     }
   }
 
-  Future<ConnectionResult> _connectDevice(Device device) async {
+  Future<ConnectionResult> _connectDevice(
+    Device device, {
+    ScaleConnectionRole role = ScaleConnectionRole.primary,
+  }) async {
     switch (device.type) {
       case DeviceType.machine:
         final machine = device as De1Interface;
@@ -525,11 +661,12 @@ class DevicesHandler {
         return _connectionManager.connectMachine(machine);
       case DeviceType.scale:
         final scale = device as Scale;
-        if (_connectionManager.currentStatus.pendingAmbiguity ==
-            AmbiguityReason.scalePicker) {
+        if (role == ScaleConnectionRole.primary &&
+            _connectionManager.currentStatus.pendingAmbiguity ==
+                AmbiguityReason.scalePicker) {
           return _connectionManager.selectScale(scale);
         }
-        return _connectionManager.connectScale(scale);
+        return _connectionManager.connectScale(scale, role: role);
       case DeviceType.sensor:
         try {
           final sensor = device as Sensor;
@@ -548,8 +685,9 @@ class DevicesHandler {
 
   Future<Map<String, dynamic>> _connectResultBody(
     Device device,
-    ConnectionResult result,
-  ) async {
+    ConnectionResult result, {
+    ScaleConnectionRole role = ScaleConnectionRole.primary,
+  }) async {
     final state = await device.connectionState.first;
     return {
       'deviceId': device.deviceId,
@@ -557,6 +695,8 @@ class DevicesHandler {
       'outcome': result.outcome.name,
       'state': state.name,
       'connectionError': _connectionError(device, result)?.toJson(),
+      if (device.type == DeviceType.scale && result.success)
+        'connectionRole': role.name,
     };
   }
 
@@ -585,21 +725,45 @@ class DevicesHandler {
   }
 }
 
+Map<String, String> _rolesFor(ConnectionManager manager) {
+  final roles = <String, String>{};
+  final id = manager.scaleController.lastConnectedDeviceId;
+  if (manager.scaleController.currentConnectionState ==
+          ConnectionState.connected &&
+      id != null) {
+    roles[id] = 'primary';
+  }
+  for (final auxiliaryId in manager.auxiliaryScaleRegistry.connectedDeviceIds) {
+    roles[auxiliaryId] = 'auxiliary';
+  }
+  return roles;
+}
+
 List<Device> _devicesForInventory(
   List<Device> discoveredDevices,
   ScaleController scaleController,
+  AuxiliaryScaleRegistry? auxiliaryScaleRegistry,
 ) {
+  final devices = [...discoveredDevices];
   try {
     final connectedScale = scaleController.connectedScale();
-    if (discoveredDevices.any(
+    if (!discoveredDevices.any(
       (device) => device.deviceId == connectedScale.deviceId,
     )) {
-      return discoveredDevices;
+      devices.add(connectedScale);
     }
-    return [...discoveredDevices, connectedScale];
   } on DeviceNotConnectedException {
-    return discoveredDevices;
+    log.fine('Connected scale is unavailable during inventory assembly');
   }
+  final registry = auxiliaryScaleRegistry;
+  if (registry == null) return devices;
+  for (final id in registry.connectedDeviceIds) {
+    final connection = registry.connectionFor(id);
+    if (connection != null && !devices.any((d) => d.deviceId == id)) {
+      devices.add(connection.scale);
+    }
+  }
+  return devices;
 }
 
 class DeviceListEntry {
@@ -648,6 +812,7 @@ Future<List<Map<String, dynamic>>> buildAvailabilityDeviceList(
   List<Device> liveDevices,
   List<RememberedDevice> remembered, {
   String? preferredScaleId,
+  Map<String, String> connectionRoles = const {},
 }) async {
   final entries = <DeviceListEntry>[];
   final liveIds = <String>{};
@@ -668,5 +833,14 @@ Future<List<Map<String, dynamic>>> buildAvailabilityDeviceList(
     if (byType != 0) return byType;
     return a.id.compareTo(b.id);
   });
-  return entries.map((e) => e.toJson()).toList();
+  return entries.map((e) {
+    final json = e.toJson();
+    final role = connectionRoles[e.id];
+    if (role != null &&
+        e.type == DeviceType.scale &&
+        e.state == ConnectionState.connected) {
+      json['connectionRole'] = role;
+    }
+    return json;
+  }).toList();
 }

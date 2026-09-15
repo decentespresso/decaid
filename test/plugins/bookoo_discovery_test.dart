@@ -182,6 +182,7 @@ void main() {
         controller: fixture.scales,
         de1Controller: fixture.de1,
         settingsController: fixture.settings,
+        auxiliaryScaleRegistry: fixture.connections.auxiliaryScaleRegistry,
       ).addRoutes(router);
       final server = await shelf_io.serve(router.call, '127.0.0.1', 0);
       final client = HttpClient();

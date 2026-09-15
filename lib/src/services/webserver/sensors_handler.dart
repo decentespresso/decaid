@@ -17,7 +17,7 @@ final class SensorsHandler {
     });
 
     app.get('/api/v1/sensors/<id>', (Request req, String id) async {
-      final sensor = _controller.sensors[id];
+      final sensor = _controller.sensors[decodeOpaquePathComponent(id)];
       if (sensor == null) {
         return jsonNotFound({'error': 'Sensor not found: $id'});
       }
@@ -27,7 +27,7 @@ final class SensorsHandler {
     app.get('/ws/v1/sensors/<id>/snapshot', _handleSensorSnapshot);
 
     app.post('/api/v1/sensors/<id>/execute', (Request req, String id) async {
-      final sensor = _controller.sensors[id];
+      final sensor = _controller.sensors[decodeOpaquePathComponent(id)];
       if (sensor == null) {
         return jsonNotFound({'error': 'Sensor not found: $id'});
       }
@@ -51,7 +51,7 @@ final class SensorsHandler {
 
   FutureOr<Response> _handleSensorSnapshot(Request req) {
     _log.info("Handling: $req");
-    final id = req.params['id'];
+    final id = decodeOpaquePathComponent(req.params['id']!);
     _log.info("got id: $id");
     return admittedWebSocketHandler((socket, protocol) {
       _log.info("upgraded to socket");

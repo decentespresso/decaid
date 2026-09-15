@@ -1,5 +1,15 @@
 # AI Bengle Notes
 
+## External auxiliary scale
+
+BengleVirtualScale remains the primary ScaleController scale. When Bengle is
+connected, automatic external primary-scale discovery is skipped as before.
+An explicit auxiliary request may still select an externally discovered scale;
+the request uses the generic device connection operation with
+connectionRole=auxiliary. The auxiliary registry owns that session and its
+snapshot/tare stream, while shot sequencing and stop-at-weight continue to read
+only the integrated primary scale.
+
 Domain knowledge for the Bengle machine implementation
 (`lib/src/models/device/impl/bengle/`,
 `lib/src/models/device/impl/de1/unified_de1/*_capability.dart`,

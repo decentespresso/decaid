@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
+import 'package:reaprime/src/controllers/auxiliary_scale_registry.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
@@ -158,6 +159,44 @@ void main() {
           reason:
               'external scale must not be attempted while Bengle is the '
               'connected machine',
+        );
+      },
+    );
+
+    test(
+      'allows explicit external auxiliary while Bengle remains primary',
+      () async {
+        await settingsController.setPreferredMachineId('bengle-1');
+        final bengle = _FakeBengle(deviceId: 'bengle-1');
+        final externalScale = TestScale(
+          deviceId: 'external-auxiliary',
+          initialState: ConnectionState.connected,
+        );
+        mockScanner.addDevice(bengle);
+        mockScanner.addDevice(externalScale);
+
+        await connectionManager.connect();
+        expect(
+          mockScanner.devices.where(
+            (device) => device.deviceId == 'external-auxiliary',
+          ),
+          hasLength(1),
+          reason:
+              'Bengle automatic primary policy must not hide external discovery',
+        );
+        final result = await connectionManager.connectScale(
+          externalScale,
+          role: ScaleConnectionRole.auxiliary,
+        );
+
+        expect(result.success, isTrue);
+        expect(
+          mockScaleController.connectCalls.single.deviceId,
+          startsWith('bengle-internal-'),
+        );
+        expect(
+          connectionManager.auxiliaryScaleRegistry.connectedDeviceIds,
+          contains('external-auxiliary'),
         );
       },
     );

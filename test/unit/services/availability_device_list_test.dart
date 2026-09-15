@@ -46,6 +46,20 @@ void main() {
       expect(list[0]['state'], 'connected');
     });
 
+    test('adds local connectionRole only to connected scales', () async {
+      final list = await buildAvailabilityDeviceList(
+        [
+          _FakeDevice('aux', 'Aux', DeviceType.scale),
+          _FakeDevice('machine', 'Machine', DeviceType.machine),
+        ],
+        const [],
+        connectionRoles: {'aux': 'auxiliary', 'machine': 'auxiliary'},
+      );
+      final byId = {for (final entry in list) entry['id']: entry};
+      expect(byId['aux']!['connectionRole'], 'auxiliary');
+      expect(byId['machine']!.containsKey('connectionRole'), isFalse);
+    });
+
     test(
       'a remembered-but-absent device is available:false, disconnected',
       () async {

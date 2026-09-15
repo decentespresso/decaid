@@ -41,6 +41,7 @@ void main() {
           controller: scales,
           de1Controller: de1,
           settingsController: settings,
+          auxiliaryScaleRegistry: connections.auxiliaryScaleRegistry,
         ).addRoutes(router);
         final inventory = DevicesHandler(
           controller: devices,

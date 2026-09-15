@@ -1,5 +1,20 @@
 # Device Management in Decaid
 
+## Scale connection ownership
+
+ScaleController owns the single primary scale used by brewing and shot logic.
+Additional scales are runtime-only auxiliary sessions in the auxiliary scale
+registry. Auxiliary sessions have no persisted preference or Decaid role; an
+explicit API client selects a discovered device and supplies the auxiliary
+connection role. Primary automatic selection excludes reserved auxiliary IDs.
+Disconnect releases only that auxiliary reservation after transport cleanup.
+
+When a Bengle is primary, automatic external primary-scale selection remains
+disabled and the integrated Bengle scale remains the ScaleController scale.
+Explicit auxiliary discovery and connection still use the normal device scanner
+and may connect an external scale concurrently. Auxiliary snapshots and tare
+commands never enter ShotSequencer or stop-at-weight logic.
+
 This document explains how devices (DE1 machines, scales, sensors) are discovered, connected, and managed throughout the Decaid application lifecycle.
 Open the management page from Settings > Devices or from the dashboard.
 

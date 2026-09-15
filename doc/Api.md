@@ -9,6 +9,13 @@ Decaid exposes REST and WebSocket APIs on port 8080. Full OpenAPI specs are in [
 
 For skin development, see [`doc/Skins.md`](Skins.md). For plugin development, see [`doc/Plugins.md`](Plugins.md).
 
+External sensor IDs in REST and WebSocket paths are opaque URI path
+components. Clients percent-encode them once; the host decodes them once at
+the sensor route boundary. This preserves literal reserved characters,
+Unicode, plus signs, and percent-bearing IDs. Invalid UTF-8 receives `400` at
+the HTTP boundary. Host-assigned UUID resource IDs keep their existing route
+contracts.
+
 The #809 work-in-progress manifest schema includes `transport.ble`, Scale
 capabilities, and BLE matchers. Public non-BLE Scale registration is implemented;
 runtime BLE binding and full API acceptance remain incomplete. See
@@ -118,6 +125,7 @@ Pre-stream responses are `400` for malformed input, `404` for an unknown artifac
 |--------|------|-------------|---------|
 | GET | `/api/v1/scale/info` | Information for the currently connected scale | `scale_handler.dart` |
 | PUT | `/api/v1/scale/tare` | Tare the connected scale | `scale_handler.dart` |
+| PUT | `/api/v1/scales/{id}/tare` | Tare a connected primary or auxiliary scale by opaque device ID | `scale_handler.dart` |
 | PUT | `/api/v1/scale/timer/start` | Start scale timer | |
 | PUT | `/api/v1/scale/timer/stop` | Stop scale timer | |
 | PUT | `/api/v1/scale/timer/reset` | Reset scale timer | |
@@ -130,7 +138,7 @@ Pre-stream responses are `400` for malformed input, `404` for an unknown artifac
 |--------|------|-------------|---------|
 | GET | `/api/v1/devices` | List devices (present + remembered) | `devices_handler.dart` |
 | GET | `/api/v1/devices/scan` | Scan and fill missing device slots; set `?connect=false` for discovery only | |
-| PUT | `/api/v1/devices/connect` | Connect to device by ID | |
+| PUT | `/api/v1/devices/connect` | Connect to device by ID (`connectionRole: primary|auxiliary` for scales) | |
 | PUT | `/api/v1/devices/disconnect` | Disconnect device | |
 | PUT | `/api/v1/devices/forget` | Forget a remembered device | |
 | GET | `/api/v1/devices/wifi` | List manually-added WiFi scale endpoints | `wifi_scale_handler.dart` |
@@ -158,7 +166,14 @@ forgotten via `PUT /api/v1/devices/forget` (deviceId in the JSON body or
 `?deviceId=` query). The same `available` field is on each device in the
 `ws/v1/devices` snapshot.
 
-`GET /api/v1/devices` and `/ws/v1/devices` are inventory-only surfaces. Their device entries contain identity, availability, and connection state, not connection metadata such as `deviceInfo`, `firmwareVersion`, or `batteryLevel`. A metadata refresh therefore does not emit an inventory update. Clients that need current connected-scale metadata should call `GET /api/v1/scale/info`; no scale metadata WebSocket is defined until a concrete live-update need exists.
+`GET /api/v1/devices` and `/ws/v1/devices` are inventory-only surfaces. Their device entries contain identity, availability, and connection state, not connection metadata such as `deviceInfo`, `firmwareVersion`, or `batteryLevel`. Connected scale entries additionally expose `connectionRole` (`primary` or `auxiliary`); disconnected and remembered entries omit it. A metadata refresh therefore does not emit an inventory update. Clients that need current connected-scale metadata should call `GET /api/v1/scale/info`; no scale metadata WebSocket is defined until a concrete live-update need exists.
+
+Scale connections are primary by default. Send `connectionRole: "auxiliary"` in
+the generic connect body to retain an explicitly connected scale as a runtime
+auxiliary session. Auxiliary sessions are not persisted and do not affect shot
+sequencing or the legacy singular scale routes. Use
+`PUT /api/v1/scales/{id}/tare` and `/ws/v1/scales/{id}/snapshot` to address a
+connected primary or auxiliary scale independently.
 
 `available` describes inventory presence, not command ownership. A connected
 controller-owned device such as Bengle's integrated virtual scale is listed as
@@ -616,6 +631,7 @@ All WebSocket endpoints are on port 8080 at `/ws/v1/...`. See [`assets/api/webso
 |------|-------------|------|
 | `/ws/v1/machine/snapshot` | Machine state stream (~10Hz). Re-binds across a machine reconnect — see [Machine sockets re-bind](#machine-sockets-re-bind-across-a-reconnect). | Temps, pressures, flow, state |
 | `/ws/v1/scale/snapshot` | Scale weight/flow stream. Device-provided flow is passed through; weight-only scales use Decaid's estimator. Stays open across scale disconnects; emits `{"status":"connected"\|"disconnected"}` frames on state change. | Weight, flow, battery |
+| `/ws/v1/scales/{id}/snapshot` | Addressed raw stream for one connected primary or auxiliary scale (`timestamp`, `weight`, `batteryLevel`, `timerValue`, `flow`). Includes status frames and remains isolated from sibling sessions. | Weight, flow, battery |
 | `/ws/v1/machine/shotSettings` | Shot settings changes. Re-binds across a machine reconnect. | Target temp, volume, weight |
 | `/ws/v1/machine/waterLevels` | Water level changes. Re-binds across a machine reconnect. | Current/limit levels |
 | `/ws/v1/machine/raw` | Raw BLE characteristic data. Re-binds across a machine reconnect; writes go to the currently-bound machine. | Hex-encoded bytes |

@@ -102,6 +102,14 @@ void main() {
         expect(body['error'], 'Missing deviceId');
       });
 
+      test('rejects an invalid connectionRole before device lookup', () async {
+        final response = await sendPut(
+          '/api/v1/devices/connect',
+          body: jsonEncode({'deviceId': 'missing', 'connectionRole': 42}),
+        );
+        expect(response.statusCode, 400);
+      });
+
       test('returns 400 when body is empty JSON object', () async {
         final response = await sendPut(
           '/api/v1/devices/connect',
@@ -247,6 +255,7 @@ void main() {
         'outcome': 'connected',
         'state': 'connected',
         'connectionError': null,
+        'connectionRole': 'primary',
       });
     });
 
