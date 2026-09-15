@@ -536,9 +536,9 @@ class De1Controller {
     _hotWaterDataController.add(
       HotWaterData(
         targetTemperature: settings.targetTemperature,
-        duration: settings.targetDuration,
-        volume: settings.targetVolume,
-        flow: settings.targetFlow,
+        duration: settings.duration,
+        volume: settings.volume,
+        flow: settings.flow,
       ),
     );
   }
