@@ -139,6 +139,7 @@ class De1Controller {
       return;
     }
     _onDisconnect();
+    final generation = _connectionGeneration;
     _log.fine("found de1, connecting");
     try {
       await de1Interface.onConnect();
@@ -149,8 +150,17 @@ class De1Controller {
         e,
         st,
       );
-      _onDisconnect();
+      if (generation == _connectionGeneration) {
+        _onDisconnect();
+      }
       rethrow;
+    }
+    if (generation != _connectionGeneration) {
+      _log.fine(
+        'Ignoring stale DE1 connect completion for ${de1Interface.deviceId} '
+        '(attempt=$generation, current=$_connectionGeneration)',
+      );
+      return;
     }
     _de1 = de1Interface;
     _connectionMachineIdentity = _machineIdentity(de1Interface);
@@ -181,6 +191,10 @@ class De1Controller {
         }
       }),
     );
+  }
+
+  void invalidatePendingConnectionAttempt() {
+    _connectionGeneration++;
   }
 
   void adoptDevice(De1Interface de1Interface) {

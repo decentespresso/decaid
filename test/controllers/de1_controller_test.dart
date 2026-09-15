@@ -20,6 +20,15 @@ De1ShotSettings _emptyShotSettings() => De1ShotSettings(
   groupTemp: 0,
 );
 
+class _BlockingTestDe1 extends TestDe1 {
+  final Completer<void> connectCompleter = Completer<void>();
+
+  _BlockingTestDe1({super.deviceId, super.name});
+
+  @override
+  Future<void> onConnect() => connectCompleter.future;
+}
+
 void main() {
   group('connectedDe1OrNull accessor', () {
     test('returns null when no machine connected', () async {
@@ -70,6 +79,54 @@ void main() {
 
         testDe1.dispose();
       }, (_, _) {});
+    });
+  });
+
+  group('connect generation fence', () {
+    test(
+      'invalidated pending connect cannot adopt after late completion',
+      () async {
+        final deviceController = DeviceController([
+          MockDeviceDiscoveryService(),
+        ]);
+        await deviceController.initialize();
+        final de1Controller = De1Controller(controller: deviceController);
+        final pending = _BlockingTestDe1(deviceId: 'de1-pending');
+
+        final connect = de1Controller.connectToDe1(pending);
+        await Future<void>.delayed(Duration.zero);
+
+        de1Controller.invalidatePendingConnectionAttempt();
+        pending.connectCompleter.complete();
+        await connect;
+
+        expect(de1Controller.connectedDe1OrNull, isNull);
+
+        await pending.dispose();
+        await de1Controller.dispose();
+      },
+    );
+
+    test('late completion cannot replace a newer adopted machine', () async {
+      final deviceController = DeviceController([MockDeviceDiscoveryService()]);
+      await deviceController.initialize();
+      final de1Controller = De1Controller(controller: deviceController);
+      final pending = _BlockingTestDe1(deviceId: 'de1-old');
+      final replacement = TestDe1(deviceId: 'de1-new');
+
+      final connect = de1Controller.connectToDe1(pending);
+      await Future<void>.delayed(Duration.zero);
+
+      de1Controller.adoptDevice(replacement);
+      replacement.emitShotSettings(_emptyShotSettings());
+      pending.connectCompleter.complete();
+      await connect;
+      await Future<void>.delayed(Duration.zero);
+
+      expect(de1Controller.connectedDe1OrNull, same(replacement));
+
+      await pending.dispose();
+      await de1Controller.dispose();
     });
   });
 
