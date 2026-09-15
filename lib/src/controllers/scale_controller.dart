@@ -203,7 +203,7 @@ class ScaleController {
 
   MovingAverage weightFlowAverage = MovingAverage(defaultMovingAverageSamples);
   FlowCalculator _flowCalculator = FlowCalculator(
-    windowDuration: _smoothingWindow,
+    windowDuration: defaultSmoothingWindow,
   );
 
   DateTime? _lastSnapshotTime;
