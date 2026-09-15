@@ -484,6 +484,7 @@ class DecentScale implements Scale, TransportHandoffScale {
 
   void _resetSleepMode() {
     _sleepMode = _DecentScaleSleepMode.awake;
+    _softSleepExitRequired = false;
     _sleepConnectionAttempt = null;
     _desiredDisplaySleeping = false;
   }
@@ -546,11 +547,11 @@ class DecentScale implements Scale, TransportHandoffScale {
   Future<bool> _enterSoftSleep() =>
       _writeNonEssentialCommand([0x0A, 0x04, 0x01, 0x00, 0x00]);
 
-  Future<void> _exitSoftSleep() async {
-    await _writeNonEssentialCommand([0x0A, 0x04, 0x00, 0x00, 0x00]);
-  }
+  Future<bool> _exitSoftSleep() =>
+      _writeNonEssentialCommand([0x0A, 0x04, 0x00, 0x00, 0x00]);
 
   _DecentScaleSleepMode _sleepMode = _DecentScaleSleepMode.awake;
+  bool _softSleepExitRequired = false;
   int? _sleepConnectionAttempt;
 
   @override
@@ -560,6 +561,7 @@ class DecentScale implements Scale, TransportHandoffScale {
     _sleepConnectionAttempt = _connectionAttempt;
     if (_profile.capabilities.supportsSoftSleep) {
       _sleepMode = _DecentScaleSleepMode.softSleep;
+      _softSleepExitRequired = true;
       _notificationWatchdog?.cancel();
       _log.info('Decent scale: entering HDS SoftSleep');
       if (await _enterSoftSleep()) return;
@@ -601,6 +603,7 @@ class DecentScale implements Scale, TransportHandoffScale {
   Future<void> _runWakeDisplay() async {
     final wasAsleep = _sleepMode != _DecentScaleSleepMode.awake;
     final wasSoftSleep = _sleepMode == _DecentScaleSleepMode.softSleep;
+    final mustExitSoftSleep = wasSoftSleep || _softSleepExitRequired;
     final reconnected =
         wasAsleep && _sleepConnectionAttempt != _connectionAttempt;
     _sleepMode = _DecentScaleSleepMode.awake;
@@ -611,6 +614,10 @@ class DecentScale implements Scale, TransportHandoffScale {
         _notificationWatchdog?.cancel();
         try {
           if (reconnected) {
+            if (mustExitSoftSleep &&
+                !await _ensureSoftSleepExited(generation)) {
+              return;
+            }
             final attempt = _profileAttempt;
             final confirmed = await _confirmDataChannel(
               attempt,
@@ -634,8 +641,9 @@ class DecentScale implements Scale, TransportHandoffScale {
               }),
             );
           } else {
-            if (wasSoftSleep) {
-              await _exitSoftSleep();
+            if (mustExitSoftSleep &&
+                !await _ensureSoftSleepExited(generation)) {
+              return;
             }
             await _sendLedOnAndRequestStatus(
               isCurrent: () =>
@@ -659,6 +667,30 @@ class DecentScale implements Scale, TransportHandoffScale {
     } finally {
       _displayOperation = null;
     }
+  }
+
+  Future<bool> _attemptSoftSleepExit(int generation) async {
+    final exited = await _exitSoftSleep();
+    if (exited &&
+        generation == _displayGeneration &&
+        !_desiredDisplaySleeping) {
+      _softSleepExitRequired = false;
+    }
+    return exited;
+  }
+
+  Future<bool> _ensureSoftSleepExited(int generation) async {
+    final exited = await _attemptSoftSleepExit(generation);
+    if (generation != _displayGeneration || _desiredDisplaySleeping) {
+      return false;
+    }
+    if (!exited) {
+      _sleepMode = _DecentScaleSleepMode.softSleep;
+      _log.warning(
+        'Decent scale: SoftSleep exit not confirmed; retrying on next wake',
+      );
+    }
+    return exited;
   }
 
   bool _timerCommandInFlight = false;

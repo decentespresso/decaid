@@ -29,6 +29,7 @@ class _LifecycleBleTransport extends BLETransport {
   List<int> statusNotification;
   bool failSoftSleep = false;
   bool failDisplayOff = false;
+  int softSleepExitFailures = 0;
   final writes = <Uint8List>[];
   void Function(Uint8List)? notificationCallback;
   void Function(Uint8List)? firstNotificationCallback;
@@ -103,6 +104,14 @@ class _LifecycleBleTransport extends BLETransport {
   }) async {
     final frame = Uint8List.fromList(data);
     writes.add(frame);
+    if (softSleepExitFailures > 0 &&
+        frame.length == 7 &&
+        frame[1] == 0x0A &&
+        frame[2] == 0x04 &&
+        frame[3] == 0x00) {
+      softSleepExitFailures--;
+      throw const DeviceNotConnectedException.scale();
+    }
     if (failSoftSleep &&
         frame.length == 7 &&
         frame[1] == 0x0A &&
@@ -150,21 +159,43 @@ class _LifecycleBleTransport extends BLETransport {
   }
 }
 
+int _countCommand(
+  _LifecycleBleTransport transport,
+  int command, [
+  int? subcommand,
+  int? param,
+]) => transport.writes
+    .where(
+      (data) =>
+          data.length >= 4 &&
+          data[1] == command &&
+          (subcommand == null || data[2] == subcommand) &&
+          (param == null || data[3] == param),
+    )
+    .length;
+
 bool _hasCommand(
   _LifecycleBleTransport transport,
   int command, [
   int? subcommand,
   int? param,
-]) => transport.writes.any(
+]) => _countCommand(transport, command, subcommand, param) > 0;
+
+bool _hasDisplayOff(_LifecycleBleTransport transport) =>
+    _hasCommand(transport, 0x0A, 0x00);
+
+int _indexOfCommand(
+  _LifecycleBleTransport transport,
+  int command, [
+  int? subcommand,
+  int? param,
+]) => transport.writes.indexWhere(
   (data) =>
       data.length >= 4 &&
       data[1] == command &&
       (subcommand == null || data[2] == subcommand) &&
       (param == null || data[3] == param),
 );
-
-bool _hasDisplayOff(_LifecycleBleTransport transport) =>
-    _hasCommand(transport, 0x0A, 0x00);
 
 bool _hasSoftSleep(_LifecycleBleTransport transport, [int? param]) =>
     _hasCommand(transport, 0x0A, 0x04, param);
@@ -330,6 +361,90 @@ void main() {
       await _disposeScale(scale, transport);
     });
 
+    test('failed HDS SoftSleep still exits SoftSleep on wake', () async {
+      final transport = _LifecycleBleTransport(
+        respondToVoltage: true,
+        statusNotification: _hdsV3114Status,
+      );
+      final scale = DecentScale(transport: transport);
+      await _connectAndSettle(scale);
+      expect(scale.debugProfile.capabilities.supportsSoftSleep, isTrue);
+      transport.failSoftSleep = true;
+      transport.writes.clear();
+
+      await scale.sleepDisplay();
+      transport.writes.clear();
+      await scale.wakeDisplay();
+      await pumpEventQueue();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      final exitIndex = _indexOfCommand(transport, 0x0A, 0x04, 0x00);
+      final ledIndex = _indexOfCommand(transport, 0x0A, 0x01);
+      expect(exitIndex, greaterThanOrEqualTo(0));
+      expect(ledIndex, greaterThanOrEqualTo(0));
+      expect(exitIndex, lessThan(ledIndex));
+      expect(transport.disconnectCalls, 0);
+      expect(await transport.getConnectionState(), ConnectionState.connected);
+      await _disposeScale(scale, transport);
+    });
+
+    test('a failed SoftSleep exit is retried on the next wake', () async {
+      final transport = _LifecycleBleTransport(
+        respondToVoltage: true,
+        statusNotification: _hdsV3114Status,
+      );
+      final scale = DecentScale(transport: transport);
+      await _connectAndSettle(scale);
+      await scale.sleepDisplay();
+
+      transport.softSleepExitFailures = 1;
+      transport.writes.clear();
+      await scale.wakeDisplay();
+      await pumpEventQueue();
+
+      expect(_countCommand(transport, 0x0A, 0x04, 0x00), 1);
+      expect(_countCommand(transport, 0x0A, 0x01), 0);
+      transport.writes.clear();
+      await scale.wakeDisplay();
+      await pumpEventQueue();
+
+      final exitIndex = _indexOfCommand(transport, 0x0A, 0x04, 0x00);
+      final ledIndex = _indexOfCommand(transport, 0x0A, 0x01);
+      expect(exitIndex, greaterThanOrEqualTo(0));
+      expect(ledIndex, greaterThanOrEqualTo(0));
+      expect(exitIndex, lessThan(ledIndex));
+      await _disposeScale(scale, transport);
+    });
+
+    test('sleep after a failed exit keeps the obligation', () async {
+      final transport = _LifecycleBleTransport(
+        respondToVoltage: true,
+        statusNotification: _hdsV3114Status,
+      );
+      final scale = DecentScale(transport: transport);
+      await _connectAndSettle(scale);
+      await scale.sleepDisplay();
+
+      transport.softSleepExitFailures = 1;
+      await scale.wakeDisplay();
+      await pumpEventQueue();
+
+      transport.respondToVoltage = false;
+      transport.emitDisconnected();
+      await pumpEventQueue();
+      await scale.onConnect();
+      await pumpEventQueue();
+      expect(scale.debugProfile.capabilities.supportsSoftSleep, isFalse);
+
+      await scale.sleepDisplay();
+      transport.writes.clear();
+      await scale.wakeDisplay();
+      await pumpEventQueue();
+
+      expect(_hasSoftSleep(transport, 0x00), isTrue);
+      await _disposeScale(scale, transport);
+    });
+
     test('failed display off keeps the connection', () async {
       final transport = _LifecycleBleTransport()..failDisplayOff = true;
       final scale = DecentScale(transport: transport);
@@ -400,6 +515,34 @@ void main() {
       expect(await transport.getConnectionState(), ConnectionState.connected);
       await _disposeScale(scale, transport);
     });
+
+    test(
+      'reconnect during SoftSleep exits before confirming the channel',
+      () async {
+        final transport = _LifecycleBleTransport(
+          respondToVoltage: true,
+          statusNotification: _hdsV3114Status,
+        );
+        final scale = DecentScale(transport: transport);
+        await _connectAndSettle(scale);
+        await scale.sleepDisplay();
+
+        transport.emitDisconnected();
+        await pumpEventQueue();
+        await scale.onConnect();
+        transport.writes.clear();
+        await scale.wakeDisplay();
+        await pumpEventQueue();
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+
+        final exitIndex = _indexOfCommand(transport, 0x0A, 0x04, 0x00);
+        final ledIndex = _indexOfCommand(transport, 0x0A, 0x01);
+        expect(exitIndex, greaterThanOrEqualTo(0));
+        expect(ledIndex, greaterThanOrEqualTo(0));
+        expect(exitIndex, lessThan(ledIndex));
+        await _disposeScale(scale, transport);
+      },
+    );
 
     test(
       'stale subscription evidence cannot promote a newer attempt',
