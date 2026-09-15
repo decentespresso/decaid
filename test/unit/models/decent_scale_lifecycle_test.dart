@@ -4,24 +4,36 @@ import 'dart:typed_data';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/impl/decent_scale/profile.dart';
 import 'package:reaprime/src/models/device/impl/decent_scale/scale.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:rxdart/rxdart.dart';
 
+const _originalV11Status = [0x03, 0x0A, 0x00, 0x00, 0x64, 0x02, 0x00];
+const _hdsV258Status = [0x03, 0x0A, 0x00, 0x00, 0x64, 0x02, 0x58];
+const _hdsV3114Status = [0x03, 0x0A, 0x00, 0x00, 0x64, 0x03, 0x1E];
+
 class _LifecycleBleTransport extends BLETransport {
-  _LifecycleBleTransport({this.respondToVoltage = false});
+  _LifecycleBleTransport({
+    this.respondToVoltage = false,
+    this.respondToStatus = true,
+    this.statusNotification = _originalV11Status,
+  });
 
   final BehaviorSubject<ConnectionState> _connectionState =
       BehaviorSubject.seeded(ConnectionState.disconnected);
   ConnectionState _nativeState = ConnectionState.disconnected;
   bool respondToVoltage;
+  bool respondToStatus;
+  List<int> statusNotification;
   bool failSoftSleep = false;
-  bool failSoftSleepWhileConnected = false;
+  bool failDisplayOff = false;
   final writes = <Uint8List>[];
   void Function(Uint8List)? notificationCallback;
   void Function(Uint8List)? firstNotificationCallback;
   int disconnectCalls = 0;
+  int connectCalls = 0;
 
   @override
   String get id => 'decent-scale-lifecycle-test';
@@ -37,6 +49,7 @@ class _LifecycleBleTransport extends BLETransport {
 
   @override
   Future<void> connect() async {
+    connectCalls++;
     _nativeState = ConnectionState.connected;
     _connectionState.add(ConnectionState.connected);
   }
@@ -90,24 +103,27 @@ class _LifecycleBleTransport extends BLETransport {
   }) async {
     final frame = Uint8List.fromList(data);
     writes.add(frame);
-    if ((failSoftSleep || failSoftSleepWhileConnected) &&
+    if (failSoftSleep &&
         frame.length == 7 &&
         frame[1] == 0x0A &&
         frame[2] == 0x04 &&
         frame[3] == 0x01) {
-      if (failSoftSleep) {
-        _nativeState = ConnectionState.disconnected;
-      }
+      throw const DeviceNotConnectedException.scale();
+    }
+    if (failDisplayOff &&
+        frame.length == 7 &&
+        frame[1] == 0x0A &&
+        frame[2] == 0x00) {
       throw const DeviceNotConnectedException.scale();
     }
     if (frame.length == 7 && frame[1] == 0x0A && frame[2] == 0x01) {
-      scheduleMicrotask(
-        () => emitNotification(
-          respondToVoltage
-              ? [0x03, 0x0A, 0x00, 0x00, 0x64, 0x03, 0x1E]
-              : [0x03, 0x0A, 0x00, 0x00, 0x64, 0x01, 0x20],
-        ),
-      );
+      scheduleMicrotask(() {
+        if (respondToStatus) {
+          emitNotification(statusNotification);
+        } else {
+          emitNotification([0x03, 0xCE, 0x00, 0x64, 0x00, 0x00, 0x00]);
+        }
+      });
     }
     if (frame.length == 7 && frame[1] == 0x22 && respondToVoltage) {
       scheduleMicrotask(
@@ -118,6 +134,11 @@ class _LifecycleBleTransport extends BLETransport {
 
   @override
   Future<void> setTransportPriority(bool prioritized) async {}
+
+  void emitDisconnected() {
+    _nativeState = ConnectionState.disconnected;
+    _connectionState.add(ConnectionState.disconnected);
+  }
 
   void emitNotification(List<int> data) {
     notificationCallback?.call(Uint8List.fromList(data));
@@ -133,12 +154,20 @@ bool _hasCommand(
   _LifecycleBleTransport transport,
   int command, [
   int? subcommand,
+  int? param,
 ]) => transport.writes.any(
   (data) =>
-      data.length >= 3 &&
+      data.length >= 4 &&
       data[1] == command &&
-      (subcommand == null || data[2] == subcommand),
+      (subcommand == null || data[2] == subcommand) &&
+      (param == null || data[3] == param),
 );
+
+bool _hasDisplayOff(_LifecycleBleTransport transport) =>
+    _hasCommand(transport, 0x0A, 0x00);
+
+bool _hasSoftSleep(_LifecycleBleTransport transport, [int? param]) =>
+    _hasCommand(transport, 0x0A, 0x04, param);
 
 Future<void> _connectAndSettle(
   DecentScale scale, {
@@ -158,84 +187,244 @@ Future<void> _disposeScale(
   await transport.dispose();
 }
 
+Future<void> _reconnectDuringSleep(
+  _LifecycleBleTransport transport,
+  DecentScale scale,
+) async {
+  transport.emitDisconnected();
+  await pumpEventQueue();
+  await scale.onConnect();
+  await pumpEventQueue();
+  await Future<void>.delayed(const Duration(milliseconds: 100));
+}
+
 void main() {
-  group('conservative profile lifecycle', () {
-    test('unknown/original scale sleeps by disconnecting', () async {
+  group('connected display-off lifecycle', () {
+    test('original v1.1 uses shared display off and stays connected', () async {
       final transport = _LifecycleBleTransport();
       final scale = DecentScale(transport: transport);
       await _connectAndSettle(scale);
 
-      expect(scale.disconnectsToSleep, isTrue);
+      expect(
+        scale.debugProfile.identity,
+        DecentScaleIdentity.originalDecentScale,
+      );
+      expect(scale.debugProfile.originalFirmwareVersion, '1.1');
+      expect(scale.debugProfile.capabilities.supportsSoftSleep, isFalse);
+      expect(_hasCommand(transport, 0x22), isTrue);
+      transport.writes.clear();
+
+      await scale.sleepDisplay();
+
+      expect(_hasDisplayOff(transport), isTrue);
+      expect(_hasSoftSleep(transport), isFalse);
+      expect(transport.disconnectCalls, 0);
+      expect(await transport.getConnectionState(), ConnectionState.connected);
+
+      final connectsBeforeWake = transport.connectCalls;
+      await scale.wakeDisplay();
+      await pumpEventQueue();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(_hasCommand(transport, 0x0A, 0x01), isTrue);
+      expect(_hasSoftSleep(transport), isFalse);
+      expect(transport.connectCalls, connectsBeforeWake);
+      expect(await transport.getConnectionState(), ConnectionState.connected);
+      await _disposeScale(scale, transport);
+    });
+
+    test('unknown scale uses display off and stays connected', () async {
+      final transport = _LifecycleBleTransport(respondToStatus: false);
+      final scale = DecentScale(transport: transport);
+      await _connectAndSettle(scale);
+
+      expect(scale.debugProfile.identity, DecentScaleIdentity.unknown);
+      transport.writes.clear();
+
+      await scale.sleepDisplay();
+
+      expect(_hasDisplayOff(transport), isTrue);
+      expect(_hasSoftSleep(transport), isFalse);
+      expect(transport.disconnectCalls, 0);
+      expect(await transport.getConnectionState(), ConnectionState.connected);
+      await _disposeScale(scale, transport);
+    });
+
+    test('HDS without proven SoftSleep uses display off', () async {
+      final transport = _LifecycleBleTransport(
+        respondToVoltage: true,
+        statusNotification: _hdsV258Status,
+      );
+      final scale = DecentScale(transport: transport);
+      await _connectAndSettle(scale);
+
+      expect(scale.debugProfile.identity, DecentScaleIdentity.halfDecentScale);
+      expect(
+        scale.debugProfile.capabilities.supportsHdsExtendedCommands,
+        isTrue,
+      );
+      expect(scale.debugProfile.capabilities.supportsSoftSleep, isFalse);
+      transport.writes.clear();
+
+      await scale.sleepDisplay();
+
+      expect(_hasDisplayOff(transport), isTrue);
+      expect(_hasSoftSleep(transport), isFalse);
+      expect(transport.disconnectCalls, 0);
+      expect(await transport.getConnectionState(), ConnectionState.connected);
+      await _disposeScale(scale, transport);
+    });
+
+    test(
+      'modern HDS enters SoftSleep and wakes on the same connection',
+      () async {
+        final transport = _LifecycleBleTransport(
+          respondToVoltage: true,
+          statusNotification: _hdsV3114Status,
+        );
+        final scale = DecentScale(transport: transport);
+        await _connectAndSettle(scale);
+
+        expect(scale.debugProfile.capabilities.supportsSoftSleep, isTrue);
+        transport.writes.clear();
+
+        await scale.sleepDisplay();
+
+        expect(_hasSoftSleep(transport, 0x01), isTrue);
+        expect(_hasDisplayOff(transport), isFalse);
+        expect(transport.disconnectCalls, 0);
+        expect(await transport.getConnectionState(), ConnectionState.connected);
+
+        final connectsBeforeWake = transport.connectCalls;
+        transport.writes.clear();
+        await scale.wakeDisplay();
+        await pumpEventQueue();
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+
+        expect(_hasSoftSleep(transport, 0x00), isTrue);
+        expect(_hasCommand(transport, 0x0A, 0x01), isTrue);
+        expect(transport.connectCalls, connectsBeforeWake);
+        expect(transport.disconnectCalls, 0);
+        expect(await transport.getConnectionState(), ConnectionState.connected);
+        await _disposeScale(scale, transport);
+      },
+    );
+
+    test('failed HDS SoftSleep falls back to display off', () async {
+      final transport = _LifecycleBleTransport(
+        respondToVoltage: true,
+        statusNotification: _hdsV3114Status,
+      );
+      final scale = DecentScale(transport: transport);
+      await _connectAndSettle(scale);
+      expect(scale.debugProfile.capabilities.supportsSoftSleep, isTrue);
+      transport.failSoftSleep = true;
+      transport.writes.clear();
+
+      await scale.sleepDisplay();
+
+      expect(_hasSoftSleep(transport, 0x01), isTrue);
+      expect(_hasDisplayOff(transport), isTrue);
+      expect(transport.disconnectCalls, 0);
+      expect(await transport.getConnectionState(), ConnectionState.connected);
+      await _disposeScale(scale, transport);
+    });
+
+    test('failed display off keeps the connection', () async {
+      final transport = _LifecycleBleTransport()..failDisplayOff = true;
+      final scale = DecentScale(transport: transport);
+      await _connectAndSettle(scale);
+      transport.writes.clear();
+
+      await scale.sleepDisplay();
+
+      expect(_hasDisplayOff(transport), isTrue);
+      expect(transport.disconnectCalls, 0);
+      expect(await transport.getConnectionState(), ConnectionState.connected);
+      await _disposeScale(scale, transport);
+    });
+  });
+
+  group('reconnect and evidence fencing', () {
+    test('reconnect during display off attaches dark and wakes', () async {
+      final transport = _LifecycleBleTransport(
+        respondToVoltage: true,
+        statusNotification: _hdsV3114Status,
+      );
+      final scale = DecentScale(transport: transport);
+      await _connectAndSettle(scale);
       final disconnectsBeforeSleep = transport.disconnectCalls;
       await scale.sleepDisplay();
-
-      expect(transport.disconnectCalls, disconnectsBeforeSleep + 1);
-      expect(_hasCommand(transport, 0x0A, 0x04), isFalse);
-      expect(_hasCommand(transport, 0x0A, 0x02), isFalse);
-      await _disposeScale(scale, transport);
-    });
-
-    test('unknown/original scale recovers after sleep', () async {
-      final transport = _LifecycleBleTransport();
-      final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale);
-      await scale.sleepDisplay();
-
-      await scale.onConnect();
-      await scale.wakeDisplay();
-      final snapshot = scale.currentSnapshot.first;
-      transport.emitNotification([0x03, 0xCE, 0x00, 0x64, 0x00, 0x00, 0x00]);
-
-      expect((await snapshot).weight, 10.0);
-      await Future<void>.delayed(const Duration(milliseconds: 900));
       await pumpEventQueue();
+      expect(transport.disconnectCalls, disconnectsBeforeSleep);
+
+      await _reconnectDuringSleep(transport, scale);
+      expect(transport.disconnectCalls, disconnectsBeforeSleep + 1);
+
+      transport.writes.clear();
+      await scale.wakeDisplay();
+      await pumpEventQueue();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(_hasCommand(transport, 0x0A, 0x01), isTrue);
+      expect(transport.disconnectCalls, disconnectsBeforeSleep + 1);
+      expect(await transport.getConnectionState(), ConnectionState.connected);
       await _disposeScale(scale, transport);
     });
 
-    test('late profile evidence after sleep is ignored', () {
-      fakeAsync((async) {
-        final transport = _LifecycleBleTransport();
+    test(
+      'stale subscription evidence cannot promote a newer attempt',
+      () async {
+        final transport = _LifecycleBleTransport(respondToStatus: false);
         final scale = DecentScale(transport: transport);
-        scale.onConnect();
-        async.flushMicrotasks();
-        expect(_hasCommand(transport, 0x22), isTrue);
+        await scale.onConnect();
+        await pumpEventQueue();
+        final staleCallback = transport.firstNotificationCallback!;
 
-        scale.sleepDisplay();
-        async.flushMicrotasks();
-        transport.emitNotification([0x03, 0x22, 0x00, 0x64, 0x00, 0x00, 0x00]);
-        async.flushMicrotasks();
+        await scale.sleepDisplay();
+        await _reconnectDuringSleep(transport, scale);
 
-        expect(scale.disconnectsToSleep, isTrue);
-        expect(_hasCommand(transport, 0x0A, 0x04), isFalse);
-        scale.disconnectForHandoff();
-        async.flushMicrotasks();
-        transport.dispose();
-        async.flushMicrotasks();
-      });
-    });
+        staleCallback(
+          Uint8List.fromList([0x03, 0x22, 0x01, 0x89, 0x00, 0x00, 0xAB]),
+        );
+        await pumpEventQueue();
+
+        expect(scale.debugProfile.identity, DecentScaleIdentity.unknown);
+        await scale.wakeDisplay();
+        await pumpEventQueue();
+        await _disposeScale(scale, transport);
+      },
+    );
 
     test('profile does not leak across connections', () async {
-      final transport = _LifecycleBleTransport(respondToVoltage: true);
+      final transport = _LifecycleBleTransport(
+        respondToVoltage: true,
+        statusNotification: _hdsV3114Status,
+      );
       final scale = DecentScale(transport: transport);
       await _connectAndSettle(scale);
-      expect(scale.disconnectsToSleep, isFalse);
+      expect(scale.debugProfile.capabilities.supportsSoftSleep, isTrue);
       await scale.disconnectForHandoff();
 
       transport.respondToVoltage = false;
+      transport.statusNotification = _originalV11Status;
       transport.writes.clear();
       await _connectAndSettle(scale);
 
-      expect(scale.disconnectsToSleep, isTrue);
+      expect(scale.debugProfile.capabilities.supportsSoftSleep, isFalse);
+      transport.writes.clear();
       await scale.sleepDisplay();
-      expect(_hasCommand(transport, 0x0A, 0x04), isFalse);
-      expect(transport.disconnectCalls, 2);
+
+      expect(_hasSoftSleep(transport), isFalse);
+      expect(_hasDisplayOff(transport), isTrue);
+      expect(transport.disconnectCalls, 1);
       await _disposeScale(scale, transport);
     });
 
     test(
       'explicit disconnect withholds power off from an unproven scale',
       () async {
-        final transport = _LifecycleBleTransport(respondToVoltage: false);
+        final transport = _LifecycleBleTransport();
         final scale = DecentScale(transport: transport);
         await _connectAndSettle(scale);
         transport.writes.clear();
@@ -249,120 +438,12 @@ void main() {
     );
   });
 
-  group('confirmed HDS lifecycle', () {
-    test('confirmed HDS sleeps with SoftSleep without disconnecting', () async {
-      final transport = _LifecycleBleTransport(respondToVoltage: true);
-      final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale);
-      transport.writes.clear();
-
-      expect(scale.disconnectsToSleep, isFalse);
-      await scale.sleepDisplay();
-
-      expect(transport.disconnectCalls, 0);
-      expect(
-        transport.writes,
-        contains(orderedEquals([0x03, 0x0A, 0x04, 0x01, 0x00, 0x00, 0x0C])),
-      );
-      expect(
-        transport.writes
-            .where((data) => data[1] == 0x0A && data[2] == 0x04)
-            .every((data) => data[5] == 0x00),
-        isTrue,
-      );
-      await _disposeScale(scale, transport);
-    });
-
-    test('failed HDS SoftSleep disconnects the scale', () async {
-      final transport = _LifecycleBleTransport(respondToVoltage: true);
-      final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale);
-      transport.failSoftSleep = true;
-
-      await scale.sleepDisplay();
-
-      expect(transport.disconnectCalls, greaterThanOrEqualTo(1));
-      expect(
-        await transport.getConnectionState(),
-        ConnectionState.disconnected,
-      );
-      expect(scale.disconnectsToSleep, isFalse);
-      await transport.dispose();
-    });
-
-    test(
-      'failed HDS SoftSleep while connected disconnects the scale',
-      () async {
-        final transport = _LifecycleBleTransport(respondToVoltage: true);
-        final scale = DecentScale(transport: transport);
-        await _connectAndSettle(scale);
-        transport.failSoftSleepWhileConnected = true;
-
-        await scale.sleepDisplay();
-
-        expect(transport.disconnectCalls, greaterThanOrEqualTo(1));
-        expect(
-          await transport.getConnectionState(),
-          ConnectionState.disconnected,
-        );
-        expect(scale.disconnectsToSleep, isFalse);
-        await transport.dispose();
-      },
-    );
-
-    test(
-      'stale subscription evidence cannot promote a newer attempt',
-      () async {
-        final transport = _LifecycleBleTransport(respondToVoltage: false);
-        final scale = DecentScale(transport: transport);
-        scale.onConnect();
-        await pumpEventQueue();
-        final staleCallback = transport.firstNotificationCallback!;
-
-        await scale.sleepDisplay();
-        await scale.onConnect();
-        await scale.wakeDisplay();
-        await pumpEventQueue();
-        transport.writes.clear();
-
-        staleCallback(
-          Uint8List.fromList([0x03, 0x22, 0x00, 0x64, 0x00, 0x00, 0x00]),
-        );
-        await pumpEventQueue();
-
-        expect(scale.disconnectsToSleep, isTrue);
-        expect(_hasCommand(transport, 0x0A, 0x04), isFalse);
-        await _disposeScale(scale, transport);
-      },
-    );
-
-    test('confirmed HDS wake writes SoftSleep exit', () async {
-      final transport = _LifecycleBleTransport(respondToVoltage: true);
-      final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale);
-      await scale.sleepDisplay();
-      transport.writes.clear();
-
-      await scale.wakeDisplay();
-      await pumpEventQueue();
-
-      expect(
-        transport.writes,
-        contains(orderedEquals([0x03, 0x0A, 0x04, 0x00, 0x00, 0x00, 0x0D])),
-      );
-      expect(
-        transport.writes
-            .where((data) => data[1] == 0x0A)
-            .every((data) => data[5] == 0x00),
-        isTrue,
-      );
-      await _disposeScale(scale, transport);
-    });
-  });
-
   group('command and maintenance safety', () {
     test('no heartbeat is sent by lifecycle or scale commands', () async {
-      final transport = _LifecycleBleTransport(respondToVoltage: true);
+      final transport = _LifecycleBleTransport(
+        respondToVoltage: true,
+        statusNotification: _hdsV3114Status,
+      );
       final scale = DecentScale(transport: transport);
       await _connectAndSettle(scale);
 
@@ -377,7 +458,7 @@ void main() {
       expect(_hasCommand(transport, 0x0A, 0x03), isFalse);
       expect(
         transport.writes
-            .where((data) => data[1] == 0x0A)
+            .where((data) => data.length >= 6 && data[1] == 0x0A)
             .every((data) => data[5] == 0x00),
         isTrue,
       );
@@ -390,7 +471,10 @@ void main() {
 
     test('maintenance is read-only', () {
       fakeAsync((async) {
-        final transport = _LifecycleBleTransport(respondToVoltage: true);
+        final transport = _LifecycleBleTransport(
+          respondToVoltage: true,
+          statusNotification: _hdsV3114Status,
+        );
         final scale = DecentScale(transport: transport);
         var connected = false;
         scale.onConnect().then((_) => connected = true);

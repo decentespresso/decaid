@@ -1,6 +1,7 @@
 import 'dart:async';
+import 'dart:typed_data';
 
-import 'package:flutter/widgets.dart';
+import 'package:flutter/widgets.dart' hide ConnectionState;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
@@ -10,7 +11,11 @@ import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
+import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/impl/decent_scale/scale.dart';
 import 'package:reaprime/src/models/device/machine.dart';
+import 'package:reaprime/src/models/device/scale.dart';
+import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:reaprime/src/services/storage/storage_service.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/settings/scale_power_mode.dart';
@@ -23,6 +28,113 @@ import '../helpers/mock_device_discovery_service.dart';
 import '../helpers/mock_device_scanner.dart';
 import '../helpers/mock_settings_service.dart';
 import '../helpers/test_de1.dart';
+
+class _SpyConnectionManager extends ConnectionManager {
+  _SpyConnectionManager({
+    required super.deviceScanner,
+    required super.de1Controller,
+    required super.scaleController,
+    required super.settingsController,
+  });
+
+  int scaleSleepMarks = 0;
+
+  @override
+  void markScaleSleeping(String deviceId) {
+    scaleSleepMarks++;
+    super.markScaleSleeping(deviceId);
+  }
+}
+
+class _ControllerBleTransport extends BLETransport {
+  final BehaviorSubject<ConnectionState> _state = BehaviorSubject.seeded(
+    ConnectionState.disconnected,
+  );
+  ConnectionState nativeState = ConnectionState.disconnected;
+  final writes = <Uint8List>[];
+  void Function(Uint8List)? callback;
+  int disconnectCalls = 0;
+
+  @override
+  String get id => 'decent-controller-scale';
+
+  @override
+  String get name => 'Decent Controller Scale';
+
+  @override
+  Stream<ConnectionState> get connectionState => _state.stream;
+
+  @override
+  Future<ConnectionState> getConnectionState() async => nativeState;
+
+  @override
+  Future<void> connect() async {
+    nativeState = ConnectionState.connected;
+    _state.add(ConnectionState.connected);
+  }
+
+  @override
+  Future<void> disconnect() async {
+    disconnectCalls++;
+    nativeState = ConnectionState.disconnected;
+    _state.add(ConnectionState.disconnected);
+  }
+
+  @override
+  Future<List<String>> discoverServices() async => [
+    DecentScale.serviceIdentifier.long,
+  ];
+
+  @override
+  Future<Uint8List> read(
+    String serviceUUID,
+    String characteristicUUID, {
+    Duration? timeout,
+  }) async => Uint8List(0);
+
+  @override
+  Future<void> subscribe(
+    String serviceUUID,
+    String characteristicUUID,
+    void Function(Uint8List) handler,
+  ) async {
+    callback = handler;
+  }
+
+  @override
+  Future<void> resetSubscription(
+    String serviceUUID,
+    String characteristicUUID,
+    void Function(Uint8List) handler,
+  ) => subscribe(serviceUUID, characteristicUUID, handler);
+
+  @override
+  Future<void> setTransportPriority(bool prioritized) async {}
+
+  @override
+  Future<void> write(
+    String serviceUUID,
+    String characteristicUUID,
+    Uint8List data, {
+    bool withResponse = true,
+    Duration? timeout,
+  }) async {
+    final frame = Uint8List.fromList(data);
+    writes.add(frame);
+    if (frame.length == 7 && frame[1] == 0x0A && frame[2] == 0x01) {
+      scheduleMicrotask(
+        () => callback?.call(
+          Uint8List.fromList([0x03, 0x0A, 0x00, 0x00, 0x64, 0x02, 0x00]),
+        ),
+      );
+    }
+  }
+
+  @override
+  Future<void> dispose() async {
+    await _state.close();
+  }
+}
 
 class _TestDe1Controller extends De1Controller {
   final BehaviorSubject<De1Interface?> de1Subject = BehaviorSubject.seeded(
@@ -61,7 +173,7 @@ void main() {
   late ScaleController scaleController;
   late MockDeviceScanner mockScanner;
   late SettingsController settingsController;
-  late ConnectionManager connectionManager;
+  late _SpyConnectionManager connectionManager;
   late De1StateManager manager;
 
   Future<void> pump([int n = 3]) async {
@@ -82,7 +194,7 @@ void main() {
     settingsController = SettingsController(settingsService);
     await settingsController.loadSettings();
 
-    connectionManager = ConnectionManager(
+    connectionManager = _SpyConnectionManager(
       deviceScanner: mockScanner,
       de1Controller: de1Controller,
       scaleController: scaleController,
@@ -154,6 +266,48 @@ void main() {
     await pump(6);
     expect(mockScanner.startWatchCallCount, greaterThan(watchStarts));
   });
+
+  test(
+    'decent scale displayOff keeps the connection through machine sleep',
+    () async {
+      mockScanner.supportsWatch = true;
+      await settingsController.setScalePowerMode(ScalePowerMode.displayOff);
+      final transport = _ControllerBleTransport();
+      final scale = DecentScale(transport: transport);
+      await scaleController.connectToScale(scale);
+      de1Controller.connect(testDe1);
+      await pump();
+      expect(transport.nativeState, ConnectionState.connected);
+
+      testDe1.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
+      await pump();
+      transport.writes.clear();
+      transport.disconnectCalls = 0;
+
+      testDe1.emitStateAndSubstate(MachineState.sleeping, MachineSubstate.idle);
+      await pump(6);
+
+      expect(connectionManager.scaleSleepMarks, 0);
+      expect(transport.disconnectCalls, 0);
+      expect(transport.nativeState, ConnectionState.connected);
+      expect(scale, isNot(isA<DisconnectToSleepScale>()));
+      expect(
+        transport.writes.any(
+          (data) => data.length == 7 && data[1] == 0x0A && data[2] == 0x00,
+        ),
+        isTrue,
+      );
+      expect(
+        transport.writes.any(
+          (data) => data.length == 7 && data[1] == 0x0A && data[2] == 0x04,
+        ),
+        isFalse,
+      );
+
+      await scale.disconnectForHandoff();
+      await transport.dispose();
+    },
+  );
 
   test('wake with watch support and a preferred scale skips the '
       'scale-only burst scan', () async {

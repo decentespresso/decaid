@@ -340,12 +340,14 @@ void _elapse(FakeAsync async, Duration duration) {
   async.flushMicrotasks();
 }
 
-({DecentScale scale, _RecordingBleTransport transport}) _sleepingReconnect(
+({DecentScale scale, _RecordingBleTransport transport}) _connectedAndSlept(
   FakeAsync async, {
   required List<int> responseSubscribeCalls,
+  bool respondToVoltageProbe = false,
 }) {
   final transport = _RecordingBleTransport(
     responseSubscribeCalls: responseSubscribeCalls,
+    respondToVoltageProbe: respondToVoltageProbe,
   );
   final scale = DecentScale(transport: transport);
   var connected = false;
@@ -358,17 +360,24 @@ void _elapse(FakeAsync async, Duration duration) {
   async.flushMicrotasks();
   _elapse(async, const Duration(milliseconds: 100));
   expect(slept, isTrue);
-  var disconnected = false;
-  scale.disconnectForHandoff().then((_) => disconnected = true);
-  async.flushMicrotasks();
-  expect(disconnected, isTrue);
+  expect(transport.disconnectCalls, 0);
   transport.writes.clear();
-  var reconnected = false;
-  scale.onConnect().then((_) => reconnected = true);
+  return (scale: scale, transport: transport);
+}
+
+({DecentScale scale, _RecordingBleTransport transport}) _reconnectDuringSleep(
+  FakeAsync async,
+  DecentScale scale,
+  _RecordingBleTransport transport,
+) {
+  final connectsBefore = transport.connectCalls;
+  transport.emitDisconnected();
   async.flushMicrotasks();
-  expect(reconnected, isTrue);
+  scale.onConnect();
+  async.flushMicrotasks();
+  _elapse(async, const Duration(milliseconds: 100));
+  expect(transport.connectCalls, connectsBefore + 1);
   expect(transport.writes, isEmpty);
-  transport.disconnectCalls = 0;
   return (scale: scale, transport: transport);
 }
 
@@ -428,39 +437,38 @@ void main() {
     });
   });
 
-  test('sleeping reconnect stays dark and verifies FFF4 on wake', () {
+  test('reconnect during display off attaches dark and verifies FFF4', () {
     fakeAsync((async) {
-      final (:scale, :transport) = _sleepingReconnect(
+      final (:scale, :transport) = _connectedAndSlept(
         async,
         responseSubscribeCalls: const [1, 4],
       );
-      expect(transport.subscribeCalls, 2);
+
+      _reconnectDuringSleep(async, scale, transport);
+      final subscriptionsAfterReconnect = transport.subscribeCalls;
 
       var woke = false;
       scale.wakeDisplay().then((_) => woke = true);
       async.flushMicrotasks();
       _elapse(async, const Duration(milliseconds: 100));
       expect(woke, isFalse);
-      expect(transport.subscribeCalls, 3);
+      expect(transport.subscribeCalls, subscriptionsAfterReconnect + 1);
 
       _elapse(async, const Duration(seconds: 2));
       _elapse(async, const Duration(milliseconds: 100));
 
       expect(woke, isTrue);
-      expect(transport.subscribeCalls, 4);
+      expect(transport.subscribeCalls, subscriptionsAfterReconnect + 2);
       expect(_hasCommand(transport, 0x0A, 0x01), isTrue);
-      expect(_hasCommand(transport, 0x0A, 0x04), isTrue);
+      expect(_hasCommand(transport, 0x0A, 0x04), isFalse);
       scale.disconnectForHandoff();
       async.flushMicrotasks();
       transport.dispose();
     });
   });
 
-  test('original scale disconnects for sleep without SoftSleep', () async {
-    final transport = _RecordingBleTransport(
-      responseSubscribeCalls: const [1, 3],
-      respondToVoltageProbe: false,
-    );
+  test('original scale keeps streaming through display off', () async {
+    final transport = _RecordingBleTransport(respondToVoltageProbe: false);
     final scale = DecentScale(transport: transport);
     await scale.onConnect();
     await pumpEventQueue();
@@ -468,11 +476,10 @@ void main() {
 
     await scale.sleepDisplay();
 
-    expect(transport.disconnectCalls, 1);
+    expect(transport.disconnectCalls, 0);
     expect(_hasCommand(transport, 0x0A, 0x04), isFalse);
+    expect(_hasCommand(transport, 0x0A, 0x00), isTrue);
 
-    await scale.onConnect();
-    await scale.wakeDisplay();
     final snapshot = scale.currentSnapshot.first;
     transport.emitNotification([0x03, 0xCE, 0x00, 100, 0x00, 0x00, 0x00]);
     expect((await snapshot).weight, 10);
@@ -481,12 +488,15 @@ void main() {
     await transport.dispose();
   });
 
-  test('sleep supersedes a silent wake before its retry', () {
+  test('sleep supersedes an in-flight reconnect wake', () {
     fakeAsync((async) {
-      final (:scale, :transport) = _sleepingReconnect(
+      final (:scale, :transport) = _connectedAndSlept(
         async,
         responseSubscribeCalls: const [1],
       );
+      _reconnectDuringSleep(async, scale, transport);
+      transport.writes.clear();
+
       var woke = false;
       scale.wakeDisplay().then((_) => woke = true);
       async.flushMicrotasks();
@@ -500,7 +510,6 @@ void main() {
       _elapse(async, const Duration(seconds: 3));
 
       expect(woke, isTrue);
-      expect(transport.subscribeCalls, 3);
       expect(transport.writes, orderedEquals(writesAfterSleep));
       scale.disconnectForHandoff();
       async.flushMicrotasks();
@@ -508,51 +517,15 @@ void main() {
     });
   });
 
-  test('latest wake wins after a superseded wake probe', () {
+  test('silent reconnect wake disconnects once without powering off', () {
     fakeAsync((async) {
-      final (:scale, :transport) = _sleepingReconnect(
-        async,
-        responseSubscribeCalls: const [1, 2, 3, 4, 5, 6],
-      );
-      var firstWoke = false;
-      var secondWoke = false;
-      scale.wakeDisplay().then((_) => firstWoke = true);
-      async.flushMicrotasks();
-      _elapse(async, const Duration(milliseconds: 100));
-
-      scale.sleepDisplay();
-      async.flushMicrotasks();
-      final writesBeforeSecondWake = transport.writes.length;
-      scale.wakeDisplay().then((_) => secondWoke = true);
-      async.flushMicrotasks();
-      _elapse(async, const Duration(seconds: 2));
-      expect(transport.subscribeCalls, 4);
-      _elapse(async, const Duration(seconds: 2));
-      _elapse(async, const Duration(seconds: 1));
-      _elapse(async, const Duration(milliseconds: 100));
-
-      expect(firstWoke, isTrue);
-      expect(secondWoke, isTrue);
-      expect(
-        transport.writes
-            .sublist(writesBeforeSecondWake)
-            .any(
-              (data) => data[1] == 0x0A && data[2] == 0x04 && data[3] == 0x00,
-            ),
-        isTrue,
-      );
-      scale.disconnectForHandoff();
-      async.flushMicrotasks();
-      transport.dispose();
-    });
-  });
-
-  test('silent wake disconnects once without powering off', () {
-    fakeAsync((async) {
-      final (:scale, :transport) = _sleepingReconnect(
+      final (:scale, :transport) = _connectedAndSlept(
         async,
         responseSubscribeCalls: const [1],
       );
+      _reconnectDuringSleep(async, scale, transport);
+      transport.writes.clear();
+      transport.disconnectCalls = 0;
 
       final wakeErrors = <Object>[];
       scale.wakeDisplay().then((_) {}, onError: wakeErrors.add);
@@ -562,15 +535,6 @@ void main() {
       expect(wakeErrors.single, isA<TimeoutException>());
       expect(transport.disconnectCalls, 1);
       expect(_hasCommand(transport, 0x0A, 0x02), isFalse);
-
-      final subscriptions = transport.subscribeCalls;
-      var secondWakeDone = false;
-      scale.wakeDisplay().then((_) => secondWakeDone = true);
-      async.flushMicrotasks();
-      expect(transport.subscribeCalls, subscriptions + 1);
-      scale.sleepDisplay();
-      _elapse(async, const Duration(seconds: 3));
-      expect(secondWakeDone, isTrue);
       transport.dispose();
     });
   });

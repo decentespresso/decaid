@@ -15,8 +15,7 @@ import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:rxdart/subjects.dart';
 
-class DecentScale
-    implements Scale, TransportHandoffScale, DisconnectToSleepScale {
+class DecentScale implements Scale, TransportHandoffScale {
   static final BleServiceIdentifier serviceIdentifier =
       BleServiceIdentifier.short('fff0');
   static final BleServiceIdentifier dataCharacteristic =
@@ -72,6 +71,9 @@ class DecentScale
   @visibleForTesting
   int get debugCompletedNegotiations => _completedNegotiations;
 
+  @visibleForTesting
+  DecentScaleProfile get debugProfile => _profile;
+
   DecentScale({required BLETransport transport})
     : _deviceId = transport.id,
       _device = transport;
@@ -120,9 +122,6 @@ class DecentScale
       return false;
     }
   }
-
-  @override
-  bool get disconnectsToSleep => !_profile.capabilities.supportsSoftSleep;
 
   @override
   Stream<ScaleSnapshot> get currentSnapshot => _streamController.stream;
@@ -200,7 +199,7 @@ class DecentScale
           'Discovered services: $services',
         );
       }
-      if (_isSleeping) {
+      if (_sleepMode != _DecentScaleSleepMode.awake) {
         await _registerNotifications(attempt);
       } else {
         await _confirmDataChannel(attempt);
@@ -282,7 +281,7 @@ class DecentScale
     if (!_isCurrentMaintenance(generation)) return;
     try {
       _maintenanceTicks++;
-      if (!_isSleeping) {
+      if (_sleepMode != _DecentScaleSleepMode.softSleep) {
         _ticksSinceLastNotification++;
         if (_ticksSinceLastNotification >= _watchdogDisconnectTicks) {
           await _disconnect(powerOff: false);
@@ -347,7 +346,7 @@ class DecentScale
 
   bool _isCurrentProfileAttempt(int attempt) =>
       attempt == _profileAttempt &&
-      !_isSleeping &&
+      _sleepMode != _DecentScaleSleepMode.softSleep &&
       !_isDisconnecting &&
       _connectionStateController.value != ConnectionState.disconnected;
 
@@ -366,7 +365,9 @@ class DecentScale
       'capabilities=${_profile.capabilities.labels.join(',')}',
     );
     if (_profile.capabilities.supportsSoftSleep) {
-      await _writeNonEssentialCommand([0x0A, 0x04, 0x00, 0x00, 0x00]);
+      if (_sleepMode == _DecentScaleSleepMode.awake) {
+        await _exitSoftSleep();
+      }
     } else {
       _log.info('Decent scale: SoftSleep withheld (capability not detected)');
     }
@@ -470,10 +471,22 @@ class DecentScale
   bool _isDisconnecting = false;
 
   @override
-  disconnect() async => _disconnect(powerOff: true);
+  disconnect() {
+    _resetSleepMode();
+    return _disconnect(powerOff: true);
+  }
 
   @override
-  Future<void> disconnectForHandoff() => _disconnect(powerOff: false);
+  Future<void> disconnectForHandoff() {
+    _resetSleepMode();
+    return _disconnect(powerOff: false);
+  }
+
+  void _resetSleepMode() {
+    _sleepMode = _DecentScaleSleepMode.awake;
+    _sleepConnectionAttempt = null;
+    _desiredDisplaySleeping = false;
+  }
 
   Future<void> _disconnect({required bool powerOff}) async {
     if (_isDisconnecting) {
@@ -527,45 +540,44 @@ class DecentScale
     return sent;
   }
 
-  Future<bool> _sendOledOff() async {
-    final oledOffSent = await _writeNonEssentialCommand([
-      0x0A,
-      0x04,
-      0x01,
-      0x00,
-      0x00,
-    ]);
-    await Future.delayed(const Duration(milliseconds: 100));
-    final displayOffSent = await _writeNonEssentialCommand([
-      0x0A,
-      0x00,
-      0x00,
-      0x00,
-      0x00,
-    ]);
-    return oledOffSent && displayOffSent;
+  Future<bool> _sendDisplayOff() =>
+      _writeNonEssentialCommand([0x0A, 0x00, 0x00, 0x00, 0x00]);
+
+  Future<bool> _enterSoftSleep() =>
+      _writeNonEssentialCommand([0x0A, 0x04, 0x01, 0x00, 0x00]);
+
+  Future<void> _exitSoftSleep() async {
+    await _writeNonEssentialCommand([0x0A, 0x04, 0x00, 0x00, 0x00]);
   }
 
-  bool _isSleeping = false;
+  _DecentScaleSleepMode _sleepMode = _DecentScaleSleepMode.awake;
+  int? _sleepConnectionAttempt;
 
   @override
   Future<void> sleepDisplay() async {
     _desiredDisplaySleeping = true;
-    _displayGeneration++;
-    _profileAttempt++;
-    _isSleeping = true;
-    _notificationWatchdog?.cancel();
+    final generation = ++_displayGeneration;
+    _sleepConnectionAttempt = _connectionAttempt;
     if (_profile.capabilities.supportsSoftSleep) {
-      _log.info('Putting Decent Scale display to sleep');
-      final sleepSucceeded = await _sendOledOff();
-      final nativeState = await _device.getConnectionState();
-      if (!sleepSucceeded || nativeState != ConnectionState.connected) {
-        await _disconnect(powerOff: false);
-      }
-      return;
+      _sleepMode = _DecentScaleSleepMode.softSleep;
+      _notificationWatchdog?.cancel();
+      _log.info('Decent scale: entering HDS SoftSleep');
+      if (await _enterSoftSleep()) return;
+      if (_displayGeneration != generation) return;
+      _log.warning(
+        'Decent scale: HDS SoftSleep failed, falling back to display off',
+      );
     }
-    _log.info('Decent scale: disconnecting for sleep (SoftSleep unavailable)');
-    await _disconnect(powerOff: false);
+    _sleepMode = _DecentScaleSleepMode.displayOff;
+    _log.info('Decent scale: display off (connection retained)');
+    final displayOffSent = await _sendDisplayOff();
+    if (_displayGeneration != generation) return;
+    if (!displayOffSent) {
+      _log.warning(
+        'Decent scale: display-off write failed; retaining connection',
+      );
+    }
+    _resetNotificationWatchdog();
   }
 
   Future<void> _sendPowerOff() async {
@@ -587,31 +599,52 @@ class DecentScale
   }
 
   Future<void> _runWakeDisplay() async {
+    final wasAsleep = _sleepMode != _DecentScaleSleepMode.awake;
+    final wasSoftSleep = _sleepMode == _DecentScaleSleepMode.softSleep;
+    final reconnected =
+        wasAsleep && _sleepConnectionAttempt != _connectionAttempt;
+    _sleepMode = _DecentScaleSleepMode.awake;
+    _sleepConnectionAttempt = null;
     try {
       while (!_desiredDisplaySleeping) {
         final generation = _displayGeneration;
-        _isSleeping = false;
-        final attempt = _armProfileEvidence();
         _notificationWatchdog?.cancel();
         try {
-          final confirmed = await _confirmDataChannel(
-            attempt,
-            isCurrent: () =>
-                generation == _displayGeneration && !_desiredDisplaySleeping,
-          );
-          if (!confirmed) continue;
-          unawaited(
-            _negotiateProfile(attempt).catchError((
-              Object error,
-              StackTrace stackTrace,
-            ) {
-              _log.warning(
-                'Decent scale: profile negotiation failed',
-                error,
-                stackTrace,
-              );
-            }),
-          );
+          if (reconnected) {
+            final attempt = _profileAttempt;
+            final confirmed = await _confirmDataChannel(
+              attempt,
+              isCurrent: () =>
+                  generation == _displayGeneration && !_desiredDisplaySleeping,
+            );
+            if (!confirmed) continue;
+            if (generation != _displayGeneration || _desiredDisplaySleeping) {
+              return;
+            }
+            unawaited(
+              _negotiateProfile(attempt).catchError((
+                Object error,
+                StackTrace stackTrace,
+              ) {
+                _log.warning(
+                  'Decent scale: profile negotiation failed',
+                  error,
+                  stackTrace,
+                );
+              }),
+            );
+          } else {
+            if (wasSoftSleep) {
+              await _exitSoftSleep();
+            }
+            await _sendLedOnAndRequestStatus(
+              isCurrent: () =>
+                  generation == _displayGeneration && !_desiredDisplaySleeping,
+            );
+          }
+          if (generation != _displayGeneration || _desiredDisplaySleeping) {
+            return;
+          }
           _ticksSinceLastNotification = 0;
           _watchdogRetryAttempted = false;
           _resetNotificationWatchdog();
@@ -703,7 +736,7 @@ class DecentScale
 
   void _resetNotificationWatchdog() {
     _notificationWatchdog?.cancel();
-    if (!_isSleeping && !_isDisconnecting) {
+    if (_sleepMode != _DecentScaleSleepMode.softSleep && !_isDisconnecting) {
       _notificationWatchdog = Timer(_notificationWatchdogTimeout, () {
         _log.warning(
           'No BLE notifications for ${_notificationWatchdogTimeout.inMilliseconds}ms '
@@ -817,3 +850,5 @@ class DecentScale
     }
   }
 }
+
+enum _DecentScaleSleepMode { awake, displayOff, softSleep }
