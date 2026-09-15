@@ -263,9 +263,10 @@ DecentWeightFrame? parseDecentWeightFrame(List<int> data) {
       !_hasHeader(data, 0xCE, alternateOpcode: 0xCA)) {
     return null;
   }
+  final timestamped = data.length == 10;
+  if (timestamped && !_hasValidXorChecksum(data)) return null;
   var raw = (data[2] << 8) | data[3];
   if ((raw & 0x8000) != 0) raw -= 0x10000;
-  final timestamped = data.length == 10;
   return DecentWeightFrame(
     weight: raw / 10,
     timestamped: timestamped,
@@ -276,7 +277,11 @@ DecentWeightFrame? parseDecentWeightFrame(List<int> data) {
 }
 
 DecentVoltageFrame? parseDecentVoltageFrame(List<int> data) {
-  if (data.length != 7 || !_hasHeader(data, 0x22)) return null;
+  if (data.length != 7 ||
+      !_hasHeader(data, 0x22) ||
+      !_hasValidXorChecksum(data)) {
+    return null;
+  }
   var raw = (data[2] << 8) | data[3];
   if ((raw & 0x8000) != 0) raw -= 0x10000;
   return DecentVoltageFrame(voltage: raw / 10);
@@ -287,4 +292,11 @@ bool _hasHeader(List<int> data, int opcode, {int? alternateOpcode}) {
     return false;
   }
   return data[1] == opcode || data[1] == alternateOpcode;
+}
+
+bool _hasValidXorChecksum(List<int> data) {
+  final checksum = data
+      .take(data.length - 1)
+      .fold<int>(0, (value, byte) => value ^ byte);
+  return checksum == data.last;
 }
