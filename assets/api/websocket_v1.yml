@@ -11,6 +11,10 @@ info:
 
     These channels provide live updates from the DE1 espresso machine, scale,
     sensors, and connected devices.
+
+    External sensor identifiers in the SensorSnapshot path are one URI path
+    component: clients percent-encode them once and the host decodes them once
+    at the sensor route boundary. Invalid UTF-8 is rejected with HTTP 400.
 x-admission-control:
   windowSeconds: 1
   globalOpenConnections: 128
@@ -125,7 +129,7 @@ channels:
     address: ws/v1/sensors/{id}/snapshot
     parameters:
       id:
-        description: Unique sensor identifier.
+        description: External sensor ID as one percent-encoded URI path component.
     messages:
       sensorSnapshotMessage:
         $ref: '#/components/messages/SensorSnapshot'
@@ -980,4 +984,3 @@ components:
           minimum: 0
           maximum: 100
           description: Brightness value (required when command is setBrightness).
-

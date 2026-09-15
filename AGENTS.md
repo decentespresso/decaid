@@ -55,6 +55,10 @@ All three steps are required, not optional.
 
 ## Hard Rules
 
+- Genuinely opaque external IDs in adopted REST and WebSocket paths are
+  encoded once by clients and decoded once with
+  `decodeOpaquePathComponent`; host-assigned UUID resource IDs keep their
+  existing route contracts. See `doc/AI_API_NOTES.md`.
 - Never import 3rd-party BLE libraries (e.g. `universal_ble`) outside `lib/src/services/ble/`.
 - All BLE operations use 128-bit UUID format.
 - Scale write paths must catch `DeviceNotConnectedException` at the lowest-level write helper.

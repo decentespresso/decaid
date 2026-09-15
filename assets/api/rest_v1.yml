@@ -5,6 +5,11 @@ info:
   description: |
     This API provides endpoints to retrieve a list of Bluetooth devices, trigger a scan for new devices, manage DE1 espresso machine state and settings, and interact with a connected scale.
 
+    External sensor IDs are opaque URI path components: clients percent-encode
+    them once and the host decodes them once at the sensor route boundary.
+    Host-assigned UUID resource IDs retain their existing route contracts.
+    Invalid UTF-8 in a percent-encoded sensor ID is rejected with HTTP 400.
+
     Requests under `/api/` are subject to process-local admission limits. A
     per-client limit returns 429 and a global limit returns 503; both include
     `Retry-After: 1`. Saturated requests are rejected rather than queued.
@@ -1212,6 +1217,7 @@ paths:
           required: true
           schema:
             type: string
+          description: External sensor ID as one percent-encoded URI path component.
       responses:
         "200":
           description: Full sensor manifest
@@ -1221,6 +1227,8 @@ paths:
                 $ref: "#/components/schemas/SensorManifest"
         "404":
           description: Sensor not found
+        "400":
+          description: Invalid UTF-8 in a percent-encoded sensor ID
 
   /api/v1/sensors/{id}/execute:
     post:
@@ -1232,6 +1240,7 @@ paths:
           required: true
           schema:
             type: string
+          description: External sensor ID as one percent-encoded URI path component.
       requestBody:
         required: true
         content:
@@ -1259,6 +1268,8 @@ paths:
                     nullable: true
         "404":
           description: Sensor not found
+        "400":
+          description: Invalid UTF-8 in a percent-encoded sensor ID
 
   # REA settings API
   /api/v1/settings:
