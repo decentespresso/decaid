@@ -159,7 +159,7 @@ class _HangingPowerOffTransport extends BLETransport {
     if (data.length == 7 && data[1] == 0x22) {
       scheduleMicrotask(
         () => notificationCallback?.call(
-          Uint8List.fromList([0x03, 0x22, 0x01, 0x89, 0, 0, 0]),
+          Uint8List.fromList([0x03, 0x22, 0x01, 0x89, 0, 0, 0xA9]),
         ),
       );
       return;
@@ -304,7 +304,7 @@ class _RecordingBleTransport extends BLETransport {
     }
     if (data.length == 7 && data[1] == 0x22 && respondToVoltageProbe) {
       scheduleMicrotask(
-        () => emitNotification([0x03, 0x22, 0x01, 0x89, 0x00, 0x00, 0xAB]),
+        () => emitNotification([0x03, 0x22, 0x01, 0x89, 0x00, 0x00, 0xA9]),
       );
     }
   }
