@@ -343,6 +343,35 @@ void main() {
       expect(await transport.getConnectionState(), ConnectionState.connected);
       await _disposeScale(scale, transport);
     });
+
+    test(
+      'repeated display-off and wake cycles keep the same connection',
+      () async {
+        final transport = _LifecycleBleTransport();
+        final scale = DecentScale(transport: transport);
+        await _connectAndSettle(scale);
+        final connectsBefore = transport.connectCalls;
+        final disconnectsBefore = transport.disconnectCalls;
+
+        for (var cycle = 0; cycle < 3; cycle++) {
+          transport.writes.clear();
+          await scale.sleepDisplay();
+          await pumpEventQueue();
+          expect(_hasDisplayOff(transport), isTrue);
+          expect(_hasSoftSleep(transport), isFalse);
+
+          await scale.wakeDisplay();
+          await pumpEventQueue();
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+          expect(_hasCommand(transport, 0x0A, 0x01), isTrue);
+        }
+
+        expect(transport.connectCalls, connectsBefore);
+        expect(transport.disconnectCalls, disconnectsBefore);
+        expect(await transport.getConnectionState(), ConnectionState.connected);
+        await _disposeScale(scale, transport);
+      },
+    );
   });
 
   group('reconnect and evidence fencing', () {
