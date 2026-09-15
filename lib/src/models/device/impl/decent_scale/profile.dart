@@ -1,5 +1,3 @@
-/// Identity is evidence about the device; capabilities are the behaviour contract.
-/// Unknown identity therefore always uses conservative capabilities.
 library;
 
 enum DecentScaleIdentity { unknown, originalDecentScale, halfDecentScale }
@@ -60,6 +58,14 @@ class DecentScaleCapabilities {
         supportsHdsExtendedCommands: false,
       );
 
+  static const DecentScaleCapabilities hdsExtended = DecentScaleCapabilities(
+    supportsSoftSleep: false,
+    supportsPowerOff: true,
+    unreliableCommandBuffer: false,
+    usesTimestampedWeightFrames: false,
+    supportsHdsExtendedCommands: true,
+  );
+
   static const DecentScaleCapabilities halfDecent = DecentScaleCapabilities(
     supportsSoftSleep: true,
     supportsPowerOff: true,
@@ -97,9 +103,7 @@ class DecentHdsFirmwareVersion {
     final majorUnits = high & 0x0F;
     final minor = low >> 4;
     final patch = low & 0x0F;
-    if (majorTens > 9 || majorUnits > 9 || minor > 9 || patch > 9) {
-      return null;
-    }
+    if (majorTens > 9 || majorUnits > 9) return null;
     final major = majorTens * 10 + majorUnits;
     if (major > 30) return null;
     return DecentHdsFirmwareVersion(major: major, minor: minor, patch: patch);
@@ -146,9 +150,13 @@ class DecentScaleProfile {
     DecentHdsFirmwareVersion? hdsFirmwareVersion,
   }) {
     if (voltageProbeAccepted) {
+      final capabilities =
+          hdsFirmwareVersion != null && hdsFirmwareVersion.major >= 3
+          ? DecentScaleCapabilities.halfDecent
+          : DecentScaleCapabilities.hdsExtended;
       return DecentScaleProfile(
         identity: DecentScaleIdentity.halfDecentScale,
-        capabilities: DecentScaleCapabilities.halfDecent,
+        capabilities: capabilities,
         originalFirmwareMarker: originalFirmwareMarker,
         originalFirmwareVersion: null,
         hdsFirmwareVersion: hdsFirmwareVersion,
@@ -262,7 +270,7 @@ DecentWeightFrame? parseDecentWeightFrame(List<int> data) {
     weight: raw / 10,
     timestamped: timestamped,
     timestampMillis: timestamped
-        ? data[4] * 600 + data[5] * 10 + data[6]
+        ? (data[4] * 600 + data[5] * 10 + data[6]) * 100
         : null,
   );
 }

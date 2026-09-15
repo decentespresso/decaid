@@ -156,7 +156,8 @@ cancellation.
 **Design:** identity is evidence, capabilities control behaviour. `profile.dart` holds `DecentScaleIdentity`, `DecentScaleCapabilities`, and pure frame parsers; a connection starts conservative and only widens on positive protocol evidence.
 
 - A `0x0A` status response or a 10-byte timestamped weight frame identifies an original Decent Scale (the timestamped variant adds power off and drops the unreliable command buffer).
-- Only a valid `0x22` voltage response promotes to HDS (adds SoftSleep and extended commands).
+- Only a valid `0x22` voltage response promotes to HDS, and that alone grants extended commands and power off, not SoftSleep. HDS firmware v2.5.8 introduced `0x22` but SoftSleep only arrived in v2.6.3, so a voltage probe is not evidence of SoftSleep.
+- SoftSleep is gated separately on trustworthy modern firmware: HDS identity plus a decoded firmware version with major `>= 3`. HDS firmware before 3.0.1 does not report a version at all, so those scales have no decoded version and fall back to disconnect-on-sleep rather than risk a `0A 04` they may not understand.
 - Unidentified scales stay conservative: shared weighing/tare/timer only, never `0A 04`, never power off.
 
 **Rules that came out of this:**
@@ -165,9 +166,12 @@ cancellation.
 - No heartbeat subsystem at all; every heartbeat-control byte is `00`.
 - Negotiation is unawaited so `connected` is still published promptly. Evidence is guarded by a profile-attempt token that is bound into the notification callback and re-armed on every connect and wake, so a late status/voltage frame after sleep, or a stale initialization attempt, cannot promote capabilities on a newer connection. Connection ownership uses a separate connection-attempt token: a superseded `onConnect()` returns before it can cancel the live transport listener or the maintenance loop.
 - Nonessential writes (LED/status, SoftSleep, power off) tolerate transient failures while notifications are still arriving; tare/timer still fail loudly.
+- A failed SoftSleep write must not leave Decaid logically asleep while the scale stays awake. `_sendOledOff()` reports whether the write sequence succeeded and `sleepDisplay()` disconnects whenever it did not, regardless of the native GATT state. Android can keep reporting `connected` after a GATT write times out.
 - The 50ms duplicate write from the canonical de1app is applied only to profiles with the unreliable command buffer (7-byte weight frames).
 
 **Firmware decode:** status byte 5 is decoded against `{0xFE: 1.0, 0x02: 1.1, 0x03: 1.2}` (the public `pydecentscale` client's table, consistent with the plan's `original-fw=0x02 -> fw=1.1` example). Only v1.0 needs the 50ms duplicate command; only v1.2 supports power off. A timestamped 10-byte weight frame independently proves v1.2+. An unrecognised marker stays conservative.
+
+For modern HDS the same bytes 5-6 are a version: byte 5 is BCD (`majorTens << 4 | majorUnits`), byte 6 packs `minor << 4 | patch`. The low nibbles are raw 0-15, not decimal BCD digit pairs, so 3.1.14 legitimately arrives as `0x03 0x1E`. The 10-byte weight frame's `timestampMillis` is decisecond-resolution on the wire (`minute*600 + second*10 + decisecond`) and is scaled to milliseconds in the parser.
 
 **Known gap:** the marker table comes from a third-party client, not from Decent firmware source. Sub-version labelling needs confirmation against the original full-height hardware before the duplicate/power-off gates are trusted in the field.
 

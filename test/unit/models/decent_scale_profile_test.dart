@@ -38,7 +38,7 @@ void main() {
       expect(parsed, isNotNull);
       expect(parsed!.weight, 50.0);
       expect(parsed.timestamped, isTrue);
-      expect(parsed.timestampMillis, 623);
+      expect(parsed.timestampMillis, 62300);
 
       final profile = DecentScaleProfile.fromEvidence(
         statusResponseSeen: false,
@@ -98,8 +98,8 @@ void main() {
         originalFirmwareMarker: 0x02,
       );
       expect(profile.identity, DecentScaleIdentity.halfDecentScale);
-      expect(profile.capabilities, DecentScaleCapabilities.halfDecent);
-      expect(profile.capabilities.supportsSoftSleep, isTrue);
+      expect(profile.capabilities, DecentScaleCapabilities.hdsExtended);
+      expect(profile.capabilities.supportsSoftSleep, isFalse);
       expect(profile.capabilities.supportsHdsExtendedCommands, isTrue);
       expect(profile.isHds, isTrue);
       expect(profile.originalFirmwareVersion, isNull);
@@ -137,12 +137,48 @@ void main() {
         0x00,
         0x00,
         80,
-        0x02,
+        0x1F,
         0x1D,
       ]);
       expect(invalid, isNotNull);
       expect(invalid!.hdsFirmwareVersion, isNull);
-      expect(invalid.originalFirmwareMarker, 0x02);
+      expect(invalid.originalFirmwareMarker, 0x1F);
+    });
+
+    test('derives soft sleep for modern HDS firmware', () {
+      final profile = DecentScaleProfile.fromEvidence(
+        statusResponseSeen: true,
+        sawTimestampedWeightFrame: false,
+        voltageProbeAccepted: true,
+        hdsFirmwareVersion: DecentHdsFirmwareVersion.fromBcd(0x03, 0x1E),
+      );
+
+      expect(profile.hdsFirmwareVersion.toString(), '3.1.14');
+      expect(profile.capabilities, DecentScaleCapabilities.halfDecent);
+      expect(profile.capabilities.supportsSoftSleep, isTrue);
+    });
+
+    test('does not enable soft sleep for HDS firmware before 3.x', () {
+      final profile = DecentScaleProfile.fromEvidence(
+        statusResponseSeen: true,
+        sawTimestampedWeightFrame: false,
+        voltageProbeAccepted: true,
+        hdsFirmwareVersion: DecentHdsFirmwareVersion.fromBcd(0x02, 0x58),
+      );
+
+      expect(profile.capabilities, DecentScaleCapabilities.hdsExtended);
+      expect(profile.capabilities.supportsSoftSleep, isFalse);
+    });
+
+    test('decodes packed HDS firmware minor and patch nibbles', () {
+      expect(DecentHdsFirmwareVersion.fromBcd(0x03, 0x1E).toString(), '3.1.14');
+      expect(DecentHdsFirmwareVersion.fromBcd(0x02, 0x1D).toString(), '2.1.13');
+      expect(DecentHdsFirmwareVersion.fromBcd(0xA1, 0x00), isNull);
+    });
+
+    test('rejects implausible HDS firmware majors', () {
+      expect(DecentHdsFirmwareVersion.fromBcd(0x31, 0x00), isNull);
+      expect(DecentHdsFirmwareVersion.fromBcd(0x99, 0x00), isNull);
     });
 
     test('rejects malformed and ambiguous frames', () {
@@ -211,6 +247,10 @@ void main() {
     });
 
     test('labels contain enabled capabilities in sorted order', () {
+      expect(DecentScaleCapabilities.hdsExtended.labels, [
+        'hdsExtendedCommands',
+        'powerOff',
+      ]);
       expect(DecentScaleCapabilities.halfDecent.labels, [
         'hdsExtendedCommands',
         'powerOff',

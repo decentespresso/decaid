@@ -17,6 +17,7 @@ class _LifecycleBleTransport extends BLETransport {
   ConnectionState _nativeState = ConnectionState.disconnected;
   bool respondToVoltage;
   bool failSoftSleep = false;
+  bool failSoftSleepWhileConnected = false;
   final writes = <Uint8List>[];
   void Function(Uint8List)? notificationCallback;
   void Function(Uint8List)? firstNotificationCallback;
@@ -89,17 +90,23 @@ class _LifecycleBleTransport extends BLETransport {
   }) async {
     final frame = Uint8List.fromList(data);
     writes.add(frame);
-    if (failSoftSleep &&
+    if ((failSoftSleep || failSoftSleepWhileConnected) &&
         frame.length == 7 &&
         frame[1] == 0x0A &&
         frame[2] == 0x04 &&
         frame[3] == 0x01) {
-      _nativeState = ConnectionState.disconnected;
+      if (failSoftSleep) {
+        _nativeState = ConnectionState.disconnected;
+      }
       throw const DeviceNotConnectedException.scale();
     }
     if (frame.length == 7 && frame[1] == 0x0A && frame[2] == 0x01) {
       scheduleMicrotask(
-        () => emitNotification([0x03, 0x0A, 0x00, 0x00, 0x64, 0x01, 0x20]),
+        () => emitNotification(
+          respondToVoltage
+              ? [0x03, 0x0A, 0x00, 0x00, 0x64, 0x03, 0x1E]
+              : [0x03, 0x0A, 0x00, 0x00, 0x64, 0x01, 0x20],
+        ),
       );
     }
     if (frame.length == 7 && frame[1] == 0x22 && respondToVoltage) {
@@ -282,6 +289,26 @@ void main() {
       expect(scale.disconnectsToSleep, isFalse);
       await transport.dispose();
     });
+
+    test(
+      'failed HDS SoftSleep while connected disconnects the scale',
+      () async {
+        final transport = _LifecycleBleTransport(respondToVoltage: true);
+        final scale = DecentScale(transport: transport);
+        await _connectAndSettle(scale);
+        transport.failSoftSleepWhileConnected = true;
+
+        await scale.sleepDisplay();
+
+        expect(transport.disconnectCalls, greaterThanOrEqualTo(1));
+        expect(
+          await transport.getConnectionState(),
+          ConnectionState.disconnected,
+        );
+        expect(scale.disconnectsToSleep, isFalse);
+        await transport.dispose();
+      },
+    );
 
     test(
       'stale subscription evidence cannot promote a newer attempt',

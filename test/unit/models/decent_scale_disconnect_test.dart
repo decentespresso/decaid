@@ -294,7 +294,13 @@ class _RecordingBleTransport extends BLETransport {
         responseSubscribeCalls.contains(subscribeCalls) &&
         respondedSubscribeCall < subscribeCalls) {
       respondedSubscribeCall = subscribeCalls;
-      scheduleMicrotask(() => emitNotification([0x03, 0x0A, 0, 0, 100, 0, 0]));
+      scheduleMicrotask(
+        () => emitNotification(
+          respondToVoltageProbe
+              ? [0x03, 0x0A, 0, 0, 100, 0x03, 0x1E]
+              : [0x03, 0x0A, 0, 0, 100, 0, 0],
+        ),
+      );
     }
     if (data.length == 7 && data[1] == 0x22 && respondToVoltageProbe) {
       scheduleMicrotask(

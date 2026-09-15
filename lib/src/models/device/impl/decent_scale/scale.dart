@@ -527,10 +527,23 @@ class DecentScale
     return sent;
   }
 
-  Future<void> _sendOledOff() async {
-    await _writeNonEssentialCommand([0x0A, 0x04, 0x01, 0x00, 0x00]);
+  Future<bool> _sendOledOff() async {
+    final oledOffSent = await _writeNonEssentialCommand([
+      0x0A,
+      0x04,
+      0x01,
+      0x00,
+      0x00,
+    ]);
     await Future.delayed(const Duration(milliseconds: 100));
-    await _writeNonEssentialCommand([0x0A, 0x00, 0x00, 0x00, 0x00]);
+    final displayOffSent = await _writeNonEssentialCommand([
+      0x0A,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+    ]);
+    return oledOffSent && displayOffSent;
   }
 
   bool _isSleeping = false;
@@ -544,8 +557,9 @@ class DecentScale
     _notificationWatchdog?.cancel();
     if (_profile.capabilities.supportsSoftSleep) {
       _log.info('Putting Decent Scale display to sleep');
-      await _sendOledOff();
-      if (await _device.getConnectionState() != ConnectionState.connected) {
+      final sleepSucceeded = await _sendOledOff();
+      final nativeState = await _device.getConnectionState();
+      if (!sleepSucceeded || nativeState != ConnectionState.connected) {
         await _disconnect(powerOff: false);
       }
       return;
