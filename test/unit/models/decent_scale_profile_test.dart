@@ -105,6 +105,36 @@ void main() {
       expect(profile.originalFirmwareVersion, isNull);
     });
 
+    test('rejects corrupt capability evidence checksums', () {
+      expect(
+        parseDecentVoltageFrame([
+          0x03,
+          0x22,
+          0x01,
+          0x89,
+          0x00,
+          0x00,
+          0xAB,
+        ]),
+        isNull,
+      );
+      expect(
+        parseDecentWeightFrame([
+          0x03,
+          0xCE,
+          0x00,
+          0x64,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+          0x00,
+        ]),
+        isNull,
+      );
+    });
+
     test('does not infer HDS without an accepted voltage probe', () {
       final profile = DecentScaleProfile.fromEvidence(
         statusResponseSeen: false,
