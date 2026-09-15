@@ -122,7 +122,7 @@ class _ReliabilityBleTransport extends BLETransport {
     }
     if (frame[1] == 0x22 && respondToVoltageProbe) {
       scheduleMicrotask(
-        () => emitNotification([0x03, 0x22, 0x01, 0x89, 0x00, 0x00, 0xAB]),
+        () => emitNotification([0x03, 0x22, 0x01, 0x89, 0x00, 0x00, 0xA9]),
       );
     }
   }
@@ -187,7 +187,7 @@ void _close(
 
 void main() {
   group('original-firmware command tolerance', () {
-    test('duplicates tare by 50ms on an original seven-byte scale', () {
+    test('duplicates tare by 50ms and advances the logical tare counter', () {
       fakeAsync((async) {
         final transport = _ReliabilityBleTransport(
           initialNotifications: const [
@@ -220,6 +220,15 @@ void main() {
         expect(tareWrites, hasLength(2));
         expect(tareWrites[1], orderedEquals(tareWrites[0]));
         expect(complete, isTrue);
+
+        transport.writes.clear();
+        scale.tare();
+        async.flushMicrotasks();
+        expect(_commandWrites(transport, 0x0F, 0x01), hasLength(1));
+        _elapse(async, const Duration(milliseconds: 50));
+        final secondTareWrites = _commandWrites(transport, 0x0F, 0x01);
+        expect(secondTareWrites, hasLength(2));
+        expect(secondTareWrites[1], orderedEquals(secondTareWrites[0]));
         _close(async, scale, transport);
       });
     });
@@ -297,7 +306,7 @@ void main() {
         final transport = _ReliabilityBleTransport(
           initialNotifications: const [
             [0x03, 0x0A, 0x00, 0x00, 100, 0x01, 0x00],
-            [0x03, 0xCE, 0x00, 100, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00],
+            [0x03, 0xCE, 0x00, 100, 0x00, 0x00, 0x00, 0x00, 0x00, 0xA9],
           ],
         );
         final scale = DecentScale(transport: transport);
