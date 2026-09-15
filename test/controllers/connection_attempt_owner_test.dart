@@ -17,6 +17,16 @@ void main() {
       expect(owner.isBlocked('AA:BB'), isFalse);
     });
 
+    test('repeated cancel preserves the first cancellation owner', () {
+      final owner = ConnectionAttemptOwner();
+      final attempt = owner.acquire('AA:BB')!;
+
+      expect(attempt.cancel(reason: 'caller timeout'), isTrue);
+      expect(attempt.cancel(reason: 'shutdown'), isFalse);
+      expect(attempt.cancelReason, 'caller timeout');
+      expect(owner.isBlocked('aa:bb'), isTrue);
+    });
+
     test('stale settle cannot release a replacement attempt', () {
       final owner = ConnectionAttemptOwner();
       final first = owner.acquire('device-1')!;
