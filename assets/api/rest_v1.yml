@@ -6535,6 +6535,11 @@ components:
           type: string
           nullable: true
           example: "AA:BB:CC:DD:EE:FF"
+        skalePoweredByUsbByDevice:
+          description: Exact Skale device IDs mapped to manual USB power declarations. Boolean values are accepted; false removes the device ID. Only enabled IDs are stored and returned. Omitted IDs default to false; enabled devices suppress battery reads and report the USB source with manual provenance.
+          type: object
+          additionalProperties:
+            type: boolean
         defaultSkinId:
           description: ID of the default WebUI skin to serve
           type: string
@@ -6633,6 +6638,11 @@ components:
           type: string
           nullable: true
           example: "AA:BB:CC:DD:EE:FF"
+        skalePoweredByUsbByDevice:
+          description: Exact Skale device IDs mapped to manual USB power declarations. Only enabled IDs are returned; omitted IDs default to false.
+          type: object
+          additionalProperties:
+            type: boolean
         defaultSkinId:
           description: ID of the default WebUI skin being served
           type: string

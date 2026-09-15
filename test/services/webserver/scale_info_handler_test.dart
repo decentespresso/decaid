@@ -57,7 +57,12 @@ void main() {
   test('returns opaque firmwareVersion and optional batteryLevel', () async {
     for (final batteryLevel in [null, 0, 100]) {
       final scale = _InfoScale(
-        DeviceInformation(firmwareVersion: 'R029', batteryLevel: batteryLevel),
+        DeviceInformation(
+          firmwareVersion: 'R029',
+          batteryLevel: batteryLevel,
+          powerSource: DevicePowerSource.usb,
+          powerSourceProvenance: DevicePowerSourceProvenance.manualOverride,
+        ),
       );
       addTearDown(scale.dispose);
       final controller = _FixedScaleController(scale);
@@ -69,6 +74,8 @@ void main() {
 
       expect(response.statusCode, 200);
       expect(json['firmwareVersion'], 'R029');
+      expect(json.containsKey('powerSource'), isFalse);
+      expect(json.containsKey('powerSourceProvenance'), isFalse);
       if (batteryLevel == null) {
         expect(json.containsKey('batteryLevel'), isFalse);
       } else {

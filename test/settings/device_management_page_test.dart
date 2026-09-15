@@ -1,4 +1,4 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/models/device/device.dart';
@@ -11,9 +11,11 @@ import '../helpers/mock_device_discovery_service.dart';
 import '../helpers/mock_settings_service.dart';
 import '../helpers/test_scale.dart';
 
-class _InformationScale extends TestScale implements DeviceInformationCapable {
+class _InformationScale extends TestScale
+    implements DeviceInformationCapable, UsbPowerConfigurable {
   _InformationScale({
     required super.deviceId,
+    required this.scaleName,
     required String firmwareVersion,
     int? batteryLevel,
   }) : _information = DeviceInformation(
@@ -27,8 +29,18 @@ class _InformationScale extends TestScale implements DeviceInformationCapable {
          ),
        );
 
+  final String scaleName;
   DeviceInformation? _information;
   final BehaviorSubject<DeviceInformation?> _informationSubject;
+  bool poweredByUsb = false;
+
+  @override
+  String get name => scaleName;
+
+  @override
+  Future<void> setUsbPowered(bool value) async {
+    poweredByUsb = value;
+  }
 
   @override
   DeviceInformation? get currentDeviceInformation => _information;
@@ -48,17 +60,26 @@ void main() {
     tester,
   ) async {
     final discovery = MockDeviceDiscoveryService();
-    final deviceController = DeviceController([discovery]);
-    await deviceController.initialize();
     final settingsController = SettingsController(MockSettingsService());
     await settingsController.loadSettings();
+    final deviceController = DeviceController([
+      discovery,
+    ], settingsController: settingsController);
+    await deviceController.initialize();
 
     final first = _InformationScale(
       deviceId: 'skale-device',
+      scaleName: 'Scale A',
       firmwareVersion: 'R029',
       batteryLevel: 82,
     );
+    final second = _InformationScale(
+      deviceId: 'other-skale-device',
+      scaleName: 'Scale B',
+      firmwareVersion: 'R028',
+    );
     discovery.addDevice(first);
+    discovery.addDevice(second);
 
     await tester.pumpWidget(
       ShadApp(
@@ -75,10 +96,29 @@ void main() {
       find.textContaining('Battery: 82% (device-reported)'),
       findsOneWidget,
     );
+    expect(find.text('Powered by USB'), findsNothing);
+    expect(find.byTooltip('Configure Scale A'), findsOneWidget);
+    expect(find.byTooltip('Configure Scale B'), findsOneWidget);
+    await tester.tap(find.byTooltip('Configure Scale B'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Scale B settings'), findsOneWidget);
+    final switchFinder = find.widgetWithText(SwitchListTile, 'Powered by USB');
+    expect(switchFinder, findsOneWidget);
+    await tester.tap(switchFinder);
+    await tester.pump();
+    expect(
+      settingsController.isSkalePoweredByUsb('other-skale-device'),
+      isTrue,
+    );
+    expect(settingsController.isSkalePoweredByUsb('skale-device'), isFalse);
+    expect(second.poweredByUsb, isTrue);
+    expect(first.poweredByUsb, isFalse);
 
     discovery.clear();
     final replacement = _InformationScale(
       deviceId: 'skale-device',
+      scaleName: 'Scale A',
       firmwareVersion: 'R030',
     );
     discovery.addDevice(replacement);
