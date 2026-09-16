@@ -1,4 +1,4 @@
-asyncapi: 3.0.0
+asyncapi: 3.1.0
 info:
   title: Decent AsyncAPI
   version: 1.0.0
@@ -75,8 +75,8 @@ channels:
       held open across scale connect/disconnect cycles — clients should not
       reconnect on scale disconnect. On open and on every scale connection-state
       change the server emits a status frame (`{"status":"connected"}` or
-      `{"status":"disconnected"}`). Snapshot frames (see ScaleSnapshot
-      schema) are only sent while a scale is connected.
+      `{"status":"disconnected"}`). Snapshot frames (see ScaleSnapshot schema)
+      are only sent while a scale is connected.
     address: ws/v1/scale/snapshot
     messages:
       scaleSnapshotMessage:
@@ -95,8 +95,6 @@ channels:
     parameters:
       id:
         description: Opaque connected scale device id.
-        schema:
-          type: string
     messages:
       scaleSnapshotMessage:
         $ref: '#/components/messages/AddressedScaleSnapshot'
