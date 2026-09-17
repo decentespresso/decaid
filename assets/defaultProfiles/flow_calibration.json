@@ -1,0 +1,159 @@
+{
+  "version": "2",
+  "title": "Test/Flow calibration",
+  "author": "Decent",
+  "notes": "Put a 0.3mm puck simulator basket into a portafilter. Connect a bluetooth scale.  Run this profile. Change the Flow value on the Calibration page, and rerun this profile.  Repeat until the blue and brown lines follow each other.",
+  "beverage_type": "calibrate",
+  "steps": [
+    {
+      "name": "1 bar",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "85.0",
+      "sensor": "water",
+      "seconds": "20.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "pressure": "1.0",
+      "flow": "1.5",
+      "limiter": {
+        "value": "0.0",
+        "range": "0.6"
+      }
+    },
+    {
+      "name": "2 bar",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "85.0",
+      "sensor": "water",
+      "seconds": "15.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "pressure": "2.0",
+      "flow": "1.5",
+      "limiter": {
+        "value": "0.0",
+        "range": "0.6"
+      }
+    },
+    {
+      "name": "3 bar",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "85.0",
+      "sensor": "water",
+      "seconds": "15.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "pressure": "3.0",
+      "flow": "1.5",
+      "limiter": {
+        "value": "0.0",
+        "range": "0.6"
+      }
+    },
+    {
+      "name": "4 bar",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "85.0",
+      "sensor": "water",
+      "seconds": "15.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "pressure": "4.0",
+      "flow": "1.5",
+      "limiter": {
+        "value": "0.0",
+        "range": "0.6"
+      }
+    },
+    {
+      "name": "5 bar",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "85.0",
+      "sensor": "water",
+      "seconds": "15.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "pressure": "5.0",
+      "flow": "1.5",
+      "limiter": {
+        "value": "0.0",
+        "range": "0.6"
+      }
+    },
+    {
+      "name": "6 bar",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "85.0",
+      "sensor": "water",
+      "seconds": "15.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "pressure": "6.0",
+      "flow": "1.5",
+      "limiter": {
+        "value": "0.0",
+        "range": "0.6"
+      }
+    },
+    {
+      "name": "7 bar",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "85.0",
+      "sensor": "water",
+      "seconds": "15.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "pressure": "7.0",
+      "flow": "1.5",
+      "limiter": {
+        "value": "0.0",
+        "range": "0.6"
+      }
+    },
+    {
+      "name": "8 bar",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "85.0",
+      "sensor": "water",
+      "seconds": "15.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "pressure": "8.0",
+      "flow": "1.5",
+      "limiter": {
+        "value": "0.0",
+        "range": "0.6"
+      }
+    },
+    {
+      "name": "9 bar",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "85.0",
+      "sensor": "water",
+      "seconds": "15.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "pressure": "9.0",
+      "flow": "1.5",
+      "limiter": {
+        "value": "0.0",
+        "range": "0.6"
+      }
+    }
+  ],
+  "tank_temperature": "0.0",
+  "target_weight": "0.0",
+  "target_volume": "0.0",
+  "target_volume_count_start": "2",
+  "type": "advanced",
+  "hidden": "0"
+}
