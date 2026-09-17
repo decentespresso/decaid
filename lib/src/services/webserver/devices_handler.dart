@@ -6,6 +6,7 @@ class DevicesStateAggregator {
   final ConnectionManager _connectionManager;
   final RememberedDevicesController? _rememberedController;
   final String? Function()? _preferredScaleId;
+  final String? Function()? _preferredGrinderDeviceId;
   final Logger _log = Logger("DevicesStateAggregator");
 
   final List<StreamSubscription> _subscriptions = [];
@@ -27,11 +28,13 @@ class DevicesStateAggregator {
     required ConnectionManager connectionManager,
     RememberedDevicesController? rememberedController,
     String? Function()? preferredScaleId,
+    String? Function()? preferredGrinderDeviceId,
   }) : _controller = controller,
        _batteryController = batteryController,
        _connectionManager = connectionManager,
        _rememberedController = rememberedController,
-       _preferredScaleId = preferredScaleId {
+       _preferredScaleId = preferredScaleId,
+       _preferredGrinderDeviceId = preferredGrinderDeviceId {
     _start();
   }
 
@@ -65,6 +68,12 @@ class DevicesStateAggregator {
     );
     _subscriptions.add(
       _connectionManager.auxiliaryScaleRegistry.changes.skip(1).listen((_) {
+        _updateDeviceSubscriptions(_inventoryDevices());
+        _emitState();
+      }),
+    );
+    _subscriptions.add(
+      _connectionManager.grinderController.connectionState.skip(1).listen((_) {
         _updateDeviceSubscriptions(_inventoryDevices());
         _emitState();
       }),
@@ -134,6 +143,7 @@ class DevicesStateAggregator {
       devices,
       _rememberedController?.remembered ?? const [],
       preferredScaleId: _preferredScaleId?.call(),
+      preferredGrinderDeviceId: _preferredGrinderDeviceId?.call(),
       connectionRoles: _rolesFor(_connectionManager),
     );
 
@@ -178,6 +188,7 @@ class DevicesStateAggregator {
     _controller.devices,
     _connectionManager.scaleController,
     _connectionManager.auxiliaryScaleRegistry,
+    _connectionManager.grinderController,
   );
 
   void dispose() {
@@ -199,6 +210,7 @@ class DevicesHandler {
   final ConnectionManager _connectionManager;
   final RememberedDevicesController? _rememberedController;
   final String? Function()? _preferredScaleId;
+  final String? Function()? _preferredGrinderDeviceId;
   final Logger _log = Logger("Devices handler");
   final DevicesStateAggregator _aggregator;
 
@@ -208,16 +220,19 @@ class DevicesHandler {
     required ConnectionManager connectionManager,
     RememberedDevicesController? rememberedController,
     String? Function()? preferredScaleId,
+    String? Function()? preferredGrinderDeviceId,
   }) : _controller = controller,
        _connectionManager = connectionManager,
        _rememberedController = rememberedController,
        _preferredScaleId = preferredScaleId,
+       _preferredGrinderDeviceId = preferredGrinderDeviceId,
        _aggregator = DevicesStateAggregator(
          controller: controller,
          batteryController: batteryController,
          connectionManager: connectionManager,
          rememberedController: rememberedController,
          preferredScaleId: preferredScaleId,
+         preferredGrinderDeviceId: preferredGrinderDeviceId,
        );
 
   void dispose() {
@@ -280,9 +295,11 @@ class DevicesHandler {
         _controller.devices,
         _connectionManager.scaleController,
         _connectionManager.auxiliaryScaleRegistry,
+        _connectionManager.grinderController,
       ),
       _rememberedController?.remembered ?? const [],
       preferredScaleId: _preferredScaleId?.call(),
+      preferredGrinderDeviceId: _preferredGrinderDeviceId?.call(),
       connectionRoles: _rolesFor(_connectionManager),
     );
   }
@@ -440,6 +457,8 @@ class DevicesHandler {
       await _connectionManager.auxiliaryScaleRegistry.disconnect(
         device.deviceId,
       );
+    } else if (device.type == DeviceType.grinder) {
+      await _connectionManager.disconnectGrinder(device as GrinderDevice);
     } else {
       _connectionManager.markExpectingDisconnect(device.deviceId);
       await device.disconnect();
@@ -603,6 +622,8 @@ class DevicesHandler {
             await _connectionManager.auxiliaryScaleRegistry.disconnect(
               device.deviceId,
             );
+          } else if (device.type == DeviceType.grinder) {
+            await _connectionManager.disconnectGrinder(device as GrinderDevice);
           } else {
             _connectionManager.markExpectingDisconnect(device.deviceId);
             await device.disconnect();
@@ -625,6 +646,7 @@ class DevicesHandler {
       const [],
       _connectionManager.scaleController,
       _connectionManager.auxiliaryScaleRegistry,
+      _connectionManager.grinderController,
     ).any((device) => device.deviceId == deviceId);
     return inventoryOnly
         ? 'Device is inventory-only and cannot be controlled here: $deviceId'
@@ -689,6 +711,8 @@ class DevicesHandler {
         } catch (e) {
           return ConnectionResult.failed(e.toString());
         }
+      case DeviceType.grinder:
+        return _connectionManager.connectGrinder(device as GrinderDevice);
     }
   }
 
@@ -721,6 +745,7 @@ class DevicesHandler {
         DeviceType.machine => ConnectionErrorKind.machineConnectFailed,
         DeviceType.scale => ConnectionErrorKind.scaleConnectFailed,
         DeviceType.sensor => ConnectionErrorKind.sensorConnectFailed,
+        DeviceType.grinder => ConnectionErrorKind.grinderConnectFailed,
       },
       severity: ConnectionErrorSeverity.error,
       timestamp: DateTime.now().toUtc(),
@@ -752,6 +777,7 @@ List<Device> _devicesForInventory(
   List<Device> discoveredDevices,
   ScaleController scaleController,
   AuxiliaryScaleRegistry? auxiliaryScaleRegistry,
+  GrinderController grinderController,
 ) {
   final devices = [...discoveredDevices];
   try {
@@ -763,6 +789,16 @@ List<Device> _devicesForInventory(
     }
   } on DeviceNotConnectedException {
     log.fine('Connected scale is unavailable during inventory assembly');
+  }
+  try {
+    final connectedGrinder = grinderController.connectedGrinder();
+    if (!devices.any(
+      (device) => device.deviceId == connectedGrinder.deviceId,
+    )) {
+      devices.add(connectedGrinder);
+    }
+  } on DeviceNotConnectedException {
+    log.fine('Connected grinder is unavailable during inventory assembly');
   }
   final registry = auxiliaryScaleRegistry;
   if (registry == null) return devices;
@@ -821,6 +857,7 @@ Future<List<Map<String, dynamic>>> buildAvailabilityDeviceList(
   List<Device> liveDevices,
   List<RememberedDevice> remembered, {
   String? preferredScaleId,
+  String? preferredGrinderDeviceId,
   Map<String, String> connectionRoles = const {},
 }) async {
   final entries = <DeviceListEntry>[];
@@ -837,7 +874,13 @@ Future<List<Map<String, dynamic>>> buildAvailabilityDeviceList(
   entries.sort((a, b) {
     final aPref = preferredScaleId != null && a.id == preferredScaleId;
     final bPref = preferredScaleId != null && b.id == preferredScaleId;
-    if (aPref != bPref) return aPref ? -1 : 1;
+    final aGrinderPref =
+        preferredGrinderDeviceId != null && a.id == preferredGrinderDeviceId;
+    final bGrinderPref =
+        preferredGrinderDeviceId != null && b.id == preferredGrinderDeviceId;
+    final aPreferred = aPref || aGrinderPref;
+    final bPreferred = bPref || bGrinderPref;
+    if (aPreferred != bPreferred) return aPreferred ? -1 : 1;
     final byType = a.type.name.compareTo(b.type.name);
     if (byType != 0) return byType;
     return a.id.compareTo(b.id);

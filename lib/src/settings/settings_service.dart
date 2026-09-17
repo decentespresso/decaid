@@ -34,6 +34,8 @@ abstract class SettingsService {
   Future<void> setPreferredMachineId(String? machineId);
   Future<String?> preferredScaleId();
   Future<void> setPreferredScaleId(String? scaleId);
+  Future<String?> preferredGrinderDeviceId();
+  Future<void> setPreferredGrinderDeviceId(String? deviceId);
   Future<String> defaultSkinId();
   Future<void> setDefaultSkinId(String skinId);
   Future<bool> automaticUpdateCheck();
@@ -248,6 +250,23 @@ class SharedPreferencesSettingsService extends SettingsService {
       await prefs.remove(SettingsKeys.preferredScaleId.name);
     } else {
       await prefs.setString(SettingsKeys.preferredScaleId.name, scaleId);
+    }
+  }
+
+  @override
+  Future<String?> preferredGrinderDeviceId() async {
+    return await prefs.getString(SettingsKeys.preferredGrinderDeviceId.name);
+  }
+
+  @override
+  Future<void> setPreferredGrinderDeviceId(String? deviceId) async {
+    if (deviceId == null) {
+      await prefs.remove(SettingsKeys.preferredGrinderDeviceId.name);
+    } else {
+      await prefs.setString(
+        SettingsKeys.preferredGrinderDeviceId.name,
+        deviceId,
+      );
     }
   }
 
@@ -536,6 +555,7 @@ enum SettingsKeys {
   stopHotWaterAtWeight,
   preferredMachineId,
   preferredScaleId,
+  preferredGrinderDeviceId,
   defaultSkinId,
   automaticUpdateCheck,
   updateChannel,

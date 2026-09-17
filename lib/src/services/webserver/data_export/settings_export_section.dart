@@ -45,6 +45,7 @@ class SettingsExportSection implements DataExportSection {
         'devicePreferences': {
           'preferredMachineId': _controller.preferredMachineId,
           'preferredScaleId': _controller.preferredScaleId,
+          'preferredGrinderDeviceId': _controller.preferredGrinderDeviceId,
         },
       }),
     );
@@ -238,6 +239,12 @@ class SettingsExportSection implements DataExportSection {
         if (devicePrefs.containsKey('preferredScaleId')) {
           await _controller.setPreferredScaleId(
             devicePrefs['preferredScaleId'] as String?,
+          );
+          imported++;
+        }
+        if (devicePrefs.containsKey('preferredGrinderDeviceId')) {
+          await _controller.setPreferredGrinderDeviceId(
+            devicePrefs['preferredGrinderDeviceId'] as String?,
           );
           imported++;
         }

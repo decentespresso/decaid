@@ -819,6 +819,10 @@ class PluginManager {
           try {
             const handlerResult = operation === "connect"
               ? handler(entry.connectTransport(invocationId, payload))
+              : operation === "setGrindSetting"
+              ? handler(payload.setting)
+              : operation === "setRpm"
+              ? handler(payload.rpm)
               : handler(payload);
             const promise = __nativeReflectApply(
               __nativePromiseResolve,
@@ -1336,7 +1340,8 @@ class PluginManager {
             );
           }
           final driver = declarations.single;
-          if (driver.type == PluginDriverType.scale) {
+          if (driver.type == PluginDriverType.scale ||
+              driver.type == PluginDriverType.grinder) {
             final requiredHandlers = {
               'connect',
               'disconnect',
@@ -1355,6 +1360,20 @@ class PluginManager {
                 'sleepDisplay',
                 'wakeDisplay',
               ],
+              if (driver.grinderCapabilities.contains(
+                PluginGrinderCapability.startStop,
+              )) ...[
+                'start',
+                'stop',
+              ],
+              if (driver.grinderCapabilities.contains(
+                PluginGrinderCapability.grindSetting,
+              ))
+                'setGrindSetting',
+              if (driver.grinderCapabilities.contains(
+                PluginGrinderCapability.rpmControl,
+              ))
+                'setRpm',
             };
             for (final operation in PluginDeviceOperation.values) {
               final present =
@@ -1367,7 +1386,7 @@ class PluginManager {
                   'true';
               if (present != requiredHandlers.contains(operation.name)) {
                 throw PluginDeviceException(
-                  'Scale handler ${operation.name} does not match declared capabilities',
+                  '${driver.type.name} handler ${operation.name} does not match declared capabilities',
                   code: 'invalid_argument',
                 );
               }
@@ -2115,7 +2134,7 @@ class PluginManager {
             : () => rejectPermission("transport.ble"),
           register(definition, handlers) {
             const driver = definition && declaredDrivers.find((entry) => entry.id === definition.driverId);
-            if (!driver || (driver.type !== "sensor" && driver.type !== "scale")) {
+            if (!driver || !["sensor", "scale", "grinder"].includes(driver.type)) {
               return Promise.reject(new Error("Device driver is not declared by this plugin"));
             }
             if (!handlers || typeof handlers.connect !== "function" ||

@@ -8,6 +8,7 @@ import 'plugin_ble_session.dart';
 import 'plugin_bound_sensor.dart';
 import 'plugin_device_contract.dart';
 import 'plugin_manifest.dart';
+import 'plugin_grinder.dart';
 import 'plugin_scale.dart';
 
 class PluginBleBinding {
@@ -44,27 +45,38 @@ class PluginBleBinding {
   }) {
     final publicId =
         'plugin:${driver.pluginId}:${driver.declaration.id}:$physicalId';
-    device = driver.declaration.type == PluginDriverType.sensor
-        ? PluginBoundSensor(
-            deviceId: publicId,
-            name: name,
-            invoke: invoke,
-            transportType: TransportType.ble,
-            prepareConnection: prepareConnection,
-            onReady: () => _session!.markReady(),
-            invocationTimeout: invocationTimeout,
-            definition: definition,
-          )
-        : PluginScale(
-            deviceId: publicId,
-            name: name,
-            invoke: invoke,
-            transportType: TransportType.ble,
-            prepareConnection: prepareConnection,
-            onReady: () => _session!.markReady(),
-            invocationTimeout: invocationTimeout,
-            capabilities: driver.declaration.capabilities,
-          );
+    device = switch (driver.declaration.type) {
+      PluginDriverType.sensor => PluginBoundSensor(
+        deviceId: publicId,
+        name: name,
+        invoke: invoke,
+        transportType: TransportType.ble,
+        prepareConnection: prepareConnection,
+        onReady: () => _session!.markReady(),
+        invocationTimeout: invocationTimeout,
+        definition: definition,
+      ),
+      PluginDriverType.scale => PluginScale(
+        deviceId: publicId,
+        name: name,
+        invoke: invoke,
+        transportType: TransportType.ble,
+        prepareConnection: prepareConnection,
+        onReady: () => _session!.markReady(),
+        invocationTimeout: invocationTimeout,
+        capabilities: driver.declaration.capabilities,
+      ),
+      PluginDriverType.grinder => PluginGrinder(
+        deviceId: publicId,
+        name: name,
+        invoke: invoke,
+        transportType: TransportType.ble,
+        prepareConnection: prepareConnection,
+        onReady: () => _session!.markReady(),
+        invocationTimeout: invocationTimeout,
+        capabilities: driver.declaration.grinderCapabilities,
+      ),
+    };
   }
 
   bool get occupied =>

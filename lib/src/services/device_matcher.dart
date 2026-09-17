@@ -41,6 +41,7 @@ class DeviceMatcher {
       DecentTemp.serviceIdentifier.long,
       DifluidR2Sensor.serviceIdentifier.long,
     ],
+    DeviceType.grinder => const [],
   };
 
   static DeviceImplementation? implementationForName(String advertisedName) {

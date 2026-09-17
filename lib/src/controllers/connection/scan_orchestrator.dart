@@ -10,6 +10,7 @@ import 'package:reaprime/src/controllers/connection_manager.dart'
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/device_scanner.dart';
+import 'package:reaprime/src/models/device/grinder_device.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/scan_filter.dart';
@@ -20,11 +21,14 @@ class ScanRunResult {
 
   final List<Scale> scales;
 
+  final List<GrinderDevice> grinders;
+
   final ScanReportBuilder reportBuilder;
 
   const ScanRunResult({
     required this.machines,
     required this.scales,
+    required this.grinders,
     required this.reportBuilder,
   });
 }
@@ -109,6 +113,7 @@ class ScanOrchestrator {
 
     final machines = allDevices.whereType<De1Interface>().toList();
     final scales = allDevices.whereType<Scale>().toList();
+    final grinders = allDevices.whereType<GrinderDevice>().toList();
 
     _log.fine(
       'Scan complete: ${machines.length} machines, ${scales.length} scales',
@@ -117,6 +122,7 @@ class ScanOrchestrator {
     return ScanRunResult(
       machines: machines,
       scales: scales,
+      grinders: grinders,
       reportBuilder: reportBuilder,
     );
   }

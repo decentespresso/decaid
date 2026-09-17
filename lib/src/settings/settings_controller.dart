@@ -42,6 +42,8 @@ class SettingsController with ChangeNotifier {
 
   String? _preferredScaleId;
 
+  String? _preferredGrinderDeviceId;
+
   String _defaultSkinId = 'streamline.js';
 
   bool _automaticUpdateCheck = true;
@@ -87,6 +89,7 @@ class SettingsController with ChangeNotifier {
   bool get stopHotWaterAtWeight => _stopHotWaterAtWeight;
   String? get preferredMachineId => _preferredMachineId;
   String? get preferredScaleId => _preferredScaleId;
+  String? get preferredGrinderDeviceId => _preferredGrinderDeviceId;
   String get defaultSkinId => _defaultSkinId;
   bool get automaticUpdateCheck => _automaticUpdateCheck;
   UpdateChannel get updateChannel => _updateChannel;
@@ -127,6 +130,8 @@ class SettingsController with ChangeNotifier {
     _stopHotWaterAtWeight = await _settingsService.stopHotWaterAtWeight();
     _preferredMachineId = await _settingsService.preferredMachineId();
     _preferredScaleId = await _settingsService.preferredScaleId();
+    _preferredGrinderDeviceId = await _settingsService
+        .preferredGrinderDeviceId();
     _defaultSkinId = await _settingsService.defaultSkinId();
     _automaticUpdateCheck = await _settingsService.automaticUpdateCheck();
     _updateChannel = await _settingsService.updateChannel();
@@ -323,6 +328,13 @@ class SettingsController with ChangeNotifier {
     }
     _preferredScaleId = scaleId;
     await _settingsService.setPreferredScaleId(scaleId);
+    notifyListeners();
+  }
+
+  Future<void> setPreferredGrinderDeviceId(String? deviceId) async {
+    if (deviceId == _preferredGrinderDeviceId) return;
+    _preferredGrinderDeviceId = deviceId;
+    await _settingsService.setPreferredGrinderDeviceId(deviceId);
     notifyListeners();
   }
 

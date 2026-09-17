@@ -10,6 +10,7 @@ import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:rxdart/rxdart.dart';
 import 'plugin_device_contract.dart';
 import 'plugin_manifest.dart';
+import 'plugin_grinder.dart';
 import 'plugin_scale.dart';
 export 'plugin_device_contract.dart';
 
@@ -113,7 +114,9 @@ class PluginDeviceService implements DeviceDiscoveryService {
     final driverId = _requiredSafeString(definition, 'driverId');
     final instanceId = _requiredSafeString(definition, 'instanceId');
     final name = _requiredString(definition, 'name');
-    final vendor = driver?.type == PluginDriverType.scale
+    final vendor =
+        driver?.type == PluginDriverType.scale ||
+            driver?.type == PluginDriverType.grinder
         ? ''
         : _requiredString(definition, 'vendor');
     final key = (pluginId, generation, registrationHandle);
@@ -133,22 +136,30 @@ class PluginDeviceService implements DeviceDiscoveryService {
     if (_registrations.values.any((sensor) => sensor.deviceId == deviceId)) {
       throw PluginDeviceException('Device already registered: $deviceId');
     }
-    final PluginDeviceAdapter sensor = driver?.type == PluginDriverType.scale
-        ? PluginScale(
-            deviceId: deviceId,
-            name: name,
-            capabilities: driver!.capabilities,
-            invoke: invoke,
-            invocationTimeout: scaleInvocationTimeout,
-          )
-        : _PluginSensor(
-            deviceId: deviceId,
-            name: name,
-            vendor: vendor,
-            dataChannels: parsePluginDataChannels(definition['dataChannels']),
-            commands: parsePluginCommands(definition['commands']),
-            invoke: invoke,
-          );
+    final PluginDeviceAdapter sensor = switch (driver?.type) {
+      PluginDriverType.scale => PluginScale(
+        deviceId: deviceId,
+        name: name,
+        capabilities: driver!.capabilities,
+        invoke: invoke,
+        invocationTimeout: scaleInvocationTimeout,
+      ),
+      PluginDriverType.grinder => PluginGrinder(
+        deviceId: deviceId,
+        name: name,
+        capabilities: driver!.grinderCapabilities,
+        invoke: invoke,
+        invocationTimeout: scaleInvocationTimeout,
+      ),
+      _ => _PluginSensor(
+        deviceId: deviceId,
+        name: name,
+        vendor: vendor,
+        dataChannels: parsePluginDataChannels(definition['dataChannels']),
+        commands: parsePluginCommands(definition['commands']),
+        invoke: invoke,
+      ),
+    };
     _registrations[key] = sensor;
     _publishDevices();
     return PluginDeviceRegistration(deviceId: deviceId);

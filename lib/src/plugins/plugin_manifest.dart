@@ -20,7 +20,7 @@ String pluginSettingLabel(String key, dynamic schema) {
   return trimmed.isEmpty ? key : trimmed;
 }
 
-enum PluginDriverType { sensor, scale }
+enum PluginDriverType { sensor, scale, grinder }
 
 enum PluginScaleCapability {
   battery,
@@ -31,6 +31,8 @@ enum PluginScaleCapability {
   displayControl,
   disconnectToSleep,
 }
+
+enum PluginGrinderCapability { startStop, grindSetting, rpmControl }
 
 List<PluginDriverDeclaration> parsePluginDrivers(dynamic json) {
   if (json == null) return const [];
@@ -55,12 +57,14 @@ class PluginDriverDeclaration {
   final PluginDriverType type;
   final PluginBleMatcher? ble;
   final Set<PluginScaleCapability> capabilities;
+  final Set<PluginGrinderCapability> grinderCapabilities;
 
   const PluginDriverDeclaration({
     required this.id,
     required this.type,
     this.ble,
     this.capabilities = const {},
+    this.grinderCapabilities = const {},
   });
 
   factory PluginDriverDeclaration.fromJson(dynamic json) {
@@ -79,18 +83,31 @@ class PluginDriverDeclaration {
     if (rawCapabilities is! List ||
         rawCapabilities.any((value) => value is! String) ||
         rawCapabilities.toSet().length != rawCapabilities.length ||
-        (type != PluginDriverType.scale && rawCapabilities.isNotEmpty)) {
+        (type == PluginDriverType.sensor && rawCapabilities.isNotEmpty)) {
       throw const FormatException('Invalid driver capabilities');
     }
-    final capabilities = rawCapabilities.map((value) {
-      final capability = PluginScaleCapability.values.firstWhereOrNull(
-        (capability) => capability.name == value,
-      );
-      if (capability == null) {
-        throw const FormatException('Unknown Scale capability');
-      }
-      return capability;
-    }).toSet();
+    final capabilities = type == PluginDriverType.scale
+        ? rawCapabilities.map((value) {
+            final capability = PluginScaleCapability.values.firstWhereOrNull(
+              (capability) => capability.name == value,
+            );
+            if (capability == null) {
+              throw const FormatException('Unknown Scale capability');
+            }
+            return capability;
+          }).toSet()
+        : const <PluginScaleCapability>{};
+    final grinderCapabilities = type == PluginDriverType.grinder
+        ? rawCapabilities.map((value) {
+            final capability = PluginGrinderCapability.values.firstWhereOrNull(
+              (capability) => capability.name == value,
+            );
+            if (capability == null) {
+              throw const FormatException('Unknown Grinder capability');
+            }
+            return capability;
+          }).toSet()
+        : const <PluginGrinderCapability>{};
     if (capabilities.contains(PluginScaleCapability.displayControl) &&
         capabilities.contains(PluginScaleCapability.disconnectToSleep)) {
       throw const FormatException('Scale display sleep capabilities conflict');
@@ -110,14 +127,20 @@ class PluginDriverDeclaration {
       type: type,
       ble: ble,
       capabilities: Set.unmodifiable(capabilities),
+      grinderCapabilities: Set.unmodifiable(grinderCapabilities),
     );
   }
 
   Map<String, dynamic> toJson() => {
     'id': id,
     'type': type.name,
-    if (capabilities.isNotEmpty)
-      'capabilities': capabilities.map((value) => value.name).toList(),
+    if (capabilities.isNotEmpty || grinderCapabilities.isNotEmpty)
+      'capabilities':
+          (type == PluginDriverType.grinder
+                  ? grinderCapabilities
+                  : capabilities)
+              .map((value) => value.name)
+              .toList(),
     if (ble != null) 'ble': {'match': ble!.toJson()},
   };
 }
