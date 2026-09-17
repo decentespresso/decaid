@@ -197,6 +197,27 @@ void main() {
       });
     });
 
+    group('splitList', () {
+      test('splits a plain Tcl list', () {
+        expect(TclParser.splitList('Coarse Fine Medium'), [
+          'Coarse',
+          'Fine',
+          'Medium',
+        ]);
+      });
+
+      test('keeps braced elements that contain spaces intact', () {
+        expect(TclParser.splitList('{Extra Fine} Medium'), [
+          'Extra Fine',
+          'Medium',
+        ]);
+      });
+
+      test('returns an empty list for an empty string', () {
+        expect(TclParser.splitList(''), isEmpty);
+      });
+    });
+
     group('full .tdb fixture file', () {
       late Map<String, dynamic> parsed;
 
@@ -221,9 +242,9 @@ void main() {
         expect(parsed['Niche Zero'], isA<Map>());
       });
 
-      test('Niche Zero setting_type is numeric', () {
+      test('Niche Zero is_numeric is 1', () {
         final niche = parsed['Niche Zero'] as Map;
-        expect(niche['setting_type'], equals('numeric'));
+        expect(niche['is_numeric'], equals('1'));
       });
 
       test('Niche Zero small_step is 1', () {
@@ -231,19 +252,17 @@ void main() {
         expect(niche['small_step'], equals('1'));
       });
 
-      test('Niche Zero burrs is a string', () {
-        final niche = parsed['Niche Zero'] as Map;
-        expect(niche['burrs'], equals('63mm conical'));
-      });
-
       test('Eureka Mignon small_step is 0.5', () {
         final eureka = parsed['Eureka Mignon'] as Map;
         expect(eureka['small_step'], equals('0.5'));
       });
 
-      test('Eureka Mignon burrs is a string', () {
-        final eureka = parsed['Eureka Mignon'] as Map;
-        expect(eureka['burrs'], equals('55mm flat'));
+      test('Baratza Encore values keeps its three settings', () {
+        final encore = parsed['Baratza Encore'] as Map;
+        expect(
+          TclParser.splitList(encore['values'].toString()),
+          equals(['Coarse', 'Fine', 'Medium']),
+        );
       });
     });
   });

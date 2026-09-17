@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:reaprime/src/controllers/scale_controller.dart';
+import 'package:reaprime/src/import/parsers/enjoyment_scale.dart';
 import 'package:reaprime/src/import/parsers/shot_v2_json_parser.dart';
 import 'package:reaprime/src/import/parsers/tcl_parser.dart';
 import 'package:reaprime/src/models/data/profile.dart';
@@ -59,7 +60,9 @@ class TclShotParser {
         actualYield;
     final tds = _parseOptDouble(settings['drink_tds']);
     final ey = _parseOptDouble(settings['drink_ey']);
-    final enjoyment = _parseOptDouble(settings['espresso_enjoyment']);
+    final enjoyment = rescaleDe1appEnjoyment(
+      _parseOptDouble(settings['espresso_enjoyment']),
+    );
     final espressoNotes = _str(settings['espresso_notes']);
 
     final annotations = ShotAnnotations(

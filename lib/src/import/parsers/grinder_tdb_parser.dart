@@ -11,13 +11,15 @@ class GrinderTdbParser {
       final specs = entry.value;
       if (specs is! Map<String, dynamic>) continue;
 
+      final isNumeric = specs['is_numeric']?.toString() != '0';
+
       grinders.add(
         Grinder.create(
           model: model,
-          burrs: specs['burrs']?.toString(),
-          settingType: specs['setting_type']?.toString() == 'numeric'
+          settingType: isNumeric
               ? GrinderSettingType.numeric
               : GrinderSettingType.preset,
+          settingValues: isNumeric ? null : _stringList(specs['values']),
           settingSmallStep: double.tryParse(
             specs['small_step']?.toString() ?? '',
           ),
@@ -27,5 +29,20 @@ class GrinderTdbParser {
     }
 
     return grinders;
+  }
+
+  static List<String>? _stringList(dynamic value) {
+    final values = switch (value) {
+      List() => value.map((v) => v.toString()).toList(),
+      Map() => [
+        for (final entry in value.entries) ...[
+          entry.key.toString(),
+          entry.value.toString(),
+        ],
+      ],
+      String() => TclParser.splitList(value),
+      _ => const <String>[],
+    };
+    return values.isEmpty ? null : values;
   }
 }

@@ -4,6 +4,10 @@ class TclParser {
     final _Parser parser = _Parser(lines);
     return parser.parseBlock(endMarker: null);
   }
+
+  static List<String> splitList(String input) {
+    return _Parser(const [])._tokenise(input).map((t) => t.value).toList();
+  }
 }
 
 class _Parser {

@@ -7080,6 +7080,11 @@ components:
         enjoyment:
           type: number
           nullable: true
+          minimum: 0
+          maximum: 5
+          description: >-
+            Subjective rating on a 0-5 scale. de1app records this as
+            espresso_enjoyment on a 0-100 scale; the de1app importer rescales it.
         espressoNotes:
           type: string
           nullable: true

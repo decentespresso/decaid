@@ -101,6 +101,7 @@ class EntityExtractor {
         byModel[key] = byModel[key]!.copyWith(
           burrs: dye.burrs,
           settingType: dye.settingType,
+          settingValues: dye.settingValues,
           settingSmallStep: dye.settingSmallStep,
           settingBigStep: dye.settingBigStep,
         );

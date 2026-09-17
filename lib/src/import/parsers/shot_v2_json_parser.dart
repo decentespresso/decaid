@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:reaprime/src/controllers/scale_controller.dart';
+import 'package:reaprime/src/import/parsers/enjoyment_scale.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/data/shot_annotations.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
@@ -102,9 +103,10 @@ class ShotV2JsonParser {
     final ey =
         parse_utils.parseOptionalDouble(metaShot?['ey']) ??
         parse_utils.parseOptionalDouble(settings['drink_ey']);
-    final enjoyment =
-        parse_utils.parseOptionalDouble(metaShot?['enjoyment']) ??
-        parse_utils.parseOptionalDouble(settings['espresso_enjoyment']);
+    final enjoyment = rescaleDe1appEnjoyment(
+      parse_utils.parseOptionalDouble(metaShot?['enjoyment']) ??
+          parse_utils.parseOptionalDouble(settings['espresso_enjoyment']),
+    );
     final espressoNotes =
         _str(metaShot?['notes']) ?? _str(settings['espresso_notes']);
 
