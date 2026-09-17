@@ -438,30 +438,28 @@ class DevicesHandler {
   };
 
   Future<Response> _handleDisconnect(Request req) async {
-    final devices = _controller.devices;
     final deviceId = await _extractDeviceId(req);
     if (deviceId == null) {
       return jsonBadRequest({'error': 'Missing deviceId'});
     }
-    final device = devices.firstWhereOrNull((e) => e.deviceId == deviceId);
+    final device = _findDisconnectTarget(deviceId);
     if (device == null) {
       if (_connectionManager.auxiliaryScaleRegistry.isReserved(deviceId)) {
-        await _connectionManager.auxiliaryScaleRegistry.disconnect(deviceId);
-        return jsonOk(null);
+        try {
+          await _connectionManager.auxiliaryScaleRegistry.disconnect(deviceId);
+          return jsonOk(null);
+        } catch (error) {
+          return jsonError({'error': 'Disconnect failed: $error'});
+        }
       }
       final error = _inventoryOnlyCommandError(deviceId);
       if (error != null) return jsonConflict({'error': error});
       return jsonNotFound({'error': 'Device not found: $deviceId'});
     }
-    if (_connectionManager.auxiliaryScaleRegistry.isReserved(device.deviceId)) {
-      await _connectionManager.auxiliaryScaleRegistry.disconnect(
-        device.deviceId,
-      );
-    } else if (device.type == DeviceType.grinder) {
-      await _connectionManager.disconnectGrinder(device as GrinderDevice);
-    } else {
-      _connectionManager.markExpectingDisconnect(device.deviceId);
-      await device.disconnect();
+    try {
+      await _disconnectTarget(device);
+    } catch (error) {
+      return jsonError({'error': 'Disconnect failed: $error'});
     }
 
     return jsonOk(null);
@@ -592,9 +590,7 @@ class DevicesHandler {
           );
           return;
         }
-        final device = _controller.devices.firstWhereOrNull(
-          (e) => e.deviceId == deviceId,
-        );
+        final device = _findDisconnectTarget(deviceId);
         if (device == null) {
           if (_connectionManager.auxiliaryScaleRegistry.isReserved(deviceId)) {
             try {
@@ -616,24 +612,39 @@ class DevicesHandler {
           return;
         }
         try {
-          if (_connectionManager.auxiliaryScaleRegistry.isReserved(
-            device.deviceId,
-          )) {
-            await _connectionManager.auxiliaryScaleRegistry.disconnect(
-              device.deviceId,
-            );
-          } else if (device.type == DeviceType.grinder) {
-            await _connectionManager.disconnectGrinder(device as GrinderDevice);
-          } else {
-            _connectionManager.markExpectingDisconnect(device.deviceId);
-            await device.disconnect();
-          }
+          await _disconnectTarget(device);
         } catch (e) {
           socket.sink.add(jsonEncode({'error': 'Disconnect failed: $e'}));
         }
 
       default:
         socket.sink.add(jsonEncode({'error': 'Unknown command: $command'}));
+    }
+  }
+
+  Device? _findDisconnectTarget(String deviceId) {
+    final discovered = _controller.devices.firstWhereOrNull(
+      (device) => device.deviceId == deviceId,
+    );
+    if (discovered != null) return discovered;
+    try {
+      final grinder = _connectionManager.grinderController.connectedGrinder();
+      return grinder.deviceId == deviceId ? grinder : null;
+    } on DeviceNotConnectedException {
+      return null;
+    }
+  }
+
+  Future<void> _disconnectTarget(Device device) async {
+    if (_connectionManager.auxiliaryScaleRegistry.isReserved(device.deviceId)) {
+      await _connectionManager.auxiliaryScaleRegistry.disconnect(
+        device.deviceId,
+      );
+    } else if (device.type == DeviceType.grinder) {
+      await _connectionManager.disconnectGrinder(device as GrinderDevice);
+    } else {
+      _connectionManager.markExpectingDisconnect(device.deviceId);
+      await device.disconnect();
     }
   }
 

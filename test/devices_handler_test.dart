@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/errors.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 import 'package:reaprime/src/controllers/connection_error.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
@@ -64,9 +65,9 @@ void main() {
     handler = app.call;
   });
 
-  tearDown(() {
+  tearDown(() async {
     devicesHandler.dispose();
-    connectionManager.dispose();
+    await connectionManager.dispose();
     deviceController.dispose();
   });
 
@@ -338,6 +339,65 @@ void main() {
     });
 
     group('disconnect', () {
+      test('disconnects a selected grinder after discovery loses it', () async {
+        final grinder = TestGrinder(deviceId: 'selected');
+        addTearDown(grinder.dispose);
+        mockDiscovery.addDevice(grinder);
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          (await connectionManager.connectGrinder(grinder)).success,
+          isTrue,
+        );
+        mockDiscovery.removeDevice(grinder.deviceId);
+        await Future<void>.delayed(Duration.zero);
+
+        final inventoryResponse = await sendGet('/api/v1/devices');
+        final inventory = jsonDecode(await inventoryResponse.readAsString());
+        expect(
+          (inventory as List).any((device) => device['id'] == grinder.deviceId),
+          isTrue,
+        );
+
+        final response = await sendPut(
+          '/api/v1/devices/disconnect',
+          body: jsonEncode({'deviceId': grinder.deviceId}),
+        );
+
+        expect(response.statusCode, 200);
+        expect(grinder.disconnectCalls, 1);
+        expect(
+          connectionManager.grinderController.connectedGrinder,
+          throwsA(isA<DeviceNotConnectedException>()),
+        );
+      });
+
+      test('reports selected grinder disconnect failures', () async {
+        final grinder = TestGrinder(
+          deviceId: 'selected',
+          disconnectError: StateError('disconnect failed'),
+        );
+        addTearDown(grinder.dispose);
+        mockDiscovery.addDevice(grinder);
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          (await connectionManager.connectGrinder(grinder)).success,
+          isTrue,
+        );
+
+        final response = await sendPut(
+          '/api/v1/devices/disconnect',
+          body: jsonEncode({'deviceId': grinder.deviceId}),
+        );
+        final body = jsonDecode(await response.readAsString());
+
+        expect(response.statusCode, 500);
+        expect(body['error'], contains('disconnect failed'));
+        expect(
+          connectionManager.grinderController.connectedGrinder,
+          throwsA(isA<DeviceNotConnectedException>()),
+        );
+      });
+
       test(
         'disconnects the requested grinder instead of the selected one',
         () async {

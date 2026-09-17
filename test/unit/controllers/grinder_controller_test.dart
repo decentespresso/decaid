@@ -88,6 +88,67 @@ void main() {
   });
 
   test(
+    'explicit disconnect reports failure after clearing selection',
+    () async {
+      final controller = GrinderController();
+      final failure = StateError('disconnect failed');
+      final grinder = TestGrinder(deviceId: 'one', disconnectError: failure);
+      addTearDown(() async {
+        await controller.dispose();
+        await grinder.dispose();
+      });
+      await controller.connectToGrinder(grinder);
+      grinder.emit(GrinderState.idle);
+      await Future<void>.delayed(Duration.zero);
+
+      await expectLater(controller.disconnect(), throwsA(same(failure)));
+
+      expect(controller.currentSnapshot, isNull);
+      expect(controller.currentConnectionState, ConnectionState.disconnected);
+      expect(
+        controller.connectedGrinder,
+        throwsA(isA<DeviceNotConnectedException>()),
+      );
+    },
+  );
+
+  test('replacement ignores failure while retiring the old grinder', () async {
+    final controller = GrinderController();
+    final old = TestGrinder(
+      deviceId: 'old',
+      disconnectError: StateError('retirement failed'),
+    );
+    final replacement = TestGrinder(deviceId: 'replacement');
+    addTearDown(() async {
+      await controller.dispose();
+      await old.dispose();
+      await replacement.dispose();
+    });
+    await controller.connectToGrinder(old);
+
+    await controller.connectToGrinder(replacement);
+
+    expect(old.disconnectCalls, 1);
+    expect(controller.connectedGrinder(), same(replacement));
+  });
+
+  test('dispose closes streams when grinder disconnect fails', () async {
+    final controller = GrinderController();
+    final grinder = TestGrinder(
+      deviceId: 'one',
+      disconnectError: StateError('disconnect failed'),
+    );
+    addTearDown(grinder.dispose);
+    await controller.connectToGrinder(grinder);
+    final snapshotsDone = controller.snapshots.drain<void>();
+    final connectionDone = controller.connectionState.drain<void>();
+
+    await controller.dispose();
+
+    await Future.wait([snapshotsDone, connectionDone]);
+  });
+
+  test(
     'replacement cancels a pending grinder and does not report success',
     () async {
       final controller = GrinderController();
@@ -350,7 +411,11 @@ void main() {
         connectTimeout: const Duration(milliseconds: 10),
       );
       final gate = Completer<void>();
-      final grinder = TestGrinder(deviceId: 'late', connectGate: gate);
+      final grinder = TestGrinder(
+        deviceId: 'late',
+        connectGate: gate,
+        disconnectError: StateError('cleanup failed'),
+      );
       addTearDown(() async {
         await fixture.dispose();
         await grinder.dispose();

@@ -72,12 +72,12 @@ class GrinderController {
     try {
       await _cancelSubscriptions();
       if (pending != null && !identical(pending, grinder)) {
-        await _disconnectOnce(pending);
+        await _disconnectQuietly(pending);
       }
       if (previous != null &&
           !identical(previous, grinder) &&
           !identical(previous, pending)) {
-        await _disconnectOnce(previous);
+        await _disconnectQuietly(previous);
       }
       final teardown = _teardowns[grinder];
       if (teardown != null) await teardown;
@@ -108,7 +108,7 @@ class GrinderController {
     } catch (error, stackTrace) {
       if (generation == _generation) {
         await _cancelSubscriptions();
-        await _disconnectOnce(grinder);
+        await _disconnectQuietly(grinder);
         if (generation == _generation) {
           _pendingGrinder = null;
           _grinder = null;
@@ -153,7 +153,7 @@ class GrinderController {
 
   Future<void> _disconnectQuietly(GrinderDevice grinder) async {
     try {
-      await grinder.disconnect();
+      await _disconnectOnce(grinder);
     } catch (error) {
       _log.warning('Failed to disconnect grinder ${grinder.deviceId}', error);
     }
@@ -163,7 +163,7 @@ class GrinderController {
     final existing = _teardowns[grinder];
     if (existing != null) return existing;
     late final Future<void> teardown;
-    teardown = _disconnectQuietly(grinder).whenComplete(() {
+    teardown = Future.sync(grinder.disconnect).whenComplete(() {
       if (identical(_teardowns[grinder], teardown)) {
         _teardowns.remove(grinder);
       }
@@ -197,10 +197,12 @@ class GrinderController {
     if (!identical(_grinder, grinder) && !identical(_pendingGrinder, grinder)) {
       return;
     }
-    await disconnect();
+    await _disconnect(reportFailure: false);
   }
 
-  Future<void> disconnect() async {
+  Future<void> disconnect() => _disconnect(reportFailure: true);
+
+  Future<void> _disconnect({required bool reportFailure}) async {
     final grinder = _grinder;
     final pending = _pendingGrinder;
     final generation = ++_generation;
@@ -208,13 +210,15 @@ class GrinderController {
     _pendingGrinder = null;
     _currentSnapshot = null;
     final teardowns = <Future<void>>[
-      if (pending != null) _disconnectOnce(pending),
+      if (pending != null)
+        reportFailure ? _disconnectOnce(pending) : _disconnectQuietly(pending),
       if (grinder != null && !identical(grinder, pending))
-        _disconnectOnce(grinder),
+        reportFailure ? _disconnectOnce(grinder) : _disconnectQuietly(grinder),
     ];
-    await _cancelSubscriptions();
+    final teardown = Future.wait(teardowns);
+    final subscriptions = _cancelSubscriptions();
     try {
-      await Future.wait(teardowns);
+      await Future.wait([teardown, subscriptions]);
     } finally {
       if (generation == _generation &&
           _grinder == null &&
@@ -227,8 +231,11 @@ class GrinderController {
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
-    await disconnect();
-    await _snapshots.close();
-    await _connectionState.close();
+    try {
+      await _disconnect(reportFailure: false);
+    } finally {
+      await _snapshots.close();
+      await _connectionState.close();
+    }
   }
 }

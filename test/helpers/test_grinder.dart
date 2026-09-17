@@ -12,6 +12,7 @@ class TestGrinder implements GrinderDevice {
     this.connectGate,
     this.disconnectGate,
     this.connectError,
+    this.disconnectError,
     this.emitInitialSnapshot = false,
   });
 
@@ -20,6 +21,7 @@ class TestGrinder implements GrinderDevice {
   final Completer<void>? connectGate;
   final Completer<void>? disconnectGate;
   final Object? connectError;
+  final Object? disconnectError;
   final bool emitInitialSnapshot;
   final BehaviorSubject<ConnectionState> _connection = BehaviorSubject.seeded(
     ConnectionState.discovered,
@@ -69,6 +71,8 @@ class TestGrinder implements GrinderDevice {
   Future<void> disconnect() async {
     disconnectCalls++;
     await disconnectGate?.future;
+    final error = disconnectError;
+    if (error != null) throw error;
     _connection.add(ConnectionState.disconnected);
   }
 

@@ -259,6 +259,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "500":
+          description: >
+            Device disconnect failed. A selected grinder clears local
+            controller state before the failure is reported.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /api/v1/devices/wifi:
     get:
