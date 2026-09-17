@@ -5,7 +5,7 @@ Read this when changing REST endpoints, WebSocket topics, API specs, auth proxy,
 ## Source Of Truth
 
 - REST spec: `assets/api/rest_v1.yml` (OpenAPI 3.0). Always read before making calls.
-- WebSocket spec: `assets/api/websocket_v1.yml` (AsyncAPI 3.0).
+- WebSocket spec: `assets/api/websocket_v1.yml` (AsyncAPI 3.1.0).
 - Full endpoint reference: `doc/Api.md`.
 - Handler implementations: `lib/src/services/webserver/`.
 - Router registration: `lib/src/services/webserver/webserver_service.dart` `_init()`.
