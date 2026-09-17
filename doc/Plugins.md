@@ -119,7 +119,7 @@ A Decaid plugin consists of two required files:
   - `network.websocket`: Open outbound WebSocket connections (`ws://` and `wss://`) through `host.transport`
   - `network.tcp`: Open outbound raw TCP connections through `host.transport`
   - `network.tls`: Open outbound TLS connections (platform trust store) through `host.transport`
-- **drivers**: Device classes the plugin may register. Each declaration has a plugin-local `id` and a `type`. The only currently supported type is `sensor`. A manifest may declare at most 8 drivers. Driver declarations authorize registration; they do not grant transport access. For example, a WebSocket-backed sensor also needs `network.websocket`.
+- **drivers**: Device classes the plugin may register. Each declaration has a plugin-local `id` and a `type`: `sensor`, `scale`, or `grinder`. A manifest may declare at most 8 drivers. Driver declarations authorize registration; they do not grant transport access. For example, a WebSocket-backed device also needs `network.websocket`.
 - **settings**: User-configurable options with `type` (`string`, `number`, `boolean`, `enum`), an optional `label` giving the setting a human-friendly name, an optional `description` explaining what the setting does, an optional `default`, and an optional `secure` flag for credentials such as passwords. Enum `values` are a JSON array of strings. Secure values use platform credential storage, are supplied in memory to `onLoad(settings)`, and are never returned by the REST API.
 
   `GET /api/v1/plugins` returns this schema verbatim under `settings`, so a skin can render a settings form — labels, help text and defaults included — without reading the plugin's repository. `GET /api/v1/plugins/:id/settings` returns the stored values only.
@@ -359,11 +359,10 @@ const upload = await fetch("https://api.example.com/upload", {
 
 ## BLE Declaration Work in Progress (#809)
 
-Manifest parsing accepts the separate `transport.ble` permission, `scale`
-driver type, Scale capabilities, and one `ble.match` declaration per plugin.
-This branch does not yet implement runtime BLE binding. Public non-BLE Scale
-registration is available as described below; end-to-end API and timing
-acceptance remain in progress.
+Manifest parsing accepts the separate `transport.ble` permission, `scale` and
+`grinder` driver types, their type-specific capabilities, and one `ble.match`
+declaration per plugin. BLE binding and public non-BLE registration use the same
+typed adapter for each driver type.
 Accepting a declaration does not grant GATT access. See
 `doc/plans/issue-809-design.md` for the remaining implementation and tests.
 
@@ -442,6 +441,29 @@ Readiness requires both successful `connect` completion and a valid weight.
 Up to 256 initialization samples are retained for controller activation, then
 delivered once. Initialization is bounded; invalid samples cannot mark ready.
 Publication-ingress timestamps are provisional pending the required timing gate.
+
+### Grinder Registration
+
+Declare a Grinder driver with only the controls it supports:
+
+```json
+{"drivers":[{"id":"grinder","type":"grinder","capabilities":["startStop","grindSetting","rpmControl"]}]}
+```
+
+Both `host.devices.register` and BLE `host.devices.bindDriver` create the same
+runtime `PluginGrinder`. Every connection receives a fresh session context and
+must publish a valid initial snapshot before it is ready. Snapshots require
+`state` (`idle`, `grinding`, `error`, or `unknown`); optional string `setting`
+requires `grindSetting`, and optional nonnegative integer `rpm` requires
+`rpmControl`. Unknown fields, plugin timestamps, and stale-session publications
+are rejected. Decaid supplies the timestamp.
+
+Handlers are always `connect` and `disconnect`. `startStop` additionally
+requires `start` and `stop`; `grindSetting` requires `setGrindSetting(setting)`;
+`rpmControl` requires `setRpm(rpm)`. BLE grinders also require `bleEvent`.
+Unsupported controls fail with `unsupported_operation` before a plugin handler
+is invoked. Runtime control uses the singular `/api/v1/grinder/*` API and the
+generic device connect/disconnect routes.
 
 ## Network Transports (`host.transport`)
 
@@ -746,9 +768,8 @@ Definitions, snapshots, command parameters and command results are limited to
 is not remembered across app restarts. On plugin unload, Decaid runs each
 device's `disconnect()` handler, removes every device, and rejects in-flight
 commands owned by the retiring generation, even if `onUnload()` fails. Late
-publications and command results from older generations
-are ignored. BLE-backed drivers use the separate binding contract below;
-probing and grinder registration are not supported.
+publications and command results from older generations are ignored. BLE-backed
+drivers use the separate binding contract below.
 
 ### BLE Driver Binding (`host.devices.bindDriver`)
 

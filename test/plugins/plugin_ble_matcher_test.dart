@@ -157,6 +157,31 @@ void main() {
     );
   });
 
+  test('Grinder capabilities parse independently from Scale capabilities', () {
+    final driver = PluginDriverDeclaration.fromJson({
+      'id': 'grinder',
+      'type': 'grinder',
+      'capabilities': ['startStop', 'grindSetting', 'rpmControl'],
+    });
+
+    expect(driver.type, PluginDriverType.grinder);
+    expect(driver.capabilities, isEmpty);
+    expect(driver.grinderCapabilities, PluginGrinderCapability.values.toSet());
+    expect(
+      PluginDriverDeclaration.fromJson(driver.toJson()).toJson(),
+      driver.toJson(),
+    );
+
+    expect(
+      () => PluginDriverDeclaration.fromJson({
+        'id': 'grinder',
+        'type': 'grinder',
+        'capabilities': ['tare'],
+      }),
+      throwsFormatException,
+    );
+  });
+
   test('validates Scale capabilities and one BLE declaration policy', () {
     for (final capabilities in [
       ['unknown'],

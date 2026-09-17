@@ -16,6 +16,7 @@ import 'package:reaprime/src/controllers/connection/scan_report_builder.dart';
 import 'package:reaprime/src/controllers/connection/status_publisher.dart';
 import 'package:reaprime/src/controllers/connection_error.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
+import 'package:reaprime/src/controllers/grinder_controller.dart';
 import 'package:reaprime/src/controllers/remembered_devices_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/controllers/auxiliary_scale_registry.dart';
@@ -28,12 +29,14 @@ import 'package:reaprime/src/models/adapter_state.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/device_attach_notifier.dart';
 import 'package:reaprime/src/models/device/device_scanner.dart';
+import 'package:reaprime/src/models/device/grinder_device.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/scan_filter.dart';
 import 'package:reaprime/src/models/device/simulated_device.dart';
 import 'package:reaprime/src/models/device/usb_attach_probe.dart';
 import 'package:reaprime/src/models/scan_report.dart';
+import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/settings/scale_power_mode.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:rxdart/rxdart.dart';
@@ -119,6 +122,7 @@ class ConnectionManager {
   final DeviceScanner deviceScanner;
   final De1Controller de1Controller;
   final ScaleController scaleController;
+  final GrinderController grinderController;
   final AuxiliaryScaleRegistry auxiliaryScaleRegistry;
   final SettingsController settingsController;
 
@@ -262,12 +266,14 @@ class ConnectionManager {
     required this.deviceScanner,
     required this.de1Controller,
     required this.scaleController,
+    GrinderController? grinderController,
     AuxiliaryScaleRegistry? auxiliaryScaleRegistry,
     required this.settingsController,
     this.rememberedDevices,
     Duration deviceAttachSettleDelay = const Duration(milliseconds: 500),
     Duration? connectTimeout,
-  }) : auxiliaryScaleRegistry =
+  }) : grinderController = grinderController ?? GrinderController(),
+       auxiliaryScaleRegistry =
            auxiliaryScaleRegistry ?? AuxiliaryScaleRegistry(),
        _connectTimeout =
            connectTimeout ??
@@ -1203,6 +1209,7 @@ class ConnectionManager {
 
     final machines = scanRun.machines;
     final scales = scanRun.scales;
+    if (!scaleOnly) await _connectPreferredGrinder(scanRun.grinders);
     final scanReport = scanRun.reportBuilder;
     final selectionSession = ConnectionSelectionSession(
       machines: machines,
@@ -1886,6 +1893,52 @@ class ConnectionManager {
     );
   }
 
+  Future<ConnectionResult> connectGrinder(GrinderDevice grinder) {
+    if (_shuttingDown) {
+      return Future.value(const ConnectionResult.conflict());
+    }
+    return _trackConnectionWork(() async {
+      GrinderDevice? current;
+      try {
+        current = grinderController.connectedGrinder();
+      } on DeviceNotConnectedException {
+        current = null;
+      }
+      if (identical(current, grinder) &&
+          grinderController.currentConnectionState ==
+              ConnectionState.connected) {
+        return const ConnectionResult.alreadyConnected();
+      }
+      try {
+        await grinderController
+            .connectToGrinder(grinder)
+            .timeout(_connectTimeout);
+        if (!grinderController.isSelected(grinder)) {
+          return const ConnectionResult.failed(
+            'Grinder connection was superseded',
+          );
+        }
+        await settingsController.setPreferredGrinderDeviceId(grinder.deviceId);
+        return const ConnectionResult.succeeded();
+      } on TimeoutException catch (error) {
+        await grinderController.cancelConnection(grinder);
+        return ConnectionResult.timedOut(error.toString());
+      } catch (error) {
+        return ConnectionResult.failed(error.toString());
+      }
+    });
+  }
+
+  Future<void> _connectPreferredGrinder(List<GrinderDevice> grinders) async {
+    if (grinderController.isOccupied) return;
+    final preferredId = settingsController.preferredGrinderDeviceId;
+    if (preferredId == null) return;
+    final grinder = grinders.firstWhereOrNull(
+      (candidate) => candidate.deviceId == preferredId,
+    );
+    if (grinder != null) await connectGrinder(grinder);
+  }
+
   Future<ConnectionResult> _connectAuxiliaryScale(Scale scale) async {
     if (_isPrimaryScaleClaimed(scale.deviceId)) {
       return const ConnectionResult.conflict();
@@ -2170,6 +2223,10 @@ class ConnectionManager {
     } catch (_) {}
   }
 
+  Future<void> disconnectGrinder([GrinderDevice? grinder]) => grinder == null
+      ? grinderController.disconnect()
+      : grinderController.disconnectDevice(grinder);
+
   Future<void> shutdown() {
     final existing = _shutdownFuture;
     if (existing != null) return existing;
@@ -2241,6 +2298,11 @@ class ConnectionManager {
       _log.warning('Scale disconnect failed', error, stackTrace);
     }
     try {
+      await disconnectGrinder();
+    } catch (error, stackTrace) {
+      _log.warning('Grinder disconnect failed', error, stackTrace);
+    }
+    try {
       await auxiliaryScaleRegistry.dispose();
     } catch (error, stackTrace) {
       _log.warning('Auxiliary scale shutdown failed', error, stackTrace);
@@ -2251,6 +2313,7 @@ class ConnectionManager {
     await shutdown();
     await de1Controller.dispose();
     scaleController.dispose();
+    await grinderController.dispose();
     _disconnectSupervisor.dispose();
     _disconnectExpectations.dispose();
     _statusPublisher.dispose();

@@ -28,6 +28,7 @@ import 'package:reaprime/src/controllers/connection_manager.dart';
 import 'package:reaprime/src/controllers/auxiliary_scale_registry.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
+import 'package:reaprime/src/controllers/grinder_controller.dart';
 import 'package:reaprime/src/controllers/remembered_device_sources.dart';
 import 'package:reaprime/src/controllers/remembered_devices_controller.dart';
 import 'package:reaprime/src/controllers/display_controller.dart';
@@ -412,6 +413,7 @@ void main(List<String> args) async {
   final de1Controller = De1Controller(controller: deviceController)
     ..defaultWorkflow = workflowController.currentWorkflow;
   final scaleController = ScaleController();
+  final grinderController = GrinderController();
   final auxiliaryScaleRegistry = AuxiliaryScaleRegistry();
   final sensorController = SensorController(controller: deviceController);
 
@@ -429,6 +431,7 @@ void main(List<String> args) async {
     deviceScanner: deviceController,
     de1Controller: de1Controller,
     scaleController: scaleController,
+    grinderController: grinderController,
     auxiliaryScaleRegistry: auxiliaryScaleRegistry,
     settingsController: settingsController,
     rememberedDevices: rememberedDevicesController,

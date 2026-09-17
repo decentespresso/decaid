@@ -83,6 +83,17 @@ channels:
         $ref: '#/components/messages/ScaleSnapshot'
       scaleStatusMessage:
         $ref: '#/components/messages/ScaleStatus'
+  GrinderSnapshot:
+    description: >
+      Validated snapshots from the selected runtime GrinderDevice. The socket
+      stays open and silent while no grinder is connected, and resumes after a
+      disconnect, reconnect, or same-ID device replacement. Every frame is a
+      GrinderSnapshot; connection status and vendor-specific frames are never
+      emitted on this channel.
+    address: ws/v1/grinder/snapshot
+    messages:
+      grinderSnapshotMessage:
+        $ref: '#/components/messages/GrinderSnapshot'
   ScaleSnapshotById:
     description: >
       Real-time snapshot stream for one connected primary or auxiliary scale.
@@ -251,6 +262,10 @@ operations:
     action: receive
     channel:
       $ref: '#/channels/ScaleSnapshotById'
+  grinderSnapshot:
+    action: receive
+    channel:
+      $ref: '#/channels/GrinderSnapshot'
   machineRawResponse:
     action: receive
     channel:
@@ -340,6 +355,11 @@ components:
       title: Scale connection status
       payload:
         $ref: '#/components/schemas/ScaleStatus'
+    GrinderSnapshot:
+      name: GrinderSnapshot
+      title: Grinder Snapshot
+      payload:
+        $ref: '#/components/schemas/GrinderSnapshot'
     MachineSnapshot:
       name: MachineSnapshot
       title: Machine Snapshot
@@ -585,6 +605,26 @@ components:
         status:
           type: string
           enum: [connected, disconnected]
+    GrinderSnapshot:
+      type: object
+      description: Snapshot emitted by ws/v1/grinder/snapshot.
+      required: [timestamp, state]
+      additionalProperties: false
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Host-owned publication timestamp.
+        state:
+          type: string
+          enum: [idle, grinding, error, unknown]
+        setting:
+          type: string
+          description: Present only when grindSetting is declared and published.
+        rpm:
+          type: integer
+          minimum: 0
+          description: Present only when rpmControl is declared and published.
     ShotStateEvent:
       type: object
       description: >

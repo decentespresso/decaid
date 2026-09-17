@@ -19,6 +19,7 @@ class _SpySettingsService implements SettingsService {
   final Map<String, bool?> _featureFlags = {};
   String? _preferredMachineId;
   String? _preferredScaleId;
+  String? _preferredGrinderDeviceId;
 
   @override
   Future<Set<SimulatedDevicesTypes>> simulateDevices() async =>
@@ -71,6 +72,11 @@ class _SpySettingsService implements SettingsService {
   @override
   Future<void> setPreferredScaleId(String? scaleId) async =>
       _preferredScaleId = scaleId;
+  @override
+  Future<String?> preferredGrinderDeviceId() async => _preferredGrinderDeviceId;
+  @override
+  Future<void> setPreferredGrinderDeviceId(String? deviceId) async =>
+      _preferredGrinderDeviceId = deviceId;
 
   @override
   dynamic noSuchMethod(Invocation invocation) {
@@ -81,6 +87,19 @@ class _SpySettingsService implements SettingsService {
 }
 
 void main() {
+  test('loads and persists preferred grinder device ID', () async {
+    final service = MockSettingsService();
+    await service.setPreferredGrinderDeviceId('grinder-one');
+    final controller = SettingsController(service);
+
+    await controller.loadSettings();
+    expect(controller.preferredGrinderDeviceId, 'grinder-one');
+
+    await controller.setPreferredGrinderDeviceId('grinder-two');
+    expect(controller.preferredGrinderDeviceId, 'grinder-two');
+    expect(await service.preferredGrinderDeviceId(), 'grinder-two');
+  });
+
   group('SettingsController.enableSimulatedDevicesForSession', () {
     test('sets simulatedDevices in memory', () {
       final spy = _SpySettingsService();

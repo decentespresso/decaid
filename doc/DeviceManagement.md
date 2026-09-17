@@ -681,6 +681,7 @@ This is the safety net. Device implementations should ALSO catch
 Device preferences are stored via `SettingsController`:
 - `preferredMachineId` — auto-set on successful machine connection
 - `preferredScaleId` — auto-set on successful scale connection
+- `preferredGrinderDeviceId` — auto-set on successful runtime grinder connection
 - Configurable in Settings → Device Management
 
 Identity remains per transport. BLE and USB IDs for the same physical machine
@@ -777,7 +778,7 @@ sensor is connected, skins can call the `measure` command through the existing
 Sensors API and read TDS, temperature, refractive index, and status values from
 the sensor data stream.
 
-`PluginDeviceService` is a `DeviceDiscoveryService` that contributes sensors
+`PluginDeviceService` is a `DeviceDiscoveryService` that contributes devices
 registered by plugin generations. This keeps plugin-backed sensors on the same
 `DeviceController` → `SensorController` path as native sensors. Public identity
 comes from plugin id, declared driver id, and plugin-local instance id; unload
@@ -785,6 +786,21 @@ removes the retiring generation without changing that identity for a later
 reload. Plugin connection handlers must complete protocol initialization before
 the sensor reports `connected`. Registrations are runtime-only and are not added
 to remembered-device selection.
+
+### GrinderController
+
+`GrinderController` owns one selected runtime `GrinderDevice`, its latest
+validated snapshot, and command forwarding. Replacement disconnects the old
+instance and generation-fences late publications. Terminal disconnect clears
+the selection. `ConnectionManager.connectGrinder()` uses this controller from
+the generic devices API and connects `preferredGrinderDeviceId` only when that
+device appears in an existing normal scan result; it adds no grinder scanner or
+reconnect scheduler.
+
+Runtime grinder identity is not equipment metadata. Persisted `Grinder.id` is a
+UUID used by `/api/v1/grinders` and workflow records. `GrinderDevice.deviceId`
+identifies a live transport/plugin device. `preferredGrinderDeviceId` stores
+that runtime `deviceId`, never the persisted UUID.
 
 ### Bengle EBus tap
 
@@ -830,7 +846,7 @@ of vanishing. Cross-transport (BLE/USB/WiFi) by construction.
   `{id, name, type}` off the connected device. A null emission (disconnect)
   does **not** forget — the device stays remembered.
 - **Availability:** computed at the API layer. `DevicesStateAggregator` /
-  `DevicesHandler` merge discovered devices and the actively connected scale
+  `DevicesHandler` merge discovered devices and the actively connected scale or grinder
   (`available: true`) with remembered devices that aren't present
   (`available: false`, `state: "disconnected"`) via the shared
   `buildAvailabilityDeviceList`. The aggregator re-emits when the registry or
@@ -969,7 +985,7 @@ never retain the disconnected instance beside its connected replacement.
    ↓
 2. Create discovery services with device mappings
    ↓
-3. Create DeviceController(services), De1Controller, ScaleController
+3. Create DeviceController(services), De1Controller, ScaleController, GrinderController
    ↓
 4. Create RememberedDevicesController, initialize (loads + migrates registry)
    ↓
@@ -1725,7 +1741,7 @@ does not trigger native fallback in the same attempt. A timed-out teardown retai
 the claim until native disconnection is confirmed. Adapter loss revokes sessions
 without attempting protocol cleanup over a lost link.
 
-Plugin Sensors join the existing SensorController and REST/WebSocket APIs. Their
+Plugin Sensors and Grinders join the existing controller and REST/WebSocket APIs. Their
 public IDs include plugin, driver, and physical identity. Remembered plugin IDs
 are not reconstructed through native quick-connect: fresh discovery must establish
 current ownership. See `doc/Plugins.md` for the session-bound GATT contract.

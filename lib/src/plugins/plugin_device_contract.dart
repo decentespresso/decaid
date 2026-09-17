@@ -12,6 +12,10 @@ enum PluginDeviceOperation {
   resetTimer,
   sleepDisplay,
   wakeDisplay,
+  start,
+  stop,
+  setGrindSetting,
+  setRpm,
 }
 
 typedef PluginDeviceInvoker =
