@@ -21,7 +21,9 @@ Object mapUniversalConnectError(UniversalBleException e) {
   }
   return BleConnectException(
     code: e.code.name,
-    description: e.message,
+    description: e.message.startsWith('CONNECT_START_FAILED: RECOVERY_BLOCKED:')
+        ? e.message.substring('CONNECT_START_FAILED: '.length)
+        : e.message,
     function: 'connect',
     cause: e,
   );

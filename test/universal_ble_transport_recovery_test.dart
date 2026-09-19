@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/device.dart' as device;
 import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/plugins/plugin_ble_session.dart';
+import 'package:reaprime/src/services/ble/ble_lifecycle_gate.dart';
 import 'package:reaprime/src/services/ble/universal_ble_transport.dart';
 import 'package:universal_ble/universal_ble.dart';
 
@@ -366,6 +367,36 @@ void main() {
       );
     },
   );
+
+  test('cancel during Android scan settle prevents native connect', () async {
+    final gate = BleLifecycleGate();
+    final stopScanStarted = Completer<void>();
+    final releaseStopScan = Completer<void>();
+    final android = UniversalBleTransport(
+      device: bleDevice('$deviceId-android'),
+      stopScan: () async {
+        stopScanStarted.complete();
+        await releaseStopScan.future;
+      },
+      isAndroidOverride: true,
+      isLinuxOverride: false,
+      lifecycleGate: gate,
+    );
+    addTearDown(android.dispose);
+    final connectCallsBefore = platform.connectCalls;
+
+    final connecting = android.connect();
+    await stopScanStarted.future;
+    gate.cancelConnectionAttempts(android.id);
+    await UniversalBle.cancelConnectionAttempt(android.id);
+    releaseStopScan.complete();
+
+    await expectLater(
+      connecting,
+      throwsA(isA<BleConnectionAttemptCancelled>()),
+    );
+    expect(platform.connectCalls, connectCallsBefore);
+  });
 
   test(
     'unsubscribe removes forwarding and disables native notification',

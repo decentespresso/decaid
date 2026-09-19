@@ -9,6 +9,9 @@ class BleConnectException implements Exception {
 
   BleConnectException({this.code, this.description, this.function, this.cause});
 
+  bool get recoveryBlocked =>
+      description?.startsWith('RECOVERY_BLOCKED:') ?? false;
+
   @override
   String toString() =>
       'BleConnectException: '

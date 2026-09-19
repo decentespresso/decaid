@@ -18,6 +18,8 @@ abstract class DeviceScanner {
 
   void stopScan();
 
+  Future<void> cancelConnectionAttempt(String deviceId);
+
   Stream<AdapterState> get adapterStateStream;
 
   AdapterState get currentAdapterState;

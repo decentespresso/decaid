@@ -128,9 +128,10 @@ class UniversalBleTransport extends BLETransport {
 
   @override
   Future<void> connect() =>
-      _lifecycleGate.run(_device.deviceId, _connectNative);
+      _lifecycleGate.runConnection(_device.deviceId, _connectNative);
 
-  Future<void> _connectNative() async {
+  Future<void> _connectNative(int cancellationEpoch) async {
+    _checkConnectionAttempt(cancellationEpoch);
     if (_disposed) throw StateError('BLE transport is disposed');
     if (UniversalBle.getQueueDiagnostics(_device.deviceId).state ==
         QueueDiagnosticsState.faulted) {
@@ -143,6 +144,7 @@ class UniversalBleTransport extends BLETransport {
     _linkDeadDeclared = false;
     _lastAdvertProbe = null;
     await _listenForConnectionUpdates(generation);
+    _checkConnectionAttempt(cancellationEpoch);
     if (_isLinux) {
       await _connectBlueZ();
       _startAdvertWatch();
@@ -155,7 +157,9 @@ class UniversalBleTransport extends BLETransport {
       } catch (e) {
         _log.fine("stopScan before connect failed (ignored): $e");
       }
+      _checkConnectionAttempt(cancellationEpoch);
       await Future.delayed(_androidPreConnectSettleDelay);
+      _checkConnectionAttempt(cancellationEpoch);
     }
     try {
       await UniversalBle.connect(
@@ -166,10 +170,12 @@ class UniversalBleTransport extends BLETransport {
       _recordDiagnosticBoundary('connect/${e.code.name}');
       throw mapUniversalConnectError(e);
     }
+    _checkConnectionAttempt(cancellationEpoch);
     _startAdvertWatch();
 
     if (_isAndroid) {
       await Future.delayed(_androidPostConnectDelay);
+      _checkConnectionAttempt(cancellationEpoch);
     }
     if (!_isLinux && (_isAndroid || _requestLargeMtuNonAndroid)) {
       try {
@@ -184,6 +190,9 @@ class UniversalBleTransport extends BLETransport {
       }
     }
   }
+
+  void _checkConnectionAttempt(int cancellationEpoch) => _lifecycleGate
+      .checkConnectionAttempt(_device.deviceId, cancellationEpoch);
 
   Future<void> _connectBlueZ() async {
     try {

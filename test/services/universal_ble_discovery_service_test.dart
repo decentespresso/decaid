@@ -15,6 +15,7 @@ import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/remembered_device.dart';
+import 'package:reaprime/src/models/device/transport/ble_connect_exception.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/settings/feature_flags.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
@@ -982,6 +983,169 @@ void main() {
   });
 
   group('quick-connect identity policy', () {
+    test(
+      'cancellation during retry delay prevents a later native start',
+      () async {
+        const deviceId = 'AA:BB:CC:DD:EE:22';
+        final firstAttempt = Completer<void>();
+        var connectCalls = 0;
+        final transport = _TrackingFakeBleTransport(
+          deviceId: deviceId,
+          onConnect: () async {
+            connectCalls++;
+            if (connectCalls == 1) {
+              firstAttempt.complete();
+              throw BleConnectException(
+                code: 'connectionFailed',
+                description: 'simulated retryable failure',
+                function: 'connect',
+              );
+            }
+          },
+        );
+        final sut = UniversalBleDiscoveryService(
+          requiresSystemDevice: () => false,
+          transportFactory:
+              ({
+                required device,
+                required stopScan,
+                required requestLargeMtuNonAndroid,
+                required lifecycleGate,
+              }) => transport,
+        );
+        addTearDown(sut.dispose);
+        await sut.initialize();
+
+        final quickConnect = sut.tryQuickConnect(
+          const RememberedDevice(
+            id: deviceId,
+            name: 'DE1',
+            type: domain.DeviceType.machine,
+            implementation: DeviceImplementation.unifiedDe1,
+            transportType: TransportType.ble,
+          ),
+        );
+        await firstAttempt.future;
+        await sut.cancelConnectionAttempt(deviceId);
+
+        expect(await quickConnect, isNull);
+        expect(connectCalls, 1);
+      },
+    );
+
+    test('quick-connect does not retry recovery-blocked admission', () async {
+      const deviceId = 'AA:BB:CC:DD:EE:21';
+      var connectCalls = 0;
+      final transport = _TrackingFakeBleTransport(
+        deviceId: deviceId,
+        onConnect: () async {
+          connectCalls++;
+          throw BleConnectException(
+            code: 'connectionFailed',
+            description: 'RECOVERY_BLOCKED: unresolved native GATT teardown',
+            function: 'connect',
+          );
+        },
+      );
+      final sut = UniversalBleDiscoveryService(
+        requiresSystemDevice: () => false,
+        transportFactory:
+            ({
+              required device,
+              required stopScan,
+              required requestLargeMtuNonAndroid,
+              required lifecycleGate,
+            }) => transport,
+      );
+      addTearDown(sut.dispose);
+      await sut.initialize();
+
+      await expectLater(
+        sut.tryQuickConnect(
+          const RememberedDevice(
+            id: deviceId,
+            name: 'DE1',
+            type: domain.DeviceType.machine,
+            implementation: DeviceImplementation.unifiedDe1,
+            transportType: TransportType.ble,
+          ),
+        ),
+        throwsA(
+          isA<BleConnectException>().having(
+            (error) => error.recoveryBlocked,
+            'recoveryBlocked',
+            isTrue,
+          ),
+        ),
+      );
+
+      expect(connectCalls, 1);
+      expect(transport.disconnectCalls, 0);
+      expect(transport.disposeCalls, 1);
+    });
+    test(
+      'quick-connect keeps ownership past the former host timeout',
+      () async {
+        const deviceId = 'AA:BB:CC:DD:EE:20';
+        final connectStarted = Completer<void>();
+        final releaseConnect = Completer<void>();
+        final transport = _TrackingFakeBleTransport(
+          deviceId: deviceId,
+          onConnect: () async {
+            connectStarted.complete();
+            await releaseConnect.future;
+          },
+        )..queueOnConnectResponses(v13Model: 129, calFlowEst: 100);
+        final sut = UniversalBleDiscoveryService(
+          requiresSystemDevice: () => false,
+          transportFactory:
+              ({
+                required device,
+                required stopScan,
+                required requestLargeMtuNonAndroid,
+                required lifecycleGate,
+              }) => transport,
+        );
+        addTearDown(sut.dispose);
+        await sut.initialize();
+
+        var completed = false;
+        final quickConnect =
+            runZoned(
+              () => sut.tryQuickConnect(
+                const RememberedDevice(
+                  id: deviceId,
+                  name: 'DE1',
+                  type: domain.DeviceType.machine,
+                  implementation: DeviceImplementation.unifiedDe1,
+                  transportType: TransportType.ble,
+                ),
+              ),
+              zoneSpecification: ZoneSpecification(
+                createTimer: (self, parent, zone, duration, callback) {
+                  final accelerated =
+                      duration == const Duration(seconds: 10) ||
+                          duration == const Duration(seconds: 60)
+                      ? const Duration(milliseconds: 1)
+                      : duration;
+                  return parent.createTimer(zone, accelerated, callback);
+                },
+              ),
+            ).then((device) {
+              completed = true;
+              return device;
+            });
+        await connectStarted.future;
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        expect(completed, isFalse);
+        expect(transport.disconnectCalls, 0);
+
+        releaseConnect.complete();
+        expect(await quickConnect, isA<De1Interface>());
+      },
+    );
+
     for (final (apple, stopWatch) in [
       (true, false),
       (false, false),

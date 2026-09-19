@@ -21,6 +21,12 @@ class MockScaleController extends ScaleController {
       connectCalls.isNotEmpty ? connectCalls.last : null;
 
   @override
+  Scale? get connectedScaleOrNull =>
+      connectionStateSubject.value == ConnectionState.connected
+      ? (connectCalls.isEmpty ? null : connectCalls.last)
+      : null;
+
+  @override
   String? get lastConnectedDeviceId => _mockLastConnectedDeviceId;
 
   void debugSetLastConnectedId(String id) {

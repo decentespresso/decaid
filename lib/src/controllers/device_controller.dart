@@ -238,6 +238,13 @@ class DeviceController
   }
 
   @override
+  Future<void> cancelConnectionAttempt(String deviceId) => Future.wait(
+    _services.whereType<ConnectionAttemptCancellation>().map(
+      (service) => service.cancelConnectionAttempt(deviceId),
+    ),
+  );
+
+  @override
   Future<Device?> tryQuickConnect(RememberedDevice remembered) async {
     for (final service in _services) {
       try {

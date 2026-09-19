@@ -6,6 +6,18 @@ import 'package:universal_ble/universal_ble.dart';
 
 void main() {
   group('mapUniversalConnectError', () {
+    test('deferred native recovery block remains classified', () {
+      final error =
+          mapUniversalConnectError(
+                ConnectionException(
+                  'CONNECT_START_FAILED: RECOVERY_BLOCKED: unresolved native GATT teardown',
+                ),
+              )
+              as BleConnectException;
+
+      expect(error.recoveryBlocked, isTrue);
+    });
+
     test('connectionTimeout becomes BleTimeoutException', () {
       final mapped = mapUniversalConnectError(
         UniversalBleException(

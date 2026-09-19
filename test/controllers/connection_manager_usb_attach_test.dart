@@ -123,6 +123,7 @@ class _FakeDe1 implements De1Interface {
     final gate = connectGate;
     if (gate != null) await gate.future;
     if (failConnect) throw Exception('simulated connect failure');
+    _connectionState.add(ConnectionState.connected);
   }
 
   @override
@@ -1170,7 +1171,7 @@ void main() {
       await manager.connect();
 
       expect(bleMachine.onConnectCalls, 3);
-      expect(bleMachine.disconnectCalls, 0);
+      expect(bleMachine.disconnectCalls, 2);
       expect(
         (await realDe1Controller.de1.firstWhere(
           (machine) => machine?.deviceId == 'ble-machine-id',

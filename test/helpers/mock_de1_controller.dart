@@ -18,6 +18,9 @@ class MockDe1Controller extends De1Controller {
   De1Interface? get lastConnectedDe1 =>
       connectCalls.isNotEmpty ? connectCalls.last : null;
 
+  @override
+  De1Interface? get connectedDe1OrNull => de1Subject.value;
+
   int get connectMachineCallCount => connectCalls.length;
 
   @override

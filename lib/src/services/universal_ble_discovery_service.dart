@@ -42,7 +42,7 @@ class _AdvertisementStats {
 }
 
 class UniversalBleDiscoveryService extends BleDiscoveryService
-    implements DeviceWatchCapable {
+    implements DeviceWatchCapable, ConnectionAttemptCancellation {
   UniversalBleDiscoveryService({
     bool Function()? watchSupportGate,
     bool Function()? requiresSystemDevice,
@@ -1174,7 +1174,11 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
 
   @override
   Future<Device?> tryQuickConnect(RememberedDevice remembered) async {
+    final cancellationEpoch = _lifecycleGate.connectionCancellationEpoch(
+      remembered.id,
+    );
     await _plugins?.registry.ready;
+    _lifecycleGate.checkConnectionAttempt(remembered.id, cancellationEpoch);
     if (_disposed || remembered.implementation == DeviceImplementation.plugin) {
       return null;
     }
@@ -1186,13 +1190,20 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
 
     return _candidate(
       remembered.id,
-      () => _tryQuickConnectCandidate(remembered, impl),
+      () => _tryQuickConnectCandidate(remembered, impl, cancellationEpoch),
     );
+  }
+
+  @override
+  Future<void> cancelConnectionAttempt(String deviceId) {
+    _lifecycleGate.cancelConnectionAttempts(deviceId);
+    return UniversalBle.cancelConnectionAttempt(deviceId);
   }
 
   Future<Device?> _tryQuickConnectCandidate(
     RememberedDevice remembered,
     DeviceImplementation impl,
+    int cancellationEpoch,
   ) async {
     final deviceId = remembered.id;
     final key = normalizeBleDeviceId(deviceId);
@@ -1200,6 +1211,7 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     BleDevice? bleDevice;
     if (_requiresSystemDevice()) {
       bleDevice = await _findSystemDevice(deviceId);
+      _lifecycleGate.checkConnectionAttempt(deviceId, cancellationEpoch);
       if (bleDevice == null) {
         log.info('Quick-connect: device $deviceId not in system cache');
         return null;
@@ -1230,7 +1242,7 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     }
 
     try {
-      await _connectWithRetry(device);
+      await _connectWithRetry(device, deviceId, cancellationEpoch);
       if (device is Machine) {
         final model = device.machineInfo.model;
         final expectedBengle = impl == DeviceImplementation.bengle;
@@ -1254,6 +1266,22 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
       await _adoptCachedDevice(key, device);
       log.info('Quick-connect succeeded for $deviceId');
       return device;
+    } on BleConnectException catch (e, st) {
+      if (e.recoveryBlocked) {
+        log.warning('Quick-connect recovery blocked for $deviceId', e, st);
+        try {
+          await transport.dispose();
+        } catch (_) {}
+        rethrow;
+      }
+      log.warning('Quick-connect failed for $deviceId', e, st);
+      try {
+        await device.disconnect();
+      } catch (_) {}
+      try {
+        await transport.dispose();
+      } catch (_) {}
+      return null;
     } catch (e, st) {
       log.warning('Quick-connect failed for $deviceId', e, st);
       try {
@@ -1283,19 +1311,26 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     return null;
   }
 
-  Future<void> _connectWithRetry(Device device) async {
-    final timeout = Platform.isLinux
-        ? const Duration(seconds: 60)
-        : const Duration(seconds: 10);
+  Future<void> _connectWithRetry(
+    Device device,
+    String deviceId,
+    int cancellationEpoch,
+  ) async {
+    _lifecycleGate.checkConnectionAttempt(deviceId, cancellationEpoch);
     try {
-      await device.onConnect().timeout(timeout);
+      await device.onConnect();
+      _lifecycleGate.checkConnectionAttempt(deviceId, cancellationEpoch);
     } on BleConnectException catch (e) {
+      if (e.recoveryBlocked) rethrow;
       log.info('Quick-connect GATT error ($e), retrying once after 1s');
       await Future.delayed(const Duration(seconds: 1));
+      _lifecycleGate.checkConnectionAttempt(deviceId, cancellationEpoch);
       try {
         await device.disconnect();
       } catch (_) {}
-      await device.onConnect().timeout(timeout);
+      _lifecycleGate.checkConnectionAttempt(deviceId, cancellationEpoch);
+      await device.onConnect();
+      _lifecycleGate.checkConnectionAttempt(deviceId, cancellationEpoch);
     }
   }
 

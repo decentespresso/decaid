@@ -69,3 +69,7 @@ abstract class DeviceDiscoveryService {
     return null;
   }
 }
+
+abstract interface class ConnectionAttemptCancellation {
+  Future<void> cancelConnectionAttempt(String deviceId);
+}

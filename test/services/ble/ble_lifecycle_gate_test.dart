@@ -47,4 +47,27 @@ void main() {
     release.complete();
     await Future.wait([first, second]);
   });
+
+  test('cancels a queued connection', () async {
+    final gate = BleLifecycleGate();
+    final firstStarted = Completer<void>();
+    final releaseFirst = Completer<void>();
+    final queuedStarted = Completer<void>();
+
+    final first = gate.run('AA:BB', () async {
+      firstStarted.complete();
+      await releaseFirst.future;
+    });
+    await firstStarted.future;
+    final queued = gate.runConnection('aa:bb', (_) async {
+      queuedStarted.complete();
+    });
+
+    gate.cancelConnectionAttempts('AA:BB');
+    releaseFirst.complete();
+    await first;
+
+    await expectLater(queued, throwsA(isA<BleConnectionAttemptCancelled>()));
+    expect(queuedStarted.isCompleted, isFalse);
+  });
 }
