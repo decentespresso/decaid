@@ -530,6 +530,35 @@ queued requests, and waits for in-flight connection work. It then disconnects
 the machine before the scale while isolating each cleanup failure. Flutter
 `detached` and requested desktop exit use this path; `paused` and `hidden` do not.
 
+### Connection Attempt Retirement
+
+Each machine or scale source connect owns its normalized device id through
+source completion and stale-candidate cleanup. A caller-visible timeout fences
+controller adoption immediately but does not abandon the source Future or
+release the id for a replacement. If the source later succeeds, its candidate
+is disconnected before the lease is released. Failed sources are also cleaned
+up. A transient `RECOVERY_BLOCKED` source error does not retain the lease after
+successful cleanup. Cleanup failure keeps the same-device lease reserved so an
+unresolved transport cannot overlap a replacement. A confirmed adapter-off epoch releases
+cleanup-failed BLE leases because the native transport clears its old GATT
+owners before publishing that state. Other failed cleanup remains blocked until
+the manager restarts. Cancellation is checked again after an asynchronous
+scale-watch stop and before either device source starts.
+
+A retained primary-scale lease remains the active primary claim during
+auxiliary admission. A timed-out primary blocks same-device auxiliary
+`onConnect()` even when the identifier casing differs. An unrelated auxiliary
+device can still connect.
+
+Cancellation follows the initiating owner. Cancelling a scan affects only its
+early connects, USB attach supersedes only an automatic machine attempt,
+adapter loss affects only BLE attempts, explicit disconnect affects the
+matching role, and shutdown affects all attempts. Direct connects stop an
+active background scale watch before transport connection; a connect initiated
+by that watch keeps its watch generation and can rearm after failure.
+BLE cancellation also removes the matching pending native attempt and prevents
+ordinary scan-settle and quick-connect retry waits from starting it later.
+
 ### Disconnect Handling
 
 ConnectionManager listens for disconnects automatically:

@@ -109,6 +109,35 @@ detects the generation mismatch after `runScan` returns and skips policy.
 `cancelSelectionSession()` finalises an already-completed scan as cancelled
 without touching an in-flight scan.
 
+Machine and scale source connects also hold a normalized device-id lease until
+the source and any stale-candidate cleanup finish. Caller timeout invalidates
+the controller generation and may return before retirement, but a same-id
+replacement remains blocked. Scan cancellation invalidates only early connects
+owned by that scan; adapter loss invalidates BLE attempts; explicit disconnect
+invalidates the matching role; and shutdown invalidates all attempts before it
+waits for connection work. A late successful stale candidate is disconnected
+before its lease is released. A failed source is cleaned up before release;
+`RECOVERY_BLOCKED` alone does not retain the lease after successful cleanup.
+Failed cleanup keeps the same-device lease reserved until Android reports an
+adapter-off epoch. Native adapter-off cleanup clears close recovery, GATT
+ownership, and the device cache before publishing that state, so only then can
+Decaid release cleanup-failed BLE leases. Without that confirmation the lease
+stays reserved; restarting the manager is the non-BLE recovery route. After an
+asynchronous scale-watch stop, the lease is checked again before the machine or
+scale source starts.
+
+A retained primary-scale lease also counts as the active primary claim during
+auxiliary admission. A timed-out primary therefore blocks same-device
+auxiliary `onConnect()` even when the identifier uses different casing, while
+an unrelated auxiliary device remains eligible.
+
+Remembered-machine quick connect has no shorter host wrapper timeout around
+`device.onConnect()`. The transport owns its native deadline, while Decaid owns
+the single retry for a real `BleConnectException`. Direct connects disarm the
+upper `ScaleWatch` before transport connection can stop native scanning;
+watch-originated scale connects retain the watch generation so failure can
+rearm it.
+
 Repeated explicit scan requests ("ReScan", stale-scan recovery, repeated
 REST/UI calls) supersede the active scan and coalesce into a single
 queued replacement. The superseded scan emits one cancelled report; the
@@ -120,6 +149,14 @@ Cancel (launcher) and route-back interception both route through
 `cancelActiveScan()`. "View found devices" intentionally stops discovery
 and proceeds with partial results — that is a different action, not
 cancellation.
+
+The reviewed Android direct-admission/lifecycle candidate is published at
+`universal_ble` PR #28 head
+`895aa687a25c99b17c81e8672cac7de051551ded`, stacked on PR #25 head
+`a5cc8dd727a2f7da6822eccdc968038839fe0bb9`. Decaid pins that exact PR #28
+revision in both dependency files. CI run `35108117215` passed the native
+Android helper/plugin tests on tested merge
+`e3ddd73beab1bfb1447abb65fad44438239936e6`.
 
 ## Footgun #1: GATT-133 on Cold Boot
 
