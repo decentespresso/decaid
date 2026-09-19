@@ -1310,6 +1310,23 @@ class PluginManager {
             sample: sample as String?,
           );
           _replyDevice(requestId, bridgeToken, result: const {});
+        case 'blePublishInfo':
+          final info = data['info'];
+          final session = data['session'];
+          if (info is! Map || (session != null && session is! String)) {
+            throw const PluginBleException(
+              'invalid_argument',
+              'Invalid BLE device metadata',
+            );
+          }
+          bleService.publishInfo(
+            pluginId,
+            generation,
+            registrationHandle,
+            Map<String, dynamic>.from(info),
+            session as String?,
+          );
+          _replyDevice(requestId, bridgeToken, result: const {});
         case 'bleDisconnected':
           bleService.reportDisconnected(
             pluginId,
@@ -1405,6 +1422,20 @@ class PluginManager {
             session: data['session'] is String
                 ? data['session'] as String
                 : null,
+          );
+          _replyDevice(requestId, bridgeToken, result: const {});
+        case 'publishInfo':
+          final info = data['info'];
+          final session = data['session'];
+          if (info is! Map || (session != null && session is! String)) {
+            throw const PluginDeviceException('Invalid plugin device metadata');
+          }
+          deviceService.publishInfo(
+            pluginId: pluginId,
+            generation: generation,
+            registrationHandle: registrationHandle,
+            info: Map<String, dynamic>.from(info),
+            session: session as String?,
           );
           _replyDevice(requestId, bridgeToken, result: const {});
         case 'reportDisconnected':
@@ -2134,10 +2165,16 @@ class PluginManager {
                 if (driver.type === "sensor") return transport;
                 const session = payload.session;
                 return Object.freeze({
+                  connectionId: session,
                   transport: transport,
                   publish(snapshot) {
                     return __deviceCall("publish", {
                       registrationHandle: registrationHandle, session: session, snapshot: snapshot
+                    });
+                  },
+                  publishInfo(info) {
+                    return __deviceCall("publishInfo", {
+                      registrationHandle: registrationHandle, session: session, info: info
                     });
                   },
                   reportDisconnected() {

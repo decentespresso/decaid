@@ -45,6 +45,8 @@ abstract class PluginProtocolDevice extends PluginDeviceAdapter {
   @override
   Stream<ConnectionState> get connectionState => _state.stream;
 
+  String? get connectionId => _session;
+
   void checkSession(String? session) {
     if (_disposed ||
         session == null ||

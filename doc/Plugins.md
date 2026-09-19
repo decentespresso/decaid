@@ -361,11 +361,8 @@ const upload = await fetch("https://api.example.com/upload", {
 
 Manifest parsing accepts the separate `transport.ble` permission, `scale`
 driver type, Scale capabilities, and one `ble.match` declaration per plugin.
-This branch does not yet implement runtime BLE binding. Public non-BLE Scale
-registration is available as described below; end-to-end API and timing
-acceptance remain in progress.
-Accepting a declaration does not grant GATT access. See
-`doc/plans/issue-809-design.md` for the remaining implementation and tests.
+Runtime BLE binding and public non-BLE Scale registration are available as
+described below. Accepting a declaration does not grant GATT access.
 
 The matcher supports one case-insensitive `name` predicate (`exact`, `prefix`,
 or `contains`, 1-248 characters), and/or `serviceUuids` (1-64 UUIDs). It does not
@@ -411,8 +408,10 @@ function createPlugin(host) {
 }
 ```
 
-Each connect invocation receives a fresh context with `transport`,
-`publish(snapshot)`, and `reportDisconnected()`. Network `transport` uses the
+Each connect invocation receives a fresh context with `connectionId`,
+`transport`, `publish(snapshot)`, `publishInfo(info)`, and
+`reportDisconnected()`. `connectionId` is an opaque, read-only identity for
+that connection session; it is not GATT authority. Network `transport` uses the
 existing invocation-owned transport API and requires the corresponding network
 permission. Capture this context in protocol callbacks; do not look up a mutable
 current context when a delayed callback runs. The host rejects stale-session
@@ -430,6 +429,14 @@ omission or null means unknown, including in existing controller serialization.
 Optional finite `flow` and nonnegative integer `timerMs` require `flow` and
 `timerTelemetry` capabilities respectively. Battery requires `battery`.
 Arbitrary timestamps and unknown publication fields are rejected.
+
+`publishInfo({firmwareVersion, batteryLevel})` publishes connected-session
+metadata for Scale drivers only. `firmwareVersion` is an opaque string or
+`null`; `batteryLevel` is an integer from 0 through 100 or `null`. Unknown
+fields, invalid types, and Sensor metadata are rejected. Metadata is cleared on
+connect, disconnect, replacement, failure, unload, and stale-session cleanup;
+it is not included in device inventory. A non-null `batteryLevel` requires the
+Scale driver's `battery` capability.
 
 Declare optional commands in manifest `capabilities`: `tare` requires a `tare`
 handler; `timerControl` requires `startTimer`, `stopTimer`, and `resetTimer`;
@@ -781,6 +788,9 @@ existing REST/WebSocket paths. Each connection receives a fresh context:
 
 - `context.publish(snapshot)` and `context.reportDisconnected()` belong only to
   that connection. Retaining a context cannot authorize a replacement session.
+- Scale contexts also expose `connectionId` and `publishInfo(info)`; the ID is
+  session identity only, and metadata is connected-session state rather than
+  inventory data.
 - `context.gatt.discoverServices()` returns normalized 128-bit service UUIDs.
 - `read(service, characteristic)` returns base64 bytes.
 - `writeWithResponse(service, characteristic, base64)` and
