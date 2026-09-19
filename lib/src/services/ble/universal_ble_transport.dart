@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'dart:typed_data';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/device/device.dart' as device;
+import 'package:reaprime/src/models/device/diagnostic_timestamp.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:reaprime/src/models/device/transport/ble_timeout_exception.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
@@ -21,6 +22,45 @@ class UniversalBleTransport extends BLETransport {
       BehaviorSubject.seeded(device.ConnectionState.discovered);
 
   StreamSubscription? _connectionStateSubscription;
+  StreamSubscription<QueueDiagnostics>? _queueBoundarySubscription;
+  final _rawNotification = DiagnosticTimestamp();
+
+  @override
+  Map<String, Object?> get diagnostics => {
+    'transportInstanceId': identityHashCode(this),
+    'connectionGeneration': _connectionGeneration,
+    'state': _connectionStateSubject.valueOrNull?.name,
+    'rawNotification': _rawNotification.snapshot,
+    'queue': _queueSnapshot(UniversalBle.getQueueDiagnostics(id)),
+  };
+
+  Map<String, Object?> _queueSnapshot(QueueDiagnostics queue) => {
+    'id': queue.queueId,
+    'generation': queue.generation,
+    'state': queue.state.name,
+    'activeOperations': queue.activeOperations,
+    'pendingOperations': queue.pendingOperations,
+    'activeOperationLabels': queue.activeOperationLabels,
+    'pendingOperationLabels': queue.pendingOperationLabels,
+  };
+
+  void _recordDiagnosticBoundary(String reason, [QueueDiagnostics? queue]) {
+    if (_disposed) return;
+    try {
+      onDiagnosticBoundary?.call({
+        ...diagnostics,
+        'deviceId': id,
+        'at': DateTime.now().toUtc().toIso8601String(),
+        'reason': reason,
+        if (queue != null) 'queue': _queueSnapshot(queue),
+      });
+    } catch (_) {}
+  }
+
+  void _receiveNotification(Uint8List data, void Function(Uint8List) callback) {
+    _rawNotification.mark();
+    callback(data);
+  }
 
   bool _linkDeadDeclared = false;
   int _connectionGeneration = 0;
@@ -123,6 +163,7 @@ class UniversalBleTransport extends BLETransport {
         timeout: Duration(seconds: 20),
       );
     } on UniversalBleException catch (e) {
+      _recordDiagnosticBoundary('connect/${e.code.name}');
       throw mapUniversalConnectError(e);
     }
     _startAdvertWatch();
@@ -155,6 +196,7 @@ class UniversalBleTransport extends BLETransport {
       try {
         await _doConnectBlueZ();
       } on UniversalBleException catch (e2) {
+        _recordDiagnosticBoundary('connect/${e2.code.name}');
         throw mapUniversalConnectError(e2);
       }
     }
@@ -163,6 +205,9 @@ class UniversalBleTransport extends BLETransport {
   Future<void> _listenForConnectionUpdates(int generation) async {
     await _connectionStateSubscription?.cancel();
     if (_connectionGeneration != generation || _disposed) return;
+    _queueBoundarySubscription ??= UniversalBle.queueBoundaryStream
+        .where((queue) => queue.queueId.toLowerCase() == id.toLowerCase())
+        .listen((queue) => _recordDiagnosticBoundary(queue.boundary!, queue));
     _connectionStateSubscription =
         UniversalBle.connectionUpdateStream(_device.deviceId).listen((update) {
           if (_connectionGeneration != generation) return;
@@ -194,6 +239,7 @@ class UniversalBleTransport extends BLETransport {
     if (_maintenanceGeneration == generation) return;
     _recoveringQueueGeneration = null;
     _log.warning('Transport disconnected: ${error ?? 'unknown'}');
+    _recordDiagnosticBoundary('confirmedDisconnect');
     _publishDisconnected();
   }
 
@@ -295,6 +341,9 @@ class UniversalBleTransport extends BLETransport {
     String operation,
     String path,
   ) {
+    if (e.code != UniversalBleErrorCode.operationCancelled) {
+      _recordDiagnosticBoundary('$operation/$path/${e.code.name}');
+    }
     if (_attributeMissingCodes.contains(e.code)) {
       _log.warning(
         'GATT $operation($path) failed — attribute not in GATT database: '
@@ -312,6 +361,7 @@ class UniversalBleTransport extends BLETransport {
       _log.warning('GATT $operation($path) failed — device gone: ${e.code}');
       _connectionStateSubject.add(device.ConnectionState.disconnected);
       _clearQueue(UniversalBleErrorCode.deviceDisconnected);
+      _stopQueueDiagnostics();
       throw const DeviceNotConnectedException.unknown();
     }
     if (e.code == UniversalBleErrorCode.gattError) {
@@ -327,6 +377,7 @@ class UniversalBleTransport extends BLETransport {
       );
       _connectionStateSubject.add(device.ConnectionState.disconnected);
       _clearQueue(UniversalBleErrorCode.deviceDisconnected);
+      _stopQueueDiagnostics();
       throw const DeviceNotConnectedException.unknown();
     }
     _log.warning('GATT $operation($path) failed — unmapped error: $e');
@@ -412,6 +463,7 @@ class UniversalBleTransport extends BLETransport {
     } finally {
       await _connectionStateSubscription?.cancel();
       _connectionStateSubscription = null;
+      _stopQueueDiagnostics();
     }
   }
 
@@ -706,6 +758,7 @@ class UniversalBleTransport extends BLETransport {
   }
 
   void _publishDisconnected() {
+    _stopQueueDiagnostics();
     if (!_connectionStateSubject.isClosed &&
         _connectionStateSubject.valueOrNull !=
             device.ConnectionState.disconnected) {
@@ -727,7 +780,7 @@ class UniversalBleTransport extends BLETransport {
     final sub = UniversalBle.characteristicValueStream(
       _device.deviceId,
       characteristicUUID,
-    ).listen(callback);
+    ).listen((data) => _receiveNotification(data, callback));
     _subscriptions[key] = sub;
 
     try {
@@ -752,7 +805,7 @@ class UniversalBleTransport extends BLETransport {
       _subscriptions[key] = UniversalBle.characteristicValueStream(
         _device.deviceId,
         characteristicUUID,
-      ).listen(callback);
+      ).listen((data) => _receiveNotification(data, callback));
     }
     try {
       await UniversalBle.unsubscribe(
@@ -894,6 +947,7 @@ class UniversalBleTransport extends BLETransport {
   }
 
   Future<void> _disposeLocked() async {
+    _stopQueueDiagnostics();
     _maintenanceGeneration = null;
     _advertSub?.cancel();
     _advertSub = null;
@@ -906,6 +960,11 @@ class UniversalBleTransport extends BLETransport {
     if (!_connectionStateSubject.isClosed) {
       _connectionStateSubject.close();
     }
+  }
+
+  void _stopQueueDiagnostics() {
+    unawaited(_queueBoundarySubscription?.cancel());
+    _queueBoundarySubscription = null;
   }
 }
 

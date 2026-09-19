@@ -3,6 +3,9 @@ import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 
 abstract class BLETransport extends DataTransport {
+  Map<String, Object?> get diagnostics => const {};
+  void Function(Map<String, Object?>)? onDiagnosticBoundary;
+
   @override
   TransportType get transportType => TransportType.ble;
 

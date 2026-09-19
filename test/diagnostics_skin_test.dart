@@ -51,6 +51,9 @@ void main() {
       expect(html, contains('/api/v1/devices/scan?connect='));
       expect(html, contains('report.diagnostics'));
       expect(html, contains('report.probes'));
+      expect(html, contains('servicesDiagnostics'));
+      expect(html, contains('id="services"'));
+      expect(html, contains('cached / collection pending'));
     },
   );
 }

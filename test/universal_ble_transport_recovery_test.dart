@@ -256,6 +256,89 @@ void main() {
     );
   }
 
+  test(
+    'diagnostics capture queue boundary and raw input without payload',
+    () async {
+      final failures = <Map<String, Object?>>[];
+      transport.onDiagnosticBoundary = failures.add;
+      await transport.subscribe(_serviceUuid, _charUuid, (_) {});
+      expect(transport.diagnostics['rawNotification'], {
+        'at': null,
+        'ageMs': null,
+      });
+      platform.updateCharacteristicValue(
+        deviceId,
+        _charUuid,
+        Uint8List.fromList([201]),
+        null,
+      );
+      await pump(1);
+      expect(
+        (transport.diagnostics['rawNotification'] as Map)['at'],
+        isA<String>(),
+      );
+      platform.hangWrites = true;
+      platform.writeBlocker = Completer<void>();
+      final first = timedOutWrite();
+      final second = transport.write(
+        _serviceUuid,
+        _charUuid,
+        Uint8List.fromList([202]),
+      );
+      final cancelled = expectLater(
+        second,
+        throwsA(isA<UniversalBleException>()),
+      );
+      await first;
+      await cancelled;
+      final boundary = failures.first;
+      final queue = boundary['queue'] as Map;
+      expect(boundary['reason'], 'timeout');
+      expect(queue['generation'], isA<int>());
+      expect(queue['activeOperations'], 1);
+      expect(queue['pendingOperations'], 1);
+      expect(queue['activeOperationLabels'], [
+        'write/$_serviceUuid/$_charUuid',
+      ]);
+      expect(queue['pendingOperationLabels'], [
+        'write/$_serviceUuid/$_charUuid',
+      ]);
+      expect(boundary.toString(), isNot(contains('[201]')));
+      expect(boundary.toString(), isNot(contains('[202]')));
+      platform.writeBlocker!.complete();
+      await pump(100);
+      expect(queue['activeOperations'], 1);
+      expect((transport.diagnostics['queue'] as Map)['activeOperations'], 0);
+    },
+  );
+
+  test('retired diagnostic observer ignores a replacement transport', () async {
+    final oldBoundaries = <Map<String, Object?>>[];
+    transport.onDiagnosticBoundary = oldBoundaries.add;
+    await transport.disconnect();
+    final count = oldBoundaries.length;
+    final replacement = UniversalBleTransport(
+      device: bleDevice(deviceId),
+      isAndroidOverride: false,
+      isLinuxOverride: false,
+    );
+    await replacement.connect();
+    platform.hangWrites = true;
+    platform.writeBlocker = Completer<void>();
+    await expectLater(
+      replacement.write(
+        _serviceUuid,
+        _charUuid,
+        Uint8List(1),
+        timeout: _writeTimeout,
+      ),
+      throwsA(isA<TimeoutException>()),
+    );
+    expect(oldBoundaries, hasLength(count));
+    platform.writeBlocker!.complete();
+    await replacement.dispose();
+  });
+
   test('confirmed disconnect retains ownership until a native event', () async {
     platform.emitDisconnectEvent = false;
     platform.disconnectRequested = Completer<void>();

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io' show Platform;
 import 'package:reaprime/src/models/adapter_state.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
@@ -176,12 +177,39 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
   bool Function() requestLargeMtuNonAndroid;
 
   BLETransport _createTransport(BleDevice device) {
-    return _transportFactory(
+    final transport = _transportFactory(
       device: device,
       stopScan: _stopScanForConnect,
       requestLargeMtuNonAndroid: requestLargeMtuNonAndroid(),
       lifecycleGate: _lifecycleGate,
     );
+    transport.onDiagnosticBoundary = _recordDiagnosticBoundary;
+    return transport;
+  }
+
+  Map<String, Object?>? _lastDiagnosticFailure;
+
+  void _recordDiagnosticBoundary(Map<String, Object?> failure) {
+    if (_disposed) return;
+    final snapshot = <String, Object?>{
+      'failure': failure,
+      'adapterState': _adapterStateSubject.value.name,
+      'adapterGeneration': _watchAdapterGeneration,
+      'scanOwner': _scanOwner.name,
+      'scanPhase': _scanPhase.name,
+      'peers': [
+        for (final peer in _devices.values.take(32))
+          {
+            'deviceId': peer.deviceId,
+            'instanceId': identityHashCode(peer),
+            if (peer is DeviceDiagnosticsCapable)
+              'diagnostics':
+                  (peer as DeviceDiagnosticsCapable).connectionDiagnostics,
+          },
+      ],
+    };
+    _lastDiagnosticFailure = snapshot;
+    log.info('BLE diagnostic boundary: ${jsonEncode(snapshot)}');
   }
 
   @override
@@ -597,6 +625,7 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
 
     return {
       'serviceInstanceId': identityHashCode(this),
+      'lastFailure': _lastDiagnosticFailure,
       'adapterState': _adapterStateSubject.value.name,
       'scan': {
         'owner': _scanOwner.name,

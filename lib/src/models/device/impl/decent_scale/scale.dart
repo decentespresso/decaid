@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:reaprime/src/models/device/ble_service_identifier.dart';
+import 'package:reaprime/src/models/device/diagnostic_timestamp.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
@@ -15,7 +16,15 @@ import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:rxdart/subjects.dart';
 
-class DecentScale implements Scale, TransportHandoffScale {
+class DecentScale
+    implements Scale, TransportHandoffScale, DeviceDiagnosticsCapable {
+  final _validSample = DiagnosticTimestamp();
+
+  @override
+  Map<String, Object?> get connectionDiagnostics => {
+    ..._device.diagnostics,
+    'validSample': _validSample.snapshot,
+  };
   static final BleServiceIdentifier serviceIdentifier =
       BleServiceIdentifier.short('fff0');
   static final BleServiceIdentifier dataCharacteristic =
@@ -940,6 +949,7 @@ class DecentScale implements Scale, TransportHandoffScale {
   }
 
   void _parseWeight(List<int> data) {
+    _validSample.mark();
     var raw = (data[2] << 8) | data[3];
     if ((raw & 0x8000) != 0) raw -= 0x10000;
     _streamController.add(

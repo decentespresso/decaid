@@ -44,6 +44,7 @@
       <div>Decaid<span id="version" class="value">loading</span></div>
       <div>Machine<span id="machine" class="value">unknown</span></div>
       <div>Scale<span id="scale" class="value">unknown</span></div>
+      <div>Service snapshot<span id="services" class="value">unknown</span></div>
       <div>Scan owner / phase<span id="scan" class="value">unknown</span></div>
       <div>Native scanning<span id="native" class="value">unknown</span></div>
       <div>Watch armed / generation<span id="watch" class="value">unknown</span></div>
@@ -81,11 +82,28 @@
     };
     const updateDiagnostics = data => {
       if (capturing) report.diagnostics.push({timestamp:now(), snapshot:data});
+      const serviceDiagnostics = data.ble?.servicesDiagnostics;
       const service = data.ble?.services?.[0]?.details;
       const scan = service?.scan;
       const watch = data.connection?.scaleWatch;
-      $('scan').textContent = scan ? `${scan.owner} / ${scan.phase}` : 'unknown';
-      $('native').textContent = scan?.nativeIsScanning ?? 'unknown';
+      const servicesComplete = serviceDiagnostics?.complete !== false;
+      const sampledAt = serviceDiagnostics?.sampledAt;
+      $('services').textContent = serviceDiagnostics
+        ? servicesComplete
+          ? `fresh${sampledAt ? ` @ ${sampledAt}` : ''}`
+          : `cached / collection pending${sampledAt ? ` @ ${sampledAt}` : ''}`
+        : 'unknown';
+      if (servicesComplete) {
+        $('scan').textContent = scan ? `${scan.owner} / ${scan.phase}` : 'unknown';
+        $('native').textContent = scan?.nativeIsScanning ?? 'unknown';
+      } else {
+        $('scan').textContent = scan
+          ? `${scan.owner} / ${scan.phase} (cached)`
+          : 'unknown (collection pending)';
+        $('native').textContent = scan?.nativeIsScanning == null
+          ? 'unknown (collection pending)'
+          : `${scan.nativeIsScanning} (cached)`;
+      }
       $('watch').textContent = watch ? `${watch.armed} / ${watch.generation}` : 'unknown';
       $('latest').textContent = JSON.stringify(data, null, 2);
       renderTimeline();
