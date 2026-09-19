@@ -156,6 +156,9 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                 subtitle: _deviceSubtitle(device),
                 isSelected: selectedId == device.deviceId,
                 onTap: () => onSelected(device.deviceId),
+                onConfigure: device is UsbPowerConfigurable
+                    ? () => _showScaleSettings(device)
+                    : null,
               ),
             ),
         ],
@@ -188,6 +191,10 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
       if (batteryLevel != null) {
         lines.add('Battery: $batteryLevel% (device-reported)');
       }
+      final powerSource = capable.currentDeviceInformation?.powerSource;
+      if (powerSource == DevicePowerSource.usb) {
+        lines.add('Power: USB (manual setting)');
+      }
     }
     return lines.join(' · ');
   }
@@ -197,6 +204,7 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
     required String subtitle,
     required bool isSelected,
     required VoidCallback onTap,
+    VoidCallback? onConfigure,
   }) {
     return InkWell(
       onTap: onTap,
@@ -232,6 +240,43 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                   Text(subtitle, style: Theme.of(context).textTheme.labelSmall),
                 ],
               ),
+            ),
+            if (onConfigure != null)
+              IconButton(
+                tooltip: 'Configure $name',
+                icon: const Icon(Icons.settings_outlined),
+                onPressed: onConfigure,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showScaleSettings(Device device) {
+    return showDialog<void>(
+      context: context,
+      builder: (context) => ListenableBuilder(
+        listenable: widget.settingsController,
+        builder: (context, _) => AlertDialog(
+          title: Text('${device.name} settings'),
+          content: SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Powered by USB'),
+            subtitle: const Text(
+              'Enable when this Skale has external power. '
+              'Battery reporting is suppressed while enabled.',
+            ),
+            value: widget.settingsController.isSkalePoweredByUsb(
+              device.deviceId,
+            ),
+            onChanged: (value) => widget.settingsController
+                .setSkalePoweredByUsb(device.deviceId, value),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
             ),
           ],
         ),

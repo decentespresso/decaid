@@ -27,6 +27,7 @@ class SettingsExportSection implements DataExportSection {
           'volumeFlowMultiplier': _controller.volumeFlowMultiplier,
           'hotWaterFlowMultiplier': _controller.hotWaterFlowMultiplier,
           'scalePowerMode': _controller.scalePowerMode.name,
+          'skalePoweredByUsbByDevice': _controller.skalePoweredByUsbByDevice,
           'blockOnNoScale': _controller.blockOnNoScale,
           'blockTareDuringShot': _controller.blockTareDuringShot,
           'stopHotWaterAtWeight': _controller.stopHotWaterAtWeight,
@@ -119,6 +120,29 @@ class SettingsExportSection implements DataExportSection {
             imported++;
           } else {
             errors.add('Invalid scalePowerMode: ${settings['scalePowerMode']}');
+          }
+        }
+
+        if (settings.containsKey('skalePoweredByUsbByDevice')) {
+          final value = settings['skalePoweredByUsbByDevice'];
+          if (value is! Map) {
+            errors.add('Invalid skalePoweredByUsbByDevice: $value');
+          } else {
+            final parsed = <String, bool>{};
+            var valid = true;
+            for (final entry in value.entries) {
+              if (entry.key is! String || entry.value is! bool) {
+                valid = false;
+                break;
+              }
+              parsed[entry.key as String] = entry.value as bool;
+            }
+            if (valid) {
+              await _controller.setSkalePoweredByUsbByDevice(parsed);
+              imported++;
+            } else {
+              errors.add('Invalid skalePoweredByUsbByDevice: $value');
+            }
           }
         }
 

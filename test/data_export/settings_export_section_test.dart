@@ -59,6 +59,7 @@ void main() {
       expect(settings['sleepTimeoutMinutes'], 30);
       expect(settings['lowBatteryBrightnessLimit'], isFalse);
       expect(settings['keepAwake'], isTrue);
+      expect(settings['skalePoweredByUsbByDevice'], isEmpty);
       expect(map['wakeSchedules'], '[]');
 
       final devicePrefs = map['devicePreferences'] as Map<String, dynamic>;
@@ -90,6 +91,8 @@ void main() {
       await controller.setBlockTareDuringShot(true);
       await controller.setLowBatteryBrightnessLimit(true);
       await controller.setKeepAwake(false);
+      await controller.setSkalePoweredByUsb('skale-a', true);
+      await controller.setSkalePoweredByUsb('skale-b', false);
       final exported = await exportSettings(section);
 
       await controller.updateGatewayMode(GatewayMode.disabled);
@@ -116,6 +119,7 @@ void main() {
       expect(controller.blockTareDuringShot, isTrue);
       expect(controller.lowBatteryBrightnessLimit, isTrue);
       expect(controller.keepAwake, isFalse);
+      expect(controller.skalePoweredByUsbByDevice, {'skale-a': true});
     });
 
     test('imports device preferences', () async {
@@ -170,6 +174,37 @@ void main() {
       expect(result.errors[0], contains('Invalid gatewayMode'));
       expect(result.errors[1], contains('Invalid scalePowerMode'));
     });
+
+    test('imports independent per-device USB power settings', () async {
+      final result = await importSectionJson(
+        section,
+        jsonEncode({
+          'settings': {
+            'skalePoweredByUsbByDevice': {'skale-a': true, 'skale-b': false},
+          },
+        }),
+        ConflictStrategy.overwrite,
+      );
+      expect(result.errors, isEmpty);
+      expect(controller.skalePoweredByUsbByDevice, {'skale-a': true});
+    });
+
+    test(
+      'reports an error for invalid per-device USB power settings',
+      () async {
+        final result = await importSectionJson(
+          section,
+          jsonEncode({
+            'settings': {
+              'skalePoweredByUsbByDevice': {'skale-a': 'yes'},
+            },
+          }),
+          ConflictStrategy.overwrite,
+        );
+        expect(result.errors, [contains('Invalid skalePoweredByUsbByDevice')]);
+        expect(controller.skalePoweredByUsbByDevice, isEmpty);
+      },
+    );
 
     test('counts settings imported before a later field fails', () async {
       final result = await importSectionJson(
