@@ -823,6 +823,23 @@ function createPlugin() {
         expect(source.assetName, isNull);
       });
 
+      test('bundled weather gets its canonical repo', () async {
+        const pluginId = 'weather.reaplugin';
+        // Must match the fetched manifest version
+        // (assets/plugins/weather.reaplugin = 1.1.0); initialize() already
+        // installed the bundled copy, so a lower version here trips the
+        // downgrade guard.
+        await installBundledCopy(pluginId: pluginId, version: '1.1.0');
+
+        service.seedBundledSources();
+
+        final source = service.sourceFor(pluginId)!;
+        expect(source.kind, PluginSourceKind.githubRelease);
+        expect(source.repo, 'ChampionDesigns/decaid-weather-plugin');
+        expect(source.releaseTag, 'v1.1.0');
+        expect(source.assetName, isNull);
+      });
+
       test('an existing DYE2 without metadata is migrated', () async {
         await installBundledCopy();
         expect(service.sourceFor(dye2Id), isNull);
