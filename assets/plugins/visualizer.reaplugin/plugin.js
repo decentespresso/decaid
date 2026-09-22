@@ -17,6 +17,7 @@ function createPlugin(host) {
   const VISUALIZER_SHARED_API = "https://visualizer.coffee/api/shots/shared?code=";
   const VISUALIZER_PROFILE_API = "https://visualizer.coffee/api/shots/%1/profile?format=json";
   // Decaid's annotations.enjoyment is 0-5; Visualizer's espresso_enjoyment is 0-100.
+  const CANONICAL_ENJOYMENT_MAX = 5;
   const VISUALIZER_ENJOYMENT_SCALE = 20;
 
   let shotFetchTimeoutId = null;
@@ -206,16 +207,17 @@ function createPlugin(host) {
     return normalizeTags([...recipeTags, ...shotTags]);
   }
 
-  // annotations.enjoyment is canonically 0-5, but shots imported or back-synced
-  // before this scale conversion existed can still hold the raw 0-100 value.
-  // A value above the canonical max is treated as one of those un-migrated
-  // legacy values and sent through unconverted, rather than re-scaled onto
-  // Visualizer's 0-100 range a second time.
+  // annotations.enjoyment is canonically 0-5, so the conversion is
+  // unconditional. Legacy 0-100 ratings are repaired at rest by the schema 6
+  // migration and rejected at the REST boundary, rather than guessed at from
+  // the value here — a legacy rating of 4 is indistinguishable from a
+  // canonical one. Anything still out of range is clamped, so a stray value
+  // cannot be multiplied into something Visualizer will not accept.
   function toVisualizerEnjoyment(value) {
     const number = Number(value);
     if (!Number.isFinite(number)) return null;
-    if (number > 5) return Math.round(number);
-    return Math.round(number * VISUALIZER_ENJOYMENT_SCALE);
+    const canonical = Math.min(Math.max(number, 0), CANONICAL_ENJOYMENT_MAX);
+    return Math.round(canonical * VISUALIZER_ENJOYMENT_SCALE);
   }
 
   function convertReaToVisualizerFormat(reaShot) {
@@ -1189,7 +1191,7 @@ function createPlugin(host) {
   // Return the plugin object
   return {
     id: "visualizer.reaplugin",
-    version: "1.5.8",
+    version: "1.5.9",
 
     onLoad(settings) {
       state.username = settings.Username;

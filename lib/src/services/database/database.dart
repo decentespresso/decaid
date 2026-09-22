@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 import 'package:logging/logging.dart';
+import 'package:reaprime/src/import/parsers/enjoyment_scale.dart';
 import 'package:reaprime/src/services/database/converters/json_converters.dart';
 import 'package:reaprime/src/services/database/daos/bean_dao.dart';
 import 'package:reaprime/src/services/database/daos/grinder_dao.dart';
@@ -74,7 +77,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration {
@@ -102,6 +105,9 @@ class AppDatabase extends _$AppDatabase {
           }
           if (from < 5) {
             await _upgradeToSchema5(m);
+          }
+          if (from < 6) {
+            await _upgradeToSchema6();
           }
         });
         _log.info('db migration $from -> $to completed');
@@ -141,6 +147,75 @@ class AppDatabase extends _$AppDatabase {
       'updated_at = COALESCE(updated_at, timestamp) '
       'WHERE created_at IS NULL OR updated_at IS NULL',
     );
+  }
+
+  /// Repairs `annotations.enjoyment` rows still holding a 0-100 rating.
+  ///
+  /// Decaid's canonical scale is 0-5. Two writers stored the raw 0-100 value
+  /// before that scale existed: the de1app importer, and the Visualizer
+  /// back-sync. Rows are selected by provenance rather than by guessing from
+  /// the value, so that a legacy rating inside 0-5 (de1app's field is 0-100
+  /// with an increment of 1, so 4 is a valid legacy rating) is repaired and a
+  /// genuine 0-5 rating is left alone:
+  ///
+  ///   * any value above the canonical maximum can only have come from a
+  ///     0-100 writer, whatever wrote it;
+  ///   * a `de1app-` shot never touched since import still holds exactly what
+  ///     the importer wrote, which was the raw 0-100 value.
+  ///
+  /// Anything else is treated as canonical and left untouched. That leaves one
+  /// documented gap: an imported or back-synced shot that was edited
+  /// afterwards is ambiguous at rest, so it is not rewritten in either
+  /// direction. See doc/AI_STORAGE_NOTES.md, "Schema v6".
+  Future<void> _upgradeToSchema6() async {
+    final rows = await customSelect(
+      'SELECT id, enjoyment, annotations_json FROM shot_records '
+      'WHERE enjoyment IS NOT NULL AND ('
+      '  enjoyment > $legacyEnjoymentThreshold'
+      "  OR (id LIKE 'de1app-%' AND ("
+      '    updated_at IS NULL OR created_at IS NULL '
+      '    OR updated_at <= created_at))'
+      ')',
+    ).get();
+
+    for (final row in rows) {
+      final id = row.data['id'] as String;
+      final legacy = (row.data['enjoyment'] as num).toDouble();
+      final canonical = rescaleDe1appEnjoyment(legacy)!;
+      await customUpdate(
+        'UPDATE shot_records SET enjoyment = ?, annotations_json = ? '
+        'WHERE id = ?',
+        variables: [
+          Variable<double>(canonical),
+          Variable<String>(
+            _withEnjoyment(row.data['annotations_json'] as String?, canonical),
+          ),
+          Variable<String>(id),
+        ],
+      );
+    }
+
+    _log.info(
+      'db migration to 6; rescaled ${rows.length} legacy enjoyment '
+      'rating(s) from 0-100 to 0-5',
+    );
+  }
+
+  /// Rewrites `enjoyment` inside a stored annotations blob, leaving every other
+  /// field byte-identical. Returns the blob unchanged when it cannot be parsed,
+  /// so an unreadable annotation is never replaced with a synthesized one.
+  static String? _withEnjoyment(String? annotationsJson, double enjoyment) {
+    if (annotationsJson == null || annotationsJson.isEmpty) {
+      return annotationsJson;
+    }
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(annotationsJson);
+    } on FormatException {
+      return annotationsJson;
+    }
+    if (decoded is! Map<String, dynamic>) return annotationsJson;
+    return jsonEncode({...decoded, 'enjoyment': enjoyment});
   }
 
   static void _validateExistingV5Column(

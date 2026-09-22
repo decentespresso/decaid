@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
+import 'package:reaprime/src/import/parsers/enjoyment_scale.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
 import 'package:reaprime/src/plugins/plugin_manager.dart';
 import 'package:reaprime/src/services/storage/bean_storage_service.dart';
@@ -218,6 +219,11 @@ class ShotsHandler {
         });
       }
 
+      final enjoymentError = _enjoymentRangeError(json);
+      if (enjoymentError != null) {
+        return jsonBadRequest({"error": enjoymentError});
+      }
+
       final existingShot = await _controller.storageService.getShot(id);
       if (existingShot == null) {
         return jsonNotFound({"error": "Shot not found"});
@@ -271,6 +277,27 @@ class ShotsHandler {
       }
       return jsonError({"error": e.toString()});
     }
+  }
+
+  /// `annotations.enjoyment` is canonically 0-5, the range `rest_v1.yml`
+  /// declares. The spec is served as documentation only and is not enforced by
+  /// the router, so the bound is checked here: without it a client could write
+  /// back a de1app or Visualizer 0-100 rating, reintroducing exactly the
+  /// ambiguity the schema 6 migration repairs.
+  static String? _enjoymentRangeError(Map<String, dynamic> json) {
+    final annotations = json['annotations'];
+    if (annotations is! Map<String, dynamic>) return null;
+    if (!annotations.containsKey('enjoyment')) return null;
+    final value = annotations['enjoyment'];
+    if (value == null) return null;
+    final max = enjoymentMax.toStringAsFixed(0);
+    if (value is! num || value.isNaN) {
+      return 'annotations.enjoyment must be a number between 0 and $max';
+    }
+    if (value < 0 || value > enjoymentMax) {
+      return 'annotations.enjoyment must be between 0 and $max, got $value';
+    }
+    return null;
   }
 
   Map<String, dynamic> _normalizeLegacyAnnotationPatch(

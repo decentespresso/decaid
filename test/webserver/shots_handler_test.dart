@@ -359,6 +359,58 @@ void main() {
       expect((await decode(response))['error'], contains('measurements'));
     });
 
+    test('PUT with an enjoyment above the canonical max is rejected', () async {
+      await persistAnnotatedShot();
+
+      final response = await sendPut('annotated', {
+        'annotations': {'enjoyment': 80},
+      });
+      expect(response.statusCode, 400);
+      expect((await decode(response))['error'], contains('enjoyment'));
+
+      final stored = await decode(await sendGet('/api/v1/shots/annotated'));
+      expect((stored['annotations'] as Map)['enjoyment'], isNull);
+    });
+
+    test('PUT with a negative enjoyment is rejected', () async {
+      await persistAnnotatedShot();
+
+      final response = await sendPut('annotated', {
+        'annotations': {'enjoyment': -1},
+      });
+      expect(response.statusCode, 400);
+    });
+
+    test('PUT with a non-numeric enjoyment is rejected', () async {
+      await persistAnnotatedShot();
+
+      final response = await sendPut('annotated', {
+        'annotations': {'enjoyment': 'great'},
+      });
+      expect(response.statusCode, 400);
+    });
+
+    test('PUT accepts an enjoyment inside the canonical range', () async {
+      await persistAnnotatedShot();
+
+      final (_, getJson) = await putAndGet('annotated', {
+        'annotations': {'enjoyment': 4.5},
+      });
+      expect((getJson['annotations'] as Map)['enjoyment'], 4.5);
+    });
+
+    test('PUT accepts a null enjoyment to clear the rating', () async {
+      await persistAnnotatedShot();
+      await putAndGet('annotated', {
+        'annotations': {'enjoyment': 3},
+      });
+
+      final (_, getJson) = await putAndGet('annotated', {
+        'annotations': {'enjoyment': null},
+      });
+      expect((getJson['annotations'] as Map)['enjoyment'], isNull);
+    });
+
     test('content patch advances updatedAt', () async {
       await persistAnnotatedShot();
 

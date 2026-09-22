@@ -73,6 +73,17 @@ Persistence uses Drift (SQLite) via `AppDatabase`. DAOs in `lib/src/daos/`, mapp
 
 **Schema v5 (shot revision metadata):** `shot_records.createdAt`/`updatedAt` were added as nullable TEXT and backfilled from `timestamp` during the 4→5 migration, so pre-v5 rows carry a real DB-level revision instead of NULL. `ShotMapper.fromRow` still falls back to `timestamp` for any row with NULL fields (e.g. rows inserted without stamps). The revision contract (bookkeeping extras do not advance `updatedAt`, PUT cannot write the fields) is documented in `doc/Api.md` under Shots → Modification tracking.
 
+**Schema v6 (enjoyment scale repair):** `annotations.enjoyment` is canonically 0-5. Two writers stored de1app's and Visualizer's raw 0-100 rating before that scale existed: the de1app importer and the Visualizer back-sync. The 5→6 migration repairs rows by provenance, not by inspecting the value, because de1app's field is 0-100 with an increment of 1 — a stored `4` is a valid legacy rating and a valid canonical one, so no value range separates them.
+
+Rows are rewritten when either holds:
+
+- the value exceeds the canonical maximum of 5, which no 0-5 writer can produce, whatever wrote it; or
+- the id starts with `de1app-` and `updated_at <= created_at`, meaning the row still holds exactly what the importer wrote.
+
+Both `shot_records.enjoyment` and the `enjoyment` key inside `annotations_json` are rewritten; an annotations blob that cannot be parsed is left byte-identical rather than replaced. Everything else is treated as canonical.
+
+**Known gap:** an imported or back-synced shot edited after it was written is ambiguous at rest — it may have been re-rated on the 0-5 scale — so it is left alone in either direction. Two changes keep the ambiguity from growing: `PUT /api/v1/shots/<id>` now rejects an `annotations.enjoyment` outside 0-5, and the Visualizer plugin converts unconditionally (`* 20` out, `/ 20` in) rather than guessing provenance from the value, clamping anything still out of range.
+
 **Migration lesson from #811 (0.8.5 startup failures):** Drift only writes `PRAGMA user_version` after `beforeOpen`/`onUpgrade` completes, and the upgrade body is NOT automatically transactional. An interrupted multi-step migration can therefore leave a partially upgraded physical schema (e.g. only `created_at` added) while `user_version` stays at the old value; the next open re-enters the same step and the unconditional `ADD COLUMN` fails with `duplicate column name`. Rules for future migrations:
 
 - Wrap the whole `onUpgrade` body in an explicit Drift `transaction()` so any failed step rolls back atomically and the next open retries from a known state.

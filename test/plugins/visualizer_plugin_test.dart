@@ -1029,7 +1029,7 @@ void main() {
   );
 
   test(
-    'upload sends an un-migrated legacy enjoyment value unconverted',
+    'upload clamps an out-of-range enjoyment instead of multiplying it',
     () async {
       final shot = _shot(annotations: {'enjoyment': 80});
       final manager = await _loadPlugin('''
@@ -1067,13 +1067,13 @@ void main() {
       expect(
         ((upload['app'] as Map)['data']
             as Map)['settings']['espresso_enjoyment'],
-        '80',
+        '100',
       );
     },
   );
 
   test(
-    'forward sync sends an un-migrated legacy enjoyment value unconverted',
+    'forward sync clamps an out-of-range enjoyment instead of multiplying it',
     () async {
       final manager = await _loadPlugin('''
       globalThis.__patches = [];
@@ -1109,7 +1109,10 @@ void main() {
               )
               as Map<String, dynamic>;
 
-      expect((patch['shot'] as Map<String, dynamic>)['espresso_enjoyment'], 80);
+      expect(
+        (patch['shot'] as Map<String, dynamic>)['espresso_enjoyment'],
+        100,
+      );
     },
   );
 

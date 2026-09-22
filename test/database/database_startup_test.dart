@@ -50,13 +50,13 @@ void main() {
   }
 
   group('AppDatabase.openForStartup', () {
-    test('returns null on a fresh database and opens at schema 5', () async {
+    test('returns null on a fresh database and opens at schema 6', () async {
       final db = AppDatabase(NativeDatabase.memory());
       addTearDown(db.close);
       final startupError = await db.openForStartup(Logger('StartupTest'));
       expect(startupError, isNull);
       final version = await db.customSelect('PRAGMA user_version').getSingle();
-      expect(version.data['user_version'], 5);
+      expect(version.data['user_version'], 6);
     });
 
     test(
