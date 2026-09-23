@@ -164,7 +164,9 @@ void main() {
     });
 
     test('leaves the native 0-10 maximum alone', () async {
-      final rows = await migrateAndRead([_row(id: 'native-max', enjoyment: 10)]);
+      final rows = await migrateAndRead([
+        _row(id: 'native-max', enjoyment: 10),
+      ]);
 
       expect(rows['native-max']!['enjoyment'], 10.0);
       expect((rows['native-max']!['annotations'] as Map)['enjoyment'], 10.0);
