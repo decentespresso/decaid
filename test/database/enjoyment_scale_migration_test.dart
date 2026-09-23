@@ -150,16 +150,11 @@ void main() {
       },
     );
 
-    test(
-      'rescales any shot holding an unambiguous 0-100 rating',
-      () async {
-        final rows = await migrateAndRead([
-          _row(id: 'native-1', enjoyment: 80),
-        ]);
+    test('rescales any shot holding an unambiguous 0-100 rating', () async {
+      final rows = await migrateAndRead([_row(id: 'native-1', enjoyment: 80)]);
 
-        expect(rows['native-1']!['enjoyment'], 8.0);
-      },
-    );
+      expect(rows['native-1']!['enjoyment'], 8.0);
+    });
 
     test('leaves a canonical rating on a native shot alone', () async {
       final rows = await migrateAndRead([_row(id: 'native-2', enjoyment: 8)]);
@@ -187,10 +182,7 @@ void main() {
       ]);
 
       expect(rows['de1app-pre-v5']!['enjoyment'], 4.0);
-      expect(
-        (rows['de1app-pre-v5']!['annotations'] as Map)['enjoyment'],
-        4.0,
-      );
+      expect((rows['de1app-pre-v5']!['annotations'] as Map)['enjoyment'], 4.0);
     });
 
     test('leaves an imported shot edited after import alone', () async {
