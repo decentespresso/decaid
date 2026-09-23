@@ -124,55 +124,56 @@ void main() {
     }
   }
 
-  group('v5 -> v6 enjoyment rescale', () {
+  group('v5 -> v6 enjoyment repair', () {
     test(
-      'rescales an untouched de1app import whose rating is inside 0-5',
+      'rescales an untouched de1app import whose rating overlaps 0-10',
       () async {
-        // de1app's espresso_enjoyment is 0-100 with an increment of 1, so 4 is a
-        // valid legacy rating. Provenance, not the value, identifies it.
         final rows = await migrateAndRead([
           _row(id: 'de1app-1234', enjoyment: 4),
         ]);
 
-        expect(rows['de1app-1234']!['enjoyment'], 0.2);
-        expect((rows['de1app-1234']!['annotations'] as Map)['enjoyment'], 0.2);
+        expect(rows['de1app-1234']!['enjoyment'], 0.4);
+        expect((rows['de1app-1234']!['annotations'] as Map)['enjoyment'], 0.4);
       },
     );
 
     test(
-      'rescales an untouched de1app import whose rating exceeds 5',
+      'rescales an untouched de1app import whose rating exceeds 10',
       () async {
         final rows = await migrateAndRead([
           _row(id: 'de1app-5678', enjoyment: 87),
         ]);
 
-        expect(rows['de1app-5678']!['enjoyment'], closeTo(4.35, 1e-9));
+        expect(rows['de1app-5678']!['enjoyment'], closeTo(8.7, 1e-9));
       },
     );
 
     test(
-      'rescales any shot holding a rating above the canonical maximum',
+      'rescales any shot holding an unambiguous 0-100 rating',
       () async {
-        // A back-synced native shot has no id prefix, but 80 cannot have been
-        // written on the 0-5 scale by any writer.
         final rows = await migrateAndRead([
           _row(id: 'native-1', enjoyment: 80),
         ]);
 
-        expect(rows['native-1']!['enjoyment'], 4.0);
+        expect(rows['native-1']!['enjoyment'], 8.0);
       },
     );
 
     test('leaves a canonical rating on a native shot alone', () async {
-      final rows = await migrateAndRead([_row(id: 'native-2', enjoyment: 4)]);
+      final rows = await migrateAndRead([_row(id: 'native-2', enjoyment: 8)]);
 
-      expect(rows['native-2']!['enjoyment'], 4.0);
-      expect((rows['native-2']!['annotations'] as Map)['enjoyment'], 4.0);
+      expect(rows['native-2']!['enjoyment'], 8.0);
+      expect((rows['native-2']!['annotations'] as Map)['enjoyment'], 8.0);
+    });
+
+    test('leaves the native 0-10 maximum alone', () async {
+      final rows = await migrateAndRead([_row(id: 'native-max', enjoyment: 10)]);
+
+      expect(rows['native-max']!['enjoyment'], 10.0);
+      expect((rows['native-max']!['annotations'] as Map)['enjoyment'], 10.0);
     });
 
     test('leaves an imported shot edited after import alone', () async {
-      // Ambiguous at rest: the rating may have been re-rated on the 0-5 scale
-      // since import, so it is not rewritten in either direction.
       final rows = await migrateAndRead([
         _row(id: 'de1app-9999', enjoyment: 4, updatedAt: _editedAt),
       ]);
@@ -186,7 +187,7 @@ void main() {
       ]);
 
       final annotations = rows['de1app-1111']!['annotations'] as Map;
-      expect(annotations['enjoyment'], 4.0);
+      expect(annotations['enjoyment'], 8.0);
       expect(annotations['actualDoseWeight'], 18.0);
       expect(annotations['espressoNotes'], 'unchanged');
     });
@@ -215,7 +216,7 @@ void main() {
                 "WHERE id = 'de1app-3333'",
               )
               .getSingle();
-          expect(row.data['enjoyment'], 4.0);
+          expect(row.data['enjoyment'], 8.0);
           expect(row.data['annotations_json'], 'not json');
         } finally {
           await db.close();
@@ -240,7 +241,7 @@ void main() {
           "SELECT enjoyment FROM shot_records WHERE id = ?",
           ['de1app-4444'],
         ).first['enjoyment'];
-        expect(value, 4.0);
+        expect(value, 8.0);
       } finally {
         raw.close();
       }

@@ -946,7 +946,7 @@ void main() {
   test(
     'upload scales annotations.enjoyment to Visualizer espresso_enjoyment',
     () async {
-      final shot = _shot(annotations: {'enjoyment': 4});
+      final shot = _shot(annotations: {'enjoyment': 8});
       final manager = await _loadPlugin('''
       globalThis.fetch = async (url, init = {}) => {
         if (url.endsWith('/shots/latest')) {
@@ -1009,12 +1009,12 @@ void main() {
         manager,
         _shot(
           annotations: {
-            'enjoyment': 4,
+            'enjoyment': 8,
             'extras': {'visualizerId': 'visualizer-9'},
           },
         ),
         {
-          'annotations': {'enjoyment': 4},
+          'annotations': {'enjoyment': 8},
         },
       );
       final patch =
@@ -1154,7 +1154,49 @@ void main() {
           await _waitForJs(manager, 'globalThis.__localUpdate')
               as Map<String, dynamic>;
 
-      expect((localUpdate['annotations'] as Map)['enjoyment'], 4);
+      expect((localUpdate['annotations'] as Map)['enjoyment'], 8);
+    },
+  );
+
+  test(
+    'back sync clamps an out-of-range Visualizer enjoyment before local PUT',
+    () async {
+      final manager = await _loadPlugin(
+        '''
+      globalThis.fetch = async (url, init = {}) => {
+        if (url.endsWith('/me')) {
+          return { ok: true, json: async () => ({ id: 'user-1' }) };
+        }
+        if (url.includes('/shots?sort=updated_at&items=50&page=1')) {
+          return { ok: true, json: async () => ({ user_id: 'user-1', data: [{ id: 'visualizer-b', updated_at: 110 }] }) };
+        }
+        if (url.endsWith('/shots/visualizer-b?essentials=1')) {
+          return { ok: true, json: async () => ({ id: 'visualizer-b', updated_at: 110, espresso_enjoyment: '120' }) };
+        }
+        if (url.endsWith('/shots/local-b') && init.method === 'PUT') {
+          globalThis.__localUpdate = JSON.parse(init.body);
+          return { ok: true, json: async () => ({}) };
+        }
+        throw new Error('Unexpected URL: ' + url + ' ' + (init.method || 'GET'));
+      };
+    ''',
+        settings: const {'BackSync': true},
+      );
+      manager.dispatchEvent(_manifest.id, 'storageRead', {
+        'key': 'shotMap',
+        'value': jsonEncode({'visualizer-b': 'local-b'}),
+      });
+      manager.dispatchEvent(_manifest.id, 'storageRead', {
+        'key': 'backSyncCursor',
+        'value': '100',
+      });
+      manager.js.evaluate('globalThis.__runTimers(30000)');
+
+      final localUpdate =
+          await _waitForJs(manager, 'globalThis.__localUpdate')
+              as Map<String, dynamic>;
+
+      expect((localUpdate['annotations'] as Map)['enjoyment'], 10);
     },
   );
 

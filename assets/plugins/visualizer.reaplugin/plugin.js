@@ -16,9 +16,8 @@ function createPlugin(host) {
   const VISUALIZER_API_URL = "https://visualizer.coffee/api";
   const VISUALIZER_SHARED_API = "https://visualizer.coffee/api/shots/shared?code=";
   const VISUALIZER_PROFILE_API = "https://visualizer.coffee/api/shots/%1/profile?format=json";
-  // Decaid's annotations.enjoyment is 0-5; Visualizer's espresso_enjoyment is 0-100.
-  const CANONICAL_ENJOYMENT_MAX = 5;
-  const VISUALIZER_ENJOYMENT_SCALE = 20;
+  const CANONICAL_ENJOYMENT_MAX = 10;
+  const VISUALIZER_ENJOYMENT_SCALE = 10;
 
   let shotFetchTimeoutId = null;
   let backSyncTimeoutId = null;
@@ -207,12 +206,6 @@ function createPlugin(host) {
     return normalizeTags([...recipeTags, ...shotTags]);
   }
 
-  // annotations.enjoyment is canonically 0-5, so the conversion is
-  // unconditional. Legacy 0-100 ratings are repaired at rest by the schema 6
-  // migration and rejected at the REST boundary, rather than guessed at from
-  // the value here — a legacy rating of 4 is indistinguishable from a
-  // canonical one. Anything still out of range is clamped, so a stray value
-  // cannot be multiplied into something Visualizer will not accept.
   function toVisualizerEnjoyment(value) {
     const number = Number(value);
     if (!Number.isFinite(number)) return null;
@@ -1029,7 +1022,9 @@ function createPlugin(host) {
     set(
       annotations,
       "enjoyment",
-      typeof remoteEnjoyment === "number" ? remoteEnjoyment / VISUALIZER_ENJOYMENT_SCALE : remoteEnjoyment
+      typeof remoteEnjoyment === "number"
+        ? Math.min(Math.max(remoteEnjoyment, 0), 100) / VISUALIZER_ENJOYMENT_SCALE
+        : remoteEnjoyment
     );
     set(annotations, "espressoNotes", stringField("espresso_notes"));
     set(annotations, "actualDoseWeight", numberField("bean_weight"));
@@ -1191,7 +1186,7 @@ function createPlugin(host) {
   // Return the plugin object
   return {
     id: "visualizer.reaplugin",
-    version: "1.5.9",
+    version: "1.5.10",
 
     onLoad(settings) {
       state.username = settings.Username;

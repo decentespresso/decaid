@@ -394,9 +394,9 @@ void main() {
       await persistAnnotatedShot();
 
       final (_, getJson) = await putAndGet('annotated', {
-        'annotations': {'enjoyment': 4.5},
+        'annotations': {'enjoyment': 8.5},
       });
-      expect((getJson['annotations'] as Map)['enjoyment'], 4.5);
+      expect((getJson['annotations'] as Map)['enjoyment'], 8.5);
     });
 
     test('PUT accepts a null enjoyment to clear the rating', () async {

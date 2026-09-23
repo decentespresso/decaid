@@ -11,7 +11,7 @@ class GrinderTdbParser {
       final specs = entry.value;
       if (specs is! Map<String, dynamic>) continue;
 
-      final isNumeric = specs['is_numeric']?.toString() != '0';
+      final isNumeric = specs['is_numeric']?.toString() == '1';
 
       grinders.add(
         Grinder.create(

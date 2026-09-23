@@ -279,11 +279,6 @@ class ShotsHandler {
     }
   }
 
-  /// `annotations.enjoyment` is canonically 0-5, the range `rest_v1.yml`
-  /// declares. The spec is served as documentation only and is not enforced by
-  /// the router, so the bound is checked here: without it a client could write
-  /// back a de1app or Visualizer 0-100 rating, reintroducing exactly the
-  /// ambiguity the schema 6 migration repairs.
   static String? _enjoymentRangeError(Map<String, dynamic> json) {
     final annotations = json['annotations'];
     if (annotations is! Map<String, dynamic>) return null;

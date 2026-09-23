@@ -145,8 +145,8 @@ void main() {
         expect(result.shot.annotations?.drinkEy, closeTo(20.5, 0.001));
       });
 
-      test('rescales enjoyment from the de1app 0-100 range to 0-5', () {
-        expect(result.shot.annotations?.enjoyment, closeTo(3.75, 0.001));
+      test('rescales enjoyment from the de1app 0-100 range to 0-10', () {
+        expect(result.shot.annotations?.enjoyment, closeTo(7.5, 0.001));
       });
 
       test('extracts espresso notes', () {
