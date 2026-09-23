@@ -781,7 +781,7 @@ Supports partial updates via deep merge — only include the fields you want to 
 - `actualYield`: Actual beverage yield in grams
 - `drinkTds`: Measured total dissolved solids percentage
 - `drinkEy`: Calculated extraction yield percentage
-- `enjoyment`: Numeric rating
+- `enjoyment`: Subjective rating on Decaid's **0-10** scale. A value outside that range is rejected with 400, so convert before writing: de1app and visualizer.coffee use 0-100, and a five-star UI maps at two points per star. Decaid handles the de1app and Visualizer boundaries itself; a skin only converts its own display scale.
 - `espressoNotes`: Tasting notes and observations
 - `extras`: Flexible dictionary for tags, flags, plugin data, or other custom fields
 

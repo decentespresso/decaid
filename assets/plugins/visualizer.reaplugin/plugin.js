@@ -16,6 +16,8 @@ function createPlugin(host) {
   const VISUALIZER_API_URL = "https://visualizer.coffee/api";
   const VISUALIZER_SHARED_API = "https://visualizer.coffee/api/shots/shared?code=";
   const VISUALIZER_PROFILE_API = "https://visualizer.coffee/api/shots/%1/profile?format=json";
+  const CANONICAL_ENJOYMENT_MAX = 10;
+  const VISUALIZER_ENJOYMENT_SCALE = 10;
 
   let shotFetchTimeoutId = null;
   let backSyncTimeoutId = null;
@@ -204,6 +206,13 @@ function createPlugin(host) {
     return normalizeTags([...recipeTags, ...shotTags]);
   }
 
+  function toVisualizerEnjoyment(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return null;
+    const canonical = Math.min(Math.max(number, 0), CANONICAL_ENJOYMENT_MAX);
+    return Math.round(canonical * VISUALIZER_ENJOYMENT_SCALE);
+  }
+
   function convertReaToVisualizerFormat(reaShot) {
     if (!reaShot || !reaShot.measurements || reaShot.measurements.length === 0) {
       throw new Error("Invalid or empty Decent shot data for conversion.");
@@ -240,7 +249,7 @@ function createPlugin(host) {
             bean_type: context.coffeeName ?? reaShot.workflow.coffeeData?.name,
             drink_tds: annotations.drinkTds != null ? String(annotations.drinkTds) : undefined,
             drink_ey: annotations.drinkEy != null ? String(annotations.drinkEy) : undefined,
-            espresso_enjoyment: annotations.enjoyment != null ? String(Math.round(Number(annotations.enjoyment))) : undefined,
+            espresso_enjoyment: annotations.enjoyment != null ? String(toVisualizerEnjoyment(annotations.enjoyment)) : undefined,
             espresso_notes: annotations.espressoNotes,
           }
         }
@@ -724,7 +733,7 @@ function createPlugin(host) {
       if (typeof value === "string" && value.trim() !== "") payload[key] = value;
     };
 
-    setNumber("espresso_enjoyment", annotations.enjoyment, patchAnnotations, "enjoyment", (n) => Math.round(n));
+    setNumber("espresso_enjoyment", annotations.enjoyment, patchAnnotations, "enjoyment", toVisualizerEnjoyment);
     setNumber("drink_tds", annotations.drinkTds, patchAnnotations, "drinkTds");
     setNumber("drink_ey", annotations.drinkEy, patchAnnotations, "drinkEy");
     setNumber("bean_weight", annotations.actualDoseWeight ?? context.targetDoseWeight, patchAnnotations, "actualDoseWeight");
@@ -1009,7 +1018,14 @@ function createPlugin(host) {
 
     set(annotations, "drinkTds", numberField("drink_tds"));
     set(annotations, "drinkEy", numberField("drink_ey"));
-    set(annotations, "enjoyment", numberField("espresso_enjoyment"));
+    const remoteEnjoyment = numberField("espresso_enjoyment");
+    set(
+      annotations,
+      "enjoyment",
+      typeof remoteEnjoyment === "number"
+        ? Math.min(Math.max(remoteEnjoyment, 0), 100) / VISUALIZER_ENJOYMENT_SCALE
+        : remoteEnjoyment
+    );
     set(annotations, "espressoNotes", stringField("espresso_notes"));
     set(annotations, "actualDoseWeight", numberField("bean_weight"));
     set(annotations, "actualYield", numberField("drink_weight"));
@@ -1170,7 +1186,7 @@ function createPlugin(host) {
   // Return the plugin object
   return {
     id: "visualizer.reaplugin",
-    version: "1.5.6",
+    version: "1.5.10",
 
     onLoad(settings) {
       state.username = settings.Username;

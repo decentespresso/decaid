@@ -1,3 +1,5 @@
-Niche\ Zero {setting_type numeric small_step 1 big_step 5 burrs {63mm conical}}
-Eureka\ Mignon {setting_type numeric small_step 0.5 big_step 2 burrs {55mm flat}}
-EK43 {setting_type numeric small_step 0.5 big_step 3 burrs {98mm flat}}
+Niche\ Zero {is_numeric 1 min 10 max 40 n_dec 0 small_step 1 big_step 10 default 15}
+Eureka\ Mignon {is_numeric 1 min 1.5 max 8 n_dec 1 small_step 0.5 big_step 1 default 3.2}
+EK43 {is_numeric 1 min 1 max 11 n_dec 1 small_step 0.5 big_step 1 default 3}
+Baratza\ Encore {is_numeric 0 default Medium big_step 5 values {Coarse Fine Medium}}
+Retired\ Grinder {}

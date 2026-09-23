@@ -340,6 +340,24 @@ void main() {
       expect(grinder.settingBigStep, 5.0);
     });
 
+    test('carries preset setting values onto the shot-derived grinder', () {
+      final fromShots = [Grinder.create(model: 'Baratza Encore')];
+      final fromDye = [
+        Grinder.create(
+          model: 'Baratza Encore',
+          settingType: GrinderSettingType.preset,
+          settingValues: const ['Coarse', 'Fine', 'Medium'],
+          settingBigStep: 5.0,
+        ),
+      ];
+
+      final merged = extractor.mergeGrinderSpecs(fromShots, fromDye);
+
+      expect(merged.length, 1);
+      expect(merged.first.settingType, GrinderSettingType.preset);
+      expect(merged.first.settingValues, ['Coarse', 'Fine', 'Medium']);
+    });
+
     test('matching is case-insensitive', () {
       final fromShots = [Grinder.create(model: 'niche zero')];
       final fromDye = [

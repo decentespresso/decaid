@@ -15,41 +15,62 @@ void main() {
   });
 
   group('GrinderTdbParser', () {
-    test('parses all 3 grinder models', () {
-      expect(grinders.length, 3);
+    test('parses every model with a spec, skipping empty specs', () {
       final models = grinders.map((g) => g.model).toList();
-      expect(models, containsAll(['Niche Zero', 'Eureka Mignon', 'EK43']));
+      expect(
+        models,
+        containsAll(['Niche Zero', 'Eureka Mignon', 'EK43', 'Baratza Encore']),
+      );
+      expect(models, isNot(contains('Retired Grinder')));
+      expect(grinders.length, 4);
     });
 
-    test('parses burr info correctly', () {
-      final nicheZero = grinders.firstWhere((g) => g.model == 'Niche Zero');
-      expect(nicheZero.burrs, '63mm conical');
-
-      final eureka = grinders.firstWhere((g) => g.model == 'Eureka Mignon');
-      expect(eureka.burrs, '55mm flat');
-
-      final ek43 = grinders.firstWhere((g) => g.model == 'EK43');
-      expect(ek43.burrs, '98mm flat');
-    });
-
-    test('sets numeric setting type for all grinders', () {
-      for (final grinder in grinders) {
+    test('maps is_numeric 1 to numeric setting type', () {
+      for (final model in ['Niche Zero', 'Eureka Mignon', 'EK43']) {
+        final grinder = grinders.firstWhere((g) => g.model == model);
         expect(grinder.settingType, GrinderSettingType.numeric);
       }
     });
 
+    test('maps is_numeric 0 to preset setting type with its values', () {
+      final encore = grinders.firstWhere((g) => g.model == 'Baratza Encore');
+      expect(encore.settingType, GrinderSettingType.preset);
+      expect(encore.settingValues, ['Coarse', 'Fine', 'Medium']);
+    });
+
+    test('leaves settingValues null for numeric grinders', () {
+      final niche = grinders.firstWhere((g) => g.model == 'Niche Zero');
+      expect(niche.settingValues, isNull);
+    });
+
     test('parses step values correctly', () {
-      final nicheZero = grinders.firstWhere((g) => g.model == 'Niche Zero');
-      expect(nicheZero.settingSmallStep, 1.0);
-      expect(nicheZero.settingBigStep, 5.0);
+      final niche = grinders.firstWhere((g) => g.model == 'Niche Zero');
+      expect(niche.settingSmallStep, 1.0);
+      expect(niche.settingBigStep, 10.0);
 
       final eureka = grinders.firstWhere((g) => g.model == 'Eureka Mignon');
       expect(eureka.settingSmallStep, 0.5);
-      expect(eureka.settingBigStep, 2.0);
+      expect(eureka.settingBigStep, 1.0);
 
       final ek43 = grinders.firstWhere((g) => g.model == 'EK43');
       expect(ek43.settingSmallStep, 0.5);
-      expect(ek43.settingBigStep, 3.0);
+      expect(ek43.settingBigStep, 1.0);
+    });
+
+    test('leaves burr fields empty because DYE does not record them', () {
+      for (final grinder in grinders) {
+        expect(grinder.burrs, isNull);
+      }
+    });
+
+    test('missing is_numeric does not default to numeric', () {
+      final result = GrinderTdbParser.parse(
+        'Unknown {default Medium values {Coarse Medium Fine}}',
+      );
+
+      expect(result, hasLength(1));
+      expect(result.single.settingType, GrinderSettingType.preset);
+      expect(result.single.settingValues, ['Coarse', 'Medium', 'Fine']);
     });
   });
 }

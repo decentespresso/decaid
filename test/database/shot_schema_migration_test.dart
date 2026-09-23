@@ -148,7 +148,7 @@ void main() {
     final db = AppDatabase(NativeDatabase(File(dbPath)));
     try {
       await db.initialize();
-      await expectUserVersion(db, 5);
+      await expectUserVersion(db, 6);
       await expectV5ColumnsExactlyOnce(db);
       expect(await readRevisionColumns(db), expectedRevisions);
       final shot = ShotMapper.fromRow(
@@ -400,7 +400,7 @@ void main() {
         final db = AppDatabase(NativeDatabase(File(dbPath)));
         try {
           await db.initialize();
-          await expectUserVersion(db, 5);
+          await expectUserVersion(db, 6);
           await expectV5ColumnsExactlyOnce(db);
 
           final info = await shotColumnInfo(db);

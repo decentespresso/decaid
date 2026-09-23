@@ -7080,6 +7080,14 @@ components:
         enjoyment:
           type: number
           nullable: true
+          minimum: 0
+          maximum: 10
+          description: >-
+            Subjective rating on Decaid's 0-10 scale. de1app and Visualizer both
+            use a 0-100 scale; the de1app importer and the Visualizer plugin
+            convert at their boundaries. PUT /shots/{id} rejects a value outside
+            0-10. Unambiguous ratings stored on the old 0-100 scale are repaired
+            by the schema 6 database migration.
         espressoNotes:
           type: string
           nullable: true

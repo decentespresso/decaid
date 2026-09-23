@@ -943,6 +943,263 @@ void main() {
     },
   );
 
+  test(
+    'upload scales annotations.enjoyment to Visualizer espresso_enjoyment',
+    () async {
+      final shot = _shot(annotations: {'enjoyment': 8});
+      final manager = await _loadPlugin('''
+      globalThis.fetch = async (url, init = {}) => {
+        if (url.endsWith('/shots/latest')) {
+          return { ok: true, json: async () => ({ id: 'shot-1' }) };
+        }
+        if (url.endsWith('/shots/shot-1') && (!init.method || init.method === 'GET')) {
+          return { ok: true, json: async () => (${jsonEncode(shot)}) };
+        }
+        if (url.endsWith('/shots/upload')) {
+          const start = init.body.indexOf('\\r\\n\\r\\n') + 4;
+          const end = init.body.lastIndexOf('\\r\\n--');
+          globalThis.__upload = JSON.parse(init.body.slice(start, end));
+          return { ok: true, json: async () => ({ id: 'visualizer-1' }) };
+        }
+        if (url.endsWith('/shots/shot-1') && init.method === 'PUT') {
+          return { ok: true, json: async () => ({}) };
+        }
+        if (url.endsWith('/shots/visualizer-1?essentials=1')) {
+          return { ok: true, json: async () => ({ id: 'visualizer-1', tags: [] }) };
+        }
+        if (url.endsWith('/shots/visualizer-1') && init.method === 'PATCH') {
+          return { ok: true, json: async () => ({ id: 'visualizer-1', updated_at: 1 }) };
+        }
+        throw new Error('Unexpected URL: ' + url);
+      };
+    ''');
+
+      _startAutoUpload(manager);
+      final upload =
+          await _waitForJs(manager, 'globalThis.__upload')
+              as Map<String, dynamic>;
+
+      expect(
+        ((upload['app'] as Map)['data']
+            as Map)['settings']['espresso_enjoyment'],
+        '80',
+      );
+    },
+  );
+
+  test(
+    'forward sync scales an enjoyment edit to Visualizer espresso_enjoyment',
+    () async {
+      final manager = await _loadPlugin('''
+      globalThis.__patches = [];
+      globalThis.fetch = async (url, init = {}) => {
+        if (url.endsWith('/shots/visualizer-9?essentials=1')) {
+          return { ok: true, json: async () => ({ id: 'visualizer-9', tags: [] }) };
+        }
+        if (url.endsWith('/shots/visualizer-9') && init.method === 'PATCH') {
+          const patch = JSON.parse(init.body);
+          globalThis.__patches = [...globalThis.__patches, patch];
+          return { ok: true, json: async () => ({ id: 'visualizer-9', updated_at: globalThis.__patches.length }) };
+        }
+        throw new Error('Unexpected URL: ' + url);
+      };
+    ''');
+
+      _dispatchShotUpdate(
+        manager,
+        _shot(
+          annotations: {
+            'enjoyment': 8,
+            'extras': {'visualizerId': 'visualizer-9'},
+          },
+        ),
+        {
+          'annotations': {'enjoyment': 8},
+        },
+      );
+      final patch =
+          await _waitForJs(
+                manager,
+                'globalThis.__patches.length === 1 ? globalThis.__patches[0] : null',
+              )
+              as Map<String, dynamic>;
+
+      expect((patch['shot'] as Map<String, dynamic>)['espresso_enjoyment'], 80);
+    },
+  );
+
+  test(
+    'upload clamps an out-of-range enjoyment instead of multiplying it',
+    () async {
+      final shot = _shot(annotations: {'enjoyment': 80});
+      final manager = await _loadPlugin('''
+      globalThis.fetch = async (url, init = {}) => {
+        if (url.endsWith('/shots/latest')) {
+          return { ok: true, json: async () => ({ id: 'shot-1' }) };
+        }
+        if (url.endsWith('/shots/shot-1') && (!init.method || init.method === 'GET')) {
+          return { ok: true, json: async () => (${jsonEncode(shot)}) };
+        }
+        if (url.endsWith('/shots/upload')) {
+          const start = init.body.indexOf('\\r\\n\\r\\n') + 4;
+          const end = init.body.lastIndexOf('\\r\\n--');
+          globalThis.__upload = JSON.parse(init.body.slice(start, end));
+          return { ok: true, json: async () => ({ id: 'visualizer-1' }) };
+        }
+        if (url.endsWith('/shots/shot-1') && init.method === 'PUT') {
+          return { ok: true, json: async () => ({}) };
+        }
+        if (url.endsWith('/shots/visualizer-1?essentials=1')) {
+          return { ok: true, json: async () => ({ id: 'visualizer-1', tags: [] }) };
+        }
+        if (url.endsWith('/shots/visualizer-1') && init.method === 'PATCH') {
+          return { ok: true, json: async () => ({ id: 'visualizer-1', updated_at: 1 }) };
+        }
+        throw new Error('Unexpected URL: ' + url);
+      };
+    ''');
+
+      _startAutoUpload(manager);
+      final upload =
+          await _waitForJs(manager, 'globalThis.__upload')
+              as Map<String, dynamic>;
+
+      expect(
+        ((upload['app'] as Map)['data']
+            as Map)['settings']['espresso_enjoyment'],
+        '100',
+      );
+    },
+  );
+
+  test(
+    'forward sync clamps an out-of-range enjoyment instead of multiplying it',
+    () async {
+      final manager = await _loadPlugin('''
+      globalThis.__patches = [];
+      globalThis.fetch = async (url, init = {}) => {
+        if (url.endsWith('/shots/visualizer-9?essentials=1')) {
+          return { ok: true, json: async () => ({ id: 'visualizer-9', tags: [] }) };
+        }
+        if (url.endsWith('/shots/visualizer-9') && init.method === 'PATCH') {
+          const patch = JSON.parse(init.body);
+          globalThis.__patches = [...globalThis.__patches, patch];
+          return { ok: true, json: async () => ({ id: 'visualizer-9', updated_at: globalThis.__patches.length }) };
+        }
+        throw new Error('Unexpected URL: ' + url);
+      };
+    ''');
+
+      _dispatchShotUpdate(
+        manager,
+        _shot(
+          annotations: {
+            'enjoyment': 80,
+            'extras': {'visualizerId': 'visualizer-9'},
+          },
+        ),
+        {
+          'annotations': {'enjoyment': 80},
+        },
+      );
+      final patch =
+          await _waitForJs(
+                manager,
+                'globalThis.__patches.length === 1 ? globalThis.__patches[0] : null',
+              )
+              as Map<String, dynamic>;
+
+      expect(
+        (patch['shot'] as Map<String, dynamic>)['espresso_enjoyment'],
+        100,
+      );
+    },
+  );
+
+  test(
+    'back sync scales Visualizer espresso_enjoyment to the annotations.enjoyment range',
+    () async {
+      final manager = await _loadPlugin(
+        '''
+      globalThis.fetch = async (url, init = {}) => {
+        if (url.endsWith('/me')) {
+          return { ok: true, json: async () => ({ id: 'user-1' }) };
+        }
+        if (url.includes('/shots?sort=updated_at&items=50&page=1')) {
+          return { ok: true, json: async () => ({ user_id: 'user-1', data: [{ id: 'visualizer-a', updated_at: 110 }] }) };
+        }
+        if (url.endsWith('/shots/visualizer-a?essentials=1')) {
+          return { ok: true, json: async () => ({ id: 'visualizer-a', updated_at: 110, espresso_enjoyment: '80' }) };
+        }
+        if (url.endsWith('/shots/local-a') && init.method === 'PUT') {
+          globalThis.__localUpdate = JSON.parse(init.body);
+          return { ok: true, json: async () => ({}) };
+        }
+        throw new Error('Unexpected URL: ' + url + ' ' + (init.method || 'GET'));
+      };
+    ''',
+        settings: const {'BackSync': true},
+      );
+      manager.dispatchEvent(_manifest.id, 'storageRead', {
+        'key': 'shotMap',
+        'value': jsonEncode({'visualizer-a': 'local-a'}),
+      });
+      manager.dispatchEvent(_manifest.id, 'storageRead', {
+        'key': 'backSyncCursor',
+        'value': '100',
+      });
+      manager.js.evaluate('globalThis.__runTimers(30000)');
+
+      final localUpdate =
+          await _waitForJs(manager, 'globalThis.__localUpdate')
+              as Map<String, dynamic>;
+
+      expect((localUpdate['annotations'] as Map)['enjoyment'], 8);
+    },
+  );
+
+  test(
+    'back sync clamps an out-of-range Visualizer enjoyment before local PUT',
+    () async {
+      final manager = await _loadPlugin(
+        '''
+      globalThis.fetch = async (url, init = {}) => {
+        if (url.endsWith('/me')) {
+          return { ok: true, json: async () => ({ id: 'user-1' }) };
+        }
+        if (url.includes('/shots?sort=updated_at&items=50&page=1')) {
+          return { ok: true, json: async () => ({ user_id: 'user-1', data: [{ id: 'visualizer-b', updated_at: 110 }] }) };
+        }
+        if (url.endsWith('/shots/visualizer-b?essentials=1')) {
+          return { ok: true, json: async () => ({ id: 'visualizer-b', updated_at: 110, espresso_enjoyment: '120' }) };
+        }
+        if (url.endsWith('/shots/local-b') && init.method === 'PUT') {
+          globalThis.__localUpdate = JSON.parse(init.body);
+          return { ok: true, json: async () => ({}) };
+        }
+        throw new Error('Unexpected URL: ' + url + ' ' + (init.method || 'GET'));
+      };
+    ''',
+        settings: const {'BackSync': true},
+      );
+      manager.dispatchEvent(_manifest.id, 'storageRead', {
+        'key': 'shotMap',
+        'value': jsonEncode({'visualizer-b': 'local-b'}),
+      });
+      manager.dispatchEvent(_manifest.id, 'storageRead', {
+        'key': 'backSyncCursor',
+        'value': '100',
+      });
+      manager.js.evaluate('globalThis.__runTimers(30000)');
+
+      final localUpdate =
+          await _waitForJs(manager, 'globalThis.__localUpdate')
+              as Map<String, dynamic>;
+
+      expect((localUpdate['annotations'] as Map)['enjoyment'], 10);
+    },
+  );
+
   test('plugin source and manifest versions match', () {
     final sourceVersion = RegExp(
       r'version:\s*"([^"]+)"',
