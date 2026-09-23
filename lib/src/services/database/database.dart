@@ -154,9 +154,9 @@ class AppDatabase extends _$AppDatabase {
       'SELECT id, enjoyment, annotations_json FROM shot_records '
       'WHERE enjoyment IS NOT NULL AND ('
       '  enjoyment > $legacyEnjoymentThreshold'
-      "  OR (id LIKE 'de1app-%' AND ("
-      '    updated_at IS NULL OR created_at IS NULL '
-      '    OR updated_at <= created_at))'
+      "  OR (id LIKE 'de1app-%' "
+      '    AND created_at IS NOT NULL AND updated_at IS NOT NULL '
+      '    AND created_at != timestamp AND updated_at <= created_at)'
       ')',
     ).get();
 

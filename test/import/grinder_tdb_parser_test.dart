@@ -62,6 +62,7 @@ void main() {
         expect(grinder.burrs, isNull);
       }
     });
+
     test('missing is_numeric does not default to numeric', () {
       final result = GrinderTdbParser.parse(
         'Unknown {default Medium values {Coarse Medium Fine}}',
@@ -71,6 +72,5 @@ void main() {
       expect(result.single.settingType, GrinderSettingType.preset);
       expect(result.single.settingValues, ['Coarse', 'Medium', 'Fine']);
     });
-
   });
 }

@@ -31,19 +31,21 @@ const _v5Columns = [
   '"measurements_json" TEXT NOT NULL',
 ];
 
+const _shotAt = '2024-12-01T12:00:00.000Z';
 const _importedAt = '2025-03-01T12:00:00.000Z';
 const _editedAt = '2025-06-01T09:15:00.000Z';
 
 Map<String, Object?> _row({
   required String id,
   double? enjoyment,
+  String timestamp = _shotAt,
   String createdAt = _importedAt,
   String? updatedAt,
   String? annotationsJson,
 }) {
   return {
     'id': id,
-    'timestamp': _importedAt,
+    'timestamp': timestamp,
     'created_at': createdAt,
     'updated_at': updatedAt ?? createdAt,
     'enjoyment': enjoyment,
@@ -171,6 +173,24 @@ void main() {
 
       expect(rows['native-max']!['enjoyment'], 10.0);
       expect((rows['native-max']!['annotations'] as Map)['enjoyment'], 10.0);
+    });
+
+    test('leaves a pre-v5 backfilled de1app overlap alone', () async {
+      final rows = await migrateAndRead([
+        _row(
+          id: 'de1app-pre-v5',
+          enjoyment: 4,
+          timestamp: _shotAt,
+          createdAt: _shotAt,
+          updatedAt: _shotAt,
+        ),
+      ]);
+
+      expect(rows['de1app-pre-v5']!['enjoyment'], 4.0);
+      expect(
+        (rows['de1app-pre-v5']!['annotations'] as Map)['enjoyment'],
+        4.0,
+      );
     });
 
     test('leaves an imported shot edited after import alone', () async {

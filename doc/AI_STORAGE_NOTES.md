@@ -78,11 +78,11 @@ Persistence uses Drift (SQLite) via `AppDatabase`. DAOs in `lib/src/daos/`, mapp
 Rows are rewritten when either holds:
 
 - the value exceeds 10, which cannot be a valid Decaid 0-10 rating; or
-- the id starts with `de1app-` and `updated_at <= created_at`, meaning the row still holds exactly what the importer wrote.
+- the id starts with `de1app-`, `created_at != timestamp`, and `updated_at <= created_at`, meaning schema-v5 revision stamps were created at import time and no content edit followed.
 
 Both `shot_records.enjoyment` and the `enjoyment` key inside `annotations_json` are divided by 10; an annotations blob that cannot be parsed is left unchanged. Native 0-10 rows are not rescaled.
 
-**Known gap:** a raw external 0-100 value at or below 10 is numerically indistinguishable from a Decaid 0-10 value once provenance is lost. Untouched `de1app-` rows are still identifiable and repaired, but edited de1app rows and old Visualizer back-sync rows in that overlap are left unchanged rather than guessed at. `PUT /api/v1/shots/<id>` now rejects values outside 0-10, and the Visualizer plugin converts `* 10` out and `/ 10` in with range clamping.
+**Known gap:** a raw external 0-100 value at or below 10 is numerically indistinguishable from a Decaid 0-10 value once provenance is lost. Pre-v5 rows have `created_at`/`updated_at` backfilled from `timestamp`, so an overlapping de1app value on those rows cannot be proven untouched; edited de1app rows and old Visualizer back-sync rows have the same ambiguity. These cases are left unchanged rather than guessed at. `PUT /api/v1/shots/<id>` now rejects values outside 0-10, and the Visualizer plugin converts `* 10` out and `/ 10` in with range clamping.
 
 **Migration lesson from #811 (0.8.5 startup failures):** Drift only writes `PRAGMA user_version` after `beforeOpen`/`onUpgrade` completes, and the upgrade body is NOT automatically transactional. An interrupted multi-step migration can therefore leave a partially upgraded physical schema (e.g. only `created_at` added) while `user_version` stays at the old value; the next open re-enters the same step and the unconditional `ADD COLUMN` fails with `duplicate column name`. Rules for future migrations:
 
