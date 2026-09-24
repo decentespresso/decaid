@@ -8,6 +8,7 @@ import 'package:reaprime/src/import/import_result.dart';
 import 'package:reaprime/src/import/parsers/grinder_tdb_parser.dart';
 import 'package:reaprime/src/import/parsers/profile_v2_parser.dart';
 import 'package:reaprime/src/import/parsers/shot_v2_json_parser.dart';
+import 'package:reaprime/src/import/parsers/tcl_profile_parser.dart';
 import 'package:reaprime/src/import/parsers/tcl_shot_parser.dart';
 import 'package:reaprime/src/services/storage/bean_storage_service.dart';
 import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
@@ -58,53 +59,40 @@ class De1appImporter {
     var settingsApplied = false;
 
     final parsedShots = <ParsedShot>[];
-    if (scanResult.shotSource != null) {
-      final shotDir = Directory(
-        '${scanResult.sourcePath}/${scanResult.shotSource}',
-      );
+    final shotFiles = (await _mergedFiles(
+      preferred: Directory('${scanResult.sourcePath}/history_v2'),
+      preferredExtension: '.json',
+      fallback: Directory('${scanResult.sourcePath}/history'),
+      fallbackExtension: '.shot',
+    )).values.toList();
 
-      final isV2 = scanResult.shotSource == 'history_v2';
-      final extension = isV2 ? '.json' : '.shot';
-      final files = <File>[];
-
-      await for (final entity in shotDir.list()) {
-        if (entity is File && entity.path.endsWith(extension)) {
-          files.add(entity);
+    for (var i = 0; i < shotFiles.length; i++) {
+      final entry = shotFiles[i];
+      final filename = entry.file.uri.pathSegments.last;
+      try {
+        final content = await entry.file.readAsString();
+        ParsedShot parsed;
+        if (entry.isPreferred) {
+          final json = jsonDecode(content) as Map<String, dynamic>;
+          parsed = ShotV2JsonParser.parse(json);
+        } else {
+          parsed = TclShotParser.parse(content);
         }
-      }
-
-      for (var i = 0; i < files.length; i++) {
-        final file = files[i];
-        final filename = file.uri.pathSegments.last;
-        try {
-          final content = await file.readAsString();
-          ParsedShot parsed;
-          if (isV2) {
-            final json = jsonDecode(content) as Map<String, dynamic>;
-            parsed = ShotV2JsonParser.parse(json);
-          } else {
-            parsed = TclShotParser.parse(content);
-          }
-          parsedShots.add(parsed);
-        } catch (e, st) {
-          _log.warning('Failed to parse shot file $filename', e, st);
-          errors.add(
-            ImportError(
-              filename: filename,
-              reason: 'Parse error',
-              details: e.toString(),
-            ),
-          );
-        }
-
-        onProgress?.call(
-          ImportProgress(
-            current: i + 1,
-            total: scanResult.shotCount,
-            phase: 'shots',
+        parsedShots.add(parsed);
+      } catch (e, st) {
+        _log.warning('Failed to parse shot file $filename', e, st);
+        errors.add(
+          ImportError(
+            filename: filename,
+            reason: 'Parse error',
+            details: e.toString(),
           ),
         );
       }
+
+      onProgress?.call(
+        ImportProgress(current: i + 1, total: shotFiles.length, phase: 'shots'),
+      );
     }
 
     final extractor = EntityExtractor();
@@ -290,49 +278,47 @@ class De1appImporter {
       );
     }
 
-    final profilesDir = Directory('${scanResult.sourcePath}/profiles_v2');
-    if (await profilesDir.exists()) {
-      final profileFiles = <File>[];
-      await for (final entity in profilesDir.list()) {
-        if (entity is File && entity.path.endsWith('.json')) {
-          profileFiles.add(entity);
+    final profileFiles = (await _mergedFiles(
+      preferred: Directory('${scanResult.sourcePath}/profiles_v2'),
+      preferredExtension: '.json',
+      fallback: Directory('${scanResult.sourcePath}/profiles'),
+      fallbackExtension: '.tcl',
+    )).values.toList();
+
+    for (var i = 0; i < profileFiles.length; i++) {
+      final entry = profileFiles[i];
+      final filename = entry.file.uri.pathSegments.last;
+      try {
+        final content = await entry.file.readAsString();
+        final record = entry.isPreferred
+            ? ProfileV2Parser.parse(jsonDecode(content) as Map<String, dynamic>)
+            : TclProfileParser.parse(content);
+
+        final existing = await profileStorageService.get(record.id);
+        if (existing != null) {
+          profilesSkipped++;
+        } else {
+          await profileStorageService.store(record);
+          profilesImported++;
         }
-      }
-
-      for (var i = 0; i < profileFiles.length; i++) {
-        final file = profileFiles[i];
-        final filename = file.uri.pathSegments.last;
-        try {
-          final content = await file.readAsString();
-          final json = jsonDecode(content) as Map<String, dynamic>;
-          final record = ProfileV2Parser.parse(json);
-
-          final existing = await profileStorageService.get(record.id);
-          if (existing != null) {
-            profilesSkipped++;
-          } else {
-            await profileStorageService.store(record);
-            profilesImported++;
-          }
-        } catch (e, st) {
-          _log.warning('Failed to import profile $filename', e, st);
-          errors.add(
-            ImportError(
-              filename: filename,
-              reason: 'Profile import error',
-              details: e.toString(),
-            ),
-          );
-        }
-
-        onProgress?.call(
-          ImportProgress(
-            current: i + 1,
-            total: scanResult.profileCount,
-            phase: 'profiles',
+      } catch (e, st) {
+        _log.warning('Failed to import profile $filename', e, st);
+        errors.add(
+          ImportError(
+            filename: filename,
+            reason: 'Profile import error',
+            details: e.toString(),
           ),
         );
       }
+
+      onProgress?.call(
+        ImportProgress(
+          current: i + 1,
+          total: profileFiles.length,
+          phase: 'profiles',
+        ),
+      );
     }
 
     if (scanResult.hasSettings && settingsController != null) {
@@ -461,4 +447,53 @@ class De1appImporter {
     final updatedWorkflow = shot.workflow.copyWith(context: updatedContext);
     return shot.copyWith(workflow: updatedWorkflow);
   }
+}
+
+class _MergedFile {
+  final File file;
+  final bool isPreferred;
+  const _MergedFile(this.file, {required this.isPreferred});
+}
+
+/// Merges two directories keyed by basename (filename without extension),
+/// e.g. `history_v2/<ts>.json` and `history/<ts>.shot`. de1app dual-writes
+/// shots and profiles under matching basenames in both a legacy and a v2
+/// format; a file only present in [fallback] predates (or was never
+/// re-saved since) that dual-write, so it must still be imported.
+Future<Map<String, _MergedFile>> _mergedFiles({
+  required Directory preferred,
+  required String preferredExtension,
+  required Directory fallback,
+  required String fallbackExtension,
+}) async {
+  final result = <String, _MergedFile>{};
+
+  if (await fallback.exists()) {
+    await for (final entity in fallback.list()) {
+      if (entity is File && entity.path.endsWith(fallbackExtension)) {
+        result[_basename(entity, fallbackExtension)] = _MergedFile(
+          entity,
+          isPreferred: false,
+        );
+      }
+    }
+  }
+
+  if (await preferred.exists()) {
+    await for (final entity in preferred.list()) {
+      if (entity is File && entity.path.endsWith(preferredExtension)) {
+        result[_basename(entity, preferredExtension)] = _MergedFile(
+          entity,
+          isPreferred: true,
+        );
+      }
+    }
+  }
+
+  return result;
+}
+
+String _basename(File file, String extension) {
+  final name = file.uri.pathSegments.last;
+  return name.substring(0, name.length - extension.length);
 }
