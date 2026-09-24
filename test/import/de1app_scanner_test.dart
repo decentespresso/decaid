@@ -13,16 +13,16 @@ void main() {
         result = await De1appScanner.scan('test/fixtures/de1app');
       });
 
-      test('finds 1 shot from history_v2', () {
-        expect(result.shotCount, equals(1));
+      test('finds 2 shots, merged across history and history_v2', () {
+        expect(result.shotCount, equals(2));
       });
 
-      test('shotSource is history_v2', () {
-        expect(result.shotSource, equals('history_v2'));
+      test('shotSource is both when both dirs have shots', () {
+        expect(result.shotSource, equals('both'));
       });
 
-      test('finds 1 profile', () {
-        expect(result.profileCount, equals(1));
+      test('finds 2 profiles, merged across profiles and profiles_v2', () {
+        expect(result.profileCount, equals(2));
       });
 
       test('detects DYE grinders', () {
@@ -91,6 +91,73 @@ void main() {
       test('falls back to history/ when history_v2 is empty', () {
         expect(result.shotCount, equals(1));
         expect(result.shotSource, equals('history'));
+      });
+    });
+
+    group('counts the union when history/ has shots history_v2/ lacks', () {
+      late Directory tempDir;
+      late ScanResult result;
+
+      setUpAll(() async {
+        tempDir = await Directory.systemTemp.createTemp(
+          'de1app_scanner_disjoint_',
+        );
+        await Directory('${tempDir.path}/history_v2').create();
+        await File(
+          '${tempDir.path}/history_v2/20240315T143022.json',
+        ).writeAsString('{}');
+        await Directory('${tempDir.path}/history').create();
+        // Pre-dual-write era shot: only exists as legacy .shot, never
+        // mirrored into history_v2/.
+        await File(
+          '${tempDir.path}/history/20200101T000000.shot',
+        ).writeAsString('');
+
+        result = await De1appScanner.scan(tempDir.path);
+      });
+
+      tearDownAll(() async {
+        await tempDir.delete(recursive: true);
+      });
+
+      test(
+        'shotCount is the union of both directories, not just history_v2',
+        () {
+          expect(result.shotCount, equals(2));
+        },
+      );
+
+      test('shotSource is both', () {
+        expect(result.shotSource, equals('both'));
+      });
+    });
+
+    group('does not double-count a shot dual-written to both dirs', () {
+      late Directory tempDir;
+      late ScanResult result;
+
+      setUpAll(() async {
+        tempDir = await Directory.systemTemp.createTemp(
+          'de1app_scanner_same_basename_',
+        );
+        await Directory('${tempDir.path}/history_v2').create();
+        await File(
+          '${tempDir.path}/history_v2/20240315T143022.json',
+        ).writeAsString('{}');
+        await Directory('${tempDir.path}/history').create();
+        await File(
+          '${tempDir.path}/history/20240315T143022.shot',
+        ).writeAsString('');
+
+        result = await De1appScanner.scan(tempDir.path);
+      });
+
+      tearDownAll(() async {
+        await tempDir.delete(recursive: true);
+      });
+
+      test('shotCount counts the shared basename once', () {
+        expect(result.shotCount, equals(1));
       });
     });
 

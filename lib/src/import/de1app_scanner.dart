@@ -3,30 +3,26 @@ import 'package:reaprime/src/import/import_result.dart';
 
 class De1appScanner {
   static Future<ScanResult> scan(String path) async {
-    int shotCount = 0;
-    String? shotSource;
-    int profileCount = 0;
-    bool hasDyeGrinders = false;
+    final historyV2 = await _basenames(Directory('$path/history_v2'), '.json');
+    final history = await _basenames(Directory('$path/history'), '.shot');
+    final shotCount = historyV2.union(history).length;
+    final shotSource = _combinedSource(
+      historyV2.isNotEmpty,
+      history.isNotEmpty,
+      'history_v2',
+      'history',
+    );
 
-    final historyV2 = Directory('$path/history_v2');
-    if (await historyV2.exists()) {
-      shotCount = await _countFiles(historyV2, '.json');
-      if (shotCount > 0) shotSource = 'history_v2';
-    }
-    if (shotCount == 0) {
-      final history = Directory('$path/history');
-      if (await history.exists()) {
-        shotCount = await _countFiles(history, '.shot');
-        if (shotCount > 0) shotSource = 'history';
-      }
-    }
+    final profilesV2 = await _basenames(
+      Directory('$path/profiles_v2'),
+      '.json',
+    );
+    final profiles = await _basenames(Directory('$path/profiles'), '.tcl');
+    final profileCount = profilesV2.union(profiles).length;
 
-    final profilesV2 = Directory('$path/profiles_v2');
-    if (await profilesV2.exists()) {
-      profileCount = await _countFiles(profilesV2, '.json');
-    }
-
-    hasDyeGrinders = await File('$path/plugins/DYE/grinders.tdb').exists();
+    final hasDyeGrinders = await File(
+      '$path/plugins/DYE/grinders.tdb',
+    ).exists();
 
     final hasSettings = await File('$path/settings.tdb').exists();
 
@@ -40,11 +36,29 @@ class De1appScanner {
     );
   }
 
-  static Future<int> _countFiles(Directory dir, String extension) async {
-    var count = 0;
+  /// Filenames (without extension) in [dir] ending in [extension], or an
+  /// empty set if [dir] doesn't exist.
+  static Future<Set<String>> _basenames(Directory dir, String extension) async {
+    if (!await dir.exists()) return {};
+    final names = <String>{};
     await for (final entity in dir.list()) {
-      if (entity is File && entity.path.endsWith(extension)) count++;
+      if (entity is File && entity.path.endsWith(extension)) {
+        final base = entity.uri.pathSegments.last;
+        names.add(base.substring(0, base.length - extension.length));
+      }
     }
-    return count;
+    return names;
+  }
+
+  static String? _combinedSource(
+    bool hasA,
+    bool hasB,
+    String sourceA,
+    String sourceB,
+  ) {
+    if (hasA && hasB) return 'both';
+    if (hasA) return sourceA;
+    if (hasB) return sourceB;
+    return null;
   }
 }

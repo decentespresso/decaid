@@ -256,29 +256,29 @@ const _fixturesPath = 'test/fixtures/de1app';
 
 void main() {
   group('De1appImporter', () {
-    group('imports shots from history_v2', () {
+    group('imports shots merged from history and history_v2', () {
       late FakeStorageService storage;
       late ImportResult result;
 
       setUpAll(() async {
         storage = FakeStorageService();
         final scanResult = ScanResult(
-          shotCount: 1,
-          profileCount: 1,
+          shotCount: 2,
+          profileCount: 2,
           hasDyeGrinders: true,
           hasSettings: false,
           sourcePath: _fixturesPath,
-          shotSource: 'history_v2',
+          shotSource: 'both',
         );
         result = await makeImporter(storage: storage).import(scanResult);
       });
 
-      test('imports exactly 1 shot', () {
-        expect(result.shotsImported, equals(1));
+      test('imports both the legacy and v2 shot', () {
+        expect(result.shotsImported, equals(2));
       });
 
-      test('shot is stored in storage service', () {
-        expect(storage.shots, hasLength(1));
+      test('both shots are stored in storage service', () {
+        expect(storage.shots, hasLength(2));
       });
 
       test('no shots skipped', () {
@@ -286,7 +286,7 @@ void main() {
       });
     });
 
-    group('imports profiles from profiles_v2', () {
+    group('imports profiles merged from profiles and profiles_v2', () {
       late FakeProfileStorageService profileStorage;
       late ImportResult result;
 
@@ -294,7 +294,7 @@ void main() {
         profileStorage = FakeProfileStorageService();
         final scanResult = ScanResult(
           shotCount: 0,
-          profileCount: 1,
+          profileCount: 2,
           hasDyeGrinders: false,
           hasSettings: false,
           sourcePath: _fixturesPath,
@@ -305,12 +305,21 @@ void main() {
         ).import(scanResult);
       });
 
-      test('imports exactly 1 profile', () {
-        expect(result.profilesImported, equals(1));
+      test('imports both the legacy and v2 profile', () {
+        expect(result.profilesImported, equals(2));
       });
 
-      test('profile is stored in profile storage service', () {
-        expect(profileStorage.profiles, hasLength(1));
+      test('both profiles are stored in profile storage service', () {
+        expect(profileStorage.profiles, hasLength(2));
+      });
+
+      test('the legacy .tcl-only profile was parsed and stored', () {
+        expect(
+          profileStorage.profiles.values.any(
+            (record) => record.profile.title == 'Legacy Lever',
+          ),
+          isTrue,
+        );
       });
 
       test('no profiles skipped', () {
@@ -360,14 +369,16 @@ void main() {
       late ImportResult result;
 
       setUpAll(() async {
+        // Only the v2 shot (clock 1710510622) already exists; the legacy
+        // shot (clock 1699432544) is new.
         storage = FakeStorageService(existingIds: ['de1app-1710510622']);
         final scanResult = ScanResult(
-          shotCount: 1,
+          shotCount: 2,
           profileCount: 0,
           hasDyeGrinders: false,
           hasSettings: false,
           sourcePath: _fixturesPath,
-          shotSource: 'history_v2',
+          shotSource: 'both',
         );
         result = await makeImporter(storage: storage).import(scanResult);
       });
@@ -376,12 +387,13 @@ void main() {
         expect(result.shotsSkipped, equals(1));
       });
 
-      test('does not import the duplicate', () {
-        expect(result.shotsImported, equals(0));
+      test('imports the shot that was not already present', () {
+        expect(result.shotsImported, equals(1));
       });
 
-      test('nothing written to storage', () {
-        expect(storage.shots, isEmpty);
+      test('only the new shot is written to storage', () {
+        expect(storage.shots, hasLength(1));
+        expect(storage.shots.containsKey('de1app-1699432544'), isTrue);
       });
     });
 
@@ -433,27 +445,27 @@ void main() {
       test('fires shot progress callbacks', () async {
         final progressEvents = <ImportProgress>[];
         final scanResult = ScanResult(
-          shotCount: 1,
+          shotCount: 2,
           profileCount: 0,
           hasDyeGrinders: false,
           hasSettings: false,
           sourcePath: _fixturesPath,
-          shotSource: 'history_v2',
+          shotSource: 'both',
         );
 
         await makeImporter().import(scanResult, onProgress: progressEvents.add);
 
         final shotEvents = progressEvents.where((e) => e.phase == 'shots');
         expect(shotEvents, isNotEmpty);
-        expect(shotEvents.last.current, equals(1));
-        expect(shotEvents.last.total, equals(1));
+        expect(shotEvents.last.current, equals(2));
+        expect(shotEvents.last.total, equals(2));
       });
 
       test('fires profile progress callbacks', () async {
         final progressEvents = <ImportProgress>[];
         final scanResult = ScanResult(
           shotCount: 0,
-          profileCount: 1,
+          profileCount: 2,
           hasDyeGrinders: false,
           hasSettings: false,
           sourcePath: _fixturesPath,
@@ -466,8 +478,8 @@ void main() {
           (e) => e.phase == 'profiles',
         );
         expect(profileEvents, isNotEmpty);
-        expect(profileEvents.last.current, equals(1));
-        expect(profileEvents.last.total, equals(1));
+        expect(profileEvents.last.current, equals(2));
+        expect(profileEvents.last.total, equals(2));
       });
     });
 
@@ -673,29 +685,31 @@ void main() {
       setUpAll(() async {
         storage = FakeStorageService();
         final scanResult = ScanResult(
-          shotCount: 1,
+          shotCount: 2,
           profileCount: 0,
           hasDyeGrinders: false,
           hasSettings: false,
           sourcePath: _fixturesPath,
-          shotSource: 'history_v2',
+          shotSource: 'both',
         );
         await makeImporter(storage: storage).import(scanResult);
       });
 
-      test('stored shot has beanBatchId in workflow context', () {
-        expect(storage.shots, hasLength(1));
-        final shot = storage.shots.values.first;
-        final context = shot.workflow.context;
-        expect(context, isNotNull);
-        expect(context!.beanBatchId, isNotNull);
+      test('every stored shot has beanBatchId in workflow context', () {
+        expect(storage.shots, hasLength(2));
+        for (final shot in storage.shots.values) {
+          final context = shot.workflow.context;
+          expect(context, isNotNull);
+          expect(context!.beanBatchId, isNotNull);
+        }
       });
 
-      test('stored shot has grinderId in workflow context', () {
-        final shot = storage.shots.values.first;
-        final context = shot.workflow.context;
-        expect(context, isNotNull);
-        expect(context!.grinderId, isNotNull);
+      test('every stored shot has grinderId in workflow context', () {
+        for (final shot in storage.shots.values) {
+          final context = shot.workflow.context;
+          expect(context, isNotNull);
+          expect(context!.grinderId, isNotNull);
+        }
       });
     });
   });
