@@ -40,6 +40,10 @@ abstract interface class DeviceInformationCapable {
   Stream<DeviceInformation?> get deviceInformation;
 }
 
+abstract interface class DeviceDiagnosticsCapable {
+  Map<String, Object?> get connectionDiagnostics;
+}
+
 enum ConnectionState {
   discovered,
   connecting,

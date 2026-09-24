@@ -5562,11 +5562,30 @@ components:
           description: Optional plugin error code, including unsupported_operation.
     BleDiagnosticsSnapshot:
       type: object
-      required: [timestamp, ble, connection]
+      description: >-
+        Read-only snapshot. connection.peers[].diagnostics and BLE service
+        boundaries contain payload-free transport state where supported.
+        rawNotification and validSample each contain nullable UTC at and
+        monotonic ageMs; raw input does not imply a protocol-valid sample.
+        queue contains its actual generation, state, activeOperations,
+        pendingOperations, activeOperationLabels and pendingOperationLabels
+        (each label list is limited to 32 entries). A missing queue has a null
+        generation. BLE service details.lastFailure retains only the latest
+        timeout, queue-clear or transport-error snapshot with up to 32 peers
+        sampled synchronously before cleanup. Each failure has a UTC at,
+        transportInstanceId and connectionGeneration. Existing app logs retain
+        earlier failures.
+      required: [diagnosticsVersion, timestamp, monotonicMs, ble, connection]
       properties:
+        diagnosticsVersion:
+          type: integer
+          enum: [2]
         timestamp:
           type: string
           format: date-time
+        monotonicMs:
+          type: integer
+          minimum: 0
         ble:
           type: object
           additionalProperties: true

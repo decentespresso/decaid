@@ -48,6 +48,9 @@ class UnifiedDe1Transport {
 
   String get id => _transport.id;
 
+  Map<String, Object?> get diagnostics =>
+      _transport is BLETransport ? _transport.diagnostics : const {};
+
   BehaviorSubject<ByteData> _stateSubject = BehaviorSubject();
   BehaviorSubject<ByteData> _shotSampleSubject = BehaviorSubject();
   BehaviorSubject<ByteData> _shotSettingsSubject = BehaviorSubject();

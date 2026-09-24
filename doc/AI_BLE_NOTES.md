@@ -41,7 +41,10 @@ The single BLE transport is `UniversalBleTransport` in `lib/src/services/ble/uni
 
 `AppLifecycleObserver` treats `detached` and `didRequestAppExit()` as best-effort terminal events. It cancels its state subscriptions, awaits `ConnectionManager.shutdown()`, then disposes the plugin loader before the app-log upload service. Shutdown rejects new connection work, stops discovery and recovery sources, releases queued requests, waits for in-flight work, then disconnects the machine and scale in order while isolating cleanup failures. `paused` and `hidden` preserve active connections.
 
-Android does not guarantee any Dart, activity, application, or Flutter-engine callback for Settings Force stop, SIGKILL, or other abrupt process death. Those paths can skip cleanup entirely and must not be described as supported. Decaid still pins `universal_ble` 2.2.6, whose Android `onDetachedFromEngine()` does not close active central GATT clients, so native engine-detach cleanup is not shipped with this lifecycle change.
+Android does not guarantee cleanup callbacks for Settings Force stop, SIGKILL,
+or abrupt process death. The pinned `universal_ble` fork attempts owned-client
+cleanup on engine detach; this does not make abrupt process termination a
+supported cleanup path.
 
 ## Connection Flow
 
@@ -642,6 +645,24 @@ or reconnect. Historical de1app evidence reports fixed `100%` values on some
 Atomax firmware generations, while the observed R029 unit reports changing
 values, so the app must preserve the device value rather than manufacture a
 fallback percentage.
+
+## Issue 871 diagnostic boundaries
+
+`DeviceDiagnosticsCapable` exposes passive state for UnifiedDe1 (including
+Bengle) and DecentScale. `rawNotification` advances on an existing BLE listener;
+`validSample` advances only after a machine/weight sample parses successfully.
+Both report UTC `at` and a monotonic `ageMs`; null means not observed. Replayed
+machine samples do not reset the valid-sample clock.
+
+The native fork exports queue generation and payload-free operation labels,
+limited to 32 active and 32 pending entries. Its synchronous queue-boundary
+stream captures pending metadata before cancellation removes it. Discovery
+retains only the latest failure with up to 32 peer snapshots; existing app logs
+hold the history. Cancelled follower operations do not replace
+the originating failure with a series of cancellation snapshots. Observers
+stop when their transport is retired. These diagnostics add no BLE requests or
+notification subscriptions. Native GATT timestamps/status still require the
+documented companion logcat capture.
 
 ## Keeping Notes Fresh
 

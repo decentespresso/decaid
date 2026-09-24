@@ -47,6 +47,37 @@ FakeBleTransport _transport({required int model}) => FakeBleTransport()
   ..queuePaletteHydrationResponses();
 
 void main() {
+  test(
+    'protocol-valid sample age ignores malformed input and replay',
+    () async {
+      final transport = _transport(model: 128);
+      final bengle = Bengle(transport: transport);
+      await bengle.onConnect();
+      final subscription = bengle.currentSnapshot.listen((_) {});
+      await pumpEventQueue();
+      expect(bengle.connectionDiagnostics['validSample'], {
+        'at': null,
+        'ageMs': null,
+      });
+      transport.emitNotification(Endpoint.stateInfo, [0x04, 0x05]);
+      transport.emitNotification(Endpoint.bengleShotSample, _goldenFrame);
+      await pumpEventQueue();
+      final valid = bengle.connectionDiagnostics['validSample'] as Map;
+      expect(valid['at'], isA<String>());
+      transport.emitNotification(Endpoint.bengleShotSample, [0]);
+      await pumpEventQueue();
+      final replay = bengle.currentSnapshot.listen((_) {});
+      await pumpEventQueue();
+      expect(
+        (bengle.connectionDiagnostics['validSample'] as Map)['at'],
+        valid['at'],
+      );
+      await replay.cancel();
+      await subscription.cancel();
+      await bengle.disconnect();
+    },
+  );
+
   test('decodes the current 28-byte Bengle shot sample', () {
     final sample = decodeBengleShotSample(ByteData.sublistView(_goldenFrame));
 

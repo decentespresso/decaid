@@ -175,6 +175,15 @@ class _FakeBlePlatform extends UniversalBlePlatform {
   }
 }
 
+class _DiagnosticTransport extends FakeBleTransport {
+  _DiagnosticTransport(this.id);
+  @override
+  final String id;
+  String state = 'connected';
+  @override
+  Map<String, Object?> get diagnostics => {'state': state};
+}
+
 class _TrackingFakeBleTransport extends FakeBleTransport {
   _TrackingFakeBleTransport({this.deviceId, this.onConnect, this.onDisconnect});
 
@@ -339,6 +348,60 @@ void main() {
       platform.startScanCalls.last;
 
   group('startDeviceWatch', () {
+    test(
+      'latest failure retains same-boundary peer state without BLE work',
+      () async {
+        final transports = <String, _DiagnosticTransport>{};
+        final sut = UniversalBleDiscoveryService(
+          watchSupportGate: () => true,
+          transportFactory:
+              ({
+                required device,
+                required stopScan,
+                required requestLargeMtuNonAndroid,
+                required lifecycleGate,
+              }) {
+                final transport = _DiagnosticTransport(device.deviceId);
+                transports[device.deviceId] = transport;
+                return transport;
+              },
+        );
+        addTearDown(sut.dispose);
+        await sut.initialize();
+        await sut.startDeviceWatch(_watchFilter);
+        for (final id in ['peer-a', 'peer-b']) {
+          platform.updateScanResult(
+            BleDevice(deviceId: id, name: 'Decent Scale'),
+          );
+        }
+        await pump();
+        expect(transports, hasLength(2));
+        transports['peer-a']!.onDiagnosticBoundary!({
+          'deviceId': 'peer-a',
+          'reason': 'timeout',
+        });
+        transports['peer-b']!.state = 'disconnected';
+        final snapshot = await sut.diagnostics();
+        final first = snapshot['lastFailure'] as Map;
+        final peers = first['peers'] as List;
+        final healthy = peers.cast<Map>().singleWhere(
+          (peer) => peer['deviceId'] == 'peer-b',
+        );
+        expect(healthy['diagnostics']['state'], 'connected');
+        transports['peer-a']!.onDiagnosticBoundary!({
+          'deviceId': 'peer-a',
+          'reason': 'confirmedDisconnect',
+        });
+        final latest = (await sut.diagnostics())['lastFailure'] as Map;
+        expect(latest['failure']['reason'], 'confirmedDisconnect');
+        expect(
+          transports.values.expand((transport) => transport.writes),
+          isEmpty,
+        );
+        expect(platform.disconnectCalls, 0);
+      },
+    );
+
     test('starts a name-prefix-filtered balanced scan', () async {
       await service.startDeviceWatch(_watchFilter);
 

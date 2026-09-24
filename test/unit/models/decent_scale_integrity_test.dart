@@ -110,6 +110,28 @@ class _IntegrityTransport extends BLETransport {
 
 void main() {
   test(
+    'valid sample age ignores status and malformed weight packets',
+    () async {
+      final transport = _IntegrityTransport();
+      final scale = DecentScale(transport: transport);
+      await scale.onConnect();
+      expect(scale.connectionDiagnostics['validSample'], {
+        'at': null,
+        'ageMs': null,
+      });
+      transport.emitNotification([0x03, 0xCE, 0, 100, 0, 0, 0]);
+      final valid = scale.connectionDiagnostics['validSample'] as Map;
+      expect(valid['at'], isA<String>());
+      expect(valid['ageMs'], isA<int>());
+      transport.emitNotification([0x03, 0xCE, 0, 100]);
+      transport.emitNotification([0x03, 0x0A, 0, 0, 99, 0, 0]);
+      final after = scale.connectionDiagnostics['validSample'] as Map;
+      expect(after['at'], valid['at']);
+      await scale.disconnect();
+      await transport.dispose();
+    },
+  );
+  test(
     'weight frames require a verified command and complete length',
     () async {
       final transport = _IntegrityTransport();

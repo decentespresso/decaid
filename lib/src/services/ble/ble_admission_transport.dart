@@ -26,6 +26,8 @@ class BleAdmissionTransport extends BLETransport {
   @override
   String get name => transport.name;
   @override
+  Map<String, Object?> get diagnostics => transport.diagnostics;
+  @override
   Stream<ConnectionState> get connectionState => transport.connectionState;
 
   @override

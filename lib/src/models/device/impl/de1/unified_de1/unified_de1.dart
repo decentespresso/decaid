@@ -10,6 +10,7 @@ import 'package:reaprime/src/models/device/de1_firmwaremodel.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/de1_rawmessage.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/diagnostic_timestamp.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/firmware_update_state.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
@@ -55,7 +56,15 @@ final class _FirmwareCancellationToken {
   }
 }
 
-class UnifiedDe1 implements De1Interface {
+class UnifiedDe1 implements De1Interface, DeviceDiagnosticsCapable {
+  final _validSample = DiagnosticTimestamp();
+  ByteData? _lastDiagnosticShot;
+
+  @override
+  Map<String, Object?> get connectionDiagnostics => {
+    ..._transport.diagnostics,
+    'validSample': _validSample.snapshot,
+  };
   static final BleServiceIdentifier advertisingIdentifier =
       BleServiceIdentifier.short('ffff');
   final UnifiedDe1Transport _transport;
@@ -108,6 +117,10 @@ class UnifiedDe1 implements De1Interface {
         (shot, state) {
           final snapshot = parse(state, shot);
           if (snapshot != null) {
+            if (!identical(_lastDiagnosticShot, shot)) {
+              _lastDiagnosticShot = shot;
+              _validSample.mark();
+            }
             _log.finest("new state: ${snapshot.toJson()}");
           }
           return snapshot;
