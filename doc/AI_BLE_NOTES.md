@@ -140,11 +140,8 @@ cancellation.
 
 ## Footgun #3: USB Charger Dedup
 
-**Symptom:** `BatteryController` writing `setUsbChargerMode` every 60s unconditionally (~2665 writes/2 days).
-
-**Root cause:** DE1 FW re-enables the charger on its own. The periodic write only matters while discharging.
-
-**Fix (PR #246):** `shouldWriteChargerMode()` in `charging_logic.dart`: write-on-change, re-assert "off" every 5min while discharging, skip otherwise. Reset last-applied on disconnect.
+This behavior depends on DE1 firmware. See
+[`device-notes/de1.md`](device-notes/de1.md#usb-charger-deduplication).
 
 ## Footgun #4: Watch Scan Silent Death (fork SafeScanner)
 
@@ -197,19 +194,17 @@ For modern HDS the same bytes 5-6 are a version: byte 5 is BCD (`majorTens << 4 
 
 On hit: emits `disconnected`, drains the queue with typed `deviceDisconnected`, and throws `DeviceNotConnectedException`.
 
-`characteristicNotFound` and `serviceNotFound` are ambiguous and are handled separately. A live peripheral
-returns them when the attribute simply is not in its GATT database, and a dead link returns them from a stale
-cache. Treating them as gone-device broke the Solo Barista (LSJ-001), which the matcher routes to `EurekaScale`
-but which has no 0x180F battery service: the optional battery read at the end of `onConnect()` failed with
-`characteristicNotFound`, the transport emitted `disconnected`, and the scale dropped one tick after connecting
-(log signature: `GATT read(...2a19...) failed - device gone`, then `scale connection update: disconnected`).
-These two codes now log, throw the domain `GattAttributeUnavailableException`, and hand off to
-`_probeAndDeclareIfDead()`, which asks the OS for the real link state and only then declares the link dead.
+`characteristicNotFound` and `serviceNotFound` are ambiguous: a live peripheral
+can omit an attribute, while a dead link can return the same error from a stale
+cache. These codes throw `GattAttributeUnavailableException` and hand off to
+`_probeAndDeclareIfDead()`, which asks the OS for the real link state.
 `GattAttributeUnavailableException` extends `DeviceNotConnectedException`, so the lowest-level scale write
 helpers that already catch `DeviceNotConnectedException` keep swallowing it: for a write, a stale-GATT
 `characteristicNotFound` may still mean a dead link, and the asynchronous probe cannot retroactively change
 the exception the caller already received.
 Device implementations should still gate optional reads on `discoverServices()` rather than relying on the probe.
+See [`device-notes/scales.md`](device-notes/scales.md#optional-gatt-attributes)
+for the scale behavior that motivated this distinction.
 
 The `isBenignFrameworkError()` filter in `crashlytics_error_filter.dart` suppresses these from `FlutterError.onError` — but scale-level catches at the write helper are defense-in-depth.
 
@@ -255,9 +250,8 @@ A plugin that creates a first-packet readiness promise must attach its own rejec
 
 ## Sleep From NeedsWater (Refill State)
 
-DE1 firmware build 1357+ honors a BLE sleep request while the machine is in refill/needsWater state when no refill kit is present. The app sends sleep from `needsWater` only for DE1 (not Bengle) on FW >= 1357 (`PresenceController._kSleepOnRefillMinFwBuild` / `_canSleepFromState`); idle/schedIdle are always eligible.
-
-**Why the build gate exists:** older firmware ignores the sleep request *while in refill* but keeps it latched, honoring it once the machine exits refill (e.g. right after the user refills the tank), so sending sleep from needsWater on old FW would put the machine straight back to sleep after a refill. With a refill kit present, the FW ignores the request (kit refill in progress) — the FW owns that guard, the app just sends the request.
+This behavior is firmware-specific. See
+[`device-notes/de1.md`](device-notes/de1.md#sleep-from-refill-state).
 
 ## Comms-Layer Patterns
 
@@ -414,27 +408,7 @@ correct by construction.
 
 ## DE1 MMR model mapping (`DecentMachineModel`)
 
-`v13Model` (MMR `0x0080000C`) is the machine model read on connect. For the
-DE1 family the raw value is 0 (unset) through 7, per de1app:
-
-| value | model     |
-|-------|-----------|
-| 0     | Unknown   |
-| 1     | DE1       |
-| 2     | DE1+      |
-| 3     | DE1PRO    |
-| 4     | DE1XL     |
-| 5     | DE1CAFE   |
-| 6     | DE1XXL    |
-| 7     | DE1XXXL   |
-| >=128 | Bengle    |
-
-The 5/6/7 rows were previously collapsed to DE1XXL/DE1XXXL/Unknown. The
-corrected mapping matches the firmware values used by de1app and is the
-canonical conversion for both raw MMR reads (`DecentMachineModel.fromInt`)
-and API SKU parsing (`parseSkuModel`), so firmware values and SKU tokens
-agree. Bengle values (>= 128) are outside the legacy DE1 identity-resolution
-flow.
+See [`device-notes/de1.md`](device-notes/de1.md#mmr-model-mapping).
 
 ## Focused Tests
 
@@ -445,66 +419,7 @@ flutter test test/controllers/connection/
 
 ## Profile Upload Safety
 
-### Firmware Latch: ProfileDownloadInProgress
-
-The DE1 firmware sets `ProfileDownloadInProgress` on header write and clears it
-on tail write + flash commit. If the upload dies mid-sequence (GATT timeout,
-connection drop), the latch stays set indefinitely. While latched:
-- The machine silently ignores all start requests.
-- The group-head LED pulses magenta (~2 Hz).
-- The only recovery is a complete profile upload.
-
-### Two Cache Layers
-
-| Cache | Location | Cleared on | Effect |
-|-------|----------|------------|--------|
-| Sync `_lastPushedProfile` | `WorkflowDeviceSync` | Disconnect, upload failure | Prevents redundant uploads within one connection |
-| Device `_currentProfile` | `UnifiedDe1` | Every `onConnect()`, every upload start | Prevents redundant uploads within one device session |
-
-Both must be cleared on connection edges. The sync cache is cleared by
-`_onDe1Change(null)` which runs on disconnect. The device cache is cleared
-in `UnifiedDe1.onConnect()` before the `_info` guard.
-
-### Startup Ordering
-
-The on-connect profile push is triggered by `De1Controller.initSettled`, which
-fires after machine readiness + startup defaults complete. This replaces the
-single-shot `_setDe1Defaults` path whose failures were swallowed.
-
-Generation tokens in both `De1Controller` (`_connectionGeneration`) and
-`WorkflowDeviceSync` (`_generation`) guard against stale init completions
-from a disconnected generation.
-
-### shotSettings Never Arrives (gh-634)
-
-`UnifiedDe1Transport._shotSettingsSubject` is an unseeded `BehaviorSubject`. It
-is seeded by the connect-time characteristic read; if that read fails, the
-subject stays empty for the whole connection and `shotSettings.first` never
-completes.
-
-Every steam and hot-water write reads the current `De1ShotSettings` first, so an
-empty subject used to hang the write forever. That hang propagated outward: the
-`De1Controller` device-write queue never advanced, and every later
-`PUT /api/v1/workflow` sat behind it until the 30 s queue wait expired with 503.
-Field symptom was "steam duration change does nothing" - the DE1 kept running on
-its firmware value while the app reported an error 30 s later.
-
-Guards now in place:
-- `De1Controller._readShotSettings` bounds every read with
-  `ConnectionTimings.initialShotSettingsTimeout` and maps a closed subject
-  (`StateError`) to `DeviceNotConnectedException`.
-- A connect-time read timeout no longer skips startup defaults permanently.
-  `_deferStartupDefaults` re-arms on the first frame that does arrive, so a
-  transient MMR timeout at connect no longer leaves the machine unconfigured
-  until app restart. The deferred defaults run through `runDeviceWrite`, so
-  they cannot overlap a normal workflow write that started while init was
-  still waiting on shot settings.
-
-No generic stall timeout guards the device-write queue. `Future.timeout()` does
-not cancel the underlying future, so releasing the queue on timeout would let a
-stalled write resume later and overwrite a newer one. Bound the actual
-unbounded read instead; a real anti-wedge mechanism needs explicit
-cancellation or fencing.
+See [`device-notes/de1.md`](device-notes/de1.md#profile-upload-safety).
 
 ## Plugin BLE Binding (#809 Checkpoint)
 
