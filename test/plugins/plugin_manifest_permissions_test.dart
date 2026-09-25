@@ -46,7 +46,7 @@ void main() {
         {'id': '../humidity', 'type': 'sensor'},
       ],
       [
-        {'id': 'humidity', 'type': 'grinder'},
+        {'id': 'humidity', 'type': 'unknown'},
       ],
       [
         {'id': 'humidity', 'type': 'sensor'},

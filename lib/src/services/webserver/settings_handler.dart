@@ -31,6 +31,7 @@ class SettingsHandler {
       final stopHotWaterAtWeight = _controller.stopHotWaterAtWeight;
       final preferredMachineId = _controller.preferredMachineId;
       final preferredScaleId = _controller.preferredScaleId;
+      final preferredGrinderDeviceId = _controller.preferredGrinderDeviceId;
       final defaultSkinId = _controller.defaultSkinId;
       final automaticUpdateCheck = _controller.automaticUpdateCheck;
       final result = <String, dynamic>{
@@ -46,6 +47,7 @@ class SettingsHandler {
         'stopHotWaterAtWeight': stopHotWaterAtWeight,
         'preferredMachineId': preferredMachineId,
         'preferredScaleId': preferredScaleId,
+        'preferredGrinderDeviceId': preferredGrinderDeviceId,
         'defaultSkinId': defaultSkinId,
         'automaticUpdateCheck': automaticUpdateCheck,
         'chargingMode': _controller.chargingMode.name,
@@ -179,6 +181,16 @@ class SettingsHandler {
         } else {
           return jsonBadRequest({
             'message': 'preferredScaleId must be a string or null',
+          });
+        }
+      }
+      if (json.containsKey('preferredGrinderDeviceId')) {
+        final value = json['preferredGrinderDeviceId'];
+        if (value == null || value is String) {
+          await _controller.setPreferredGrinderDeviceId(value);
+        } else {
+          return jsonBadRequest({
+            'message': 'preferredGrinderDeviceId must be a string or null',
           });
         }
       }

@@ -148,13 +148,19 @@ abstract class PluginProtocolDevice extends PluginDeviceAdapter {
     }();
   }
 
-  Future<void> command(PluginDeviceOperation operation) async {
+  Future<void> command(
+    PluginDeviceOperation operation, [
+    Map<String, dynamic> payload = const {},
+  ]) async {
     final session = _session;
     checkSession(session);
     if (_state.value != ConnectionState.connected) {
       throw const PluginDeviceException('Plugin device is not ready');
     }
-    await invoke(operation, {'session': session}).timeout(invocationTimeout);
+    await invoke(operation, {
+      ...payload,
+      'session': session,
+    }).timeout(invocationTimeout);
     checkSession(session);
   }
 

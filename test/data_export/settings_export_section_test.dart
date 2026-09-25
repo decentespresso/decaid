@@ -64,6 +64,7 @@ void main() {
       final devicePrefs = map['devicePreferences'] as Map<String, dynamic>;
       expect(devicePrefs['preferredMachineId'], isNull);
       expect(devicePrefs['preferredScaleId'], isNull);
+      expect(devicePrefs['preferredGrinderDeviceId'], isNull);
     });
 
     test('exports modified settings', () async {
@@ -125,6 +126,7 @@ void main() {
         'devicePreferences': {
           'preferredMachineId': 'DE1-XYZ',
           'preferredScaleId': 'SCALE-ABC',
+          'preferredGrinderDeviceId': 'GRINDER-123',
         },
       };
       final result = await importSectionJson(
@@ -135,6 +137,7 @@ void main() {
       expect(result.errors, isEmpty);
       expect(controller.preferredMachineId, 'DE1-XYZ');
       expect(controller.preferredScaleId, 'SCALE-ABC');
+      expect(controller.preferredGrinderDeviceId, 'GRINDER-123');
     });
 
     test('imports wake schedules', () async {

@@ -13,6 +13,7 @@ import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/impl/bengle/bengle_virtual_scale.dart';
 import 'package:reaprime/src/models/device/impl/bengle/mock_bengle.dart';
+import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
 
@@ -20,6 +21,7 @@ import 'helpers/mock_device_discovery_service.dart';
 import 'helpers/mock_settings_service.dart';
 import 'helpers/test_scale.dart';
 import 'helpers/test_sensor.dart';
+import 'helpers/test_grinder.dart';
 
 void main() {
   late DeviceController deviceController;
@@ -64,7 +66,7 @@ void main() {
   tearDown(() async {
     await server.close(force: true);
     devicesHandler.dispose();
-    connectionManager.dispose();
+    await connectionManager.dispose();
     deviceController.dispose();
   });
 
@@ -325,6 +327,106 @@ void main() {
 
       await Future.delayed(Duration(milliseconds: 100));
 
+      await channel.sink.close();
+    });
+
+    test('disconnects a selected grinder after discovery loses it', () async {
+      final grinder = TestGrinder(deviceId: 'selected');
+      addTearDown(grinder.dispose);
+      mockDiscovery.addDevice(grinder);
+      await Future<void>.delayed(Duration.zero);
+      expect((await connectionManager.connectGrinder(grinder)).success, isTrue);
+      mockDiscovery.removeDevice(grinder.deviceId);
+      await Future<void>.delayed(Duration.zero);
+      final (channel, messages) = connectWs();
+      await messages
+          .where(
+            (message) =>
+                message.containsKey('devices') &&
+                (message['devices'] as List).any(
+                  (device) => device['id'] == grinder.deviceId,
+                ),
+          )
+          .first
+          .timeout(const Duration(seconds: 2));
+      final disconnected = grinder.connectionState.firstWhere(
+        (state) => state == ConnectionState.disconnected,
+      );
+
+      channel.sink.add(
+        jsonEncode({'command': 'disconnect', 'deviceId': grinder.deviceId}),
+      );
+      await disconnected;
+      await Future<void>.delayed(Duration.zero);
+
+      expect(grinder.disconnectCalls, 1);
+      expect(
+        connectionManager.grinderController.connectedGrinder,
+        throwsA(isA<DeviceNotConnectedException>()),
+      );
+      await channel.sink.close();
+    });
+
+    test('reports selected grinder disconnect failures', () async {
+      final grinder = TestGrinder(
+        deviceId: 'selected',
+        disconnectError: StateError('disconnect failed'),
+      );
+      addTearDown(grinder.dispose);
+      mockDiscovery.addDevice(grinder);
+      await Future<void>.delayed(Duration.zero);
+      expect((await connectionManager.connectGrinder(grinder)).success, isTrue);
+      final (channel, messages) = connectWs();
+      await waitForState(messages);
+
+      channel.sink.add(
+        jsonEncode({'command': 'disconnect', 'deviceId': grinder.deviceId}),
+      );
+      final response = await waitForError(messages);
+
+      expect(response['error'], contains('disconnect failed'));
+      expect(
+        connectionManager.grinderController.connectedGrinder,
+        throwsA(isA<DeviceNotConnectedException>()),
+      );
+      await channel.sink.close();
+    });
+
+    test('disconnect command targets the requested grinder', () async {
+      final selected = TestGrinder(deviceId: 'selected');
+      final requested = TestGrinder(deviceId: 'requested');
+      addTearDown(selected.dispose);
+      addTearDown(requested.dispose);
+      mockDiscovery.addDevice(selected);
+      mockDiscovery.addDevice(requested);
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        (await connectionManager.connectGrinder(selected)).success,
+        isTrue,
+      );
+      final (channel, messages) = connectWs();
+      await waitForState(messages);
+
+      final requestedDisconnected = messages
+          .where(
+            (message) => (message['devices'] as List).any(
+              (device) =>
+                  device['id'] == requested.deviceId &&
+                  device['state'] == 'disconnected',
+            ),
+          )
+          .first
+          .timeout(const Duration(seconds: 2));
+      channel.sink.add(
+        jsonEncode({'command': 'disconnect', 'deviceId': requested.deviceId}),
+      );
+      await requestedDisconnected;
+
+      expect(selected.disconnectCalls, 0);
+      expect(
+        connectionManager.grinderController.connectedGrinder(),
+        same(selected),
+      );
       await channel.sink.close();
     });
 

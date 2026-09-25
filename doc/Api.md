@@ -148,7 +148,8 @@ Pre-stream responses are `400` for malformed input, `404` for an unknown artifac
 `/api/v1/devices/scan` keeps the existing query shape and defaults:
 `connect=true` when omitted and `quick=false` when omitted. With connection
 enabled, the request scans first, preserves occupied slots, then fills missing
-machine and scale slots; this may take longer than the former quick-connect
+machine and scale slots and connects the preferred runtime grinder when present;
+this may take longer than the former quick-connect
 behavior. `quick=true` returns immediately but does not change that policy.
 
 `PUT /api/v1/devices/connect` waits for the attempt and returns `deviceId`,
@@ -157,6 +158,10 @@ behavior. `quick=true` returns immediately but does not change that policy.
 200; conflicting or stale requests return 409; transport failures return 503;
 and connection timeouts return 504. The devices WebSocket returns the same result
 after each connect command.
+
+Disconnect failures return 500. A selected grinder clears local controller
+state before its failure is reported. The devices WebSocket reports the same
+failure in an `error` frame.
 
 Each device entry carries an **`available`** boolean. `true` = currently present
 in discovery or actively connected; `false` = a **remembered** device that isn't
@@ -331,6 +336,31 @@ supplied values replace them. Explicit `null` for non-nullable fields returns
 
 ### Grinders
 
+The singular `/api/v1/grinder/*` surface controls the one selected runtime
+`GrinderDevice`:
+
+| Method | Path | Description | Handler |
+|--------|------|-------------|---------|
+| GET | `/api/v1/grinder/info` | Runtime `deviceId` and declared capabilities | `grinder_handler.dart` |
+| GET | `/api/v1/grinder/state` | Latest validated grinder snapshot | |
+| PUT | `/api/v1/grinder/state/grinding` | Start grinding | |
+| PUT | `/api/v1/grinder/state/idle` | Stop grinding | |
+| PUT | `/api/v1/grinder/setting` | Set a string setting (`{"setting":"12.3"}`) | |
+| PUT | `/api/v1/grinder/rpm` | Set a nonnegative integer RPM (`{"rpm":1200}`) | |
+| WS | `/ws/v1/grinder/snapshot` | Snapshot-only stream across disconnect and replacement | |
+
+No connected grinder returns 503. Unsupported declared operations return an
+error with `code: "unsupported_operation"`. The API exposes no vendor command
+or catch-all route.
+
+This runtime identity is deliberately separate from persisted equipment. A
+persisted `Grinder.id` is a UUID used by the plural `/api/v1/grinders` CRUD
+surface and workflow metadata. A runtime grinder has a transport/plugin
+`deviceId`. `preferredGrinderDeviceId` stores that runtime ID for connection
+from normal scan results; it is never a persisted `grinderId`.
+
+### Grinder Records
+
 | Method | Path | Description | Handler |
 |--------|------|-------------|---------|
 | GET | `/api/v1/grinders` | List all grinders | `grinders_handler.dart` |
@@ -346,7 +376,7 @@ supplied values replace them. Explicit `null` for non-nullable fields returns
 | GET | `/api/v1/settings` | All app settings (gateway, theme, charging, devices, etc.) | `settings_handler.dart` |
 | POST | `/api/v1/settings` | Update settings (partial, key-by-key) | |
 
-Settings fields include: `gatewayMode`, `themeMode`, `logLevel`, `weightFlowMultiplier`, `volumeFlowMultiplier`, `hotWaterFlowMultiplier`, `scalePowerMode`, `blockOnNoScale`, `blockTareDuringShot`, `stopHotWaterAtWeight`, `preferredMachineId`, `preferredScaleId`, `defaultSkinId`, `automaticUpdateCheck`, `chargingMode`, `nightModeEnabled`, `nightModeSleepTime`, `nightModeMorningTime`, `lowBatteryBrightnessLimit`, `keepAwake`, `simulatedDevices`.
+Settings fields include: `gatewayMode`, `themeMode`, `logLevel`, `weightFlowMultiplier`, `volumeFlowMultiplier`, `hotWaterFlowMultiplier`, `scalePowerMode`, `blockOnNoScale`, `blockTareDuringShot`, `stopHotWaterAtWeight`, `preferredMachineId`, `preferredScaleId`, `preferredGrinderDeviceId`, `defaultSkinId`, `automaticUpdateCheck`, `chargingMode`, `nightModeEnabled`, `nightModeSleepTime`, `nightModeMorningTime`, `lowBatteryBrightnessLimit`, `keepAwake`, `simulatedDevices`.
 
 `stopHotWaterAtWeight` (boolean, default `true`): when on and a scale is connected, hot-water dispensing tares the scale and stops at the configured hot-water `volume` target treated as grams (mirrors the espresso stop-at-weight). The machine's own volume/time stop remains a backstop, and the value is ignored in `full` gateway mode (a skin owns the machine). `hotWaterFlowMultiplier` (number, default `0.3`) is the seconds-of-lookahead applied to scale weight flow for that stop — separate from `weightFlowMultiplier` because hot water dispenses with a different pump/flow profile than espresso. See [DeviceManagement.md](DeviceManagement.md#hot-water-stop-at-weight).
 

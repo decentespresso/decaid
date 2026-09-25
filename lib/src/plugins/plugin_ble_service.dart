@@ -141,6 +141,20 @@ class PluginBleService {
           'sleepDisplay',
           'wakeDisplay',
         ],
+        if (driver.declaration.grinderCapabilities.contains(
+          PluginGrinderCapability.startStop,
+        )) ...[
+          'start',
+          'stop',
+        ],
+        if (driver.declaration.grinderCapabilities.contains(
+          PluginGrinderCapability.grindSetting,
+        ))
+          'setGrindSetting',
+        if (driver.declaration.grinderCapabilities.contains(
+          PluginGrinderCapability.rpmControl,
+        ))
+          'setRpm',
       };
       for (final operation in PluginDeviceOperation.values) {
         final name = operation.name;

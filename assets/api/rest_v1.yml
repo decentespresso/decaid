@@ -95,7 +95,7 @@ paths:
   /api/v1/devices/scan:
     get:
       summary: Scan for Devices
-      description: Triggers a device scan. When connect=true (default), scans first and automatically fills missing machine and scale slots without replacing connected devices. When connect=false, performs discovery only.
+      description: Triggers a device scan. When connect=true (default), scans first, automatically fills missing machine and scale slots, and connects the preferred runtime grinder when it is present without replacing connected devices. When connect=false, performs discovery only.
       tags: [Devices]
       parameters:
         - name: connect
@@ -241,6 +241,14 @@ paths:
           description: "Device not found"
         "409":
           description: "Device is inventory-only and cannot be disconnected independently"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: >
+            Device disconnect failed. A selected grinder clears local
+            controller state before the failure is reported.
           content:
             application/json:
               schema:
@@ -1230,6 +1238,124 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ScaleCommandError"
+
+  # Connected Grinder API
+  /api/v1/grinder/info:
+    get:
+      summary: Get connected grinder information
+      description: Returns the runtime device identity and declared capabilities. This is separate from persisted grinder records under /api/v1/grinders.
+      tags: [Grinder]
+      responses:
+        "200":
+          description: Connected grinder information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GrinderInfo"
+        "503":
+          description: No grinder is connected
+
+  /api/v1/grinder/state:
+    get:
+      summary: Get connected grinder state
+      tags: [Grinder]
+      responses:
+        "200":
+          description: Latest validated grinder snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GrinderSnapshot"
+        "503":
+          description: No grinder or snapshot is available
+
+  /api/v1/grinder/state/grinding:
+    put:
+      summary: Start the connected grinder
+      tags: [Grinder]
+      responses:
+        "200":
+          description: Start command accepted
+        "500":
+          description: Command failed or startStop is unsupported
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GrinderCommandError"
+        "503":
+          description: No grinder is connected
+
+  /api/v1/grinder/state/idle:
+    put:
+      summary: Stop the connected grinder
+      tags: [Grinder]
+      responses:
+        "200":
+          description: Stop command accepted
+        "500":
+          description: Command failed or startStop is unsupported
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GrinderCommandError"
+        "503":
+          description: No grinder is connected
+
+  /api/v1/grinder/setting:
+    put:
+      summary: Set the connected grinder setting
+      tags: [Grinder]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GrinderSettingRequest"
+      responses:
+        "200":
+          description: Setting command accepted
+        "400":
+          description: setting is missing or is not a string
+        "408":
+          description: Request body was not received within 10 seconds
+        "413":
+          description: Request body exceeds 64 KiB
+        "500":
+          description: Command failed or grindSetting is unsupported
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GrinderCommandError"
+        "503":
+          description: No grinder is connected
+
+  /api/v1/grinder/rpm:
+    put:
+      summary: Set the connected grinder RPM
+      tags: [Grinder]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GrinderRpmRequest"
+      responses:
+        "200":
+          description: RPM command accepted
+        "400":
+          description: rpm is missing, is not an integer, or is negative
+        "408":
+          description: Request body was not received within 10 seconds
+        "413":
+          description: Request body exceeds 64 KiB
+        "500":
+          description: Command failed or rpmControl is unsupported
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GrinderCommandError"
+        "503":
+          description: No grinder is connected
 
   # Sensors API handling
   /api/v1/sensors:
@@ -5586,6 +5712,61 @@ components:
           nullable: true
           minimum: 0
           maximum: 100
+    GrinderCommandError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+          description: Optional plugin error code, including unsupported_operation.
+    GrinderInfo:
+      type: object
+      required: [deviceId, capabilities]
+      additionalProperties: false
+      properties:
+        deviceId:
+          type: string
+          description: Runtime GrinderDevice identity, not a persisted Grinder UUID.
+        capabilities:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [startStop, grindSetting, rpmControl]
+    GrinderSnapshot:
+      type: object
+      required: [timestamp, state]
+      additionalProperties: false
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Host-owned publication timestamp.
+        state:
+          type: string
+          enum: [idle, grinding, error, unknown]
+        setting:
+          type: string
+          description: Present only when grindSetting is declared and published.
+        rpm:
+          type: integer
+          minimum: 0
+          description: Present only when rpmControl is declared and published.
+    GrinderSettingRequest:
+      type: object
+      required: [setting]
+      properties:
+        setting:
+          type: string
+    GrinderRpmRequest:
+      type: object
+      required: [rpm]
+      properties:
+        rpm:
+          type: integer
+          minimum: 0
     FlowSmoothingConfig:
       type: object
       required: [windowMs, movingAverageSamples]
@@ -5695,7 +5876,7 @@ components:
           enum: [discovered, connecting, connected, disconnecting, disconnected]
         type:
           type: string
-          enum: [machine, scale, sensor]
+          enum: [machine, scale, sensor, grinder]
         available:
           type: boolean
           description: >
@@ -6624,6 +6805,11 @@ components:
           type: string
           nullable: true
           example: "AA:BB:CC:DD:EE:FF"
+        preferredGrinderDeviceId:
+          description: Runtime grinder deviceId to connect when it appears in normal scan results. This is not a persisted grinderId.
+          type: string
+          nullable: true
+          example: "plugin:grinder.example:grinder:one"
         defaultSkinId:
           description: ID of the default WebUI skin to serve
           type: string
@@ -6722,6 +6908,11 @@ components:
           type: string
           nullable: true
           example: "AA:BB:CC:DD:EE:FF"
+        preferredGrinderDeviceId:
+          description: Runtime grinder deviceId preferred during normal scans. This is not a persisted grinderId.
+          type: string
+          nullable: true
+          example: "plugin:grinder.example:grinder:one"
         defaultSkinId:
           description: ID of the default WebUI skin being served
           type: string
@@ -7337,14 +7528,14 @@ components:
                 pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'
               type:
                 type: string
-                enum: [sensor, scale]
+                enum: [sensor, scale, grinder]
               capabilities:
                 type: array
                 uniqueItems: true
-                description: Scale-only capabilities. displayControl and disconnectToSleep are mutually exclusive.
+                description: Scale or Grinder capabilities, interpreted according to driver type. Scale displayControl and disconnectToSleep are mutually exclusive.
                 items:
                   type: string
-                  enum: [battery, flow, timerTelemetry, tare, timerControl, displayControl, disconnectToSleep]
+                  enum: [battery, flow, timerTelemetry, tare, timerControl, displayControl, disconnectToSleep, startStop, grindSetting, rpmControl]
               ble:
                 type: object
                 additionalProperties: false
