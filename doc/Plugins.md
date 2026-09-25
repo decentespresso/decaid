@@ -812,7 +812,7 @@ is confirmed; a cleanup deadline alone cannot authorize another connection.
 Limits per session are 16 pending GATT operations, 8 subscriptions, 256 queued
 notification events / 64 KiB, and 16 KiB per read or write. Notification overflow
 retires the session rather than dropping protocol data silently. Production permits
-one active physical binding per plugin generation. Definitions and Sensor payloads
+up to 4 active physical bindings per plugin generation. Definitions and Sensor payloads
 retain the 64 KiB JSON limit. Bridge failures carry `code`, including
 `stale_session`, `permission_denied`, `resource_limit`, `attribute_unavailable`,
 `link_lost`, and `timeout`; other native BLE codes are preserved.
