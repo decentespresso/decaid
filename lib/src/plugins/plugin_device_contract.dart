@@ -31,6 +31,20 @@ class PluginDeviceException implements Exception {
   String toString() => message;
 }
 
+class PluginDeviceSettings {
+  final String pluginId;
+  final String endpointId;
+
+  const PluginDeviceSettings({
+    required this.pluginId,
+    required this.endpointId,
+  });
+}
+
+abstract interface class DeviceSettingsCapable implements Device {
+  PluginDeviceSettings? get deviceSettings;
+}
+
 abstract class PluginDeviceAdapter implements Device {
   void publish(Map<String, dynamic> snapshot, {String? session});
   void reportDisconnected({String? session});
