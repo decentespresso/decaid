@@ -1,0 +1,26 @@
+{
+  "id": "e64ws.reaplugin",
+  "name": "Mahlkoenig E64 WebSocket Sensor",
+  "author": "Decaid contributors",
+  "description": "Opt-in read-only E64 telemetry over the local WebSocket protocol.",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "permissions": ["network.websocket"],
+  "drivers": [{"id": "e64ws", "type": "sensor"}],
+  "settings": {
+    "InstancesJson": {
+      "type": "string",
+      "label": "E64 instances",
+      "description": "JSON array of grinder id, name, scheme, host, port, and optional pollMs values.",
+      "default": "[]"
+    },
+    "TokensJson": {
+      "type": "string",
+      "label": "E64 session tokens",
+      "description": "JSON object mapping each configured grinder id to its WebSocket session token.",
+      "secure": true,
+      "default": "{}"
+    }
+  },
+  "api": []
+}
