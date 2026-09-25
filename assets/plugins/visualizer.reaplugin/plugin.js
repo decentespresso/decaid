@@ -213,7 +213,33 @@ function createPlugin(host) {
     return Math.round(canonical * VISUALIZER_ENJOYMENT_SCALE);
   }
 
-  function convertReaToVisualizerFormat(reaShot) {
+  async function fetchGrinder(grinderId) {
+    if (!grinderId) return null;
+    try {
+      const res = await fetch(`${LOCAL_API_URL}/grinders/${encodeURIComponent(grinderId)}`);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function combineModelAndBurrs(model, burrs) {
+    const trimmedModel = typeof model === "string" ? model.trim() : "";
+    const trimmedBurrs = typeof burrs === "string" ? burrs.trim() : "";
+    if (!trimmedModel || !trimmedBurrs) return model;
+    if (trimmedModel.toLowerCase().includes(trimmedBurrs.toLowerCase())) return model;
+    return `${trimmedModel} (${trimmedBurrs})`;
+  }
+
+  async function resolveUploadGrinderModel(grinderId, baseModel) {
+    if (!grinderId) return baseModel;
+    const grinder = await fetchGrinder(grinderId);
+    if (!grinder || !grinder.burrs) return baseModel;
+    return combineModelAndBurrs(grinder.model || baseModel, grinder.burrs);
+  }
+
+  async function convertReaToVisualizerFormat(reaShot) {
     if (!reaShot || !reaShot.measurements || reaShot.measurements.length === 0) {
       throw new Error("Invalid or empty Decent shot data for conversion.");
     }
@@ -225,6 +251,9 @@ function createPlugin(host) {
     const annotations = reaShot.annotations || {};
     const context = reaShot.workflow?.context || {};
     let totalWaterDispensed = 0;
+
+    const baseGrinderModel = context.grinderModel ?? reaShot.workflow.grinderData?.model;
+    const grinderModel = await resolveUploadGrinderModel(context.grinderId, baseGrinderModel);
 
     const visualizerShot = {
       // start_time: reaShot.measurements[0].machine.timestamp,
@@ -243,7 +272,7 @@ function createPlugin(host) {
             bean_weight: String(annotations.actualDoseWeight ?? context.targetDoseWeight ?? reaShot.workflow.doseData?.doseIn ?? 0),
             drink_weight: String(annotations.actualYield ?? lastMeasurement.scale?.weight ?? 0),
             target_weight: String(context.targetYield ?? reaShot.workflow.profile.target_weight),
-            grinder_model: context.grinderModel ?? reaShot.workflow.grinderData?.model,
+            grinder_model: grinderModel,
             grinder_setting: context.grinderSetting ?? reaShot.workflow.grinderData?.setting,
             bean_brand: context.coffeeRoaster ?? reaShot.workflow.coffeeData?.roaster,
             bean_type: context.coffeeName ?? reaShot.workflow.coffeeData?.name,
@@ -327,7 +356,7 @@ function createPlugin(host) {
         return;
       }
 
-      const result = await uploadShot(convertReaToVisualizerFormat(fullShot), null);
+      const result = await uploadShot(await convertReaToVisualizerFormat(fullShot), null);
       rememberSuccessfulUpload(fullShot.id, result.id);
       syncSuccessfulUpload(fullShot.id, result.id, fullShot);
 
@@ -1049,6 +1078,15 @@ function createPlugin(host) {
     return update;
   }
 
+  async function isRoundTrippedGrinderModel(localId, remoteGrinderModel) {
+    if (typeof remoteGrinderModel !== "string" || remoteGrinderModel.trim() === "") return false;
+    const shot = await fetchShot(localId);
+    const context = shot?.workflow?.context || {};
+    const baseModel = context.grinderModel ?? shot?.workflow?.grinderData?.model;
+    const expected = await resolveUploadGrinderModel(context.grinderId, baseModel);
+    return expected === remoteGrinderModel;
+  }
+
   async function runBackSync(opts) {
     opts = opts || {};
     if (state.backSyncRunning) return { skipped: "already running" };
@@ -1121,6 +1159,13 @@ function createPlugin(host) {
         const itemUpdatedAt = Number(detail?.updated_at) || item.updatedAt || 0;
 
         const update = mapRemoteToLocal(detail);
+        if (hasOwn(update.workflow?.context, "grinderModel")) {
+          const remoteGrinderModel = update.workflow.context.grinderModel;
+          if (await isRoundTrippedGrinderModel(localId, remoteGrinderModel)) {
+            delete update.workflow.context.grinderModel;
+            if (Object.keys(update.workflow.context).length === 0) delete update.workflow;
+          }
+        }
         let processed = Object.keys(update).length === 0;
         if (Object.keys(update).length > 0) {
           suppressLocalSync(localId, update);
@@ -1186,7 +1231,7 @@ function createPlugin(host) {
   // Return the plugin object
   return {
     id: "visualizer.reaplugin",
-    version: "1.5.10",
+    version: "1.5.11",
 
     onLoad(settings) {
       state.username = settings.Username;
@@ -1286,9 +1331,9 @@ function createPlugin(host) {
 
             return JSON.parse(body);
           })
-          .then((shot) => {
+          .then(async (shot) => {
             requestedShot = shot;
-            return uploadShot(convertReaToVisualizerFormat(shot), null);
+            return uploadShot(await convertReaToVisualizerFormat(shot), null);
           })
           .then((shotResponse) => {
             rememberSuccessfulUpload(shotId, shotResponse.id);

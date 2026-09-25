@@ -301,6 +301,8 @@ Machine broadcasts require `events.machine`. Shot lifecycle broadcasts require
 
 The bundled Visualizer plugin merges recipe and shot-review tags, reads the current Visualizer tags before replacing them, and forwards later local edits in order. Visualizer tag writes require a Visualizer Premium account. The upload endpoint returns `202` with `visualizer_id` after the Visualizer upload succeeds while the tag PATCH continues in memory. Follow-up failures, including Visualizer's premium-account rejection, are reported through `shotForwardSyncError` and `forwardSyncStatus`; tag ownership is restored after an app or plugin restart. Pending work is not restored though.
 
+Visualizer's Decent JSON parser only reads `grinder_model` / `grinder_setting` from `app.data.settings` — there is no separate field for a grinder's burrs. So on upload, when the shot's grinder has a `burrs` value, the plugin looks the grinder up (`GET /api/v1/grinders/<id>`) and folds it into `grinder_model` as `"<model> (<burrs>)"`, unless the model text already names the burrs. Lookup failure, a missing `grinderId`, or no `burrs` set all fall back to the plain model. Because Visualizer then echoes that combined string back on every back-synced shot, back-sync recomputes what it would have uploaded for the local shot and skips overwriting `grinderModel` only when the remote value matches that round trip; a genuine edit made on Visualizer still differs and still applies.
+
 ### Events from Plugin → Flutter
 
 Plugins can emit custom events that the Flutter app can listen to:
