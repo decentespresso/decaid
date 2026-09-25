@@ -1,0 +1,18 @@
+{
+  "id": "skale.reaplugin",
+  "name": "Skale Scale (Reference)",
+  "author": "Decaid contributors",
+  "description": "Opt-in Skale JS protocol driver using host-owned BLE.",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "permissions": ["transport.ble", "api"],
+  "drivers": [{
+    "id": "skale",
+    "type": "scale",
+    "settingsEndpoint": "device-settings",
+    "capabilities": ["battery", "tare", "timerControl", "displayControl"],
+    "ble": {"match": {"serviceUuids": ["0000ff08-0000-1000-8000-00805f9b34fb"]}}
+  }],
+  "settings": {},
+  "api": [{"id": "device-settings", "type": "http", "data": {}}]
+}

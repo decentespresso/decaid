@@ -259,9 +259,32 @@ void main() {
   );
 
   test(
-    'default capacity rejects a second Sensor without disturbing the first',
+    'default capacity allows a second Sensor without disturbing the first',
     () async {
       final manager = PluginManager(kvStore: FakeKeyValueStoreService());
+      addTearDown(manager.dispose);
+      await load(manager);
+      final transports = <PluginBleFixtureTransport>[];
+      final first = await candidate(manager, transports);
+      final second = await candidate(manager, transports, id: 'CC:DD');
+      await first.onConnect();
+      await second.onConnect();
+      expect(transports, hasLength(2));
+      expect(manager.bleService.registry.activeBindingCount, 2);
+      expect(await first.execute('sample', null), {'humidity': 52});
+      await first.disconnect();
+      expect(manager.bleService.registry.activeBindingCount, 1);
+      expect(await second.execute('sample', null), {'humidity': 52});
+    },
+  );
+
+  test(
+    'an explicit binding limit remains enforced without affecting active peers',
+    () async {
+      final manager = PluginManager(
+        kvStore: FakeKeyValueStoreService(),
+        bleRegistry: PluginBleRegistry(activeBindingLimit: 1),
+      );
       addTearDown(manager.dispose);
       await load(manager);
       final transports = <PluginBleFixtureTransport>[];
