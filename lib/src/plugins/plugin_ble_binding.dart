@@ -202,6 +202,18 @@ class PluginBleBinding {
     }
   }
 
+  void publishInfo(Map<String, dynamic> info, String? domainSession) {
+    _checkPublication(domainSession);
+    final target = device;
+    if (target is! PluginScale) {
+      throw const PluginBleException(
+        'invalid_argument',
+        'Device metadata is only supported by plugin scales',
+      );
+    }
+    target.publishInfo(info, session: domainSession);
+  }
+
   void reportDisconnected(String? domainSession) {
     _checkPublication(domainSession);
     device.reportDisconnected(session: domainSession);
