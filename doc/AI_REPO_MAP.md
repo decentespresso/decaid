@@ -14,6 +14,7 @@ Use this for unfamiliar or multi-subsystem tasks. For known files or exact symbo
 | Profile/workflow serialization | `doc/Profiles.md` | `lib/src/models/data/`, `lib/src/daos/` |
 | Database schema/migration | `doc/AI_STORAGE_NOTES.md` | `lib/src/database/app_database.dart`, `lib/src/daos/`, `lib/src/mappers/` |
 | Plugin API or permissions | `doc/Plugins.md` | `lib/src/plugins/plugin_manager.dart`, `plugin_host.dart` |
+| A bundled plugin's own logic (not host API/permissions) | `doc/AI_PLUGINS_NOTES.md` | `assets/plugins/*.reaplugin/plugin.js` |
 | Skin serving or WebUI | `doc/Skins.md` | `lib/src/webui_support/`, `lib/src/services/webserver/webui/` |
 | Device discovery or connection | `doc/DeviceManagement.md` | `lib/src/controllers/connection/connection_manager.dart` |
 | Build, platform, CLI flags | `doc/AI_BUILD_NOTES.md` | `Makefile`, `pubspec.yaml` |

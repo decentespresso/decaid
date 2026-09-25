@@ -224,11 +224,18 @@ function createPlugin(host) {
     }
   }
 
+  function tokenizeGrinderText(s) {
+    return String(s || "").toLowerCase().split(/[^a-z0-9]+/i).filter(Boolean);
+  }
+
   function combineModelAndBurrs(model, burrs) {
     const trimmedModel = typeof model === "string" ? model.trim() : "";
     const trimmedBurrs = typeof burrs === "string" ? burrs.trim() : "";
     if (!trimmedModel || !trimmedBurrs) return model;
-    if (trimmedModel.toLowerCase().includes(trimmedBurrs.toLowerCase())) return model;
+    const modelTokens = new Set(tokenizeGrinderText(trimmedModel));
+    const burrTokens = tokenizeGrinderText(trimmedBurrs);
+    const alreadyNamed = burrTokens.length > 0 && burrTokens.every((t) => modelTokens.has(t));
+    if (alreadyNamed) return model;
     return `${trimmedModel} (${trimmedBurrs})`;
   }
 
@@ -236,7 +243,7 @@ function createPlugin(host) {
     if (!grinderId) return baseModel;
     const grinder = await fetchGrinder(grinderId);
     if (!grinder || !grinder.burrs) return baseModel;
-    return combineModelAndBurrs(grinder.model || baseModel, grinder.burrs);
+    return combineModelAndBurrs(baseModel, grinder.burrs);
   }
 
   async function convertReaToVisualizerFormat(reaShot) {
@@ -1078,13 +1085,27 @@ function createPlugin(host) {
     return update;
   }
 
-  async function isRoundTrippedGrinderModel(localId, remoteGrinderModel) {
+  function normalizeGrinderModelText(s) {
+    return String(s == null ? "" : s).trim().toLowerCase().replace(/\s+/g, " ");
+  }
+
+  // See doc/AI_PLUGINS_NOTES.md for why this is a fuzzy, network-free pattern match
+  // rather than a recomputed exact string.
+  function isBaseModelRoundTrip(remoteGrinderModel, baseModel) {
+    const remote = normalizeGrinderModelText(remoteGrinderModel);
+    const base = normalizeGrinderModelText(baseModel);
+    if (!remote || !base) return false;
+    if (remote === base) return true;
+    return remote.startsWith(base + " (") && remote.endsWith(")");
+  }
+
+  async function shouldSkipBackSyncedGrinderModel(localId, remoteGrinderModel) {
     if (typeof remoteGrinderModel !== "string" || remoteGrinderModel.trim() === "") return false;
     const shot = await fetchShot(localId);
-    const context = shot?.workflow?.context || {};
-    const baseModel = context.grinderModel ?? shot?.workflow?.grinderData?.model;
-    const expected = await resolveUploadGrinderModel(context.grinderId, baseModel);
-    return expected === remoteGrinderModel;
+    if (!shot) return true;
+    const context = shot.workflow?.context || {};
+    const baseModel = context.grinderModel ?? shot.workflow?.grinderData?.model;
+    return isBaseModelRoundTrip(remoteGrinderModel, baseModel);
   }
 
   async function runBackSync(opts) {
@@ -1161,7 +1182,7 @@ function createPlugin(host) {
         const update = mapRemoteToLocal(detail);
         if (hasOwn(update.workflow?.context, "grinderModel")) {
           const remoteGrinderModel = update.workflow.context.grinderModel;
-          if (await isRoundTrippedGrinderModel(localId, remoteGrinderModel)) {
+          if (await shouldSkipBackSyncedGrinderModel(localId, remoteGrinderModel)) {
             delete update.workflow.context.grinderModel;
             if (Object.keys(update.workflow.context).length === 0) delete update.workflow;
           }
