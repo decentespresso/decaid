@@ -97,6 +97,7 @@ class PresenceController {
     _pendingUserPresentTimer?.cancel();
     _pendingUserPresentTimer = null;
     _cancelledOccurrences.clear();
+    _de1 = null;
     _settingsController.removeListener(_onSettingsChanged);
   }
 
@@ -174,12 +175,21 @@ class PresenceController {
     }
 
     if (_settingsController.userPresenceEnabled &&
-        _isActiveState(_currentMachineState) &&
+        _currentMachineState != newState &&
         (newState == MachineState.idle || newState == MachineState.schedIdle)) {
-      _log.info(
-        'Activity ($_currentMachineState) ended, restarting sleep timer',
-      );
+      if (_isActiveState(_currentMachineState)) {
+        _log.info(
+          'Activity ($_currentMachineState) ended, restarting sleep timer',
+        );
+      } else {
+        _log.info('Machine entered $newState, restarting sleep timer');
+      }
       _resetSleepTimer();
+    }
+
+    if (newState == MachineState.sleeping) {
+      _sleepTimer?.cancel();
+      _sleepTimer = null;
     }
 
     _currentMachineState = newState;
@@ -286,6 +296,8 @@ class PresenceController {
     if (state != null && _canSleepFromState(state)) {
       _log.info('Sleep timeout fired, putting machine to sleep');
       unawaited(_requestSleep());
+    } else if (state != MachineState.sleeping) {
+      _resetSleepTimer();
     }
   }
 
@@ -293,15 +305,25 @@ class PresenceController {
     final de1 = _de1;
     final activityGeneration = _activityGeneration;
     try {
-      await _de1Controller.requestMachineStateIf(MachineState.sleeping, () {
-        final state = _currentMachineState;
-        return identical(de1, _de1) &&
-            activityGeneration == _activityGeneration &&
-            _settingsController.userPresenceEnabled &&
-            state != null &&
-            _canSleepFromState(state) &&
-            _activeKeepAwakeOccurrence == null;
-      });
+      final requested = await _de1Controller.requestMachineStateIf(
+        MachineState.sleeping,
+        () {
+          final state = _currentMachineState;
+          return identical(de1, _de1) &&
+              activityGeneration == _activityGeneration &&
+              _settingsController.userPresenceEnabled &&
+              state != null &&
+              _canSleepFromState(state) &&
+              _activeKeepAwakeOccurrence == null;
+        },
+      );
+      if (!requested &&
+          _currentMachineState != MachineState.sleeping &&
+          identical(de1, _de1) &&
+          _settingsController.userPresenceEnabled &&
+          _settingsController.sleepTimeoutMinutes > 0) {
+        _resetSleepTimer();
+      }
     } catch (e, st) {
       _log.warning('Failed to request sleep', e, st);
       final state = _currentMachineState;

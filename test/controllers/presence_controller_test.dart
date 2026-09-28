@@ -349,6 +349,188 @@ void main() {
   });
 
   group('sleep timeout', () {
+    test('waking into schedIdle arms automatic sleep', () {
+      fakeAsync((async) {
+        settingsController.setSleepTimeoutMinutes(5);
+        async.flushMicrotasks();
+        testDe1.emitState(MachineState.sleeping);
+        final controller = PresenceController(
+          de1Controller: de1Controller,
+          settingsController: settingsController,
+          clock: () => clock.now(),
+        );
+        controller.initialize();
+        de1Controller.setDe1(testDe1);
+        async.flushMicrotasks();
+
+        testDe1.emitState(MachineState.schedIdle);
+        async.flushMicrotasks();
+        async.elapse(const Duration(minutes: 2));
+        testDe1.emitState(MachineState.schedIdle);
+        async.elapse(const Duration(minutes: 2));
+        testDe1.emitState(MachineState.schedIdle);
+        async.elapse(const Duration(seconds: 59));
+        expect(testDe1.requestedStates, isEmpty);
+        async.elapse(const Duration(seconds: 2));
+
+        expect(testDe1.requestedStates, contains(MachineState.sleeping));
+        controller.dispose();
+      });
+    });
+
+    test('non-sleepable timeout re-arms with the full timeout', () {
+      fakeAsync((async) {
+        settingsController.setSleepTimeoutMinutes(5);
+        async.flushMicrotasks();
+        final controller = PresenceController(
+          de1Controller: de1Controller,
+          settingsController: settingsController,
+          clock: () => clock.now(),
+        );
+        controller.initialize();
+        de1Controller.setDe1(testDe1);
+        async.flushMicrotasks();
+        testDe1.emitState(MachineState.needsWater);
+        async.flushMicrotasks();
+
+        async.elapse(const Duration(minutes: 5, seconds: 1));
+        expect(testDe1.requestedStates, isEmpty);
+
+        testDe1.fwBuild = '1357';
+        async.elapse(const Duration(minutes: 4, seconds: 58));
+        expect(
+          testDe1.requestedStates,
+          isEmpty,
+          reason: 'Retry must wait the full configured timeout',
+        );
+        async.elapse(const Duration(seconds: 3));
+        expect(testDe1.requestedStates, contains(MachineState.sleeping));
+        controller.dispose();
+      });
+    });
+
+    test('declined guarded sleep request re-arms the timer', () {
+      fakeAsync((async) {
+        settingsController.setSleepTimeoutMinutes(5);
+        async.flushMicrotasks();
+        final controller = PresenceController(
+          de1Controller: de1Controller,
+          settingsController: settingsController,
+          clock: () => clock.now(),
+        );
+        controller.initialize();
+        de1Controller.setDe1(testDe1);
+        async.flushMicrotasks();
+        controller.heartbeat();
+        async.flushMicrotasks();
+        de1Controller.stateRequestEntered = Completer<void>();
+        de1Controller.stateRequestRelease = Completer<void>();
+
+        async.elapse(const Duration(minutes: 5, seconds: 1));
+        async.flushMicrotasks();
+        expect(de1Controller.stateRequestEntered!.isCompleted, isTrue);
+
+        testDe1.emitState(MachineState.needsWater);
+        async.flushMicrotasks();
+        de1Controller.stateRequestRelease!.complete();
+        async.flushMicrotasks();
+        de1Controller.stateRequestEntered = null;
+        de1Controller.stateRequestRelease = null;
+        testDe1.fwBuild = '1357';
+        async.elapse(const Duration(minutes: 5, seconds: 1));
+
+        expect(testDe1.requestedStates, contains(MachineState.sleeping));
+        controller.dispose();
+      });
+    });
+
+    test('successful automatic sleep does not re-arm', () {
+      fakeAsync((async) {
+        settingsController.setSleepTimeoutMinutes(5);
+        async.flushMicrotasks();
+        final controller = PresenceController(
+          de1Controller: de1Controller,
+          settingsController: settingsController,
+          clock: () => clock.now(),
+        );
+        controller.initialize();
+        de1Controller.setDe1(testDe1);
+        async.flushMicrotasks();
+
+        async.elapse(const Duration(minutes: 5, seconds: 1));
+        expect(testDe1.requestedStates, [MachineState.sleeping]);
+        expect(
+          async.nonPeriodicTimerCount,
+          0,
+          reason: 'Successful sleep must not leave a timer armed',
+        );
+        async.elapse(const Duration(hours: 1));
+        expect(testDe1.requestedStates, [MachineState.sleeping]);
+        controller.dispose();
+      });
+    });
+
+    test('manual sleep cancels the armed idle timer', () {
+      fakeAsync((async) {
+        settingsController.setSleepTimeoutMinutes(5);
+        async.flushMicrotasks();
+        final controller = PresenceController(
+          de1Controller: de1Controller,
+          settingsController: settingsController,
+          clock: () => clock.now(),
+        );
+        controller.initialize();
+        de1Controller.setDe1(testDe1);
+        async.flushMicrotasks();
+
+        testDe1.emitState(MachineState.sleeping);
+        async.flushMicrotasks();
+
+        expect(
+          async.nonPeriodicTimerCount,
+          0,
+          reason: 'Sleeping must cancel the idle sleep timer',
+        );
+        async.elapse(const Duration(hours: 1));
+        expect(testDe1.requestedStates, isEmpty);
+        controller.dispose();
+      });
+    });
+
+    test('disposed controller does not re-arm after a declined request', () {
+      fakeAsync((async) {
+        settingsController.setSleepTimeoutMinutes(5);
+        async.flushMicrotasks();
+        final controller = PresenceController(
+          de1Controller: de1Controller,
+          settingsController: settingsController,
+          clock: () => clock.now(),
+        );
+        controller.initialize();
+        de1Controller.setDe1(testDe1);
+        async.flushMicrotasks();
+        controller.heartbeat();
+        async.flushMicrotasks();
+        de1Controller.stateRequestEntered = Completer<void>();
+        de1Controller.stateRequestRelease = Completer<void>();
+
+        async.elapse(const Duration(minutes: 5, seconds: 1));
+        async.flushMicrotasks();
+        expect(de1Controller.stateRequestEntered!.isCompleted, isTrue);
+
+        controller.dispose();
+        de1Controller.stateRequestRelease!.complete();
+        async.flushMicrotasks();
+
+        expect(testDe1.requestedStates, isEmpty);
+        expect(
+          async.nonPeriodicTimerCount,
+          0,
+          reason: 'A disposed controller must not re-arm the sleep timer',
+        );
+      });
+    });
+
     test('heartbeat cancels an admitted sleep request', () {
       fakeAsync((async) {
         settingsController.setSleepTimeoutMinutes(5);
