@@ -8,14 +8,17 @@ import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/de1_state_manager.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
+import 'package:reaprime/src/controllers/remembered_devices_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/impl/decent_scale/scale.dart';
 import 'package:reaprime/src/models/device/machine.dart';
+import 'package:reaprime/src/models/device/remembered_device.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
+import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/services/storage/storage_service.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/settings/scale_power_mode.dart';
@@ -35,9 +38,17 @@ class _SpyConnectionManager extends ConnectionManager {
     required super.de1Controller,
     required super.scaleController,
     required super.settingsController,
+    super.rememberedDevices,
   });
 
   int scaleSleepMarks = 0;
+  int scaleOnlyConnects = 0;
+
+  @override
+  Future<void> connect({bool scaleOnly = false}) {
+    if (scaleOnly) scaleOnlyConnects++;
+    return super.connect(scaleOnly: scaleOnly);
+  }
 
   @override
   void markScaleSleeping(String deviceId) {
@@ -173,6 +184,8 @@ void main() {
   late ScaleController scaleController;
   late MockDeviceScanner mockScanner;
   late SettingsController settingsController;
+  late RememberedDevicesController rememberedDevices;
+  late StreamController<RememberedDevice?> scaleConnections;
   late _SpyConnectionManager connectionManager;
   late De1StateManager manager;
 
@@ -193,12 +206,20 @@ void main() {
     final settingsService = MockSettingsService();
     settingsController = SettingsController(settingsService);
     await settingsController.loadSettings();
+    scaleConnections = StreamController<RememberedDevice?>.broadcast();
+    rememberedDevices = RememberedDevicesController(
+      machineConnections: const Stream.empty(),
+      scaleConnections: scaleConnections.stream,
+      settings: settingsService,
+    );
+    await rememberedDevices.initialize();
 
     connectionManager = _SpyConnectionManager(
       deviceScanner: mockScanner,
       de1Controller: de1Controller,
       scaleController: scaleController,
       settingsController: settingsController,
+      rememberedDevices: rememberedDevices,
     );
 
     manager = De1StateManager(
@@ -218,6 +239,8 @@ void main() {
   tearDown(() async {
     manager.dispose();
     await connectionManager.dispose();
+    await rememberedDevices.dispose();
+    await scaleConnections.close();
     await testDe1.dispose();
     mockScanner.dispose();
   });
@@ -331,6 +354,38 @@ void main() {
       reason: 'the watch (not the burst) must be handling reacquisition',
     );
   });
+
+  for (final transport in [TransportType.serial, TransportType.wifi]) {
+    test(
+      'wake with remembered ${transport.name} scale runs a scale-only burst',
+      () async {
+        mockScanner.supportsWatch = true;
+        connectionManager.scaleReconnectBaseDelay = const Duration(minutes: 5);
+        await settingsController.setPreferredScaleId('pref-scale');
+        scaleConnections.add(
+          RememberedDevice(
+            id: 'pref-scale',
+            name: 'Preferred scale',
+            type: DeviceType.scale,
+            transportType: transport,
+          ),
+        );
+        await pump();
+        expect(rememberedDevices.remembered.single.transportType, transport);
+        de1Controller.connect(testDe1);
+        await pump();
+        final scansBeforeWake = mockScanner.scanCallCount;
+        final connectsBeforeWake = connectionManager.scaleOnlyConnects;
+
+        await wakeMachine();
+
+        expect(connectionManager.supportsBackgroundScaleWatch, isFalse);
+        expect(connectionManager.scaleOnlyConnects, connectsBeforeWake + 1);
+        expect(mockScanner.scanCallCount, greaterThan(scansBeforeWake));
+        expect(mockScanner.startWatchCallCount, 0);
+      },
+    );
+  }
 
   test('wake with no preferred scale still runs the discovery burst', () async {
     mockScanner.supportsWatch = true;

@@ -3412,6 +3412,27 @@ void main() {
       });
 
       test(
+        'discovered serial preferred scale uses burst instead of watch',
+        () async {
+          connectionManager = buildWatchManager();
+          connectionManager.scaleReconnectBaseDelay = Duration.zero;
+          await settingsController.setPreferredScaleId(scaleId);
+          mockScanner.addDevice(
+            _TransportScale(
+              deviceId: scaleId,
+              transportType: TransportType.serial,
+            ),
+          );
+          mockDe1Controller.de1Subject.add(_FakeDe1(deviceId: 'connected-de1'));
+          await Future<void>.delayed(Duration.zero);
+          await Future<void>.delayed(Duration.zero);
+
+          expect(mockScanner.startWatchCallCount, 0);
+          expect(mockScanner.scanCallCount, 1);
+        },
+      );
+
+      test(
         'WiFi preferred scale uses burst reacquisition instead of watch',
         () async {
           connectionManager = buildWatchManager();
