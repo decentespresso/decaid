@@ -92,7 +92,7 @@ class AndroidUpdater {
 
       if (response.statusCode != 200) {
         var message = 'Failed to fetch releases: HTTP ${response.statusCode}';
-        if (response.statusCode == 403) {
+        if (response.statusCode == 403 || response.statusCode == 429) {
           final remaining = response.headers['x-ratelimit-remaining'];
           final body = response.body
               .substring(
@@ -119,16 +119,16 @@ class AndroidUpdater {
             if (body.isNotEmpty) {
               final suffix = response.body.length > 200 ? '…' : '';
               message =
-                  'GitHub rejected releases request (HTTP 403): $body$suffix '
+                  'GitHub rejected releases request (HTTP ${response.statusCode}): $body$suffix '
                   '($quotaContext)';
             } else {
               message =
-                  'GitHub rejected releases request (HTTP 403; $quotaContext)';
+                  'GitHub rejected releases request (HTTP ${response.statusCode}; $quotaContext)';
             }
           } else if (body.isNotEmpty) {
             final suffix = response.body.length > 200 ? '…' : '';
             message =
-                'GitHub rejected releases request (HTTP 403): $body$suffix';
+                'GitHub rejected releases request (HTTP ${response.statusCode}): $body$suffix';
           }
         }
         throw UpdateCheckException(message);

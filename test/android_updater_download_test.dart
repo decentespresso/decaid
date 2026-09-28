@@ -178,6 +178,42 @@ void main() {
     );
 
     test(
+      'explains a rate-limited 429 with bounded reset diagnostics',
+      () async {
+        final updater = AndroidUpdater(
+          owner: 'tadelv',
+          repo: 'reaprime',
+          httpClient: MockClient(
+            (_) async => http.Response(
+              'API rate limit exceeded ${List.filled(5000, 'x').join()}',
+              429,
+              headers: {
+                'x-ratelimit-remaining': '0',
+                'x-ratelimit-reset': '2000000000',
+              },
+            ),
+          ),
+        );
+
+        await expectLater(
+          updater.checkForUpdate('0.7.14'),
+          throwsA(
+            isA<UpdateCheckException>().having(
+              (e) => e.message,
+              'message',
+              allOf(
+                contains('HTTP 429'),
+                contains('rate limit remaining: 0'),
+                contains('2033-05-18'),
+                predicate<String>((message) => message.length < 500),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
       'keeps 403 response details when quota headers conflict with the body',
       () async {
         final body =
