@@ -10,6 +10,20 @@ PluginDriverDeclaration driver(String id, Map<String, dynamic> match) =>
     });
 
 void main() {
+  test('active binding capacity is bounded by the plugin device quota', () {
+    expect(
+      PluginBleRegistry().activeBindingLimit,
+      PluginBleRegistry.maxActiveBindingLimit,
+    );
+    expect(() => PluginBleRegistry(activeBindingLimit: 0), throwsArgumentError);
+    expect(
+      () => PluginBleRegistry(
+        activeBindingLimit: PluginBleRegistry.maxActiveBindingLimit + 1,
+      ),
+      throwsArgumentError,
+    );
+  });
+
   test('name completeness reaches ownership decisions', () {
     final registry = PluginBleRegistry();
     addTearDown(registry.dispose);

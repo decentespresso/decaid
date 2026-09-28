@@ -12,6 +12,82 @@ import 'plugin_test_helpers.dart';
 
 void main() {
   test(
+    'two identical physical scales keep independent sessions and commands',
+    () async {
+      final manager = PluginManager(kvStore: FakeKeyValueStoreService());
+      addTearDown(manager.dispose);
+      await loadFelicitaPlugin(manager);
+      final evidence = BleAdvertisementEvidence(name: 'Felicita Arc');
+      final transports = <FelicitaPluginTransport>[];
+
+      Future<Scale> create(String id, double weight) async {
+        final transport = FelicitaPluginTransport(
+          id,
+          firstPacket: felicitaPacket(weight),
+        );
+        transports.add(transport);
+        return await manager.bleService.createCandidate(
+              driver: manager.bleService.registry
+                  .decide(evidence)
+                  .drivers
+                  .single,
+              physicalId: id,
+              evidence: evidence,
+              admit: () => true,
+              createTransport: () => transport,
+            )
+            as Scale;
+      }
+
+      final first = await create('AA:BB', 1);
+      final second = await create('CC:DD', 2);
+      final firstSamples = <ScaleSnapshot>[];
+      final secondSamples = <ScaleSnapshot>[];
+      final firstSubscription = first.currentSnapshot.listen(firstSamples.add);
+      final secondSubscription = second.currentSnapshot.listen(
+        secondSamples.add,
+      );
+      addTearDown(firstSubscription.cancel);
+      addTearDown(secondSubscription.cancel);
+
+      final firstConnect = first.onConnect();
+      final secondConnect = second.onConnect();
+      await Future.wait([firstConnect, secondConnect]);
+      (first as ScaleSnapshotHandoff).activateSnapshots();
+      (second as ScaleSnapshotHandoff).activateSnapshots();
+      await pumpEventQueue();
+      expect(firstSamples.single.weight, 1);
+      expect(secondSamples.single.weight, 2);
+      expect(first.deviceId, isNot(second.deviceId));
+      expect(manager.bleService.registry.activeBindingCount, 2);
+
+      final firstCallback =
+          transports[0].subscribers[felicitaCharacteristicUuid]!;
+      final secondCallback =
+          transports[1].subscribers[felicitaCharacteristicUuid]!;
+      await first.tare();
+      await second.tare();
+      await first.disconnect();
+      expect(manager.bleService.registry.activeBindingCount, 1);
+      expect(await second.connectionState.first, ConnectionState.connected);
+
+      firstCallback(Uint8List.fromList(felicitaPacket(99)));
+      secondCallback(Uint8List.fromList(felicitaPacket(23)));
+      await pumpEventQueue();
+      expect(firstSamples.map((sample) => sample.weight), isNot(contains(99)));
+      expect(secondSamples.map((sample) => sample.weight), contains(23));
+      await second.tare();
+      expect(transports[0].writes.map((write) => write.data.single), [0x54]);
+      expect(transports[1].writes.map((write) => write.data.single), [
+        0x54,
+        0x54,
+      ]);
+      await second.disconnect();
+      expect(manager.bleService.registry.activeBindingCount, 0);
+    },
+  );
+
+  test(
     'Felicita JS waits for a valid first packet and maps native protocol',
     () async {
       final manager = PluginManager(kvStore: FakeKeyValueStoreService());

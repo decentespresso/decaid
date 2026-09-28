@@ -95,6 +95,8 @@ channels:
     parameters:
       id:
         description: Opaque connected scale device id.
+        schema:
+          type: string
     messages:
       scaleSnapshotMessage:
         $ref: '#/components/messages/AddressedScaleSnapshot'
