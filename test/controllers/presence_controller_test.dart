@@ -62,6 +62,7 @@ class _TestDe1 implements De1Interface {
 
   int sendUserPresentCount = 0;
   final List<MachineState> requestedStates = [];
+  bool emitStateOnRequest = true;
 
   void emitState(MachineState state) {
     final current = _snapshotSubject.value;
@@ -86,7 +87,7 @@ class _TestDe1 implements De1Interface {
   @override
   Future<void> requestState(MachineState newState) async {
     requestedStates.add(newState);
-    emitState(newState);
+    if (emitStateOnRequest) emitState(newState);
   }
 
   @override
@@ -466,6 +467,43 @@ void main() {
         );
         async.elapse(const Duration(hours: 1));
         expect(testDe1.requestedStates, [MachineState.sleeping]);
+        controller.dispose();
+      });
+    });
+
+    test('accepted sleep request without a sleeping snapshot re-arms', () {
+      fakeAsync((async) {
+        settingsController.setSleepTimeoutMinutes(5);
+        async.flushMicrotasks();
+        final controller = PresenceController(
+          de1Controller: de1Controller,
+          settingsController: settingsController,
+          clock: () => clock.now(),
+        );
+        controller.initialize();
+        de1Controller.setDe1(testDe1);
+        async.flushMicrotasks();
+        testDe1.emitStateOnRequest = false;
+
+        async.elapse(const Duration(minutes: 5, seconds: 1));
+        expect(testDe1.requestedStates, [MachineState.sleeping]);
+
+        async.elapse(const Duration(minutes: 4, seconds: 58));
+        expect(testDe1.requestedStates, [MachineState.sleeping]);
+        async.elapse(const Duration(seconds: 3));
+        expect(testDe1.requestedStates, [
+          MachineState.sleeping,
+          MachineState.sleeping,
+        ]);
+
+        testDe1.emitStateOnRequest = true;
+        testDe1.emitState(MachineState.sleeping);
+        async.flushMicrotasks();
+        async.elapse(const Duration(hours: 1));
+        expect(testDe1.requestedStates, [
+          MachineState.sleeping,
+          MachineState.sleeping,
+        ]);
         controller.dispose();
       });
     });

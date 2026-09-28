@@ -305,20 +305,16 @@ class PresenceController {
     final de1 = _de1;
     final activityGeneration = _activityGeneration;
     try {
-      final requested = await _de1Controller.requestMachineStateIf(
-        MachineState.sleeping,
-        () {
-          final state = _currentMachineState;
-          return identical(de1, _de1) &&
-              activityGeneration == _activityGeneration &&
-              _settingsController.userPresenceEnabled &&
-              state != null &&
-              _canSleepFromState(state) &&
-              _activeKeepAwakeOccurrence == null;
-        },
-      );
-      if (!requested &&
-          _currentMachineState != MachineState.sleeping &&
+      await _de1Controller.requestMachineStateIf(MachineState.sleeping, () {
+        final state = _currentMachineState;
+        return identical(de1, _de1) &&
+            activityGeneration == _activityGeneration &&
+            _settingsController.userPresenceEnabled &&
+            state != null &&
+            _canSleepFromState(state) &&
+            _activeKeepAwakeOccurrence == null;
+      });
+      if (_currentMachineState != MachineState.sleeping &&
           identical(de1, _de1) &&
           _settingsController.userPresenceEnabled &&
           _settingsController.sleepTimeoutMinutes > 0) {
