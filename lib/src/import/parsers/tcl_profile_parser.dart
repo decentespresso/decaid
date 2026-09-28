@@ -2,10 +2,6 @@ import 'package:reaprime/src/import/parsers/tcl_parser.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/data/profile_record.dart';
 
-/// de1app's stored `advanced_shot` for these profile types is a snapshot of
-/// whatever frames the pressure/flow UI last generated, not an authoritative
-/// source -- decaid does not reimplement that generator. Mirrors the same
-/// restriction as `tools/ingest_profiles.py`.
 class UnsupportedProfileTypeException implements Exception {
   final String profileType;
   const UnsupportedProfileTypeException(this.profileType);
@@ -15,10 +11,6 @@ class UnsupportedProfileTypeException implements Exception {
       'Profile type $profileType is not supported for TCL import';
 }
 
-/// de1app maps these to `pourover`/`cleaning` (see `tools/ingest_profiles.py`
-/// and its own `BEVERAGE_TYPE_MAP`); anything left over after that mapping
-/// that still isn't one of [BeverageType]'s names is rejected rather than
-/// silently defaulted to espresso by `Profile.fromJson`.
 class UnsupportedBeverageTypeException implements Exception {
   final String beverageType;
   const UnsupportedBeverageTypeException(this.beverageType);
@@ -28,9 +20,6 @@ class UnsupportedBeverageTypeException implements Exception {
       'Beverage type $beverageType is not supported for TCL import';
 }
 
-/// `_parseFrame` rejected a frame in `advanced_shot` (too few tokens, or an
-/// odd trailing key with no value). Importing the profile anyway would
-/// silently drop or truncate a step, so the whole profile is rejected.
 class MalformedProfileFrameException implements Exception {
   const MalformedProfileFrameException();
 
@@ -41,9 +30,6 @@ class MalformedProfileFrameException implements Exception {
 class TclProfileParser {
   TclProfileParser._();
 
-  // de1app's own `fix_profile_type` (de1plus/profile.tcl) normalizes these
-  // historical aliases before deciding what a profile type means; decaid
-  // only understands the resulting "settings_2c" (advanced) shape.
   static const _profileTypeAliases = {
     'settings_2': 'settings_2a',
     'settings_profile_pressure': 'settings_2a',
@@ -107,11 +93,6 @@ class TclProfileParser {
     return s.isEmpty ? null : s;
   }
 
-  // TclParser's braced-value heuristics can't always tell a flat text value
-  // (e.g. a four-word `profile_title`) apart from an even-length key/value
-  // list, and returns a Map (or, for all-numeric tokens, a List) instead of
-  // a String. Text fields here are never actually structured, so flattening
-  // back to the original space-joined words recovers the real value.
   static String _flatten(dynamic value) {
     if (value is Map) {
       return value.entries
@@ -124,19 +105,6 @@ class TclProfileParser {
     return value.toString();
   }
 
-  // `advanced_shot`'s value is `{frame1} {frame2} ...`; each frame is itself
-  // `key value key value ...` with `{...}`-grouped values. Both levels are
-  // the same space-separated/brace-grouped shape `TclParser.splitList`
-  // already tokenises, so splitting frames and splitting a frame's own
-  // fields are the same call one level apart.
-  //
-  // When there's exactly one frame, TclParser.parse's generic value
-  // collapsing already strips that frame's own wrapping braces (there's
-  // nothing left to disambiguate it from a plain string), leaving just the
-  // frame's flat key/value text with no leading `{`. A multi-frame value
-  // keeps its per-frame braces (`{frame1} {frame2}`) because collapsing
-  // isn't applied to more than one token. That leading `{` is therefore the
-  // only signal for whether another round of splitting is needed.
   static List<Map<String, dynamic>> _parseSteps(String raw) {
     final trimmed = raw.trim();
     if (trimmed.isEmpty) return [];

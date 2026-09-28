@@ -107,8 +107,6 @@ void main() {
           '${tempDir.path}/history_v2/20240315T143022.json',
         ).writeAsString('{}');
         await Directory('${tempDir.path}/history').create();
-        // Pre-dual-write era shot: only exists as legacy .shot, never
-        // mirrored into history_v2/.
         await File(
           '${tempDir.path}/history/20200101T000000.shot',
         ).writeAsString('');

@@ -59,11 +59,6 @@ void main() {
     });
 
     group('advanced_shot with a single frame', () {
-      // TclParser.parse's generic value-collapsing strips the single
-      // frame's own wrapping braces (nothing to disambiguate it from a
-      // plain string), so the profile parser has to recognize that its
-      // whole `advanced_shot` value is already one frame instead of
-      // re-splitting it into several bogus ones.
       const content = '''
 advanced_shot {{name {Single shot} pump pressure pressure 9 transition fast temperature 90 sensor coffee seconds 5 volume 0 weight 0}}
 author Test Author

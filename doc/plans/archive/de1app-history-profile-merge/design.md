@@ -52,6 +52,60 @@ fall back to the legacy file for that basename alone.
   `advanced_shot`'s frame list and each frame's own `key value` pairs --
   both are the same space-separated/brace-grouped shape one level apart.
 
+## Second review round: TclProfileParser correctness fixes
+
+`TclParser.parse`'s generic braced-value heuristics (map vs. list vs. plain
+string) are ambiguous in ways that only show up on inputs the three-frame
+fixture didn't exercise:
+
+- **Single-frame `advanced_shot` loses its frame boundary.** When
+  `advanced_shot`'s list has more than one frame, `TclParser.parse` can't
+  collapse the value (its "all one bracketed token" shortcut doesn't apply),
+  so it returns the frames still individually braced:
+  `{frame1} {frame2}`. With exactly one frame, that shortcut *does* apply and
+  the parser strips the frame's own wrapping braces, leaving just its flat
+  `key value key value ...` text indistinguishable from a plain string.
+  `TclProfileParser._parseSteps` re-splitting that text as if it still had
+  per-frame braces produced an unnamed 0-bar step instead of the real one.
+  Fix: a leading `{` is the only signal that more splitting is needed: its
+  absence means the whole string is already one frame.
+- **A four-plus-word `profile_title`/`profile_notes` reads as a map.** The
+  same heuristic treats an even-length run of plain tokens as key/value
+  pairs (used correctly for `advanced_shot` frames' own fields), so `{My
+  Best Coffee Shot}` parsed to `{"My": "Best", "Coffee": "Shot"}` instead of
+  the string. Fix: `_flatten` reconstructs the original space-joined text
+  from whatever shape `TclParser.parse` returned, since these text fields
+  are never actually structured.
+- **A malformed frame (too few tokens, or an odd trailing key) was silently
+  dropped** via `whereType` filtering, importing a shorter, truncated
+  recipe with no error. Fix: reject the whole profile instead
+  (`MalformedProfileFrameException`).
+- **`settings_profile_type` didn't recognize de1app's pre-alias names.**
+  de1app's own `fix_profile_type` (`de1plus/profile.tcl`) normalizes
+  `settings_2`/`settings_profile_pressure` to `settings_2a`,
+  `settings_profile_flow` to `settings_2b`, and
+  `settings_profile_advanced`/`settings_2c2` to `settings_2c` before
+  deciding what a profile type means. `TclProfileParser` only rejected the
+  post-normalization `settings_2a`/`settings_2b` strings, so the raw aliases
+  (and any other unrecognized type) passed straight through as if
+  `settings_2c`. Fix: apply the same normalization, then accept only
+  `settings_2c` and reject everything else.
+- **`beverage_type` defaulted unrecognized values to espresso.**
+  `Profile.fromJson`'s `_parseBeverageType` silently falls back to
+  `BeverageType.espresso` for anything that isn't one of its enum names,
+  which is correct general model behavior but wrong for import: de1app's
+  `tea`/`filter`/`tea_portafilter`/`descale` values (mapped by
+  `tools/ingest_profiles.py`'s `BEVERAGE_TYPE_MAP` to
+  `pourover`/`cleaning`) would otherwise silently become espresso. Fix:
+  apply the same mapping in `TclProfileParser` before building the profile
+  JSON, and reject anything still unrecognized
+  (`UnsupportedBeverageTypeException`) instead of reaching that fallback.
+
+See `test/import/tcl_profile_parser_test.dart` for the regression covering
+each case, and `doc/Profiles.md`'s "de1app Legacy `.tcl` Profile Import"
+section for the resulting supported/unsupported type and beverage-type
+tables.
+
 ## Verification
 
 - `test/fixtures/de1app/history/20231108T091544.shot` and

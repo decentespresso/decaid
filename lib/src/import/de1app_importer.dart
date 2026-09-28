@@ -455,11 +455,6 @@ class _MergedFile {
   const _MergedFile(this.file, {required this.isPreferred});
 }
 
-/// Merges two directories keyed by basename (filename without extension),
-/// e.g. `history_v2/<ts>.json` and `history/<ts>.shot`. de1app dual-writes
-/// shots and profiles under matching basenames in both a legacy and a v2
-/// format; a file only present in [fallback] predates (or was never
-/// re-saved since) that dual-write, so it must still be imported.
 Future<Map<String, _MergedFile>> _mergedFiles({
   required Directory preferred,
   required String preferredExtension,

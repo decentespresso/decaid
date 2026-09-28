@@ -620,6 +620,51 @@ physical upload.
 - See `doc/plans/archive/profile-upload-recovery/design.md` for the full
   design rationale.
 
+### de1app Legacy `.tcl` Profile Import
+
+de1app dual-writes every profile save to both `profiles/*.tcl` (legacy) and
+`profiles_v2/*.json`. The de1app import (`De1appImporter`,
+`lib/src/import/de1app_importer.dart`) prefers the v2 file for a given
+basename and falls back to `TclProfileParser`
+(`lib/src/import/parsers/tcl_profile_parser.dart`) only for profiles that
+predate a user's dual-write era and exist solely as legacy `.tcl`. See
+`doc/plans/archive/de1app-history-profile-merge/design.md` for the full
+root-cause writeup.
+
+**Supported profile type:** only `settings_profile_type settings_2c`
+("advanced", frame-based) profiles import. de1app's own `fix_profile_type`
+normalization is applied first, so these are also accepted as aliases of
+`settings_2c`:
+
+| Legacy/pre-alias value | Normalizes to |
+|---|---|
+| `settings_profile_advanced` | `settings_2c` |
+| `settings_2c2` | `settings_2c` |
+
+**Rejected profile types** (`UnsupportedProfileTypeException`): `settings_2a`
+(basic pressure) and `settings_2b` (basic flow), including their pre-alias
+names `settings_2`/`settings_profile_pressure` (→ `settings_2a`) and
+`settings_profile_flow` (→ `settings_2b`), plus any value that isn't one of
+the above. de1app's stored `advanced_shot` for basic pressure/flow profiles
+is a snapshot of whatever the pressure/flow UI last generated, not an
+authoritative source; decaid does not reimplement that generator. This
+mirrors `tools/ingest_profiles.py`'s existing `settings_2a`/`settings_2b`
+rejection (see `doc/AI_STORAGE_NOTES.md`'s "Legacy Profile Corpus Ingestion"
+section).
+
+**Beverage type mapping:** de1app's `tea`, `filter`, and `tea_portafilter`
+map to `pourover`; `descale` maps to `cleaning` (matching
+`tools/ingest_profiles.py`'s `BEVERAGE_TYPE_MAP`). Any other value that
+isn't already a valid `BeverageType` name is rejected
+(`UnsupportedBeverageTypeException`) rather than silently defaulting to
+`espresso`.
+
+**Malformed `advanced_shot` frames** (too few tokens, or an odd trailing key
+with no value) reject the whole profile (`MalformedProfileFrameException`)
+rather than silently importing a shorter or truncated recipe. All three
+exceptions surface as a per-file `ImportError` from `De1appImporter.import`,
+so one bad profile doesn't abort the rest of the import.
+
 ### Future Enhancements
 
 - **Cloud Sync**:

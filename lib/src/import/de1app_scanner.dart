@@ -36,8 +36,6 @@ class De1appScanner {
     );
   }
 
-  /// Filenames (without extension) in [dir] ending in [extension], or an
-  /// empty set if [dir] doesn't exist.
   static Future<Set<String>> _basenames(Directory dir, String extension) async {
     if (!await dir.exists()) return {};
     final names = <String>{};

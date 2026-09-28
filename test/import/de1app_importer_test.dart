@@ -369,8 +369,6 @@ void main() {
       late ImportResult result;
 
       setUpAll(() async {
-        // Only the v2 shot (clock 1710510622) already exists; the legacy
-        // shot (clock 1699432544) is new.
         storage = FakeStorageService(existingIds: ['de1app-1710510622']);
         final scanResult = ScanResult(
           shotCount: 2,
