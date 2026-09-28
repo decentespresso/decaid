@@ -220,8 +220,34 @@ void main() {
       }
       ''';
 
-      expect(() => importer.importShotJson(invalidJson), throwsA(anything));
+      expect(
+        () => importer.importShotJson(invalidJson),
+        throwsA(isA<FormatException>()),
+      );
     });
+
+    test(
+      'should name the missing fields and point to "Import from Decent app" for a DE1 app history_v2 shot (keyed by clock, no id)',
+      () async {
+        const de1HistoryV2Shot = '''
+        {
+          "clock": 1700000000,
+          "espresso_data": {}
+        }
+        ''';
+
+        expect(
+          () => importer.importShotJson(de1HistoryV2Shot),
+          throwsA(
+            isA<FormatException>().having(
+              (e) => e.message,
+              'message',
+              contains('Import from Decent app'),
+            ),
+          ),
+        );
+      },
+    );
   });
 
   group('ShotImporter - Multiple Shots Import', () {
