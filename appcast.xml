@@ -6,6 +6,23 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Decaid</title>
         <item>
+            <title>0.8.7</title>
+            <pubDate>Mon, 28 Sep 2026 05:13:59 +0000</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>2836</sparkle:version>
+            <sparkle:shortVersionString>0.8.7</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* feat(startup): restyle failure screens and add database recovery actions by @tadelv in https://github.com/decentespresso/decaid/pull/893
+* fix(import): correct DYE grinder specs and enjoyment scale by @allofmeng in https://github.com/decentespresso/decaid/pull/887
+
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.8.7-beta.1...v0.8.7-beta.2
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.8.7-beta.2/decaid-macos-0.8.7-beta.2.zip" length="64753879" type="application/octet-stream" sparkle:edSignature="+MovR27Wt3HNiXP9BATgU/ytTmC+5H2az0GI8LGzvU2EHfGxI1ebCmB93Wo79QnHTex2Bw+P0S/4c8Qdf5zdCg=="/>
+        </item>
+        <item>
             <title>0.8.6</title>
             <pubDate>Wed, 16 Sep 2026 06:44:32 +0000</pubDate>
             <sparkle:version>2801</sparkle:version>
@@ -450,6 +467,6 @@ See `doc/RELEASE.md` for install and verification instructions.
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: qlgW8v6RWlDJzV5tbDdUskmoPHoG7DrC+PUr8monbEf4zrYXzB7vEore4wQiC5Bo9RDNSZ713s0bkB1vPZhHDw==
-length: 39699
+edSignature: vr7dUck8Gkt9VCcOvszC2Y1zRwuorECRVimGDL7l2gM1Q4oE51TqmqpsCrx7pPT0wreiXt9UF+vTbgCfDDF/Aw==
+length: 40843
 -->
