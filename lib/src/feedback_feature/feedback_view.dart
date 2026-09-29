@@ -169,8 +169,8 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
         'You must be logged in to your Decent account to submit feedback. '
         'Sign in under Decent Account. '
         'Feedback will be submitted as a public GitHub issue. '
-        'Decent Support receives the issue link. When returned, a support '
-        'message reference associated with that account is added to the public issue.',
+        'Decent Support receives the issue link. '
+        'Only the support message ID, when available, is added to the public issue.',
       ),
       actions: _buildActions(context),
       child: _buildContent(context),

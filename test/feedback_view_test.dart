@@ -23,7 +23,9 @@ class _AccountService extends Fake implements DecentAccountService {
 }
 
 void main() {
-  testWidgets('discloses the public account-linked contact id', (tester) async {
+  testWidgets('discloses that only the support message ID is public', (
+    tester,
+  ) async {
     await tester.pumpWidget(
       ShadApp(
         home: Scaffold(
@@ -36,7 +38,7 @@ void main() {
       ),
     );
 
-    expect(find.textContaining('associated with that account'), findsOneWidget);
+    expect(find.textContaining('Only the support message ID'), findsOneWidget);
     expect(find.textContaining('added to the public issue'), findsOneWidget);
   });
 

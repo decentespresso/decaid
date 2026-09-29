@@ -610,9 +610,12 @@ to native feedback and the Settings plugin's HTTP submissions. Both UI entry
 points offer feedback only while logged in; otherwise they direct users to
 Decent Account. Submission always re-verifies credentials. Other submission
 failures remain `500`; an unconfigured HTTP feedback service remains `503`.
-After issue creation, Support linking is best-effort: a returned message reference
-is appended to the latest issue body. Legacy Support acknowledgement `1` is never
-published as a reference, and a Support outage does not undo the GitHub issue.
+After issue creation, Support linking is best-effort: only the returned
+`messageId` is appended to the latest issue body as `**Support message:**`.
+The separate Support `userId` stays internal and is never included in GitHub
+requests, logs, errors, or UI text. Temporary Support acknowledgement `1` means
+no message ID is available and skips the GitHub update. A Support outage does
+not undo the GitHub issue. No response-mode query parameter is sent.
 
 ### Debug (debug builds only)
 

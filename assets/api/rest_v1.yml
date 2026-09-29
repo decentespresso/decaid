@@ -5296,8 +5296,9 @@ paths:
         Requires an authenticated Decent account. Stored credentials are verified
         before any Gist upload, GitHub issue creation, or Support message.
         Missing, rejected, or unverifiable credentials return 400.
-        Support linking is best-effort after issue creation. A returned support
-        message reference associated with the account is added to the public issue.
+        Support linking is best-effort after issue creation. Only the support
+        message ID, when available, is added to the public issue. The Support
+        user ID is never published.
       tags: [System]
       requestBody:
         required: true

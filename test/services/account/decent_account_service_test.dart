@@ -1039,12 +1039,12 @@ void main() {
 
     group('sendSupportMessage', () {
       test(
-        'sends an authenticated request and returns the contact id',
+        'sends an authenticated request and separates user and message IDs',
         () async {
           late http.Request capturedRequest;
           final client = http_testing.MockClient((request) async {
             capturedRequest = request;
-            return http.Response('  123.456\n', 200);
+            return http.Response('{"userId":12345,"messageId":67890}', 200);
           });
           final supportService = DecentAccountService(
             httpClient: client,
@@ -1054,16 +1054,16 @@ void main() {
           await store.write(key: 'email', value: 'test@example.com');
           await store.write(key: 'password', value: 'cryptpw_abc123');
 
-          final contactId = await supportService.sendSupportMessage(
+          final receipt = await supportService.sendSupportMessage(
             subject: 'Decaid feedback #728 & details',
             body: 'https://github.com/decentespresso/decaid/issues/728?a=1&b=2',
           );
 
-          expect(contactId.reference, '123.456');
+          expect(receipt.userId, '12345');
+          expect(receipt.messageId, '67890');
           expect(capturedRequest.method, 'GET');
           expect(capturedRequest.url.path, '/support/api/email');
           expect(capturedRequest.url.queryParameters, {
-            'return_message_id': '1',
             'subject': 'Decaid feedback #728 & details',
             'body':
                 'https://github.com/decentespresso/decaid/issues/728?a=1&b=2',
@@ -1075,7 +1075,7 @@ void main() {
         },
       );
 
-      test('legacy acknowledgement succeeds without a reference', () async {
+      test('temporary acknowledgement succeeds without IDs', () async {
         await store.write(key: 'email', value: 'test@example.com');
         await store.write(key: 'password', value: 'cryptpw_abc123');
         final supportService = DecentAccountService(
@@ -1088,7 +1088,26 @@ void main() {
           body: 'body',
         );
 
-        expect(receipt.reference, isNull);
+        expect(receipt.userId, isNull);
+        expect(receipt.messageId, isNull);
+      });
+
+      test('accepts string IDs without combining them', () async {
+        await store.write(key: 'email', value: 'test@example.com');
+        await store.write(key: 'password', value: 'cryptpw_abc123');
+        final supportService = DecentAccountService(
+          httpClient: _mockClient(
+            statusCode: 200,
+            body: '{"userId":"private-user","messageId":"msg-67890"}',
+          ),
+          credentialStore: store,
+        );
+        final receipt = await supportService.sendSupportMessage(
+          subject: 'subject',
+          body: 'body',
+        );
+        expect(receipt.userId, 'private-user');
+        expect(receipt.messageId, 'msg-67890');
       });
 
       test('rejects failed and unsafe responses', () async {
@@ -1099,6 +1118,27 @@ void main() {
           (statusCode: 200, body: 'bad\ncontact'),
           (statusCode: 200, body: 'bad`contact'),
           (statusCode: 200, body: List.filled(257, 'x').join()),
+          (statusCode: 200, body: '12345.67890'),
+          (statusCode: 200, body: '{"userId":12345,'),
+          (statusCode: 200, body: '{"userId":12345}'),
+          (statusCode: 200, body: '{"userId":12345,"messageId":1}'),
+          (statusCode: 200, body: '{"userId":12345,"messageId":"1"}'),
+          (statusCode: 200, body: '{"userId":12345,"messageId":false}'),
+          (statusCode: 200, body: '{"userId":12345,"messageId":{}}'),
+          for (final messageId in [
+            '',
+            '0',
+            ' 1 ',
+            'bad\nmessage',
+            'bad`message',
+            'bad\rmessage',
+            'bad\u0000message',
+            List.filled(257, 'x').join(),
+          ])
+            (
+              statusCode: 200,
+              body: jsonEncode({'userId': 12345, 'messageId': messageId}),
+            ),
         ];
         await store.write(key: 'email', value: 'test@example.com');
         await store.write(key: 'password', value: 'cryptpw_abc123');
@@ -1115,7 +1155,13 @@ void main() {
 
           await expectLater(
             supportService.sendSupportMessage(subject: 'subject', body: 'body'),
-            throwsA(isA<Exception>()),
+            throwsA(
+              isA<Exception>().having(
+                (error) => error.toString(),
+                'does not disclose user ID',
+                isNot(contains('12345')),
+              ),
+            ),
           );
         }
       });

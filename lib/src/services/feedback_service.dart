@@ -381,14 +381,14 @@ class FeedbackService {
       body: issueUrl,
       abortTrigger: abort.future,
     );
-    final contactId = receipt.reference;
-    if (abort.isCompleted || contactId == null) return;
-    await _updateGitHubIssueBody(issueNumber, contactId, abort);
+    final messageId = receipt.messageId;
+    if (abort.isCompleted || messageId == null) return;
+    await _appendSupportMessageId(issueNumber, messageId, abort);
   }
 
-  Future<void> _updateGitHubIssueBody(
+  Future<void> _appendSupportMessageId(
     int issueNumber,
-    String contactId,
+    String messageId,
     Completer<void> abort,
   ) async {
     final uri = Uri.parse('$_githubApiBase/repos/$_repo/issues/$issueNumber');
@@ -420,7 +420,8 @@ class FeedbackService {
         http.AbortableRequest('PATCH', uri, abortTrigger: abort.future)
           ..headers.addAll(_authHeaders)
           ..body = jsonEncode({
-            'body': '$currentBody$separator---\n**Contact:** `$contactId`\n',
+            'body':
+                '$currentBody$separator---\n**Support message:** `$messageId`\n',
           });
     final response = await http.Response.fromStream(await request.send());
     if (response.statusCode != 200) {

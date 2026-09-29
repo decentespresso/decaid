@@ -46,14 +46,15 @@ class _IdentityMapping {
 enum DecentAccountStatus { authenticated, unauthenticated, indeterminate }
 
 class SupportMessageReceipt {
-  final String? reference;
+  final String? userId;
+  final String? messageId;
 
-  const SupportMessageReceipt({this.reference});
+  const SupportMessageReceipt({this.userId, this.messageId});
 }
 
 class DecentAccountService {
   static const bool kEnableSerialVerification = true;
-  static const int _maxContactIdLength = 256;
+  static const int _maxSupportIdLength = 256;
 
   static const String _registeredMachinesKey = 'registered_machines';
   static const String _identityMappingsKey = 'identity_mappings';
@@ -660,11 +661,7 @@ class DecentAccountService {
       throw StateError('account authentication changed');
     }
     final query = Uri(
-      queryParameters: {
-        'subject': subject,
-        'body': body,
-        'return_message_id': '1',
-      },
+      queryParameters: {'subject': subject, 'body': body},
     ).query;
     final response = await _authedGet(
       email,
@@ -675,19 +672,32 @@ class DecentAccountService {
     if (response.statusCode == 401 && generation == _authGeneration) {
       reportAuthenticationFailure();
     }
-    final contactId = response.body.trim();
-    if (response.statusCode != 200 ||
-        contactId.isEmpty ||
-        contactId == '0' ||
-        contactId.length > _maxContactIdLength ||
-        contactId.contains('\r') ||
-        contactId.contains('\n') ||
-        contactId.contains('`')) {
+    if (response.statusCode != 200) {
       throw Exception('support message failed (${response.statusCode})');
     }
-    return SupportMessageReceipt(
-      reference: contactId == '1' ? null : contactId,
-    );
+    if (response.body.trim() == '1') return const SupportMessageReceipt();
+    try {
+      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      final userId = _parseSupportId(json['userId']);
+      final messageId = _parseSupportId(json['messageId']);
+      if (messageId == '0' || messageId == '1') {
+        throw const FormatException();
+      }
+      return SupportMessageReceipt(userId: userId, messageId: messageId);
+    } catch (_) {
+      throw const FormatException('Invalid Support message receipt');
+    }
+  }
+
+  static String _parseSupportId(Object? value) {
+    if (value is! String && value is! int) throw const FormatException();
+    final id = value.toString();
+    if (id.trim().isEmpty ||
+        id.length > _maxSupportIdLength ||
+        RegExp(r'[\x00-\x1f\x7f`]').hasMatch(id)) {
+      throw const FormatException();
+    }
+    return id.trim();
   }
 
   Future<void> emailSerialMismatch(String serial) async {

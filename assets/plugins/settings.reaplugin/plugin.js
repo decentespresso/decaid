@@ -1014,7 +1014,7 @@ function createPlugin(host) {
             <section class="section" aria-labelledby="feedback-heading">
                 <h2 id="feedback-heading">Feedback</h2>
                 ${loggedIn ? `
-                <p style="color: #666; margin-bottom: 15px;">Feedback creates a public GitHub issue. Decent Support receives the issue link. A returned support message reference associated with your account is added to the public issue.</p>
+                <p style="color: #666; margin-bottom: 15px;">Feedback creates a public GitHub issue. Decent Support receives the issue link. Only the support message ID, when available, is added to the public issue.</p>
                 <div style="margin-bottom: 10px;">
                     <label for="feedbackText" class="setting-label" style="display: block; margin-bottom: 8px;">Your feedback</label>
                     <textarea id="feedbackText" rows="4" style="width: 100%; padding: 10px; border: 2px solid #999; border-radius: 4px; font-family: inherit; font-size: 14px; resize: vertical;" placeholder="Describe the issue or suggestion..."></textarea>
@@ -1670,7 +1670,6 @@ function createPlugin(host) {
     },
   };
 }
-
 
 
 

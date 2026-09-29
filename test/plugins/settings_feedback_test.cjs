@@ -25,6 +25,10 @@ for (const state of ['authenticated', 'signed out', 'unavailable', 'offline']) {
     assert.equal(response.status, 200);
     assert.equal(response.body.includes('id="feedbackText"'), state === 'authenticated');
     assert.equal(response.body.includes('>Submit Feedback</button>'), state === 'authenticated');
+    if (state === 'authenticated') {
+      assert.match(response.body, /Only the support message ID, when available, is added to the public issue/);
+      assert.doesNotMatch(response.body, /reference associated with your account/);
+    }
     if (state !== 'authenticated') {
       assert.match(response.body, /Sign in under Decent Account/);
     }
