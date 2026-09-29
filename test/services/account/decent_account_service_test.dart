@@ -1039,12 +1039,12 @@ void main() {
 
     group('sendSupportMessage', () {
       test(
-        'sends an authenticated request and separates user and message IDs',
+        'sends an authenticated request and accepts only a message ID',
         () async {
           late http.Request capturedRequest;
           final client = http_testing.MockClient((request) async {
             capturedRequest = request;
-            return http.Response('{"userId":12345,"messageId":67890}', 200);
+            return http.Response('{"messageId":67890}', 200);
           });
           final supportService = DecentAccountService(
             httpClient: client,
@@ -1059,7 +1059,6 @@ void main() {
             body: 'https://github.com/decentespresso/decaid/issues/728?a=1&b=2',
           );
 
-          expect(receipt.userId, '12345');
           expect(receipt.messageId, '67890');
           expect(capturedRequest.method, 'GET');
           expect(capturedRequest.url.path, '/support/api/email');
@@ -1088,11 +1087,10 @@ void main() {
           body: 'body',
         );
 
-        expect(receipt.userId, isNull);
         expect(receipt.messageId, isNull);
       });
 
-      test('accepts string IDs without combining them', () async {
+      test('accepts a string message ID and ignores extra fields', () async {
         await store.write(key: 'email', value: 'test@example.com');
         await store.write(key: 'password', value: 'cryptpw_abc123');
         final supportService = DecentAccountService(
@@ -1106,7 +1104,6 @@ void main() {
           subject: 'subject',
           body: 'body',
         );
-        expect(receipt.userId, 'private-user');
         expect(receipt.messageId, 'msg-67890');
       });
 

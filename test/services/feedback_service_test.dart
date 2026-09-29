@@ -306,9 +306,7 @@ void main() {
 
     await supportRequested.future;
     final result = await submission;
-    supportResponse.complete(
-      http.Response('{"userId":12345,"messageId":67890}', 200),
-    );
+    supportResponse.complete(http.Response('{"messageId":67890}', 200));
     await Future<void>.delayed(const Duration(milliseconds: 20));
 
     expect(result.success, isTrue);

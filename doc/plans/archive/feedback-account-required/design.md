@@ -7,9 +7,11 @@ HTTP handler maps that result to 400. Native and Settings plugin feedback contro
 are only available when logged in; otherwise they explain where to sign in.
 
 Support linking remains best-effort after issue creation. The new response
-contract is a JSON object with separate `userId` and `messageId` fields, each
-an integer or a non-empty string. Decaid keeps the user ID internal and passes
-only the message ID to the GitHub updater. It appends `**Support message:**`
+contract is a JSON object containing only `messageId`, an integer or a non-empty
+string. The backend identifies the user through the authenticated request, so
+Decaid does not request, model, or retain a user ID. Unexpected response fields
+are ignored. Decaid passes only the message ID to the GitHub updater.
+It appends `**Support message:**`
 with that ID after fetching the latest GitHub body. Parsing errors never include
 the raw response or user ID. Existing 401 cache invalidation remains intact.
 

@@ -46,10 +46,9 @@ class _IdentityMapping {
 enum DecentAccountStatus { authenticated, unauthenticated, indeterminate }
 
 class SupportMessageReceipt {
-  final String? userId;
   final String? messageId;
 
-  const SupportMessageReceipt({this.userId, this.messageId});
+  const SupportMessageReceipt({this.messageId});
 }
 
 class DecentAccountService {
@@ -678,12 +677,11 @@ class DecentAccountService {
     if (response.body.trim() == '1') return const SupportMessageReceipt();
     try {
       final json = jsonDecode(response.body) as Map<String, dynamic>;
-      final userId = _parseSupportId(json['userId']);
       final messageId = _parseSupportId(json['messageId']);
       if (messageId == '0' || messageId == '1') {
         throw const FormatException();
       }
-      return SupportMessageReceipt(userId: userId, messageId: messageId);
+      return SupportMessageReceipt(messageId: messageId);
     } catch (_) {
       throw const FormatException('Invalid Support message receipt');
     }
