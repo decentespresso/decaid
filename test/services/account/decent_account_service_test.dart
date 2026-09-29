@@ -1044,7 +1044,7 @@ void main() {
           late http.Request capturedRequest;
           final client = http_testing.MockClient((request) async {
             capturedRequest = request;
-            return http.Response('  GhwAHSEAAAAAAAAGBgAdAxAcCUgGCgQ=\n', 200);
+            return http.Response('  123.456\n', 200);
           });
           final supportService = DecentAccountService(
             httpClient: client,
@@ -1059,10 +1059,11 @@ void main() {
             body: 'https://github.com/decentespresso/decaid/issues/728?a=1&b=2',
           );
 
-          expect(contactId, 'GhwAHSEAAAAAAAAGBgAdAxAcCUgGCgQ=');
+          expect(contactId.reference, '123.456');
           expect(capturedRequest.method, 'GET');
           expect(capturedRequest.url.path, '/support/api/email');
           expect(capturedRequest.url.queryParameters, {
+            'return_message_id': '1',
             'subject': 'Decaid feedback #728 & details',
             'body':
                 'https://github.com/decentespresso/decaid/issues/728?a=1&b=2',
@@ -1073,6 +1074,22 @@ void main() {
           );
         },
       );
+
+      test('legacy acknowledgement succeeds without a reference', () async {
+        await store.write(key: 'email', value: 'test@example.com');
+        await store.write(key: 'password', value: 'cryptpw_abc123');
+        final supportService = DecentAccountService(
+          httpClient: _mockClient(statusCode: 200, body: ' 1\n'),
+          credentialStore: store,
+        );
+
+        final receipt = await supportService.sendSupportMessage(
+          subject: 'subject',
+          body: 'body',
+        );
+
+        expect(receipt.reference, isNull);
+      });
 
       test('rejects failed and unsafe responses', () async {
         final responses = [

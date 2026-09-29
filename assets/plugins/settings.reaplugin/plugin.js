@@ -166,10 +166,19 @@ function createPlugin(host) {
       .replace(/'/g, '&#39;');
   }
 
+  async function fetchLoggedIn() {
+    try {
+      const response = await fetch("http://localhost:8080/api/v1/account/decent");
+      return response.ok && (await response.json()).loggedIn === true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /**
    * Generate HTML page with all settings (with editable controls)
    */
-  function generateSettingsHTML(reaSettings, de1Settings, de1AdvancedSettings, webUISkins, calibrationSettings, presenceSettings, appInfo, webUIStatus, plugins, backName) {
+  function generateSettingsHTML(reaSettings, de1Settings, de1AdvancedSettings, webUISkins, calibrationSettings, presenceSettings, appInfo, webUIStatus, plugins, backName, loggedIn) {
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1004,12 +1013,14 @@ function createPlugin(host) {
             <!-- Feedback -->
             <section class="section" aria-labelledby="feedback-heading">
                 <h2 id="feedback-heading">Feedback</h2>
-                <p style="color: #666; margin-bottom: 15px;">Submit feedback or report an issue. This will create a GitHub issue if the feedback service is configured.</p>
+                ${loggedIn ? `
+                <p style="color: #666; margin-bottom: 15px;">Feedback creates a public GitHub issue. Decent Support receives the issue link. A returned support message reference associated with your account is added to the public issue.</p>
                 <div style="margin-bottom: 10px;">
                     <label for="feedbackText" class="setting-label" style="display: block; margin-bottom: 8px;">Your feedback</label>
                     <textarea id="feedbackText" rows="4" style="width: 100%; padding: 10px; border: 2px solid #999; border-radius: 4px; font-family: inherit; font-size: 14px; resize: vertical;" placeholder="Describe the issue or suggestion..."></textarea>
                 </div>
                 <button class="btn btn-primary" onclick="submitFeedback()">Submit Feedback</button>
+                ` : '<p>Sign in under Decent Account in the app to send feedback.</p>'}
             </section>
 
             <!-- About -->
@@ -1610,10 +1621,11 @@ function createPlugin(host) {
           fetchPresenceSettings(),
           fetchAppInfo(),
           fetchWebUIServerStatus(),
-          fetchPlugins()
-        ]).then(([reaSettings, de1Settings, de1AdvancedSettings, webUISkins, calibrationSettings, presenceSettings, appInfo, webUIStatus, plugins]) => {
+          fetchPlugins(),
+          fetchLoggedIn()
+        ]).then(([reaSettings, de1Settings, de1AdvancedSettings, webUISkins, calibrationSettings, presenceSettings, appInfo, webUIStatus, plugins, loggedIn]) => {
           const backName = request.query && request.query.backName ? request.query.backName : null;
-          const html = generateSettingsHTML(reaSettings, de1Settings, de1AdvancedSettings, webUISkins, calibrationSettings, presenceSettings, appInfo, webUIStatus, plugins, backName);
+          const html = generateSettingsHTML(reaSettings, de1Settings, de1AdvancedSettings, webUISkins, calibrationSettings, presenceSettings, appInfo, webUIStatus, plugins, backName, loggedIn);
           
           return {
             requestId: request.requestId,
@@ -1658,8 +1670,6 @@ function createPlugin(host) {
     },
   };
 }
-
-
 
 
 

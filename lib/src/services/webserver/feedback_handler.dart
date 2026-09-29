@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/feedback/feedback_request.dart';
+import 'package:reaprime/src/models/feedback/feedback_result.dart';
 import 'package:reaprime/src/services/feedback_service.dart';
 import 'package:reaprime/src/services/webserver/bounded_request_body.dart';
 import 'package:shelf_plus/shelf_plus.dart';
@@ -47,6 +48,13 @@ class FeedbackHandler {
 
       if (result.success) {
         return jsonCreated(result.toJson());
+      } else if (result.failureReason ==
+          FeedbackFailureReason.accountRequired) {
+        return jsonBadRequest({
+          'success': false,
+          'error': 'Decent account required',
+          'message': result.errorMessage,
+        });
       } else {
         return jsonError(result.toJson());
       }

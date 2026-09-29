@@ -228,6 +228,7 @@ Future<void> startWebServer(
         const String.fromEnvironment('GITHUB_FEEDBACK_TOKEN', defaultValue: ''),
       ),
       currentSerialNumbers: () => de1Controller.seenSerials,
+      accountService: decentAccountService,
     ),
   );
 

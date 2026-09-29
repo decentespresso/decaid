@@ -11,6 +11,7 @@ import 'package:reaprime/src/util/rot13.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/feedback_feature/feedback_view.dart';
+import 'package:reaprime/src/feedback_feature/feedback_button.dart';
 import 'package:reaprime/src/import/de1app_importer.dart';
 import 'package:reaprime/src/import/saf_folder_copier.dart';
 import 'package:reaprime/src/import/de1app_scanner.dart';
@@ -244,7 +245,8 @@ class _DataManagementPageState extends State<DataManagementPage> {
             ),
           ),
           const SizedBox(height: 12),
-          ShadButton.outline(
+          FeedbackButton(
+            accountService: widget.decentAccountService,
             onPressed: () => showFeedbackDialog(
               context,
               githubToken: rot13(
@@ -256,7 +258,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
               serialNumbers: () => widget.de1Controller.seenSerials,
               accountService: widget.decentAccountService,
             ),
-            child: const Text("Send Feedback"),
           ),
         ],
       ),

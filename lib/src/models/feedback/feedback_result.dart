@@ -1,14 +1,18 @@
+enum FeedbackFailureReason { accountRequired }
+
 class FeedbackSubmissionResult {
   final bool success;
   final String? issueUrl;
   final String? errorMessage;
   final int? issueNumber;
+  final FeedbackFailureReason? failureReason;
 
   const FeedbackSubmissionResult({
     required this.success,
     this.issueUrl,
     this.errorMessage,
     this.issueNumber,
+    this.failureReason,
   });
 
   factory FeedbackSubmissionResult.succeeded({
@@ -22,8 +26,15 @@ class FeedbackSubmissionResult {
     );
   }
 
-  factory FeedbackSubmissionResult.failed(String errorMessage) {
-    return FeedbackSubmissionResult(success: false, errorMessage: errorMessage);
+  factory FeedbackSubmissionResult.failed(
+    String errorMessage, {
+    FeedbackFailureReason? reason,
+  }) {
+    return FeedbackSubmissionResult(
+      success: false,
+      errorMessage: errorMessage,
+      failureReason: reason,
+    );
   }
 
   Map<String, dynamic> toJson() => {

@@ -5293,6 +5293,11 @@ paths:
         Submits user feedback as a GitHub issue. Logs and system info are
         attached as a private Gist when requested. Requires the app to be
         built with `--dart-define=GITHUB_FEEDBACK_TOKEN=<token>`.
+        Requires an authenticated Decent account. Stored credentials are verified
+        before any Gist upload, GitHub issue creation, or Support message.
+        Missing, rejected, or unverifiable credentials return 400.
+        Support linking is best-effort after issue creation. A returned support
+        message reference associated with the account is added to the public issue.
       tags: [System]
       requestBody:
         required: true
@@ -5308,11 +5313,22 @@ paths:
               schema:
                 $ref: "#/components/schemas/FeedbackResponse"
         "400":
-          description: Missing or empty description
+          description: Missing or empty description, or Decent account not currently verified as authenticated
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+              examples:
+                accountRequired:
+                  value:
+                    success: false
+                    error: Decent account required
+                    message: You must be logged in to your Decent account to submit feedback.
+                verificationUnavailable:
+                  value:
+                    success: false
+                    error: Decent account required
+                    message: Could not verify your Decent account. Check your connection and try again.
         "500":
           description: Submission failed or internal error
           content:

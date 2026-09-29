@@ -38,6 +38,11 @@ without recovery until the machine wakes. No plugin reconnect loop is needed.
 
 ## Overview
 
+The bundled Settings plugin checks `GET /api/v1/account/decent` before offering
+its feedback form. Signed-out or unavailable account status shows a sign-in
+message instead. `POST /api/v1/feedback` re-verifies the host account before
+sending feedback and returns `400` when authentication cannot be verified.
+
 > **Note on naming:** Plugin JS APIs use `Rea`-prefixed names (`fetchReaSettings`, `updateReaSetting`, `convertReaToVisualizerFormat`) for backwards compatibility with existing plugins. These were not renamed during the app rename from ReaPrime to Decaid.
 
 Decaid plugins are JavaScript modules that extend the functionality of Decaid.

@@ -45,6 +45,12 @@ class _IdentityMapping {
 
 enum DecentAccountStatus { authenticated, unauthenticated, indeterminate }
 
+class SupportMessageReceipt {
+  final String? reference;
+
+  const SupportMessageReceipt({this.reference});
+}
+
 class DecentAccountService {
   static const bool kEnableSerialVerification = true;
   static const int _maxContactIdLength = 256;
@@ -636,7 +642,7 @@ class DecentAccountService {
     return response;
   }
 
-  Future<String> sendSupportMessage({
+  Future<SupportMessageReceipt> sendSupportMessage({
     required String subject,
     required String body,
     Future<void>? abortTrigger,
@@ -654,7 +660,11 @@ class DecentAccountService {
       throw StateError('account authentication changed');
     }
     final query = Uri(
-      queryParameters: {'subject': subject, 'body': body},
+      queryParameters: {
+        'subject': subject,
+        'body': body,
+        'return_message_id': '1',
+      },
     ).query;
     final response = await _authedGet(
       email,
@@ -675,7 +685,9 @@ class DecentAccountService {
         contactId.contains('`')) {
       throw Exception('support message failed (${response.statusCode})');
     }
-    return contactId;
+    return SupportMessageReceipt(
+      reference: contactId == '1' ? null : contactId,
+    );
   }
 
   Future<void> emailSerialMismatch(String serial) async {

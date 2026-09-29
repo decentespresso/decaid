@@ -78,13 +78,19 @@ void main() {
     'preserves the current GitHub body when patching the contact id',
     () async {
       const issueUrl = 'https://github.com/decentespresso/decaid/issues/728';
-      const contactId = 'GhwAHSEAAAAAAAAGBgAdAxAcCUgGCgQ=';
+      const contactId = '123.456';
       const currentBody =
           '## Description\nThe steam control stopped responding.\n\n'
           'Bot-added triage details.\n';
       final requests = <http.Request>[];
 
       Future<http.Response> handle(http.Request request) async {
+        if (request.url.path == '/support/api/login_test') {
+          return http.Response('cryptpw_abc123', 200);
+        }
+        if (request.url.path == '/support/api/sn') {
+          return http.Response('', 200);
+        }
         requests.add(request);
         return switch (requests.length) {
           1 => http.Response(
@@ -159,6 +165,12 @@ void main() {
     final requests = <http.Request>[];
 
     Future<http.Response> handle(http.Request request) async {
+      if (request.url.path == '/support/api/login_test') {
+        return http.Response('cryptpw_abc123', 200);
+      }
+      if (request.url.path == '/support/api/sn') {
+        return http.Response('', 200);
+      }
       requests.add(request);
       if (requests.length == 1) {
         return http.Response(
@@ -208,6 +220,12 @@ void main() {
 
     final accountService = DecentAccountService(
       httpClient: http_testing.MockClient((request) {
+        if (request.url.path == '/support/api/login_test') {
+          return Future.value(http.Response('cryptpw_abc123', 200));
+        }
+        if (request.url.path == '/support/api/sn') {
+          return Future.value(http.Response('', 200));
+        }
         supportRequested.complete();
         return supportResponse.future;
       }),

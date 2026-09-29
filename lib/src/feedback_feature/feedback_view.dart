@@ -116,14 +116,6 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
       return;
     }
 
-    if (!_controller.isConfigured) {
-      setState(
-        () => _validationMessage =
-            'Feedback is not configured. Build with --dart-define=GITHUB_FEEDBACK_TOKEN=<token>.',
-      );
-      return;
-    }
-
     final request = FeedbackRequest(
       description: _descriptionController.text.trim(),
       type: _selectedType,
@@ -174,10 +166,11 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
     return ShadDialog(
       title: const Text('Send Feedback'),
       description: const Text(
-        'Feedback will be submitted as a public GitHub issue. When a Decent '
-        'account is linked, Decent Support receives the issue link, and a '
-        'support contact ID associated with that account is added to the '
-        'public issue.',
+        'You must be logged in to your Decent account to submit feedback. '
+        'Sign in under Decent Account. '
+        'Feedback will be submitted as a public GitHub issue. '
+        'Decent Support receives the issue link. When returned, a support '
+        'message reference associated with that account is added to the public issue.',
       ),
       actions: _buildActions(context),
       child: _buildContent(context),
