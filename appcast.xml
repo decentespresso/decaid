@@ -7,6 +7,28 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
         <title>Decaid</title>
         <item>
             <title>0.8.7</title>
+            <pubDate>Tue, 29 Sep 2026 14:10:14 +0000</pubDate>
+            <sparkle:version>2847</sparkle:version>
+            <sparkle:shortVersionString>0.8.7</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* fix(api): share opaque path decoding for sensor IDs by @MaxRink in https://github.com/decentespresso/decaid/pull/858
+* feat(api): add runtime auxiliary scale connections by @MaxRink in https://github.com/decentespresso/decaid/pull/862
+* Add ATOM HEART Eclair battery reporting by @AtomHeart-Lang in https://github.com/decentespresso/decaid/pull/888
+* fix: repair AsyncAPI 3.1 spec and API docs viewer by @tadelv in https://github.com/decentespresso/decaid/pull/892
+* feat(startup): restyle failure screens and add database recovery actions by @tadelv in https://github.com/decentespresso/decaid/pull/893
+* fix(import): correct DYE grinder specs and enjoyment scale by @allofmeng in https://github.com/decentespresso/decaid/pull/887
+
+## New Contributors
+* @AtomHeart-Lang made their first contribution in https://github.com/decentespresso/decaid/pull/888
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.8.6...v0.8.7
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.8.7/decaid-macos-0.8.7.zip" length="64929557" type="application/octet-stream" sparkle:edSignature="0xrN2KPz+roh4LFfHGBcZnw5m2dC1hNebSCFNzfCa19BbBraHIY19TD9hmDBb7tNzdAl8XF5X7M9V8QStc30BA=="/>
+        </item>
+        <item>
+            <title>0.8.7</title>
             <pubDate>Mon, 28 Sep 2026 05:13:59 +0000</pubDate>
             <sparkle:channel>beta</sparkle:channel>
             <sparkle:version>2836</sparkle:version>
@@ -467,6 +489,6 @@ See `doc/RELEASE.md` for install and verification instructions.
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: vr7dUck8Gkt9VCcOvszC2Y1zRwuorECRVimGDL7l2gM1Q4oE51TqmqpsCrx7pPT0wreiXt9UF+vTbgCfDDF/Aw==
-length: 40843
+edSignature: 4+rBDi7oT8z2xxypNJK6UjdNLoAfi8vyKtcfidBwPuM4OBl0I+87Vn2JSy6iPIjQY36BcFFw7szUToLfPsH0Cw==
+length: 42495
 -->
