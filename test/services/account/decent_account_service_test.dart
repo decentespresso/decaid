@@ -1090,22 +1090,25 @@ void main() {
         expect(receipt.messageId, isNull);
       });
 
-      test('accepts a string message ID and ignores extra fields', () async {
-        await store.write(key: 'email', value: 'test@example.com');
-        await store.write(key: 'password', value: 'cryptpw_abc123');
-        final supportService = DecentAccountService(
-          httpClient: _mockClient(
-            statusCode: 200,
-            body: '{"userId":"private-user","messageId":"msg-67890"}',
-          ),
-          credentialStore: store,
-        );
-        final receipt = await supportService.sendSupportMessage(
-          subject: 'subject',
-          body: 'body',
-        );
-        expect(receipt.messageId, 'msg-67890');
-      });
+      test(
+        'accepts a decimal string message ID and ignores extra fields',
+        () async {
+          await store.write(key: 'email', value: 'test@example.com');
+          await store.write(key: 'password', value: 'cryptpw_abc123');
+          final supportService = DecentAccountService(
+            httpClient: _mockClient(
+              statusCode: 200,
+              body: '{"userId":"private-user","messageId":"67890"}',
+            ),
+            credentialStore: store,
+          );
+          final receipt = await supportService.sendSupportMessage(
+            subject: 'subject',
+            body: 'body',
+          );
+          expect(receipt.messageId, '67890');
+        },
+      );
 
       test('rejects failed and unsafe responses', () async {
         final responses = [
@@ -1123,6 +1126,21 @@ void main() {
           (statusCode: 200, body: '{"userId":12345,"messageId":false}'),
           (statusCode: 200, body: '{"userId":12345,"messageId":{}}'),
           for (final messageId in [
+            -2,
+            0,
+            67890.5,
+            'customer@example.com',
+            'msg-67890',
+            '12345.67890',
+            '-2',
+            '+67890',
+            '6.789e4',
+            '067890',
+            '01',
+            ' 67890',
+            '67890 ',
+            '67890\n',
+            '\u0666\u0667\u0668\u0669\u0660',
             '',
             '0',
             ' 1 ',
@@ -1131,6 +1149,7 @@ void main() {
             'bad\rmessage',
             'bad\u0000message',
             List.filled(257, 'x').join(),
+            List.filled(257, '9').join(),
           ])
             (
               statusCode: 200,
@@ -1142,9 +1161,12 @@ void main() {
 
         for (final response in responses) {
           final supportService = DecentAccountService(
-            httpClient: _mockClient(
-              statusCode: response.statusCode,
-              body: response.body,
+            httpClient: http_testing.MockClient(
+              (_) async => http.Response(
+                response.body,
+                response.statusCode,
+                headers: {'content-type': 'application/json; charset=utf-8'},
+              ),
             ),
             credentialStore: store,
             baseUrl: _baseUrl,

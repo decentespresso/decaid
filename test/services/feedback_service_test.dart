@@ -186,6 +186,14 @@ void main() {
       name: 'invalid message ID',
       response: http.Response('{"userId":12345,"messageId":{}}', 200),
     ),
+    (
+      name: 'email address as message ID',
+      response: http.Response('{"messageId":"customer@example.com"}', 200),
+    ),
+    (
+      name: 'opaque message ID',
+      response: http.Response('{"messageId":"msg-67890"}', 200),
+    ),
   ]) {
     test(
       'returns the GitHub result without leaking private IDs: ${scenario.name}',
@@ -243,6 +251,20 @@ void main() {
         expect(result.issueUrl, issueUrl);
         expect(requests.map((request) => request.method), ['POST', 'GET']);
         expect(jsonEncode(result.toJson()), isNot(contains('12345')));
+        for (final privateValue in ['customer@example.com', 'msg-67890']) {
+          expect(jsonEncode(result.toJson()), isNot(contains(privateValue)));
+          for (final request in requests.where(
+            (request) => request.url.host == 'api.github.com',
+          )) {
+            expect(request.body, isNot(contains(privateValue)));
+          }
+          for (final record in logs) {
+            expect(
+              '${record.message} ${record.error}',
+              isNot(contains(privateValue)),
+            );
+          }
+        }
         for (final record in logs) {
           expect('${record.message} ${record.error}', isNot(contains('12345')));
           expect(

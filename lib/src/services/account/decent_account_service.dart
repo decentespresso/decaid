@@ -697,25 +697,24 @@ class DecentAccountService {
     if (response.body.trim() == '1') return const SupportMessageReceipt();
     try {
       final json = jsonDecode(response.body) as Map<String, dynamic>;
-      final messageId = _parseSupportId(json['messageId']);
-      if (messageId == '0' || messageId == '1') {
-        throw const FormatException();
-      }
+      final messageId = _parseSupportMessageId(json['messageId']);
       return SupportMessageReceipt(messageId: messageId);
     } catch (_) {
       throw const FormatException('Invalid Support message receipt');
     }
   }
 
-  static String _parseSupportId(Object? value) {
+  static String _parseSupportMessageId(Object? value) {
     if (value is! String && value is! int) throw const FormatException();
     final id = value.toString();
-    if (id.trim().isEmpty ||
+    if (id.isEmpty ||
+        id.startsWith('0') ||
+        id == '1' ||
         id.length > _maxSupportIdLength ||
-        RegExp(r'[\x00-\x1f\x7f`]').hasMatch(id)) {
+        RegExp(r'[^0-9]').hasMatch(id)) {
       throw const FormatException();
     }
-    return id.trim();
+    return id;
   }
 
   Future<void> emailSerialMismatch(String serial) async {

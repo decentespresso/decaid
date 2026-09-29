@@ -618,7 +618,13 @@ authentication.
 After issue creation, Support linking is best-effort: only the returned
 `messageId` is appended to the latest issue body as `**Support message:**`.
 The Support response contract is `{"messageId":67890}`; no user ID is requested
-or retained. Unexpected response fields are ignored, and raw responses are never
+or retained. The proposed ID format is a positive JSON integer or an ASCII
+decimal string of 1-256 digits without leading zeros. The value `1` is reserved
+and never published as a message ID. Email addresses, opaque strings, and other
+invalid IDs skip linking without failing the created issue. The backend
+maintainer must confirm the numeric format, lookup uniqueness, and public safety;
+numeric validation alone cannot establish that an ID is safe to publish.
+Unexpected response fields are ignored, and raw responses are never
 included in logs or errors. Temporary Support acknowledgement `1` means
 no message ID is available and skips the GitHub update. A Support outage does
 not undo the GitHub issue. No response-mode query parameter is sent.

@@ -15,8 +15,13 @@ Account failures return 400 even when the GitHub token is absent; only a verifie
 account can reach the configuration failure and receive 503.
 
 Support linking remains best-effort after issue creation. The new response
-contract is a JSON object containing only `messageId`, an integer or a non-empty
-string. The backend identifies the user through the authenticated request, so
+contract is a JSON object containing only `messageId`, a positive JSON integer
+or an ASCII decimal string of 1-256 digits without leading zeros. The value `1`
+is reserved for the temporary acknowledgement and is never published as an ID.
+Reject email addresses, opaque strings, signs, whitespace, fractions, and
+combined identifiers before any GitHub update. Invalid IDs skip linking without
+failing the created issue. The backend identifies the user through the
+authenticated request, so
 Decaid does not request, model, or retain a user ID. Unexpected response fields
 are ignored. Decaid passes only the message ID to the GitHub updater.
 It appends `**Support message:**`
@@ -26,8 +31,10 @@ the raw response or user ID. Existing 401 cache invalidation remains intact.
 No response-mode query parameter is used. Plain `1` temporarily acknowledges
 delivery without a message ID and skips the GitHub update. Invalid responses
 also skip linking without turning successful issue creation into a failure.
-The backend maintainer must confirm that `messageId` alone is globally unique
-enough for Support lookup and safe to expose publicly. The draft PR documents
+The backend maintainer must confirm the numeric format and that `messageId`
+alone is globally unique enough for Support lookup and safe to expose publicly.
+Numeric validation prevents arbitrary text disclosure but cannot establish the
+meaning or public safety of the ID. The draft PR documents
 this contract for agreement before merge.
 
 This intentionally replaces the previous HTTP feedback

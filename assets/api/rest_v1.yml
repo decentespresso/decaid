@@ -5302,6 +5302,11 @@ paths:
         Support linking is best-effort after issue creation. Only the support
         message ID, when available, is added to the public issue. The Support
         response needs only messageId; no user ID is requested or published.
+        The proposed messageId format is a positive JSON integer or an ASCII
+        decimal string (1-256 digits, no leading zeros). The value 1 is reserved
+        for the temporary acknowledgement and is never published as an ID.
+        Invalid IDs skip linking without failing the created issue. The backend
+        maintainer must confirm the numeric format, lookup uniqueness, and public safety.
       tags: [System]
       requestBody:
         required: true
