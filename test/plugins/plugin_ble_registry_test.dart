@@ -10,6 +10,65 @@ PluginDriverDeclaration driver(String id, Map<String, dynamic> match) =>
     });
 
 void main() {
+  test('active binding capacity is bounded by the plugin device quota', () {
+    expect(
+      PluginBleRegistry().activeBindingLimit,
+      PluginBleRegistry.maxActiveBindingLimit,
+    );
+    expect(() => PluginBleRegistry(activeBindingLimit: 0), throwsArgumentError);
+    expect(
+      () => PluginBleRegistry(
+        activeBindingLimit: PluginBleRegistry.maxActiveBindingLimit + 1,
+      ),
+      throwsArgumentError,
+    );
+  });
+
+  test(
+    'the active binding quota admits four live bindings and rejects a fifth',
+    () {
+      final registry = PluginBleRegistry();
+      addTearDown(registry.dispose);
+      final entry = registry.register(
+        pluginId: 'a',
+        generation: 1,
+        declaration: driver('one', {
+          'name': {'exact': 'bookoo'},
+        }),
+        permissions: {PluginPermissions.transportBle},
+        factoryHandle: 'a',
+      );
+      final claims = [
+        for (
+          var index = 0;
+          index < PluginBleRegistry.maxActiveBindingLimit;
+          index++
+        )
+          registry.reserve(entry, 'binding-$index'),
+      ];
+      expect(registry.activeBindingCount, 4);
+      expect(
+        () => registry.reserve(entry, 'binding-4'),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            'Active BLE binding limit reached',
+          ),
+        ),
+      );
+      expect(registry.activeBindingCount, 4);
+      for (final claim in claims) {
+        expect(registry.isClaimed(claim.physicalId), isTrue);
+      }
+      for (final claim in claims) {
+        registry.release(claim);
+      }
+      expect(registry.activeBindingCount, 0);
+      expect(registry.reserve(entry, 'binding-4').physicalId, 'binding-4');
+    },
+  );
+
   test('name completeness reaches ownership decisions', () {
     final registry = PluginBleRegistry();
     addTearDown(registry.dispose);

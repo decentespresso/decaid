@@ -82,12 +82,56 @@ class AndroidUpdater {
         'Checking for updates on $channel channel (current: $currentVersion)',
       );
 
-      final response = await _httpClient.get(Uri.parse(_releasesUrl));
+      final response = await _httpClient.get(
+        Uri.parse(_releasesUrl),
+        headers: const {
+          'Accept': 'application/vnd.github.v3+json',
+          'User-Agent': 'Decaid',
+        },
+      );
 
       if (response.statusCode != 200) {
-        throw UpdateCheckException(
-          'Failed to fetch releases: HTTP ${response.statusCode}',
-        );
+        var message = 'Failed to fetch releases: HTTP ${response.statusCode}';
+        if (response.statusCode == 403 || response.statusCode == 429) {
+          final remaining = response.headers['x-ratelimit-remaining'];
+          final body = response.body
+              .substring(
+                0,
+                response.body.length > 200 ? 200 : response.body.length,
+              )
+              .replaceAll(RegExp(r'[\x00-\x1f\x7f]'), ' ')
+              .trim();
+          if (remaining == '0') {
+            final reset = int.tryParse(
+              response.headers['x-ratelimit-reset'] ?? '',
+            );
+            final resetDate =
+                reset == null || reset < 0 || reset > 8640000000000
+                ? null
+                : DateTime.fromMillisecondsSinceEpoch(
+                    reset * 1000,
+                    isUtc: true,
+                  );
+            final resetAt = resetDate == null
+                ? 'reset time unavailable'
+                : 'resets at ${resetDate.toIso8601String()}';
+            final quotaContext = 'rate limit remaining: 0; $resetAt';
+            if (body.isNotEmpty) {
+              final suffix = response.body.length > 200 ? '…' : '';
+              message =
+                  'GitHub rejected releases request (HTTP ${response.statusCode}): $body$suffix '
+                  '($quotaContext)';
+            } else {
+              message =
+                  'GitHub rejected releases request (HTTP ${response.statusCode}; $quotaContext)';
+            }
+          } else if (body.isNotEmpty) {
+            final suffix = response.body.length > 200 ? '…' : '';
+            message =
+                'GitHub rejected releases request (HTTP ${response.statusCode}): $body$suffix';
+          }
+        }
+        throw UpdateCheckException(message);
       }
 
       final releases = json.decode(response.body) as List<dynamic>;

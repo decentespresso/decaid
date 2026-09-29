@@ -103,6 +103,13 @@ class _FakeSimulatedScale extends TestScale implements SimulatedDevice {
   _FakeSimulatedScale({super.deviceId = 'MockScale'});
 }
 
+class _TransportScale extends TestScale {
+  _TransportScale({required super.deviceId, required this.transportType});
+
+  @override
+  final TransportType transportType;
+}
+
 class _TrackingScale extends TestScale {
   _TrackingScale(this.disconnectOrder) : super(deviceId: 'tracking-scale');
 
@@ -3267,6 +3274,184 @@ void main() {
         await connectionManager.dispose();
         mockScanner.supportsWatch = true;
       });
+
+      test(
+        'detached USB preferred scale retries scans without changing identity',
+        () async {
+          await mockSettingsService.setRememberedDevices(
+            RememberedDevice.encodeList([
+              const RememberedDevice(
+                id: scaleId,
+                name: 'Half Decent Scale (USB)',
+                type: DeviceType.scale,
+                transportType: TransportType.serial,
+              ),
+            ]),
+          );
+          final rememberedDevices = RememberedDevicesController(
+            machineConnections: const Stream.empty(),
+            scaleConnections: const Stream.empty(),
+            settings: mockSettingsService,
+          );
+          await rememberedDevices.initialize();
+          connectionManager = ConnectionManager(
+            deviceScanner: mockScanner,
+            de1Controller: mockDe1Controller,
+            scaleController: mockScaleController,
+            settingsController: settingsController,
+            rememberedDevices: rememberedDevices,
+          );
+          addTearDown(rememberedDevices.dispose);
+          await settingsController.setPreferredScaleId(scaleId);
+          mockScanner.addDevice(
+            _TransportScale(
+              deviceId: scaleId,
+              transportType: TransportType.serial,
+            ),
+          );
+          mockScaleController.debugSetLastConnectedId(scaleId);
+          mockScaleController.mockEmitConnectionState(
+            ConnectionState.connected,
+          );
+          mockDe1Controller.de1Subject.add(_FakeDe1(deviceId: 'connected-de1'));
+          await Future<void>.delayed(Duration.zero);
+          expect(mockScanner.startWatchCallCount, 0);
+          mockScanner.removeDevice(scaleId);
+          connectionManager.scaleReconnectBaseDelay = const Duration(
+            milliseconds: 10,
+          );
+          final retries = mockScanner.scanningStream
+              .where((scanning) => scanning)
+              .take(2)
+              .toList();
+          mockScaleController.mockEmitConnectionState(
+            ConnectionState.disconnected,
+          );
+          await retries.timeout(const Duration(seconds: 3));
+          expect(mockScanner.startWatchCallCount, 0);
+          expect(mockScanner.scanCallCount, 2);
+          mockScanner.addDevice(TestScale(deviceId: 'other-scale'));
+          await connectionManager.connect(scaleOnly: true);
+          expect(settingsController.preferredScaleId, scaleId);
+          expect(mockScaleController.connectCalls, isEmpty);
+        },
+      );
+
+      test(
+        'remembered WiFi preferred scale uses burst reacquisition',
+        () async {
+          final service = MockSettingsService();
+          await service.setRememberedDevices(
+            RememberedDevice.encodeList([
+              RememberedDevice(
+                id: scaleId,
+                name: 'WiFi Scale',
+                type: DeviceType.scale,
+                transportType: TransportType.wifi,
+              ),
+            ]),
+          );
+          final rememberedDevices = RememberedDevicesController(
+            machineConnections: const Stream.empty(),
+            scaleConnections: const Stream.empty(),
+            settings: service,
+          );
+          await rememberedDevices.initialize();
+          connectionManager = ConnectionManager(
+            deviceScanner: mockScanner,
+            de1Controller: mockDe1Controller,
+            scaleController: mockScaleController,
+            settingsController: settingsController,
+            rememberedDevices: rememberedDevices,
+          )..scaleReconnectBaseDelay = Duration.zero;
+          await settingsController.setPreferredScaleId(scaleId);
+          mockDe1Controller.de1Subject.add(_FakeDe1(deviceId: 'connected-de1'));
+          await Future<void>.delayed(Duration.zero);
+          await Future<void>.delayed(Duration.zero);
+
+          expect(mockScanner.startWatchCallCount, 0);
+          expect(mockScanner.scanCallCount, 1);
+          await connectionManager.dispose();
+          await rememberedDevices.dispose();
+        },
+      );
+
+      test('BLE preferred scale retains background watch', () async {
+        final service = MockSettingsService();
+        await service.setRememberedDevices(
+          RememberedDevice.encodeList([
+            RememberedDevice(
+              id: scaleId,
+              name: 'BLE Scale',
+              type: DeviceType.scale,
+              transportType: TransportType.ble,
+            ),
+          ]),
+        );
+        final rememberedDevices = RememberedDevicesController(
+          machineConnections: const Stream.empty(),
+          scaleConnections: const Stream.empty(),
+          settings: service,
+        );
+        await rememberedDevices.initialize();
+        connectionManager = ConnectionManager(
+          deviceScanner: mockScanner,
+          de1Controller: mockDe1Controller,
+          scaleController: mockScaleController,
+          settingsController: settingsController,
+          rememberedDevices: rememberedDevices,
+        );
+        await settingsController.setPreferredScaleId(scaleId);
+        mockDe1Controller.de1Subject.add(_FakeDe1(deviceId: 'connected-de1'));
+        await Future<void>.delayed(Duration.zero);
+
+        expect(mockScanner.startWatchCallCount, 1);
+        expect(mockScanner.scanCallCount, 0);
+        await connectionManager.dispose();
+        await rememberedDevices.dispose();
+      });
+
+      test(
+        'discovered serial preferred scale uses burst instead of watch',
+        () async {
+          connectionManager = buildWatchManager();
+          connectionManager.scaleReconnectBaseDelay = Duration.zero;
+          await settingsController.setPreferredScaleId(scaleId);
+          mockScanner.addDevice(
+            _TransportScale(
+              deviceId: scaleId,
+              transportType: TransportType.serial,
+            ),
+          );
+          mockDe1Controller.de1Subject.add(_FakeDe1(deviceId: 'connected-de1'));
+          await Future<void>.delayed(Duration.zero);
+          await Future<void>.delayed(Duration.zero);
+
+          expect(mockScanner.startWatchCallCount, 0);
+          expect(mockScanner.scanCallCount, 1);
+        },
+      );
+
+      test(
+        'WiFi preferred scale uses burst reacquisition instead of watch',
+        () async {
+          connectionManager = buildWatchManager();
+          connectionManager.scaleReconnectBaseDelay = Duration.zero;
+          await settingsController.setPreferredScaleId(scaleId);
+          mockScanner.addDevice(
+            _TransportScale(
+              deviceId: scaleId,
+              transportType: TransportType.wifi,
+            ),
+          );
+          mockDe1Controller.de1Subject.add(_FakeDe1(deviceId: 'connected-de1'));
+          await Future<void>.delayed(Duration.zero);
+          await Future<void>.delayed(Duration.zero);
+
+          expect(mockScanner.startWatchCallCount, 0);
+          expect(mockScanner.scanCallCount, 1);
+        },
+      );
 
       test('machine connect with preferred scale missing arms the watch '
           'and never runs backoff bursts', () {

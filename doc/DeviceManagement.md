@@ -554,8 +554,9 @@ indefinitely because nothing ever rescanned for the machine.
 
 When a machine is connected but the preferred scale is missing (scale
 powered off, unexpected drop, machine wake without the scale), scale
-reacquisition runs in one of two modes, selected by
-`DeviceScanner.supportsBackgroundWatch`:
+reacquisition uses the background watch only when the preferred scale's
+transport is BLE (or unknown) and `DeviceScanner.supportsBackgroundWatch` is
+true. Known serial and WiFi scales use the legacy burst/backoff path:
 
 - **Watch mode (Android):** one persistent, low-duty-cycle BLE scan.
   `UniversalBleDiscoveryService` starts an `AndroidScanMode.balanced`
@@ -573,8 +574,8 @@ reacquisition runs in one of two modes, selected by
   typically 1–5s after the scale powers on. Caveat: Android suspends
   OS-unfiltered scans while the screen is off, so a scale powered on
   with the display asleep connects once the screen wakes.
-- **Legacy mode (all other platforms, and fallback when the watch fails
-  to start):** periodic 15s scale-only burst scans with 5s→60s
+- **Legacy mode (unsupported transports/platforms, and fallback when the
+  watch fails to start):** periodic 15s scale-only burst scans with 5s→60s
   exponential backoff (the pre-watch behavior, unchanged).
 
 The watch replaced the backoff loop on Android because each lowLatency
@@ -1728,7 +1729,9 @@ without attempting protocol cleanup over a lost link.
 Plugin Sensors join the existing SensorController and REST/WebSocket APIs. Their
 public IDs include plugin, driver, and physical identity. Remembered plugin IDs
 are not reconstructed through native quick-connect: fresh discovery must establish
-current ownership. See `doc/Plugins.md` for the session-bound GATT contract.
+current ownership. A BLE plugin driver may keep up to 4 physical bindings active
+at once; each binding owns its own transport, session, publications, and teardown
+claim. See `doc/Plugins.md` for the session-bound GATT contract.
 
 ## Glossary
 

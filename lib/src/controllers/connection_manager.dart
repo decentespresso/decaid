@@ -246,8 +246,22 @@ class ConnectionManager {
   @visibleForTesting
   Duration deferredScaleScanDelay = const Duration(seconds: 3);
 
-  bool get supportsBackgroundScaleWatch =>
-      deviceScanner.supportsBackgroundWatch;
+  bool get supportsBackgroundScaleWatch {
+    if (!deviceScanner.supportsBackgroundWatch) return false;
+    final preferredScaleId = settingsController.preferredScaleId;
+    if (preferredScaleId == null) return true;
+    final discoveredScale = deviceScanner.devices
+        .whereType<Scale>()
+        .firstWhereOrNull((scale) => scale.deviceId == preferredScaleId);
+    final transportType =
+        discoveredScale?.transportType ??
+        rememberedDevices?.remembered
+            .where((device) => device.id == preferredScaleId)
+            .firstOrNull
+            ?.transportType;
+    return transportType != TransportType.serial &&
+        transportType != TransportType.wifi;
+  }
 
   bool get shouldRetryPreferredScale => _shouldRetryPreferredScale();
   bool get scaleReconnectBlockedByPowerMode =>
@@ -292,6 +306,7 @@ class ConnectionManager {
     _scaleWatch = ScaleWatch(
       scanner: deviceScanner,
       shouldWatch: () =>
+          supportsBackgroundScaleWatch &&
           !_isConnecting &&
           _shouldRetryPreferredScale() &&
           _disconnectSupervisor.latestMachine is! BengleInterface,
@@ -1380,9 +1395,15 @@ class ConnectionManager {
 
   void _ensureScaleReacquisition() {
     if (_shuttingDown) return;
-    if (deviceScanner.supportsBackgroundWatch) {
+    if (supportsBackgroundScaleWatch) {
       unawaited(_scaleWatch.arm());
     } else {
+      unawaited(
+        _scaleWatch.disarm().catchError(
+          (e, st) =>
+              _log.warning('Background scale-watch cancellation failed', e, st),
+        ),
+      );
       _maybeSchedulePreferredScaleReconnect();
     }
   }

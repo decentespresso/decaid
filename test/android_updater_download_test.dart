@@ -114,20 +114,188 @@ void main() {
       expect(await updater.checkForUpdate('0.7.14'), isNull);
     });
 
-    test('throws naming the status when GitHub answers non-200', () async {
+    test(
+      'sends GitHub API headers and keeps successful release parsing',
+      () async {
+        late http.Request capturedRequest;
+        final updater = AndroidUpdater(
+          owner: 'tadelv',
+          repo: 'reaprime',
+          httpClient: MockClient((request) async {
+            capturedRequest = request;
+            return http.Response(
+              jsonEncode([release('0.7.15', prerelease: false)]),
+              200,
+            );
+          }),
+        );
+
+        final update = await updater.checkForUpdate('0.7.14');
+
+        expect(
+          capturedRequest.headers['accept'],
+          'application/vnd.github.v3+json',
+        );
+        expect(capturedRequest.headers['user-agent'], 'Decaid');
+        expect(update?.version, '0.7.15');
+        expect(update?.downloadUrl, 'https://example.com/0.7.15.apk');
+      },
+    );
+
+    test(
+      'explains a rate-limited 403 with bounded reset diagnostics',
+      () async {
+        final updater = AndroidUpdater(
+          owner: 'tadelv',
+          repo: 'reaprime',
+          httpClient: MockClient(
+            (_) async => http.Response(
+              List.filled(5000, 'x').join(),
+              403,
+              headers: {
+                'x-ratelimit-remaining': '0',
+                'x-ratelimit-reset': '2000000000',
+              },
+            ),
+          ),
+        );
+
+        await expectLater(
+          updater.checkForUpdate('0.7.14'),
+          throwsA(
+            isA<UpdateCheckException>().having(
+              (e) => e.message,
+              'message',
+              allOf(
+                contains('rate limit'),
+                contains('2033-05-18'),
+                predicate<String>((message) => message.length < 500),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'explains a rate-limited 429 with bounded reset diagnostics',
+      () async {
+        final updater = AndroidUpdater(
+          owner: 'tadelv',
+          repo: 'reaprime',
+          httpClient: MockClient(
+            (_) async => http.Response(
+              'API rate limit exceeded ${List.filled(5000, 'x').join()}',
+              429,
+              headers: {
+                'x-ratelimit-remaining': '0',
+                'x-ratelimit-reset': '2000000000',
+              },
+            ),
+          ),
+        );
+
+        await expectLater(
+          updater.checkForUpdate('0.7.14'),
+          throwsA(
+            isA<UpdateCheckException>().having(
+              (e) => e.message,
+              'message',
+              allOf(
+                contains('HTTP 429'),
+                contains('rate limit remaining: 0'),
+                contains('2033-05-18'),
+                predicate<String>((message) => message.length < 500),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'keeps 403 response details when quota headers conflict with the body',
+      () async {
+        final body =
+            'Request forbidden by administrative rules: User-Agent required\n'
+            '${List.filled(5000, 'x').join()}';
+        final updater = AndroidUpdater(
+          owner: 'tadelv',
+          repo: 'reaprime',
+          httpClient: MockClient(
+            (_) async => http.Response(
+              body,
+              403,
+              headers: {'x-ratelimit-remaining': '0'},
+            ),
+          ),
+        );
+
+        await expectLater(
+          updater.checkForUpdate('0.7.14'),
+          throwsA(
+            isA<UpdateCheckException>().having(
+              (e) => e.message,
+              'message',
+              allOf(
+                contains('User-Agent required'),
+                contains('remaining: 0'),
+                contains('reset time unavailable'),
+                isNot(contains('rate limit exceeded')),
+                isNot(contains('\n')),
+                predicate<String>((message) => message.length < 500),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'distinguishes a non-rate-limit 403 with bounded response details',
+      () async {
+        final body =
+            'Request forbidden by administrative rules: User-Agent required '
+            '${List.filled(5000, 'x').join()}';
+        final updater = AndroidUpdater(
+          owner: 'tadelv',
+          repo: 'reaprime',
+          httpClient: MockClient((_) async => http.Response(body, 403)),
+        );
+
+        await expectLater(
+          updater.checkForUpdate('0.7.14'),
+          throwsA(
+            isA<UpdateCheckException>().having(
+              (e) => e.message,
+              'message',
+              allOf(
+                contains('403'),
+                contains('User-Agent required'),
+                predicate<String>((message) => message.length < 500),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    test('keeps other non-200 status errors unchanged', () async {
       final updater = AndroidUpdater(
         owner: 'tadelv',
         repo: 'reaprime',
-        httpClient: MockClient((_) async => http.Response('rate limited', 403)),
+        httpClient: MockClient(
+          (_) async => http.Response('not found body', 404),
+        ),
       );
 
       await expectLater(
         updater.checkForUpdate('0.7.14'),
         throwsA(
           isA<UpdateCheckException>().having(
-            (e) => e.toString(),
+            (e) => e.message,
             'message',
-            contains('403'),
+            'Failed to fetch releases: HTTP 404',
           ),
         ),
       );
