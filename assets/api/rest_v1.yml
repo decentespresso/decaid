@@ -5295,7 +5295,10 @@ paths:
         built with `--dart-define=GITHUB_FEEDBACK_TOKEN=<token>`.
         Requires an authenticated Decent account. Stored credentials are verified
         before any Gist upload, GitHub issue creation, or Support message.
-        Missing, rejected, or unverifiable credentials return 400.
+        Verification has a 30-second deadline, including credential reads and
+        the complete upstream response. Missing, rejected, or unverifiable
+        credentials (including timeout) return 400, even without a GitHub token.
+        Trusted-LAN callers use the host's account without separate caller authentication.
         Support linking is best-effort after issue creation. Only the support
         message ID, when available, is added to the public issue. The Support
         response needs only messageId; no user ID is requested or published.
@@ -5337,7 +5340,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "503":
-          description: Feedback service not configured (no GitHub token)
+          description: Account authenticated but feedback service not configured (no GitHub token)
           content:
             application/json:
               schema:

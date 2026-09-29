@@ -608,8 +608,13 @@ credentials return `400` with `success: false`, `error: "Decent account required
 and a `message` explaining whether to sign in or retry verification. This applies
 to native feedback and the Settings plugin's HTTP submissions. Both UI entry
 points offer feedback only while logged in; otherwise they direct users to
-Decent Account. Submission always re-verifies credentials. Other submission
-failures remain `500`; an unconfigured HTTP feedback service remains `503`.
+Decent Account. Submission always re-verifies credentials, with a 30-second
+deadline covering credential reads and the complete upstream response. A timeout
+returns `400`, aborts the verification request, and ignores late replies.
+Account failures take precedence over missing GitHub configuration: `503` only
+applies after successful account verification. Other submission failures remain
+`500`. Trusted-LAN callers use the host's account without separate caller
+authentication.
 After issue creation, Support linking is best-effort: only the returned
 `messageId` is appended to the latest issue body as `**Support message:**`.
 The Support response contract is `{"messageId":67890}`; no user ID is requested

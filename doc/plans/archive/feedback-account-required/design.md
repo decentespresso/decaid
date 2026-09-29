@@ -6,6 +6,14 @@ unverifiable credentials fail closed with a typed account-required result. The
 HTTP handler maps that result to 400. Native and Settings plugin feedback controls
 are only available when logged in; otherwise they explain where to sign in.
 
+Stored-credential verification has a fixed 30-second deadline covering credential
+reads and the complete upstream response. A timeout returns indeterminate,
+aborts the request, and ignores late results so they cannot change authentication
+or trigger a machine refresh. This bounds native submission and HTTP feedback
+without granting access from cached authentication after a verification timeout.
+Account failures return 400 even when the GitHub token is absent; only a verified
+account can reach the configuration failure and receive 503.
+
 Support linking remains best-effort after issue creation. The new response
 contract is a JSON object containing only `messageId`, an integer or a non-empty
 string. The backend identifies the user through the authenticated request, so
@@ -24,7 +32,10 @@ this contract for agreement before merge.
 
 This intentionally replaces the previous HTTP feedback
 boundary: the Settings plugin now uses the host's authenticated Decent account.
+Trusted-LAN callers intentionally do not need separate caller authentication.
 
 The regression tests cover account rejection before GitHub/Gist traffic, HTTP
 statuses, native and plugin visibility, native submission, receipts, and
-preservation of the issue body.
+preservation of the issue body. They also cover stalled credential reads,
+headers, and response bodies, ignore late success after timeout, and exercise
+account failures both with and without GitHub configuration.

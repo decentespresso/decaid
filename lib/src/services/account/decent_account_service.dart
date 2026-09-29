@@ -512,10 +512,24 @@ class DecentAccountService {
     return _authenticated ?? false;
   }
 
-  Future<DecentAccountStatus> verifyStoredCredentialsStatus() async {
+  Future<DecentAccountStatus> verifyStoredCredentialsStatus() {
+    final abort = Completer<void>();
+    return _verifyStoredCredentialsStatus(abort).timeout(
+      const Duration(seconds: 30),
+      onTimeout: () {
+        abort.complete();
+        return DecentAccountStatus.indeterminate;
+      },
+    );
+  }
+
+  Future<DecentAccountStatus> _verifyStoredCredentialsStatus(
+    Completer<void> abort,
+  ) async {
     final generation = _authGeneration;
     final email = await _store.read(key: 'email');
     final password = await _store.read(key: 'password');
+    if (abort.isCompleted) return DecentAccountStatus.indeterminate;
     if (email == null || password == null) {
       _log.info('validation -> no stored credentials (account not linked)');
       if (generation == _authGeneration) {
@@ -527,13 +541,19 @@ class DecentAccountService {
     }
     final http.Response response;
     try {
-      response = await _authedGet(email, password, '/support/api/login_test');
+      response = await _authedGet(
+        email,
+        password,
+        '/support/api/login_test',
+        abortTrigger: abort.future,
+      );
     } catch (_) {
       _log.info('validation -> indeterminate');
       return _authenticated == false
           ? DecentAccountStatus.unauthenticated
           : DecentAccountStatus.indeterminate;
     }
+    if (abort.isCompleted) return DecentAccountStatus.indeterminate;
     final token = response.body.trim();
     final valid =
         response.statusCode == 200 && token.isNotEmpty && token != '0';

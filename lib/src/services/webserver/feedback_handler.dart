@@ -21,14 +21,6 @@ class FeedbackHandler {
 
   Future<Response> _handleSubmitFeedback(Request request) async {
     try {
-      if (!_service.isConfigured) {
-        return jsonServiceUnavailable({
-          'error': 'Service unavailable',
-          'message':
-              'Feedback service is not configured. Build with --dart-define=GITHUB_FEEDBACK_TOKEN=<token>',
-        });
-      }
-
       final body = await readBoundedRequestBodyString(
         request,
         maxBytes: largeRequestBodyBytes,
@@ -46,15 +38,20 @@ class FeedbackHandler {
       final feedbackRequest = FeedbackRequest.fromJson(json);
       final result = await _service.submitFeedback(feedbackRequest);
 
-      if (result.success) {
-        return jsonCreated(result.toJson());
-      } else if (result.failureReason ==
-          FeedbackFailureReason.accountRequired) {
+      if (result.failureReason == FeedbackFailureReason.accountRequired) {
         return jsonBadRequest({
           'success': false,
           'error': 'Decent account required',
           'message': result.errorMessage,
         });
+      } else if (!_service.isConfigured) {
+        return jsonServiceUnavailable({
+          'error': 'Service unavailable',
+          'message':
+              'Feedback service is not configured. Build with --dart-define=GITHUB_FEEDBACK_TOKEN=<token>',
+        });
+      } else if (result.success) {
+        return jsonCreated(result.toJson());
       } else {
         return jsonError(result.toJson());
       }
