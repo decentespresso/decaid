@@ -45,10 +45,10 @@ dependencies:
   universal_ble:
     git:
       url: https://github.com/tadelv/universal_ble.git
-      # Held on this commit (unreleased): confirms link state before the
-      # automatic queue drain, so a stale disconnect update cannot cancel the
-      # current connection's queued GATT work. Re-pin once it is released.
-      ref: 16bbfbce197eb5913c6b16578363f7dc943e605d
+      # Held on this unreleased revision for Android GATT lifecycle hardening:
+      # failed-connect validation, exact ownership until close succeeds, and a
+      # bounded explicit-disconnect fallback. Re-pin once it is released.
+      ref: 7c8b6f86937d039bdec1037be6b627c52fa36845
   shared_preferences: ^2.5.3
   # share_plus HELD at 12.x — 13.x requires win32 ^6, which conflicts with
   # file_picker 11's win32 ^5.9 pin. 13.x is only SDK-floor bumps, no API gain.
