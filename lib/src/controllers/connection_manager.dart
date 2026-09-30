@@ -236,7 +236,7 @@ class ConnectionManager {
       return;
     }
     attempt.cleanupHandled = true;
-    if (!await _retireMachine(attempt.machine) &&
+    if (!await _retireMachine(attempt) &&
         !_quarantinedMachineAttempts.contains(attempt)) {
       _quarantinedMachineAttempts.add(attempt);
     }
@@ -249,7 +249,7 @@ class ConnectionManager {
       return;
     }
     attempt.cleanupHandled = true;
-    if (!await _retireScale(attempt.scale) &&
+    if (!await _retireScale(attempt) &&
         !_quarantinedScaleAttempts.contains(attempt)) {
       _quarantinedScaleAttempts.add(attempt);
     }
@@ -257,24 +257,33 @@ class ConnectionManager {
 
   Future<void> _retryQuarantinedRetirements() async {
     for (final attempt in List.of(_quarantinedMachineAttempts)) {
-      if (await _retireMachine(attempt.machine)) {
+      if (await _retireMachine(attempt)) {
         _quarantinedMachineAttempts.remove(attempt);
       }
     }
     for (final attempt in List.of(_quarantinedScaleAttempts)) {
-      if (await _retireScale(attempt.scale)) {
+      if (await _retireScale(attempt)) {
         _quarantinedScaleAttempts.remove(attempt);
       }
     }
   }
 
-  Future<bool> _retireMachine(De1Interface machine) async {
+  Future<bool> _retireMachine(_MachineConnectAttempt attempt) async {
+    final machine = attempt.machine;
     try {
+      final replacement = _machineAttempt;
       final adopted = await de1Controller.de1.first;
-      if (adopted != null &&
+      final sameLinkReplacement =
+          replacement != null &&
+          !identical(replacement, attempt) &&
+          replacement.machine.deviceId == machine.deviceId &&
+          replacement.transportType == machine.transportType;
+      final sameLinkAdopted =
+          adopted != null &&
           !identical(adopted, machine) &&
           adopted.deviceId == machine.deviceId &&
-          adopted.transportType == machine.transportType) {
+          adopted.transportType == machine.transportType;
+      if (sameLinkReplacement || sameLinkAdopted) {
         _log.info(
           'Deferred retirement (same-link replacement): ${machine.deviceId}',
         );
@@ -303,16 +312,25 @@ class ConnectionManager {
     }
   }
 
-  Future<bool> _retireScale(Scale scale) async {
+  Future<bool> _retireScale(_ScaleConnectAttempt attempt) async {
+    final scale = attempt.scale;
     try {
+      final replacement = _scaleAttempt;
       Scale? adopted;
       try {
         adopted = scaleController.connectedScale();
       } catch (_) {}
-      if (adopted != null &&
+      final sameLinkReplacement =
+          replacement != null &&
+          !identical(replacement, attempt) &&
+          replacement.deviceId == scale.deviceId &&
+          replacement.transportType == scale.transportType;
+      final sameLinkAdopted =
+          adopted != null &&
           !identical(adopted, scale) &&
           adopted.deviceId == scale.deviceId &&
-          adopted.transportType == scale.transportType) {
+          adopted.transportType == scale.transportType;
+      if (sameLinkReplacement || sameLinkAdopted) {
         _log.info(
           'Deferred retirement (same-link replacement): ${scale.deviceId}',
         );

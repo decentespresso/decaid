@@ -130,6 +130,62 @@ class _TransportDe1 extends _FakeDe1 {
   TransportType get transportType => transport;
 }
 
+/// One physical link per device ID, as `UniversalBle.disconnect(deviceId)` plus
+/// the per-device `BleLifecycleGate` behave: disconnecting any instance tears
+/// the link down for every instance of that device.
+class _SharedDeviceLink {
+  bool tornDown = false;
+}
+
+class _SharedLinkDe1 extends _FakeDe1 {
+  _SharedLinkDe1({required super.deviceId, required this.link});
+
+  final _SharedDeviceLink link;
+  final Completer<void> started = Completer<void>();
+  final Completer<void> proceed = Completer<void>();
+
+  @override
+  TransportType get transportType => TransportType.ble;
+
+  @override
+  Future<void> onConnect() async {
+    started.complete();
+    await proceed.future;
+    if (link.tornDown) throw StateError('shared link torn down');
+  }
+
+  @override
+  Future<void> disconnect() async {
+    link.tornDown = true;
+    await super.disconnect();
+  }
+}
+
+class _SharedLinkScale extends TestScale {
+  _SharedLinkScale({required super.deviceId, required this.link});
+
+  final _SharedDeviceLink link;
+  final Completer<void> started = Completer<void>();
+  final Completer<void> proceed = Completer<void>();
+
+  @override
+  TransportType get transportType => TransportType.ble;
+
+  @override
+  Future<void> onConnect() async {
+    started.complete();
+    await proceed.future;
+    if (link.tornDown) throw StateError('shared link torn down');
+    setConnectionState(ConnectionState.connected);
+  }
+
+  @override
+  Future<void> disconnect() async {
+    link.tornDown = true;
+    setConnectionState(ConnectionState.disconnected);
+  }
+}
+
 class _FakeSimulatedDe1 extends _FakeDe1 implements SimulatedDevice {
   _FakeSimulatedDe1({super.deviceId = 'MockDe1'});
 }
@@ -679,6 +735,67 @@ void main() {
           await connecting;
           expect(old.disconnectCalls, 0);
           expect(realDe1Controller.connectedDe1OrNull, same(replacement));
+        },
+      );
+
+      test(
+        'stale same-link machine leaves a pending replacement link intact',
+        () async {
+          await createManager(timeout: const Duration(seconds: 1));
+          final link = _SharedDeviceLink();
+          final stale = _SharedLinkDe1(
+            deviceId: 'shared-link-machine',
+            link: link,
+          );
+          final replacement = _SharedLinkDe1(
+            deviceId: 'shared-link-machine',
+            link: link,
+          );
+
+          final connecting = manager.connectMachine(stale);
+          await stale.started.future;
+          await manager.disconnectMachine();
+          final replacing = manager.connectMachine(replacement);
+          await replacement.started.future;
+
+          stale.proceed.complete();
+          expect((await connecting).outcome, ConnectionOutcome.conflict);
+          expect(stale.disconnectCalls, 0);
+          expect(link.tornDown, isFalse);
+
+          replacement.proceed.complete();
+          expect((await replacing).success, isTrue);
+          expect(realDe1Controller.connectedDe1OrNull, same(replacement));
+        },
+      );
+
+      test(
+        'stale same-link scale leaves a pending replacement link intact',
+        () async {
+          await createManager(timeout: const Duration(seconds: 1));
+          final link = _SharedDeviceLink();
+          final stale = _SharedLinkScale(
+            deviceId: 'shared-link-scale',
+            link: link,
+          );
+          final replacement = _SharedLinkScale(
+            deviceId: 'shared-link-scale',
+            link: link,
+          );
+
+          final connecting = manager.connectScale(stale);
+          await stale.started.future;
+          await manager.disconnectScale();
+          final replacing = manager.connectScale(replacement);
+          await replacement.started.future;
+
+          stale.proceed.complete();
+          expect((await connecting).outcome, ConnectionOutcome.conflict);
+          expect(link.tornDown, isFalse);
+
+          replacement.proceed.complete();
+          expect((await replacing).success, isTrue);
+          expect(realScaleController.connectedScale(), same(replacement));
         },
       );
 
