@@ -417,9 +417,10 @@ still running cannot adopt the late candidate.
 Invalidating an attempt releases admission immediately; a replacement connect
 is admitted without waiting for the stale source to settle. The stale attempt's
 record drives its own settlement and cleanup:
-it retires the exact device instance it attempted once its source work settles
-and it had reached a transport connection, which covers a candidate that was
-already adopted before a preference write finished.
+it retires the exact device instance it attempted once its source work settles,
+including when the source throws after opening a physical link and before
+controller adoption, or when a candidate was already adopted before a
+preference write finished. Cleanup cannot start while the source is pending.
 Retirement is deferred for a same-link replacement: a different adopted
 instance, or a newer current attempt, with the same device ID and transport
 type, since they may share one physical link; that is logged as a deferred

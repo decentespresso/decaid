@@ -79,7 +79,6 @@ class _MachineConnectAttempt {
   final bool scanOwned;
   bool invalidated = false;
   bool sourcePending = true;
-  bool sourceConnected = false;
   bool cleanupHandled = false;
   bool linkRetired = false;
   final List<_MachineConnectAttempt> deferredRetirements = [];
@@ -99,7 +98,6 @@ class _ScaleConnectAttempt {
   final bool scanOwned;
   bool invalidated = false;
   bool sourcePending = true;
-  bool sourceConnected = false;
   bool cleanupHandled = false;
   bool linkRetired = false;
   final List<_ScaleConnectAttempt> deferredRetirements = [];
@@ -235,7 +233,7 @@ class ConnectionManager {
 
   Future<void> _retireInvalidatedMachine(_MachineConnectAttempt attempt) async {
     if (!attempt.invalidated ||
-        !attempt.sourceConnected ||
+        attempt.sourcePending ||
         attempt.cleanupHandled) {
       return;
     }
@@ -248,7 +246,7 @@ class ConnectionManager {
 
   Future<void> _retireInvalidatedScale(_ScaleConnectAttempt attempt) async {
     if (!attempt.invalidated ||
-        !attempt.sourceConnected ||
+        attempt.sourcePending ||
         attempt.cleanupHandled) {
       return;
     }
@@ -415,7 +413,6 @@ class ConnectionManager {
   Future<void> _connectMachineSource(_MachineConnectAttempt attempt) async {
     try {
       await de1Controller.connectToDe1(attempt.machine);
-      attempt.sourceConnected = true;
     } finally {
       attempt.sourcePending = false;
       await _retireInvalidatedMachine(attempt);
@@ -426,7 +423,6 @@ class ConnectionManager {
   Future<void> _connectScaleSource(_ScaleConnectAttempt attempt) async {
     try {
       await scaleController.connectToScale(attempt.scale);
-      attempt.sourceConnected = true;
     } finally {
       attempt.sourcePending = false;
       await _retireInvalidatedScale(attempt);

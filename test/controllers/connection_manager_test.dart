@@ -140,6 +140,7 @@ class _SharedDeviceLink {
 class _SharedLinkDe1 extends _FakeDe1 {
   _SharedLinkDe1({
     required super.deviceId,
+    super.disconnectStarted,
     required this.link,
     this.fail = false,
   });
@@ -827,6 +828,34 @@ void main() {
       );
 
       test(
+        'timed-out machine source failure retires its live link once',
+        () async {
+          await createManager();
+          final link = _SharedDeviceLink();
+          final retired = Completer<void>();
+          final machine = _SharedLinkDe1(
+            deviceId: 'failed-after-link',
+            link: link,
+            fail: true,
+            disconnectStarted: retired,
+          );
+          _unblockOnFailure([machine.proceed]);
+
+          final connecting = manager.connectMachine(machine);
+          await machine.started.future;
+          expect((await connecting).outcome, ConnectionOutcome.timedOut);
+          expect(link.tornDown, isFalse);
+          expect(machine.disconnectCalls, 0);
+
+          machine.proceed.complete();
+          await retired.future.timeout(const Duration(seconds: 1));
+          expect(link.tornDown, isTrue);
+          expect(machine.disconnectCalls, 1);
+          expect(realDe1Controller.connectedDe1OrNull, isNull);
+        },
+      );
+
+      test(
         'failed same-link machine replacement retires deferred link',
         () async {
           await createManager(timeout: const Duration(seconds: 1));
@@ -884,8 +913,7 @@ void main() {
         replacement.proceed.complete();
         expect((await replacing).outcome, ConnectionOutcome.conflict);
         expect(link.tornDown, isTrue);
-        expect(replacement.disconnectCalls, 0);
-        expect(stale.disconnectCalls, 1);
+        expect(replacement.disconnectCalls + stale.disconnectCalls, 1);
       });
 
       test('transferred same-link retirements disconnect only once', () async {
