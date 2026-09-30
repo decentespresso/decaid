@@ -191,6 +191,10 @@ class De1Controller {
     _connectionGeneration++;
   }
 
+  void retireConnectedDevice(De1Interface device) {
+    if (identical(_de1, device)) _onDisconnect();
+  }
+
   void adoptDevice(De1Interface de1Interface) {
     if (de1Interface == _de1) {
       _log.fine('adoptDevice: already connected to this device, exit early');

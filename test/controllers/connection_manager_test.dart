@@ -46,6 +46,7 @@ class _FakeDe1 implements De1Interface {
   final Object? disconnectError;
   final Completer<void>? disconnectStarted;
   final Completer<void>? disconnectCompleter;
+  int disconnectCalls = 0;
 
   @override
   DeviceType get type => DeviceType.machine;
@@ -87,6 +88,7 @@ class _FakeDe1 implements De1Interface {
 
   @override
   Future<void> disconnect() async {
+    disconnectCalls++;
     disconnectOrder?.add('machine');
     if (disconnectStarted != null && !disconnectStarted!.isCompleted) {
       disconnectStarted!.complete();
@@ -100,7 +102,15 @@ class _FakeDe1 implements De1Interface {
 }
 
 class _BlockingDe1 extends _FakeDe1 {
-  _BlockingDe1({super.deviceId});
+  _BlockingDe1({
+    super.deviceId,
+    super.disconnectError,
+    this.sourceTransport = TransportType.unknown,
+  });
+
+  final TransportType sourceTransport;
+  @override
+  TransportType get transportType => sourceTransport;
 
   final started = Completer<void>();
   final proceed = Completer<void>();
@@ -110,6 +120,14 @@ class _BlockingDe1 extends _FakeDe1 {
     started.complete();
     await proceed.future;
   }
+}
+
+class _TransportDe1 extends _FakeDe1 {
+  _TransportDe1({required super.deviceId, required this.transport});
+
+  final TransportType transport;
+  @override
+  TransportType get transportType => transport;
 }
 
 class _FakeSimulatedDe1 extends _FakeDe1 implements SimulatedDevice {
@@ -142,12 +160,21 @@ class _BlockingScale extends TestScale {
 
   final Completer<void> started = Completer<void>();
   final Completer<void> proceed = Completer<void>();
+  final Completer<void> retired = Completer<void>();
+  int disconnectCalls = 0;
 
   @override
   Future<void> onConnect() async {
     started.complete();
     await proceed.future;
     setConnectionState(ConnectionState.connected);
+  }
+
+  @override
+  Future<void> disconnect() async {
+    disconnectCalls++;
+    setConnectionState(ConnectionState.disconnected);
+    if (!retired.isCompleted) retired.complete();
   }
 }
 
@@ -442,6 +469,7 @@ void main() {
         machine.proceed.complete();
         await Future<void>.delayed(Duration.zero);
         expect(realDe1Controller.connectedDe1OrNull, isNull);
+        expect(machine.disconnectCalls, 1);
         expect(settingsController.preferredMachineId, isNull);
       });
 
@@ -453,6 +481,7 @@ void main() {
         expect((await connecting).outcome, ConnectionOutcome.timedOut);
         scale.proceed.complete();
         await Future<void>.delayed(Duration.zero);
+        expect(scale.disconnectCalls, 1);
         expect(
           () => realScaleController.connectedScale(),
           throwsA(isA<DeviceNotConnectedException>()),
@@ -464,21 +493,223 @@ void main() {
         'cancelled machine cannot replace a new same-device attempt',
         () async {
           await createManager(timeout: const Duration(seconds: 1));
-          final old = _BlockingDe1(deviceId: 'same-machine');
-          final replacement = _FakeDe1(deviceId: 'same-machine');
-          final cancelled = manager.connectMachine(old);
+          final old = _BlockingDe1(
+            deviceId: 'same-machine',
+            sourceTransport: TransportType.ble,
+          );
+          final replacement = _TransportDe1(
+            deviceId: 'same-machine',
+            transport: TransportType.ble,
+          );
+          mockScanner.addDevice(old);
+          final cancelled = manager.scanAndConnect();
           await old.started.future;
           manager.cancelActiveScan();
-          final result = await manager.connectMachine(replacement);
-          if (!result.success) {
-            old.proceed.complete();
-            await cancelled;
-          }
-          expect(result.success, isTrue);
+
+          expect((await manager.connectMachine(replacement)).success, isTrue);
+          expect(realDe1Controller.connectedDe1OrNull, same(replacement));
+
           old.proceed.complete();
           await cancelled;
-          await Future<void>.delayed(Duration.zero);
           expect(realDe1Controller.connectedDe1OrNull, same(replacement));
+          expect(old.disconnectCalls, 0);
+        },
+      );
+
+      test(
+        'cancelling a scan leaves an unrelated direct connect alone',
+        () async {
+          await createManager(timeout: const Duration(seconds: 1));
+          final machine = _BlockingDe1();
+          final connecting = manager.connectMachine(machine);
+          await machine.started.future;
+          manager.cancelActiveScan();
+          machine.proceed.complete();
+          expect((await connecting).success, isTrue);
+          expect(machine.disconnectCalls, 0);
+          expect(realDe1Controller.connectedDe1OrNull, same(machine));
+        },
+      );
+
+      test('cancelling an owned scan retires its pending machine', () async {
+        await createManager(timeout: const Duration(seconds: 1));
+        final machine = _BlockingDe1();
+        mockScanner.addDevice(machine);
+        final scan = manager.scanAndConnect();
+        await machine.started.future;
+        manager.cancelActiveScan();
+        machine.proceed.complete();
+        await scan;
+        expect(machine.disconnectCalls, 1);
+        expect(realDe1Controller.connectedDe1OrNull, isNull);
+      });
+
+      test(
+        'cancelling a session leaves an unrelated direct connect alone',
+        () async {
+          await createManager(timeout: const Duration(seconds: 1));
+          mockScanner.addDevice(_FakeDe1(deviceId: 'picker-a'));
+          mockScanner.addDevice(_FakeDe1(deviceId: 'picker-b'));
+          await manager.scanAndConnect();
+          expect(
+            manager.currentStatus.pendingAmbiguity,
+            AmbiguityReason.machinePicker,
+          );
+          final machine = _BlockingDe1(deviceId: 'direct-machine');
+          final connecting = manager.connectMachine(machine);
+          await machine.started.future;
+          manager.cancelSelectionSession();
+          machine.proceed.complete();
+          expect((await connecting).success, isTrue);
+          expect(machine.disconnectCalls, 0);
+          expect(realDe1Controller.connectedDe1OrNull, same(machine));
+        },
+      );
+
+      test(
+        'cancelling a session without one leaves direct connect alone',
+        () async {
+          await createManager(timeout: const Duration(seconds: 1));
+          final scale = _BlockingScale('direct-scale');
+          final connecting = manager.connectScale(scale);
+          await scale.started.future;
+          manager.cancelSelectionSession();
+          scale.proceed.complete();
+          expect((await connecting).success, isTrue);
+          expect(scale.disconnectCalls, 0);
+          expect(realScaleController.connectedScale(), same(scale));
+        },
+      );
+
+      test(
+        'cancelled scan retires an adopted machine after preference await',
+        () async {
+          final service = _BlockingPreferencesService();
+          final settings = SettingsController(service);
+          await settings.loadSettings();
+          await createManager(
+            settings: settings,
+            timeout: const Duration(seconds: 1),
+          );
+          final machine = _BlockingDe1();
+          mockScanner.addDevice(machine);
+          final scan = manager.scanAndConnect();
+          await machine.started.future;
+          machine.proceed.complete();
+          await service.machineStarted.future;
+          manager.cancelActiveScan();
+          service.machineProceed.complete();
+          await scan;
+          expect(machine.disconnectCalls, 1);
+          expect(realDe1Controller.connectedDe1OrNull, isNull);
+          expect(
+            manager.currentStatus.error?.kind,
+            isNot(ConnectionErrorKind.machineDisconnected),
+          );
+        },
+      );
+
+      test(
+        'cancelled scan retires an adopted scale after preference await',
+        () async {
+          final service = _BlockingPreferencesService();
+          final settings = SettingsController(service);
+          await settings.loadSettings();
+          await createManager(
+            settings: settings,
+            timeout: const Duration(seconds: 1),
+          );
+          final scale = _BlockingScale('late-preference-scale');
+          mockScanner.addDevice(scale);
+          final scan = manager.scanAndConnect();
+          await scale.started.future;
+          scale.proceed.complete();
+          await service.scaleStarted.future;
+          manager.cancelActiveScan();
+          service.scaleProceed.complete();
+          await scan;
+          expect(scale.disconnectCalls, 1);
+          expect(
+            () => realScaleController.connectedScale(),
+            throwsA(isA<DeviceNotConnectedException>()),
+          );
+        },
+      );
+
+      test(
+        'same-deviceId different-transport adoption retires the stale link',
+        () async {
+          await createManager(timeout: const Duration(seconds: 1));
+          final old = _BlockingDe1(
+            deviceId: 'same-id',
+            sourceTransport: TransportType.ble,
+          );
+          final usb = _TransportDe1(
+            deviceId: 'same-id',
+            transport: TransportType.serial,
+          );
+          final connecting = manager.connectMachine(old);
+          await old.started.future;
+          await manager.disconnectMachine();
+          realDe1Controller.adoptDevice(usb);
+          old.proceed.complete();
+          await connecting;
+          expect(old.disconnectCalls, 1);
+          expect(realDe1Controller.connectedDe1OrNull, same(usb));
+        },
+      );
+
+      test(
+        'same-ID same-transport adoption preserves the replacement',
+        () async {
+          await createManager(timeout: const Duration(seconds: 1));
+          final old = _BlockingDe1(
+            deviceId: 'same-id',
+            sourceTransport: TransportType.ble,
+          );
+          final replacement = _TransportDe1(
+            deviceId: 'same-id',
+            transport: TransportType.ble,
+          );
+          final connecting = manager.connectMachine(old);
+          await old.started.future;
+          await manager.disconnectMachine();
+          realDe1Controller.adoptDevice(replacement);
+          old.proceed.complete();
+          await connecting;
+          expect(old.disconnectCalls, 0);
+          expect(realDe1Controller.connectedDe1OrNull, same(replacement));
+        },
+      );
+
+      test(
+        'failed stale retirement is quarantined without blocking admission',
+        () async {
+          await createManager(timeout: const Duration(seconds: 1));
+          final old = _BlockingDe1(
+            deviceId: 'stuck-link',
+            disconnectError: StateError('retire failed'),
+          );
+          final connecting = manager.connectMachine(old);
+          await old.started.future;
+          await manager.disconnectMachine();
+          old.proceed.complete();
+          await connecting;
+
+          expect(old.disconnectCalls, 1);
+          expect(
+            manager.currentStatus.error?.kind,
+            ConnectionErrorKind.machineConnectFailed,
+          );
+          expect(
+            (await manager.connectMachine(
+              _FakeDe1(deviceId: 'replacement'),
+            )).success,
+            isTrue,
+          );
+
+          await manager.disconnectMachine();
+          expect(old.disconnectCalls, 2);
         },
       );
 
@@ -490,6 +721,7 @@ void main() {
         mockScanner.mockAdapterState(AdapterState.poweredOff);
         scale.proceed.complete();
         expect((await connecting).outcome, ConnectionOutcome.conflict);
+        expect(scale.disconnectCalls, 1);
         expect(
           () => realScaleController.connectedScale(),
           throwsA(isA<DeviceNotConnectedException>()),
@@ -500,9 +732,11 @@ void main() {
         await createManager(timeout: const Duration(seconds: 1));
         final old = _BlockingScale('same-scale');
         final replacement = _BlockingScale('same-scale');
-        final cancelled = manager.connectScale(old);
+        mockScanner.addDevice(old);
+        final cancelled = manager.scanAndConnect();
         await old.started.future;
         manager.cancelActiveScan();
+
         final replacing = manager.connectScale(replacement);
         await Future<void>.delayed(Duration.zero);
         if (!replacement.started.isCompleted) {
@@ -540,7 +774,7 @@ void main() {
           );
           final connecting = manager.connectMachine(_FakeDe1());
           await service.machineStarted.future;
-          manager.cancelActiveScan();
+          await manager.disconnectMachine();
           service.machineProceed.complete();
           expect((await connecting).outcome, ConnectionOutcome.conflict);
         },
@@ -556,7 +790,7 @@ void main() {
         );
         final connecting = manager.connectScale(TestScale());
         await service.scaleStarted.future;
-        manager.cancelActiveScan();
+        await manager.disconnectScale();
         service.scaleProceed.complete();
         expect((await connecting).outcome, ConnectionOutcome.conflict);
       });
@@ -574,6 +808,7 @@ void main() {
           expect(finished, isFalse);
           machine.proceed.complete();
           await Future.wait([connecting, shutdown]);
+          expect(machine.disconnectCalls, 1);
           expect(realDe1Controller.connectedDe1OrNull, isNull);
           expect(finished, isTrue);
         },

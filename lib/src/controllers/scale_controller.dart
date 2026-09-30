@@ -101,6 +101,13 @@ class ScaleController {
     _connectionGeneration++;
   }
 
+  void retireConnectedScale(Scale scale) {
+    if (identical(_scale, scale)) {
+      _onDisconnect();
+      _connectionController.add(ConnectionState.disconnected);
+    }
+  }
+
   Future<void> _releaseSnapshotSubscription(
     StreamSubscription<ScaleSnapshot> subscription,
   ) async {

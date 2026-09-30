@@ -104,6 +104,7 @@ class MockConnectionManager extends ConnectionManager {
   Future<ConnectionResult> connectMachine(
     De1Interface machine, {
     bool automatic = false,
+    bool scanOwned = false,
   }) async {
     connectMachineCallCount++;
     if (shouldFailMachineConnect) {
@@ -144,6 +145,7 @@ class MockConnectionManager extends ConnectionManager {
   Future<ConnectionResult> connectScale(
     device_scale.Scale scale, {
     ScaleConnectionRole role = ScaleConnectionRole.primary,
+    bool scanOwned = false,
   }) async => const ConnectionResult.succeeded();
 
   @override

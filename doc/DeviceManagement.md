@@ -405,6 +405,37 @@ List<Device> get devices =>
 
 The ConnectionManager is the centralized orchestrator for all device connection decisions. It replaces the previously scattered auto-connect logic that was spread across DeviceController, ScaleController, and De1StateManager.
 
+### Pending connect attempts
+
+Machine and primary-scale connects each carry their own attempt record: the
+attempted device instance, its device ID and transport type, a scan/session
+owner, and invalidated/source-pending flags. The device controller checks its
+connection generation after source connect and scale readiness before
+publishing a candidate, so an attempt invalidated while its source work was
+still running cannot adopt the late candidate.
+
+Invalidating an attempt releases admission immediately; a replacement connect
+is admitted without waiting for the stale source to settle. The stale attempt's
+record drives its own settlement and cleanup:
+it retires the exact device instance it attempted once its source work settles
+and it had reached a transport connection, which covers a candidate that was
+already adopted before a preference write finished.
+Retirement is deferred only for a different adopted instance with the same
+device ID and transport type, since both may share one physical link; that is
+logged as a deferred same-link replacement and the attempt is released. A
+different device ID or transport type is retired independently. If disconnect
+fails, the attempt is quarantined, the failure is reported, and an explicit
+disconnect retries retirement; a quarantined attempt never blocks a new
+connect. Shutdown waits for pending source work and retirement before teardown.
+
+Timeout, cancellation from the scan or selection session that owns the attempt,
+adapter loss for a BLE attempt, explicit disconnect, and shutdown invalidate
+pending attempts. Cancelling a scan or selection session only invalidates the
+attempt it owns, so an unrelated direct REST/WS or background watch connect
+survives the cancellation. The coordinated USB attach handover retains its
+separate adopt-then-release path. An already-started preference-service write
+is not cancelled by an attempt fence.
+
 ### Connection Status
 
 ConnectionManager exposes a `ConnectionStatus` stream driven by the
