@@ -69,6 +69,14 @@ a `ConnectionSelectionSession` holds the immutable scan snapshot.
 `selectMachine()` and `selectScale()` continue the session against the
 session-owned canonical candidates — no new scan fires.
 
+After a sleeping-to-awake transition, when the preferred scale is missing and
+background ScaleWatch owns reacquisition, `ConnectionManager` protects the
+watch for the existing three-second wake window. REST/WS explicit scans
+(including discovery-only requests) coalesce into one deferred request rather
+than pausing the watch. A successful scale reconnect or machine disconnect
+drops that request; otherwise it runs after the window and any active
+connection work. Machine recovery is never deferred by this scale lease.
+
 ### `scaleOnly` / scale recovery
 
 Triggered by the background scale watch, deferred scale scan, and queued

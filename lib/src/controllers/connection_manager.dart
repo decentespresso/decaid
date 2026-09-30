@@ -190,6 +190,8 @@ class ConnectionManager {
   Completer<void>? _queuedScaleOnly;
 
   Completer<void>? _queuedExplicitScan;
+  Timer? _postWakeScaleLease;
+  Future<void> Function()? _queuedScanOnly;
   bool _adapterRecoveryQueued = false;
   bool _adapterRecoveryNeeded = false;
   int _adapterRecoveryEpoch = 0;
@@ -810,6 +812,90 @@ class ConnectionManager {
         : ConnectionAttemptPolicy.automatic,
   );
 
+  bool get connectionWorkActive => _isConnecting || _activeConnectionWork > 0;
+
+  String explicitScanDisposition({required bool connect}) {
+    if (_postWakeScaleLease != null) {
+      return _queuedExplicitScan == null ? 'queued' : 'coalesced';
+    }
+    if (connect && _queuedExplicitScan != null) return 'coalesced';
+    if (connect && _isConnecting) return 'superseding/stopping';
+    if (!connect && deviceScanner.isScanning) return 'coalesced';
+    return 'started';
+  }
+
+  Future<void> requestExternalScan({
+    required bool connect,
+    Future<void> Function()? scanOnly,
+  }) {
+    if (!connect && scanOnly == null) {
+      throw ArgumentError('scanOnly is required for discovery-only scans');
+    }
+    if (_postWakeScaleLease != null) {
+      final alreadyQueued = _queuedExplicitScan != null;
+      final queued = _queuedExplicitScan ??= Completer<void>();
+      if (!alreadyQueued) _queuedScanOnly = connect ? null : scanOnly;
+      if (connect) _queuedScanOnly = null;
+      _log.info(
+        'Client explicit scan ${alreadyQueued ? "coalesced" : "queued"} '
+        'behind post-wake preferred-scale watch',
+      );
+      return queued.future;
+    }
+    return connect ? scanAndConnect() : scanOnly!();
+  }
+
+  void _endPostWakeScaleLease({required bool runDeferred}) {
+    if (runDeferred &&
+        _queuedExplicitScan != null &&
+        _activeConnectionWork > 0) {
+      final lease = _postWakeScaleLease;
+      unawaited(
+        _connectionWorkDone!.future.then((_) {
+          if (identical(_postWakeScaleLease, lease)) {
+            _endPostWakeScaleLease(runDeferred: true);
+          }
+        }),
+      );
+      return;
+    }
+    _postWakeScaleLease?.cancel();
+    _postWakeScaleLease = null;
+    final queued = _queuedExplicitScan;
+    _queuedExplicitScan = null;
+    final scanOnly = _queuedScanOnly;
+    _queuedScanOnly = null;
+    if (queued == null) return;
+    if (!runDeferred ||
+        _scaleConnected ||
+        !_machineConnected ||
+        settingsController.preferredScaleId == null) {
+      _log.info(
+        'Dropping deferred client scan: '
+        '${_scaleConnected ? "scale connected" : "machine unavailable or recovery cancelled"}',
+      );
+      queued.complete();
+      return;
+    }
+    unawaited(() async {
+      try {
+        if (_shuttingDown || _scaleConnected || !_machineConnected) {
+          queued.complete();
+          return;
+        }
+        _log.info('Post-wake lease ended; running one deferred client scan');
+        if (scanOnly != null) {
+          await scanOnly();
+        } else {
+          await scanAndConnect();
+        }
+        queued.complete();
+      } catch (e, st) {
+        queued.completeError(e, st);
+      }
+    }());
+  }
+
   Future<void> scanAndConnect() async {
     if (_shuttingDown) return;
     if (_queuedExplicitScan != null) {
@@ -886,7 +972,7 @@ class ConnectionManager {
     } finally {
       while (!_shuttingDown &&
           (_pendingAttachAttempt ||
-              _queuedExplicitScan != null ||
+              (_queuedExplicitScan != null && _postWakeScaleLease == null) ||
               _adapterRecoveryQueued ||
               _queuedScaleOnly != null)) {
         if (_pendingAttachAttempt) {
@@ -908,7 +994,7 @@ class ConnectionManager {
           continue;
         }
 
-        if (_queuedExplicitScan != null) {
+        if (_queuedExplicitScan != null && _postWakeScaleLease == null) {
           final drain = _queuedExplicitScan!;
           _queuedExplicitScan = null;
           try {
@@ -1409,6 +1495,9 @@ class ConnectionManager {
   }
 
   void _cancelScaleReacquisition({bool resetFailures = true}) {
+    if (_scaleConnected && _postWakeScaleLease != null) {
+      _endPostWakeScaleLease(runDeferred: false);
+    }
     unawaited(
       _cancelScaleReacquisitionAndWait(resetFailures: resetFailures).catchError(
         (e, st) =>
@@ -1479,6 +1568,7 @@ class ConnectionManager {
   }
 
   void _handleMachineDisconnected() {
+    _endPostWakeScaleLease(runDeferred: false);
     _cancelSelectionSession(emitReport: true);
     _stopMachineRecovery();
     _stopWatchingConnectedMachineState();
@@ -1559,6 +1649,9 @@ class ConnectionManager {
         _armStateWatchdog(machine.deviceId);
         final state = snapshot.state.state;
         if (_latestMachineState == state) return;
+        final waking =
+            _latestMachineState == MachineState.sleeping &&
+            state != MachineState.sleeping;
         _latestMachineState = state;
         if (state != MachineState.sleeping) _scaleSleepRequested = false;
         if (_scaleReconnectBlockedByPowerMode) {
@@ -1569,6 +1662,21 @@ class ConnectionManager {
           _pauseScaleReconnectForPowerMode();
         } else {
           _ensureScaleReacquisition();
+          if (waking &&
+              _shouldRetryPreferredScale() &&
+              supportsBackgroundScaleWatch &&
+              _scaleWatch.hasPendingRequest &&
+              !_isConnecting) {
+            _postWakeScaleLease?.cancel();
+            _log.info(
+              'Protecting post-wake preferred-scale watch for '
+              '${deferredScaleScanDelay.inSeconds}s',
+            );
+            _postWakeScaleLease = Timer(
+              deferredScaleScanDelay,
+              () => _endPostWakeScaleLease(runDeferred: true),
+            );
+          }
         }
       },
       onError: (Object e, StackTrace st) {
@@ -2206,6 +2314,7 @@ class ConnectionManager {
     _cancelSelectionSession(emitReport: false);
     _stopMachineRecovery();
     _stopWatchingConnectedMachineState();
+    _endPostWakeScaleLease(runDeferred: false);
     _deferredScaleScan?.cancel();
     _deferredScaleScan = null;
     _adapterRecoveryEpoch++;

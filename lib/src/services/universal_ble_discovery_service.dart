@@ -257,7 +257,10 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     final requestGeneration = ++_watchRequestGeneration;
     if (_isScanning) {
       _setWatchState(DeviceWatchState.queued);
-      log.fine('Burst scan in flight; watch starts when it completes');
+      log.info(
+        'Watch resume queued: owner=${_scanOwner.name} '
+        'phase=${_scanPhase.name}',
+      );
       return DeviceWatchStartResult.queuedBehindBurst;
     }
     try {
@@ -270,8 +273,16 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
         _scanPhase = BleScanPhase.faulted;
         _setWatchState(DeviceWatchState.faulted);
       }
+      log.info(
+        'Watch resume failed: owner=${_scanOwner.name} '
+        'phase=${_scanPhase.name}',
+      );
       return DeviceWatchStartResult.failed;
     }
+    log.info(
+      'Watch resume ${_watchScanActive ? "ok" : "queued"}: '
+      'owner=${_scanOwner.name} phase=${_scanPhase.name}',
+    );
     return _watchScanActive
         ? DeviceWatchStartResult.active
         : DeviceWatchStartResult.queuedBehindBurst;
@@ -487,13 +498,32 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
             _scanPhase != BleScanPhase.stopping)) {
       return;
     }
-    log.fine('Pausing background watch for burst scan');
+    log.info(
+      'Watch pause requested for burst: owner=${_scanOwner.name} '
+      'phase=${_scanPhase.name}',
+    );
     await _deactivateWatchScan(stopOsScan: true, context: 'watch-pause');
+    log.info(
+      'Watch paused for burst: owner=${_scanOwner.name} '
+      'phase=${_scanPhase.name}',
+    );
   }
 
   Future<void> _resumeWatchAfterBurst() async {
     if (_watchRequested == null) return;
+    log.info(
+      'Watch resume requested: owner=${_scanOwner.name} '
+      'phase=${_scanPhase.name}',
+    );
     await _restartWatchOrReportFailure('post-burst resume');
+    log.info(
+      'Watch resume ${_watchScanActive
+          ? "ok"
+          : _watchRequested == null
+          ? "failed"
+          : "queued"}: '
+      'owner=${_scanOwner.name} phase=${_scanPhase.name}',
+    );
   }
 
   void _onAdapterStateForWatch(AdapterState state) {
@@ -803,6 +833,10 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
 
     _scanOwner = BleScanOwner.burst;
     _scanPhase = BleScanPhase.starting;
+    log.info(
+      'Burst acquisition: owner=${_scanOwner.name} '
+      'phase=${_scanPhase.name}',
+    );
     _advanceScanGeneration();
     final generation = _scanGeneration;
     _scanStopError = null;
@@ -850,6 +884,10 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
         throw StateError('BLE scan ownership is faulted');
       }
       _scanPhase = BleScanPhase.active;
+      log.info(
+        'Burst started: owner=${_scanOwner.name} '
+        'phase=${_scanPhase.name}',
+      );
 
       try {
         final systemDevices = await UniversalBle.getSystemDevices(
@@ -884,6 +922,10 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
         _scanOwner = BleScanOwner.none;
         _scanPhase = faulted ? BleScanPhase.faulted : BleScanPhase.idle;
       }
+      log.info(
+        'Burst ended: owner=${_scanOwner.name} '
+        'phase=${_scanPhase.name}',
+      );
       if (!faulted) await _resumeWatchAfterBurst();
     }
   }

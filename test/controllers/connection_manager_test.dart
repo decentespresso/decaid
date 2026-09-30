@@ -3604,6 +3604,203 @@ void main() {
         );
       });
 
+      test('post-wake watch lease coalesces client scans and expires once', () {
+        fakeAsync((async) {
+          final manager = buildWatchManager();
+          manager.deferredScaleScanDelay = const Duration(seconds: 3);
+          settingsController.setPreferredScaleId(scaleId);
+          async.flushMicrotasks();
+          final machine = _FakeDe1();
+          mockDe1Controller.de1Subject.add(machine);
+          async.flushMicrotasks();
+          machine.emitState(MachineState.sleeping);
+          async.flushMicrotasks();
+          machine.emitState(MachineState.idle);
+          async.flushMicrotasks();
+          expect(mockScanner.watchActive, isTrue);
+          expect(mockScanner.scanCallCount, 0);
+
+          final stopsBefore = mockScanner.stopScanCallCount;
+          final watchStopsBefore = mockScanner.stopWatchCallCount;
+          manager.requestExternalScan(connect: true);
+          manager.requestExternalScan(connect: true);
+          manager.requestExternalScan(connect: true);
+          async.flushMicrotasks();
+          expect(mockScanner.stopWatchCallCount, watchStopsBefore);
+          expect(mockScanner.stopScanCallCount, stopsBefore);
+          expect(mockScanner.scanCallCount, 0);
+          async.elapse(const Duration(seconds: 3));
+          async.flushMicrotasks();
+          expect(mockScanner.scanCallCount, 1);
+          async.elapse(const Duration(seconds: 6));
+          async.flushMicrotasks();
+          expect(mockScanner.scanCallCount, 1);
+          manager.dispose();
+          async.flushMicrotasks();
+        });
+      });
+
+      test('client scans during lease expiry coalesce behind active work', () {
+        fakeAsync((async) {
+          final manager = buildWatchManager();
+          settingsController.setPreferredScaleId(scaleId);
+          async.flushMicrotasks();
+          final machine = _FakeDe1();
+          mockDe1Controller.de1Subject.add(machine);
+          async.flushMicrotasks();
+          machine.emitState(MachineState.sleeping);
+          machine.emitState(MachineState.idle);
+          async.flushMicrotasks();
+          mockScanner.scanCompleter = Completer<void>();
+          manager.connect(scaleOnly: true);
+          async.flushMicrotasks();
+          expect(mockScanner.scanCallCount, 1);
+          manager.requestExternalScan(connect: true);
+          async.elapse(const Duration(seconds: 3));
+          async.flushMicrotasks();
+          manager.requestExternalScan(connect: true);
+          expect(mockScanner.scanCallCount, 1);
+          mockScanner.completeScan();
+          async.flushMicrotasks();
+          expect(mockScanner.scanCallCount, 2);
+          async.elapse(const Duration(seconds: 1));
+          async.flushMicrotasks();
+          expect(mockScanner.scanCallCount, 2);
+          manager.dispose();
+          async.flushMicrotasks();
+        });
+      });
+
+      test('post-wake deferred scan is dropped on preferred reconnect', () {
+        fakeAsync((async) {
+          final manager = buildWatchManager();
+          settingsController.setPreferredScaleId(scaleId);
+          async.flushMicrotasks();
+          final machine = _FakeDe1();
+          mockDe1Controller.de1Subject.add(machine);
+          async.flushMicrotasks();
+          machine.emitState(MachineState.sleeping);
+          machine.emitState(MachineState.idle);
+          async.flushMicrotasks();
+          manager.requestExternalScan(connect: true);
+          mockScaleController.debugSetLastConnectedId(scaleId);
+          mockScaleController.mockEmitConnectionState(
+            ConnectionState.connected,
+          );
+          async.flushMicrotasks();
+          async.elapse(const Duration(seconds: 4));
+          async.flushMicrotasks();
+          expect(mockScanner.scanCallCount, 0);
+          manager.dispose();
+          async.flushMicrotasks();
+        });
+      });
+
+      test('scan-only client requests defer without stopping watch', () {
+        fakeAsync((async) {
+          final manager = buildWatchManager();
+          settingsController.setPreferredScaleId(scaleId);
+          async.flushMicrotasks();
+          final machine = _FakeDe1();
+          mockDe1Controller.de1Subject.add(machine);
+          async.flushMicrotasks();
+          machine.emitState(MachineState.sleeping);
+          machine.emitState(MachineState.idle);
+          async.flushMicrotasks();
+          var scanOnlyCalls = 0;
+          Future<void> scanOnly() async {
+            scanOnlyCalls++;
+          }
+
+          manager.requestExternalScan(connect: false, scanOnly: scanOnly);
+          manager.requestExternalScan(connect: false, scanOnly: scanOnly);
+          async.flushMicrotasks();
+          expect(scanOnlyCalls, 0);
+          expect(mockScanner.watchActive, isTrue);
+          async.elapse(const Duration(seconds: 3));
+          async.flushMicrotasks();
+          expect(scanOnlyCalls, 1);
+          expect(mockScanner.scanCallCount, 0);
+          manager.dispose();
+          async.flushMicrotasks();
+        });
+      });
+
+      test(
+        'without background watch support, preferred scans are immediate',
+        () {
+          fakeAsync((async) {
+            mockScanner.supportsWatch = false;
+            final manager = buildWatchManager();
+            settingsController.setPreferredScaleId(scaleId);
+            async.flushMicrotasks();
+            final machine = _FakeDe1();
+            mockDe1Controller.de1Subject.add(machine);
+            async.flushMicrotasks();
+            machine.emitState(MachineState.sleeping);
+            machine.emitState(MachineState.idle);
+            async.flushMicrotasks();
+            manager.requestExternalScan(connect: true);
+            async.flushMicrotasks();
+            expect(mockScanner.scanCallCount, 1);
+            manager.dispose();
+            async.flushMicrotasks();
+          });
+        },
+      );
+
+      test(
+        'without a preferred scale or watch, client scans are immediate',
+        () {
+          fakeAsync((async) {
+            final manager = buildWatchManager();
+            final machine = _FakeDe1();
+            mockDe1Controller.de1Subject.add(machine);
+            async.flushMicrotasks();
+            machine.emitState(MachineState.sleeping);
+            machine.emitState(MachineState.idle);
+            async.flushMicrotasks();
+            manager.requestExternalScan(connect: true);
+            async.flushMicrotasks();
+            expect(mockScanner.scanCallCount, 1);
+            manager.dispose();
+            async.flushMicrotasks();
+          });
+        },
+      );
+
+      test('machine recovery is not deferred by the scale lease', () {
+        fakeAsync((async) {
+          final manager = buildWatchManager();
+          manager.machineReconnectBaseDelay = const Duration(seconds: 1);
+          settingsController.setPreferredScaleId(scaleId);
+          settingsController.setPreferredMachineId('machine');
+          async.flushMicrotasks();
+          final machine = _FakeDe1(deviceId: 'machine');
+          mockDe1Controller.de1Subject.add(machine);
+          async.flushMicrotasks();
+          machine.emitState(MachineState.sleeping);
+          machine.emitState(MachineState.idle);
+          async.flushMicrotasks();
+          manager.requestExternalScan(connect: true);
+          expect(mockScanner.scanCallCount, 0);
+          mockScanner.scanCompleter = Completer<void>();
+          mockDe1Controller.de1Subject.add(null);
+          async.flushMicrotasks();
+          expect(mockScanner.scanCallCount, 0);
+          async.elapse(const Duration(seconds: 1));
+          async.flushMicrotasks();
+          expect(mockScanner.scanCallCount, 1);
+          expect(manager.currentStatus.intent, ConnectionIntent.automatic);
+          async.elapse(const Duration(seconds: 3));
+          async.flushMicrotasks();
+          expect(mockScanner.scanCallCount, 1);
+          mockScanner.completeScan();
+          manager.dispose();
+          async.flushMicrotasks();
+        });
+      });
+
       test('power-mode sleep stops the watch and wake re-arms it '
           'without a burst', () async {
         await settingsController.setScalePowerMode(ScalePowerMode.disconnect);

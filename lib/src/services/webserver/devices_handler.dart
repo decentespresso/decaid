@@ -239,22 +239,25 @@ class DevicesHandler {
       final bool connect =
           req.requestedUri.queryParametersAll["connect"]?.firstOrNull !=
           "false";
-      log.info("running scan, quick = $quickScan, connect = $connect");
-      if (connect) {
-        if (quickScan) {
-          _connectionManager.scanAndConnect();
-          return [];
-        }
-        await _connectionManager.scanAndConnect();
-      } else {
-        if (quickScan) {
+      _log.info(
+        'Explicit scan source=REST connect=$connect quick=$quickScan '
+        'phase=${_connectionManager.currentStatus.phase.name} '
+        'connectionWorkActive=${_connectionManager.connectionWorkActive} '
+        'action=${_connectionManager.explicitScanDisposition(connect: connect)}',
+      );
+      final scan = _connectionManager.requestExternalScan(
+        connect: connect,
+        scanOnly: () async {
           _controller.scanForDevices();
-          return [];
-        }
-        _controller.scanForDevices();
-        await _controller.scanningStream.firstWhere((s) => s);
-        await _controller.scanningStream.firstWhere((s) => !s);
+          await _controller.scanningStream.firstWhere((s) => s);
+          await _controller.scanningStream.firstWhere((s) => !s);
+        },
+      );
+      if (quickScan) {
+        unawaited(scan);
+        return [];
       }
+      await scan;
 
       return await _deviceList();
     });
@@ -492,26 +495,24 @@ class DevicesHandler {
       case 'scan':
         final connect = data['connect'] as bool? ?? true;
         final quick = data['quick'] as bool? ?? false;
-        _log.fine("ws scan command: connect=$connect, quick=$quick");
-        if (connect) {
-          if (quick) {
-            _connectionManager.scanAndConnect();
-          } else {
-            _connectionManager.scanAndConnect().catchError((e) {
-              socket.sink.add(jsonEncode({'error': 'Scan failed: $e'}));
-            });
-          }
+        _log.info(
+          'Explicit scan source=devices-WS connect=$connect '
+          'quick=$quick phase=${_connectionManager.currentStatus.phase.name} '
+          'connectionWorkActive=${_connectionManager.connectionWorkActive} '
+          'action=${_connectionManager.explicitScanDisposition(connect: connect)}',
+        );
+        final scan = _connectionManager.requestExternalScan(
+          connect: connect,
+          scanOnly: () async {
+            await _controller.scanForDevices();
+          },
+        );
+        if (quick) {
+          unawaited(scan);
         } else {
-          if (quick) {
-            _controller.scanForDevices();
-          } else {
-            _controller.scanForDevices().then<void>(
-              (_) {},
-              onError: (e) {
-                socket.sink.add(jsonEncode({'error': 'Scan failed: $e'}));
-              },
-            );
-          }
+          scan.catchError((e) {
+            socket.sink.add(jsonEncode({'error': 'Scan failed: $e'}));
+          });
         }
 
       case 'connect':
