@@ -26,6 +26,81 @@ void main() {
     expect(manifest.permissions, {PluginPermissions.networkWebsocket});
   });
 
+  test('parses a driver device settings endpoint', () {
+    final manifest = PluginManifest.fromJson(<String, dynamic>{
+      'id': 'test.plugin',
+      'name': 'Test Plugin',
+      'author': 'Test',
+      'description': 'Test',
+      'version': '1.0.0',
+      'apiVersion': 1,
+      'permissions': ['api'],
+      'drivers': [
+        {'id': 'scale', 'type': 'scale', 'settingsEndpoint': 'device-settings'},
+      ],
+      'settings': <String, dynamic>{},
+      'api': [
+        <String, dynamic>{
+          'id': 'device-settings',
+          'type': 'http',
+          'data': <String, dynamic>{},
+        },
+      ],
+    });
+
+    expect(manifest.drivers.single.settingsEndpoint, 'device-settings');
+    expect(manifest.toJson()['drivers'], [
+      {'id': 'scale', 'type': 'scale', 'settingsEndpoint': 'device-settings'},
+    ]);
+  });
+
+  test('rejects an invalid driver device settings endpoint', () {
+    Map<String, dynamic> manifestWith({
+      required List<String> permissions,
+      required dynamic api,
+      String endpoint = 'missing',
+    }) => <String, dynamic>{
+      'id': 'test.plugin',
+      'name': 'Test Plugin',
+      'author': 'Test',
+      'description': 'Test',
+      'version': '1.0.0',
+      'apiVersion': 1,
+      'permissions': permissions,
+      'drivers': [
+        {'id': 'scale', 'type': 'scale', 'settingsEndpoint': endpoint},
+      ],
+      'settings': <String, dynamic>{},
+      'api': api,
+    };
+
+    for (final value in [
+      manifestWith(permissions: const [], api: const []),
+      manifestWith(
+        permissions: const ['api'],
+        api: const <dynamic>[
+          <String, dynamic>{
+            'id': 'missing',
+            'type': 'websocket',
+            'data': <String, dynamic>{},
+          },
+        ],
+      ),
+      manifestWith(
+        permissions: const ['api'],
+        api: const <dynamic>[
+          <String, dynamic>{
+            'id': 'other',
+            'type': 'http',
+            'data': <String, dynamic>{},
+          },
+        ],
+      ),
+    ]) {
+      expect(() => PluginManifest.fromJson(value), throwsFormatException);
+    }
+  });
+
   test('rejects invalid or duplicate driver contributions', () {
     Map<String, dynamic> manifestWith(dynamic drivers) => <String, dynamic>{
       'id': 'test.plugin',

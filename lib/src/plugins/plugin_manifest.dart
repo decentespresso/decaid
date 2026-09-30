@@ -1,4 +1,5 @@
 import 'package:collection/collection.dart';
+
 import 'plugin_ble_matcher.dart';
 
 List<String> parsePluginEnumValues(String key, dynamic schema) {
@@ -55,12 +56,14 @@ class PluginDriverDeclaration {
   final PluginDriverType type;
   final PluginBleMatcher? ble;
   final Set<PluginScaleCapability> capabilities;
+  final String? settingsEndpoint;
 
   const PluginDriverDeclaration({
     required this.id,
     required this.type,
     this.ble,
     this.capabilities = const {},
+    this.settingsEndpoint,
   });
 
   factory PluginDriverDeclaration.fromJson(dynamic json) {
@@ -105,11 +108,21 @@ class PluginDriverDeclaration {
       }
       ble = PluginBleMatcher.fromJson(declaration['match']);
     }
+    final settingsEndpoint = json['settingsEndpoint'];
+    if (settingsEndpoint != null || json.containsKey('settingsEndpoint')) {
+      if (settingsEndpoint is! String ||
+          !RegExp(
+            r'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$',
+          ).hasMatch(settingsEndpoint)) {
+        throw const FormatException('Invalid driver settings endpoint');
+      }
+    }
     return PluginDriverDeclaration(
       id: id,
       type: type,
       ble: ble,
       capabilities: Set.unmodifiable(capabilities),
+      settingsEndpoint: settingsEndpoint as String?,
     );
   }
 
@@ -119,6 +132,7 @@ class PluginDriverDeclaration {
     if (capabilities.isNotEmpty)
       'capabilities': capabilities.map((value) => value.name).toList(),
     if (ble != null) 'ble': {'match': ble!.toJson()},
+    if (settingsEndpoint != null) 'settingsEndpoint': settingsEndpoint,
   };
 }
 
@@ -145,7 +159,22 @@ class PluginManifest {
     this.drivers = const [],
     required this.settings,
     required this.api,
-  });
+  }) {
+    for (final driver in drivers) {
+      final endpoint = driver.settingsEndpoint;
+      if (endpoint == null) continue;
+      if (!permissions.contains(PluginPermissions.api) ||
+          api?.endpoints.firstWhereOrNull(
+                (value) =>
+                    value.id == endpoint && value.type == ApiEndpointType.http,
+              ) ==
+              null) {
+        throw FormatException(
+          'Driver ${driver.id} settings endpoint is not a declared HTTP API endpoint',
+        );
+      }
+    }
+  }
 
   factory PluginManifest.fromJson(Map<String, dynamic> json) {
     final settings = Map<String, dynamic>.from(json['settings'] ?? {});

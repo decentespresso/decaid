@@ -1,7 +1,8 @@
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/plugins/plugin_device_contract.dart';
 import 'package:reaprime/src/settings/device_management_page.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:rxdart/rxdart.dart';
@@ -41,6 +42,27 @@ class _InformationScale extends TestScale implements DeviceInformationCapable {
     _information = DeviceInformation(firmwareVersion: firmwareVersion);
     _informationSubject.add(_information);
   }
+}
+
+class _SettingsScale extends _InformationScale
+    implements DeviceSettingsCapable {
+  _SettingsScale({required super.deviceId}) : super(firmwareVersion: 'R029');
+
+  @override
+  PluginDeviceSettings get deviceSettings => const PluginDeviceSettings(
+    pluginId: 'test.plugin',
+    endpointId: 'device-settings',
+  );
+}
+
+class _InvalidSettingsScale extends _SettingsScale {
+  _InvalidSettingsScale({required super.deviceId});
+
+  @override
+  PluginDeviceSettings get deviceSettings => const PluginDeviceSettings(
+    pluginId: 'invalid/plugin',
+    endpointId: 'device-settings',
+  );
 }
 
 void main() {
@@ -97,6 +119,103 @@ void main() {
 
     expect(find.textContaining('Firmware: R031'), findsOneWidget);
     expect(find.textContaining('Firmware: stale'), findsNothing);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    deviceController.dispose();
+    discovery.dispose();
+  });
+
+  testWidgets('opens settings for an eligible plugin device', (tester) async {
+    final discovery = MockDeviceDiscoveryService();
+    final deviceController = DeviceController([discovery]);
+    await deviceController.initialize();
+    final settingsController = SettingsController(MockSettingsService());
+    await settingsController.loadSettings();
+    final device = _SettingsScale(deviceId: 'plugin:test.plugin:scale:one');
+    discovery.addDevice(device);
+    Uri? launched;
+
+    await tester.pumpWidget(
+      ShadApp(
+        home: DeviceManagementPage(
+          settingsController: settingsController,
+          deviceController: deviceController,
+          settingsLauncher: (uri) async {
+            launched = uri;
+            return true;
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('Device settings'));
+    expect(launched?.queryParameters['deviceId'], device.deviceId);
+    expect(launched?.queryParameters['ui'], '1');
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    deviceController.dispose();
+    discovery.dispose();
+  });
+
+  testWidgets('shows a launch failure', (tester) async {
+    final discovery = MockDeviceDiscoveryService();
+    final deviceController = DeviceController([discovery]);
+    await deviceController.initialize();
+    final settingsController = SettingsController(MockSettingsService());
+    await settingsController.loadSettings();
+    discovery.addDevice(
+      _SettingsScale(deviceId: 'plugin:test.plugin:scale:one'),
+    );
+
+    await tester.pumpWidget(
+      ShadApp(
+        home: ScaffoldMessenger(
+          child: DeviceManagementPage(
+            settingsController: settingsController,
+            deviceController: deviceController,
+            settingsLauncher: (_) async => false,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('Device settings'));
+    await tester.pump();
+    expect(find.text('Unable to open device settings.'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    deviceController.dispose();
+    discovery.dispose();
+  });
+
+  testWidgets('shows a URI construction failure', (tester) async {
+    final discovery = MockDeviceDiscoveryService();
+    final deviceController = DeviceController([discovery]);
+    await deviceController.initialize();
+    final settingsController = SettingsController(MockSettingsService());
+    await settingsController.loadSettings();
+    discovery.addDevice(
+      _InvalidSettingsScale(deviceId: 'plugin:test.plugin:scale:one'),
+    );
+
+    await tester.pumpWidget(
+      ShadApp(
+        home: ScaffoldMessenger(
+          child: DeviceManagementPage(
+            settingsController: settingsController,
+            deviceController: deviceController,
+            settingsLauncher: (_) async => true,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('Device settings'));
+    await tester.pump();
+    expect(find.text('Unable to open device settings.'), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox.shrink());
     deviceController.dispose();
