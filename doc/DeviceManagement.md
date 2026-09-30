@@ -430,8 +430,9 @@ disconnect is not instance-local: `UniversalBle.disconnect(deviceId)` runs
 behind the per-device lifecycle gate, so an adopted-only check would let the
 stale attempt tear down the replacement's link. The current-attempt clause is
 limited to BLE for that reason; serial and WiFi closes only their own port or
-socket, so a stale instance on those transports is always retired. A different
-device ID or transport type is retired independently as well. If disconnect
+socket, so a stale instance on those transports is retired unless a same-link
+replacement is already adopted. A different device ID or transport type is
+retired independently as well. If disconnect
 fails, the attempt is quarantined, the failure is reported, and an explicit
 disconnect retries retirement; a quarantined attempt never blocks a new
 connect. Shutdown waits for pending source work and retirement before teardown.
