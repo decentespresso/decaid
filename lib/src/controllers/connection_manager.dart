@@ -81,6 +81,8 @@ class _MachineConnectAttempt {
   bool sourcePending = true;
   bool sourceConnected = false;
   bool cleanupHandled = false;
+  bool linkRetired = false;
+  final List<_MachineConnectAttempt> deferredRetirements = [];
 
   TransportType get transportType => machine.transportType;
 }
@@ -99,6 +101,8 @@ class _ScaleConnectAttempt {
   bool sourcePending = true;
   bool sourceConnected = false;
   bool cleanupHandled = false;
+  bool linkRetired = false;
+  final List<_ScaleConnectAttempt> deferredRetirements = [];
 
   String get deviceId => scale.deviceId;
 
@@ -255,6 +259,45 @@ class ConnectionManager {
     }
   }
 
+  Future<void> _resolveDeferredMachine(_MachineConnectAttempt attempt) async {
+    if (attempt.sourcePending || attempt.deferredRetirements.isEmpty) return;
+    final deferredRetirements = List.of(attempt.deferredRetirements);
+    attempt.deferredRetirements.clear();
+    final adopted = await de1Controller.de1.first;
+    var resolvedLink =
+        attempt.linkRetired ||
+        (!attempt.invalidated && identical(adopted, attempt.machine));
+    for (final deferred in deferredRetirements) {
+      if (resolvedLink) continue;
+      if (await _retireMachine(deferred)) {
+        resolvedLink = deferred.linkRetired;
+      } else if (!_quarantinedMachineAttempts.contains(deferred)) {
+        _quarantinedMachineAttempts.add(deferred);
+      }
+    }
+  }
+
+  Future<void> _resolveDeferredScale(_ScaleConnectAttempt attempt) async {
+    if (attempt.sourcePending || attempt.deferredRetirements.isEmpty) return;
+    final deferredRetirements = List.of(attempt.deferredRetirements);
+    attempt.deferredRetirements.clear();
+    Scale? adopted;
+    try {
+      adopted = scaleController.connectedScale();
+    } catch (_) {}
+    var resolvedLink =
+        attempt.linkRetired ||
+        (!attempt.invalidated && identical(adopted, attempt.scale));
+    for (final deferred in deferredRetirements) {
+      if (resolvedLink) continue;
+      if (await _retireScale(deferred)) {
+        resolvedLink = deferred.linkRetired;
+      } else if (!_quarantinedScaleAttempts.contains(deferred)) {
+        _quarantinedScaleAttempts.add(deferred);
+      }
+    }
+  }
+
   Future<void> _retryQuarantinedRetirements() async {
     for (final attempt in List.of(_quarantinedMachineAttempts)) {
       if (await _retireMachine(attempt)) {
@@ -271,8 +314,8 @@ class ConnectionManager {
   Future<bool> _retireMachine(_MachineConnectAttempt attempt) async {
     final machine = attempt.machine;
     try {
-      final replacement = _machineAttempt;
       final adopted = await de1Controller.de1.first;
+      final replacement = _machineAttempt;
       final sameLinkReplacement =
           replacement != null &&
           !identical(replacement, attempt) &&
@@ -285,6 +328,9 @@ class ConnectionManager {
           adopted.deviceId == machine.deviceId &&
           adopted.transportType == machine.transportType;
       if (sameLinkReplacement || sameLinkAdopted) {
+        if (sameLinkReplacement && !sameLinkAdopted) {
+          replacement.deferredRetirements.add(attempt);
+        }
         _log.info(
           'Deferred retirement (same-link replacement): ${machine.deviceId}',
         );
@@ -292,6 +338,7 @@ class ConnectionManager {
       }
       markExpectingDisconnect(machine.deviceId);
       await machine.disconnect();
+      attempt.linkRetired = true;
       de1Controller.retireConnectedDevice(machine);
       return true;
     } catch (error, stackTrace) {
@@ -333,6 +380,9 @@ class ConnectionManager {
           adopted.deviceId == scale.deviceId &&
           adopted.transportType == scale.transportType;
       if (sameLinkReplacement || sameLinkAdopted) {
+        if (sameLinkReplacement && !sameLinkAdopted) {
+          replacement.deferredRetirements.add(attempt);
+        }
         _log.info(
           'Deferred retirement (same-link replacement): ${scale.deviceId}',
         );
@@ -340,6 +390,7 @@ class ConnectionManager {
       }
       markExpectingDisconnect(scale.deviceId);
       await scale.disconnect();
+      attempt.linkRetired = true;
       scaleController.retireConnectedScale(scale);
       return true;
     } catch (error, stackTrace) {
@@ -368,6 +419,7 @@ class ConnectionManager {
     } finally {
       attempt.sourcePending = false;
       await _retireInvalidatedMachine(attempt);
+      if (attempt.invalidated) await _resolveDeferredMachine(attempt);
     }
   }
 
@@ -378,7 +430,10 @@ class ConnectionManager {
     } finally {
       attempt.sourcePending = false;
       await _retireInvalidatedScale(attempt);
-      if (attempt.invalidated) _releaseScaleAttempt(attempt);
+      if (attempt.invalidated) {
+        _releaseScaleAttempt(attempt);
+        await _resolveDeferredScale(attempt);
+      }
     }
   }
 
@@ -2159,6 +2214,7 @@ class ConnectionManager {
     } finally {
       await _retireInvalidatedMachine(attempt);
       _releaseMachineAttempt(attempt);
+      await _resolveDeferredMachine(attempt);
     }
   }
 
@@ -2304,6 +2360,7 @@ class ConnectionManager {
     } finally {
       await _retireInvalidatedScale(attempt);
       _releaseScaleAttempt(attempt);
+      await _resolveDeferredScale(attempt);
     }
   }
 

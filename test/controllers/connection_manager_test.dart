@@ -138,9 +138,14 @@ class _SharedDeviceLink {
 }
 
 class _SharedLinkDe1 extends _FakeDe1 {
-  _SharedLinkDe1({required super.deviceId, required this.link});
+  _SharedLinkDe1({
+    required super.deviceId,
+    required this.link,
+    this.fail = false,
+  });
 
   final _SharedDeviceLink link;
+  final bool fail;
   final Completer<void> started = Completer<void>();
   final Completer<void> proceed = Completer<void>();
 
@@ -152,6 +157,7 @@ class _SharedLinkDe1 extends _FakeDe1 {
     started.complete();
     await proceed.future;
     if (link.tornDown) throw StateError('shared link torn down');
+    if (fail) throw StateError('connect failed after link opened');
   }
 
   @override
@@ -162,9 +168,14 @@ class _SharedLinkDe1 extends _FakeDe1 {
 }
 
 class _SharedLinkScale extends TestScale {
-  _SharedLinkScale({required super.deviceId, required this.link});
+  _SharedLinkScale({
+    required super.deviceId,
+    required this.link,
+    this.fail = false,
+  });
 
   final _SharedDeviceLink link;
+  final bool fail;
   final Completer<void> started = Completer<void>();
   final Completer<void> proceed = Completer<void>();
   int disconnectCalls = 0;
@@ -177,6 +188,7 @@ class _SharedLinkScale extends TestScale {
     started.complete();
     await proceed.future;
     if (link.tornDown) throw StateError('shared link torn down');
+    if (fail) throw StateError('connect failed after link opened');
     setConnectionState(ConnectionState.connected);
   }
 
@@ -811,6 +823,135 @@ void main() {
           replacement.proceed.complete();
           expect((await replacing).success, isTrue);
           expect(realScaleController.connectedScale(), same(replacement));
+        },
+      );
+
+      test(
+        'failed same-link machine replacement retires deferred link',
+        () async {
+          await createManager(timeout: const Duration(seconds: 1));
+          final link = _SharedDeviceLink();
+          final stale = _SharedLinkDe1(deviceId: 'shared-failure', link: link);
+          final replacement = _SharedLinkDe1(
+            deviceId: 'shared-failure',
+            link: link,
+            fail: true,
+          );
+          _unblockOnFailure([stale.proceed, replacement.proceed]);
+
+          final connecting = manager.connectMachine(stale);
+          await stale.started.future;
+          await manager.disconnectMachine();
+          final replacing = manager.connectMachine(replacement);
+          await replacement.started.future;
+
+          stale.proceed.complete();
+          expect((await connecting).outcome, ConnectionOutcome.conflict);
+          expect(stale.disconnectCalls, 0);
+          expect(link.tornDown, isFalse);
+
+          replacement.proceed.complete();
+          expect((await replacing).success, isFalse);
+          expect(link.tornDown, isTrue);
+          expect(stale.disconnectCalls, 1);
+        },
+      );
+
+      test('invalidated failed replacement retires deferred link', () async {
+        await createManager(timeout: const Duration(seconds: 1));
+        final link = _SharedDeviceLink();
+        final stale = _SharedLinkDe1(
+          deviceId: 'shared-invalidated',
+          link: link,
+        );
+        final replacement = _SharedLinkDe1(
+          deviceId: 'shared-invalidated',
+          link: link,
+          fail: true,
+        );
+        _unblockOnFailure([stale.proceed, replacement.proceed]);
+
+        final connecting = manager.connectMachine(stale);
+        await stale.started.future;
+        await manager.disconnectMachine();
+        final replacing = manager.connectMachine(replacement);
+        await replacement.started.future;
+        stale.proceed.complete();
+        expect((await connecting).outcome, ConnectionOutcome.conflict);
+        expect(link.tornDown, isFalse);
+
+        await manager.disconnectMachine();
+        replacement.proceed.complete();
+        expect((await replacing).outcome, ConnectionOutcome.conflict);
+        expect(link.tornDown, isTrue);
+        expect(replacement.disconnectCalls, 0);
+        expect(stale.disconnectCalls, 1);
+      });
+
+      test('transferred same-link retirements disconnect only once', () async {
+        await createManager(timeout: const Duration(seconds: 1));
+        final link = _SharedDeviceLink();
+        final stale = _SharedLinkDe1(deviceId: 'shared-chain', link: link);
+        final middle = _SharedLinkDe1(deviceId: 'shared-chain', link: link);
+        final last = _SharedLinkDe1(
+          deviceId: 'shared-chain',
+          link: link,
+          fail: true,
+        );
+        _unblockOnFailure([stale.proceed, middle.proceed, last.proceed]);
+
+        final first = manager.connectMachine(stale);
+        await stale.started.future;
+        await manager.disconnectMachine();
+        final second = manager.connectMachine(middle);
+        await middle.started.future;
+        stale.proceed.complete();
+        expect((await first).outcome, ConnectionOutcome.conflict);
+        expect(link.tornDown, isFalse);
+
+        await manager.disconnectMachine();
+        final third = manager.connectMachine(last);
+        await last.started.future;
+        middle.proceed.complete();
+        expect((await second).outcome, ConnectionOutcome.conflict);
+        expect(link.tornDown, isFalse);
+        last.proceed.complete();
+        expect((await third).success, isFalse);
+        expect(link.tornDown, isTrue);
+        expect(stale.disconnectCalls + middle.disconnectCalls, 1);
+      });
+
+      test(
+        'failed same-link scale replacement retires deferred link',
+        () async {
+          await createManager(timeout: const Duration(seconds: 1));
+          final link = _SharedDeviceLink();
+          final stale = _SharedLinkScale(
+            deviceId: 'shared-failure',
+            link: link,
+          );
+          final replacement = _SharedLinkScale(
+            deviceId: 'shared-failure',
+            link: link,
+            fail: true,
+          );
+          _unblockOnFailure([stale.proceed, replacement.proceed]);
+
+          final connecting = manager.connectScale(stale);
+          await stale.started.future;
+          await manager.disconnectScale();
+          final replacing = manager.connectScale(replacement);
+          await replacement.started.future;
+
+          stale.proceed.complete();
+          expect((await connecting).outcome, ConnectionOutcome.conflict);
+          expect(stale.disconnectCalls, 0);
+          expect(link.tornDown, isFalse);
+
+          replacement.proceed.complete();
+          expect((await replacing).success, isFalse);
+          expect(link.tornDown, isTrue);
+          expect(stale.disconnectCalls, 1);
         },
       );
 

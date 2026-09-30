@@ -423,8 +423,10 @@ already adopted before a preference write finished.
 Retirement is deferred for a same-link replacement: a different adopted
 instance, or a newer current attempt, with the same device ID and transport
 type, since they may share one physical link; that is logged as a deferred
-same-link replacement and the attempt is released, transferring cleanup
-ownership to the newer attempt. The current-attempt check matters because a
+same-link replacement and the attempt is released. A current replacement owns
+any deferred retirement until it settles: adoption discards it; failure or
+invalidation retires the stale link (or transfers it to another current
+replacement). The current-attempt check matters because a
 same-link replacement can be mid-connect before it is adopted, and a stale BLE
 disconnect is not instance-local: `UniversalBle.disconnect(deviceId)` runs
 behind the per-device lifecycle gate, so an adopted-only check would let the
