@@ -391,9 +391,6 @@ void main() {
     });
 
     group('deferred scans during the post-wake scale lease', () {
-      // The lease clock is driven explicitly through
-      // ConnectionManager.debugExpirePostWakeScaleLease(), so the host-clock
-      // lease must never fire while a test runs.
       const leaseNeverExpiresOnHostClock = Duration(minutes: 5);
       late MockDeviceScanner scanner;
       late MockDe1Controller leaseDe1Controller;
