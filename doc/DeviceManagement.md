@@ -848,11 +848,16 @@ to remembered-device selection.
 
 `GrinderController` owns one selected runtime `GrinderDevice`, its latest
 validated snapshot, and command forwarding. Replacement disconnects the old
-instance and generation-fences late publications. Terminal disconnect clears
-the selection. `ConnectionManager.connectGrinder()` uses this controller from
+instance and generation-fences late publications. New snapshot subscribers
+receive the current projection immediately. Disconnect and replacement clear
+the retained snapshot before asynchronous teardown, without emitting null frames.
+`ConnectionManager.connectGrinder()` uses this controller from
 the generic devices API and connects `preferredGrinderDeviceId` only when that
-device appears in an existing normal scan result; it adds no grinder scanner or
-reconnect scheduler.
+device appears in an existing normal scan result, after machine and primary-scale
+policy settles. Grinder initialization runs independently of primary readiness,
+selection and scale recovery; failures never change machine/scale connection
+status. It adds no grinder scanner or reconnect scheduler, and does not participate
+in early stopping, primary ambiguity resolution or scale-only scans.
 
 Runtime grinder identity is not equipment metadata. Persisted `Grinder.id` is a
 UUID used by `/api/v1/grinders` and workflow records. `GrinderDevice.deviceId`

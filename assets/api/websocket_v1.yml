@@ -85,8 +85,10 @@ channels:
         $ref: '#/components/messages/ScaleStatus'
   GrinderSnapshot:
     description: >
-      Validated snapshots from the selected runtime GrinderDevice. The socket
-      stays open and silent while no grinder is connected, and resumes after a
+      Validated snapshots from the selected runtime GrinderDevice. New subscribers
+      immediately receive its current snapshot when available. Disconnect and
+      replacement clear the retained snapshot before any new subscription. The
+      socket stays open and silent while no grinder is connected, and resumes after a
       disconnect, reconnect, or same-ID device replacement. Every frame is a
       GrinderSnapshot; connection status and vendor-specific frames are never
       emitted on this channel.

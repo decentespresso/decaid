@@ -19,6 +19,121 @@ import '../../helpers/mock_settings_service.dart';
 import '../../helpers/test_grinder.dart';
 
 void main() {
+  test('late subscribers immediately receive the current snapshot', () async {
+    final controller = GrinderController();
+    final grinder = TestGrinder(deviceId: 'current');
+    addTearDown(() async {
+      await controller.dispose();
+      await grinder.dispose();
+    });
+    await controller.connectToGrinder(grinder);
+    grinder.emit(GrinderState.grinding, setting: '12.3', rpm: 1200);
+    await Future<void>.delayed(Duration.zero);
+    final current = controller.currentSnapshot;
+    expect(current, isNotNull);
+
+    final frames = <GrinderSnapshot>[];
+    final subscription = controller.snapshots.listen(frames.add);
+    addTearDown(subscription.cancel);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(frames, [same(current)]);
+  });
+
+  test('disconnect clears replay before asynchronous teardown', () async {
+    final gate = Completer<void>();
+    final controller = GrinderController();
+    final grinder = TestGrinder(deviceId: 'current', disconnectGate: gate);
+    addTearDown(() async {
+      if (!gate.isCompleted) gate.complete();
+      await controller.dispose();
+      await grinder.dispose();
+    });
+    await controller.connectToGrinder(grinder);
+    grinder.emit(GrinderState.grinding);
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.currentSnapshot, isNotNull);
+
+    final disconnect = controller.disconnect();
+    expect(controller.currentSnapshot, isNull);
+    final frames = <GrinderSnapshot>[];
+    final subscription = controller.snapshots.listen(frames.add);
+    addTearDown(subscription.cancel);
+    grinder.emit(GrinderState.error);
+    await Future<void>.delayed(Duration.zero);
+    expect(frames, isEmpty);
+    gate.complete();
+    await disconnect;
+
+    final disconnectedSubscription = controller.snapshots.listen(frames.add);
+    addTearDown(disconnectedSubscription.cancel);
+    await Future<void>.delayed(Duration.zero);
+    expect(frames, isEmpty);
+  });
+
+  test('device disconnect clears the retained snapshot', () async {
+    final controller = GrinderController();
+    final grinder = TestGrinder(deviceId: 'current');
+    addTearDown(() async {
+      await controller.dispose();
+      await grinder.dispose();
+    });
+    await controller.connectToGrinder(grinder);
+    grinder.emit(GrinderState.idle);
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.currentSnapshot, isNotNull);
+
+    await grinder.disconnect();
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.currentSnapshot, isNull);
+    final frames = <GrinderSnapshot>[];
+    final subscription = controller.snapshots.listen(frames.add);
+    addTearDown(subscription.cancel);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(frames, isEmpty);
+  });
+
+  test('replacement replays only its own current snapshot', () async {
+    final controller = GrinderController();
+    final gate = Completer<void>();
+    final old = TestGrinder(deviceId: 'stable');
+    final replacement = TestGrinder(deviceId: 'stable', connectGate: gate);
+    addTearDown(() async {
+      if (!gate.isCompleted) gate.complete();
+      await controller.dispose();
+      await old.dispose();
+      await replacement.dispose();
+    });
+    await controller.connectToGrinder(old);
+    old.emit(GrinderState.grinding);
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.currentSnapshot, isNotNull);
+
+    final connection = controller.connectToGrinder(replacement);
+    expect(controller.currentSnapshot, isNull);
+    final frames = <GrinderSnapshot>[];
+    final subscription = controller.snapshots.listen(frames.add);
+    addTearDown(subscription.cancel);
+    old.emit(GrinderState.error);
+    await Future<void>.delayed(Duration.zero);
+    expect(frames, isEmpty);
+    gate.complete();
+    await connection;
+    replacement.emit(GrinderState.idle, rpm: 900);
+    await Future<void>.delayed(Duration.zero);
+    final current = controller.currentSnapshot;
+    expect(current?.rpm, 900);
+
+    final replayed = <GrinderSnapshot>[];
+    final lateSubscription = controller.snapshots.listen(replayed.add);
+    addTearDown(lateSubscription.cancel);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(frames, [same(current)]);
+    expect(replayed, [same(current)]);
+  });
+
   test('connects one grinder and proxies operations', () async {
     final controller = GrinderController();
     final grinder = TestGrinder(deviceId: 'one');

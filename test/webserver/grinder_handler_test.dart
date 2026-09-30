@@ -135,15 +135,39 @@ void main() {
     await channel.ready;
     await Future<void>.delayed(const Duration(milliseconds: 20));
 
+    expect(frames.map((frame) => frame['state']), ['idle']);
+
     first.emit(GrinderState.grinding);
     await Future<void>.delayed(const Duration(milliseconds: 20));
+    await controller.disconnect();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(frames.map((frame) => frame['state']), ['idle', 'grinding']);
+
+    final disconnectedChannel = IOWebSocketChannel.connect(
+      Uri.parse('ws://127.0.0.1:${server.port}/ws/v1/grinder/snapshot'),
+    );
+    final disconnectedFrames = <Map<String, dynamic>>[];
+    final disconnectedSubscription = disconnectedChannel.stream.listen(
+      (data) => disconnectedFrames.add(
+        jsonDecode(data as String) as Map<String, dynamic>,
+      ),
+    );
+    addTearDown(() async {
+      await disconnectedChannel.sink.close();
+      await disconnectedSubscription.cancel();
+    });
+    await disconnectedChannel.ready;
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(disconnectedFrames, isEmpty);
+
     final replacement = TestGrinder(deviceId: 'stable')..connect();
     grinders.add(replacement);
     await controller.adoptGrinder(replacement);
     replacement.emit(GrinderState.idle, rpm: 900);
     await Future<void>.delayed(const Duration(milliseconds: 50));
 
-    expect(frames.map((frame) => frame['state']), ['grinding', 'idle']);
+    expect(frames.map((frame) => frame['state']), ['idle', 'grinding', 'idle']);
+    expect(disconnectedFrames.map((frame) => frame['state']), ['idle']);
     expect(frames.every((frame) => frame.containsKey('timestamp')), isTrue);
     expect(frames.every((frame) => !frame.containsKey('status')), isTrue);
   });

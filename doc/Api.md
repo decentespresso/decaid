@@ -357,6 +357,11 @@ No connected grinder returns 503. Unsupported declared operations return an
 error with `code: "unsupported_operation"`. The API exposes no vendor command
 or catch-all route.
 
+New snapshot WebSocket subscribers immediately receive the selected grinder's
+current snapshot when available. Disconnect and replacement clear the retained
+snapshot; disconnected subscriptions stay silent and never receive stale or
+null frames.
+
 This runtime identity is deliberately separate from persisted equipment. A
 persisted `Grinder.id` is a UUID used by the plural `/api/v1/grinders` CRUD
 surface and workflow metadata. A runtime grinder has a transport/plugin

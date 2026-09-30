@@ -1620,7 +1620,6 @@ class ConnectionManager {
 
     final machines = scanRun.machines;
     final scales = scanRun.scales;
-    if (!scaleOnly) await _connectPreferredGrinder(scanRun.grinders);
     final scanReport = scanRun.reportBuilder;
     final selectionSession = ConnectionSelectionSession(
       machines: machines,
@@ -1669,6 +1668,7 @@ class ConnectionManager {
       _maybeArmDeferredScaleScan();
       _ensureScaleReacquisition();
       _completeSelectionSessionIfResolved(selectionSession);
+      unawaited(_connectPreferredGrinder(scanRun.grinders));
       return;
     }
 
@@ -1720,6 +1720,7 @@ class ConnectionManager {
     }
 
     _completeSelectionSessionIfResolved(selectionSession);
+    unawaited(_connectPreferredGrinder(scanRun.grinders));
   }
 
   void _checkEarlyStop(bool earlyStopEnabled) {
@@ -2403,7 +2404,12 @@ class ConnectionManager {
     final grinder = grinders.firstWhereOrNull(
       (candidate) => candidate.deviceId == preferredId,
     );
-    if (grinder != null) await connectGrinder(grinder);
+    if (grinder == null) return;
+    try {
+      await connectGrinder(grinder);
+    } catch (error, stackTrace) {
+      _log.warning('Preferred grinder connection failed', error, stackTrace);
+    }
   }
 
   Future<ConnectionResult> _connectAuxiliaryScale(Scale scale) async {

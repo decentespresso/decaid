@@ -225,6 +225,9 @@ void main() {
           expect(initialInventory.single['type'], 'grinder');
 
           await connections.connect();
+          await grinders.connectionState
+              .firstWhere((state) => state == ConnectionState.connected)
+              .timeout(const Duration(seconds: 2));
           expect(grinders.connectedGrinder(), same(fixture.grinder));
           expect(
             (await request('GET', '/api/v1/grinder/info')).$2,
@@ -245,6 +248,7 @@ void main() {
           );
           await channel.ready;
           await Future<void>.delayed(const Duration(milliseconds: 20));
+          expect(frames.map((frame) => frame['state']), ['idle']);
 
           expect(
             (await request(

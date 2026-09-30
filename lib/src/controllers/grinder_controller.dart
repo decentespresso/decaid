@@ -10,7 +10,6 @@ class GrinderController {
   GrinderDevice? _grinder;
   GrinderDevice? _pendingGrinder;
   Future<void>? _pendingSelection;
-  GrinderSnapshot? _currentSnapshot;
   StreamSubscription<GrinderSnapshot>? _snapshotSubscription;
   StreamSubscription<ConnectionState>? _connectionSubscription;
   final Map<GrinderDevice, Future<void>> _teardowns = Map.identity();
@@ -19,11 +18,12 @@ class GrinderController {
   final Logger _log = Logger('GrinderController');
   final BehaviorSubject<ConnectionState> _connectionState =
       BehaviorSubject.seeded(ConnectionState.discovered);
-  final StreamController<GrinderSnapshot> _snapshots =
-      StreamController.broadcast();
+  final BehaviorSubject<GrinderSnapshot?> _snapshots = BehaviorSubject.seeded(
+    null,
+  );
 
-  GrinderSnapshot? get currentSnapshot => _currentSnapshot;
-  Stream<GrinderSnapshot> get snapshots => _snapshots.stream;
+  GrinderSnapshot? get currentSnapshot => _snapshots.value;
+  Stream<GrinderSnapshot> get snapshots => _snapshots.stream.whereNotNull();
   Stream<ConnectionState> get connectionState => _connectionState.stream;
   ConnectionState get currentConnectionState => _connectionState.value;
   bool get isOccupied => _grinder != null || _pendingGrinder != null;
@@ -65,7 +65,7 @@ class GrinderController {
     final pending = _pendingGrinder;
     _pendingGrinder = grinder;
     _grinder = null;
-    _currentSnapshot = null;
+    _snapshots.add(null);
     _connectionState.add(ConnectionState.connecting);
     GrinderSnapshot? initialSnapshot;
     var active = false;
@@ -112,7 +112,7 @@ class GrinderController {
         if (generation == _generation) {
           _pendingGrinder = null;
           _grinder = null;
-          _currentSnapshot = null;
+          _snapshots.add(null);
           _connectionState.add(ConnectionState.disconnected);
         }
       }
@@ -127,7 +127,6 @@ class GrinderController {
   }
 
   void _publish(GrinderSnapshot snapshot) {
-    _currentSnapshot = snapshot;
     _snapshots.add(snapshot);
   }
 
@@ -135,7 +134,7 @@ class GrinderController {
     _generation++;
     _grinder = null;
     _pendingGrinder = null;
-    _currentSnapshot = null;
+    _snapshots.add(null);
     unawaited(_snapshotSubscription?.cancel());
     unawaited(_connectionSubscription?.cancel());
     _snapshotSubscription = null;
@@ -208,7 +207,7 @@ class GrinderController {
     final generation = ++_generation;
     _grinder = null;
     _pendingGrinder = null;
-    _currentSnapshot = null;
+    _snapshots.add(null);
     final teardowns = <Future<void>>[
       if (pending != null)
         reportFailure ? _disconnectOnce(pending) : _disconnectQuietly(pending),
