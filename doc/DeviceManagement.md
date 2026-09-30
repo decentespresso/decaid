@@ -584,6 +584,17 @@ burst monopolizes the shared radio and starves DE1 GATT traffic
 while the backoff gaps meant a freshly powered-on scale could wait up
 to 60s to connect.
 
+### Protected post-wake preferred-scale reacquisition
+
+After a sleeping-to-awake transition with the preferred scale disconnected and
+background `ScaleWatch` selected, `ConnectionManager` protects the watch during
+the existing 3-second wake window. REST and devices-WebSocket explicit scans,
+including discovery-only requests, are deferred and coalesced rather than
+preempting the watch. Scale reconnection or machine disconnection drops the
+pending request; otherwise at most one deferred scan runs after the window
+(and any active connection work). Machine recovery is never deferred by this
+scale lease.
+
 Watch lifecycle details:
 
 - Armed whenever *machine connected && preferred scale set && scale not
