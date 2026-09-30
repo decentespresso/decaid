@@ -45,6 +45,10 @@ void main() {
           addTearDown(fixture.dispose);
           final grinder = fixture.grinder;
           expect(grinder, isA<PluginGrinder>());
+          expect(
+            (grinder as PluginGrinder).invocationTimeout,
+            const Duration(seconds: 10),
+          );
           expect(grinder.type, DeviceType.grinder);
           expect(
             grinder.transportType,

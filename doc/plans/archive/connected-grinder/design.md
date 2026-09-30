@@ -22,7 +22,9 @@ transport-owned `deviceId` and the preferred connection is stored as
 - Generic device connect and disconnect routes own the connection lifecycle.
   There is no grinder-specific connection route or reconnect scheduler.
 - Preferred grinder auto-connect uses devices already returned by the normal
-  full scan. It does not add a scanner or transport-specific discovery path.
+  full scan, after the machine/primary-scale selection session completes. Deferred
+  candidates stay outside that session and are discarded on cancellation or
+  superseding scans. It does not add a scanner or transport-specific discovery path.
 - The singular `/api/v1/grinder` REST surface describes only the connected
   runtime device. The existing plural `/api/v1/grinders` CRUD surface remains
   the persisted workflow catalog.

@@ -463,6 +463,10 @@ requires `grindSetting`, and optional nonnegative integer `rpm` requires
 `rpmControl`. Unknown fields, plugin timestamps, and stale-session publications
 are rejected. Decaid supplies the timestamp.
 
+Network and BLE grinders use a default 10-second invocation budget for protocol
+initialization and commands. Initialization includes the connect handler and
+first valid snapshot. Grinder timing does not change scale invocation budgets.
+
 Handlers are always `connect` and `disconnect`. `startStop` additionally
 requires `start` and `stop`; `grindSetting` requires `setGrindSetting(setting)`;
 `rpmControl` requires `setRpm(rpm)`. BLE grinders also require `bleEvent`.

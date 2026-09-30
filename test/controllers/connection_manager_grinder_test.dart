@@ -184,32 +184,172 @@ void main() {
     },
   );
 
-  test('pending grinder does not hold up primary selection', () async {
-    final alternative = TestDe1(deviceId: 'alternative');
-    addTearDown(alternative.dispose);
-    scanner.addDevice(machine);
-    scanner.addDevice(alternative);
-    scanner.addDevice(scale);
-    scanner.addDevice(grinder);
-    machineController.proceed.complete();
-    scaleController.proceed.complete();
+  test(
+    'machine picker defers grinder until machine and scale settle',
+    () async {
+      final alternative = TestDe1(deviceId: 'alternative');
+      addTearDown(alternative.dispose);
+      scanner.addDevice(machine);
+      scanner.addDevice(alternative);
+      scanner.addDevice(scale);
+      scanner.addDevice(grinder);
 
-    await manager.scanAndConnect().timeout(const Duration(milliseconds: 500));
-    expect(
-      manager.currentStatus.pendingAmbiguity,
-      AmbiguityReason.machinePicker,
+      await manager.scanAndConnect().timeout(const Duration(milliseconds: 500));
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        manager.currentStatus.pendingAmbiguity,
+        AmbiguityReason.machinePicker,
+      );
+      expect(manager.currentStatus.foundMachines, [machine, alternative]);
+      expect(manager.currentStatus.foundScales, [scale]);
+      expect(manager.lastScanReport, isNull);
+      expect(grinder.onConnectCalls, 0);
+
+      final selection = manager.selectMachine(machine);
+      await machineController.started.future.timeout(
+        const Duration(seconds: 2),
+      );
+      expect(grinder.onConnectCalls, 0);
+      machineController.proceed.complete();
+      await scaleController.started.future.timeout(const Duration(seconds: 2));
+      expect(grinder.onConnectCalls, 0);
+      scaleController.proceed.complete();
+      expect(
+        (await selection.timeout(const Duration(milliseconds: 500))).success,
+        isTrue,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(grinder.onConnectCalls, 1);
+      expect(manager.currentStatus.phase, ConnectionPhase.ready);
+      expect(manager.currentStatus.pendingAmbiguity, isNull);
+      expect(manager.lastScanReport, isNotNull);
+      expect(grinderGate.isCompleted, isFalse);
+      expect(scanner.scanCallCount, 1);
+    },
+  );
+
+  for (final occupiedMachine in [false, true]) {
+    test(
+      'scale picker defers grinder with ${occupiedMachine ? 'occupied' : 'new'} machine',
+      () async {
+        final alternative = TestScale(deviceId: 'alternative-scale');
+        machineController.proceed.complete();
+        if (occupiedMachine) {
+          expect((await manager.connectMachine(machine)).success, isTrue);
+        }
+        scanner.addDevice(machine);
+        scanner.addDevice(scale);
+        scanner.addDevice(alternative);
+        scanner.addDevice(grinder);
+
+        await manager.scanAndConnect().timeout(
+          const Duration(milliseconds: 500),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          manager.currentStatus.pendingAmbiguity,
+          AmbiguityReason.scalePicker,
+        );
+        expect(manager.lastScanReport, isNull);
+        expect(grinder.onConnectCalls, 0);
+
+        final selection = manager.selectScale(scale);
+        await scaleController.started.future.timeout(
+          const Duration(seconds: 2),
+        );
+        expect(grinder.onConnectCalls, 0);
+        scaleController.proceed.complete();
+        expect(
+          (await selection.timeout(const Duration(milliseconds: 500))).success,
+          isTrue,
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(grinder.onConnectCalls, 1);
+        expect(grinderGate.isCompleted, isFalse);
+        expect(manager.currentStatus.phase, ConnectionPhase.ready);
+        expect(manager.currentStatus.pendingAmbiguity, isNull);
+        expect(manager.currentStatus.error, isNull);
+        expect(manager.lastScanReport, isNotNull);
+        expect(scanner.scanCallCount, 1);
+      },
     );
-    expect(manager.currentStatus.foundMachines, [machine, alternative]);
-    expect(manager.currentStatus.foundScales, [scale]);
-    expect(manager.lastScanReport, isNull);
-    expect((await manager.selectMachine(machine)).success, isTrue);
+  }
 
-    expect(manager.currentStatus.phase, ConnectionPhase.ready);
-    expect(manager.currentStatus.pendingAmbiguity, isNull);
-    expect(manager.lastScanReport, isNotNull);
-    expect(grinderGate.isCompleted, isFalse);
-    expect(scanner.scanCallCount, 1);
-  });
+  test(
+    'machine picker followed by scale picker defers grinder through both',
+    () async {
+      final alternativeMachine = TestDe1(deviceId: 'alternative-machine');
+      addTearDown(alternativeMachine.dispose);
+      final alternativeScale = TestScale(deviceId: 'alternative-scale');
+      scanner.addDevice(machine);
+      scanner.addDevice(alternativeMachine);
+      scanner.addDevice(scale);
+      scanner.addDevice(alternativeScale);
+      scanner.addDevice(grinder);
+      machineController.proceed.complete();
+
+      await manager.scanAndConnect().timeout(const Duration(milliseconds: 500));
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        manager.currentStatus.pendingAmbiguity,
+        AmbiguityReason.machinePicker,
+      );
+      expect(grinder.onConnectCalls, 0);
+
+      expect((await manager.selectMachine(machine)).success, isTrue);
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        manager.currentStatus.pendingAmbiguity,
+        AmbiguityReason.scalePicker,
+      );
+      expect(manager.lastScanReport, isNull);
+      expect(grinder.onConnectCalls, 0);
+
+      scaleController.proceed.complete();
+      expect((await manager.selectScale(scale)).success, isTrue);
+      await Future<void>.delayed(Duration.zero);
+      expect(grinder.onConnectCalls, 1);
+      expect(grinderGate.isCompleted, isFalse);
+      expect(manager.currentStatus.phase, ConnectionPhase.ready);
+      expect(manager.currentStatus.pendingAmbiguity, isNull);
+      expect(manager.lastScanReport, isNotNull);
+    },
+  );
+
+  test(
+    'cancelled selection does not retain a preferred grinder attempt',
+    () async {
+      final alternative = TestDe1(deviceId: 'alternative');
+      addTearDown(alternative.dispose);
+      scanner.addDevice(machine);
+      scanner.addDevice(alternative);
+      scanner.addDevice(scale);
+      scanner.addDevice(grinder);
+
+      await manager.scanAndConnect().timeout(const Duration(milliseconds: 500));
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        manager.currentStatus.pendingAmbiguity,
+        AmbiguityReason.machinePicker,
+      );
+      expect(grinder.onConnectCalls, 0);
+      manager.cancelSelectionSession();
+      await Future<void>.delayed(Duration.zero);
+      expect(grinder.onConnectCalls, 0);
+
+      scanner.removeDevice(alternative.deviceId);
+      scanner.removeDevice(grinder.deviceId);
+      machineController.proceed.complete();
+      scaleController.proceed.complete();
+      await manager.scanAndConnect().timeout(const Duration(milliseconds: 500));
+      await Future<void>.delayed(Duration.zero);
+      expect(manager.currentStatus.phase, ConnectionPhase.ready);
+      expect(manager.currentStatus.pendingAmbiguity, isNull);
+      expect(grinder.onConnectCalls, 0);
+    },
+  );
 }
 
 class _GatedMachineController extends MockDe1Controller {

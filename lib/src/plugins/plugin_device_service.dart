@@ -149,7 +149,7 @@ class PluginDeviceService implements DeviceDiscoveryService {
         name: name,
         capabilities: driver!.grinderCapabilities,
         invoke: invoke,
-        invocationTimeout: scaleInvocationTimeout,
+        invocationTimeout: const Duration(seconds: 10),
       ),
       _ => _PluginSensor(
         deviceId: deviceId,

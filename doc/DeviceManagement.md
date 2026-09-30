@@ -854,10 +854,14 @@ the retained snapshot before asynchronous teardown, without emitting null frames
 `ConnectionManager.connectGrinder()` uses this controller from
 the generic devices API and connects `preferredGrinderDeviceId` only when that
 device appears in an existing normal scan result, after machine and primary-scale
-policy settles. Grinder initialization runs independently of primary readiness,
-selection and scale recovery; failures never change machine/scale connection
-status. It adds no grinder scanner or reconnect scheduler, and does not participate
-in early stopping, primary ambiguity resolution or scale-only scans.
+selection resolves and policy settles. While either primary picker is pending,
+the grinder attempt remains deferred. Cancellation or a superseding scan discards
+the deferred candidates. Grinder initialization runs independently of primary
+readiness, selection and scale recovery; failures never change machine/scale connection
+status. Plugin protocol initialization has the same default 10-second budget for
+network and BLE grinders. It adds no grinder scanner or reconnect scheduler, and
+does not participate in early stopping, primary ambiguity resolution or scale-only
+scans.
 
 Runtime grinder identity is not equipment metadata. Persisted `Grinder.id` is a
 UUID used by `/api/v1/grinders` and workflow records. `GrinderDevice.deviceId`

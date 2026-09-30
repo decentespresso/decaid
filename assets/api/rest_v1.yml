@@ -97,9 +97,10 @@ paths:
       summary: Scan for Devices
       description: >
         Triggers a device scan. When connect=true (default), scans first and
-        automatically fills missing machine and scale slots, and connects the
-        preferred runtime grinder when it is present without replacing connected
-        devices. When connect=false, performs discovery only. During
+        automatically fills missing machine and scale slots, then asynchronously
+        attempts the preferred runtime grinder when present after primary
+        machine/scale selection resolves, without replacing connected devices.
+        When connect=false, performs discovery only. During
         the protected post-wake preferred-scale recovery window, an explicit
         scan - discovery-only included - is deferred and coalesced with any
         other pending explicit scan instead of preempting the background

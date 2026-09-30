@@ -443,6 +443,7 @@ class ConnectionManager {
   int _activeConnectionWork = 0;
   Completer<void>? _connectionWorkDone;
   ConnectionSelectionSession? _selectionSession;
+  List<GrinderDevice> _pendingPreferredGrinders = const [];
 
   int _explicitScanGeneration = 0;
 
@@ -1629,6 +1630,9 @@ class ConnectionManager {
       scanReport: scanReport,
     );
     _selectionSession = selectionSession;
+    _pendingPreferredGrinders = scaleOnly
+        ? const []
+        : List.unmodifiable(scanRun.grinders);
 
     if (scaleOnly) {
       _publishStatus(currentStatus.copyWith(foundScales: scales));
@@ -1668,7 +1672,6 @@ class ConnectionManager {
       _maybeArmDeferredScaleScan();
       _ensureScaleReacquisition();
       _completeSelectionSessionIfResolved(selectionSession);
-      unawaited(_connectPreferredGrinder(scanRun.grinders));
       return;
     }
 
@@ -1720,7 +1723,6 @@ class ConnectionManager {
     }
 
     _completeSelectionSessionIfResolved(selectionSession);
-    unawaited(_connectPreferredGrinder(scanRun.grinders));
   }
 
   void _checkEarlyStop(bool earlyStopEnabled) {
@@ -2657,9 +2659,14 @@ class ConnectionManager {
       adapterStateAtEnd: deviceScanner.currentAdapterState,
     );
     if (report == null) return;
+    final grinders = _pendingPreferredGrinders;
+    _pendingPreferredGrinders = const [];
     _selectionSession = null;
     _scanReportSubject.add(report);
     _log.info(ScanReportBuilder.format(report));
+    if (reason == ScanTerminationReason.completed && grinders.isNotEmpty) {
+      unawaited(_connectPreferredGrinder(grinders));
+    }
   }
 
   void cancelActiveScan() {
@@ -2703,6 +2710,7 @@ class ConnectionManager {
     } else {
       session.invalidate();
       _selectionSession = null;
+      _pendingPreferredGrinders = const [];
     }
   }
 
