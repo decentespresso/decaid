@@ -16,6 +16,7 @@ import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.utils.dart';
 import 'package:reaprime/src/models/device/impl/de1/mmr_address.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/bengle_shot_sample.dart';
+import 'package:reaprime/src/models/device/impl/de1/unified_de1/bengle_est_sample.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/calibration_codec.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1_transport.dart';
 import 'package:reaprime/src/models/device/impl/bengle/bengle_mmr.dart';
@@ -43,6 +44,7 @@ part 'led_strip_capability.dart';
 part 'scale_calibration_capability.dart';
 part 'cup_warmer_capability.dart';
 part 'wake_schedule_capability.dart';
+part 'puck_estimator_capability.dart';
 
 final class _FirmwareCancellationToken {
   final Completer<void> _cancelled = Completer<void>();
@@ -672,6 +674,10 @@ class UnifiedDe1 implements De1Interface {
   Future<void> enableBengleShotSample() =>
       _transport.subscribeBengleShotSample();
 
+  /// Returns true when the estimator stream is live on this connection.
+  @protected
+  Future<bool> enableEstimator() => _transport.subscribeEstimator();
+
   @protected
   Future<void> writeEndpoint(
     LogicalEndpoint endpoint,
@@ -717,6 +723,8 @@ class UnifiedDe1 implements De1Interface {
           return _transport.bengleShotSample;
         case Endpoint.calibration:
           return _transport.calibration;
+        case Endpoint.estimator:
+          return _transport.estimator;
         default:
           throw UnimplementedError(
             'UnifiedDe1.notificationsFor: Endpoint.${endpoint.name} is '

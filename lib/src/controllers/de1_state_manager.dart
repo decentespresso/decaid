@@ -9,6 +9,7 @@ import 'package:reaprime/src/controllers/connection_manager.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
+import 'package:reaprime/src/controllers/sensor_controller.dart';
 import 'package:reaprime/src/controllers/shot_sequencer.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
 import 'package:reaprime/src/models/data/profile.dart';
@@ -80,6 +81,9 @@ class De1StateManager with WidgetsBindingObserver {
 
   final Set<AppLifecycleState> _backgroundStates;
 
+  /// Optional: when present, shots record each attached sensor's channels.
+  final SensorController? _sensorController;
+
   AppLifecycleState _currentAppState = AppLifecycleState.resumed;
 
   bool _appIsInForeground = true;
@@ -93,6 +97,7 @@ class De1StateManager with WidgetsBindingObserver {
     required SettingsController settingsController,
     required ConnectionManager connectionManager,
     DecentAccountService? accountService,
+    SensorController? sensorController,
     required GlobalKey<NavigatorState> navigatorKey,
   }) : _de1Controller = de1Controller,
        _scaleController = scaleController,
@@ -101,6 +106,7 @@ class De1StateManager with WidgetsBindingObserver {
        _settingsController = settingsController,
        _connectionManager = connectionManager,
        _accountService = accountService,
+       _sensorController = sensorController,
        _navigatorKey = navigatorKey,
        _backgroundStates = _getPlatformBackgroundStates() {
     _initialize();
@@ -828,6 +834,7 @@ class De1StateManager with WidgetsBindingObserver {
       stepExitArbiterEnabled: _settingsController.isFeatureFlagEnabled(
         FeatureFlag.stepExitArbiter,
       ),
+      sensorController: _sensorController,
     );
     _currentShotMachine = _captureMachineSnapshot();
 

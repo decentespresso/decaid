@@ -25,7 +25,15 @@ enum Endpoint implements LogicalEndpoint {
   frameWrite('A010', 'P'),
   waterLevels('A011', 'Q'),
   calibration('A012', 'R'),
-  bengleShotSample('A013', 'S');
+  bengleShotSample('A013', 'S'),
+  // Bengle-only fused puck-estimator sample (observer outputs: R1/R2/C +
+  // confidence + Qout lag + V_abs, plus an optional R1-collapse detector
+  // tail). Additive characteristic on service 0xA000; serial char 'T'. Streamed
+  // over the serial/CDC tunnel only: the firmware does not register 'T' over
+  // BLE, and the app must NOT blind-subscribe it there — a CCCD write on an
+  // unregistered characteristic stalls the command queue (the same hazard
+  // [subscribeBengleShotSample] guards against). Wire layout: bengle_est_sample.dart.
+  estimator('A014', 'T');
 
   @override
   final String uuid;
