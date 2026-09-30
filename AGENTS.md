@@ -104,6 +104,7 @@ GitHub Issues on `decentespresso/decaid` is the canonical issue tracker. Use `gh
 - Drift DB schema, migrations, SharedPreferences: `doc/AI_STORAGE_NOTES.md`.
 - Debugging patterns and BLE errors: `doc/AI_DEBUG_NOTES.md`.
 - Test tiers, widget patterns, mock helpers: `doc/AI_TESTING_NOTES.md`.
+- Bundled plugin logic (not host API/permissions — that's `doc/Plugins.md`): `doc/AI_PLUGINS_NOTES.md`.
 - Full project docs: `doc/Api.md`, `doc/Skins.md`, `doc/Plugins.md`, `doc/Profiles.md`, `doc/DeviceManagement.md`, `doc/RELEASE.md`.
 - Contributing: `CONTRIBUTING.md`.
 - Dev-loop skill: `.agents/skills/decent-app/SKILL.md`.
