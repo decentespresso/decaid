@@ -805,6 +805,10 @@ class ConnectionManager {
   void debugNotifyMachineDisconnected(String deviceId) =>
       _disconnectSupervisor.notifyMachineDisconnected(deviceId);
 
+  @visibleForTesting
+  void debugExpirePostWakeScaleLease() =>
+      _endPostWakeScaleLease(runDeferred: true);
+
   Future<void> connect({bool scaleOnly = false}) => _runConnect(
     scaleOnly: scaleOnly,
     policy: scaleOnly

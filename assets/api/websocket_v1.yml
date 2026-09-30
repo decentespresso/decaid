@@ -183,8 +183,9 @@ channels:
       Connect commands receive a DeviceConnectResult when the attempt finishes.
       A scan command issued during the protected post-wake preferred-scale
       recovery window is deferred and coalesced instead of preempting the
-      background preferred-scale watch, and may be dropped when that scale
-      reconnects first.
+      background preferred-scale watch. The pending scan is dropped when the
+      preferred scale reconnects first, the machine disconnects, the preferred
+      scale is cleared, or Decaid shuts down.
     address: ws/v1/devices
     messages:
       devicesState:
@@ -998,7 +999,9 @@ components:
             only). A scan sent during the protected post-wake preferred-scale
             recovery window is deferred and coalesced with any other pending
             explicit scan rather than preempting the background preferred-scale
-            watch; it is dropped when the preferred scale reconnects first.
+            watch; it is dropped when the preferred scale reconnects first, the
+            machine disconnects, the preferred scale is cleared, or Decaid
+            shuts down.
           default: true
         quick:
           type: boolean

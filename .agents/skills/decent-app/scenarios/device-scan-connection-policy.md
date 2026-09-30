@@ -88,7 +88,8 @@ logs and from the device state:
   watch;
 - repeated requests coalesce into one pending scan, and at most one scan runs
   once the window closes;
-- the pending scan is dropped when the preferred scale reconnects first;
+- the pending scan is dropped when the preferred scale reconnects first, the
+  machine disconnects, the preferred scale is cleared, or Decaid shuts down;
 - `quick=true` returns at once and never reports scan failures, whether the
   scan starts immediately or after the window;
 - a native in-app scan control (launcher or retry UI) supersedes a deferred

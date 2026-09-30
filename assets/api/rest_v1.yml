@@ -102,8 +102,11 @@ paths:
         the protected post-wake preferred-scale recovery window, an explicit
         scan - discovery-only included - is deferred and coalesced with any
         other pending explicit scan instead of preempting the background
-        preferred-scale watch. At most one scan runs when the window ends, and
-        the pending scan is dropped when the preferred scale reconnects first.
+        preferred-scale watch. At most one scan runs when the window ends. The
+        pending scan is dropped instead when the preferred scale reconnects
+        first, when the machine disconnects, when the preferred scale is
+        cleared, or when Decaid shuts down; the waiting request then completes
+        without a scan.
       tags: [Devices]
       parameters:
         - name: connect

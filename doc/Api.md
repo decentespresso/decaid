@@ -151,8 +151,9 @@ enabled, the request scans first, preserves occupied slots, then fills missing
 machine and scale slots; this may take longer than the former quick-connect
 behavior. `quick=true` returns immediately but does not change that policy.
 REST and devices-WebSocket scans (including `connect=false`) may be coalesced
-and deferred during preferred-scale post-wake recovery, or dropped if the scale
-reconnects before the protected window ends.
+and deferred during preferred-scale post-wake recovery, or dropped without a
+scan if the preferred scale reconnects first, the machine disconnects, the
+preferred scale is cleared, or Decaid shuts down.
 
 `PUT /api/v1/devices/connect` waits for the attempt and returns `deviceId`,
 `operation`, `outcome`, the resulting device `state`, and a structured

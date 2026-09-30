@@ -404,7 +404,10 @@ void main() {
     });
 
     group('deferred scans during the post-wake scale lease', () {
-      const leaseWindow = Duration(milliseconds: 200);
+      // The lease clock is driven explicitly through
+      // ConnectionManager.debugExpirePostWakeScaleLease(), so the host-clock
+      // lease must never fire while a test runs.
+      const leaseNeverExpiresOnHostClock = Duration(minutes: 5);
       late MockDeviceScanner scanner;
       late MockDe1Controller leaseDe1Controller;
       late ConnectionManager leaseManager;
@@ -418,6 +421,25 @@ void main() {
         );
       }
 
+      Future<void> waitUntil(bool Function() condition, String reason) async {
+        final deadline = DateTime.now().add(const Duration(seconds: 5));
+        while (!condition()) {
+          if (DateTime.now().isAfter(deadline)) {
+            fail('Timed out waiting for $reason');
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+      }
+
+      Future<void> waitForDeferredScanToQueue({required bool connect}) {
+        return waitUntil(
+          () =>
+              leaseManager.explicitScanDisposition(connect: connect) ==
+              'coalesced',
+          'the client scan to queue behind the post-wake lease',
+        );
+      }
+
       setUp(() async {
         scanner = MockDeviceScanner()..supportsWatch = true;
         leaseDe1Controller = MockDe1Controller(controller: deviceController);
@@ -426,7 +448,7 @@ void main() {
           de1Controller: leaseDe1Controller,
           scaleController: MockScaleController(),
           settingsController: settingsController,
-        )..deferredScaleScanDelay = leaseWindow;
+        )..deferredScaleScanDelay = leaseNeverExpiresOnHostClock;
         leaseHandler = DevicesHandler(
           controller: deviceController,
           connectionManager: leaseManager,
@@ -444,7 +466,11 @@ void main() {
           MachineSubstate.idle,
         );
         machine.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
-        await Future<void>.delayed(Duration.zero);
+        await waitUntil(
+          () =>
+              leaseManager.explicitScanDisposition(connect: false) == 'queued',
+          'the post-wake scale lease to arm',
+        );
       });
 
       tearDown(() async {
@@ -458,10 +484,12 @@ void main() {
           final pending = sendLeaseGet('/api/v1/devices/scan?connect=false');
           var completed = false;
           pending.whenComplete(() => completed = true);
-          await Future<void>.delayed(leaseWindow * 0.5);
+          await waitForDeferredScanToQueue(connect: false);
 
           expect(completed, isFalse);
           expect(mockDiscovery.scanCallCount, 0);
+
+          leaseManager.debugExpirePostWakeScaleLease();
 
           final response = await pending;
           expect(response.statusCode, 200);
@@ -476,9 +504,14 @@ void main() {
 
         expect(response.statusCode, 200);
         expect(await response.readAsString(), '[]');
+        await waitForDeferredScanToQueue(connect: false);
         expect(mockDiscovery.scanCallCount, 0);
 
-        await Future<void>.delayed(leaseWindow * 2);
+        leaseManager.debugExpirePostWakeScaleLease();
+        await waitUntil(
+          () => mockDiscovery.scanCallCount == 1,
+          'the deferred discovery-only scan',
+        );
         expect(mockDiscovery.scanCallCount, 1);
       });
 
@@ -488,27 +521,32 @@ void main() {
         );
 
         expect(response.statusCode, 200);
+        await waitForDeferredScanToQueue(connect: true);
         expect(scanner.scanCallCount, 0);
 
-        await Future<void>.delayed(leaseWindow * 2);
-        expect(scanner.scanCallCount, 1);
+        leaseManager.debugExpirePostWakeScaleLease();
+        await waitUntil(
+          () => scanner.scanCallCount == 1,
+          'the deferred full scan policy',
+        );
         expect(mockDiscovery.scanCallCount, 0);
       });
 
       test('repeated requests coalesce into one deferred scan', () async {
         final first = sendLeaseGet('/api/v1/devices/scan?connect=false');
         final second = sendLeaseGet('/api/v1/devices/scan');
-        await Future<void>.delayed(leaseWindow * 0.5);
+        await waitForDeferredScanToQueue(connect: true);
 
         expect(mockDiscovery.scanCallCount, 0);
         expect(scanner.scanCallCount, 0);
+
+        leaseManager.debugExpirePostWakeScaleLease();
 
         final responses = await Future.wait([first, second]);
         expect(
           responses.map((response) => response.statusCode),
           everyElement(200),
         );
-        await Future<void>.delayed(leaseWindow);
 
         expect(scanner.scanCallCount, 1);
         expect(mockDiscovery.scanCallCount, 0);
