@@ -236,6 +236,14 @@ Decaid therefore pins `universal_ble` on the unreleased commit `9c50e12fcc33b061
 
 `test/universal_ble_transport_recovery_test.dart`, group `stale disconnect vs queued GATT work`, guards the Decaid side of that contract: a stale update must leave the in-flight and queued writes alive with the queue still `running`, confirming the stale update as connected must not dispatch the queued write while the in-flight write is still running, a genuine disconnect must still cancel exactly once and publish exactly one `disconnected`, and a genuine disconnect whose link probe is still pending must hold queued work instead of dispatching it.
 
+## Stale Retirement Is Deferred Only For A Shared BLE Link
+
+A stale connect attempt that a replacement connect superseded retires its own device instance once its source work settles. `ConnectionManager._retireMachine` / `_retireScale` defer that physical disconnect only when a same-link replacement exists: a different adopted instance, or a newer current attempt, with the same device ID and transport type. Deferral transfers cleanup ownership to the newer attempt, so the stale attempt does not disconnect a link the replacement is using.
+
+The current-attempt clause is limited to `TransportType.ble`. `UniversalBleTransport.disconnect()` runs `UniversalBle.disconnect(deviceId)` inside `BleLifecycleGate` keyed on the normalized device ID, so a stale instance's disconnect tears down any newer instance's link for that device. Serial closes only its own port handle and WiFi only its own socket, so a stale instance there is always retired, even while a same-ID replacement is mid-connect; deferring on those transports would strand the stale port or socket when the replacement fails before adopting. Discovery lowercases BLE device IDs at creation, so the guard's raw device ID comparison matches the gate's normalized key.
+
+`test/controllers/connection_manager_test.dart` guards both directions: a stale BLE attempt settling while a same-ID BLE replacement is still connecting must not issue the physical disconnect and the replacement must still succeed (fakes model one link per device ID), and a stale serial same-ID attempt must still retire its own link while the serial replacement succeeds.
+
 ## Plugin Connection Deadlines
 
 A host-bound BLE plugin device connects in two phases. `PluginProtocolDevice.prepareConnection` establishes the physical BLE session and `PluginBleBinding` owns admission, claim reservation and `session.connect()` there; only then does the plugin's own `connect` handler run, and only then does `invocationTimeout` bound protocol startup and readiness.

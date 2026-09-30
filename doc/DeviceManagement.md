@@ -420,19 +420,21 @@ record drives its own settlement and cleanup:
 it retires the exact device instance it attempted once its source work settles
 and it had reached a transport connection, which covers a candidate that was
 already adopted before a preference write finished.
-Retirement is deferred only for a same-link replacement, meaning a different
-adopted instance or the newer current attempt with the same device ID and
-transport type, since all of them may share one physical link; that is logged as
-a deferred same-link replacement and the attempt is released, transferring
-cleanup ownership to the newer attempt. The current-attempt check matters
-because a replacement for the same physical link can be mid-connect before it
-is adopted, so an adopted-only check would let the stale attempt's disconnect
-(for BLE, `UniversalBle.disconnect(deviceId)` behind a per-device lifecycle
-gate) tear down the replacement's link. A different device ID or transport type
-is retired independently. If disconnect fails, the attempt is quarantined, the
-failure is reported, and an explicit disconnect retries retirement; a
-quarantined attempt never blocks a new connect. Shutdown waits for pending
-source work and retirement before teardown.
+Retirement is deferred for a same-link replacement: a different adopted
+instance, or a newer current attempt, with the same device ID and transport
+type, since they may share one physical link; that is logged as a deferred
+same-link replacement and the attempt is released, transferring cleanup
+ownership to the newer attempt. The current-attempt check matters because a
+same-link replacement can be mid-connect before it is adopted, and a stale BLE
+disconnect is not instance-local: `UniversalBle.disconnect(deviceId)` runs
+behind the per-device lifecycle gate, so an adopted-only check would let the
+stale attempt tear down the replacement's link. The current-attempt clause is
+limited to BLE for that reason; serial and WiFi closes only their own port or
+socket, so a stale instance on those transports is always retired. A different
+device ID or transport type is retired independently as well. If disconnect
+fails, the attempt is quarantined, the failure is reported, and an explicit
+disconnect retries retirement; a quarantined attempt never blocks a new
+connect. Shutdown waits for pending source work and retirement before teardown.
 
 Timeout, cancellation from the scan or selection session that owns the attempt,
 adapter loss for a BLE attempt, explicit disconnect, and shutdown invalidate

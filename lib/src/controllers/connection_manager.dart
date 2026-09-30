@@ -276,8 +276,9 @@ class ConnectionManager {
       final sameLinkReplacement =
           replacement != null &&
           !identical(replacement, attempt) &&
-          replacement.machine.deviceId == machine.deviceId &&
-          replacement.transportType == machine.transportType;
+          machine.transportType == TransportType.ble &&
+          replacement.transportType == machine.transportType &&
+          replacement.machine.deviceId == machine.deviceId;
       final sameLinkAdopted =
           adopted != null &&
           !identical(adopted, machine) &&
@@ -323,8 +324,9 @@ class ConnectionManager {
       final sameLinkReplacement =
           replacement != null &&
           !identical(replacement, attempt) &&
-          replacement.deviceId == scale.deviceId &&
-          replacement.transportType == scale.transportType;
+          scale.transportType == TransportType.ble &&
+          replacement.transportType == scale.transportType &&
+          replacement.deviceId == scale.deviceId;
       final sameLinkAdopted =
           adopted != null &&
           !identical(adopted, scale) &&

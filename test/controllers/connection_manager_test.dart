@@ -167,6 +167,7 @@ class _SharedLinkScale extends TestScale {
   final _SharedDeviceLink link;
   final Completer<void> started = Completer<void>();
   final Completer<void> proceed = Completer<void>();
+  int disconnectCalls = 0;
 
   @override
   TransportType get transportType => TransportType.ble;
@@ -182,8 +183,19 @@ class _SharedLinkScale extends TestScale {
   @override
   Future<void> disconnect() async {
     link.tornDown = true;
+    disconnectCalls++;
     setConnectionState(ConnectionState.disconnected);
   }
+}
+
+/// Unblocks pending fake connects when a test aborts mid-flight, so a failing
+/// assertion reports immediately instead of waiting for the teardown dispose.
+void _unblockOnFailure(List<Completer<void>> pending) {
+  addTearDown(() {
+    for (final completer in pending) {
+      if (!completer.isCompleted) completer.complete();
+    }
+  });
 }
 
 class _FakeSimulatedDe1 extends _FakeDe1 implements SimulatedDevice {
@@ -751,6 +763,7 @@ void main() {
             deviceId: 'shared-link-machine',
             link: link,
           );
+          _unblockOnFailure([stale.proceed, replacement.proceed]);
 
           final connecting = manager.connectMachine(stale);
           await stale.started.future;
@@ -782,6 +795,7 @@ void main() {
             deviceId: 'shared-link-scale',
             link: link,
           );
+          _unblockOnFailure([stale.proceed, replacement.proceed]);
 
           final connecting = manager.connectScale(stale);
           await stale.started.future;
@@ -791,11 +805,72 @@ void main() {
 
           stale.proceed.complete();
           expect((await connecting).outcome, ConnectionOutcome.conflict);
+          expect(stale.disconnectCalls, 0);
           expect(link.tornDown, isFalse);
 
           replacement.proceed.complete();
           expect((await replacing).success, isTrue);
           expect(realScaleController.connectedScale(), same(replacement));
+        },
+      );
+
+      test(
+        'stale attempt still retires its own serial link mid replacement',
+        () async {
+          await createManager(timeout: const Duration(seconds: 1));
+          final stale = _BlockingDe1(
+            deviceId: 'serial-machine',
+            sourceTransport: TransportType.serial,
+          );
+          final replacement = _BlockingDe1(
+            deviceId: 'serial-machine',
+            sourceTransport: TransportType.serial,
+          );
+          _unblockOnFailure([stale.proceed, replacement.proceed]);
+
+          final connecting = manager.connectMachine(stale);
+          await stale.started.future;
+          await manager.disconnectMachine();
+          final replacing = manager.connectMachine(replacement);
+          await replacement.started.future;
+
+          stale.proceed.complete();
+          expect((await connecting).outcome, ConnectionOutcome.conflict);
+          expect(stale.disconnectCalls, 1);
+
+          replacement.proceed.complete();
+          expect((await replacing).success, isTrue);
+          expect(realDe1Controller.connectedDe1OrNull, same(replacement));
+        },
+      );
+
+      test(
+        'stale attempt is retired when the current attempt is another device',
+        () async {
+          await createManager(timeout: const Duration(seconds: 1));
+          final stale = _BlockingDe1(
+            deviceId: 'stale-machine',
+            sourceTransport: TransportType.ble,
+          );
+          final other = _BlockingDe1(
+            deviceId: 'other-machine',
+            sourceTransport: TransportType.ble,
+          );
+          _unblockOnFailure([stale.proceed, other.proceed]);
+
+          final connecting = manager.connectMachine(stale);
+          await stale.started.future;
+          await manager.disconnectMachine();
+          final connectingOther = manager.connectMachine(other);
+          await other.started.future;
+
+          stale.proceed.complete();
+          expect((await connecting).outcome, ConnectionOutcome.conflict);
+          expect(stale.disconnectCalls, 1);
+
+          other.proceed.complete();
+          expect((await connectingOther).success, isTrue);
+          expect(realDe1Controller.connectedDe1OrNull, same(other));
         },
       );
 
