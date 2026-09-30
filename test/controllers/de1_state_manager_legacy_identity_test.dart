@@ -234,6 +234,7 @@ void main() {
   http_testing.MockClient machinesClient(
     List<Map<String, dynamic>> machines, {
     List<String> emailRequests = const [],
+    String emailResponse = '1',
   }) {
     return http_testing.MockClient((request) async {
       final path = request.url.path;
@@ -248,7 +249,7 @@ void main() {
       }
       if (path == '/support/api/email') {
         (emailRequests as List).add(request.url.toString());
-        return http.Response('1', 200);
+        return http.Response(emailResponse, 200);
       }
       return http.Response('0\n', 200);
     });
@@ -275,9 +276,14 @@ void main() {
     List<Map<String, dynamic>> machines, {
     bool withCredentials = true,
     List<String> emailRequests = const [],
+    String emailResponse = '1',
   }) async {
     final service = DecentAccountService(
-      httpClient: machinesClient(machines, emailRequests: emailRequests),
+      httpClient: machinesClient(
+        machines,
+        emailRequests: emailRequests,
+        emailResponse: emailResponse,
+      ),
       credentialStore: store,
     );
     await seedAccount(machines, withCredentials: withCredentials);
@@ -906,6 +912,31 @@ void main() {
         isTrue,
       );
       expect(emailRequests.first, contains('9999'));
+      await disconnectAndSettle(tester);
+    },
+  );
+
+  testWidgets(
+    'a delivered legacy serial-mismatch email stays deduplicated after reconnect',
+    (tester) async {
+      final emailRequests = <String>[];
+      final accountService = await seededService(
+        const [],
+        emailRequests: emailRequests,
+        emailResponse: 'legacy-success-token',
+      );
+      await createManager(tester, accountService: accountService);
+
+      final machine = await connectMachine(tester, v13Model: 3, serialN: 9999);
+      await pumpUntil(tester, () async {});
+      await pumpUntil(tester, () async {});
+      expect(emailRequests, hasLength(1));
+
+      await disconnectAndSettle(tester);
+      de1Controller.connect(machine);
+      await pumpUntil(tester, () async {});
+      await pumpUntil(tester, () async {});
+      expect(emailRequests, hasLength(1));
       await disconnectAndSettle(tester);
     },
   );

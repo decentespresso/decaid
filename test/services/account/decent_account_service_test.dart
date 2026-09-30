@@ -1110,80 +1110,94 @@ void main() {
         },
       );
 
-      test('rejects failed and unsafe responses', () async {
-        final responses = [
-          (statusCode: 500, body: 'failed'),
-          (statusCode: 200, body: ''),
-          (statusCode: 200, body: '0'),
-          (statusCode: 200, body: 'bad\ncontact'),
-          (statusCode: 200, body: 'bad`contact'),
-          (statusCode: 200, body: List.filled(257, 'x').join()),
-          (statusCode: 200, body: '12345.67890'),
-          (statusCode: 200, body: '{"userId":12345,'),
-          (statusCode: 200, body: '{"userId":12345}'),
-          (statusCode: 200, body: '{"userId":12345,"messageId":1}'),
-          (statusCode: 200, body: '{"userId":12345,"messageId":"1"}'),
-          (statusCode: 200, body: '{"userId":12345,"messageId":false}'),
-          (statusCode: 200, body: '{"userId":12345,"messageId":{}}'),
-          for (final messageId in [
-            -2,
-            0,
-            67890.5,
-            'customer@example.com',
-            'msg-67890',
-            '12345.67890',
-            '-2',
-            '+67890',
-            '6.789e4',
-            '067890',
-            '01',
-            ' 67890',
-            '67890 ',
-            '67890\n',
-            '\u0666\u0667\u0668\u0669\u0660',
-            '',
-            '0',
-            ' 1 ',
-            'bad\nmessage',
-            'bad`message',
-            'bad\rmessage',
-            'bad\u0000message',
-            List.filled(257, 'x').join(),
-            List.filled(257, '9').join(),
-          ])
-            (
-              statusCode: 200,
-              body: jsonEncode({'userId': 12345, 'messageId': messageId}),
-            ),
-        ];
-        await store.write(key: 'email', value: 'test@example.com');
-        await store.write(key: 'password', value: 'cryptpw_abc123');
-
-        for (final response in responses) {
-          final supportService = DecentAccountService(
-            httpClient: http_testing.MockClient(
-              (_) async => http.Response(
-                response.body,
-                response.statusCode,
-                headers: {'content-type': 'application/json; charset=utf-8'},
+      test(
+        'separates delivery failure from an optional valid receipt',
+        () async {
+          final responses = [
+            (statusCode: 500, body: 'failed'),
+            (statusCode: 200, body: ''),
+            (statusCode: 200, body: '0'),
+            (statusCode: 200, body: 'legacy-success-token'),
+            (statusCode: 200, body: 'bad\ncontact'),
+            (statusCode: 200, body: 'bad`contact'),
+            (statusCode: 200, body: List.filled(257, 'x').join()),
+            (statusCode: 200, body: '12345.67890'),
+            (statusCode: 200, body: '{"userId":12345,'),
+            (statusCode: 200, body: '{"userId":12345}'),
+            (statusCode: 200, body: '{"userId":12345,"messageId":1}'),
+            (statusCode: 200, body: '{"userId":12345,"messageId":"1"}'),
+            (statusCode: 200, body: '{"userId":12345,"messageId":false}'),
+            (statusCode: 200, body: '{"userId":12345,"messageId":{}}'),
+            for (final messageId in [
+              -2,
+              0,
+              67890.5,
+              'customer@example.com',
+              'msg-67890',
+              '12345.67890',
+              '-2',
+              '+67890',
+              '6.789e4',
+              '067890',
+              '01',
+              ' 67890',
+              '67890 ',
+              '67890\n',
+              '\u0666\u0667\u0668\u0669\u0660',
+              '',
+              '0',
+              ' 1 ',
+              'bad\nmessage',
+              'bad`message',
+              'bad\rmessage',
+              'bad\u0000message',
+              List.filled(257, 'x').join(),
+              List.filled(257, '9').join(),
+            ])
+              (
+                statusCode: 200,
+                body: jsonEncode({'userId': 12345, 'messageId': messageId}),
               ),
-            ),
-            credentialStore: store,
-            baseUrl: _baseUrl,
-          );
+          ];
+          await store.write(key: 'email', value: 'test@example.com');
+          await store.write(key: 'password', value: 'cryptpw_abc123');
 
-          await expectLater(
-            supportService.sendSupportMessage(subject: 'subject', body: 'body'),
-            throwsA(
-              isA<Exception>().having(
-                (error) => error.toString(),
-                'does not disclose user ID',
-                isNot(contains('12345')),
+          for (final response in responses) {
+            final supportService = DecentAccountService(
+              httpClient: http_testing.MockClient(
+                (_) async => http.Response(
+                  response.body,
+                  response.statusCode,
+                  headers: {'content-type': 'application/json; charset=utf-8'},
+                ),
               ),
-            ),
-          );
-        }
-      });
+              credentialStore: store,
+              baseUrl: _baseUrl,
+            );
+
+            final delivery = supportService.sendSupportMessage(
+              subject: 'subject',
+              body: 'body',
+            );
+            if (response.statusCode != 200 ||
+                response.body.isEmpty ||
+                response.body == '0') {
+              await expectLater(
+                delivery,
+                throwsA(
+                  isA<Exception>().having(
+                    (error) => error.toString(),
+                    'does not disclose user ID',
+                    isNot(contains('12345')),
+                  ),
+                ),
+              );
+            } else {
+              expect((await delivery).messageId, isNull);
+            }
+          }
+        },
+      );
 
       test('invalidates cached authentication after a 401', () async {
         var requestCount = 0;

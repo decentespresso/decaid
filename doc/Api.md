@@ -628,6 +628,10 @@ Unexpected response fields are ignored, and raw responses are never
 included in logs or errors. Temporary Support acknowledgement `1` means
 no message ID is available and skips the GitHub update. A Support outage does
 not undo the GitHub issue. No response-mode query parameter is sent.
+Support delivery and feedback receipts are separate: a successful legacy opaque
+response or an invalid receipt has no message ID and skips linking. It does not
+fail delivery-only callers such as the serial-mismatch notification. Non-200
+responses and empty/zero acknowledgements still fail delivery.
 
 ### Debug (debug builds only)
 

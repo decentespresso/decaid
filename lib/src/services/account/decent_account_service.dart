@@ -694,13 +694,17 @@ class DecentAccountService {
     if (response.statusCode != 200) {
       throw Exception('support message failed (${response.statusCode})');
     }
-    if (response.body.trim() == '1') return const SupportMessageReceipt();
+    final responseBody = response.body.trim();
+    if (responseBody.isEmpty || responseBody == '0') {
+      throw Exception('support message rejected');
+    }
+    if (responseBody == '1') return const SupportMessageReceipt();
     try {
-      final json = jsonDecode(response.body) as Map<String, dynamic>;
+      final json = jsonDecode(responseBody) as Map<String, dynamic>;
       final messageId = _parseSupportMessageId(json['messageId']);
       return SupportMessageReceipt(messageId: messageId);
     } catch (_) {
-      throw const FormatException('Invalid Support message receipt');
+      return const SupportMessageReceipt();
     }
   }
 

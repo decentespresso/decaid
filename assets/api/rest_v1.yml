@@ -5307,6 +5307,8 @@ paths:
         for the temporary acknowledgement and is never published as an ID.
         Invalid IDs skip linking without failing the created issue. The backend
         maintainer must confirm the numeric format, lookup uniqueness, and public safety.
+        A successful Support delivery without a recognized receipt has no message
+        ID and skips the GitHub update; it does not fail delivery-only callers.
       tags: [System]
       requestBody:
         required: true
