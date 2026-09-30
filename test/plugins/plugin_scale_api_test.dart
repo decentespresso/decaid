@@ -92,6 +92,7 @@ void main() {
                 id: 'scale',
                 type: PluginDriverType.scale,
                 capabilities: {
+                  PluginScaleCapability.battery,
                   if (timers) PluginScaleCapability.tare,
                   if (timers) PluginScaleCapability.timerControl,
                 },
@@ -105,7 +106,11 @@ void main() {
             let context;
             return {id: 'api.scale', async onLoad() {
               await host.devices.register({driverId:'scale', instanceId:'one', name:'API Scale'}, {
-                async connect(session) { context = session; await session.publish({weight:12.5}); },
+                async connect(session) {
+                  context = session;
+                  await session.publish({weight:12.5});
+                  await session.publishInfo({firmwareVersion:'R029', batteryLevel:${timers ? 0 : 100}});
+                },
                 disconnect() {},
                 ${timers ? 'async tare() { await context.publish({weight:0}); },' : ''}
                 ${timers ? "startTimer() {host.emit('timer','start');}, stopTimer() {host.emit('timer','stop');}, resetTimer() {host.emit('timer','reset');}," : ''}
@@ -129,6 +134,10 @@ void main() {
           expect((await first).weight, 12.5);
           expect(scales.lastConnectedDeviceId, publicId);
           expect(settings.preferredScaleId, publicId);
+          expect(await request('GET', '/api/v1/scale/info'), {
+            'firmwareVersion': 'R029',
+            'batteryLevel': timers ? 0 : 100,
+          });
           final listed = await request('GET', '/api/v1/devices') as List;
           expect(listed.single['id'], publicId);
           expect(listed.single['type'], 'scale');

@@ -8,6 +8,7 @@ import 'package:reaprime/src/models/device/scan_filter.dart';
 import 'package:reaprime/src/models/device/sensor.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:rxdart/rxdart.dart';
+
 import 'plugin_device_contract.dart';
 import 'plugin_manifest.dart';
 import 'plugin_scale.dart';
@@ -168,6 +169,24 @@ class PluginDeviceService implements DeviceDiscoveryService {
       generation,
       registrationHandle,
     ).publish(snapshot, session: session);
+  }
+
+  void publishInfo({
+    required String pluginId,
+    required int generation,
+    required String registrationHandle,
+    required Map<String, dynamic> info,
+    String? session,
+  }) {
+    _ensureActive();
+    final device = _registration(pluginId, generation, registrationHandle);
+    if (device is! PluginScale) {
+      throw const PluginDeviceException(
+        'Device metadata is only supported by plugin scales',
+        code: 'invalid_argument',
+      );
+    }
+    device.publishInfo(info, session: session);
   }
 
   void reportDisconnected({
