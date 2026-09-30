@@ -64,6 +64,15 @@ backgrounded. After ten minutes in the background, it unloads the page and
 reloads the selected skin when the app returns. Skin state that must survive
 this reload should be persisted through the Decaid API or browser storage.
 
+### Text Scaling
+
+Decaid pins the embedded WebView's text zoom to 100%, so the device's system
+font-size setting does not rescale a skin. Android would otherwise apply that
+setting to text but not to layout, growing a skin's type while the boxes
+holding it stayed the same size — text then overflows its container, and only
+inside the app, since a browser on the same device is unaffected. A skin owns
+its own scaling and should size its text itself.
+
 ### Skin Origins and Browser Storage
 
 Each installed skin is served from its own **stable origin** — a port derived
