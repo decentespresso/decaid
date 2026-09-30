@@ -150,6 +150,12 @@ class MockBengle extends MockDe1 implements BengleInterface, SimulatedDevice {
       _ledState.add(state.canonical());
 
   @override
+  Future<void> previewLedStrip({Color16? front, Color16? back}) async {}
+
+  @override
+  Future<void> clearLedStripPreview() async {}
+
+  @override
   Future<void> commitLedStrip() async {}
 
   @override
