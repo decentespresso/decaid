@@ -5,6 +5,7 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/connection_error.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
+import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/auxiliary_scale_registry.dart';
 import 'package:reaprime/src/controllers/remembered_devices_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
@@ -68,6 +69,9 @@ class _FakeDe1 implements De1Interface {
   @override
   Future<void> dispose() async {}
 
+  @override
+  Future<void> onConnect() async {}
+
   _FakeDe1({
     this.deviceId = 'fake-de1',
     String? name,
@@ -93,6 +97,19 @@ class _FakeDe1 implements De1Interface {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
+}
+
+class _BlockingDe1 extends _FakeDe1 {
+  _BlockingDe1({super.deviceId});
+
+  final started = Completer<void>();
+  final proceed = Completer<void>();
+
+  @override
+  Future<void> onConnect() async {
+    started.complete();
+    await proceed.future;
+  }
 }
 
 class _FakeSimulatedDe1 extends _FakeDe1 implements SimulatedDevice {
@@ -132,6 +149,34 @@ class _BlockingScale extends TestScale {
     await proceed.future;
     setConnectionState(ConnectionState.connected);
   }
+}
+
+class _BlockingPreferencesService extends MockSettingsService {
+  final machineStarted = Completer<void>();
+  final machineProceed = Completer<void>();
+  final scaleStarted = Completer<void>();
+  final scaleProceed = Completer<void>();
+
+  @override
+  Future<void> setPreferredMachineId(String? id) async {
+    if (!machineStarted.isCompleted) machineStarted.complete();
+    await machineProceed.future;
+    await super.setPreferredMachineId(id);
+  }
+
+  @override
+  Future<void> setPreferredScaleId(String? id) async {
+    if (!scaleStarted.isCompleted) scaleStarted.complete();
+    await scaleProceed.future;
+    await super.setPreferredScaleId(id);
+  }
+}
+
+class _BlockingBleScale extends _BlockingScale {
+  _BlockingBleScale(super.deviceId);
+
+  @override
+  TransportType get transportType => TransportType.ble;
 }
 
 class _FailingFakeDe1 implements De1Interface {
@@ -364,6 +409,189 @@ void main() {
         expect(settingsController.preferredScaleId, 'reusable-scale');
       },
     );
+
+    group('late connect ownership', () {
+      late De1Controller realDe1Controller;
+      late ScaleController realScaleController;
+      late ConnectionManager manager;
+
+      Future<void> createManager({
+        Duration timeout = const Duration(milliseconds: 1),
+        SettingsController? settings,
+      }) async {
+        realDe1Controller = De1Controller(
+          controller: DeviceController([dummyDiscoveryService]),
+        );
+        realScaleController = ScaleController();
+        manager = ConnectionManager(
+          deviceScanner: mockScanner,
+          de1Controller: realDe1Controller,
+          scaleController: realScaleController,
+          settingsController: settings ?? settingsController,
+          connectTimeout: timeout,
+        );
+        addTearDown(() async => manager.dispose());
+      }
+
+      test('timed-out machine source cannot be adopted later', () async {
+        await createManager();
+        final machine = _BlockingDe1();
+        final connecting = manager.connectMachine(machine);
+        await machine.started.future;
+        expect((await connecting).outcome, ConnectionOutcome.timedOut);
+        machine.proceed.complete();
+        await Future<void>.delayed(Duration.zero);
+        expect(realDe1Controller.connectedDe1OrNull, isNull);
+        expect(settingsController.preferredMachineId, isNull);
+      });
+
+      test('timed-out scale source cannot be adopted later', () async {
+        await createManager();
+        final scale = _BlockingScale('late-scale');
+        final connecting = manager.connectScale(scale);
+        await scale.started.future;
+        expect((await connecting).outcome, ConnectionOutcome.timedOut);
+        scale.proceed.complete();
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          () => realScaleController.connectedScale(),
+          throwsA(isA<DeviceNotConnectedException>()),
+        );
+        expect(settingsController.preferredScaleId, isNull);
+      });
+
+      test(
+        'cancelled machine cannot replace a new same-device attempt',
+        () async {
+          await createManager(timeout: const Duration(seconds: 1));
+          final old = _BlockingDe1(deviceId: 'same-machine');
+          final replacement = _FakeDe1(deviceId: 'same-machine');
+          final cancelled = manager.connectMachine(old);
+          await old.started.future;
+          manager.cancelActiveScan();
+          final result = await manager.connectMachine(replacement);
+          if (!result.success) {
+            old.proceed.complete();
+            await cancelled;
+          }
+          expect(result.success, isTrue);
+          old.proceed.complete();
+          await cancelled;
+          await Future<void>.delayed(Duration.zero);
+          expect(realDe1Controller.connectedDe1OrNull, same(replacement));
+        },
+      );
+
+      test('adapter loss invalidates a pending BLE scale', () async {
+        await createManager(timeout: const Duration(seconds: 1));
+        final scale = _BlockingBleScale('adapter-scale');
+        final connecting = manager.connectScale(scale);
+        await scale.started.future;
+        mockScanner.mockAdapterState(AdapterState.poweredOff);
+        scale.proceed.complete();
+        expect((await connecting).outcome, ConnectionOutcome.conflict);
+        expect(
+          () => realScaleController.connectedScale(),
+          throwsA(isA<DeviceNotConnectedException>()),
+        );
+      });
+
+      test('stale scale cleanup preserves a new same-device claim', () async {
+        await createManager(timeout: const Duration(seconds: 1));
+        final old = _BlockingScale('same-scale');
+        final replacement = _BlockingScale('same-scale');
+        final cancelled = manager.connectScale(old);
+        await old.started.future;
+        manager.cancelActiveScan();
+        final replacing = manager.connectScale(replacement);
+        await Future<void>.delayed(Duration.zero);
+        if (!replacement.started.isCompleted) {
+          old.proceed.complete();
+          await cancelled;
+          fail('replacement source did not start after cancellation');
+        }
+        old.proceed.complete();
+        await cancelled;
+        expect(
+          () => realScaleController.connectedScale(),
+          throwsA(isA<DeviceNotConnectedException>()),
+        );
+        expect(
+          (await manager.connectScale(
+            TestScale(deviceId: 'same-scale'),
+            role: ScaleConnectionRole.auxiliary,
+          )).outcome,
+          ConnectionOutcome.conflict,
+        );
+        replacement.proceed.complete();
+        expect((await replacing).success, isTrue);
+        expect(realScaleController.connectedScale(), same(replacement));
+      });
+
+      test(
+        'cancelled machine preference await cannot report success',
+        () async {
+          final service = _BlockingPreferencesService();
+          final settings = SettingsController(service);
+          await settings.loadSettings();
+          await createManager(
+            settings: settings,
+            timeout: const Duration(seconds: 1),
+          );
+          final connecting = manager.connectMachine(_FakeDe1());
+          await service.machineStarted.future;
+          manager.cancelActiveScan();
+          service.machineProceed.complete();
+          expect((await connecting).outcome, ConnectionOutcome.conflict);
+        },
+      );
+
+      test('cancelled scale preference await cannot report success', () async {
+        final service = _BlockingPreferencesService();
+        final settings = SettingsController(service);
+        await settings.loadSettings();
+        await createManager(
+          settings: settings,
+          timeout: const Duration(seconds: 1),
+        );
+        final connecting = manager.connectScale(TestScale());
+        await service.scaleStarted.future;
+        manager.cancelActiveScan();
+        service.scaleProceed.complete();
+        expect((await connecting).outcome, ConnectionOutcome.conflict);
+      });
+
+      test(
+        'shutdown waits for pending source before finishing cleanup',
+        () async {
+          await createManager(timeout: const Duration(seconds: 1));
+          final machine = _BlockingDe1();
+          final connecting = manager.connectMachine(machine);
+          await machine.started.future;
+          var finished = false;
+          final shutdown = manager.shutdown().then((_) => finished = true);
+          await Future<void>.delayed(Duration.zero);
+          expect(finished, isFalse);
+          machine.proceed.complete();
+          await Future.wait([connecting, shutdown]);
+          expect(realDe1Controller.connectedDe1OrNull, isNull);
+          expect(finished, isTrue);
+        },
+      );
+
+      test(
+        'successful machine and scale connects still adopt normally',
+        () async {
+          await createManager();
+          final machine = _FakeDe1();
+          final scale = TestScale();
+          expect((await manager.connectMachine(machine)).success, isTrue);
+          expect((await manager.connectScale(scale)).success, isTrue);
+          expect(realDe1Controller.connectedDe1OrNull, same(machine));
+          expect(realScaleController.connectedScale(), same(scale));
+        },
+      );
+    });
 
     group('shutdown', () {
       test('stops active scan and discards queued and future work', () async {
