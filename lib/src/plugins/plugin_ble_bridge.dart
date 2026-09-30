@@ -75,6 +75,7 @@ const __bindBleDriver = (driverId, factory) => {
       if (cleanup) return Object.freeze({gatt});
       return Object.freeze({
         gatt,
+        connectionId: payload.session,
         publish: (snapshot, sample) => record.disconnected ? Promise.reject(stale()) : __deviceCall('blePublish', {
           registrationHandle: handle, session: payload.session, snapshot, sample
         }).catch(error => {
@@ -87,6 +88,9 @@ const __bindBleDriver = (driverId, factory) => {
             });
           }
           throw error;
+        }),
+        publishInfo: info => record.disconnected ? Promise.reject(stale()) : __deviceCall('blePublishInfo', {
+          registrationHandle: handle, session: payload.session, info
         }),
         reportDisconnected: () => record.disconnected ? Promise.reject(stale()) : __deviceCall('bleDisconnected', {
           registrationHandle: handle, session: payload.session
