@@ -70,7 +70,7 @@ List<TroubleshootingStep> troubleshootingSteps({
       id: 'other_apps',
       title: 'Is another app connected?',
       description:
-          'Only one app can connect to your machine via Bluetooth at a time. Close any other Decent apps (e.g., the original Decent app) and try again.',
+          'Only one app can connect to your machine via Bluetooth at a time. Close any other apps connected to the machine (e.g., De1App) and try again.',
       buttonText: "I've closed other apps",
       shouldShow: () => true,
     ),

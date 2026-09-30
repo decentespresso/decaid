@@ -35,7 +35,7 @@ class ImportSummaryView extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                'Found in your Decent app folder:',
+                'Found in your De1App folder:',
                 style: theme.textTheme.muted,
                 textAlign: TextAlign.center,
               ),

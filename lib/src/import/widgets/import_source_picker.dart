@@ -77,14 +77,14 @@ class ImportSourcePicker extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                'Bring your data from the Decent app or restore a Bridge backup.',
+                'Bring your data from De1App or restore a Bridge backup.',
                 style: theme.textTheme.muted,
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 24),
               _SourceCard(
                 icon: LucideIcons.folder,
-                title: 'Import from Decent app',
+                title: 'Import from De1App',
                 subtitle: 'Select your de1plus folder',
                 onTap: () => _pickFolder(context),
               ),

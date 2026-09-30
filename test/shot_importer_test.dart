@@ -227,9 +227,9 @@ void main() {
     });
 
     test(
-      'should name the missing fields and point to "Import from Decent app" for a DE1 app history_v2 shot (keyed by clock, no id)',
+      'should name the missing fields and point to "Import from De1App" for a De1App history_v2 shot (keyed by clock, no id)',
       () async {
-        const de1HistoryV2Shot = '''
+        const de1AppHistoryV2Shot = '''
         {
           "clock": 1700000000,
           "espresso_data": {}
@@ -237,12 +237,12 @@ void main() {
         ''';
 
         expect(
-          () => importer.importShotJson(de1HistoryV2Shot),
+          () => importer.importShotJson(de1AppHistoryV2Shot),
           throwsA(
             isA<FormatException>().having(
               (e) => e.message,
               'message',
-              contains('Import from Decent app'),
+              contains('Import from De1App'),
             ),
           ),
         );

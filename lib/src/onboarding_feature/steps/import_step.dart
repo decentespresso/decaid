@@ -133,9 +133,9 @@ class _ImportStepViewState extends State<_ImportStepView> {
       if (localPath == null) {
         if (mounted) {
           setState(() => _phase = _ImportPhase.pickSource);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No Decent app data found')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('No De1App data found')));
         }
         return;
       }
@@ -157,7 +157,7 @@ class _ImportStepViewState extends State<_ImportStepView> {
       });
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('No Decent app data found')));
+      ).showSnackBar(const SnackBar(content: Text('No De1App data found')));
       return;
     }
 

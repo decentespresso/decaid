@@ -187,7 +187,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
               if (_canImportFromDe1app)
                 ShadButton.outline(
                   onPressed: _importFromDe1app,
-                  child: const Text('Import from DE1 app'),
+                  child: const Text('Import from De1App'),
                 ),
             ],
           ),
@@ -682,15 +682,15 @@ class _DataManagementPageState extends State<DataManagementPage> {
 
       if (folderPath == null) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No DE1 app data found')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('No De1App data found')));
         }
         return;
       }
     } else {
       folderPath = await FilePicker.getDirectoryPath(
-        dialogTitle: 'Select the DE1 app folder',
+        dialogTitle: 'Select the De1App folder',
       );
     }
     if (folderPath == null) return;
@@ -724,7 +724,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('No DE1 app data found in this folder'),
+              content: Text('No De1App data found in this folder'),
             ),
           );
         }
@@ -735,7 +735,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       final confirmed = await showShadDialog<bool>(
         context: context,
         builder: (ctx) => ShadDialog(
-          title: const Text('Import from Decent app'),
+          title: const Text('Import from De1App'),
           child: ImportSummaryView(
             scanResult: scanResult,
             onImportAll: () => Navigator.of(ctx).pop(true),

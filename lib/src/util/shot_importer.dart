@@ -54,7 +54,7 @@ class ShotImporter {
 
     final isDe1AppHistoryV2Shot = json['clock'] != null;
     final hint = isDe1AppHistoryV2Shot
-        ? ' This looks like a DE1 app history_v2 shot — use "Import from Decent app" instead.'
+        ? ' This looks like a De1App history_v2 shot — use "Import from De1App" instead.'
         : '';
     throw FormatException(
       'Not a Decaid shot export (missing or invalid: ${missingFields.join(', ')}).$hint',
