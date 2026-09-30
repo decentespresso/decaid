@@ -593,7 +593,9 @@ including discovery-only requests, are deferred and coalesced rather than
 preempting the watch. Scale reconnection or machine disconnection drops the
 pending request; otherwise at most one deferred scan runs after the window
 (and any active connection work). Machine recovery is never deferred by this
-scale lease.
+scale lease. A native in-app scan (`scanAndConnect()`, launcher and retry UI)
+supersedes a deferred discovery-only request and still performs the full
+connection policy.
 
 Watch lifecycle details:
 

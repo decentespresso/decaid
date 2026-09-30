@@ -75,7 +75,9 @@ watch for the existing three-second wake window. REST/WS explicit scans
 (including discovery-only requests) coalesce into one deferred request rather
 than pausing the watch. A successful scale reconnect or machine disconnect
 drops that request; otherwise it runs after the window and any active
-connection work. Machine recovery is never deferred by this scale lease.
+connection work. Machine recovery is never deferred by this scale lease. A
+full `scanAndConnect()` from a native in-app scan control supersedes a
+deferred discovery-only request, so lease deferral never downgrades it.
 
 ### `scaleOnly` / scale recovery
 

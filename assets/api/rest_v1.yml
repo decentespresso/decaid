@@ -95,7 +95,15 @@ paths:
   /api/v1/devices/scan:
     get:
       summary: Scan for Devices
-      description: Triggers a device scan. When connect=true (default), scans first and automatically fills missing machine and scale slots without replacing connected devices. When connect=false, performs discovery only.
+      description: >
+        Triggers a device scan. When connect=true (default), scans first and
+        automatically fills missing machine and scale slots without replacing
+        connected devices. When connect=false, performs discovery only. During
+        the protected post-wake preferred-scale recovery window, an explicit
+        scan - discovery-only included - is deferred and coalesced with any
+        other pending explicit scan instead of preempting the background
+        preferred-scale watch. At most one scan runs when the window ends, and
+        the pending scan is dropped when the preferred scale reconnects first.
       tags: [Devices]
       parameters:
         - name: connect
@@ -105,14 +113,16 @@ paths:
             type: boolean
             default: true
         - name: quick
-          description: If true, Decaid returns an empty array immediately while the same scan-first policy continues in the background. Useful when polling for device updates manually.
+          description: If true, Decaid returns an empty array immediately while the same scan-first policy continues in the background, after any post-wake deferral has elapsed. Useful when polling for device updates manually.
           in: query
           schema:
             type: boolean
             default: false
       responses:
         "200":
-          description: Scan started successfully
+          description: >
+            Device inventory after the scan, or immediately when a pending scan
+            is dropped or quick=true is set, before any deferred scan runs.
           content:
             application/json:
               schema:

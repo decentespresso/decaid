@@ -846,6 +846,7 @@ class ConnectionManager {
   }
 
   void _endPostWakeScaleLease({required bool runDeferred}) {
+    if (_postWakeScaleLease == null) return;
     if (runDeferred &&
         _queuedExplicitScan != null &&
         _activeConnectionWork > 0) {
@@ -899,7 +900,14 @@ class ConnectionManager {
   Future<void> scanAndConnect() async {
     if (_shuttingDown) return;
     if (_queuedExplicitScan != null) {
-      return _queuedExplicitScan!.future;
+      if (_queuedScanOnly == null) return _queuedExplicitScan!.future;
+      final superseded = _queuedExplicitScan!;
+      _queuedExplicitScan = null;
+      _queuedScanOnly = null;
+      _log.info(
+        'Explicit scan superseded the deferred discovery-only client scan',
+      );
+      superseded.complete();
     }
     if (_isConnecting) {
       _explicitScanGeneration++;
@@ -2248,6 +2256,7 @@ class ConnectionManager {
     deviceScanner.stopScan();
     final queued = _queuedExplicitScan;
     _queuedExplicitScan = null;
+    _queuedScanOnly = null;
     queued?.complete();
     final session = _selectionSession;
     if (session != null) {

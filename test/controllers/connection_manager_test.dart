@@ -3727,6 +3727,55 @@ void main() {
       });
 
       test(
+        'native scanAndConnect supersedes a deferred discovery-only scan',
+        () {
+          fakeAsync((async) {
+            final manager = buildWatchManager();
+            settingsController.setPreferredScaleId(scaleId);
+            async.flushMicrotasks();
+            final machine = _FakeDe1();
+            mockDe1Controller.de1Subject.add(machine);
+            async.flushMicrotasks();
+            machine.emitState(MachineState.sleeping);
+            machine.emitState(MachineState.idle);
+            async.flushMicrotasks();
+            var scanOnlyCalls = 0;
+            var deferredCompleted = false;
+            final scanIntents = <ConnectionIntent>[];
+            final statusSub = manager.status.listen(
+              (status) => scanIntents.add(status.intent),
+            );
+            manager
+                .requestExternalScan(
+                  connect: false,
+                  scanOnly: () async {
+                    scanOnlyCalls++;
+                  },
+                )
+                .whenComplete(() => deferredCompleted = true);
+            async.flushMicrotasks();
+
+            manager.scanAndConnect();
+            async.flushMicrotasks();
+
+            expect(scanOnlyCalls, 0);
+            expect(deferredCompleted, isTrue);
+            expect(mockScanner.scanCallCount, 1);
+            expect(scanIntents, contains(ConnectionIntent.explicitDiscovery));
+
+            async.elapse(const Duration(seconds: 4));
+            async.flushMicrotasks();
+            statusSub.cancel();
+
+            expect(scanOnlyCalls, 0);
+            expect(mockScanner.scanCallCount, 1);
+            manager.dispose();
+            async.flushMicrotasks();
+          });
+        },
+      );
+
+      test(
         'without background watch support, preferred scans are immediate',
         () {
           fakeAsync((async) {
@@ -4404,6 +4453,32 @@ void main() {
       scan1Completer.complete();
       await Future.wait([f1, f2, f3]);
       await Future<void>.delayed(Duration.zero);
+    });
+
+    test('machine disconnect keeps a queued explicit scan', () async {
+      final scanCompleter = Completer<void>();
+      mockScanner.queuedScanCompleters.add(scanCompleter);
+      mockScanner.addDevice(_FakeDe1(deviceId: 'm1'));
+      mockDe1Controller.de1Subject.add(_FakeDe1(deviceId: 'm1'));
+      await Future<void>.delayed(Duration.zero);
+
+      final scanFuture = connectionManager.scanAndConnect();
+      await Future<void>.delayed(Duration.zero);
+      expect(mockScanner.scanCallCount, 1);
+
+      final queuedFuture = connectionManager.scanAndConnect();
+      await Future<void>.delayed(Duration.zero);
+      expect(mockScanner.scanCallCount, 1);
+
+      mockDe1Controller.de1Subject.add(null);
+      await Future<void>.delayed(Duration.zero);
+
+      scanCompleter.complete();
+      await scanFuture;
+      await queuedFuture;
+      await Future<void>.delayed(Duration.zero);
+
+      expect(mockScanner.scanCallCount, 2);
     });
 
     test('cancelActiveScan discards queued explicit replacement', () async {

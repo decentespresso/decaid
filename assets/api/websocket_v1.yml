@@ -181,6 +181,10 @@ channels:
       and ConnectionManager status updates (phase, found devices, ambiguity).
       Accepts commands to scan, connect, and disconnect devices.
       Connect commands receive a DeviceConnectResult when the attempt finishes.
+      A scan command issued during the protected post-wake preferred-scale
+      recovery window is deferred and coalesced instead of preempting the
+      background preferred-scale watch, and may be dropped when that scale
+      reconnects first.
     address: ws/v1/devices
     messages:
       devicesState:
@@ -988,11 +992,21 @@ components:
           description: Optional local role for scale connect commands.
         connect:
           type: boolean
-          description: Whether to scan first and automatically fill missing machine and scale slots without replacing connected devices (scan command only).
+          description: >
+            Whether to scan first and automatically fill missing machine and
+            scale slots without replacing connected devices (scan command
+            only). A scan sent during the protected post-wake preferred-scale
+            recovery window is deferred and coalesced with any other pending
+            explicit scan rather than preempting the background preferred-scale
+            watch; it is dropped when the preferred scale reconnects first.
           default: true
         quick:
           type: boolean
-          description: Fire-and-forget scan without waiting for results (scan command only).
+          description: >
+            Fire-and-forget scan without waiting for results (scan command
+            only). A quick scan never reports scan failures to the client,
+            whether it starts immediately or runs after the post-wake recovery
+            window.
           default: false
 
     DisplayState:

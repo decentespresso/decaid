@@ -11,12 +11,17 @@ import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/models/device/impl/bengle/bengle_virtual_scale.dart';
 import 'package:reaprime/src/models/device/impl/bengle/mock_bengle.dart';
+import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
 import 'package:rxdart/rxdart.dart';
 
+import 'helpers/mock_de1_controller.dart';
 import 'helpers/mock_device_discovery_service.dart';
+import 'helpers/mock_device_scanner.dart';
+import 'helpers/mock_scale_controller.dart';
 import 'helpers/mock_settings_service.dart';
+import 'helpers/test_de1.dart';
 import 'helpers/test_scale.dart';
 import 'helpers/test_sensor.dart';
 
@@ -28,6 +33,7 @@ void main() {
   late MockDeviceDiscoveryService mockDiscovery;
   late DevicesHandler devicesHandler;
   late Handler handler;
+  late SettingsController settingsController;
 
   setUp(() async {
     mockDiscovery = MockDeviceDiscoveryService();
@@ -37,7 +43,7 @@ void main() {
     de1Controller = De1Controller(controller: deviceController);
     scaleController = ScaleController();
 
-    final settingsController = SettingsController(MockSettingsService());
+    settingsController = SettingsController(MockSettingsService());
     await settingsController.loadSettings();
 
     connectionManager = ConnectionManager(
@@ -394,6 +400,118 @@ void main() {
 
         expect(response.statusCode, 200);
         expect(connectionManager.lastScanReport, isNull);
+      });
+    });
+
+    group('deferred scans during the post-wake scale lease', () {
+      const leaseWindow = Duration(milliseconds: 200);
+      late MockDeviceScanner scanner;
+      late MockDe1Controller leaseDe1Controller;
+      late ConnectionManager leaseManager;
+      late DevicesHandler leaseHandler;
+      late Handler leaseRoute;
+      late TestDe1 machine;
+
+      Future<Response> sendLeaseGet(String path) async {
+        return await leaseRoute(
+          Request('GET', Uri.parse('http://localhost$path')),
+        );
+      }
+
+      setUp(() async {
+        scanner = MockDeviceScanner()..supportsWatch = true;
+        leaseDe1Controller = MockDe1Controller(controller: deviceController);
+        leaseManager = ConnectionManager(
+          deviceScanner: scanner,
+          de1Controller: leaseDe1Controller,
+          scaleController: MockScaleController(),
+          settingsController: settingsController,
+        )..deferredScaleScanDelay = leaseWindow;
+        leaseHandler = DevicesHandler(
+          controller: deviceController,
+          connectionManager: leaseManager,
+        );
+        final app = Router().plus;
+        leaseHandler.addRoutes(app);
+        leaseRoute = app.call;
+
+        await settingsController.setPreferredScaleId('lease-scale');
+        machine = TestDe1(deviceId: 'lease-de1');
+        leaseDe1Controller.de1Subject.add(machine);
+        await Future<void>.delayed(Duration.zero);
+        machine.emitStateAndSubstate(
+          MachineState.sleeping,
+          MachineSubstate.idle,
+        );
+        machine.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
+        await Future<void>.delayed(Duration.zero);
+      });
+
+      tearDown(() async {
+        leaseHandler.dispose();
+        await leaseManager.dispose();
+      });
+
+      test(
+        'connect=false waits for the deferred scan after the lease',
+        () async {
+          final pending = sendLeaseGet('/api/v1/devices/scan?connect=false');
+          var completed = false;
+          pending.whenComplete(() => completed = true);
+          await Future<void>.delayed(leaseWindow * 0.5);
+
+          expect(completed, isFalse);
+          expect(mockDiscovery.scanCallCount, 0);
+
+          final response = await pending;
+          expect(response.statusCode, 200);
+          expect(mockDiscovery.scanCallCount, 1);
+        },
+      );
+
+      test('quick returns before the deferred scan runs', () async {
+        final response = await sendLeaseGet(
+          '/api/v1/devices/scan?connect=false&quick=true',
+        );
+
+        expect(response.statusCode, 200);
+        expect(await response.readAsString(), '[]');
+        expect(mockDiscovery.scanCallCount, 0);
+
+        await Future<void>.delayed(leaseWindow * 2);
+        expect(mockDiscovery.scanCallCount, 1);
+      });
+
+      test('connect=true defers then runs the full scan policy', () async {
+        final response = await sendLeaseGet(
+          '/api/v1/devices/scan?connect=true&quick=true',
+        );
+
+        expect(response.statusCode, 200);
+        expect(scanner.scanCallCount, 0);
+
+        await Future<void>.delayed(leaseWindow * 2);
+        expect(scanner.scanCallCount, 1);
+        expect(mockDiscovery.scanCallCount, 0);
+      });
+
+      test('repeated requests coalesce into one deferred scan', () async {
+        final first = sendLeaseGet('/api/v1/devices/scan?connect=false');
+        final second = sendLeaseGet('/api/v1/devices/scan');
+        await Future<void>.delayed(leaseWindow * 0.5);
+
+        expect(mockDiscovery.scanCallCount, 0);
+        expect(scanner.scanCallCount, 0);
+
+        final responses = await Future.wait([first, second]);
+        expect(
+          responses.map((response) => response.statusCode),
+          everyElement(200),
+        );
+        await Future<void>.delayed(leaseWindow);
+
+        expect(scanner.scanCallCount, 1);
+        expect(mockDiscovery.scanCallCount, 0);
       });
     });
 

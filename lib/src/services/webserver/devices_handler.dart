@@ -254,7 +254,11 @@ class DevicesHandler {
         },
       );
       if (quickScan) {
-        unawaited(scan);
+        unawaited(
+          scan.catchError(
+            (Object e) => _log.info('Quick REST scan failed: $e'),
+          ),
+        );
         return [];
       }
       await scan;
@@ -508,7 +512,11 @@ class DevicesHandler {
           },
         );
         if (quick) {
-          unawaited(scan);
+          unawaited(
+            scan.catchError(
+              (Object e) => _log.info('Quick devices-WS scan failed: $e'),
+            ),
+          );
         } else {
           scan.catchError((e) {
             socket.sink.add(jsonEncode({'error': 'Scan failed: $e'}));
