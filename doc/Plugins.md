@@ -1104,6 +1104,11 @@ When receiving `stateUpdate` events, the payload contains:
 }
 ```
 
+On classic DE1 machines, `mixTemperature` is not a reliable measurement of
+dispensed hot-water outlet temperature while `state.state` is `hotWater`.
+`targetMixTemperature` remains the requested target, not a measured outlet
+temperature.
+
 ## Troubleshooting
 
 ### Common Issues
