@@ -18,6 +18,7 @@ import 'package:reaprime/src/services/storage/profile_storage_service.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/services/storage/storage_service.dart';
 import 'package:reaprime/src/settings/backup_import_response.dart';
+import 'package:reaprime/src/settings/backup_import_presentation.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
 
@@ -223,12 +224,9 @@ class _ImportStepViewState extends State<_ImportStepView> {
           _phase = _ImportPhase.result;
         });
         if (guidance != null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(guidance),
-              duration: const Duration(seconds: 12),
-            ),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(backupImportErrorSnackBar(e as BackupImportException));
         }
       }
     }

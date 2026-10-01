@@ -4,6 +4,7 @@ Pick the scenario that matches the task and run it before calling related work d
 
 | Scenario | File |
 |---|---|
+| Backup import entry-count limit | `scenarios/backup-import-entry-limit.md` |
 | Account proxy native consent gate | `scenarios/account-proxy-consent.md` |
 | Account proxy CORS pinned to skin origin | `scenarios/account-proxy-cors.md` |
 | Account proxy write forwarding and scope gate | `scenarios/account-proxy-write.md` |

@@ -472,6 +472,7 @@ void main() {
           final body =
               jsonDecode(await response.readAsString()) as Map<String, dynamic>;
           expect(body['error'], 'Invalid backup archive');
+          expect(body.containsKey('reason'), isFalse);
         },
       );
 

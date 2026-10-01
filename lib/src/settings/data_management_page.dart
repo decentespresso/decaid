@@ -24,6 +24,7 @@ import 'package:reaprime/src/services/storage/bean_storage_service.dart';
 import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
 import 'package:reaprime/src/services/storage/profile_storage_service.dart';
 import 'package:reaprime/src/settings/backup_import_response.dart';
+import 'package:reaprime/src/settings/backup_import_presentation.dart';
 import 'package:reaprime/src/services/webserver/data_export/backup_transfer_service.dart';
 import 'package:reaprime/src/services/export/archive_export.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
@@ -528,7 +529,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text(e.userMessage)));
+        ).showSnackBar(backupImportErrorSnackBar(e));
       }
     } catch (e) {
       _log.severe("Failed to import backup", e);

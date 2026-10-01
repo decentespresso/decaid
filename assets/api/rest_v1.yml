@@ -4927,7 +4927,7 @@ paths:
                     type: string
                   reason:
                     type: string
-                    description: Structured rejection reason for invalid backup archives (e.g. too_many_entries); absent for other 400 errors.
+                    description: Present as `too_many_entries` only when the ZIP entry-count safety limit is exceeded; absent for other 400 errors.
         "408":
           description: Import request body stopped arriving for 30 seconds
         "500":
