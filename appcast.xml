@@ -7,6 +7,28 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
         <title>Decaid</title>
         <item>
             <title>0.8.8</title>
+            <pubDate>Thu, 01 Oct 2026 05:51:38 +0000</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>2876</sparkle:version>
+            <sparkle:shortVersionString>0.8.8</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* fix(import): clear error when Import Shots (JSON) is fed a De1App shot by @allofmeng in https://github.com/decentespresso/decaid/pull/916
+* fix(scan): protect post-wake preferred-scale reacquisition from client scan churn by @tadelv in https://github.com/decentespresso/decaid/pull/930
+* feat(feedback): require Decent login and link support messages by @ODevStudio in https://github.com/decentespresso/decaid/pull/924
+* test(export): compare destination paths portably on Windows by @ODevStudio in https://github.com/decentespresso/decaid/pull/935
+* fix: restore MockScale telemetry after reconnect by @ODevStudio in https://github.com/decentespresso/decaid/pull/937
+* fix(connection): fence stale late connect adoption by @tadelv in https://github.com/decentespresso/decaid/pull/927
+* fix: preserve disabled scale power policy at shutdown by @ODevStudio in https://github.com/decentespresso/decaid/pull/938
+
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.8.8-beta.1...v0.8.8-beta.2
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.8.8-beta.2/decaid-macos-0.8.8-beta.2.zip" length="64971026" type="application/octet-stream" sparkle:edSignature="CQgd/BiENdQ2y4zaoDmWbHo1W3IEDD0d6FliLc7Z4s0SiZ2UCU6j4021UIMw3CMZOoEZGaoVqPhitqCVM2/nCA=="/>
+        </item>
+        <item>
+            <title>0.8.8</title>
             <pubDate>Tue, 29 Sep 2026 14:27:04 +0000</pubDate>
             <sparkle:channel>beta</sparkle:channel>
             <sparkle:version>2849</sparkle:version>
@@ -510,6 +532,6 @@ See `doc/RELEASE.md` for install and verification instructions.
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: /hRMtkK2fsVA+LdQ2TTFQK7F6D30c/6mHCeEvwy3OEzRhjgNj/0LOAWfcncdbOzcUFoJqQtyxGZiqGeQ3SF2Ag==
-length: 44111
+edSignature: av0xuJTQdSG6ufHInPWnzotc3Wn5oCtXCVNxhx2YoEiopxJkcrxreDT5ZWLgKhrsRaglGGkj+XltaZXUIeqNBA==
+length: 45899
 -->
