@@ -482,8 +482,8 @@ class SettingsController with ChangeNotifier {
 
   Future<void> setFeatureFlag(FeatureFlag flag, bool value) async {
     if (value == _featureFlags[flag]) return;
-    _featureFlags[flag] = value;
     await _settingsService.setFeatureFlag(flag, value);
+    _featureFlags[flag] = value;
     notifyListeners();
   }
 }

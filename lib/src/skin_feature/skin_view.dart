@@ -1,14 +1,13 @@
 import 'dart:async';
-import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:logging/logging.dart';
-import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/controllers/display_controller.dart';
 import 'package:reaprime/src/home_feature/widgets/quick_settings_widget.dart';
 import 'package:reaprime/src/launcher/launcher_view.dart';
@@ -17,6 +16,9 @@ import 'package:reaprime/src/services/webview_compatibility_checker.dart';
 import 'package:reaprime/src/services/webview_log_service.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/skin_feature/simulated_webview_device.dart';
+import 'package:reaprime/src/skin_feature/skin_user_scripts.dart';
+import 'package:reaprime/src/skin_feature/skin_webview_composition.dart';
+import 'package:reaprime/src/skin_feature/skin_webview_diagnostics.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -255,39 +257,6 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
     } else {
       _log.warning('WebView is not compatible: ${result.reason}');
     }
-  }
-
-  InAppWebViewSettings _createSettings() {
-    return InAppWebViewSettings(
-      javaScriptEnabled: true,
-      javaScriptCanOpenWindowsAutomatically: false,
-
-      mediaPlaybackRequiresUserGesture: false,
-
-      allowFileAccessFromFileURLs: false,
-      allowUniversalAccessFromFileURLs: false,
-
-      useShouldOverrideUrlLoading: true,
-
-      browserAcceleratorKeysEnabled: !Platform.isWindows,
-
-      cacheEnabled: false,
-
-      supportZoom: false,
-      builtInZoomControls: false,
-      enableViewportScale: true,
-
-      verticalScrollBarEnabled: false,
-      horizontalScrollBarEnabled: false,
-
-      userAgent: "Decent",
-
-      rendererPriorityPolicy: RendererPriorityPolicy(
-        rendererRequestedPriority: RendererPriority.RENDERER_PRIORITY_BOUND,
-        waivedWhenNotVisible: false,
-      ),
-      useOnRenderProcessGone: true,
-    );
   }
 
   void _showExitInstructions() {
@@ -613,34 +582,50 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   }
 
   Widget _buildWebViewStack() {
-    return ValueListenableBuilder<SimulatedWebViewDevice?>(
-      valueListenable: simulatedWebViewDevice,
-      builder: (context, simulatedDevice, _) {
-        return Stack(
-          clipBehavior: Platform.isAndroid ? Clip.none : Clip.hardEdge,
-          children: [
-            Positioned.fill(
-              right: Platform.isAndroid ? -1 : 0,
-              bottom: Platform.isAndroid ? -1 : 0,
-              child: _buildWebView(simulatedDevice),
-            ),
-            if (_isLoading) const Center(child: CircularProgressIndicator()),
-          ],
-        );
-      },
+    return SkinWebViewComposition(
+      settings: widget.settingsController,
+      platform: defaultTargetPlatform,
+      builder: (context, texture) =>
+          ValueListenableBuilder<SimulatedWebViewDevice?>(
+            valueListenable: simulatedWebViewDevice,
+            builder: (context, simulatedDevice, _) {
+              return Stack(
+                clipBehavior: Platform.isAndroid ? Clip.none : Clip.hardEdge,
+                children: [
+                  Positioned.fill(
+                    right: Platform.isAndroid ? -1 : 0,
+                    bottom: Platform.isAndroid ? -1 : 0,
+                    child: _buildWebView(simulatedDevice, texture),
+                  ),
+                  if (_isLoading)
+                    const Center(child: CircularProgressIndicator()),
+                ],
+              );
+            },
+          ),
     );
   }
 
-  Widget _buildWebView(SimulatedWebViewDevice? simulatedDevice) {
+  Widget _buildWebView(SimulatedWebViewDevice? simulatedDevice, bool texture) {
     if (widget.webView != null) return widget.webView!;
     return InAppWebView(
       key: ValueKey(simulatedDevice?.id ?? 'native-webview'),
       initialUrlRequest: URLRequest(url: WebUri(_skinUrl)),
-      initialSettings: _createSettings(),
-      initialUserScripts: _initialUserScripts(simulatedDevice),
+      initialSettings: createSkinWebViewSettings(
+        platform: defaultTargetPlatform,
+        textureComposition: texture,
+      ),
+      initialUserScripts: buildSkinUserScripts(
+        simulatedDevice,
+        enableSimulatedWebViews:
+            widget.settingsController.enableSimulatedWebViews,
+      ),
       onWebViewCreated: (controller) {
         _log.info('InAppWebView created');
         _webViewController = controller;
+        if (Platform.isAndroid) {
+          unawaited(_logRenderingDiagnostics(controller, texture));
+        }
         unawaited(_resumeWebViewTimers(controller, 'onWebViewCreated'));
       },
       onLoadStart: (controller, url) {
@@ -725,6 +710,20 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
         );
       },
       onRenderProcessGone: (controller, detail) {
+        if (Platform.isAndroid) {
+          widget.webViewLogService.log(
+            widget.settingsController.defaultSkinId,
+            'WARNING',
+            jsonEncode({
+              'event': 'rendererExit',
+              'viewId': controller.getViewId().toString(),
+              'requestedMode': skinCompositionName(texture),
+              'didCrash': detail.didCrash,
+              'rendererPriorityAtExit': detail.rendererPriorityAtExit
+                  ?.toString(),
+            }),
+          );
+        }
         _log.warning(
           'WebView renderer process gone — '
           'didCrash: ${detail.didCrash}, '
@@ -745,6 +744,29 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
     );
   }
 
+  Future<void> _logRenderingDiagnostics(
+    InAppWebViewController controller,
+    bool texture,
+  ) async {
+    final skinId = widget.settingsController.defaultSkinId;
+    final viewId = controller.getViewId().toString();
+    final report = await readSkinRenderingDiagnostics(
+      textureComposition: texture,
+      readProvider: InAppWebViewController.getCurrentWebViewPackage,
+      readSdk: () async =>
+          (await DeviceInfoPlugin().androidInfo).version.sdkInt,
+      readSettings: controller.getSettings,
+    );
+    if (!mounted || _webViewController != controller) return;
+    final message = jsonEncode({
+      'event': 'created',
+      'viewId': viewId,
+      ...report,
+    });
+    _log.info(message);
+    widget.webViewLogService.log(skinId, 'INFO', message);
+  }
+
   Future<void> _resumeWebViewTimers(
     InAppWebViewController controller,
     String where,
@@ -763,144 +785,5 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
     } catch (e, st) {
       _log.severe("Unexpected: ", e, st);
     }
-  }
-
-  UnmodifiableListView<UserScript> _initialUserScripts(
-    SimulatedWebViewDevice? simulatedDevice,
-  ) {
-    return UnmodifiableListView<UserScript>([
-      _hostIdentityScript(),
-      ...?_simulatedDeviceScripts(simulatedDevice),
-    ]);
-  }
-
-  UserScript _hostIdentityScript() {
-    final payload = jsonEncode({
-      'app': 'decent.app',
-      'platform': Platform.operatingSystem,
-      'version': BuildInfo.version,
-      'build': BuildInfo.buildNumber,
-      'commit': BuildInfo.commitShort,
-    });
-    return UserScript(
-      source:
-          '''
-(function () {
-  try {
-    Object.defineProperty(window, '__DECENT_HOST__', {
-      value: Object.freeze($payload),
-      configurable: false,
-      writable: false,
-      enumerable: false
-    });
-  } catch (_) {}
-})();
-''',
-      injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
-      contentWorld: ContentWorld.PAGE,
-    );
-  }
-
-  UnmodifiableListView<UserScript>? _simulatedDeviceScripts(
-    SimulatedWebViewDevice? simulatedDevice,
-  ) {
-    final isDesktop =
-        Platform.isMacOS || Platform.isWindows || Platform.isLinux;
-    if (!widget.settingsController.enableSimulatedWebViews ||
-        !isDesktop ||
-        simulatedDevice == null) {
-      return null;
-    }
-
-    final dpr = simulatedDevice.devicePixelRatio.toStringAsFixed(6);
-    final surfaceWidth = simulatedDevice.webViewSurfaceSize.width.toInt();
-    final surfaceHeight = simulatedDevice.webViewSurfaceSize.height.toInt();
-    final cssWidth = simulatedDevice.viewportSize.width.toStringAsFixed(3);
-    final cssHeight = simulatedDevice.viewportSize.height.toStringAsFixed(3);
-    final screenWidth = simulatedDevice.screenSize.width.toStringAsFixed(3);
-    final screenHeight = simulatedDevice.screenSize.height.toStringAsFixed(3);
-    final outerWidth = simulatedDevice.outerWidth.toStringAsFixed(3);
-    final maxTouchPoints = simulatedDevice.maxTouchPoints;
-    final platform = simulatedDevice.platform;
-
-    return UnmodifiableListView<UserScript>([
-      UserScript(
-        source:
-            '''
-(function () {
-  const define = (target, key, value) => {
-    try {
-      Object.defineProperty(target, key, {
-        configurable: true,
-        get: () => value
-      });
-    } catch (_) {}
-  };
-
-  define(window, 'devicePixelRatio', $dpr);
-  define(window, 'innerWidth', $cssWidth);
-  define(window, 'innerHeight', $cssHeight);
-  define(window, 'outerWidth', $outerWidth);
-  define(window, 'outerHeight', $cssHeight);
-  define(window.screen, 'width', $screenWidth);
-  define(window.screen, 'height', $screenHeight);
-  define(window.screen, 'availWidth', $screenWidth);
-  define(window.screen, 'availHeight', $screenHeight);
-  define(navigator, 'maxTouchPoints', $maxTouchPoints);
-  define(navigator, 'platform', '$platform');
-  define(window, 'ontouchstart', null);
-  define(document, 'ontouchstart', null);
-  define(document.documentElement, 'ontouchstart', null);
-
-  define(window.visualViewport, 'width', $surfaceWidth / $dpr);
-  define(window.visualViewport, 'height', $surfaceHeight / $dpr);
-
-  const nativeMatchMedia = window.matchMedia
-    ? window.matchMedia.bind(window)
-    : null;
-  const touchMedia = new Map([
-    ['(pointer:coarse)', true],
-    ['(any-pointer:coarse)', true],
-    ['(hover:none)', true],
-    ['(any-hover:none)', true],
-    ['(pointer:fine)', false],
-    ['(any-pointer:fine)', false],
-    ['(hover:hover)', false],
-    ['(any-hover:hover)', false]
-  ]);
-  window.matchMedia = (query) => {
-    const normalized = String(query).replace(/\\s+/g, '').toLowerCase();
-    const simulatedMatch = touchMedia.get(normalized);
-    const nativeResult = nativeMatchMedia ? nativeMatchMedia(query) : null;
-    if (simulatedMatch === undefined) {
-      return nativeResult;
-    }
-    return {
-      matches: simulatedMatch,
-      media: nativeResult ? nativeResult.media : String(query),
-      onchange: null,
-      addListener: nativeResult && nativeResult.addListener
-        ? nativeResult.addListener.bind(nativeResult)
-        : () => {},
-      removeListener: nativeResult && nativeResult.removeListener
-        ? nativeResult.removeListener.bind(nativeResult)
-        : () => {},
-      addEventListener: nativeResult && nativeResult.addEventListener
-        ? nativeResult.addEventListener.bind(nativeResult)
-        : () => {},
-      removeEventListener: nativeResult && nativeResult.removeEventListener
-        ? nativeResult.removeEventListener.bind(nativeResult)
-        : () => {},
-      dispatchEvent: nativeResult && nativeResult.dispatchEvent
-        ? nativeResult.dispatchEvent.bind(nativeResult)
-        : () => false
-    };
-  };
-})();
-''',
-        injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
-        contentWorld: ContentWorld.PAGE,
-      ),
-    ]);
   }
 }
