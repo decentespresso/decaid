@@ -109,6 +109,10 @@ For browser clients on a different origin, `ETag` is exposed via `Access-Control
 | GET | `/api/v1/machine/scaleCalibration` | Read decoded scale-calibration state (step, cell, sub-state, seconds remaining, status) — Bengle only, 404 elsewhere | |
 | PUT | `/api/v1/machine/scaleCalibration` | Start `zero`/`latch`/`abort` calibration step (`weightGrams` 1–10000 required for `latch`); 202 accepted / 409 rejected (busy or shot in progress) — Bengle only | |
 
+For classic DE1 machines, snapshot `mixTemperature` is not a reliable
+measurement of dispensed hot-water outlet temperature while the machine is in
+`hotWater` state. `targetMixTemperature` remains the requested target.
+
 #### Firmware updates
 
 The catalog endpoint is available offline and without a connected machine. It returns bundled artifact metadata, compatibility and version eligibility, the recommended artifact, tri-state `updateAvailable`, and the shared machine operation state. The bundled Phase 1 artifact is official DE1 firmware build 1352 for `DE1Pro`, `DE1XL`, `DE1XXL`, and `DE1XXXL`.

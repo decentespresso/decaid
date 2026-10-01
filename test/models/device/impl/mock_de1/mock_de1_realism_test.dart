@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/data/profile.dart';
+import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 
@@ -129,6 +130,89 @@ void main() {
       greaterThan(0.3),
       reason: 'flow should not collapse to ~0 (no transition glitch)',
     );
+  });
+
+  test('hot water preserves profile telemetry', () async {
+    final machine = MockDe1(
+      simulationTickInterval: const Duration(milliseconds: 10),
+    );
+    final profile = Profile(
+      version: '2',
+      title: 'Hot water telemetry',
+      notes: '',
+      author: 'test',
+      beverageType: BeverageType.espresso,
+      targetVolumeCountStart: 2,
+      tankTemperature: 95,
+      targetWeight: 40,
+      targetVolume: 100,
+      steps: [
+        ProfileStepFlow(
+          name: 'profile temperature',
+          flow: 4,
+          seconds: 10,
+          temperature: 95,
+          sensor: TemperatureSensor.coffee,
+          transition: TransitionType.fast,
+          volume: 0,
+        ),
+      ],
+    );
+    await machine.setProfile(profile);
+    await machine.updateShotSettings(
+      De1ShotSettings(
+        steamSetting: 0,
+        targetSteamTemp: 150,
+        targetSteamDuration: 60,
+        targetHotWaterTemp: 80,
+        targetHotWaterVolume: 100,
+        targetHotWaterDuration: 2,
+        targetShotVolume: 36,
+        groupTemp: 95,
+      ),
+    );
+    await machine.onConnect();
+
+    try {
+      final profileTemperature = machine.currentSnapshot.firstWhere(
+        (snapshot) => snapshot.state.state == MachineState.espresso,
+      );
+      await machine.requestState(MachineState.espresso);
+      await profileTemperature.timeout(const Duration(seconds: 2));
+      await machine.requestState(MachineState.idle);
+      final idle = await machine.currentSnapshot
+          .firstWhere((snapshot) => snapshot.state.state == MachineState.idle)
+          .timeout(const Duration(seconds: 2));
+      expect(idle.mixTemperature, closeTo(95, 1));
+      expect(idle.groupTemperature, closeTo(95, 1));
+      final hotWaterSnapshots = <MachineSnapshot>[];
+      final hotWaterSub = machine.currentSnapshot
+          .where((snapshot) => snapshot.state.state == MachineState.hotWater)
+          .take(6)
+          .listen(hotWaterSnapshots.add);
+
+      await machine.requestState(MachineState.hotWater);
+      await hotWaterSub.asFuture<void>().timeout(const Duration(seconds: 2));
+      await hotWaterSub.cancel();
+
+      expect(hotWaterSnapshots, hasLength(6));
+      expect(hotWaterSnapshots.last.flow, greaterThan(0));
+      expect(hotWaterSnapshots.last.targetMixTemperature, 80);
+      expect(
+        hotWaterSnapshots.last.mixTemperature,
+        closeTo(idle.mixTemperature, 1),
+      );
+      expect(
+        hotWaterSnapshots.last.groupTemperature,
+        closeTo(idle.groupTemperature, 1),
+      );
+      final stopped = await machine.currentSnapshot
+          .firstWhere((snapshot) => snapshot.state.state == MachineState.idle)
+          .timeout(const Duration(seconds: 2));
+      expect(stopped.flow, lessThan(hotWaterSnapshots.last.flow));
+    } finally {
+      await machine.onDisconnect();
+    }
   });
 
   test('successive shots have different puck responses', () async {

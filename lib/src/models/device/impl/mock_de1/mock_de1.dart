@@ -457,16 +457,8 @@ class MockDe1 implements De1Interface, SimulatedDevice {
       pressure: newFlow * 0.25,
       targetFlow: targetFlow,
       targetPressure: 0,
-      mixTemperature: _calculateTemperature(
-        current: _lastSnapshot.mixTemperature,
-        target: targetTemp,
-        rate: 2.0,
-      ),
-      groupTemperature: _calculateTemperature(
-        current: _lastSnapshot.groupTemperature,
-        target: targetTemp,
-        rate: 2.0,
-      ),
+      mixTemperature: _lastSnapshot.mixTemperature,
+      groupTemperature: _lastSnapshot.groupTemperature,
       targetMixTemperature: targetTemp,
       targetGroupTemperature: targetTemp,
       profileFrame: 0,

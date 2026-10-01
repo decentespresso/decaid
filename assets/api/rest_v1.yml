@@ -6308,10 +6308,12 @@ components:
         targetPressure:
           type: number
         mixTemperature:
+          description: On classic DE1 machines, this is not a reliable measurement of dispensed hot-water outlet temperature while state is hotWater.
           type: number
         groupTemperature:
           type: number
         targetMixTemperature:
+          description: Requested mix temperature target; during hotWater on classic DE1 this is the requested hot-water temperature, not a measured outlet temperature.
           type: number
         targetGroupTemperature:
           type: number

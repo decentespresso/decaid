@@ -168,6 +168,11 @@ The snapshot WebSocket sends complete machine state at regular intervals:
 }
 ```
 
+On classic DE1 machines, `mixTemperature` is not a reliable measurement of
+dispensed hot-water outlet temperature while `state.state` is `hotWater`.
+`targetMixTemperature` remains the requested target, not a measured outlet
+temperature.
+
 ---
 
 ## BLE Reconnect Diagnostics
