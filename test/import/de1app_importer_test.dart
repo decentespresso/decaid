@@ -254,8 +254,141 @@ De1appImporter makeImporter({
 
 const _fixturesPath = 'test/fixtures/de1app';
 
+Future<String?> _importShotSources({
+  required bool includeLegacy,
+  required bool includeV2,
+  DateTime? legacyModified,
+  DateTime? v2Modified,
+}) async {
+  final tempDir = await Directory.systemTemp.createTemp('de1app_merge_');
+  try {
+    if (includeLegacy) {
+      final directory = Directory('${tempDir.path}/history');
+      await directory.create();
+      final file = await File(
+        '$_fixturesPath/history/20231108T091544.shot',
+      ).copy('${directory.path}/same-basename.shot');
+      if (legacyModified != null) await file.setLastModified(legacyModified);
+    }
+    if (includeV2) {
+      final directory = Directory('${tempDir.path}/history_v2');
+      await directory.create();
+      final file = await File(
+        '$_fixturesPath/history_v2/20240315T143022.json',
+      ).copy('${directory.path}/same-basename.json');
+      if (v2Modified != null) await file.setLastModified(v2Modified);
+    }
+
+    final storage = FakeStorageService();
+    await makeImporter(storage: storage).import(
+      ScanResult(
+        shotCount: 1,
+        profileCount: 0,
+        hasDyeGrinders: false,
+        hasSettings: false,
+        sourcePath: tempDir.path,
+        shotSource: 'both',
+      ),
+    );
+    return storage.shots.values.single.workflow.context?.grinderModel;
+  } finally {
+    await tempDir.delete(recursive: true);
+  }
+}
+
 void main() {
   group('De1appImporter', () {
+    group('selects shots sharing a basename by modification time', () {
+      final older = DateTime.utc(2024, 1, 1);
+      final newer = DateTime.utc(2024, 2, 1);
+
+      test('a newer legacy shot wins', () async {
+        expect(
+          await _importShotSources(
+            includeLegacy: true,
+            includeV2: true,
+            legacyModified: newer,
+            v2Modified: older,
+          ),
+          equals('Eureka Mignon'),
+        );
+      });
+
+      test('a newer v2 shot wins', () async {
+        expect(
+          await _importShotSources(
+            includeLegacy: true,
+            includeV2: true,
+            legacyModified: older,
+            v2Modified: newer,
+          ),
+          equals('Niche Zero'),
+        );
+      });
+
+      test('v2 wins when shot modification times are equal', () async {
+        expect(
+          await _importShotSources(
+            includeLegacy: true,
+            includeV2: true,
+            legacyModified: older,
+            v2Modified: older,
+          ),
+          equals('Niche Zero'),
+        );
+      });
+
+      test('legacy-only and v2-only shots still import', () async {
+        expect(
+          await _importShotSources(includeLegacy: true, includeV2: false),
+          equals('Eureka Mignon'),
+        );
+        expect(
+          await _importShotSources(includeLegacy: false, includeV2: true),
+          equals('Niche Zero'),
+        );
+      });
+    });
+
+    test('profiles keep preferring v2 when legacy profile is newer', () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'de1app_profile_merge_',
+      );
+      try {
+        final legacyDirectory = Directory('${tempDir.path}/profiles');
+        final v2Directory = Directory('${tempDir.path}/profiles_v2');
+        await legacyDirectory.create();
+        await v2Directory.create();
+        final legacy = await File(
+          '$_fixturesPath/profiles/legacy_lever.tcl',
+        ).copy('${legacyDirectory.path}/same-basename.tcl');
+        final v2 = await File(
+          '$_fixturesPath/profiles_v2/best_practice.json',
+        ).copy('${v2Directory.path}/same-basename.json');
+        await legacy.setLastModified(DateTime.utc(2024, 2, 1));
+        await v2.setLastModified(DateTime.utc(2024, 1, 1));
+
+        final profileStorage = FakeProfileStorageService();
+        await makeImporter(profileStorage: profileStorage).import(
+          ScanResult(
+            shotCount: 0,
+            profileCount: 1,
+            hasDyeGrinders: false,
+            hasSettings: false,
+            sourcePath: tempDir.path,
+            shotSource: null,
+          ),
+        );
+
+        expect(
+          profileStorage.profiles.values.single.profile.title,
+          'Londinium',
+        );
+      } finally {
+        await tempDir.delete(recursive: true);
+      }
+    });
+
     group('imports shots merged from history and history_v2', () {
       late FakeStorageService storage;
       late ImportResult result;

@@ -64,6 +64,7 @@ class De1appImporter {
       preferredExtension: '.json',
       fallback: Directory('${scanResult.sourcePath}/history'),
       fallbackExtension: '.shot',
+      newerFallbackWins: true,
     )).values.toList();
 
     for (var i = 0; i < shotFiles.length; i++) {
@@ -460,6 +461,7 @@ Future<Map<String, _MergedFile>> _mergedFiles({
   required String preferredExtension,
   required Directory fallback,
   required String fallbackExtension,
+  bool newerFallbackWins = false,
 }) async {
   final result = <String, _MergedFile>{};
 
@@ -477,10 +479,14 @@ Future<Map<String, _MergedFile>> _mergedFiles({
   if (await preferred.exists()) {
     await for (final entity in preferred.list()) {
       if (entity is File && entity.path.endsWith(preferredExtension)) {
-        result[_basename(entity, preferredExtension)] = _MergedFile(
-          entity,
-          isPreferred: true,
-        );
+        final basename = _basename(entity, preferredExtension);
+        final existing = result[basename];
+        if (newerFallbackWins && existing != null && !existing.isPreferred) {
+          final preferredModified = (await entity.stat()).modified;
+          final fallbackModified = (await existing.file.stat()).modified;
+          if (preferredModified.isBefore(fallbackModified)) continue;
+        }
+        result[basename] = _MergedFile(entity, isPreferred: true);
       }
     }
   }
