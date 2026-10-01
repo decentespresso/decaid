@@ -617,6 +617,7 @@ void main() {
         expect(response.statusCode, 400);
         final body = jsonDecode(await response.readAsString());
         expect(body['message'], contains('too many entries'));
+        expect(body['reason'], 'too_many_entries');
       });
 
       test(

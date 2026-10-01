@@ -206,18 +206,30 @@ class _ImportStepViewState extends State<_ImportStepView> {
     } catch (e) {
       _log.warning('Failed to import ZIP backup', e);
       if (mounted) {
+        final guidance =
+            e is BackupImportException && e.reason == 'too_many_entries'
+            ? e.userMessage
+            : null;
         setState(() {
           _importResult = ImportResult(
             errors: [
               ImportError(
                 filename: filePath.split('/').last,
-                reason: 'ZIP import failed',
-                details: e.toString(),
+                reason: guidance ?? 'ZIP import failed',
+                details: guidance == null ? e.toString() : null,
               ),
             ],
           );
           _phase = _ImportPhase.result;
         });
+        if (guidance != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(guidance),
+              duration: const Duration(seconds: 12),
+            ),
+          );
+        }
       }
     }
   }

@@ -441,6 +441,7 @@ class DataExportHandler {
       return jsonBadRequest({
         'error': 'Invalid backup archive',
         'message': e.message,
+        'reason': e.reason,
       });
     } on TimeoutException {
       return jsonRequestTimeout({

@@ -528,7 +528,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text(e.message)));
+        ).showSnackBar(SnackBar(content: Text(e.userMessage)));
       }
     } catch (e) {
       _log.severe("Failed to import backup", e);

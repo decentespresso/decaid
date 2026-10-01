@@ -568,7 +568,9 @@ means at least one recognized section was processed and every processed section
 completed without errors. `207 Multi-Status` means at least one processed
 section contains errors; successful sections, counts, warnings, and errors are
 all retained. Warnings and conflict-strategy skips alone still return `200`.
-Clients must inspect both the HTTP status and each section result.
+Clients must inspect both the HTTP status and each section result. Invalid
+backup archives return `400` with `error`, `message`, and a structured `reason`
+(e.g. `too_many_entries`); other `400` responses need not include `reason`.
 
 Data sync preserves the same phase distinction. A complete pull or push is
 represented by `200`. An incomplete single-direction sync returns `502`, even
