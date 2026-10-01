@@ -231,6 +231,29 @@ class _NotConnectedDe1 extends TestDe1 {
   }
 }
 
+/// Refuses (permanently, per the capability gate) any profile whose title
+/// matches [refuseTitle]; accepts everything else. Mirrors
+/// `UnifiedDe1._assertProfileModeSupported` throwing before any BLE write, so
+/// the workflow-sync path must PARK instead of retrying forever.
+class _RefusingDe1 extends TestDe1 {
+  _RefusingDe1({required this.refuseTitle});
+  final String refuseTitle;
+  int totalCalls = 0;
+  final List<Profile> setProfileCalls = [];
+
+  @override
+  Future<void> setProfile(Profile profile) async {
+    totalCalls++;
+    setProfileCalls.add(profile);
+    if (profile.title == refuseTitle) {
+      throw const ProfileModeUnsupportedException(
+        'This machine does not support the Lever pump mode used by this '
+        'profile.',
+      );
+    }
+  }
+}
+
 void main() {
   late WorkflowController workflow;
   late DeviceController deviceController;
@@ -1177,6 +1200,166 @@ void main() {
         writesBeforeDedup,
         reason: 'same-profile upload without reconnect must deduplicate',
       );
+    });
+  });
+
+  // A capability refusal (missing ProfileModeCaps / not a Bengle) is PERMANENT
+  // for the connection — the gate throws ProfileModeUnsupportedException before
+  // any BLE write, so nothing is wedged and retrying can never succeed. The
+  // sync must PARK on it (no retry timer) and re-attempt only when the workflow
+  // profile changes or the machine reconnects.
+  group('capability refusal parks (no retry loop)', () {
+    late WorkflowController wf;
+    WorkflowDeviceSync? activeSync;
+
+    setUp(() {
+      wf = WorkflowController();
+      activeSync = null;
+    });
+
+    tearDown(() {
+      activeSync?.dispose();
+    });
+
+    Future<De1Controller> connect(TestDe1 testDe1) async {
+      final dc = DeviceController([MockDeviceDiscoveryService()]);
+      await dc.initialize();
+      final controller = De1Controller(controller: dc);
+      await controller.connectToDe1(testDe1);
+      testDe1.emitShotSettings(
+        De1ShotSettings(
+          steamSetting: 0,
+          targetSteamTemp: 150,
+          targetSteamDuration: 30,
+          targetHotWaterTemp: 75,
+          targetHotWaterVolume: 50,
+          targetHotWaterDuration: 30,
+          targetShotVolume: 36,
+          groupTemp: 94.0,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      return controller;
+    }
+
+    test('a refused profile parks: attempted once, no auto-retry, and a '
+        'workflow change re-attempts', () async {
+      final refusing = _RefusingDe1(refuseTitle: 'Lever demo');
+      final controller = await connect(refusing);
+      final s = WorkflowDeviceSync(
+        workflowController: wf,
+        de1Controller: controller,
+        retryDelays: const [
+          Duration(milliseconds: 20),
+          Duration(milliseconds: 40),
+        ],
+      );
+      activeSync = s;
+      // Attaching to an already-connected machine triggers the on-connect push
+      // (the current workflow profile) once via initSettled. Let it land, then
+      // reset the counter so this test measures only the refusal cycle.
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      refusing.totalCalls = 0;
+      refusing.setProfileCalls.clear();
+      // Select the unsupported lever profile — refused once at the gate.
+      wf.setWorkflow(
+        wf.currentWorkflow.copyWith(profile: _profile('Lever demo')),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(refusing.totalCalls, 1, reason: 'attempted exactly once');
+
+      // Wait past every backoff delay: a permanent refusal must NOT retry.
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      expect(
+        refusing.totalCalls,
+        1,
+        reason: 'a permanent capability refusal must never be retried',
+      );
+
+      // A genuine workflow-profile change clears the park and re-attempts.
+      wf.setWorkflow(
+        wf.currentWorkflow.copyWith(profile: _profile('Adaptive')),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(refusing.setProfileCalls.map((p) => p.title), [
+        'Lever demo',
+        'Adaptive',
+      ], reason: 'a workflow change triggers a fresh attempt');
+    });
+
+    test('re-selecting the same refused profile does not re-attempt', () async {
+      final refusing = _RefusingDe1(refuseTitle: 'Lever demo');
+      final controller = await connect(refusing);
+      final s = WorkflowDeviceSync(
+        workflowController: wf,
+        de1Controller: controller,
+        retryDelays: const [Duration(milliseconds: 20)],
+      );
+      activeSync = s;
+      // Let the on-connect push (current workflow profile) land, then reset so
+      // this test measures only the refusal cycle.
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      refusing.totalCalls = 0;
+      refusing.setProfileCalls.clear();
+
+      wf.setWorkflow(
+        wf.currentWorkflow.copyWith(profile: _profile('Lever demo')),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(refusing.totalCalls, 1);
+
+      // Re-select the SAME (still-refused) profile: no new attempt.
+      wf.setWorkflow(
+        wf.currentWorkflow.copyWith(profile: _profile('Lever demo')),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(
+        refusing.totalCalls,
+        1,
+        reason: 'parked on the same refused profile — no re-attempt',
+      );
+    });
+
+    test('a power-exit refusal parks identically (the park is exception-driven, '
+        'so it inherits for a power exit with no park-side change)', () async {
+      // The gate throws the same ProfileModeUnsupportedException for a power
+      // exit as for a lever step, so the park path needs no per-reason branch.
+      final refusing = _RefusingDe1(refuseTitle: 'Power exit demo');
+      final controller = await connect(refusing);
+      final s = WorkflowDeviceSync(
+        workflowController: wf,
+        de1Controller: controller,
+        retryDelays: const [
+          Duration(milliseconds: 20),
+          Duration(milliseconds: 40),
+        ],
+      );
+      activeSync = s;
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      refusing.totalCalls = 0;
+      refusing.setProfileCalls.clear();
+
+      wf.setWorkflow(
+        wf.currentWorkflow.copyWith(profile: _profile('Power exit demo')),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(refusing.totalCalls, 1, reason: 'attempted exactly once');
+
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      expect(
+        refusing.totalCalls,
+        1,
+        reason: 'a permanent power-exit refusal must never be retried',
+      );
+
+      wf.setWorkflow(
+        wf.currentWorkflow.copyWith(profile: _profile('Adaptive')),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(refusing.setProfileCalls.map((p) => p.title), [
+        'Power exit demo',
+        'Adaptive',
+      ], reason: 'a workflow change clears the park and re-attempts');
     });
   });
 }

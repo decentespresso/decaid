@@ -1,0 +1,56 @@
+{
+  "title": "Lever Classic demo",
+  "author": "reaprime",
+  "notes": "Demonstration of the lever pump mode. A quick flow fill primes the puck and exits on first pressure, a short bloom pause lets it saturate, then a classic lever step starts at 9 bar and declines under its spring (0.9) and give (1.5) as volume is delivered — like pulling a manual lever machine. Requires a machine that supports lever profile steps; a stock machine will refuse it.",
+  "beverage_type": "espresso",
+  "steps": [
+    {
+      "name": "fast fill",
+      "pump": "flow",
+      "flow": "12.0",
+      "sensor": "coffee",
+      "transition": "fast",
+      "temperature": "92.0",
+      "seconds": "20",
+      "volume": "0",
+      "weight": "0.0",
+      "exit": {
+        "type": "pressure",
+        "value": "3.0",
+        "condition": "over"
+      }
+    },
+    {
+      "name": "bloom",
+      "pump": "pressure",
+      "pressure": "1.5",
+      "sensor": "coffee",
+      "transition": "fast",
+      "temperature": "92.0",
+      "seconds": "15",
+      "volume": "0",
+      "weight": "0.0"
+    },
+    {
+      "name": "lever",
+      "pump": "lever",
+      "pressure": "9.0",
+      "leverSpring": "0.9",
+      "leverGive": "1.5",
+      "sensor": "coffee",
+      "transition": "fast",
+      "temperature": "92.0",
+      "seconds": "60",
+      "volume": "0",
+      "weight": "0.0"
+    }
+  ],
+  "tank_temperature": "90",
+  "target_weight": "36",
+  "target_volume": "0",
+  "target_volume_count_start": "0",
+  "type": "advanced",
+  "lang": "en",
+  "hidden": "0",
+  "version": "2"
+}
