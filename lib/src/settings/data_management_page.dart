@@ -46,6 +46,7 @@ class DataManagementPage extends StatefulWidget {
     this.beanStorageService,
     this.grinderStorageService,
     this.workflowController,
+    this.importBackup,
   });
 
   static const routeName = '/data';
@@ -58,6 +59,11 @@ class DataManagementPage extends StatefulWidget {
   final BeanStorageService? beanStorageService;
   final GrinderStorageService? grinderStorageService;
   final WorkflowController? workflowController;
+  final Future<BackupImportResponse> Function(
+    String? filePath,
+    String strategy,
+  )?
+  importBackup;
 
   @override
   State<DataManagementPage> createState() => _DataManagementPageState();
@@ -504,13 +510,15 @@ class _DataManagementPageState extends State<DataManagementPage> {
         );
       }
 
-      final importResponse = await transfer.uploadZip(
-        'http://localhost:8080/api/v1/data/import',
-        strategy,
-        filePath: filePath,
-        readStream: readStream,
-        contentLength: length,
-      );
+      final importResponse = await (widget.importBackup != null
+          ? widget.importBackup!(filePath, strategy)
+          : transfer.uploadZip(
+              'http://localhost:8080/api/v1/data/import',
+              strategy,
+              filePath: filePath,
+              readStream: readStream,
+              contentLength: length,
+            ));
 
       if (!mounted) return;
 

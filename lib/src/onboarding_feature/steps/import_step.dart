@@ -32,6 +32,7 @@ OnboardingStep createImportStep({
   required SettingsController settingsController,
   required PersistenceController persistenceController,
   WorkflowController? workflowController,
+  Future<BackupImportResponse> Function(String filePath)? importBackup,
 }) {
   return OnboardingStep(
     id: 'import',
@@ -45,6 +46,7 @@ OnboardingStep createImportStep({
       settingsController: settingsController,
       persistenceController: persistenceController,
       workflowController: workflowController,
+      importBackup: importBackup,
     ),
   );
 }
@@ -58,6 +60,7 @@ class _ImportStepView extends StatefulWidget {
   final SettingsController settingsController;
   final PersistenceController persistenceController;
   final WorkflowController? workflowController;
+  final Future<BackupImportResponse> Function(String filePath)? importBackup;
 
   const _ImportStepView({
     required this.controller,
@@ -68,6 +71,7 @@ class _ImportStepView extends StatefulWidget {
     required this.settingsController,
     required this.persistenceController,
     this.workflowController,
+    this.importBackup,
   });
 
   @override
@@ -175,34 +179,17 @@ class _ImportStepViewState extends State<_ImportStepView> {
     });
 
     try {
-      final bytes = await File(filePath).readAsBytes();
+      final importResponse =
+          await (widget.importBackup?.call(filePath) ?? _uploadZip(filePath));
+      final result = importResponse.toImportResult();
 
-      final client = HttpClient();
-      try {
-        final request = await client.postUrl(
-          Uri.parse('http://localhost:8080/api/v1/data/import?onConflict=skip'),
-        );
-        request.headers.contentType = ContentType('application', 'zip');
-        request.add(bytes);
-        final response = await request.close();
-        final responseBody = await response.transform(utf8.decoder).join();
+      widget.persistenceController.notifyShotsChanged();
 
-        final importResponse = BackupImportResponse.fromHttp(
-          response.statusCode,
-          responseBody,
-        );
-        final result = importResponse.toImportResult();
-
-        widget.persistenceController.notifyShotsChanged();
-
-        if (mounted) {
-          setState(() {
-            _importResult = result;
-            _phase = _ImportPhase.result;
-          });
-        }
-      } finally {
-        client.close();
+      if (mounted) {
+        setState(() {
+          _importResult = result;
+          _phase = _ImportPhase.result;
+        });
       }
     } catch (e) {
       _log.warning('Failed to import ZIP backup', e);
@@ -229,6 +216,23 @@ class _ImportStepViewState extends State<_ImportStepView> {
           ).showSnackBar(backupImportErrorSnackBar(e as BackupImportException));
         }
       }
+    }
+  }
+
+  Future<BackupImportResponse> _uploadZip(String filePath) async {
+    final bytes = await File(filePath).readAsBytes();
+    final client = HttpClient();
+    try {
+      final request = await client.postUrl(
+        Uri.parse('http://localhost:8080/api/v1/data/import?onConflict=skip'),
+      );
+      request.headers.contentType = ContentType('application', 'zip');
+      request.add(bytes);
+      final response = await request.close();
+      final responseBody = await response.transform(utf8.decoder).join();
+      return BackupImportResponse.fromHttp(response.statusCode, responseBody);
+    } finally {
+      client.close();
     }
   }
 
