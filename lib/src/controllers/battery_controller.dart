@@ -4,7 +4,6 @@ import 'package:battery_plus/battery_plus.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/controllers/charging_logic.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
-import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:rxdart/rxdart.dart';
 
