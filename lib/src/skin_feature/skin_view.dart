@@ -257,38 +257,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
     }
   }
 
-  InAppWebViewSettings _createSettings() {
-    return InAppWebViewSettings(
-      javaScriptEnabled: true,
-      javaScriptCanOpenWindowsAutomatically: false,
-
-      mediaPlaybackRequiresUserGesture: false,
-
-      allowFileAccessFromFileURLs: false,
-      allowUniversalAccessFromFileURLs: false,
-
-      useShouldOverrideUrlLoading: true,
-
-      browserAcceleratorKeysEnabled: !Platform.isWindows,
-
-      cacheEnabled: false,
-
-      supportZoom: false,
-      builtInZoomControls: false,
-      enableViewportScale: true,
-
-      verticalScrollBarEnabled: false,
-      horizontalScrollBarEnabled: false,
-
-      userAgent: "Decent",
-
-      rendererPriorityPolicy: RendererPriorityPolicy(
-        rendererRequestedPriority: RendererPriority.RENDERER_PRIORITY_BOUND,
-        waivedWhenNotVisible: false,
-      ),
-      useOnRenderProcessGone: true,
-    );
-  }
+  InAppWebViewSettings _createSettings() => createSkinWebViewSettings();
 
   void _showExitInstructions() {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -903,4 +872,40 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
       ),
     ]);
   }
+}
+
+@visibleForTesting
+InAppWebViewSettings createSkinWebViewSettings() {
+  return InAppWebViewSettings(
+    javaScriptEnabled: true,
+    javaScriptCanOpenWindowsAutomatically: false,
+
+    mediaPlaybackRequiresUserGesture: false,
+
+    allowFileAccessFromFileURLs: false,
+    allowUniversalAccessFromFileURLs: false,
+
+    useShouldOverrideUrlLoading: true,
+
+    browserAcceleratorKeysEnabled: !Platform.isWindows,
+
+    cacheEnabled: false,
+
+    supportZoom: false,
+    builtInZoomControls: false,
+    enableViewportScale: true,
+
+    textZoom: 100,
+
+    verticalScrollBarEnabled: false,
+    horizontalScrollBarEnabled: false,
+
+    userAgent: "Decent",
+
+    rendererPriorityPolicy: RendererPriorityPolicy(
+      rendererRequestedPriority: RendererPriority.RENDERER_PRIORITY_BOUND,
+      waivedWhenNotVisible: false,
+    ),
+    useOnRenderProcessGone: true,
+  );
 }
