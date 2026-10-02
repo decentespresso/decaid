@@ -10,6 +10,7 @@ import 'package:reaprime/src/skin_selector/skin_selector_page.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
 import 'helpers/mock_settings_service.dart';
@@ -131,6 +132,28 @@ void main() {
   tearDown(() {
     UrlLauncherPlatform.instance = original;
   });
+
+  for (final platform in [
+    TargetPlatform.iOS,
+    TargetPlatform.macOS,
+    TargetPlatform.windows,
+    TargetPlatform.linux,
+  ]) {
+    testWidgets('live-camera controls on $platform follow platform support', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      await _pumpPage(tester, _FakeWebUIService());
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Camera access'),
+        platform == TargetPlatform.iOS || platform == TargetPlatform.macOS
+            ? findsOneWidget
+            : findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+    }, variant: TargetPlatformVariant({platform}));
+  }
 
   testWidgets('renders a "Go to skin" button below the skin selector', (
     tester,

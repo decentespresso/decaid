@@ -41,7 +41,7 @@
 		<string>_decentscale._tcp</string>
 	</array>
 	<key>NSCameraUsageDescription</key>
-	<string>Needed to capture photos for shot notes and feedback when picking images via the file picker</string>
+	<string>Needed for camera-enabled skins, shot notes and feedback. Skins need your consent before receiving live camera images.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Needed to import photos for shot notes and feedback</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>

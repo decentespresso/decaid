@@ -5,6 +5,7 @@ import 'package:reaprime/src/skin_selector/skin_selector_page.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'helpers/mock_settings_service.dart';
 
@@ -35,6 +36,10 @@ class _FakeWebUIStorage extends Fake implements WebUIStorage {
 
   @override
   WebUISkin? get defaultSkin => _skins.first;
+
+  @override
+  WebUISkin? getSkin(String id) =>
+      _skins.where((skin) => skin.id == id).firstOrNull;
 
   @override
   Future<void> installFromGitHubRelease(
@@ -96,6 +101,8 @@ Future<void> _openInstallMenu(WidgetTester tester, String item) async {
 }
 
 void main() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
   testWidgets('install menu installs a skin from a GitHub release', (
     tester,
   ) async {
@@ -115,7 +122,7 @@ void main() {
     expect(find.text('Skin installed from GitHub'), findsOneWidget);
 
     // the installed skin is visible after the selector rebuilds
-    await tester.tap(find.byType(DropdownButton<String>));
+    await tester.tap(find.byType(DropdownButton<String>).first);
     await tester.pumpAndSettle();
     expect(find.text('Custom Skin'), findsOneWidget);
   });
@@ -139,7 +146,7 @@ void main() {
     expect(find.text('Skin installed from GitHub'), findsOneWidget);
 
     // the installed skin is visible after the selector rebuilds
-    await tester.tap(find.byType(DropdownButton<String>));
+    await tester.tap(find.byType(DropdownButton<String>).first);
     await tester.pumpAndSettle();
     expect(find.text('Custom Skin'), findsOneWidget);
   });

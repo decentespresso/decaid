@@ -30,6 +30,7 @@ import 'package:reaprime/src/onboarding_feature/steps/login_step.dart';
 import 'package:reaprime/src/realtime_shot_feature/realtime_shot_feature.dart';
 import 'package:reaprime/src/realtime_steam_feature/realtime_steam_feature.dart';
 import 'package:reaprime/src/skin_feature/skin_view.dart';
+import 'package:reaprime/src/skin_feature/skin_camera_permission.dart';
 import 'package:reaprime/src/theme/theme.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
@@ -511,6 +512,22 @@ class _MyAppState extends State<MyApp> {
                         deviceIp: widget.webUIService.deviceIp(),
                         displayController: widget.displayController,
                         port: widget.webUIService.port,
+                        cameraTarget: () {
+                          final service = widget.webUIService;
+                          if (!service.isServing) return null;
+                          final skin = widget.webUIStorage.installedSkins
+                              .where(
+                                (skin) => skin.path == service.serverPath(),
+                              )
+                              .firstOrNull;
+                          return skin == null
+                              ? null
+                              : SkinCameraTarget(
+                                  id: skin.id,
+                                  name: skin.name,
+                                  port: service.port,
+                                );
+                        },
                       );
                     default:
                       return OnboardingView(

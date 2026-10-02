@@ -10,6 +10,8 @@ import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
+import 'package:reaprime/src/skin_feature/skin_camera_controls.dart';
+import 'package:reaprime/src/skin_feature/skin_camera_platform.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class SkinSelectorPage extends StatefulWidget {
@@ -108,6 +110,12 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
                 _buildHeader(),
                 const SizedBox(height: 16),
                 _buildSkinSelector(),
+                if (supportsSkinCamera &&
+                    _selectedSkinId != null &&
+                    widget.webUIStorage.getSkin(_selectedSkinId!) != null) ...[
+                  const SizedBox(height: 12),
+                  SkinCameraConsentSetting(skinId: _selectedSkinId!),
+                ],
                 const SizedBox(height: 12),
                 Align(
                   alignment: Alignment.centerLeft,

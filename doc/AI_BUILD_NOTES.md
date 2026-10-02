@@ -133,6 +133,23 @@ temporary real-hardware tuning builds where debug endpoints must be reachable.
 - Android uses `ForegroundTaskService` for background BLE. Auto-stops 5min after disconnect; auto-restarts on reconnect.
 - `Makefile` targets: `build-arm`, `build-amd`, `dual-build` (Linux only, requires Docker/Colima).
 
+## Skin Camera Permissions on Apple Platforms
+
+iOS uses the existing permission handler after per-skin consent. Swift Package
+Manager derives camera support from `NSCameraUsageDescription`; the CocoaPods
+build defines `PERMISSION_CAMERA=1`. macOS uses the
+`com.reaprime/skin_camera` method channel in `MainFlutterWindow` because the
+installed permission handler does not provide a macOS backend. Keep
+`NSCameraUsageDescription` and the camera entitlement in both Debug/Profile
+and Release builds. Neither path requests microphone access.
+
+The pinned WebView plugin exposes WKWebView media permission callbacks on iOS
+15+ and macOS 12+, but not an Apple file-input chooser callback. Do not treat
+live-camera consent as a native file-input capture guard. Another tester must
+verify Apple compilation, system privacy prompts, localhost capture and
+lifecycle behavior on real Apple devices; Windows widget tests do not cover
+those native paths.
+
 ## Footgun #1: Xcode 26.4 / flutter_inappwebview
 
 **Symptom:** `flutter build macos` fails with `Swift 6.3 error: protocol 'ASWebAuthenticationPresentationContextProviding' requires 'presentationAnchor(for:)' to be available in macOS 10.14 and newer`.
