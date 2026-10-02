@@ -874,10 +874,6 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   }
 }
 
-/// Settings for the skin's WebView.
-///
-/// Lifted out of the widget so it can be asserted on directly; it reads no
-/// widget state.
 @visibleForTesting
 InAppWebViewSettings createSkinWebViewSettings() {
   return InAppWebViewSettings(
@@ -899,12 +895,6 @@ InAppWebViewSettings createSkinWebViewSettings() {
     builtInZoomControls: false,
     enableViewportScale: true,
 
-    // Android's WebView scales page text by the system font-size setting
-    // (WebSettings.setTextZoom). It scales text only, so a skin's type grows
-    // while the boxes holding it stay put, and the text overflows them --
-    // Chrome on the same device is unaffected, which is what makes this look
-    // like a skin bug. Skins lay themselves out in CSS pixels and do their own
-    // scaling, so pin this and leave sizing to the skin.
     textZoom: 100,
 
     verticalScrollBarEnabled: false,
