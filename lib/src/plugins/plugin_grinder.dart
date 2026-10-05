@@ -15,8 +15,51 @@ class PluginGrinder extends PluginProtocolDevice implements GrinderDevice {
       StreamController.broadcast();
   Completer<void> _firstState = Completer<void>();
   GrinderSnapshot? _latestSnapshot;
+  final Map<String, GrinderControlDescriptor> _fixedControls;
+  final List<PluginDeviceSurface> _declaredSurfaces;
+  final String? pluginId;
+  final Map<String, GrinderControlDescriptor> _overrides = {};
+  List<String>? _availableSurfaces;
+
+  @override
+  Map<String, GrinderControlDescriptor> get controls =>
+      Map.unmodifiable({..._fixedControls, ..._overrides});
+
+  @override
+  bool get hasSurfaceDeclarations => _declaredSurfaces.isNotEmpty;
+
+  @override
+  List<Map<String, String>> get surfaces => List.unmodifiable(
+    _declaredSurfaces
+        .where(
+          (surface) =>
+              _availableSurfaces == null ||
+              _availableSurfaces!.contains(surface.id),
+        )
+        .map(
+          (surface) => {
+            'id': surface.id,
+            'role': surface.role,
+            if (surface.label != null) 'label': surface.label!,
+            'href': Uri(
+              pathSegments: [
+                '',
+                'api',
+                'v1',
+                'plugins',
+                pluginId!,
+                surface.endpoint,
+              ],
+              queryParameters: {'ui': '1', 'deviceId': deviceId},
+            ).toString(),
+          },
+        ),
+  );
 
   PluginGrinder({
+    this.pluginId,
+    Map<String, GrinderControlDescriptor> controls = const {},
+    List<PluginDeviceSurface> surfaces = const [],
     required super.deviceId,
     required super.name,
     required super.invoke,
@@ -25,7 +68,9 @@ class PluginGrinder extends PluginProtocolDevice implements GrinderDevice {
     super.prepareConnection,
     super.onReady,
     super.invocationTimeout,
-  }) : capabilities = Set.unmodifiable(
+  }) : _fixedControls = Map.unmodifiable(controls),
+       _declaredSurfaces = List.unmodifiable(surfaces),
+       capabilities = Set.unmodifiable(
          capabilities.map(
            (capability) => GrinderCapability.values.byName(capability.name),
          ),
@@ -50,6 +95,8 @@ class PluginGrinder extends PluginProtocolDevice implements GrinderDevice {
   void beginSamples() {
     _latestSnapshot = null;
     _firstState = Completer<void>();
+    _overrides.clear();
+    _availableSurfaces = null;
   }
 
   @override
@@ -63,13 +110,23 @@ class PluginGrinder extends PluginProtocolDevice implements GrinderDevice {
     final rpm = snapshot['rpm'];
     final hasSetting = snapshot.containsKey('setting');
     final hasRpm = snapshot.containsKey('rpm');
+    final hasState = snapshot.containsKey('state');
     final validState =
-        state is String &&
-        GrinderState.values.any((value) => value.name == state);
-    if (snapshot.keys.any(
-          (key) => !const {'state', 'setting', 'rpm'}.contains(key),
+        !hasState ||
+        (state is String &&
+            GrinderState.values.any((value) => value.name == state));
+    if (snapshot.isEmpty ||
+        snapshot.keys.any(
+          (key) => !const {
+            'state',
+            'setting',
+            'rpm',
+            'controls',
+            'surfaces',
+          }.contains(key),
         ) ||
         !validState ||
+        (!hasState && (hasSetting || hasRpm)) ||
         (hasSetting &&
             (setting is! String ||
                 !capabilities.contains(GrinderCapability.grindSetting))) ||
@@ -82,6 +139,62 @@ class PluginGrinder extends PluginProtocolDevice implements GrinderDevice {
         code: 'invalid_argument',
       );
     }
+    final overrides = Map<String, GrinderControlDescriptor>.of(_overrides);
+    List<String>? available = _availableSurfaces;
+    try {
+      if (snapshot.containsKey('controls')) {
+        final updates = snapshot['controls'];
+        if (updates == null) {
+          overrides.clear();
+        } else if (updates is Map &&
+            updates.keys.every(
+              (key) =>
+                  key is String &&
+                  const {'grindSetting', 'rpmControl'}.contains(key) &&
+                  capabilities.any((capability) => capability.name == key),
+            )) {
+          for (final entry in updates.entries) {
+            if (entry.value == null) {
+              overrides.remove(entry.key);
+            } else {
+              overrides[entry.key
+                  as String] = GrinderControlDescriptor.fromJson(
+                entry.key as String,
+                entry.value,
+              );
+            }
+          }
+        } else {
+          throw const FormatException('Invalid controls');
+        }
+      }
+      if (snapshot.containsKey('surfaces')) {
+        final update = snapshot['surfaces'];
+        if (update == null) {
+          available = null;
+        } else if (update is List &&
+            update.every(
+              (id) =>
+                  id is String &&
+                  _declaredSurfaces.any((surface) => surface.id == id),
+            ) &&
+            update.toSet().length == update.length) {
+          available = List<String>.unmodifiable(update.cast<String>());
+        } else {
+          throw const FormatException('Invalid surfaces');
+        }
+      }
+    } on FormatException {
+      throw const PluginDeviceException(
+        'Invalid Grinder publication',
+        code: 'invalid_argument',
+      );
+    }
+    _overrides
+      ..clear()
+      ..addAll(overrides);
+    _availableSurfaces = available;
+    if (!hasState) return;
     final publication = GrinderSnapshot(
       timestamp: clock.now().toUtc(),
       state: GrinderState.values.byName(state),
@@ -142,7 +255,16 @@ class PluginGrinder extends PluginProtocolDevice implements GrinderDevice {
   }
 
   @override
+  Future<void> disconnect() {
+    _overrides.clear();
+    _availableSurfaces = null;
+    return super.disconnect();
+  }
+
+  @override
   Future<void> dispose() async {
+    _overrides.clear();
+    _availableSurfaces = null;
     await super.dispose();
     await _snapshots.close();
   }

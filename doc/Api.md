@@ -349,7 +349,7 @@ The singular `/api/v1/grinder/*` surface controls the one selected runtime
 
 | Method | Path | Description | Handler |
 |--------|------|-------------|---------|
-| GET | `/api/v1/grinder/info` | Runtime `deviceId` and declared capabilities | `grinder_handler.dart` |
+| GET | `/api/v1/grinder/info` | Runtime `deviceId`, unchanged capabilities, optional effective controls and available plugin surfaces | `grinder_handler.dart` |
 | GET | `/api/v1/grinder/state` | Latest validated grinder snapshot | |
 | PUT | `/api/v1/grinder/state/grinding` | Start grinding | |
 | PUT | `/api/v1/grinder/state/idle` | Stop grinding | |
@@ -358,8 +358,18 @@ The singular `/api/v1/grinder/*` surface controls the one selected runtime
 | WS | `/ws/v1/grinder/snapshot` | Snapshot-only stream across disconnect and replacement | |
 
 No connected grinder returns 503. Unsupported declared operations return an
-error with `code: "unsupported_operation"`. The API exposes no vendor command
-or catch-all route.
+error with `code: "unsupported_operation"`. Effective descriptors validate
+string settings and integer RPM before invoking the driver; rejected values
+return `code: "invalid_argument"` without clamping or rewriting. Numeric
+settings require a finite parsed value within inclusive bounds; enumerated
+settings match exactly; opaque settings accept any string. `step` is a display
+hint, never a rounding rule. Without descriptors, v1 commands remain valid.
+
+`controls` is omitted when no descriptors exist. `surfaces` is omitted when
+none are declared, or `[]` when declared surfaces are temporarily hidden.
+Each surface has a host-owned role and a host-built same-plugin `href` with the
+runtime `deviceId` query-encoded once; do not treat that identity as a persisted
+Grinder UUID. The API exposes no vendor command or catch-all route.
 
 New snapshot WebSocket subscribers immediately receive the selected grinder's
 current snapshot when available. Disconnect and replacement clear the retained

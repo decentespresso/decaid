@@ -19,7 +19,8 @@ const __bindBleDriver = (driverId, factory) => {
     const handle = payload.registrationHandle;
     const sessions = new Map();
     const cleanups = new Set();
-    const recoverableSampleErrors = new WeakMap();
+    const recoverablePublicationErrors = new WeakMap();
+    const grinderDriver = declaredDrivers.some(driver => driver.id === driverId && driver.type === 'grinder');
     const stale = () => Object.assign(new Error('BLE session retired'), {code: 'stale_session'});
     const context = (payload, cleanup) => {
       const authority = payload.gattSession;
@@ -78,10 +79,13 @@ const __bindBleDriver = (driverId, factory) => {
         publish: (snapshot, sample) => record.disconnected ? Promise.reject(stale()) : __deviceCall('blePublish', {
           registrationHandle: handle, session: payload.session, snapshot, sample
         }).catch(error => {
-          if (sample != null && error && error.code === 'stale_sample' &&
-              (typeof error === 'object' || typeof error === 'function') &&
-              record.activeCallbackEpoch !== 0) {
-            recoverableSampleErrors.set(error, {
+          if (error && (typeof error === 'object' || typeof error === 'function') &&
+              record.activeCallbackEpoch !== 0 &&
+              ((sample != null && error.code === 'stale_sample') ||
+               (grinderDriver && error.code === 'invalid_argument' &&
+                snapshot && typeof snapshot === 'object' &&
+                ('controls' in snapshot || 'surfaces' in snapshot)))) {
+            recoverablePublicationErrors.set(error, {
               record,
               epoch: record.activeCallbackEpoch
             });
@@ -119,11 +123,11 @@ const __bindBleDriver = (driverId, factory) => {
         } catch (error) {
           const provenance = error &&
             (typeof error === 'object' || typeof error === 'function')
-              ? recoverableSampleErrors.get(error) : null;
+              ? recoverablePublicationErrors.get(error) : null;
           if (!provenance || provenance.record !== record || provenance.epoch !== epoch) {
             throw error;
           }
-          recoverableSampleErrors.delete(error);
+          recoverablePublicationErrors.delete(error);
         } finally {
           if (record.activeCallbackEpoch === epoch) record.activeCallbackEpoch = 0;
         }

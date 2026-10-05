@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
@@ -28,7 +29,7 @@ import '../helpers/mock_settings_service.dart';
 import 'plugin_test_helpers.dart';
 
 typedef _GrinderFixtureFactory =
-    Future<_GrinderFixture> Function({required bool controls});
+    Future<_GrinderFixture> Function({required bool controls, bool metadata});
 
 void main() {
   final factories = <String, _GrinderFixtureFactory>{
@@ -38,6 +39,91 @@ void main() {
 
   for (final entry in factories.entries) {
     group('${entry.key} Grinder contract', () {
+      test(
+        'fixed and runtime metadata share command and info contracts',
+        () async {
+          final fixture = await entry.value(controls: true, metadata: true);
+          addTearDown(fixture.dispose);
+          final grinder = fixture.grinder;
+          await grinder.onConnect();
+          final controller = GrinderController();
+          addTearDown(controller.dispose);
+          await controller.adoptGrinder(grinder);
+          final router = Router().plus;
+          GrinderHandler(controller: controller).addRoutes(router);
+          Future<Map<String, dynamic>> info() async {
+            final response = await router.call(
+              Request('GET', Uri.parse('http://localhost/api/v1/grinder/info')),
+            );
+            return jsonDecode(await response.readAsString())
+                as Map<String, dynamic>;
+          }
+
+          expect((await info())['controls']['grindSetting']['max'], 80);
+          expect((await info())['surfaces'][0]['role'], 'settings');
+          expect(
+            () => controller.setRpm(121),
+            throwsA(isA<GrinderOperationException>()),
+          );
+          await controller.setGrindSetting('1.5');
+          await controller.setRpm(60);
+          fixture.manager.js.evaluate('''
+          currentGrinderContext.publish({controls: {grindSetting: {
+            kind: 'enumerated', values: ['filter']
+          }}, surfaces: []});
+        ''');
+          await _flushJs(fixture.manager);
+          expect(
+            (await info())['controls']['grindSetting']['kind'],
+            'enumerated',
+          );
+          expect((await info())['surfaces'], isEmpty);
+          expect(
+            () => controller.setGrindSetting('1.5'),
+            throwsA(isA<GrinderOperationException>()),
+          );
+          await controller.setGrindSetting('filter');
+          expect(
+            fixture.events
+                .where((event) => event['event'] == 'setting')
+                .map((event) => event['payload']),
+            ['1.5', 'filter'],
+          );
+          if (entry.key == 'BLE') {
+            fixture.manager.js.evaluate('globalThis.failPublication = true');
+            final rejected = fixture.manager.emitStream.firstWhere(
+              (event) => event['event'] == 'metadataRejected',
+            );
+            fixture.currentTransport!()!.subscribers.values.single(
+              Uint8List.fromList([52]),
+            );
+            expect(
+              (await rejected.timeout(const Duration(seconds: 2)))['payload'],
+              'invalid_argument',
+            );
+            await Future<void>.delayed(const Duration(milliseconds: 30));
+            expect(
+              controller.currentConnectionState,
+              ConnectionState.connected,
+            );
+            expect(
+              (await info())['controls']['grindSetting']['kind'],
+              'enumerated',
+            );
+            expect((await info())['surfaces'], isEmpty);
+            await controller.setGrindSetting('filter');
+          }
+          final retired = grinder as PluginGrinder;
+          final beforeUnload = await info();
+          expect(beforeUnload['surfaces'], isEmpty);
+          await fixture.manager.unloadPlugin(
+            entry.key == 'BLE' ? 'ble.grinder' : 'network.grinder',
+          );
+          expect(retired.controls['grindSetting']!.kind, 'numeric');
+          expect(retired.surfaces, hasLength(1));
+        },
+      );
+
       test(
         'constructs the same adapter and enforces the typed contract',
         () async {
@@ -338,25 +424,60 @@ class _GrinderFixture {
   final GrinderDevice grinder;
   final List<Map<String, dynamic>> events;
   final Future<GrinderDevice> Function() replace;
+  final PluginBleFixtureTransport? Function()? currentTransport;
 
-  const _GrinderFixture(this.manager, this.grinder, this.events, this.replace);
+  const _GrinderFixture(
+    this.manager,
+    this.grinder,
+    this.events,
+    this.replace, {
+    this.currentTransport,
+  });
 
   Future<void> dispose() => manager.dispose();
 }
 
 PluginDriverDeclaration _driver({
   required bool controls,
+  bool metadata = false,
   PluginBleMatcher? ble,
 }) => PluginDriverDeclaration(
   id: 'grinder',
   type: PluginDriverType.grinder,
   ble: ble,
+  controls: metadata
+      ? {
+          'grindSetting': GrinderControlDescriptor.fromJson('grindSetting', {
+            'kind': 'numeric',
+            'min': 1,
+            'max': 80,
+            'step': 1,
+          }),
+          'rpmControl': GrinderControlDescriptor.fromJson('rpmControl', {
+            'kind': 'numeric',
+            'min': 60,
+            'max': 120,
+          }),
+        }
+      : const {},
+  surfaces: metadata
+      ? const [
+          PluginDeviceSurface(
+            id: 'settings',
+            role: 'settings',
+            endpoint: 'device-settings',
+          ),
+        ]
+      : const [],
   grinderCapabilities: controls
       ? PluginGrinderCapability.values.toSet()
       : const {},
 );
 
-Future<_GrinderFixture> _networkFixture({required bool controls}) async {
+Future<_GrinderFixture> _networkFixture({
+  required bool controls,
+  bool metadata = false,
+}) async {
   final manager = PluginManager(kvStore: FakeKeyValueStoreService());
   final events = <Map<String, dynamic>>[];
   manager.emitStream.listen(events.add);
@@ -364,11 +485,30 @@ Future<_GrinderFixture> _networkFixture({required bool controls}) async {
     id: 'network.grinder',
     manifest: testManifest(
       'network.grinder',
-      permissions: {PluginPermissions.emit},
-      drivers: [_driver(controls: controls)],
+      permissions: {
+        PluginPermissions.emit,
+        if (metadata) PluginPermissions.api,
+      },
+      drivers: [_driver(controls: controls, metadata: metadata)],
+      api: metadata
+          ? PluginApi(
+              endpoints: [
+                ApiEndpoint(
+                  id: 'device-settings',
+                  type: ApiEndpointType.http,
+                  data: {},
+                ),
+              ],
+            )
+          : null,
     ),
     settings: const {},
-    jsCode: _source(id: 'network.grinder', controls: controls, ble: false),
+    jsCode: _source(
+      id: 'network.grinder',
+      controls: controls,
+      ble: false,
+      metadata: metadata,
+    ),
   );
   await load();
   final grinder =
@@ -386,7 +526,10 @@ Future<_GrinderFixture> _networkFixture({required bool controls}) async {
   });
 }
 
-Future<_GrinderFixture> _bleFixture({required bool controls}) async {
+Future<_GrinderFixture> _bleFixture({
+  required bool controls,
+  bool metadata = false,
+}) async {
   final manager = PluginManager(kvStore: FakeKeyValueStoreService());
   final events = <Map<String, dynamic>>[];
   manager.emitStream.listen(events.add);
@@ -397,30 +540,59 @@ Future<_GrinderFixture> _bleFixture({required bool controls}) async {
     id: 'ble.grinder',
     manifest: testManifest(
       'ble.grinder',
-      permissions: {PluginPermissions.emit, PluginPermissions.transportBle},
-      drivers: [_driver(controls: controls, ble: matcher)],
+      permissions: {
+        PluginPermissions.emit,
+        PluginPermissions.transportBle,
+        if (metadata) PluginPermissions.api,
+      },
+      drivers: [_driver(controls: controls, ble: matcher, metadata: metadata)],
+      api: metadata
+          ? PluginApi(
+              endpoints: [
+                ApiEndpoint(
+                  id: 'device-settings',
+                  type: ApiEndpointType.http,
+                  data: {},
+                ),
+              ],
+            )
+          : null,
     ),
     settings: const {},
-    jsCode: _source(id: 'ble.grinder', controls: controls, ble: true),
+    jsCode: _source(
+      id: 'ble.grinder',
+      controls: controls,
+      ble: true,
+      metadata: metadata,
+    ),
   );
   final evidence = BleAdvertisementEvidence(serviceUuids: ['180f']);
+  PluginBleFixtureTransport? transport;
   Future<GrinderDevice> create() async =>
       await manager.bleService.createCandidate(
             driver: manager.bleService.registry.decide(evidence).drivers.single,
             physicalId: 'AA:BB',
             evidence: evidence,
-            createTransport: () => PluginBleFixtureTransport('AA:BB'),
+            createTransport: () =>
+                transport = PluginBleFixtureTransport('AA:BB'),
             admit: () => true,
           )
           as GrinderDevice;
   final grinder = await create();
-  return _GrinderFixture(manager, grinder, events, create);
+  return _GrinderFixture(
+    manager,
+    grinder,
+    events,
+    create,
+    currentTransport: () => transport,
+  );
 }
 
 String _source({
   required String id,
   required bool controls,
   required bool ble,
+  bool metadata = false,
 }) {
   final handlers =
       '''
@@ -436,6 +608,15 @@ String _source({
           return;
         }
         await session.publish({state: 'idle'});
+        ${ble && metadata ? '''await session.gatt.subscribe('180f', '2a19', async () => {
+          if (!globalThis.failPublication) return;
+          try {
+            await context.publish({controls: {rpmControl: {kind: 'opaque'}}});
+          } catch (error) {
+            host.emit('metadataRejected', error.code);
+            throw error;
+          }
+        });''' : ''}
       },
       disconnect() {},
       ${ble ? 'bleEvent() {},' : ''}

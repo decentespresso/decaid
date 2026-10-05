@@ -124,7 +124,7 @@ A Decaid plugin consists of two required files:
   - `network.websocket`: Open outbound WebSocket connections (`ws://` and `wss://`) through `host.transport`
   - `network.tcp`: Open outbound raw TCP connections through `host.transport`
   - `network.tls`: Open outbound TLS connections (platform trust store) through `host.transport`
-- **drivers**: Device classes the plugin may register. Each declaration has a plugin-local `id` and a `type`: `sensor`, `scale`, or `grinder`. A manifest may declare at most 8 drivers. Driver declarations authorize registration; they do not grant transport access. For example, a WebSocket-backed device also needs `network.websocket`.
+- **drivers**: Device classes the plugin may register. Each declaration has a plugin-local `id` and a `type`: `sensor`, `scale`, or `grinder`. A manifest may declare at most 8 drivers. Driver declarations authorize registration; they do not grant transport access. For example, a WebSocket-backed device also needs `network.websocket`. A driver may declare up to 8 `surfaces`, each with a unique safe `id`, `role` (`settings` or `diagnostics`), and a safe non-reserved `endpoint` naming a declared same-plugin HTTP endpoint. At most one surface has role `settings`. Surfaces require the `api` permission; optional `label` is display text. Plugins cannot supply URLs, authority, credentials, or routes through surfaces.
 - **settings**: User-configurable options with `type` (`string`, `number`, `boolean`, `enum`), an optional `label` giving the setting a human-friendly name, an optional `description` explaining what the setting does, an optional `default`, and an optional `secure` flag for credentials such as passwords. Enum `values` are a JSON array of strings. Secure values use platform credential storage, are supplied in memory to `onLoad(settings)`, and are never returned by the REST API.
 
   `GET /api/v1/plugins` returns this schema verbatim under `settings`, so a skin can render a settings form — labels, help text and defaults included — without reading the plugin's repository. `GET /api/v1/plugins/:id/settings` returns the stored values only.
@@ -455,13 +455,33 @@ Declare a Grinder driver with only the controls it supports:
 {"drivers":[{"id":"grinder","type":"grinder","capabilities":["startStop","grindSetting","rpmControl"]}]}
 ```
 
+Optional driver `controls` describe only declared `grindSetting` and `rpmControl`
+capabilities. `grindSetting` supports `{ "kind": "opaque" }`, finite numeric
+`min`/`max` and optional positive `step`, or a nonempty unique string `values`
+array with `kind: "enumerated"`. `rpmControl` supports numeric descriptors
+with nonnegative integer `min`/`max` and optional positive integer `step`.
+Bounds are inclusive; `step` guides adjustment only. For example, numeric
+grind 1–80 / step 1 and RPM 60–120 need no vendor-specific host logic.
+Unknown descriptor fields and unsupported capabilities fail manifest acceptance.
+
 Both `host.devices.register` and BLE `host.devices.bindDriver` create the same
 runtime `PluginGrinder`. Every connection receives a fresh session context and
 must publish a valid initial snapshot before it is ready. Snapshots require
 `state` (`idle`, `grinding`, `error`, or `unknown`); optional string `setting`
 requires `grindSetting`, and optional nonnegative integer `rpm` requires
 `rpmControl`. Unknown fields, plugin timestamps, and stale-session publications
-are rejected. Decaid supplies the timestamp.
+are rejected. Decaid supplies the timestamp. The same session's `publish` also
+accepts `controls` and `surfaces` without requiring a state snapshot. A supplied
+control descriptor replaces that entire session override; `null` clears that
+control back to its fixed declaration, and `controls: null` clears all overrides.
+Omitted keys preserve existing overrides. `surfaces: ["settings"]` selects a
+subset of manifest-declared IDs; `[]` hides all, `null` restores all, and
+omission preserves selection. Invalid metadata is rejected with
+`invalid_argument` without changing accepted state or disconnecting the device.
+Session metadata clears on reconnect, disconnect, unload, replacement and
+dispose. The host validates effective settings/RPM before sending the original
+command unchanged. No metadata enters snapshots, inventory, persisted Grinder
+records or a new WebSocket.
 
 Network and BLE grinders use a default 10-second invocation budget for protocol
 initialization and commands. Initialization includes the connect handler and

@@ -45,6 +45,12 @@ class TestGrinder implements GrinderDevice {
   @override
   Set<GrinderCapability> get capabilities => GrinderCapability.values.toSet();
   @override
+  Map<String, GrinderControlDescriptor> get controls => const {};
+  @override
+  List<Map<String, String>> get surfaces => const [];
+  @override
+  bool get hasSurfaceDeclarations => false;
+  @override
   Stream<GrinderSnapshot> get currentSnapshot => _snapshots.stream;
   @override
   Stream<ConnectionState> get connectionState => _connection.stream;

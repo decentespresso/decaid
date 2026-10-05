@@ -1258,7 +1258,7 @@ paths:
   /api/v1/grinder/info:
     get:
       summary: Get connected grinder information
-      description: Returns the runtime device identity and declared capabilities. This is separate from persisted grinder records under /api/v1/grinders.
+      description: Returns runtime identity, unchanged capabilities, optional effective control descriptors and host-built available plugin surfaces. Runtime identity is separate from persisted grinder records under /api/v1/grinders.
       tags: [Grinder]
       responses:
         "200":
@@ -5780,6 +5780,91 @@ components:
           items:
             type: string
             enum: [startStop, grindSetting, rpmControl]
+        controls:
+          type: object
+          additionalProperties: false
+          description: Effective standard controls for this connected session. Omitted if no descriptors are available.
+          properties:
+            grindSetting:
+              $ref: '#/components/schemas/GrinderSettingDescriptor'
+            rpmControl:
+              $ref: '#/components/schemas/GrinderRpmDescriptor'
+        surfaces:
+          type: array
+          description: Currently available pre-authorized surfaces, including an empty array when all declared surfaces are hidden. Omitted if none are declared.
+          items:
+            $ref: '#/components/schemas/PluginDeviceSurface'
+    GrinderSettingDescriptor:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind]
+          properties:
+            kind:
+              type: string
+              enum: [opaque]
+        - type: object
+          additionalProperties: false
+          required: [kind, min, max]
+          properties:
+            kind:
+              type: string
+              enum: [numeric]
+            min:
+              type: number
+            max:
+              type: number
+            step:
+              type: number
+              minimum: 0
+              exclusiveMinimum: true
+              description: Rendering hint; no command rounding or divisibility requirement.
+        - type: object
+          additionalProperties: false
+          required: [kind, values]
+          properties:
+            kind:
+              type: string
+              enum: [enumerated]
+            values:
+              type: array
+              minItems: 1
+              uniqueItems: true
+              items:
+                type: string
+    GrinderRpmDescriptor:
+      type: object
+      additionalProperties: false
+      required: [kind, min, max]
+      properties:
+        kind:
+          type: string
+          enum: [numeric]
+        min:
+          type: integer
+          minimum: 0
+        max:
+          type: integer
+          minimum: 0
+        step:
+          type: integer
+          minimum: 1
+          description: Rendering hint, not an RPM rounding rule.
+    PluginDeviceSurface:
+      type: object
+      additionalProperties: false
+      required: [id, role, href]
+      properties:
+        id:
+          type: string
+        role:
+          type: string
+          enum: [settings, diagnostics]
+        label:
+          type: string
+        href:
+          type: string
+          description: Host-built same-plugin HTTP URL with query-encoded runtime deviceId.
     GrinderSnapshot:
       type: object
       required: [timestamp, state]
@@ -7583,6 +7668,35 @@ components:
                 items:
                   type: string
                   enum: [battery, flow, timerTelemetry, tare, timerControl, displayControl, disconnectToSleep, startStop, grindSetting, rpmControl]
+              controls:
+                type: object
+                additionalProperties: false
+                description: Optional fixed descriptors for declared Grinder capabilities only.
+                properties:
+                  grindSetting:
+                    $ref: '#/components/schemas/GrinderSettingDescriptor'
+                  rpmControl:
+                    $ref: '#/components/schemas/GrinderRpmDescriptor'
+              surfaces:
+                type: array
+                maxItems: 8
+                description: Pre-authorized device-type-agnostic surfaces; requires api permission and a declared same-plugin HTTP endpoint. IDs must be unique, with at most one settings role.
+                items:
+                  type: object
+                  additionalProperties: false
+                  required: [id, role, endpoint]
+                  properties:
+                    id:
+                      type: string
+                      description: Unique safe driver-local identifier.
+                    role:
+                      type: string
+                      enum: [settings, diagnostics]
+                    endpoint:
+                      type: string
+                      description: Safe non-reserved same-plugin declared HTTP endpoint ID.
+                    label:
+                      type: string
               ble:
                 type: object
                 additionalProperties: false

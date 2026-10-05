@@ -1,4 +1,6 @@
 import 'package:collection/collection.dart';
+import 'package:reaprime/src/models/device/grinder_device.dart';
+import 'package:reaprime/src/util/safe_path.dart';
 import 'plugin_ble_matcher.dart';
 
 List<String> parsePluginEnumValues(String key, dynamic schema) {
@@ -52,12 +54,63 @@ List<PluginDriverDeclaration> parsePluginDrivers(dynamic json) {
   return List.unmodifiable(drivers);
 }
 
+class PluginDeviceSurface {
+  final String id;
+  final String role;
+  final String endpoint;
+  final String? label;
+
+  const PluginDeviceSurface({
+    required this.id,
+    required this.role,
+    required this.endpoint,
+    this.label,
+  });
+
+  factory PluginDeviceSurface.fromJson(dynamic json) {
+    if (json is! Map ||
+        json.keys.any(
+          (key) => !const {'id', 'role', 'endpoint', 'label'}.contains(key),
+        ) ||
+        json['id'] is! String ||
+        !isSafePathComponent(json['id'] as String) ||
+        json['role'] is! String ||
+        !const {'settings', 'diagnostics'}.contains(json['role']) ||
+        json['endpoint'] is! String ||
+        !isSafePathComponent(json['endpoint'] as String) ||
+        const {
+          'settings',
+          'source',
+          'enable',
+          'disable',
+        }.contains(json['endpoint']) ||
+        (json.containsKey('label') && json['label'] is! String)) {
+      throw const FormatException('Invalid plugin device surface');
+    }
+    return PluginDeviceSurface(
+      id: json['id'] as String,
+      role: json['role'] as String,
+      endpoint: json['endpoint'] as String,
+      label: json['label'] as String?,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'role': role,
+    'endpoint': endpoint,
+    if (label != null) 'label': label,
+  };
+}
+
 class PluginDriverDeclaration {
   final String id;
   final PluginDriverType type;
   final PluginBleMatcher? ble;
   final Set<PluginScaleCapability> capabilities;
   final Set<PluginGrinderCapability> grinderCapabilities;
+  final Map<String, GrinderControlDescriptor> controls;
+  final List<PluginDeviceSurface> surfaces;
 
   const PluginDriverDeclaration({
     required this.id,
@@ -65,6 +118,8 @@ class PluginDriverDeclaration {
     this.ble,
     this.capabilities = const {},
     this.grinderCapabilities = const {},
+    this.controls = const {},
+    this.surfaces = const [],
   });
 
   factory PluginDriverDeclaration.fromJson(dynamic json) {
@@ -122,12 +177,49 @@ class PluginDriverDeclaration {
       }
       ble = PluginBleMatcher.fromJson(declaration['match']);
     }
+    final rawControls = json['controls'];
+    if (json.containsKey('controls') &&
+        (type != PluginDriverType.grinder ||
+            rawControls is! Map ||
+            rawControls.keys.any(
+              (key) =>
+                  key is! String ||
+                  !grinderCapabilities.any(
+                    (capability) => capability.name == key,
+                  ),
+            ))) {
+      throw const FormatException('Invalid Grinder controls');
+    }
+    final controls = <String, GrinderControlDescriptor>{};
+    if (rawControls is Map) {
+      for (final entry in rawControls.entries) {
+        controls[entry.key as String] = GrinderControlDescriptor.fromJson(
+          entry.key as String,
+          entry.value,
+        );
+      }
+    }
+    final rawSurfaces = json['surfaces'];
+    if (json.containsKey('surfaces') &&
+        (rawSurfaces is! List || rawSurfaces.length > 8)) {
+      throw const FormatException('Invalid plugin device surfaces');
+    }
+    final surfaces = rawSurfaces == null
+        ? <PluginDeviceSurface>[]
+        : (rawSurfaces as List).map(PluginDeviceSurface.fromJson).toList();
+    if (surfaces.map((surface) => surface.id).toSet().length !=
+            surfaces.length ||
+        surfaces.where((surface) => surface.role == 'settings').length > 1) {
+      throw const FormatException('Invalid plugin device surfaces');
+    }
     return PluginDriverDeclaration(
       id: id,
       type: type,
       ble: ble,
       capabilities: Set.unmodifiable(capabilities),
       grinderCapabilities: Set.unmodifiable(grinderCapabilities),
+      controls: Map.unmodifiable(controls),
+      surfaces: List.unmodifiable(surfaces),
     );
   }
 
@@ -142,6 +234,10 @@ class PluginDriverDeclaration {
               .map((value) => value.name)
               .toList(),
     if (ble != null) 'ble': {'match': ble!.toJson()},
+    if (controls.isNotEmpty)
+      'controls': controls.map((key, value) => MapEntry(key, value.toJson())),
+    if (surfaces.isNotEmpty)
+      'surfaces': surfaces.map((surface) => surface.toJson()).toList(),
   };
 }
 
@@ -175,6 +271,21 @@ class PluginManifest {
     for (final entry in settings.entries) {
       parsePluginEnumValues(entry.key, entry.value);
     }
+    final permissions = PluginPermissionsFromJson.fromJson(json['permissions']);
+    final api = PluginApi.fromJsonList(json['api']);
+    final drivers = parsePluginDrivers(json['drivers']);
+    for (final surface in drivers.expand((driver) => driver.surfaces)) {
+      final targets = api.endpoints.where(
+        (endpoint) => endpoint.id == surface.endpoint,
+      );
+      if (!permissions.contains(PluginPermissions.api) ||
+          targets.length != 1 ||
+          targets.single.type != ApiEndpointType.http) {
+        throw const FormatException(
+          'Plugin surface requires a declared HTTP endpoint and api permission',
+        );
+      }
+    }
     return PluginManifest(
       id: json['id'],
       name: json['name'],
@@ -182,10 +293,10 @@ class PluginManifest {
       description: json['description'],
       version: json['version'],
       apiVersion: json['apiVersion'],
-      permissions: PluginPermissionsFromJson.fromJson(json['permissions']),
-      drivers: parsePluginDrivers(json['drivers']),
+      permissions: permissions,
+      drivers: drivers,
       settings: settings,
-      api: PluginApi.fromJsonList(json['api']),
+      api: api,
     );
   }
 

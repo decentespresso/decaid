@@ -866,7 +866,15 @@ scans.
 Runtime grinder identity is not equipment metadata. Persisted `Grinder.id` is a
 UUID used by `/api/v1/grinders` and workflow records. `GrinderDevice.deviceId`
 identifies a live transport/plugin device. `preferredGrinderDeviceId` stores
-that runtime `deviceId`, never the persisted UUID.
+that runtime `deviceId`, never the persisted UUID. Optional fixed Grinder
+control descriptors and session overrides live only on the selected runtime
+device. The controller validates effective descriptors before commands reach
+BLE-backed or plugin-created Grinders, without modifying the requested value.
+The connected Grinder info endpoint projects these effective controls and
+currently available host-validated plugin surfaces; inventory and snapshots
+never contain this metadata. A surface URL includes the query-encoded runtime
+identity, not the persisted UUID. The host does not infer plugin ownership from
+a device-id prefix.
 
 ### Bengle EBus tap
 

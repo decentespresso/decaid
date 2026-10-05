@@ -179,9 +179,30 @@ class GrinderController {
 
   Future<void> start() => connectedGrinder().start();
   Future<void> stop() => connectedGrinder().stop();
-  Future<void> setGrindSetting(String setting) =>
-      connectedGrinder().setGrindSetting(setting);
-  Future<void> setRpm(int rpm) => connectedGrinder().setRpm(rpm);
+  Future<void> setGrindSetting(String setting) {
+    final grinder = connectedGrinder();
+    if (grinder.controls['grindSetting'] case final descriptor?) {
+      if (!descriptor.acceptsSetting(setting)) {
+        throw const GrinderOperationException(
+          'Invalid grind setting',
+          code: 'invalid_argument',
+        );
+      }
+    }
+    return grinder.setGrindSetting(setting);
+  }
+
+  Future<void> setRpm(int rpm) {
+    final grinder = connectedGrinder();
+    final descriptor = grinder.controls['rpmControl'];
+    if (rpm < 0 || (descriptor != null && !descriptor.acceptsRpm(rpm))) {
+      throw const GrinderOperationException(
+        'Invalid RPM',
+        code: 'invalid_argument',
+      );
+    }
+    return grinder.setRpm(rpm);
+  }
 
   Future<void> disconnectDevice(GrinderDevice grinder) async {
     if (_grinder?.deviceId == grinder.deviceId ||
