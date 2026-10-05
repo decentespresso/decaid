@@ -9,6 +9,7 @@ import 'package:reaprime/src/models/device/sensor.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:rxdart/rxdart.dart';
 import 'plugin_device_contract.dart';
+import 'plugin_device_surface_authority.dart';
 import 'plugin_manifest.dart';
 import 'plugin_grinder.dart';
 import 'plugin_scale.dart';
@@ -140,7 +141,9 @@ class PluginDeviceService implements DeviceDiscoveryService {
       PluginDriverType.scale => PluginScale(
         deviceId: deviceId,
         name: name,
-        capabilities: driver!.capabilities,
+        pluginId: pluginId,
+        surfaces: driver!.surfaces,
+        capabilities: driver.capabilities,
         invoke: invoke,
         invocationTimeout: scaleInvocationTimeout,
       ),
@@ -158,6 +161,10 @@ class PluginDeviceService implements DeviceDiscoveryService {
         deviceId: deviceId,
         name: name,
         vendor: vendor,
+        surfaceAuthority: PluginDeviceSurfaceAuthority(
+          pluginId: pluginId,
+          surfaces: driver?.surfaces ?? const [],
+        ),
         dataChannels: parsePluginDataChannels(definition['dataChannels']),
         commands: parsePluginCommands(definition['commands']),
         invoke: invoke,
@@ -182,6 +189,22 @@ class PluginDeviceService implements DeviceDiscoveryService {
       generation,
       registrationHandle,
     ).publish(snapshot, session: session);
+  }
+
+  void publishInfo({
+    required String pluginId,
+    required int generation,
+    required String registrationHandle,
+    required Map<String, dynamic> info,
+    String? session,
+  }) {
+    _ensureActive();
+    _checkPayloadSize(info, 'Plugin device info');
+    _registration(
+      pluginId,
+      generation,
+      registrationHandle,
+    ).publishInfo(info, session: session);
   }
 
   void reportDisconnected({
@@ -301,6 +324,7 @@ class _PluginSensor implements Sensor, PluginDeviceAdapter {
   _PluginSensor({
     required this.deviceId,
     required this.name,
+    required this.surfaceAuthority,
     required String vendor,
     required List<DataChannel> dataChannels,
     required List<CommandDescriptor> commands,
@@ -315,6 +339,17 @@ class _PluginSensor implements Sensor, PluginDeviceAdapter {
        _dataChannels = {
          for (final channel in dataChannels) channel.key: channel,
        };
+
+  @override
+  final PluginDeviceSurfaceAuthority surfaceAuthority;
+
+  @override
+  void publishInfo(Map<String, dynamic> info, {String? session}) {
+    throw const PluginDeviceException(
+      'Runtime info is unsupported',
+      code: 'unsupported_operation',
+    );
+  }
 
   final PluginDeviceInvoker _invoke;
   final Map<String, DataChannel> _dataChannels;

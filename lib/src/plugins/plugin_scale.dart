@@ -19,6 +19,8 @@ class PluginScale extends PluginProtocolDevice
   DateTime? _lastTimestamp;
 
   PluginScale({
+    super.pluginId,
+    super.surfaces,
     required super.deviceId,
     required super.name,
     required super.invoke,

@@ -1314,6 +1314,22 @@ class PluginManager {
             sample: sample as String?,
           );
           _replyDevice(requestId, bridgeToken, result: const {});
+        case 'blePublishInfo':
+          final info = data['info'];
+          if (info is! Map) {
+            throw const PluginBleException(
+              'invalid_argument',
+              'Invalid BLE info',
+            );
+          }
+          bleService.publishInfo(
+            pluginId,
+            generation,
+            registrationHandle,
+            Map<String, dynamic>.from(info),
+            data['session'] as String?,
+          );
+          _replyDevice(requestId, bridgeToken, result: const {});
         case 'bleDisconnected':
           bleService.reportDisconnected(
             pluginId,
@@ -1421,6 +1437,24 @@ class PluginManager {
             generation: generation,
             registrationHandle: registrationHandle,
             snapshot: Map<String, dynamic>.from(snapshot),
+            session: data['session'] is String
+                ? data['session'] as String
+                : null,
+          );
+          _replyDevice(requestId, bridgeToken, result: const {});
+        case 'publishInfo':
+          final info = data['info'];
+          if (info is! Map) {
+            throw const PluginDeviceException(
+              'Invalid plugin device info',
+              code: 'invalid_argument',
+            );
+          }
+          deviceService.publishInfo(
+            pluginId: pluginId,
+            generation: generation,
+            registrationHandle: registrationHandle,
+            info: Map<String, dynamic>.from(info),
             session: data['session'] is String
                 ? data['session'] as String
                 : null,
@@ -2143,11 +2177,16 @@ class PluginManager {
               return Promise.reject(new Error("Device handlers connect, disconnect, and execute are required"));
             }
             const registrationHandle = "device_" + pluginGeneration + "_" + __deviceNonce + "_" + (++__deviceSeq);
+            let retired = false;
+            const sessionCall = (type, payload) => retired
+              ? Promise.reject(Object.assign(new Error('Device session retired'), {code: 'stale_session'}))
+              : __deviceCall(type, payload);
             __deviceSetHandlers(registrationHandle, {
               pluginId: pluginId,
               generation: pluginGeneration,
               bridgeToken: pluginBridgeToken,
               handlers: handlers,
+              dispose: () => { retired = true; },
               connectTransport: (invocationId, payload) => {
                 const transport = __connectTransport(registrationHandle, invocationId);
                 if (driver.type === "sensor") return transport;
@@ -2155,12 +2194,17 @@ class PluginManager {
                 return Object.freeze({
                   transport: transport,
                   publish(snapshot) {
-                    return __deviceCall("publish", {
+                    return sessionCall("publish", {
                       registrationHandle: registrationHandle, session: session, snapshot: snapshot
                     });
                   },
+                  publishInfo(info) {
+                    return sessionCall("publishInfo", {
+                      registrationHandle: registrationHandle, session: session, info: info
+                    });
+                  },
                   reportDisconnected() {
-                    return __deviceCall("reportDisconnected", {
+                    return sessionCall("reportDisconnected", {
                       registrationHandle: registrationHandle, session: session
                     });
                   }
@@ -2197,7 +2241,7 @@ class PluginManager {
                     );
                   }
                 };
-                if (driver.type === "scale") {
+                if (driver.type === "scale" || driver.type === "grinder") {
                   delete device.publish;
                   delete device.reportDisconnected;
                 }

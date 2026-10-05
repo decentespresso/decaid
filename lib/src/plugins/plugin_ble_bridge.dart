@@ -20,7 +20,6 @@ const __bindBleDriver = (driverId, factory) => {
     const sessions = new Map();
     const cleanups = new Set();
     const recoverablePublicationErrors = new WeakMap();
-    const grinderDriver = declaredDrivers.some(driver => driver.id === driverId && driver.type === 'grinder');
     const stale = () => Object.assign(new Error('BLE session retired'), {code: 'stale_session'});
     const context = (payload, cleanup) => {
       const authority = payload.gattSession;
@@ -81,14 +80,20 @@ const __bindBleDriver = (driverId, factory) => {
         }).catch(error => {
           if (error && (typeof error === 'object' || typeof error === 'function') &&
               record.activeCallbackEpoch !== 0 &&
-              ((sample != null && error.code === 'stale_sample') ||
-               (grinderDriver && error.code === 'invalid_argument' &&
-                snapshot && typeof snapshot === 'object' &&
-                ('controls' in snapshot || 'surfaces' in snapshot)))) {
+              sample != null && error.code === 'stale_sample') {
             recoverablePublicationErrors.set(error, {
               record,
               epoch: record.activeCallbackEpoch
             });
+          }
+          throw error;
+        }),
+        publishInfo: info => record.disconnected ? Promise.reject(stale()) : __deviceCall('blePublishInfo', {
+          registrationHandle: handle, session: payload.session, info
+        }).catch(error => {
+          if (error && (typeof error === 'object' || typeof error === 'function') &&
+              record.activeCallbackEpoch !== 0 && error.code === 'invalid_argument') {
+            recoverablePublicationErrors.set(error, {record, epoch: record.activeCallbackEpoch});
           }
           throw error;
         }),

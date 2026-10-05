@@ -464,20 +464,32 @@ Bounds are inclusive; `step` guides adjustment only. For example, numeric
 grind 1–80 / step 1 and RPM 60–120 need no vendor-specific host logic.
 Unknown descriptor fields and unsupported capabilities fail manifest acceptance.
 
+Registered Scale, Sensor and Grinder adapters share a fixed
+`PluginDeviceSurfaceAuthority`: explicit plugin ownership, validated declared
+surfaces and one host URL resolver. Ownership is never inferred from `deviceId`.
+Grinder session availability filters this authority without changing declarations.
+
 Both `host.devices.register` and BLE `host.devices.bindDriver` create the same
 runtime `PluginGrinder`. Every connection receives a fresh session context and
 must publish a valid initial snapshot before it is ready. Snapshots require
 `state` (`idle`, `grinding`, `error`, or `unknown`); optional string `setting`
 requires `grindSetting`, and optional nonnegative integer `rpm` requires
 `rpmControl`. Unknown fields, plugin timestamps, and stale-session publications
-are rejected. Decaid supplies the timestamp. The same session's `publish` also
-accepts `controls` and `surfaces` without requiring a state snapshot. A supplied
+are rejected. Decaid supplies the timestamp. `context.publish(...)` accepts
+only typed snapshots; controls and surfaces are never snapshot fields. The same
+connection context provides `context.publishInfo({controls, surfaces})` for
+session-only info, with the same generation, registration, session fencing and
+64 KiB payload bound. Info publication does not satisfy initial snapshot readiness.
+A supplied
 control descriptor replaces that entire session override; `null` clears that
 control back to its fixed declaration, and `controls: null` clears all overrides.
 Omitted keys preserve existing overrides. `surfaces: ["settings"]` selects a
 subset of manifest-declared IDs; `[]` hides all, `null` restores all, and
 omission preserves selection. Invalid metadata is rejected with
 `invalid_argument` without changing accepted state or disconnecting the device.
+BLE notification callbacks may propagate an invalid `publishInfo` rejection
+without retiring a healthy connection. Snapshot/protocol failures retain their
+existing failure semantics regardless of earlier info publication.
 Session metadata clears on reconnect, disconnect, unload, replacement and
 dispose. The host validates effective settings/RPM before sending the original
 command unchanged. No metadata enters snapshots, inventory, persisted Grinder

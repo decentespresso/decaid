@@ -367,6 +367,9 @@ hint, never a rounding rule. Without descriptors, v1 commands remain valid.
 
 `controls` is omitted when no descriptors exist. `surfaces` is omitted when
 none are declared, or `[]` when declared surfaces are temporarily hidden.
+Plugins update session info through `context.publishInfo({controls, surfaces})`,
+not snapshot `context.publish({state, setting, rpm})`. Info and snapshot publication
+share connection authority and cleanup; invalid info preserves accepted values.
 Each surface has a host-owned role and a host-built same-plugin `href` with the
 runtime `deviceId` query-encoded once; do not treat that identity as a persisted
 Grinder UUID. The API exposes no vendor command or catch-all route.

@@ -16,8 +16,8 @@ class PluginGrinder extends PluginProtocolDevice implements GrinderDevice {
   Completer<void> _firstState = Completer<void>();
   GrinderSnapshot? _latestSnapshot;
   final Map<String, GrinderControlDescriptor> _fixedControls;
-  final List<PluginDeviceSurface> _declaredSurfaces;
-  final String? pluginId;
+  List<PluginDeviceSurface> get _declaredSurfaces =>
+      surfaceAuthority?.declaredSurfaces ?? const [];
   final Map<String, GrinderControlDescriptor> _overrides = {};
   List<String>? _availableSurfaces;
 
@@ -29,37 +29,14 @@ class PluginGrinder extends PluginProtocolDevice implements GrinderDevice {
   bool get hasSurfaceDeclarations => _declaredSurfaces.isNotEmpty;
 
   @override
-  List<Map<String, String>> get surfaces => List.unmodifiable(
-    _declaredSurfaces
-        .where(
-          (surface) =>
-              _availableSurfaces == null ||
-              _availableSurfaces!.contains(surface.id),
-        )
-        .map(
-          (surface) => {
-            'id': surface.id,
-            'role': surface.role,
-            if (surface.label != null) 'label': surface.label!,
-            'href': Uri(
-              pathSegments: [
-                '',
-                'api',
-                'v1',
-                'plugins',
-                pluginId!,
-                surface.endpoint,
-              ],
-              queryParameters: {'ui': '1', 'deviceId': deviceId},
-            ).toString(),
-          },
-        ),
-  );
+  List<Map<String, String>> get surfaces =>
+      surfaceAuthority?.resolve(deviceId, available: _availableSurfaces) ??
+      const [];
 
   PluginGrinder({
-    this.pluginId,
+    super.pluginId,
     Map<String, GrinderControlDescriptor> controls = const {},
-    List<PluginDeviceSurface> surfaces = const [],
+    super.surfaces,
     required super.deviceId,
     required super.name,
     required super.invoke,
@@ -69,7 +46,6 @@ class PluginGrinder extends PluginProtocolDevice implements GrinderDevice {
     super.onReady,
     super.invocationTimeout,
   }) : _fixedControls = Map.unmodifiable(controls),
-       _declaredSurfaces = List.unmodifiable(surfaces),
        capabilities = Set.unmodifiable(
          capabilities.map(
            (capability) => GrinderCapability.values.byName(capability.name),
@@ -110,23 +86,14 @@ class PluginGrinder extends PluginProtocolDevice implements GrinderDevice {
     final rpm = snapshot['rpm'];
     final hasSetting = snapshot.containsKey('setting');
     final hasRpm = snapshot.containsKey('rpm');
-    final hasState = snapshot.containsKey('state');
     final validState =
-        !hasState ||
-        (state is String &&
-            GrinderState.values.any((value) => value.name == state));
+        state is String &&
+        GrinderState.values.any((value) => value.name == state);
     if (snapshot.isEmpty ||
         snapshot.keys.any(
-          (key) => !const {
-            'state',
-            'setting',
-            'rpm',
-            'controls',
-            'surfaces',
-          }.contains(key),
+          (key) => !const {'state', 'setting', 'rpm'}.contains(key),
         ) ||
         !validState ||
-        (!hasState && (hasSetting || hasRpm)) ||
         (hasSetting &&
             (setting is! String ||
                 !capabilities.contains(GrinderCapability.grindSetting))) ||
@@ -139,11 +106,32 @@ class PluginGrinder extends PluginProtocolDevice implements GrinderDevice {
         code: 'invalid_argument',
       );
     }
+    final publication = GrinderSnapshot(
+      timestamp: clock.now().toUtc(),
+      state: GrinderState.values.byName(state),
+      setting: setting as String?,
+      rpm: rpm as int?,
+    );
+    _latestSnapshot = publication;
+    _snapshots.add(publication);
+    if (!_firstState.isCompleted) _firstState.complete();
+  }
+
+  @override
+  void publishInfo(Map<String, dynamic> info, {String? session}) {
+    checkSession(session);
+    if (info.isEmpty ||
+        info.keys.any((key) => !const {'controls', 'surfaces'}.contains(key))) {
+      throw const PluginDeviceException(
+        'Invalid Grinder info',
+        code: 'invalid_argument',
+      );
+    }
     final overrides = Map<String, GrinderControlDescriptor>.of(_overrides);
     List<String>? available = _availableSurfaces;
     try {
-      if (snapshot.containsKey('controls')) {
-        final updates = snapshot['controls'];
+      if (info.containsKey('controls')) {
+        final updates = info['controls'];
         if (updates == null) {
           overrides.clear();
         } else if (updates is Map &&
@@ -168,8 +156,8 @@ class PluginGrinder extends PluginProtocolDevice implements GrinderDevice {
           throw const FormatException('Invalid controls');
         }
       }
-      if (snapshot.containsKey('surfaces')) {
-        final update = snapshot['surfaces'];
+      if (info.containsKey('surfaces')) {
+        final update = info['surfaces'];
         if (update == null) {
           available = null;
         } else if (update is List &&
@@ -186,7 +174,7 @@ class PluginGrinder extends PluginProtocolDevice implements GrinderDevice {
       }
     } on FormatException {
       throw const PluginDeviceException(
-        'Invalid Grinder publication',
+        'Invalid Grinder info',
         code: 'invalid_argument',
       );
     }
@@ -194,16 +182,6 @@ class PluginGrinder extends PluginProtocolDevice implements GrinderDevice {
       ..clear()
       ..addAll(overrides);
     _availableSurfaces = available;
-    if (!hasState) return;
-    final publication = GrinderSnapshot(
-      timestamp: clock.now().toUtc(),
-      state: GrinderState.values.byName(state),
-      setting: setting as String?,
-      rpm: rpm as int?,
-    );
-    _latestSnapshot = publication;
-    _snapshots.add(publication);
-    if (!_firstState.isCompleted) _firstState.complete();
   }
 
   Future<void> _optional(

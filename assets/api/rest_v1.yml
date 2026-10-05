@@ -5783,7 +5783,7 @@ components:
         controls:
           type: object
           additionalProperties: false
-          description: Effective standard controls for this connected session. Omitted if no descriptors are available.
+          description: Effective standard controls for this connected session (session overrides from context.publishInfo({controls, surfaces}), then fixed declaration). Not snapshot fields. Omitted if no descriptors are available.
           properties:
             grindSetting:
               $ref: '#/components/schemas/GrinderSettingDescriptor'
@@ -5791,7 +5791,7 @@ components:
               $ref: '#/components/schemas/GrinderRpmDescriptor'
         surfaces:
           type: array
-          description: Currently available pre-authorized surfaces, including an empty array when all declared surfaces are hidden. Omitted if none are declared.
+          description: Currently available pre-authorized surfaces (availability from context.publishInfo({controls, surfaces})), including an empty array when all declared surfaces are hidden. Omitted if none are declared.
           items:
             $ref: '#/components/schemas/PluginDeviceSurface'
     GrinderSettingDescriptor:

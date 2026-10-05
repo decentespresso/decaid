@@ -1,5 +1,7 @@
 import 'package:reaprime/src/models/device/device.dart';
 
+import 'plugin_device_surface_authority.dart';
+
 enum PluginDeviceOperation {
   connect,
   disconnect,
@@ -36,6 +38,8 @@ class PluginDeviceException implements Exception {
 }
 
 abstract class PluginDeviceAdapter implements Device {
+  PluginDeviceSurfaceAuthority? get surfaceAuthority;
+  void publishInfo(Map<String, dynamic> info, {String? session});
   void publish(Map<String, dynamic> snapshot, {String? session});
   void reportDisconnected({String? session});
   Future<void> dispose();

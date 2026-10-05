@@ -37,6 +37,40 @@ void main() {
     'BLE': _bleFixture,
   };
 
+  for (final invalid in [
+    {'state': 'invalid-state', 'controls': <String, dynamic>{}},
+    {'state': 'idle', 'rpm': 'invalid', 'surfaces': []},
+    {'state': 'invalid-state'},
+    {'state': 'idle', 'rpm': 'invalid'},
+  ]) {
+    test(
+      'BLE invalid snapshot retires after info publication: $invalid',
+      () async {
+        final fixture = await _bleFixture(controls: true, metadata: true);
+        addTearDown(fixture.dispose);
+        final grinder = fixture.grinder;
+        await grinder.onConnect();
+        fixture.manager.js.evaluate('''
+        currentGrinderContext.publishInfo({controls: {grindSetting: {kind: 'opaque'}}, surfaces: []});
+      ''');
+        await _flushJs(fixture.manager);
+        expect(grinder.controls['grindSetting']!.kind, 'opaque');
+        expect(grinder.surfaces, isEmpty);
+        fixture.manager.js.evaluate(
+          'globalThis.invalidSnapshot = ${jsonEncode(invalid)}',
+        );
+        final disconnected = grinder.connectionState.firstWhere(
+          (state) => state == ConnectionState.disconnected,
+        );
+        fixture.currentTransport!()!.subscribers.values.single(
+          Uint8List.fromList([52]),
+        );
+        await disconnected.timeout(const Duration(seconds: 2));
+        expect(fixture.currentTransport!()!.disconnectCalls, greaterThan(0));
+      },
+    );
+  }
+
   for (final entry in factories.entries) {
     group('${entry.key} Grinder contract', () {
       test(
@@ -68,7 +102,7 @@ void main() {
           await controller.setGrindSetting('1.5');
           await controller.setRpm(60);
           fixture.manager.js.evaluate('''
-          currentGrinderContext.publish({controls: {grindSetting: {
+          currentGrinderContext.publishInfo({controls: {grindSetting: {
             kind: 'enumerated', values: ['filter']
           }}, surfaces: []});
         ''');
@@ -77,6 +111,25 @@ void main() {
             (await info())['controls']['grindSetting']['kind'],
             'enumerated',
           );
+          expect((await info())['surfaces'], isEmpty);
+          fixture.manager.js.evaluate('''
+            currentGrinderContext.publishInfo({controls: {grindSetting: {
+              kind: 'enumerated', values: ['x'.repeat(70 * 1024)]
+            }}, surfaces: ['settings']}).then(
+              () => globalThis.largeInfoCode = 'resolved',
+              error => globalThis.largeInfoCode = error.code
+            );
+          ''');
+          await _flushJs(fixture.manager);
+          expect(
+            fixture.manager.js
+                .evaluate('globalThis.largeInfoCode')
+                .stringResult,
+            'plugin_device_error',
+          );
+          expect((await info())['controls']['grindSetting']['values'], [
+            'filter',
+          ]);
           expect((await info())['surfaces'], isEmpty);
           expect(
             () => controller.setGrindSetting('1.5'),
@@ -113,12 +166,30 @@ void main() {
             expect((await info())['surfaces'], isEmpty);
             await controller.setGrindSetting('filter');
           }
+          fixture.manager.js.evaluate(
+            'globalThis.retainedInfoContext = currentGrinderContext',
+          );
           final retired = grinder as PluginGrinder;
           final beforeUnload = await info();
           expect(beforeUnload['surfaces'], isEmpty);
-          await fixture.manager.unloadPlugin(
-            entry.key == 'BLE' ? 'ble.grinder' : 'network.grinder',
+          final replacement = await fixture.replace();
+          await replacement.onConnect();
+          await controller.adoptGrinder(replacement);
+          fixture.manager.js.evaluate('''
+            retainedInfoContext.publishInfo({controls: {grindSetting: {kind: 'opaque'}}, surfaces: []}).then(
+              () => globalThis.retiredInfoCode = 'resolved',
+              error => globalThis.retiredInfoCode = error.code
+            );
+          ''');
+          await _flushJs(fixture.manager);
+          expect(
+            fixture.manager.js
+                .evaluate('globalThis.retiredInfoCode')
+                .stringResult,
+            'stale_session',
           );
+          expect((await info())['controls']['grindSetting']['kind'], 'numeric');
+          expect((await info())['surfaces'], hasLength(1));
           expect(retired.controls['grindSetting']!.kind, 'numeric');
           expect(retired.surfaces, hasLength(1));
         },
@@ -536,7 +607,7 @@ Future<_GrinderFixture> _bleFixture({
   final matcher = PluginBleMatcher.fromJson({
     'serviceUuids': ['180f'],
   });
-  await manager.loadPlugin(
+  Future<void> load() => manager.loadPlugin(
     id: 'ble.grinder',
     manifest: testManifest(
       'ble.grinder',
@@ -566,6 +637,7 @@ Future<_GrinderFixture> _bleFixture({
       metadata: metadata,
     ),
   );
+  await load();
   final evidence = BleAdvertisementEvidence(serviceUuids: ['180f']);
   PluginBleFixtureTransport? transport;
   Future<GrinderDevice> create() async =>
@@ -579,13 +651,11 @@ Future<_GrinderFixture> _bleFixture({
           )
           as GrinderDevice;
   final grinder = await create();
-  return _GrinderFixture(
-    manager,
-    grinder,
-    events,
-    create,
-    currentTransport: () => transport,
-  );
+  return _GrinderFixture(manager, grinder, events, () async {
+    await manager.unloadPlugin('ble.grinder');
+    await load();
+    return create();
+  }, currentTransport: () => transport);
 }
 
 String _source({
@@ -609,9 +679,13 @@ String _source({
         }
         await session.publish({state: 'idle'});
         ${ble && metadata ? '''await session.gatt.subscribe('180f', '2a19', async () => {
+          if (globalThis.invalidSnapshot) {
+            await context.publish(globalThis.invalidSnapshot);
+            return;
+          }
           if (!globalThis.failPublication) return;
           try {
-            await context.publish({controls: {rpmControl: {kind: 'opaque'}}});
+            await context.publishInfo({controls: {rpmControl: {kind: 'opaque'}}});
           } catch (error) {
             host.emit('metadataRejected', error.code);
             throw error;
