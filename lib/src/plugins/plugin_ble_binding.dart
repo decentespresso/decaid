@@ -224,7 +224,11 @@ class PluginBleBinding {
 
   void publishInfo(Map<String, dynamic> info, String? domainSession) {
     _checkPublication(domainSession);
-    validatePluginDevicePayload(info, 'Plugin device info');
+    validatePluginDevicePayload(
+      info,
+      'Plugin device info',
+      sizeErrorCode: 'resource_limit',
+    );
     device.publishInfo(info, session: domainSession);
   }
 

@@ -71,6 +71,81 @@ void main() {
     );
   }
 
+  test('BLE oversized snapshot publication remains fatal', () async {
+    final fixture = await _bleFixture(controls: true, metadata: true);
+    addTearDown(fixture.dispose);
+    final grinder = fixture.grinder;
+    await grinder.onConnect();
+    fixture.manager.js.evaluate('''
+      globalThis.invalidSnapshot = {state: 'idle', setting: 'x'.repeat(70 * 1024)};
+    ''');
+    final disconnected = grinder.connectionState.firstWhere(
+      (state) => state == ConnectionState.disconnected,
+    );
+    fixture.currentTransport!()!.subscribers.values.single(
+      Uint8List.fromList([52]),
+    );
+    await disconnected.timeout(const Duration(seconds: 2));
+    expect(fixture.currentTransport!()!.disconnectCalls, greaterThan(0));
+  });
+
+  test(
+    'BLE oversized info rejection preserves connection and metadata',
+    () async {
+      final fixture = await _bleFixture(controls: true, metadata: true);
+      addTearDown(fixture.dispose);
+      final grinder = fixture.grinder;
+      await grinder.onConnect();
+      fixture.manager.js.evaluate('''
+      currentGrinderContext.publishInfo({controls: {grindSetting: {
+        kind: 'enumerated', values: ['filter']
+      }}, surfaces: ['settings']});
+    ''');
+      await _flushJs(fixture.manager);
+      final acceptedControls = grinder.controls.map(
+        (id, descriptor) => MapEntry(id, descriptor.toJson()),
+      );
+      final acceptedSurfaces = grinder.surfaces
+          .map((surface) => Map<String, String>.from(surface))
+          .toList();
+      expect(acceptedControls['grindSetting']!['values'], ['filter']);
+      expect(acceptedSurfaces, hasLength(1));
+      fixture.manager.js.evaluate('globalThis.oversizedInfo = true');
+      final rejected = fixture.manager.emitStream.firstWhere(
+        (event) => event['event'] == 'metadataRejected',
+      );
+      fixture.currentTransport!()!.subscribers.values.single(
+        Uint8List.fromList([52]),
+      );
+      expect(
+        (await rejected.timeout(const Duration(seconds: 2)))['payload'],
+        'resource_limit',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(await grinder.connectionState.first, ConnectionState.connected);
+      expect(fixture.currentTransport!()!.disconnectCalls, 0);
+      expect(
+        grinder.controls.map(
+          (id, descriptor) => MapEntry(id, descriptor.toJson()),
+        ),
+        acceptedControls,
+      );
+      expect(grinder.surfaces, acceptedSurfaces);
+      await grinder.setGrindSetting('filter');
+      await grinder.start();
+      expect(
+        (await grinder.currentSnapshot.first).state,
+        GrinderState.grinding,
+      );
+      expect(
+        fixture.events
+            .where((event) => event['event'] == 'setting')
+            .single['payload'],
+        'filter',
+      );
+    },
+  );
+
   for (final entry in factories.entries) {
     group('${entry.key} Grinder contract', () {
       test(
@@ -125,7 +200,7 @@ void main() {
             fixture.manager.js
                 .evaluate('globalThis.largeInfoCode')
                 .stringResult,
-            'plugin_device_error',
+            'resource_limit',
           );
           expect((await info())['controls']['grindSetting']['values'], [
             'filter',
@@ -683,9 +758,15 @@ String _source({
             await context.publish(globalThis.invalidSnapshot);
             return;
           }
-          if (!globalThis.failPublication) return;
+          if (!globalThis.failPublication && !globalThis.oversizedInfo) return;
           try {
-            await context.publishInfo({controls: {rpmControl: {kind: 'opaque'}}});
+            if (globalThis.oversizedInfo) {
+              await context.publishInfo({controls: {grindSetting: {
+                kind: 'enumerated', values: ['x'.repeat(70 * 1024)]
+              }}, surfaces: []});
+            } else {
+              await context.publishInfo({controls: {rpmControl: {kind: 'opaque'}}});
+            }
           } catch (error) {
             host.emit('metadataRejected', error.code);
             throw error;

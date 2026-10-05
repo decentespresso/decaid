@@ -199,7 +199,11 @@ class PluginDeviceService implements DeviceDiscoveryService {
     String? session,
   }) {
     _ensureActive();
-    _checkPayloadSize(info, 'Plugin device info');
+    _checkPayloadSize(
+      info,
+      'Plugin device info',
+      sizeErrorCode: 'resource_limit',
+    );
     _registration(
       pluginId,
       generation,
@@ -535,8 +539,11 @@ void validatePluginSensorSnapshot(
   }
 }
 
-void validatePluginDevicePayload(Object payload, String name) =>
-    _checkPayloadSize(payload, name);
+void validatePluginDevicePayload(
+  Object payload,
+  String name, {
+  String sizeErrorCode = 'plugin_device_error',
+}) => _checkPayloadSize(payload, name, sizeErrorCode: sizeErrorCode);
 
 String _requiredSafeString(Map<String, dynamic> json, String key) {
   final value = _requiredString(json, key);
@@ -630,11 +637,15 @@ bool _matchesType(Object? value, String type) => switch (type) {
   _ => false,
 };
 
-void _checkPayloadSize(Object payload, String name) {
+void _checkPayloadSize(
+  Object payload,
+  String name, {
+  String sizeErrorCode = 'plugin_device_error',
+}) {
   try {
     if (utf8.encode(jsonEncode(payload)).length >
         _maxPluginDevicePayloadBytes) {
-      throw PluginDeviceException('$name exceeds 64 KiB');
+      throw PluginDeviceException('$name exceeds 64 KiB', code: sizeErrorCode);
     }
   } on JsonUnsupportedObjectError {
     throw PluginDeviceException('$name must be JSON encodable');

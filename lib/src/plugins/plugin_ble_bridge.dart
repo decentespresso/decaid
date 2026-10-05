@@ -92,7 +92,8 @@ const __bindBleDriver = (driverId, factory) => {
           registrationHandle: handle, session: payload.session, info
         }).catch(error => {
           if (error && (typeof error === 'object' || typeof error === 'function') &&
-              record.activeCallbackEpoch !== 0 && error.code === 'invalid_argument') {
+              record.activeCallbackEpoch !== 0 &&
+              (error.code === 'invalid_argument' || error.code === 'resource_limit')) {
             recoverablePublicationErrors.set(error, {record, epoch: record.activeCallbackEpoch});
           }
           throw error;
