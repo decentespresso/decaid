@@ -378,7 +378,11 @@ class FeedbackService {
     }
     final receipt = await accountService.sendSupportMessage(
       subject: 'Decaid feedback #$issueNumber',
-      body: "Hi,\n I recently submitted feedback from Decaid: $issueUrl\nThis message was sent from Decaid automatically and is used for reference and personal feedback history",
+      body:
+          'Hi,\n\n'
+          'I recently submitted feedback from Decaid: $issueUrl\n\n'
+          'This message was sent automatically by Decaid for reference and '
+          'to keep the feedback linked to my support history.',
       abortTrigger: abort.future,
     );
     final messageId = receipt.messageId;
