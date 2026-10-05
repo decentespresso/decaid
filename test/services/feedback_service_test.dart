@@ -149,7 +149,13 @@ void main() {
       expect(initialIssue['body'], isNot(contains('**Support message:**')));
 
       expect(requests[1].url.path, '/support/api/email');
-      expect(requests[1].url.queryParameters['body'], issueUrl);
+      expect(
+        requests[1].url.queryParameters['body'],
+        'Hi,\n\n'
+        'I recently submitted feedback from Decaid: $issueUrl\n\n'
+        'This message was sent automatically by Decaid for reference and '
+        'to keep the feedback linked to my support history.',
+      );
       expect(
         requests[1].url.queryParameters['subject'],
         'Decaid feedback #728',
