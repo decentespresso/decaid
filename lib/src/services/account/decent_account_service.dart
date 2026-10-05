@@ -726,8 +726,8 @@ class DecentAccountService {
       subject:
           'My machine serial number #$serial is not associated with my login',
       body:
-          'I linked my de1app to my Decent account, and found that this '
-          'account does not list the machine #$serial I am connected to.',
+          'I linked my Decaid app to my Decent account, and found that this '
+          'account does not list the machine #$serial I am currently connected to.',
     );
   }
 
