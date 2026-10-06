@@ -225,6 +225,19 @@ a plain `File.rename` as the final step either: it does not overwrite an
 existing destination on Windows, and it crosses directories that the sandbox may
 not permit.
 
+## Footgun #7: A fresh git worktree cannot build Android
+
+**Symptom:** `scripts/sb-dev.sh start --platform <serial>` inside a linked git
+worktree fails with
+`Execution failed for task ':app:validateSigningDebug'` /
+`Keystore file '<worktree>/android/app/debug.keystore' not found for signing config 'debug'`.
+
+**Root cause:** `android/app/debug.keystore` is gitignored, so it exists only in
+the primary checkout; `git worktree add` does not copy it.
+
+**Handling:** copy it from the primary repo before building:
+`cp <primary>/android/app/debug.keystore <worktree>/android/app/debug.keystore`.
+
 ## CLI Parameters
 
 The app supports several command-line flags for headless/calibration-station use. See PR #349 and #352 for full details.

@@ -203,7 +203,10 @@ start_cmd() {
   rm -f "$STDIN_FIFO"
   mkfifo "$STDIN_FIFO"
 
-  tail -f /dev/null > "$STDIN_FIFO" &
+  # Redirect all three fds: a holder that inherits the caller's stderr keeps a
+  # non-interactive caller's pipe open, so `sb-dev start` never returns even
+  # though it has finished and the app is up. EOF on stdin is unwanted too.
+  tail -f /dev/null > "$STDIN_FIFO" 2>/dev/null </dev/null &
   echo $! > "$HOLDER_PIDFILE"
 
   nohup ./flutter_with_commit.sh run \
@@ -328,10 +331,12 @@ reload_cmd() {
   local before
   before=$(wc -l < "$LOGFILE")
   echo r > "$STDIN_FIFO"
-  if wait_for_pattern_after 'Reloaded [0-9]+( of [0-9]+)? libraries' 30 "$before"; then
+  # Flutter formats counts with thousands separators (e.g. "1,024"), so allow
+  # commas in the number groups; otherwise confirmation never matches.
+  if wait_for_pattern_after 'Reloaded [0-9][0-9,]*( of [0-9][0-9,]*)? libraries' 30 "$before"; then
     echo "Hot reload complete"
     tail -n +"$((before + 1))" "$LOGFILE" \
-      | awk '/Reloaded [0-9]+( of [0-9]+)? libraries/ {print; exit}'
+      | awk '/Reloaded [0-9][0-9,]*( of [0-9][0-9,]*)? libraries/ {print; exit}'
   else
     echo "Timed out waiting for reload confirmation" >&2
     return 1
@@ -346,10 +351,10 @@ hot_restart_cmd() {
   local before
   before=$(wc -l < "$LOGFILE")
   echo R > "$STDIN_FIFO"
-  if wait_for_pattern_after 'Restarted application in [0-9]+ms' 60 "$before"; then
+  if wait_for_pattern_after 'Restarted application in [0-9][0-9,]*ms' 60 "$before"; then
     echo "Hot restart complete"
     tail -n +"$((before + 1))" "$LOGFILE" \
-      | awk '/Restarted application in [0-9]+ms/ {print; exit}'
+      | awk '/Restarted application in [0-9][0-9,]*ms/ {print; exit}'
   else
     echo "Timed out waiting for restart confirmation" >&2
     return 1
