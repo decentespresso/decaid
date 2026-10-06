@@ -15,30 +15,38 @@ import 'plugin_test_helpers.dart';
 
 class _FakePluginLoaderService extends Fake implements PluginLoaderService {}
 
+const _socketEndpoint = 'device%2Fupdates';
+
+PluginManifest _surfaceManifest(String pluginId, String endpoint) =>
+    PluginManifest.fromJson({
+      'id': pluginId,
+      'name': 'Surface test',
+      'author': 'Test',
+      'description': 'Test',
+      'version': '1.0.0',
+      'apiVersion': 1,
+      'permissions': ['api', 'emit'],
+      'api': [
+        {'id': endpoint, 'type': 'http', 'data': <String, dynamic>{}},
+        {
+          'id': _socketEndpoint,
+          'type': 'websocket',
+          'data': <String, dynamic>{},
+        },
+      ],
+      'drivers': [
+        {
+          'id': 'test-driver',
+          'type': 'sensor',
+          'surfaces': [
+            {'id': 'settings', 'role': 'settings', 'endpoint': endpoint},
+          ],
+        },
+      ],
+    });
+
 Future<Uri> _serveSurface(String pluginId, String endpoint) async {
-  const socketEndpoint = 'device%2Fupdates';
-  final manifest = PluginManifest.fromJson({
-    'id': pluginId,
-    'name': 'Surface test',
-    'author': 'Test',
-    'description': 'Test',
-    'version': '1.0.0',
-    'apiVersion': 1,
-    'permissions': ['api', 'emit'],
-    'api': [
-      {'id': endpoint, 'type': 'http', 'data': <String, dynamic>{}},
-      {'id': socketEndpoint, 'type': 'websocket', 'data': <String, dynamic>{}},
-    ],
-    'drivers': [
-      {
-        'id': 'test-driver',
-        'type': 'sensor',
-        'surfaces': [
-          {'id': 'settings', 'role': 'settings', 'endpoint': endpoint},
-        ],
-      },
-    ],
-  });
+  final manifest = _surfaceManifest(pluginId, endpoint);
   final manager = PluginManager(kvStore: FakeKeyValueStoreService());
   addTearDown(manager.dispose);
   await manager.loadPlugin(
@@ -51,11 +59,11 @@ Future<Uri> _serveSurface(String pluginId, String endpoint) async {
         return {
           id: ${jsonEncode(pluginId)},
           handleHttpRequest: (request) => {
-            host.emit('$socketEndpoint', {endpoint: request.endpoint});
+            host.emit('$_socketEndpoint', {endpoint: request.endpoint});
             return {
               status: 200,
               headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({endpoint: request.endpoint, query: request.query})
+              body: JSON.stringify({endpoint: request.endpoint, method: request.method, query: request.query})
             };
           }
         };
@@ -80,20 +88,58 @@ Future<Uri> _serveSurface(String pluginId, String endpoint) async {
   return Uri.parse('http://127.0.0.1:${server.port}').resolve(href);
 }
 
-Future<void> _expectSurfaceResponse(Uri href, String endpoint) async {
+Future<void> _expectSurfaceResponse(
+  Uri href,
+  String endpoint, {
+  String method = 'GET',
+}) async {
   final client = HttpClient();
   addTearDown(() => client.close(force: true));
-  final request = await client.getUrl(href);
+  final request = await client.openUrl(method, href);
+  if (method == 'POST') {
+    request.headers.contentType = ContentType.json;
+    request.write('{}');
+  }
   final response = await request.close();
   final body = await utf8.decoder.bind(response).join();
   expect(response.statusCode, 200, reason: body);
   expect(jsonDecode(body), {
     'endpoint': endpoint,
+    'method': method,
     'query': {'ui': '1', 'deviceId': 'device%2F1'},
   });
 }
 
 void main() {
+  for (final endpoint in ['github-release', 'github-branch']) {
+    test('manifest rejects reserved full surface route install/$endpoint', () {
+      expect(
+        () => _surfaceManifest('install', endpoint),
+        throwsFormatException,
+      );
+    });
+  }
+
+  for (final (pluginId, endpoint) in [
+    ('install', 'settings-panel'),
+    ('surface.plugin', 'github-release'),
+    ('surface.plugin', 'github-branch'),
+  ]) {
+    test('manifest accepts non-colliding surface $pluginId/$endpoint', () {
+      final manifest = _surfaceManifest(pluginId, endpoint);
+      expect(manifest.id, pluginId);
+      expect(manifest.drivers.single.surfaces.single.endpoint, endpoint);
+    });
+
+    test(
+      'POST generated surface href reaches plugin $pluginId/$endpoint',
+      () async {
+        final href = await _serveSurface(pluginId, endpoint);
+        await _expectSurfaceResponse(href, endpoint, method: 'POST');
+      },
+    );
+  }
+
   for (final codeUnit in [0xD800, 0xDC00]) {
     test('surface rejects unpaired surrogate $codeUnit', () {
       expect(

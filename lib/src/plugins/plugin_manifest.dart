@@ -245,6 +245,11 @@ class PluginDriverDeclaration {
 }
 
 class PluginManifest {
+  static const _reservedSurfaceRoutes = {
+    ('install', 'github-release'),
+    ('install', 'github-branch'),
+  };
+
   final String id;
   final String name;
   final String author;
@@ -278,6 +283,9 @@ class PluginManifest {
     final api = PluginApi.fromJsonList(json['api']);
     final drivers = parsePluginDrivers(json['drivers']);
     for (final surface in drivers.expand((driver) => driver.surfaces)) {
+      if (_reservedSurfaceRoutes.contains((json['id'], surface.endpoint))) {
+        throw const FormatException('Invalid plugin device surface');
+      }
       final targets = api.endpoints.where(
         (endpoint) => endpoint.id == surface.endpoint,
       );
