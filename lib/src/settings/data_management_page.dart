@@ -32,6 +32,7 @@ import 'package:reaprime/src/controllers/workflow_controller.dart';
 import 'package:reaprime/src/util/shot_exporter.dart';
 import 'package:reaprime/src/util/shot_importer.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
+import 'package:reaprime/src/ui/share_origin.dart';
 
 final Logger _log = Logger("DataManagement");
 
@@ -133,9 +134,11 @@ class _DataManagementPageState extends State<DataManagementPage> {
             spacing: 12,
             runSpacing: 12,
             children: [
-              ShadButton.outline(
-                onPressed: _exportFullBackup,
-                child: const Text('Export Full Backup'),
+              Builder(
+                builder: (context) => ShadButton.outline(
+                  onPressed: () => _exportFullBackup(shareOriginFor(context)),
+                  child: const Text('Export Full Backup'),
+                ),
               ),
               ShadButton.outline(
                 onPressed: _exportLogs,
@@ -276,7 +279,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       widget.beanStorageService != null &&
       widget.grinderStorageService != null;
 
-  Future<void> _exportFullBackup() async {
+  Future<void> _exportFullBackup(Rect sharePositionOrigin) async {
     if (!mounted) return;
 
     final timestamp = DateTime.now()
@@ -289,6 +292,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
     try {
       final outcome = await deliverArchive(
         fileName: fileName,
+        sharePositionOrigin: sharePositionOrigin,
         dialogTitle: 'Choose where to save backup',
         writeArchive: (dest) async {
           _showProgressDialog(context, 'Preparing full backup...');

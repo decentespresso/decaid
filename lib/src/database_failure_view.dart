@@ -3,6 +3,7 @@ import 'package:flutter/widget_previews.dart';
 import 'package:reaprime/src/services/export/archive_export.dart';
 import 'package:reaprime/src/services/storage/database_recovery.dart';
 import 'package:reaprime/src/ui/startup_failure_shell.dart';
+import 'package:reaprime/src/ui/share_origin.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 class DatabaseFailureView extends StatefulWidget {
@@ -16,7 +17,8 @@ class DatabaseFailureView extends StatefulWidget {
 
   final String logFilePath;
   final String? detail;
-  final Future<DeliveryOutcome> Function() onSavePackage;
+  final Future<DeliveryOutcome> Function(Rect sharePositionOrigin)
+  onSavePackage;
   final Future<ResetReport> Function() onResetDatabase;
 
   @override
@@ -28,11 +30,11 @@ class _DatabaseFailureViewState extends State<DatabaseFailureView> {
   bool _savedThisSession = false;
   String? _status;
 
-  Future<void> _savePackage() async {
+  Future<void> _savePackage(Rect sharePositionOrigin) async {
     if (_operationInFlight) return;
     setState(() => _operationInFlight = true);
     try {
-      final outcome = await widget.onSavePackage();
+      final outcome = await widget.onSavePackage(sharePositionOrigin);
       if (!mounted) return;
       if (outcome == DeliveryOutcome.saved) {
         setState(() {
@@ -169,14 +171,17 @@ class _DatabaseFailureViewState extends State<DatabaseFailureView> {
                     ),
                     SizedBox(
                       width: double.infinity,
-                      child: ShadButton.outline(
-                        enabled: !_operationInFlight,
-                        onPressed: _savePackage,
-                        child: const SizedBox(
-                          width: 100,
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text('Save recovery package'),
+                      child: Builder(
+                        builder: (context) => ShadButton.outline(
+                          enabled: !_operationInFlight,
+                          onPressed: () =>
+                              _savePackage(shareOriginFor(context)),
+                          child: const SizedBox(
+                            width: 100,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text('Save recovery package'),
+                            ),
                           ),
                         ),
                       ),
@@ -218,7 +223,8 @@ class DatabaseFailureApp extends StatelessWidget {
 
   final String logFilePath;
   final String? detail;
-  final Future<DeliveryOutcome> Function() onSavePackage;
+  final Future<DeliveryOutcome> Function(Rect sharePositionOrigin)
+  onSavePackage;
   final Future<ResetReport> Function() onResetDatabase;
 
   @override
@@ -240,7 +246,7 @@ Widget databaseStartupFailurePreview() {
     child: DatabaseFailureView(
       logFilePath: '/tmp/support/log.txt',
       detail: 'StateError: incompatible column',
-      onSavePackage: () async => DeliveryOutcome.cancelled,
+      onSavePackage: (_) async => DeliveryOutcome.cancelled,
       onResetDatabase: () async => const ResetReport(),
     ),
   );

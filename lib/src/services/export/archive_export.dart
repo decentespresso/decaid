@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
+import 'dart:ui';
 
 import 'package:archive/archive.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:reaprime/src/util/temp_archive_files.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -54,8 +55,10 @@ Future<DeliveryOutcome> deliverArchive({
   required String fileName,
   required Future<void> Function(ArchiveTarget target) writeArchive,
   String? dialogTitle,
+  required Rect sharePositionOrigin,
 }) async {
-  if (Platform.isIOS || Platform.isAndroid) {
+  if (defaultTargetPlatform == TargetPlatform.iOS ||
+      defaultTargetPlatform == TargetPlatform.android) {
     final tempDir = await TempArchiveDir.create('reaprime-native-export-');
     final file = File(tempDir.filePath(fileName));
     try {
@@ -64,6 +67,7 @@ Future<DeliveryOutcome> deliverArchive({
         ShareParams(
           files: [XFile(file.path, mimeType: 'application/zip')],
           subject: 'Decent backup',
+          sharePositionOrigin: sharePositionOrigin,
         ),
       );
       if (result.status == ShareResultStatus.dismissed) {

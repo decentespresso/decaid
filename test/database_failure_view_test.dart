@@ -12,13 +12,13 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 Widget host(Widget child) => StartupFailureShell(child: child);
 
 DatabaseFailureView view({
-  Future<DeliveryOutcome> Function()? onSave,
+  Future<DeliveryOutcome> Function(Rect)? onSave,
   Future<ResetReport> Function()? onReset,
 }) {
   return DatabaseFailureView(
     logFilePath: '/tmp/support/log.txt',
     detail: 'StateError: incompatible column',
-    onSavePackage: onSave ?? () async => DeliveryOutcome.cancelled,
+    onSavePackage: onSave ?? (_) async => DeliveryOutcome.cancelled,
     onResetDatabase: onReset ?? () async => const ResetReport(),
   );
 }
@@ -54,7 +54,7 @@ void main() {
     await tester.pumpWidget(
       host(
         view(
-          onSave: () async {
+          onSave: (_) async {
             saves++;
             return DeliveryOutcome.saved;
           },
@@ -117,7 +117,7 @@ void main() {
     tester,
   ) async {
     final error = StateError('disk full');
-    await tester.pumpWidget(host(view(onSave: () async => throw error)));
+    await tester.pumpWidget(host(view(onSave: (_) async => throw error)));
 
     await tester.tap(find.text('Save recovery package'));
     await tester.pumpAndSettle();
@@ -166,7 +166,7 @@ void main() {
     await tester.pumpWidget(
       host(
         view(
-          onSave: () async {
+          onSave: (_) async {
             saves++;
             return DeliveryOutcome.cancelled;
           },
@@ -191,7 +191,7 @@ void main() {
     tester,
   ) async {
     final completer = Completer<DeliveryOutcome>();
-    await tester.pumpWidget(host(view(onSave: () => completer.future)));
+    await tester.pumpWidget(host(view(onSave: (_) => completer.future)));
 
     await tester.tap(find.text('Save recovery package'));
     await tester.pump();
@@ -211,7 +211,7 @@ void main() {
     await tester.pumpWidget(
       DatabaseFailureApp(
         logFilePath: '/tmp/support/log.txt',
-        onSavePackage: () async => DeliveryOutcome.cancelled,
+        onSavePackage: (_) async => DeliveryOutcome.cancelled,
         onResetDatabase: () async => const ResetReport(),
       ),
     );
@@ -242,7 +242,7 @@ void main() {
           child: DatabaseFailureView(
             logFilePath: '/data/user/0/net.tadel.reaprime/files/logs/log.txt',
             detail: 'StateError',
-            onSavePackage: () async => DeliveryOutcome.cancelled,
+            onSavePackage: (_) async => DeliveryOutcome.cancelled,
             onResetDatabase: () async => const ResetReport(),
           ),
         ),

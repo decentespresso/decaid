@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
+import 'dart:ui';
 import 'package:path/path.dart' as p;
 import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/services/export/archive_export.dart';
@@ -156,7 +157,9 @@ Future<File> writeSupportPackage({
   );
 }
 
-Future<DeliveryOutcome> saveSupportPackage() async {
+Future<DeliveryOutcome> saveSupportPackage({
+  required Rect sharePositionOrigin,
+}) async {
   final sources = await SupportPackageSources.resolve(
     appVersion: BuildInfo.version,
   );
@@ -167,6 +170,7 @@ Future<DeliveryOutcome> saveSupportPackage() async {
       .first;
   return deliverArchive(
     fileName: 'decent-recovery-$timestamp.zip',
+    sharePositionOrigin: sharePositionOrigin,
     dialogTitle: 'Choose where to save the recovery package',
     writeArchive: (target) async {
       await Isolate.run(

@@ -76,7 +76,7 @@ void main() {
         DatabaseFailureApp(
           logFilePath: '/tmp/log.txt',
           detail: 'StateError',
-          onSavePackage: () async => DeliveryOutcome.cancelled,
+          onSavePackage: (_) async => DeliveryOutcome.cancelled,
           onResetDatabase: () async => const ResetReport(),
         ),
       );

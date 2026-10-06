@@ -379,7 +379,8 @@ void main(List<String> args) async {
       DatabaseFailureApp(
         logFilePath: '$logDir/log.txt',
         detail: databaseStartupError.runtimeType.toString(),
-        onSavePackage: saveSupportPackage,
+        onSavePackage: (origin) =>
+            saveSupportPackage(sharePositionOrigin: origin),
         onResetDatabase: () async =>
             (await DatabaseReset.fromAppDirectories()).run(),
       ),
