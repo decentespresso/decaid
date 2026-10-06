@@ -368,6 +368,14 @@ of records and one JSON record, never with backup size. Rationale and traps:
   (`util/temp_archive_files.dart`), deleted in `finally` or on stream
   cancel/done. Native export defers cleanup (grace timer) because the OS
   share sheet reads the file asynchronously.
+- **Native share anchors**: full backup, recovery package, and import Share
+  Report resolve their initiating widget's bounds immediately before the mobile
+  share call, not before asynchronous file preparation. Desktop save dialogs do
+  not resolve geometry. An unmounted or offscreen action fails without a fallback
+  anchor: archive delivery cleans up and propagates to the existing UI error
+  handler; Share Report uses its existing error handler. Mounted views show the
+  error; disposed views suppress UI updates. Native iPad presentation still
+  requires hardware verification, including resize during preparation.
 - **Legacy compatibility**: entry names, JSON shapes (including
   `store.json`'s `namespaces` wrapper and beans' embedded `batches`),
   `metadata.json` semantics, conflict strategies, selected-section behavior,

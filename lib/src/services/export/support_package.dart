@@ -158,7 +158,7 @@ Future<File> writeSupportPackage({
 }
 
 Future<DeliveryOutcome> saveSupportPackage({
-  required Rect sharePositionOrigin,
+  required Rect Function() sharePositionOrigin,
 }) async {
   final sources = await SupportPackageSources.resolve(
     appVersion: BuildInfo.version,

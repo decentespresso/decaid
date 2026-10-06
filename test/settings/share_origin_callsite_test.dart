@@ -25,10 +25,16 @@ import '../helpers/mock_settings_service.dart';
 class _Storage extends Fake implements StorageService {}
 
 class _Paths extends PathProviderPlatform with MockPlatformInterfaceMixin {
-  _Paths(this.path);
+  _Paths(this.path, [this.preparation]);
   final String path;
+  final _Preparation? preparation;
   @override
-  Future<String?> getTemporaryPath() async => path;
+  Future<String?> getTemporaryPath() async {
+    preparation?.started.complete();
+    if (preparation != null) await preparation!.resume.future;
+    return path;
+  }
+
   @override
   Future<String?> getApplicationDocumentsPath() async => path;
 }
@@ -59,16 +65,30 @@ class _Response extends Stream<List<int>> implements HttpClientResponse {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class _Preparation {
+  final started = Completer<void>.sync();
+  final resume = Completer<void>.sync();
+}
+
 class _Request extends Fake implements HttpClientRequest {
+  _Request(this.preparation);
+  final _Preparation? preparation;
+
   @override
-  Future<HttpClientResponse> close() async => _Response();
+  Future<HttpClientResponse> close() async {
+    preparation?.started.complete();
+    if (preparation != null) await preparation!.resume.future;
+    return _Response();
+  }
 }
 
 class _Client extends Fake implements HttpClient {
+  _Client(this.preparation);
+  final _Preparation? preparation;
   @override
   Future<HttpClientRequest> getUrl(Uri url) async {
     expect(url.path, '/api/v1/data/export');
-    return _Request();
+    return _Request(preparation);
   }
 
   @override
@@ -76,8 +96,11 @@ class _Client extends Fake implements HttpClient {
 }
 
 class _Http extends HttpOverrides {
+  _Http([this.preparation]);
+  final _Preparation? preparation;
+
   @override
-  HttpClient createHttpClient(SecurityContext? context) => _Client();
+  HttpClient createHttpClient(SecurityContext? context) => _Client(preparation);
 }
 
 void main() {
@@ -162,6 +185,125 @@ void main() {
   );
 
   testWidgets(
+    'Export Full Backup shares post-resize bounds after preparation',
+    (tester) async {
+      tester.view.physicalSize = const Size(1180, 820);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        ShadApp(
+          home: DataManagementPage(
+            controller: SettingsController(MockSettingsService()),
+            persistenceController: PersistenceController(
+              storageService: _Storage(),
+            ),
+            de1Controller: De1Controller(
+              controller: DeviceController(const []),
+            ),
+            decentAccountService: null,
+          ),
+        ),
+      );
+      final button = find.ancestor(
+        of: find.text('Export Full Backup'),
+        matching: find.byType(ShadButton),
+      );
+      await tester.ensureVisible(button);
+      await tester.pumpAndSettle();
+      final tapBounds = tester.getRect(button);
+      final preparation = _Preparation();
+      await HttpOverrides.runZoned(() async {
+        await tester.runAsync(() async {
+          await tester.tap(button);
+          await preparation.started.future.timeout(const Duration(seconds: 10));
+        });
+        tester.view.physicalSize = const Size(500, 820);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        final shareBounds = tester.getRect(button);
+        expect(shareBounds, isNot(tapBounds));
+        final args = await tester.runAsync(() async {
+          preparation.resume.complete();
+          return shared.future.timeout(const Duration(seconds: 10));
+        });
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(args!['originX'], shareBounds.left);
+        expect(args['originY'], shareBounds.top);
+        expect(args['originWidth'], shareBounds.width);
+        expect(args['originHeight'], shareBounds.height);
+      }, createHttpClient: _Http(preparation).createHttpClient);
+      expect(find.text('Preparing full backup...'), findsNothing);
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.iOS,
+      TargetPlatform.android,
+    }),
+  );
+
+  testWidgets(
+    'Export Full Backup handles an action offscreen after window shrink',
+    (tester) async {
+      tester.view.physicalSize = const Size(1180, 820);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.pumpWidget(
+        ShadApp(
+          home: ScaffoldMessenger(
+            child: DataManagementPage(
+              controller: SettingsController(MockSettingsService()),
+              persistenceController: PersistenceController(
+                storageService: _Storage(),
+              ),
+              de1Controller: De1Controller(
+                controller: DeviceController(const []),
+              ),
+              decentAccountService: null,
+            ),
+          ),
+        ),
+      );
+      final button = find.ancestor(
+        of: find.text('Export Full Backup'),
+        matching: find.byType(ShadButton),
+      );
+      final preparation = _Preparation();
+      await HttpOverrides.runZoned(() async {
+        late Future<void> pending;
+        await tester.runAsync(() async {
+          pending = (tester.widget<ShadButton>(button).onPressed as dynamic)();
+          await preparation.started.future.timeout(const Duration(seconds: 10));
+        });
+        tester.view.physicalSize = const Size(1180, 100);
+        await tester.pump();
+        expect(tester.getRect(button).top, greaterThan(100));
+        await tester.runAsync(() async {
+          preparation.resume.complete();
+          await pending.timeout(const Duration(seconds: 10));
+        });
+        await tester.pumpAndSettle();
+      }, createHttpClient: _Http(preparation).createHttpClient);
+      expect(tester.takeException(), isNull);
+      expect(shared.isCompleted, isFalse);
+      expect(find.text('Preparing full backup...'), findsNothing);
+      expect(
+        find.textContaining('Failed to export full backup:'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('must be visible within the view'),
+        findsOneWidget,
+      );
+    },
+    variant: TargetPlatformVariant({
+      TargetPlatform.iOS,
+      TargetPlatform.android,
+    }),
+  );
+
+  testWidgets(
     'recovery package propagates button bounds through saveSupportPackage',
     (tester) async {
       await tester.pumpWidget(
@@ -180,6 +322,173 @@ void main() {
       TargetPlatform.android,
     }),
   );
+
+  for (final change in ['resize', 'hide', 'unmount']) {
+    testWidgets(
+      'Share Report handles $change during preparation',
+      (tester) async {
+        tester.view.physicalSize = const Size(1180, 820);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final preparation = _Preparation();
+        PathProviderPlatform.instance = _Paths(temp.path, preparation);
+        await tester.pumpWidget(
+          ShadApp(
+            home: ScaffoldMessenger(
+              child: Scaffold(
+                body: ImportResultView(
+                  result: const ImportResult(
+                    errors: [
+                      ImportError(filename: 'shot.json', reason: 'invalid'),
+                    ],
+                  ),
+                  onContinue: () {},
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('Show details'));
+        await tester.pumpAndSettle();
+        final button = find.ancestor(
+          of: find.text('Share Report'),
+          matching: find.byType(ShadButton),
+        );
+        final tapBounds = tester.getRect(button);
+        late Future<void> pending;
+        await tester.runAsync(() async {
+          pending = (tester.widget<ShadButton>(button).onPressed as dynamic)();
+          await preparation.started.future.timeout(const Duration(seconds: 10));
+        });
+        Rect? shareBounds;
+        if (change == 'resize') {
+          tester.view.physicalSize = const Size(500, 820);
+          await tester.pumpAndSettle();
+          shareBounds = tester.getRect(button);
+          expect(shareBounds, isNot(tapBounds));
+        } else if (change == 'hide') {
+          await tester.tap(find.text('Hide details'));
+          await tester.pumpAndSettle();
+          expect(button, findsNothing);
+        } else {
+          await tester.pumpWidget(const SizedBox.shrink());
+        }
+        await tester.runAsync(() async {
+          preparation.resume.complete();
+          await pending.timeout(const Duration(seconds: 10));
+        });
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        if (change == 'resize') {
+          final args = await tester.runAsync(
+            () => shared.future.timeout(const Duration(seconds: 10)),
+          );
+          expect(args!['originX'], shareBounds!.left);
+          expect(args['originY'], shareBounds.top);
+          expect(args['originWidth'], shareBounds.width);
+          expect(args['originHeight'], shareBounds.height);
+        } else {
+          expect(shared.isCompleted, isFalse);
+          if (change == 'hide') {
+            expect(
+              find.textContaining('Failed to share report:'),
+              findsOneWidget,
+            );
+            expect(
+              find.textContaining('must still be mounted'),
+              findsOneWidget,
+            );
+          }
+        }
+      },
+      variant: TargetPlatformVariant({
+        TargetPlatform.iOS,
+        TargetPlatform.android,
+      }),
+    );
+  }
+
+  for (final change in ['resize', 'offscreen', 'unmount']) {
+    testWidgets(
+      'recovery package handles $change during preparation',
+      (tester) async {
+        tester.view.physicalSize = const Size(1180, 820);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final preparation = _Preparation();
+        await tester.pumpWidget(
+          DatabaseFailureApp(
+            logFilePath: '${temp.path}/log.txt',
+            onSavePackage: (origin) async {
+              preparation.started.complete();
+              await preparation.resume.future;
+              return saveSupportPackage(sharePositionOrigin: origin);
+            },
+            onResetDatabase: () async => const ResetReport(),
+          ),
+        );
+        final button = find.ancestor(
+          of: find.text('Save recovery package'),
+          matching: find.byType(ShadButton),
+        );
+        await tester.ensureVisible(button);
+        await tester.pumpAndSettle();
+        final tapBounds = tester.getRect(button);
+        late Future<void> pending;
+        await tester.runAsync(() async {
+          pending = (tester.widget<ShadButton>(button).onPressed as dynamic)();
+          await preparation.started.future.timeout(const Duration(seconds: 10));
+        });
+        Rect? shareBounds;
+        if (change == 'resize') {
+          tester.view.physicalSize = const Size(500, 820);
+          await tester.pumpAndSettle();
+          shareBounds = tester.getRect(button);
+          expect(shareBounds, isNot(tapBounds));
+        } else if (change == 'offscreen') {
+          tester.view.physicalSize = const Size(1180, 100);
+          await tester.pumpAndSettle();
+          expect(tester.getRect(button).top, greaterThan(100));
+        } else {
+          await tester.pumpWidget(const SizedBox.shrink());
+        }
+        await tester.runAsync(() async {
+          preparation.resume.complete();
+          await pending.timeout(const Duration(seconds: 10));
+        });
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        if (change == 'resize') {
+          final args = await tester.runAsync(
+            () => shared.future.timeout(const Duration(seconds: 10)),
+          );
+          expect(args!['originX'], shareBounds!.left);
+          expect(args['originY'], shareBounds.top);
+          expect(args['originWidth'], shareBounds.width);
+          expect(args['originHeight'], shareBounds.height);
+        } else {
+          expect(shared.isCompleted, isFalse);
+          if (change == 'offscreen') {
+            expect(
+              find.textContaining('Could not save the recovery package:'),
+              findsOneWidget,
+            );
+            expect(
+              find.textContaining('must be visible within the view'),
+              findsOneWidget,
+            );
+            expect(tester.widget<ShadButton>(button).enabled, isTrue);
+          }
+        }
+      },
+      variant: TargetPlatformVariant({
+        TargetPlatform.iOS,
+        TargetPlatform.android,
+      }),
+    );
+  }
 
   testWidgets(
     'Share Report propagates its button bounds and preserves report logs',

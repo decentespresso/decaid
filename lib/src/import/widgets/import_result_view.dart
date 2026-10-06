@@ -195,10 +195,11 @@ class _ImportResultViewState extends State<ImportResultView> {
                         Builder(
                           builder: (context) => AccessibleButton(
                             label: 'Share Report',
-                            onTap: () => _shareReport(shareOriginFor(context)),
+                            onTap: () =>
+                                _shareReport(() => shareOriginFor(context)),
                             child: ShadButton.outline(
                               onPressed: () =>
-                                  _shareReport(shareOriginFor(context)),
+                                  _shareReport(() => shareOriginFor(context)),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 spacing: 6,
@@ -230,7 +231,7 @@ class _ImportResultViewState extends State<ImportResultView> {
     );
   }
 
-  Future<void> _shareReport(Rect sharePositionOrigin) async {
+  Future<void> _shareReport(Rect Function() sharePositionOrigin) async {
     try {
       final report = _buildReportText();
       final tempDir = await getTemporaryDirectory();
@@ -253,7 +254,7 @@ class _ImportResultViewState extends State<ImportResultView> {
         await SharePlus.instance.share(
           ShareParams(
             files: [XFile(reportFile.path)],
-            sharePositionOrigin: sharePositionOrigin,
+            sharePositionOrigin: sharePositionOrigin(),
           ),
         );
       } else {

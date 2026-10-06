@@ -42,6 +42,19 @@ void main() {
     );
   });
 
+  testWidgets('unmounted share action is rejected with StateError', (
+    tester,
+  ) async {
+    final key = GlobalKey();
+    await tester.pumpWidget(
+      MaterialApp(home: SizedBox(key: key, width: 120, height: 40)),
+    );
+    final context = key.currentContext!;
+    await tester.pumpWidget(const SizedBox.shrink());
+    expect(context.mounted, isFalse);
+    expect(() => shareOriginFor(context), throwsStateError);
+  });
+
   testWidgets('empty or offscreen bounds cannot become a share origin', (
     tester,
   ) async {

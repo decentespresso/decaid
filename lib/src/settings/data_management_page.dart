@@ -136,7 +136,8 @@ class _DataManagementPageState extends State<DataManagementPage> {
             children: [
               Builder(
                 builder: (context) => ShadButton.outline(
-                  onPressed: () => _exportFullBackup(shareOriginFor(context)),
+                  onPressed: () =>
+                      _exportFullBackup(() => shareOriginFor(context)),
                   child: const Text('Export Full Backup'),
                 ),
               ),
@@ -279,7 +280,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       widget.beanStorageService != null &&
       widget.grinderStorageService != null;
 
-  Future<void> _exportFullBackup(Rect sharePositionOrigin) async {
+  Future<void> _exportFullBackup(Rect Function() sharePositionOrigin) async {
     if (!mounted) return;
 
     final timestamp = DateTime.now()

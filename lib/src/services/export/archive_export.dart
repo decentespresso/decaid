@@ -55,7 +55,7 @@ Future<DeliveryOutcome> deliverArchive({
   required String fileName,
   required Future<void> Function(ArchiveTarget target) writeArchive,
   String? dialogTitle,
-  required Rect sharePositionOrigin,
+  required Rect Function() sharePositionOrigin,
 }) async {
   if (defaultTargetPlatform == TargetPlatform.iOS ||
       defaultTargetPlatform == TargetPlatform.android) {
@@ -67,7 +67,7 @@ Future<DeliveryOutcome> deliverArchive({
         ShareParams(
           files: [XFile(file.path, mimeType: 'application/zip')],
           subject: 'Decent backup',
-          sharePositionOrigin: sharePositionOrigin,
+          sharePositionOrigin: sharePositionOrigin(),
         ),
       );
       if (result.status == ShareResultStatus.dismissed) {

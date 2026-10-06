@@ -17,7 +17,7 @@ class DatabaseFailureView extends StatefulWidget {
 
   final String logFilePath;
   final String? detail;
-  final Future<DeliveryOutcome> Function(Rect sharePositionOrigin)
+  final Future<DeliveryOutcome> Function(Rect Function() sharePositionOrigin)
   onSavePackage;
   final Future<ResetReport> Function() onResetDatabase;
 
@@ -30,7 +30,7 @@ class _DatabaseFailureViewState extends State<DatabaseFailureView> {
   bool _savedThisSession = false;
   String? _status;
 
-  Future<void> _savePackage(Rect sharePositionOrigin) async {
+  Future<void> _savePackage(Rect Function() sharePositionOrigin) async {
     if (_operationInFlight) return;
     setState(() => _operationInFlight = true);
     try {
@@ -175,7 +175,7 @@ class _DatabaseFailureViewState extends State<DatabaseFailureView> {
                         builder: (context) => ShadButton.outline(
                           enabled: !_operationInFlight,
                           onPressed: () =>
-                              _savePackage(shareOriginFor(context)),
+                              _savePackage(() => shareOriginFor(context)),
                           child: const SizedBox(
                             width: 100,
                             child: FittedBox(
@@ -223,7 +223,7 @@ class DatabaseFailureApp extends StatelessWidget {
 
   final String logFilePath;
   final String? detail;
-  final Future<DeliveryOutcome> Function(Rect sharePositionOrigin)
+  final Future<DeliveryOutcome> Function(Rect Function() sharePositionOrigin)
   onSavePackage;
   final Future<ResetReport> Function() onResetDatabase;
 

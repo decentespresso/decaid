@@ -12,7 +12,7 @@ import 'package:shadcn_ui/shadcn_ui.dart';
 Widget host(Widget child) => StartupFailureShell(child: child);
 
 DatabaseFailureView view({
-  Future<DeliveryOutcome> Function(Rect)? onSave,
+  Future<DeliveryOutcome> Function(Rect Function())? onSave,
   Future<ResetReport> Function()? onReset,
 }) {
   return DatabaseFailureView(
