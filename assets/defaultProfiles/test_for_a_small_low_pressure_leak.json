@@ -1,0 +1,148 @@
+{
+  "version": "2",
+  "title": "Test/low pressure leak",
+  "author": "Decent",
+  "notes": "Put a blind (no hole) portafilter basket into your portafilter, and then run this profile to see if there are any water leaks in your machine.  Once pressure is reached, water will be turned off and pressure held.  After five minutes check with a flashlight for any water droplets inside the machine.   You should not wait for the profile to stop. Start looking for leaks after 3 minutes and stop the profile once you feel assured there is no visible water leaking.",
+  "beverage_type": "calibrate",
+  "steps": [
+    {
+      "name": "preinfusion to 0.5 bar",
+      "pump": "flow",
+      "transition": "fast",
+      "temperature": "0.0",
+      "sensor": "coffee",
+      "seconds": "60.0",
+      "volume": "500.0",
+      "weight": "0.0",
+      "flow": "1.0",
+      "pressure": "10.0",
+      "exit": {
+        "type": "pressure",
+        "condition": "over",
+        "value": "0.5"
+      },
+      "limiter": {
+        "value": "0.0",
+        "range": "0.6"
+      }
+    },
+    {
+      "name": "rise to 0.5 bar and hold",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "0.0",
+      "sensor": "coffee",
+      "seconds": "127.0",
+      "volume": "500.0",
+      "weight": "0.0",
+      "pressure": "0.5",
+      "flow": "8.0",
+      "limiter": {
+        "value": "0.0",
+        "range": "0.6"
+      }
+    },
+    {
+      "name": "rise to 0.5 bar and hold",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "0.0",
+      "sensor": "coffee",
+      "seconds": "127.0",
+      "volume": "500.0",
+      "weight": "0.0",
+      "pressure": "0.5",
+      "flow": "8.0",
+      "limiter": {
+        "value": "0.0",
+        "range": "0.6"
+      }
+    },
+    {
+      "name": "rise to 0.5 bar and hold",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "0.0",
+      "sensor": "coffee",
+      "seconds": "127.0",
+      "volume": "500.0",
+      "weight": "0.0",
+      "pressure": "0.5",
+      "flow": "8.0",
+      "limiter": {
+        "value": "0.0",
+        "range": "0.6"
+      }
+    },
+    {
+      "name": "rise to 0.5 bar and hold",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "0.0",
+      "sensor": "coffee",
+      "seconds": "127.0",
+      "volume": "500.0",
+      "weight": "0.0",
+      "pressure": "0.5",
+      "flow": "8.0",
+      "limiter": {
+        "value": "0.0",
+        "range": "0.6"
+      }
+    },
+    {
+      "name": "rise to 0.5 bar and hold",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "0.0",
+      "sensor": "coffee",
+      "seconds": "127.0",
+      "volume": "500.0",
+      "weight": "0.0",
+      "pressure": "0.5",
+      "flow": "8.0",
+      "limiter": {
+        "value": "0.0",
+        "range": "0.6"
+      }
+    },
+    {
+      "name": "rise to 0.5 bar and hold",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "0.0",
+      "sensor": "coffee",
+      "seconds": "127.0",
+      "volume": "500.0",
+      "weight": "0.0",
+      "pressure": "0.5",
+      "flow": "8.0",
+      "limiter": {
+        "value": "0.0",
+        "range": "0.6"
+      }
+    },
+    {
+      "name": "rise to 0.5 bar and hold",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "0.0",
+      "sensor": "coffee",
+      "seconds": "127.0",
+      "volume": "500.0",
+      "weight": "0.0",
+      "pressure": "0.5",
+      "flow": "8.0",
+      "limiter": {
+        "value": "0.0",
+        "range": "0.6"
+      }
+    }
+  ],
+  "tank_temperature": "0.0",
+  "target_weight": "0.0",
+  "target_volume": "0.0",
+  "target_volume_count_start": "1",
+  "type": "advanced",
+  "hidden": "0"
+}
