@@ -7,6 +7,42 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
         <title>Decaid</title>
         <item>
             <title>0.8.8</title>
+            <pubDate>Tue, 06 Oct 2026 15:04:30 +0000</pubDate>
+            <sparkle:version>2900</sparkle:version>
+            <sparkle:shortVersionString>0.8.8</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* fix(presence): keep automatic sleep timer armed until sleep applies by @tadelv in https://github.com/decentespresso/decaid/pull/920
+* feat(plugins): allow bounded concurrent BLE bindings by @MaxRink in https://github.com/decentespresso/decaid/pull/843
+* fix(updates): explain GitHub 403 responses (#898) by @tadelv in https://github.com/decentespresso/decaid/pull/922
+* fix(scale): reconnect using preferred transport (#894) by @tadelv in https://github.com/decentespresso/decaid/pull/923
+* fix(import): merge legacy and v2 de1app shots/profiles instead of picking one by @allofmeng in https://github.com/decentespresso/decaid/pull/905
+* chore: bump universal_ble lifecycle fixes by @tadelv in https://github.com/decentespresso/decaid/pull/926
+* fix(import): clear error when Import Shots (JSON) is fed a De1App shot by @allofmeng in https://github.com/decentespresso/decaid/pull/916
+* fix(scan): protect post-wake preferred-scale reacquisition from client scan churn by @tadelv in https://github.com/decentespresso/decaid/pull/930
+* feat(feedback): require Decent login and link support messages by @ODevStudio in https://github.com/decentespresso/decaid/pull/924
+* test(export): compare destination paths portably on Windows by @ODevStudio in https://github.com/decentespresso/decaid/pull/935
+* fix: restore MockScale telemetry after reconnect by @ODevStudio in https://github.com/decentespresso/decaid/pull/937
+* fix(connection): fence stale late connect adoption by @tadelv in https://github.com/decentespresso/decaid/pull/927
+* fix: preserve disabled scale power policy at shutdown by @ODevStudio in https://github.com/decentespresso/decaid/pull/938
+* tick battery even when scanning for devices by @tadelv in https://github.com/decentespresso/decaid/pull/941
+* feat: add connected Grinder domain and API (#889) by @ODevStudio in https://github.com/decentespresso/decaid/pull/896
+* fix(import): prefer newer legacy shots over stale v2 copies by @tadelv in https://github.com/decentespresso/decaid/pull/942
+* fix: preserve profile telemetry during simulated hot water by @tadelv in https://github.com/decentespresso/decaid/pull/943
+* fix(import): guide oversized backup ZIP rejections by @tadelv in https://github.com/decentespresso/decaid/pull/945
+* improve the sent feedback messages by @tadelv in https://github.com/decentespresso/decaid/pull/961
+* fix(sb-dev): stop hanging callers and match comma-formatted restart times by @tadelv in https://github.com/decentespresso/decaid/pull/957
+* feat(plugins): add grinder controls and validated device surfaces by @tadelv in https://github.com/decentespresso/decaid/pull/962
+* fix: anchor native file shares to their initiating buttons by @tadelv in https://github.com/decentespresso/decaid/pull/965
+
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.8.7...v0.8.8
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.8.8/decaid-macos-0.8.8.zip" length="65038536" type="application/octet-stream" sparkle:edSignature="Y0imCHRHf9BLETGxoqYZyc3hWYp2dMHJtCvEu4lr3P4kjRii+BJZ3wBr8/VxgOXL7qazP0J2xk+hPxl0zc67BA=="/>
+        </item>
+        <item>
+            <title>0.8.8</title>
             <pubDate>Thu, 01 Oct 2026 05:51:38 +0000</pubDate>
             <sparkle:channel>beta</sparkle:channel>
             <sparkle:version>2876</sparkle:version>
@@ -532,6 +568,6 @@ See `doc/RELEASE.md` for install and verification instructions.
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: av0xuJTQdSG6ufHInPWnzotc3Wn5oCtXCVNxhx2YoEiopxJkcrxreDT5ZWLgKhrsRaglGGkj+XltaZXUIeqNBA==
-length: 45899
+edSignature: u5HISYXryRxoYLwFOLp8YYSB762NDZOSkq+6zKs8BlfN9p35owqwGDhRS0UmwYH+c3vDFihcBTyl/k01yKRSBQ==
+length: 49449
 -->
