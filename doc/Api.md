@@ -445,6 +445,11 @@ Settings fields include: `gatewayMode`, `themeMode`, `logLevel`, `weightFlowMult
 | ANY | `/api/v1/plugins/:id/:endpoint` | Plugin HTTP endpoint; requires `api` and returns 403 without it | |
 | WS | `/ws/v1/plugins/:id/:endpoint` | Plugin WebSocket endpoint | |
 
+For plugin HTTP and WebSocket endpoint routes, `id` and `endpoint` are opaque
+URI path components. Clients percent-encode each once; the handler decodes each
+once before lookup or subscription matching. Generated device surface hrefs
+already encode these components, including spaces and literal percent signs.
+
 Plugin setting updates use patch semantics for every field: an omitted field
 preserves the existing value, a field sent as `null` clears it, and a secure
 field sent as its returned `{ "isSet": true|false }` object preserves the

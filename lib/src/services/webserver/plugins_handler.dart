@@ -289,8 +289,8 @@ final class PluginsHandler {
 
   Future<Response> _handlePluginSocketEndpoint(Request req) async {
     _log.info("handling $req");
-    final id = req.params['id'];
-    final endpoint = req.params['endpoint'];
+    final id = decodeOpaquePathComponent(req.params['id']!);
+    final endpoint = decodeOpaquePathComponent(req.params['endpoint']!);
     final manifest = pluginManager.loadedPlugins
         .firstWhereOrNull((e) => e.pluginId == id)
         ?.manifest;
@@ -347,12 +347,14 @@ final class PluginsHandler {
   Future<Response> _handlePluginApiEndpoint(Request req) async {
     _log.info("handling ${req.toString()}");
 
-    final id = req.params['id'];
-    final endpoint = req.params['endpoint'];
+    final rawId = req.params['id'];
+    final rawEndpoint = req.params['endpoint'];
 
-    if (id == null || endpoint == null) {
+    if (rawId == null || rawEndpoint == null) {
       return jsonBadRequest({'error': 'id and endpoint required'});
     }
+    final id = decodeOpaquePathComponent(rawId);
+    final endpoint = decodeOpaquePathComponent(rawEndpoint);
 
     final manifest = pluginManager.loadedPlugins
         .firstWhereOrNull((e) => e.pluginId == id)

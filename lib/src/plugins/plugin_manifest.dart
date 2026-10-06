@@ -78,6 +78,9 @@ class PluginDeviceSurface {
         !const {'settings', 'diagnostics'}.contains(json['role']) ||
         json['endpoint'] is! String ||
         !isSafePathComponent(json['endpoint'] as String) ||
+        (json['endpoint'] as String).runes.any(
+          (rune) => rune >= 0xD800 && rune <= 0xDFFF,
+        ) ||
         const {
           'settings',
           'source',

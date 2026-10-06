@@ -34,8 +34,14 @@ reserved characters, Unicode, plus signs, and `%252F` decode-once behavior;
 invalid UTF-8 is rejected with HTTP 400 at the Shelf boundary.
 
 `Request.url.queryParameters` is already decoded and must not use the path
-helper. Host-assigned UUID resource IDs, plugin/KV/skin/file/command paths,
-and account-proxy normalization retain their existing route contracts.
+helper. Plugin HTTP and WebSocket endpoint routes also decode plugin and
+endpoint IDs once before lookup or subscription matching; generated device
+surface hrefs encode both components once. Surface endpoint validation rejects
+unpaired UTF-16 surrogates because URI encoding replaces them with U+FFFD;
+valid surrogate pairs, encoded control characters, and whitespace round-trip.
+Host-assigned UUID resource IDs,
+plugin management/KV/skin/file/command paths, and account-proxy normalization
+retain their existing route contracts.
 
 ### Patch Nullability
 

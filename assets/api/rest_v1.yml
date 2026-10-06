@@ -3294,7 +3294,9 @@ paths:
     get:
       summary: Call a plugin HTTP endpoint
       description: >
-        Routes the request to a loaded plugin's declared HTTP endpoint. The
+        Routes the request to a loaded plugin's declared HTTP endpoint. Plugin
+        and endpoint IDs are opaque URI path components: clients percent-encode
+        each once, and the route decodes each once before lookup. The
         runtime applies this contract to every HTTP method. The plugin manifest
         must declare the api permission; otherwise Decaid rejects the request
         before dispatch.

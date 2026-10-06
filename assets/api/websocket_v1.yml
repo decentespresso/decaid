@@ -164,7 +164,10 @@ channels:
       sensorSnapshotMessage:
         $ref: '#/components/messages/SensorSnapshot'
   Plugins:
-    description: Outgoing messages from Decent plugins.
+    description: >
+      Outgoing messages from Decent plugins. Plugin and endpoint IDs are opaque
+      URI path components: clients percent-encode each once, and the route
+      decodes each once before lookup and subscription matching.
     address: ws/v1/plugins/{id}/{endpoint}
     parameters:
       id:
