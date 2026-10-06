@@ -12,8 +12,9 @@ class FakeTime {
     (_) => runZoned(
       body,
       zoneSpecification: ZoneSpecification(
-        scheduleMicrotask: (_, _, zone, callback) {
-          _realZone.scheduleMicrotask(zone.bindCallbackGuarded(callback));
+        scheduleMicrotask: (_, parent, zone, callback) {
+          parent.scheduleMicrotask(zone, callback);
+          _realZone.scheduleMicrotask(_time.flushMicrotasks);
         },
       ),
     ),

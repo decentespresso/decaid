@@ -207,9 +207,20 @@ void main() {
   });
 
   tearDown(() async {
-    await time.elapse(ConnectionTimings.initialShotSettingsTimeout);
     await de1Controller.dispose();
     deviceController.dispose();
+    expect(time.pendingTimers, isEmpty);
+  });
+
+  test('disposal cancels the pending shot-settings timeout', () async {
+    await time.elapse(Duration.zero);
+    expect(
+      time.pendingTimers.map((timer) => timer.duration),
+      contains(ConnectionTimings.initialShotSettingsTimeout),
+    );
+
+    await de1Controller.dispose();
+
     expect(time.pendingTimers, isEmpty);
   });
 

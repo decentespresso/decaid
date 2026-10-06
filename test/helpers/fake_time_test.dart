@@ -7,6 +7,86 @@ import 'package:rxdart/rxdart.dart';
 import 'fake_time.dart';
 
 void main() {
+  for (final delays in [
+    (Duration.zero, Duration.zero),
+    (const Duration(milliseconds: 1), const Duration(milliseconds: 1)),
+    (const Duration(milliseconds: 1), const Duration(milliseconds: 2)),
+  ]) {
+    test('microtask feedback precedes timers at $delays', () async {
+      final time = FakeTime();
+      final events = <String>[];
+      late Timer second;
+      time.run(() {
+        Timer(delays.$1, () {
+          events.add('first');
+          scheduleMicrotask(() {
+            events.add('microtask');
+            second.cancel();
+          });
+        });
+        second = Timer(delays.$2, () => events.add('second'));
+      });
+
+      await time.elapse(const Duration(milliseconds: 10));
+
+      expect(events, ['first', 'microtask']);
+      expect(time.pendingTimers, isEmpty);
+    });
+  }
+
+  test('stream feedback precedes timers with the same deadline', () async {
+    final time = FakeTime();
+    final subject = time.run(() => BehaviorSubject<int>.seeded(0));
+    late Timer second;
+    final subscription = time.run(
+      () => subject.listen((value) {
+        if (value == 1) second.cancel();
+      }),
+    );
+    var secondFired = false;
+    time.run(() {
+      Timer(const Duration(milliseconds: 1), () => subject.add(1));
+      second = Timer(const Duration(milliseconds: 1), () => secondFired = true);
+    });
+
+    await time.elapse(const Duration(milliseconds: 10));
+
+    expect(secondFired, isFalse);
+    expect(time.pendingTimers, isEmpty);
+    await time.run(subscription.cancel);
+    await time.run(subject.close);
+  });
+
+  test(
+    'stream seeds created by a timer settle between advance steps',
+    () async {
+      final time = FakeTime();
+      late Timer second;
+      var secondFired = false;
+      late Future<void> feedback;
+      time.run(() {
+        Timer(const Duration(milliseconds: 1), () {
+          feedback = () async {
+            final subject = BehaviorSubject<int>.seeded(1);
+            expect(await subject.first, 1);
+            second.cancel();
+            await subject.close();
+          }();
+        });
+        second = Timer(
+          const Duration(milliseconds: 11),
+          () => secondFired = true,
+        );
+      });
+
+      await time.elapse(const Duration(milliseconds: 20));
+      await feedback;
+
+      expect(secondFired, isFalse);
+      expect(time.pendingTimers, isEmpty);
+    },
+  );
+
   test(
     'virtual timers retain live stream seeds, cancellation and feedback',
     () async {

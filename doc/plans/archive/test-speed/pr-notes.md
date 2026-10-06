@@ -6,12 +6,32 @@
   timing constants unchanged.
 - Report aggregate loading and test time separately, with regression checks for
   the parser and virtual-time helper.
+- Preserve zone-scheduled microtask ordering between timers and check disposal
+  before the shot-settings timeout expires.
 
 ## Linked Issue
 
 N/A: automated repository-maintenance work.
 
 ## Verification
+
+### Review Follow-Up (2026-10-06)
+
+- PR branch, Windows Flutter 3.47.5 / Dart 3.13.4:
+  `flutter test --no-pub --machine --concurrency=4` reports 4585 passed, 0 failed,
+  2 skipped, with 170.510s execution and 174.558s command wall time.
+- All 29 focused tests pass with shuffled ordering seed 20261006 at four workers,
+  including five new helper regressions and the pending-timeout disposal check.
+- Full analysis reports no issues. `dart format lib test` formats 900 files with
+  no changes. All 12 parser tests and the 20000ms active-time gate pass; the slowest
+  active suite takes 14.400s.
+- Keep native/root-zone ordering within a 10ms step outside this helper's
+  contract. Keep real timeout watchdogs after the last virtual advance.
+- Raw events and stderr remain in ignored
+  `build/test-results/pr966-review-push.events.jsonl` and
+  `build/test-results/pr966-review-push.stderr.log`.
+
+### Original PR Verification
 
 - Reverified from `main` at `94501c45` on Windows with Flutter 3.47.5 / Dart 3.13.4.
 - Full `flutter test --no-pub --machine --concurrency=4`: 4579 passed, 0 failed,

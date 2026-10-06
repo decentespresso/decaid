@@ -46,11 +46,18 @@ connect timer-owning devices inside `time.run(...)`, then replace simulation
 waits with `await time.elapse(...)`. Keep production durations and tick cadence.
 Disconnect and dispose normally; assert `time.pendingTimers` is empty in teardown.
 
-The helper virtualizes timers and `clock.now`, but schedules microtasks in the
-original test zone. It drains live async work before advancing and between 10ms
-steps so stream feedback can stop or change the simulation during an advance.
-Use ordinary `fakeAsync` for synchronous timer-policy tests. This helper does not
-virtualize `DateTime.now`, `Stopwatch`, native I/O, or real hardware timing.
+The helper virtualizes timers and `clock.now`. Zone-scheduled microtasks stay in
+the fake queue and drain after each timer, including timers with equal deadlines.
+A pump in the original test zone also flushes that queue so stream seeds and
+awaited cancellation can settle without advancing time.
+
+Native/root-zone async work, including RxDart seed delivery, still settles only
+between 10ms steps during an advance. Use this helper only for coarse simulation
+and timeout tests where ordering of that work within a step cannot affect the
+assertions. Use ordinary `fakeAsync` for synchronous timer-policy tests. This
+helper does not virtualize `DateTime.now`, `Stopwatch`, native I/O, or real hardware
+timing. Keep real timeout watchdogs when awaiting a result after the final advance;
+a virtual timeout cannot fire if the test stops advancing time.
 
 ### Hardware settle delays
 Hardware/protocol settle delays (e.g. Acaia `100/200/500ms` init steps, Skale2 `1s` init steps) should be configurable at the device implementation boundary (immutable timing object or optional constructor durations). Production keeps the real hardware-safe defaults. Unit tests that merely need an initialized device inject zero durations. Only tests specifically validating timing should exercise the actual durations — virtually via `fakeAsync`.

@@ -19,6 +19,14 @@ to stop the simulator between ticks. Its regression tests cover seed delivery,
 cancellation, feedback, clock progression, partial intervals, and async startup.
 This helper serves coarse simulation and timeout tests, not native I/O timing.
 
+PR #966 review follow-up: keep zone-scheduled microtasks in FakeAsync's queue and
+pump that queue from the original test zone. This preserves microtask feedback
+between timers, even at equal deadlines, while retaining awaited stream cleanup.
+Native/root-zone work such as newly-created RxDart seeds still settles between
+10ms steps; do not use this helper when intra-step ordering of that work matters.
+Check shot-settings cleanup before advancing time so timeout expiry cannot mask
+a disposal leak. Keep real watchdogs where no further virtual advance is pending.
+
 Extend the existing timing summary with loading totals and loading-file rankings.
 Keep loading separate from the slow-suite gate and visible test counts. Report
 missing timings as unavailable. Do not introduce a wall-clock gate before measuring
@@ -83,3 +91,18 @@ The four changed suites total 1.693s of active time here, including the newer
 real-time reconnect test. Different source revisions and SDKs make this run
 verification evidence, not a direct comparison with the original benchmark.
 Raw events and stderr are in ignored `build/test-results/pr-main-j4.*`.
+
+## Review Follow-Up Verification
+
+PR #966's clean worktree, Windows Flutter 3.47.5 / Dart 3.13.4, 2026-10-06:
+
+- Full four-worker suite: 4585 passed, 0 failed, 2 skipped; 170.510s execution
+  and 174.558s command wall time.
+- All 29 focused tests pass with shuffled ordering seed 20261006, including five
+  added helper regressions and pending-timeout disposal without clock advancement.
+- Full analysis reports no issues. Formatting all 900 Dart files makes no changes.
+- All 12 parser tests and the 20000ms active-time gate pass; the slowest active
+  suite takes 14.400s.
+
+Raw events and stderr remain in ignored `build/test-results/pr966-review-push.*`.
+The original checkout and its unrelated edits remain untouched.
