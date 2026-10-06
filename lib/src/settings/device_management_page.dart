@@ -3,20 +3,28 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/plugins/plugin_device_contract.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+const _appOrigin = 'http://localhost:8080';
+
+typedef DeviceSettingsLauncher = Future<bool> Function(Uri uri);
 
 class DeviceManagementPage extends StatefulWidget {
   const DeviceManagementPage({
     super.key,
     required this.settingsController,
     required this.deviceController,
+    this.settingsLauncher,
   });
 
   static const routeName = '/devices';
 
   final SettingsController settingsController;
   final DeviceController deviceController;
+  final DeviceSettingsLauncher? settingsLauncher;
 
   @override
   State<DeviceManagementPage> createState() => _DeviceManagementPageState();
@@ -58,6 +66,19 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
   List<Device> get _scales =>
       _devices.where((d) => d.type == DeviceType.scale).toList();
 
+  List<Device> get _grinders =>
+      _devices.where((d) => d.type == DeviceType.grinder).toList();
+
+  List<Device> get _otherSettingsDevices => _devices
+      .where(
+        (d) =>
+            d.type != DeviceType.machine &&
+            d.type != DeviceType.scale &&
+            d.type != DeviceType.grinder &&
+            _settingsHref(d) != null,
+      )
+      .toList();
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -96,6 +117,29 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                       if (mounted) _showSavedSnackbar();
                     },
                   ),
+                  _buildSection(
+                    title: 'Auto-connect Grinder',
+                    icon: Icons.coffee_maker_outlined,
+                    devices: _grinders,
+                    selectedId:
+                        widget.settingsController.preferredGrinderDeviceId,
+                    emptyLabel: 'grinders',
+                    onSelected: (id) async {
+                      await widget.settingsController
+                          .setPreferredGrinderDeviceId(id);
+                      if (mounted) _showSavedSnackbar();
+                    },
+                  ),
+                  if (_otherSettingsDevices.isNotEmpty)
+                    _buildSection(
+                      title: 'Other device settings',
+                      icon: Icons.settings_outlined,
+                      devices: _otherSettingsDevices,
+                      selectedId: null,
+                      emptyLabel: 'devices',
+                      selectable: false,
+                      onSelected: (_) async {},
+                    ),
                 ],
               ),
             ),
@@ -112,6 +156,7 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
     required String? selectedId,
     required String emptyLabel,
     required Future<void> Function(String?) onSelected,
+    bool selectable = true,
   }) {
     return ShadCard(
       padding: const EdgeInsets.all(16),
@@ -133,12 +178,13 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
             ],
           ),
           const SizedBox(height: 12),
-          _buildDeviceRadio(
-            name: 'None',
-            subtitle: 'No auto-connect',
-            isSelected: selectedId == null,
-            onTap: () => onSelected(null),
-          ),
+          if (selectable)
+            _buildDeviceRadio(
+              name: 'None',
+              subtitle: 'No auto-connect',
+              isSelected: selectedId == null,
+              onTap: () => onSelected(null),
+            ),
           if (devices.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
@@ -154,8 +200,10 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
               (device) => _buildDeviceRadio(
                 name: device.name,
                 subtitle: _deviceSubtitle(device),
-                isSelected: selectedId == device.deviceId,
-                onTap: () => onSelected(device.deviceId),
+                isSelected: selectable && selectedId == device.deviceId,
+                onTap: selectable ? () => onSelected(device.deviceId) : null,
+                showSelection: selectable,
+                trailing: _settingsButton(device),
               ),
             ),
         ],
@@ -196,7 +244,9 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
     required String name,
     required String subtitle,
     required bool isSelected,
-    required VoidCallback onTap,
+    required VoidCallback? onTap,
+    bool showSelection = true,
+    Widget? trailing,
   }) {
     return InkWell(
       onTap: onTap,
@@ -205,17 +255,18 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
         padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
         child: Row(
           children: [
-            Icon(
-              isSelected
-                  ? Icons.radio_button_checked
-                  : Icons.radio_button_unchecked,
-              size: 20,
-              color: isSelected
-                  ? Theme.of(context).colorScheme.primary
-                  : Theme.of(
-                      context,
-                    ).colorScheme.onSurface.withValues(alpha: 0.6),
-            ),
+            if (showSelection)
+              Icon(
+                isSelected
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+                size: 20,
+                color: isSelected
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.6),
+              ),
             const SizedBox(width: 8),
             Expanded(
               child: Column(
@@ -233,10 +284,59 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                 ],
               ),
             ),
+            ?trailing,
           ],
         ),
       ),
     );
+  }
+
+  String? _settingsHref(Device device) {
+    if (device is! PluginDeviceAdapter) return null;
+    final surfaces = device.surfaceAuthority?.resolve(
+      device.deviceId,
+      deviceName: device.name,
+    );
+    if (surfaces == null) return null;
+    for (final surface in surfaces) {
+      if (surface['role'] == 'settings') return surface['href'];
+    }
+    return null;
+  }
+
+  Widget? _settingsButton(Device device) {
+    if (_settingsHref(device) == null) {
+      return null;
+    }
+    return IconButton(
+      tooltip: 'Device settings',
+      icon: const Icon(Icons.settings_outlined),
+      onPressed: () => _openDeviceSettings(device),
+    );
+  }
+
+  Future<void> _openDeviceSettings(Device device) async {
+    if (!widget.deviceController.devices.any(
+      (current) => identical(current, device),
+    )) {
+      _showSettingsError();
+      return;
+    }
+    bool launched = false;
+    try {
+      final href = _settingsHref(device);
+      if (href == null) {
+        _showSettingsError();
+        return;
+      }
+      final uri = Uri.parse(_appOrigin).resolve(href);
+      launched =
+          await (widget.settingsLauncher?.call(uri) ??
+              launchUrl(uri, mode: LaunchMode.inAppBrowserView));
+    } catch (_) {
+      launched = false;
+    }
+    if (mounted && !launched) _showSettingsError();
   }
 
   String _truncatedId(String id) {
@@ -244,6 +344,15 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
       return 'ID: ...${id.substring(id.length - 8)}';
     }
     return 'ID: $id';
+  }
+
+  void _showSettingsError() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        const SnackBar(content: Text('Unable to open device settings.')),
+      );
   }
 
   void _showSavedSnackbar() {

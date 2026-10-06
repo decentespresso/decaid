@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/src/models/device/grinder_device.dart';
 import 'package:reaprime/src/plugins/plugin_ble_registry.dart';
 import 'package:reaprime/src/plugins/plugin_device_contract.dart';
+import 'package:reaprime/src/plugins/plugin_device_surface_authority.dart';
 import 'package:reaprime/src/plugins/plugin_manager.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
 
@@ -8,6 +10,49 @@ import '../helpers/plugin_ble_fixture.dart';
 import 'plugin_test_helpers.dart';
 
 void main() {
+  test('optional display names preserve unnamed hrefs and encode once', () {
+    final authority = PluginDeviceSurfaceAuthority(
+      pluginId: 'explicit.owner',
+      surfaces: const [
+        PluginDeviceSurface(
+          id: 'settings',
+          role: 'settings',
+          endpoint: 'device-settings',
+        ),
+      ],
+    );
+    const deviceId = 'opaque:%2F +?&/設定';
+    const unnamedHref =
+        '/api/v1/plugins/explicit.owner/device-settings'
+        '?ui=1&deviceId=opaque%3A%252F+%2B%3F%26%2F%E8%A8%AD%E5%AE%9A';
+    expect(authority.resolve(deviceId).single['href'], unnamedHref);
+    expect(
+      authority.resolve(deviceId, deviceName: null).single['href'],
+      unnamedHref,
+    );
+    for (final (name, encodedName) in [
+      ('X', 'X'),
+      ('X:%2F +?&/設定', 'X%3A%252F+%2B%3F%26%2F%E8%A8%AD%E5%AE%9A'),
+      ('', ''),
+    ]) {
+      final href = authority
+          .resolve(deviceId, deviceName: name)
+          .single['href']!;
+      expect(
+        href,
+        name.isEmpty
+            ? '$unnamedHref&deviceName'
+            : '$unnamedHref&deviceName=$encodedName',
+      );
+      expect(Uri.parse(href).queryParameters, {
+        'ui': '1',
+        'deviceId': deviceId,
+        'deviceName': name,
+      });
+    }
+    expect(authority.resolve(deviceId).single['href'], unnamedHref);
+  });
+
   for (final type in ['scale', 'sensor', 'grinder']) {
     for (final ble in [false, true]) {
       test(
@@ -97,6 +142,13 @@ void main() {
           final authority = device.surfaceAuthority!;
           expect(authority.pluginId, 'explicit.owner');
           expect(authority.declaredSurfaces.single.id, 'settings');
+          if (device case GrinderDevice grinder) {
+            expect(
+              grinder.surfaces.single['href'],
+              '/api/v1/plugins/explicit.owner/device-settings'
+              '?ui=1&deviceId=${Uri.encodeQueryComponent(device.deviceId)}',
+            );
+          }
           final surface = authority.resolve('not-the-owner:% +?&/').single;
           expect(surface['label'], 'Settings');
           final href = Uri.parse(surface['href']!);

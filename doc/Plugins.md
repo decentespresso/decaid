@@ -469,6 +469,38 @@ Registered Scale, Sensor and Grinder adapters share a fixed
 surfaces and one host URL resolver. Ownership is never inferred from `deviceId`.
 Grinder session availability filters this authority without changing declarations.
 
+### Native per-device settings
+
+Device management consumes the driver's declared surface with `role: "settings"`
+through `PluginDeviceSurfaceAuthority`. This applies to Scale, Sensor, Grinder,
+and other plugin-backed devices, without requiring a connection or filtering by
+session availability. Devices with no settings-role surface have no settings action.
+The host validates surfaces against declared same-plugin HTTP endpoints and the
+`api` permission when parsing the manifest.
+
+```json
+{
+  "permissions": ["api", "pluginStorage"],
+  "drivers": [{
+    "id": "grinder",
+    "type": "grinder",
+    "surfaces": [{"id": "settings", "role": "settings", "endpoint": "device-settings"}]
+  }],
+  "api": [{"id": "device-settings", "type": "http", "data": {}}]
+}
+```
+
+The native action opens the authority-built `href` against `http://localhost:8080`
+in the platform in-app browser, preserving its `ui=1`, `deviceId`, and optional
+display-only `deviceName` query. Native device management supplies the name to the
+shared authority, which encodes all query values once; the UI does not rebuild
+the query. The name is not identity, and ownership is not inferred from device IDs.
+Other authority callers that omit the name retain their existing hrefs. Only
+the current device instance may launch; retired, replaced, and unloaded instances
+are fenced. The plugin owns identity validation and per-device persistence through
+its namespaced KV store (`pluginStorage` permission), separate from plugin-global
+settings and native auto-connect preferences. No native mirror store is created.
+
 Both `host.devices.register` and BLE `host.devices.bindDriver` create the same
 runtime `PluginGrinder`. Every connection receives a fresh session context and
 must publish a valid initial snapshot before it is ready. Snapshots require

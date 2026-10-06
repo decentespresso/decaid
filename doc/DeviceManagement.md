@@ -1848,6 +1848,26 @@ current ownership. A BLE plugin driver may keep up to 4 physical bindings active
 at once; each binding owns its own transport, session, publications, and teardown
 claim. See `doc/Plugins.md` for the session-bound GATT contract.
 
+## Plugin device settings
+
+Device management offers a **Device settings** action on each current
+plugin-backed device whose driver declares a validated surface with
+`role: "settings"`. Scale, Sensor, Grinder, and other plugin devices use the
+same `PluginDeviceSurfaceAuthority`. The action uses declared surfaces without
+connection/session availability filtering, so settings can open before connecting.
+Machine, Scale, and Grinder auto-connect preferences remain independent; other
+devices with settings surfaces appear in a neutral listing.
+
+The action resolves the authority-built relative `href` against
+`http://localhost:8080` and opens it in the platform in-app browser. Its query is
+`ui=1`, the exact runtime `deviceId`, plus an optional display-only `deviceName`,
+encoded once by the authority. Native device management supplies the device name;
+it is not identity. Retired, replaced, or unloaded device instances cannot
+launch settings, even if a replacement reuses the same ID. A failed launch shows
+`Unable to open device settings.` The plugin validates identity and owns
+persistence through its existing namespaced KV store; there is no native mirror
+store or ownership inference from device IDs.
+
 ## Glossary
 
 - **BLE:** Bluetooth Low Energy, wireless protocol for IoT devices
