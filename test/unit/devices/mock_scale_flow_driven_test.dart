@@ -4,6 +4,8 @@ import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/models/device/impl/mock_scale/mock_scale.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 
+import '../../helpers/fake_time.dart';
+
 Profile _pourProfile() => Profile(
   version: '1.0',
   title: 'pour',
@@ -27,12 +29,25 @@ Profile _pourProfile() => Profile(
 
 void main() {
   group('MockScale weight synthesis', () {
+    late FakeTime time;
+
+    setUp(() {
+      time = FakeTime();
+    });
+
+    tearDown(() {
+      expect(time.pendingTimers, isEmpty);
+    });
+
     test('reads a flat ~0 when no machine is attached', () async {
-      final scale = MockScale();
-      final samples = await scale.currentSnapshot
+      final scale = time.run(MockScale.new);
+      addTearDown(scale.simulateDisconnect);
+      final pendingSamples = scale.currentSnapshot
           .take(6)
           .toList()
           .timeout(const Duration(seconds: 5));
+      await time.elapse(const Duration(milliseconds: 1200));
+      final samples = await pendingSamples;
       for (final s in samples) {
         expect(
           s.weight.abs(),
@@ -46,11 +61,14 @@ void main() {
     });
 
     test('idle reading is rock steady, not flickering', () async {
-      final scale = MockScale();
-      final samples = await scale.currentSnapshot
+      final scale = time.run(MockScale.new);
+      addTearDown(scale.simulateDisconnect);
+      final pendingSamples = scale.currentSnapshot
           .take(8)
           .toList()
           .timeout(const Duration(seconds: 5));
+      await time.elapse(const Duration(milliseconds: 1600));
+      final samples = await pendingSamples;
       final first = samples.first.weight;
       for (final s in samples) {
         expect(
@@ -66,25 +84,31 @@ void main() {
     test(
       'weight follows the simulated shot when a machine is attached',
       () async {
-        final de1 = MockDe1();
-        final scale = MockScale();
+        final de1 = time.run(MockDe1.new);
+        final scale = time.run(MockScale.new);
+        addTearDown(de1.disconnect);
+        addTearDown(scale.simulateDisconnect);
         scale.attachMachine(de1);
 
-        await de1.onConnect();
+        await time.run(de1.onConnect);
         await de1.setProfile(_pourProfile());
 
-        final idle = await scale.currentSnapshot.first.timeout(
+        final pendingIdle = scale.currentSnapshot.first.timeout(
           const Duration(seconds: 2),
         );
+        await time.elapse(const Duration(milliseconds: 200));
+        final idle = await pendingIdle;
         expect(idle.weight.abs(), lessThan(0.2));
 
         await de1.requestState(MachineState.espresso);
-        await Future.delayed(const Duration(seconds: 4));
+        await time.elapse(const Duration(seconds: 4));
         await de1.requestState(MachineState.idle);
 
-        final poured = await scale.currentSnapshot.first.timeout(
+        final pendingPoured = scale.currentSnapshot.first.timeout(
           const Duration(seconds: 2),
         );
+        await time.elapse(const Duration(milliseconds: 200));
+        final poured = await pendingPoured;
         expect(
           poured.weight,
           greaterThan(1.0),
@@ -92,9 +116,11 @@ void main() {
         );
 
         await scale.tare();
-        final tared = await scale.currentSnapshot.first.timeout(
+        final pendingTared = scale.currentSnapshot.first.timeout(
           const Duration(seconds: 2),
         );
+        await time.elapse(const Duration(milliseconds: 200));
+        final tared = await pendingTared;
         expect(tared.weight.abs(), lessThan(0.2));
 
         scale.simulateDisconnect();
@@ -103,20 +129,24 @@ void main() {
     );
 
     test('detachMachine stops the weight from following the machine', () async {
-      final de1 = MockDe1();
-      final scale = MockScale();
+      final de1 = time.run(MockDe1.new);
+      final scale = time.run(MockScale.new);
+      addTearDown(de1.disconnect);
+      addTearDown(scale.simulateDisconnect);
       scale.attachMachine(de1);
       scale.detachMachine();
 
-      await de1.onConnect();
+      await time.run(de1.onConnect);
       await de1.setProfile(_pourProfile());
       await de1.requestState(MachineState.espresso);
-      await Future.delayed(const Duration(seconds: 2));
+      await time.elapse(const Duration(seconds: 2));
       await de1.requestState(MachineState.idle);
 
-      final snapshot = await scale.currentSnapshot.first.timeout(
+      final pendingSnapshot = scale.currentSnapshot.first.timeout(
         const Duration(seconds: 2),
       );
+      await time.elapse(const Duration(milliseconds: 200));
+      final snapshot = await pendingSnapshot;
       expect(snapshot.weight.abs(), lessThan(0.2));
 
       scale.simulateDisconnect();

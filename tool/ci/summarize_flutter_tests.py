@@ -28,6 +28,7 @@ def _display_path(value):
 def parse_events(lines):
     suites = {}
     suite_bounds = {}
+    file_loading_ms = {}
     starts = {}
     errors = {}
     tests = []
@@ -89,11 +90,18 @@ def parse_events(lines):
                 bounds = suite_bounds.get(suite_id)
                 if bounds is not None:
                     bounds[1] = event_time if bounds[1] is None else max(bounds[1], event_time)
-            if event.get("hidden") is True:
-                continue
-
             name = started.get("name", f"test {test_id}")
             path = suites.get(suite_id, "unknown")
+            duration_ms = _duration(started.get("time"), event_time)
+            if event.get("hidden") is True:
+                if (
+                    (name == "loading" or name.startswith("loading "))
+                    and event.get("skipped") is not True
+                    and duration_ms is not None
+                ):
+                    file_loading_ms[path] = file_loading_ms.get(path, 0) + duration_ms
+                continue
+
             result = str(event.get("result", "unknown"))
             is_skipped = event.get("skipped") is True
             if is_skipped:
@@ -111,7 +119,6 @@ def parse_events(lines):
                     }
                 )
 
-            duration_ms = _duration(started.get("time"), event_time)
             if duration_ms is not None and not is_skipped:
                 tests.append(
                     {"duration_ms": duration_ms, "name": name, "path": path}
@@ -135,15 +142,18 @@ def parse_events(lines):
     files = [
         {
             "path": path,
+            "loading_ms": file_loading_ms.get(path),
             "active_ms": file_active_ms.get(path),
             "span_ms": file_span_ms.get(path),
         }
-        for path in set(file_span_ms) | set(file_active_ms)
+        for path in set(file_span_ms) | set(file_active_ms) | set(file_loading_ms)
     ]
     files.sort(key=lambda item: item["active_ms"] or 0, reverse=True)
 
     return {
         "duration_ms": _duration(start_time, done_time),
+        "loading_ms": sum(file_loading_ms.values()) if file_loading_ms else None,
+        "active_ms": sum(file_active_ms.values()) if file_active_ms else None,
         "successful": successful,
         "failed": failed,
         "skipped": skipped,
@@ -191,12 +201,15 @@ def render_summary(report):
         "| --- | ---: |",
         f"| Flutter result | {result} |",
         f"| Execution duration | {_format_duration(report['duration_ms'])} |",
+        f"| Aggregate loading time | {_format_duration(report['loading_ms'])} |",
+        f"| Aggregate active test time | {_format_duration(report['active_ms'])} |",
         f"| Successful tests | {report['successful']} |",
         f"| Failed tests | {report['failed']} |",
         f"| Skipped tests | {report['skipped']} |",
     ]
     if report["malformed_lines"]:
         lines.append(f"| Malformed lines ignored | {report['malformed_lines']} |")
+    lines.append("\nAggregate times sum work across concurrent suites, not wall-clock time.")
 
     if report["failures"]:
         lines.extend(
@@ -236,6 +249,21 @@ def render_summary(report):
             "Active time is the sum of individual non-skipped test "
             "durations; suite span is first-start to last-test-completion "
             "and can be inflated by concurrent suite scheduling."
+        )
+    else:
+        lines.append("Timing unavailable from the captured events.")
+
+    lines.extend(["", "### Slowest test files by loading time", ""])
+    loading_files = sorted(
+        (item for item in report["files"] if item["loading_ms"] is not None),
+        key=lambda item: item["loading_ms"],
+        reverse=True,
+    )
+    if loading_files:
+        lines.extend(["| Loading time | File |", "| ---: | --- |"])
+        lines.extend(
+            f"| {_format_duration(item['loading_ms'])} | {_escape(item['path'])} |"
+            for item in loading_files[:20]
         )
     else:
         lines.append("Timing unavailable from the captured events.")

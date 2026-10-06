@@ -14,6 +14,7 @@ import 'package:reaprime/src/models/device/transport/serial_port.dart';
 import 'package:rxdart/rxdart.dart';
 
 import '../helpers/mock_device_discovery_service.dart';
+import '../helpers/fake_time.dart';
 import '../helpers/test_de1.dart';
 
 class _SilentShotSettingsDe1 extends TestDe1 {
@@ -192,26 +193,34 @@ void main() {
   late DeviceController deviceController;
   late De1Controller de1Controller;
   late _SilentShotSettingsDe1 de1;
+  late FakeTime time;
 
   setUp(() async {
-    deviceController = DeviceController([MockDeviceDiscoveryService()]);
-    await deviceController.initialize();
-    de1Controller = De1Controller(controller: deviceController);
-    de1 = _SilentShotSettingsDe1();
-    await de1Controller.connectToDe1(de1);
+    time = FakeTime();
+    await time.run(() async {
+      deviceController = DeviceController([MockDeviceDiscoveryService()]);
+      await deviceController.initialize();
+      de1Controller = De1Controller(controller: deviceController);
+      de1 = _SilentShotSettingsDe1();
+      await de1Controller.connectToDe1(de1);
+    });
   });
 
   tearDown(() async {
-    await de1.dispose();
+    await time.elapse(ConnectionTimings.initialShotSettingsTimeout);
+    await de1Controller.dispose();
+    deviceController.dispose();
+    expect(time.pendingTimers, isEmpty);
   });
 
   test('startup defaults still run when shot settings arrive late', () async {
     final controller = De1Controller(controller: deviceController);
+    addTearDown(controller.dispose);
     controller.defaultWorkflow = _workflow(steamDuration: 16);
     final lateDe1 = _LateShotSettingsDe1();
 
-    await controller.connectToDe1(lateDe1);
-    await Future<void>.delayed(
+    await time.run(() => controller.connectToDe1(lateDe1));
+    await time.elapse(
       ConnectionTimings.initialShotSettingsTimeout +
           const Duration(milliseconds: 200),
     );
@@ -233,7 +242,7 @@ void main() {
         groupTemp: 94.0,
       ),
     );
-    await Future<void>.delayed(const Duration(milliseconds: 200));
+    await time.elapse(const Duration(milliseconds: 200));
 
     expect(lateDe1.fanThresholdCalls, 1);
     await lateDe1.dispose();
@@ -241,12 +250,13 @@ void main() {
 
   test('deferred startup defaults do not overlap an in-flight write', () async {
     final controller = De1Controller(controller: deviceController);
+    addTearDown(controller.dispose);
     controller.defaultWorkflow = _workflow(steamDuration: 16);
     final lateDe1 = _LateShotSettingsDe1();
     lateDe1.flushGate = Completer<void>();
 
-    await controller.connectToDe1(lateDe1);
-    await Future<void>.delayed(
+    await time.run(() => controller.connectToDe1(lateDe1));
+    await time.elapse(
       ConnectionTimings.initialShotSettingsTimeout +
           const Duration(milliseconds: 200),
     );
@@ -255,7 +265,7 @@ void main() {
     final pendingWrite = controller.updateFlushSettings(
       RinseData(targetTemperature: 92, duration: 6, flow: 2.5),
     );
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    await time.elapse(const Duration(milliseconds: 50));
     expect(lateDe1.calls, ['flush']);
 
     lateDe1.emitShotSettings(
@@ -270,7 +280,7 @@ void main() {
         groupTemp: 94.0,
       ),
     );
-    await Future<void>.delayed(const Duration(milliseconds: 200));
+    await time.elapse(const Duration(milliseconds: 200));
     expect(
       lateDe1.fanThresholdCalls,
       0,
@@ -279,7 +289,7 @@ void main() {
 
     lateDe1.flushGate!.complete();
     await pendingWrite;
-    await Future<void>.delayed(const Duration(milliseconds: 200));
+    await time.elapse(const Duration(milliseconds: 200));
 
     expect(lateDe1.fanThresholdCalls, 1);
     expect(lateDe1.calls.first, 'flush');
@@ -290,26 +300,34 @@ void main() {
   test(
     'steam write fails fast when the DE1 never reports shot settings',
     () async {
-      await expectLater(
-        de1Controller.updateWorkflowSettings(
-          _workflow(steamDuration: 30),
-          _workflow(steamDuration: 16),
+      final timedOut = expectLater(
+        time.run(
+          () => de1Controller.updateWorkflowSettings(
+            _workflow(steamDuration: 30),
+            _workflow(steamDuration: 16),
+          ),
         ),
         throwsA(isA<TimeoutException>()),
       );
+      await time.elapse(ConnectionTimings.initialShotSettingsTimeout);
+      await timedOut;
     },
   );
 
   test(
     'a stalled shot-settings read does not wedge the device write queue',
     () async {
-      await expectLater(
-        de1Controller.updateWorkflowSettings(
-          _workflow(steamDuration: 30),
-          _workflow(steamDuration: 16),
+      final timedOut = expectLater(
+        time.run(
+          () => de1Controller.updateWorkflowSettings(
+            _workflow(steamDuration: 30),
+            _workflow(steamDuration: 16),
+          ),
         ),
         throwsA(isA<TimeoutException>()),
       );
+      await time.elapse(ConnectionTimings.initialShotSettingsTimeout);
+      await timedOut;
 
       await de1Controller
           .updateFlushSettings(

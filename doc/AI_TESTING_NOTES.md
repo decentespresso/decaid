@@ -38,6 +38,20 @@ Standard stream subscription `cancel()` futures also never complete under `fakeA
 ### fakeAsync + wall clock
 `fakeAsync` virtualizes timers but code that reads `DateTime.now()` still sees real time. When watchdog/throttle logic combines timers and wall-clock comparisons, make both controllable: inject `DateTime Function() now` at the device boundary, defaulting to `clock.now` (`package:clock` is fake_async-aware, and identical to `DateTime.now` outside a fake zone). Then `fakeAsync` tests get deterministic liveness/watchdog coverage with production durations, no manual clock bookkeeping.
 
+### Async simulation time
+
+`test/helpers/fake_time.dart` provides `FakeTime` for async simulation and timeout
+tests that need live RxDart seeds and awaited stream cancellation. Create and
+connect timer-owning devices inside `time.run(...)`, then replace simulation
+waits with `await time.elapse(...)`. Keep production durations and tick cadence.
+Disconnect and dispose normally; assert `time.pendingTimers` is empty in teardown.
+
+The helper virtualizes timers and `clock.now`, but schedules microtasks in the
+original test zone. It drains live async work before advancing and between 10ms
+steps so stream feedback can stop or change the simulation during an advance.
+Use ordinary `fakeAsync` for synchronous timer-policy tests. This helper does not
+virtualize `DateTime.now`, `Stopwatch`, native I/O, or real hardware timing.
+
 ### Hardware settle delays
 Hardware/protocol settle delays (e.g. Acaia `100/200/500ms` init steps, Skale2 `1s` init steps) should be configurable at the device implementation boundary (immutable timing object or optional constructor durations). Production keeps the real hardware-safe defaults. Unit tests that merely need an initialized device inject zero durations. Only tests specifically validating timing should exercise the actual durations — virtually via `fakeAsync`.
 
@@ -53,8 +67,18 @@ A silent DE1 transport that intentionally causes the MMR timeout is appropriate 
 ### Suite wall span vs active test time
 Under concurrent `flutter test` runs, a suite's wall span (first test start to last test end) is not equivalent to its CPU/active cost — an isolate can sit idle waiting on the scheduler while another suite runs. When identifying optimization candidates use the cumulative sum of individual test durations (the `duration_ms` field in `--machine` events), not the suite wall span. Inspect the individual tests in a file before assuming a long suite span means expensive tests.
 
+PR CI uses four standard Flutter test workers. The machine-event summary reports
+aggregate loading and active test time separately, including the slowest loading
+files. These aggregates sum concurrent work; neither is wall-clock duration.
+Benchmark worker changes with warm caches and compare full-suite failures and
+counts. Do not treat a faster run with missing tests as an improvement.
+
 ### Mock simulator tick cadence
-Mock device simulators (`MockDe1` et al.) drive their state machine with a periodic tick whose model time-step is fixed (100ms of simulated time per tick). The wall-clock tick cadence is injectable (`MockDe1(simulationTickInterval: ...)`): shortening it makes simulated time run faster than wall time without changing generated values, because trajectories are per-tick-count functions. When a simulation test asserts on curve shape or trajectory, shorten the tick and scale wall delays accordingly (e.g. 9000ms wait at 100ms ticks becomes 900ms at 10ms ticks — same 90 ticks, same simulated 9s). Do not scale wall delays alone (that changes the simulated trajectory) or change the model time-step (that changes the calibration). Tests that validate realistic elapsed-time behavior (e.g. a power-off timeout window measured with a Stopwatch) should keep real durations.
+Mock device simulators (`MockDe1` et al.) drive their state machine with a periodic tick whose model time-step is fixed (100ms of simulated time per tick). The wall-clock tick cadence is injectable (`MockDe1(simulationTickInterval: ...)`): shortening it makes simulated time run faster than wall time while preserving the machine's per-tick flow/pressure curves. When a simulation test asserts on those curves, shorten the tick and scale wall delays accordingly (e.g. 9000ms wait at 100ms ticks becomes 900ms at 10ms ticks — same 90 ticks, same simulated 9s). Do not scale wall delays alone (that changes the simulated trajectory) or change the model time-step (that changes the calibration). Tests that validate realistic elapsed-time behavior (e.g. a power-off timeout window measured with a Stopwatch) should keep real durations.
+
+Weight synthesis and Bengle probe heating integrate snapshot timestamp deltas,
+not tick counts. Keep the original cadence and virtualize time with `FakeTime` for
+those tests; accelerating only the tick would change weight and temperature.
 
 ### Stream Propagation
 Add devices to mock service *before* building widgets, then `await tester.pump()` to flush microtasks before `pumpWidget()`.

@@ -71,6 +71,8 @@ class SummarizeFlutterTestsTest(unittest.TestCase):
         report = summarize_flutter_tests.parse_events(lines)
 
         self.assertEqual(report["duration_ms"], 900)
+        self.assertEqual(report["loading_ms"], 30)
+        self.assertEqual(report["active_ms"], 800)
         self.assertEqual(report["successful"], 1)
         self.assertEqual(report["failed"], 1)
         self.assertEqual(report["skipped"], 1)
@@ -89,10 +91,63 @@ class SummarizeFlutterTestsTest(unittest.TestCase):
         markdown = summarize_flutter_tests.render_summary(report)
 
         self.assertIn("| Flutter result | Failed |", markdown)
+        self.assertIn("| Aggregate loading time | 30 ms |", markdown)
+        self.assertIn("| Aggregate active test time | 800 ms |", markdown)
         self.assertIn("slow \\| success", markdown)
         self.assertIn("test/slow_test.dart", markdown)
         self.assertIn("Active time | Suite span | File", markdown)
         self.assertIn("Expected: &lt;1&gt;   Actual: &lt;2&gt;", markdown)
+
+    def test_loading_timings_exclude_hidden_setup_and_visible_tests(self):
+        lines = [
+            _event("start"),
+            _suite(0, "test/first_test.dart"),
+            _test_start(1, 0, "loading test/first_test.dart", 0),
+            _test_done(1, 1000, hidden=True),
+            _test_start(2, 0, "(setUpAll)", 1000),
+            _test_done(2, 1100, hidden=True),
+            _test_start(3, 0, "loading cached profiles", 1100),
+            _test_done(3, 1300),
+            _suite(1, "test/second_test.dart"),
+            _test_start(4, 1, "loading test/second_test.dart", 0),
+            _test_done(4, 2000, hidden=True),
+            _event("done", time=2000, success=True),
+        ]
+        report = summarize_flutter_tests.parse_events(lines)
+
+        self.assertEqual(report["loading_ms"], 3000)
+        self.assertEqual(report["active_ms"], 200)
+        self.assertEqual(report["successful"], 1)
+        self.assertEqual(report["failed"], 0)
+        self.assertEqual(len(report["tests"]), 1)
+        files = {item["path"]: item for item in report["files"]}
+        self.assertEqual(files["test/first_test.dart"]["loading_ms"], 1000)
+        self.assertEqual(files["test/second_test.dart"]["loading_ms"], 2000)
+        self.assertEqual(files["test/first_test.dart"]["active_ms"], 200)
+        self.assertIsNone(files["test/second_test.dart"]["active_ms"])
+        self.assertEqual(summarize_flutter_tests.suites_over_limit(report, 500), [])
+
+        markdown = summarize_flutter_tests.render_summary(report)
+        loading_table = markdown.split("### Slowest test files by loading time")[1]
+        self.assertLess(
+            loading_table.index("test/second_test.dart"),
+            loading_table.index("test/first_test.dart"),
+        )
+
+    def test_missing_loading_timings_remain_unavailable(self):
+        report = summarize_flutter_tests.parse_events([
+            _event("start"),
+            _suite(0, "test/partial_test.dart"),
+            _test_start(1, 0, "loading test/partial_test.dart", 0),
+            _event("done", time=1000, success=False),
+        ])
+
+        self.assertIsNone(report["loading_ms"])
+        self.assertIsNone(report["active_ms"])
+        self.assertIn(
+            "| Aggregate loading time | Unavailable |",
+            summarize_flutter_tests.render_summary(report),
+        )
 
     def test_two_tests_in_one_file_sum_active_time(self):
         lines = [

@@ -4,6 +4,8 @@ import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/impl/bengle/mock_bengle.dart';
 
+import '../../../../helpers/fake_time.dart';
+
 Profile _pourProfile() => Profile(
   version: '1.0',
   title: 'pour',
@@ -58,14 +60,19 @@ Profile _preinfusionThenPourProfile() => Profile(
 void main() {
   group('MockBengle integrated scale', () {
     late MockBengle bengle;
+    late FakeTime time;
 
     setUp(() async {
-      bengle = MockBengle();
-      await bengle.onConnect();
+      time = FakeTime();
+      await time.run(() {
+        bengle = MockBengle();
+        return bengle.onConnect();
+      });
     });
 
     tearDown(() async {
       await bengle.onDisconnect();
+      expect(time.pendingTimers, isEmpty);
     });
 
     test('emits weightSnapshot after connect', () async {
@@ -83,7 +90,7 @@ void main() {
       );
 
       await bengle.requestState(MachineState.espresso);
-      await Future.delayed(const Duration(seconds: 5));
+      await time.elapse(const Duration(seconds: 5));
       await bengle.requestState(MachineState.idle);
 
       final post = await bengle.weightSnapshot.first.timeout(
@@ -101,10 +108,11 @@ void main() {
         final sub = bengle.weightSnapshot.listen((w) => samples.add(w.weight));
 
         await bengle.requestState(MachineState.espresso);
-        await Future.delayed(const Duration(milliseconds: 8000));
+        await time.elapse(const Duration(seconds: 8));
         await bengle.requestState(MachineState.idle);
         await sub.cancel();
 
+        expect(samples.length, greaterThanOrEqualTo(80));
         final early = samples.take(25);
         for (final w in early) {
           expect(
@@ -133,7 +141,7 @@ void main() {
 
     test('tareIntegratedScale zeroes the next emit', () async {
       await bengle.requestState(MachineState.espresso);
-      await Future.delayed(const Duration(seconds: 1));
+      await time.elapse(const Duration(seconds: 1));
       await bengle.requestState(MachineState.idle);
 
       await bengle.weightSnapshot.first;

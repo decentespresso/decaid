@@ -2,17 +2,24 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/impl/bengle/mock_bengle.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 
+import '../../../../helpers/fake_time.dart';
+
 void main() {
   group('MockBengle milk-probe surface', () {
     late MockBengle bengle;
+    late FakeTime time;
 
     setUp(() async {
-      bengle = MockBengle();
-      await bengle.onConnect();
+      time = FakeTime();
+      await time.run(() {
+        bengle = MockBengle();
+        return bengle.onConnect();
+      });
     });
 
     tearDown(() async {
       await bengle.onDisconnect();
+      expect(time.pendingTimers, isEmpty);
     });
 
     test('stopAtTemperatureTarget round-trips set/get', () async {
@@ -45,7 +52,7 @@ void main() {
       final sub = bengle.probeTemperature.listen(samples.add);
       await bengle.requestState(MachineState.steam);
       await bengle.setStopAtTemperatureTarget(0.0);
-      await Future<void>.delayed(const Duration(seconds: 3));
+      await time.elapse(const Duration(seconds: 3));
       await sub.cancel();
       expect(samples, isNotEmpty);
       expect(samples.last, greaterThan(samples.first));
@@ -59,7 +66,10 @@ void main() {
           .distinct()
           .listen(stateChanges.add);
       await bengle.requestState(MachineState.steam);
-      await Future<void>.delayed(const Duration(seconds: 6));
+      await time.elapse(const Duration(seconds: 3));
+      expect(stateChanges, contains(MachineState.steam));
+      expect(stateChanges, isNot(contains(MachineState.idle)));
+      await time.elapse(const Duration(seconds: 3));
       await sub.cancel();
       expect(stateChanges, contains(MachineState.steam));
       expect(
