@@ -144,6 +144,160 @@ void _dispatchShotUpdate(
   });
 }
 
+String _uploadFetchSource(
+  Map<String, dynamic> shot, {
+  String grinderHandler = '',
+}) =>
+    '''
+      globalThis.__grinderFetched = false;
+      globalThis.fetch = async (url, init = {}) => {
+        if (url.endsWith('/shots/latest')) {
+          return { ok: true, json: async () => ({ id: 'shot-1' }) };
+        }
+        if (url.endsWith('/shots/shot-1') && (!init.method || init.method === 'GET')) {
+          return { ok: true, json: async () => (${jsonEncode(shot)}) };
+        }
+        $grinderHandler
+        if (url.endsWith('/shots/upload')) {
+          const start = init.body.indexOf('\\r\\n\\r\\n') + 4;
+          const end = init.body.lastIndexOf('\\r\\n--');
+          globalThis.__upload = JSON.parse(init.body.slice(start, end));
+          return { ok: true, json: async () => ({ id: 'visualizer-1' }) };
+        }
+        if (url.endsWith('/shots/shot-1') && init.method === 'PUT') {
+          globalThis.__uploadStamp = JSON.parse(init.body);
+          return { ok: true, json: async () => ({}) };
+        }
+        if (url.endsWith('/shots/visualizer-1?essentials=1')) {
+          return { ok: true, json: async () => ({ id: 'visualizer-1', tags: [] }) };
+        }
+        if (url.endsWith('/shots/visualizer-1') && init.method === 'PATCH') {
+          return { ok: true, json: async () => ({ id: 'visualizer-1', updated_at: 1 }) };
+        }
+        throw new Error('Unexpected URL: ' + url + ' ' + (init.method || 'GET'));
+      };
+    ''';
+
+// Upload a shot and then let back-sync see Visualizer report
+// [remoteGrinderModel] for it, so one test covers upload, edit and back-sync.
+String _uploadThenBackSyncFetchSource(
+  Map<String, dynamic> shot, {
+  required String remoteGrinderModel,
+}) =>
+    '''
+      globalThis.__grinderFetched = false;
+      globalThis.__backSyncStarted = false;
+      globalThis.fetch = async (url, init = {}) => {
+        if (url.endsWith('/me')) {
+          globalThis.__backSyncStarted = true;
+          return { ok: true, json: async () => ({ id: 'user-1' }) };
+        }
+        if (url.includes('/shots?sort=updated_at&items=50&page=1')) {
+          return { ok: true, json: async () => ({ user_id: 'user-1', data: [{ id: 'visualizer-1', updated_at: 110 }] }) };
+        }
+        if (url.endsWith('/shots/latest')) {
+          return { ok: true, json: async () => ({ id: 'shot-1' }) };
+        }
+        if (url.endsWith('/shots/shot-1') && (!init.method || init.method === 'GET')) {
+          return { ok: true, json: async () => (${jsonEncode(shot)}) };
+        }
+        if (url.endsWith('/grinders/grinder-1')) {
+          globalThis.__grinderFetched = true;
+          return { ok: true, json: async () => ({ id: 'grinder-1', model: 'EG1', burrs: 'SSP HU' }) };
+        }
+        if (url.endsWith('/shots/upload')) {
+          const start = init.body.indexOf('\\r\\n\\r\\n') + 4;
+          const end = init.body.lastIndexOf('\\r\\n--');
+          globalThis.__upload = JSON.parse(init.body.slice(start, end));
+          return { ok: true, json: async () => ({ id: 'visualizer-1' }) };
+        }
+        if (url.endsWith('/shots/shot-1') && init.method === 'PUT') {
+          if (globalThis.__backSyncStarted) {
+            globalThis.__backSyncUpdate = JSON.parse(init.body);
+          } else {
+            globalThis.__uploadStamp = JSON.parse(init.body);
+          }
+          return { ok: true, json: async () => ({}) };
+        }
+        if (url.endsWith('/shots/visualizer-1?essentials=1')) {
+          return {
+            ok: true,
+            json: async () => ({
+              id: 'visualizer-1',
+              updated_at: 110,
+              tags: [],
+              grinder_model: ${jsonEncode(remoteGrinderModel)},
+            }),
+          };
+        }
+        if (url.endsWith('/shots/visualizer-1') && init.method === 'PATCH') {
+          return { ok: true, json: async () => ({ id: 'visualizer-1', updated_at: 1 }) };
+        }
+        throw new Error('Unexpected URL: ' + url + ' ' + (init.method || 'GET'));
+      };
+    ''';
+
+// A mapping restored from storage, so the plugin has no record of the exact
+// string it uploaded and has to recompute it from the local shot.
+String _backSyncFetchSource({required String remoteGrinderModel}) =>
+    '''
+      globalThis.__grinderFetched = false;
+      globalThis.fetch = async (url, init = {}) => {
+        if (url.endsWith('/me')) {
+          return { ok: true, json: async () => ({ id: 'user-1' }) };
+        }
+        if (url.includes('/shots?sort=updated_at&items=50&page=1')) {
+          return { ok: true, json: async () => ({ user_id: 'user-1', data: [{ id: 'visualizer-c', updated_at: 110 }] }) };
+        }
+        if (url.endsWith('/shots/visualizer-c?essentials=1')) {
+          return {
+            ok: true,
+            json: async () => ({
+              id: 'visualizer-c',
+              updated_at: 110,
+              grinder_model: ${jsonEncode(remoteGrinderModel)},
+            }),
+          };
+        }
+        if (url.endsWith('/shots/local-c') && (!init.method || init.method === 'GET')) {
+          return { ok: true, json: async () => ({ id: 'local-c', workflow: { context: { grinderId: 'grinder-1', grinderModel: 'EG1', grinderBurrs: 'Core' } } }) };
+        }
+        if (url.endsWith('/grinders/grinder-1')) {
+          globalThis.__grinderFetched = true;
+          return { ok: true, json: async () => ({ id: 'grinder-1', model: 'EG1', burrs: 'SSP HU' }) };
+        }
+        if (url.endsWith('/shots/local-c') && init.method === 'PUT') {
+          globalThis.__backSyncUpdate = JSON.parse(init.body);
+          return { ok: true, json: async () => ({}) };
+        }
+        throw new Error('Unexpected URL: ' + url + ' ' + (init.method || 'GET'));
+      };
+    ''';
+
+void _primeBackSyncMapping(PluginManager manager) {
+  manager.dispatchEvent(_manifest.id, 'storageRead', {
+    'key': 'shotMap',
+    'value': jsonEncode({'visualizer-c': 'local-c'}),
+  });
+  manager.dispatchEvent(_manifest.id, 'storageRead', {
+    'key': 'backSyncCursor',
+    'value': '100',
+  });
+}
+
+Future<Object?> _uploadedGrinderModel(PluginManager manager) async {
+  final upload =
+      await _waitForJs(manager, 'globalThis.__upload') as Map<String, dynamic>;
+  final settings = ((upload['app'] as Map)['data'] as Map)['settings'] as Map;
+  return settings['grinder_model'];
+}
+
+bool _jsBool(PluginManager manager, String expression) {
+  final result = manager.js.evaluate('JSON.stringify(($expression) ?? null)');
+  expect(result.isError, isFalse, reason: result.stringResult);
+  return jsonDecode(result.stringResult) == true;
+}
+
 void main() {
   test('upload encodes non-zero stage markers', () async {
     final shot = _shot();
@@ -183,96 +337,79 @@ void main() {
   });
 
   test(
-    'upload combines the grinder model and burrs from the grinder record',
+    'upload folds the grinder burrs recorded on the shot into the model',
     () async {
       final shot = _shot(
-        context: {'grinderId': 'grinder-1', 'grinderModel': 'EG1'},
+        context: {
+          'grinderId': 'grinder-1',
+          'grinderModel': 'EG1',
+          'grinderBurrs': 'Core',
+        },
       );
-      final manager = await _loadPlugin('''
-      globalThis.fetch = async (url, init = {}) => {
-        if (url.endsWith('/shots/latest')) {
-          return { ok: true, json: async () => ({ id: 'shot-1' }) };
-        }
-        if (url.endsWith('/shots/shot-1') && (!init.method || init.method === 'GET')) {
-          return { ok: true, json: async () => (${jsonEncode(shot)}) };
-        }
-        if (url.endsWith('/grinders/grinder-1')) {
-          return { ok: true, json: async () => ({ id: 'grinder-1', model: 'EG1', burrs: 'Core' }) };
-        }
-        if (url.endsWith('/shots/upload')) {
-          const start = init.body.indexOf('\\r\\n\\r\\n') + 4;
-          const end = init.body.lastIndexOf('\\r\\n--');
-          globalThis.__upload = JSON.parse(init.body.slice(start, end));
-          return { ok: true, json: async () => ({ id: 'visualizer-1' }) };
-        }
-        if (url.endsWith('/shots/shot-1') && init.method === 'PUT') {
-          return { ok: true, json: async () => ({}) };
-        }
-        if (url.endsWith('/shots/visualizer-1?essentials=1')) {
-          return { ok: true, json: async () => ({ id: 'visualizer-1', tags: [] }) };
-        }
-        if (url.endsWith('/shots/visualizer-1') && init.method === 'PATCH') {
-          return { ok: true, json: async () => ({ id: 'visualizer-1', updated_at: 1 }) };
-        }
-        throw new Error('Unexpected URL: ' + url + ' ' + (init.method || 'GET'));
-      };
-    ''');
+      final manager = await _loadPlugin(_uploadFetchSource(shot));
 
       _startAutoUpload(manager);
-      final upload =
-          await _waitForJs(manager, 'globalThis.__upload')
-              as Map<String, dynamic>;
 
-      final settings =
-          ((upload['app'] as Map)['data'] as Map)['settings'] as Map;
-      expect(settings['grinder_model'], 'EG1 (Core)');
+      expect(await _uploadedGrinderModel(manager), 'EG1 (Core)');
     },
   );
 
   test(
-    'upload keeps the plain grinder model when the grinder lookup fails',
+    'upload does not add current grinder burrs to a shot without a snapshot',
     () async {
       final shot = _shot(
-        context: {'grinderId': 'grinder-missing', 'grinderModel': 'EG1'},
+        context: {'grinderId': 'grinder-1', 'grinderModel': 'EG1'},
       );
-      final manager = await _loadPlugin('''
-      globalThis.fetch = async (url, init = {}) => {
-        if (url.endsWith('/shots/latest')) {
-          return { ok: true, json: async () => ({ id: 'shot-1' }) };
+      final manager = await _loadPlugin(
+        _uploadFetchSource(
+          shot,
+          grinderHandler: '''
+        if (url.endsWith('/grinders/grinder-1')) {
+          globalThis.__grinderFetched = true;
+          return { ok: true, json: async () => ({ id: 'grinder-1', model: 'EG1', burrs: 'SSP HU' }) };
         }
-        if (url.endsWith('/shots/shot-1') && (!init.method || init.method === 'GET')) {
-          return { ok: true, json: async () => (${jsonEncode(shot)}) };
-        }
-        if (url.endsWith('/grinders/grinder-missing')) {
-          return { ok: false, status: 404, json: async () => ({ error: 'not found' }) };
-        }
-        if (url.endsWith('/shots/upload')) {
-          const start = init.body.indexOf('\\r\\n\\r\\n') + 4;
-          const end = init.body.lastIndexOf('\\r\\n--');
-          globalThis.__upload = JSON.parse(init.body.slice(start, end));
-          return { ok: true, json: async () => ({ id: 'visualizer-1' }) };
-        }
-        if (url.endsWith('/shots/shot-1') && init.method === 'PUT') {
-          return { ok: true, json: async () => ({}) };
-        }
-        if (url.endsWith('/shots/visualizer-1?essentials=1')) {
-          return { ok: true, json: async () => ({ id: 'visualizer-1', tags: [] }) };
-        }
-        if (url.endsWith('/shots/visualizer-1') && init.method === 'PATCH') {
-          return { ok: true, json: async () => ({ id: 'visualizer-1', updated_at: 1 }) };
-        }
-        throw new Error('Unexpected URL: ' + url + ' ' + (init.method || 'GET'));
-      };
-    ''');
+      ''',
+        ),
+      );
 
       _startAutoUpload(manager);
-      final upload =
-          await _waitForJs(manager, 'globalThis.__upload')
-              as Map<String, dynamic>;
 
-      final settings =
-          ((upload['app'] as Map)['data'] as Map)['settings'] as Map;
-      expect(settings['grinder_model'], 'EG1');
+      expect(
+        await _uploadedGrinderModel(manager),
+        'EG1',
+        reason:
+            'a shot recorded before burrs were snapshotted must keep its own history',
+      );
+      expect(_jsBool(manager, 'globalThis.__grinderFetched'), isFalse);
+    },
+  );
+
+  test(
+    'upload keeps the burrs snapshot even after the grinder record changes',
+    () async {
+      final shot = _shot(
+        context: {
+          'grinderId': 'grinder-1',
+          'grinderModel': 'EG1',
+          'grinderBurrs': 'Core',
+        },
+      );
+      final manager = await _loadPlugin(
+        _uploadFetchSource(
+          shot,
+          grinderHandler: '''
+        if (url.endsWith('/grinders/grinder-1')) {
+          globalThis.__grinderFetched = true;
+          return { ok: true, json: async () => ({ id: 'grinder-1', model: 'EG1 Renamed', burrs: 'SSP HU' }) };
+        }
+      ''',
+        ),
+      );
+
+      _startAutoUpload(manager);
+
+      expect(await _uploadedGrinderModel(manager), 'EG1 (Core)');
+      expect(_jsBool(manager, 'globalThis.__grinderFetched'), isFalse);
     },
   );
 
@@ -280,46 +417,17 @@ void main() {
     'upload does not duplicate burrs already present in the grinder model',
     () async {
       final shot = _shot(
-        context: {'grinderId': 'grinder-2', 'grinderModel': 'P64 (MP)'},
+        context: {
+          'grinderId': 'grinder-2',
+          'grinderModel': 'P64 (MP)',
+          'grinderBurrs': 'MP',
+        },
       );
-      final manager = await _loadPlugin('''
-      globalThis.fetch = async (url, init = {}) => {
-        if (url.endsWith('/shots/latest')) {
-          return { ok: true, json: async () => ({ id: 'shot-1' }) };
-        }
-        if (url.endsWith('/shots/shot-1') && (!init.method || init.method === 'GET')) {
-          return { ok: true, json: async () => (${jsonEncode(shot)}) };
-        }
-        if (url.endsWith('/grinders/grinder-2')) {
-          return { ok: true, json: async () => ({ id: 'grinder-2', model: 'P64 (MP)', burrs: 'MP' }) };
-        }
-        if (url.endsWith('/shots/upload')) {
-          const start = init.body.indexOf('\\r\\n\\r\\n') + 4;
-          const end = init.body.lastIndexOf('\\r\\n--');
-          globalThis.__upload = JSON.parse(init.body.slice(start, end));
-          return { ok: true, json: async () => ({ id: 'visualizer-1' }) };
-        }
-        if (url.endsWith('/shots/shot-1') && init.method === 'PUT') {
-          return { ok: true, json: async () => ({}) };
-        }
-        if (url.endsWith('/shots/visualizer-1?essentials=1')) {
-          return { ok: true, json: async () => ({ id: 'visualizer-1', tags: [] }) };
-        }
-        if (url.endsWith('/shots/visualizer-1') && init.method === 'PATCH') {
-          return { ok: true, json: async () => ({ id: 'visualizer-1', updated_at: 1 }) };
-        }
-        throw new Error('Unexpected URL: ' + url + ' ' + (init.method || 'GET'));
-      };
-    ''');
+      final manager = await _loadPlugin(_uploadFetchSource(shot));
 
       _startAutoUpload(manager);
-      final upload =
-          await _waitForJs(manager, 'globalThis.__upload')
-              as Map<String, dynamic>;
 
-      final settings =
-          ((upload['app'] as Map)['data'] as Map)['settings'] as Map;
-      expect(settings['grinder_model'], 'P64 (MP)');
+      expect(await _uploadedGrinderModel(manager), 'P64 (MP)');
     },
   );
 
@@ -329,95 +437,17 @@ void main() {
       // A plain substring check treats "EK43" as already containing burr "4" (and
       // "Kinu M47" as already containing burr "M"), silently dropping the real burr.
       final shot = _shot(
-        context: {'grinderId': 'grinder-3', 'grinderModel': 'EK43'},
+        context: {
+          'grinderId': 'grinder-3',
+          'grinderModel': 'EK43',
+          'grinderBurrs': '4',
+        },
       );
-      final manager = await _loadPlugin('''
-      globalThis.fetch = async (url, init = {}) => {
-        if (url.endsWith('/shots/latest')) {
-          return { ok: true, json: async () => ({ id: 'shot-1' }) };
-        }
-        if (url.endsWith('/shots/shot-1') && (!init.method || init.method === 'GET')) {
-          return { ok: true, json: async () => (${jsonEncode(shot)}) };
-        }
-        if (url.endsWith('/grinders/grinder-3')) {
-          return { ok: true, json: async () => ({ id: 'grinder-3', model: 'EK43', burrs: '4' }) };
-        }
-        if (url.endsWith('/shots/upload')) {
-          const start = init.body.indexOf('\\r\\n\\r\\n') + 4;
-          const end = init.body.lastIndexOf('\\r\\n--');
-          globalThis.__upload = JSON.parse(init.body.slice(start, end));
-          return { ok: true, json: async () => ({ id: 'visualizer-1' }) };
-        }
-        if (url.endsWith('/shots/shot-1') && init.method === 'PUT') {
-          return { ok: true, json: async () => ({}) };
-        }
-        if (url.endsWith('/shots/visualizer-1?essentials=1')) {
-          return { ok: true, json: async () => ({ id: 'visualizer-1', tags: [] }) };
-        }
-        if (url.endsWith('/shots/visualizer-1') && init.method === 'PATCH') {
-          return { ok: true, json: async () => ({ id: 'visualizer-1', updated_at: 1 }) };
-        }
-        throw new Error('Unexpected URL: ' + url + ' ' + (init.method || 'GET'));
-      };
-    ''');
+      final manager = await _loadPlugin(_uploadFetchSource(shot));
 
       _startAutoUpload(manager);
-      final upload =
-          await _waitForJs(manager, 'globalThis.__upload')
-              as Map<String, dynamic>;
 
-      final settings =
-          ((upload['app'] as Map)['data'] as Map)['settings'] as Map;
-      expect(settings['grinder_model'], 'EK43 (4)');
-    },
-  );
-
-  test(
-    'upload uses the model recorded on the shot, not the grinder\'s current (renamed) model',
-    () async {
-      final shot = _shot(
-        context: {'grinderId': 'grinder-1', 'grinderModel': 'EG1'},
-      );
-      final manager = await _loadPlugin('''
-      globalThis.fetch = async (url, init = {}) => {
-        if (url.endsWith('/shots/latest')) {
-          return { ok: true, json: async () => ({ id: 'shot-1' }) };
-        }
-        if (url.endsWith('/shots/shot-1') && (!init.method || init.method === 'GET')) {
-          return { ok: true, json: async () => (${jsonEncode(shot)}) };
-        }
-        if (url.endsWith('/grinders/grinder-1')) {
-          // The grinder has since been renamed — the upload must still use the model
-          // the shot itself recorded, not this current value.
-          return { ok: true, json: async () => ({ id: 'grinder-1', model: 'EG1 Renamed', burrs: 'Core' }) };
-        }
-        if (url.endsWith('/shots/upload')) {
-          const start = init.body.indexOf('\\r\\n\\r\\n') + 4;
-          const end = init.body.lastIndexOf('\\r\\n--');
-          globalThis.__upload = JSON.parse(init.body.slice(start, end));
-          return { ok: true, json: async () => ({ id: 'visualizer-1' }) };
-        }
-        if (url.endsWith('/shots/shot-1') && init.method === 'PUT') {
-          return { ok: true, json: async () => ({}) };
-        }
-        if (url.endsWith('/shots/visualizer-1?essentials=1')) {
-          return { ok: true, json: async () => ({ id: 'visualizer-1', tags: [] }) };
-        }
-        if (url.endsWith('/shots/visualizer-1') && init.method === 'PATCH') {
-          return { ok: true, json: async () => ({ id: 'visualizer-1', updated_at: 1 }) };
-        }
-        throw new Error('Unexpected URL: ' + url + ' ' + (init.method || 'GET'));
-      };
-    ''');
-
-      _startAutoUpload(manager);
-      final upload =
-          await _waitForJs(manager, 'globalThis.__upload')
-              as Map<String, dynamic>;
-
-      final settings =
-          ((upload['app'] as Map)['data'] as Map)['settings'] as Map;
-      expect(settings['grinder_model'], 'EG1 (Core)');
+      expect(await _uploadedGrinderModel(manager), 'EK43 (4)');
     },
   );
 
@@ -1440,169 +1470,114 @@ void main() {
   );
 
   test(
-    'back sync does not overwrite local grinderModel with our own uploaded burrs suffix',
+    'upload then back sync skips the grinder model we uploaded ourselves',
     () async {
+      final shot = _shot(
+        context: {
+          'grinderId': 'grinder-1',
+          'grinderModel': 'EG1',
+          'grinderBurrs': 'Core',
+        },
+      );
       final manager = await _loadPlugin(
-        '''
-      globalThis.__grinderFetched = false;
-      globalThis.fetch = async (url, init = {}) => {
-        if (url.endsWith('/me')) {
-          return { ok: true, json: async () => ({ id: 'user-1' }) };
-        }
-        if (url.includes('/shots?sort=updated_at&items=50&page=1')) {
-          return { ok: true, json: async () => ({ user_id: 'user-1', data: [{ id: 'visualizer-c', updated_at: 110 }] }) };
-        }
-        if (url.endsWith('/shots/visualizer-c?essentials=1')) {
-          return { ok: true, json: async () => ({ id: 'visualizer-c', updated_at: 110, grinder_model: 'EG1 (Core)' }) };
-        }
-        if (url.endsWith('/shots/local-c') && (!init.method || init.method === 'GET')) {
-          return { ok: true, json: async () => ({ id: 'local-c', workflow: { context: { grinderId: 'grinder-1', grinderModel: 'EG1' } } }) };
-        }
-        // The round-trip check is a network-free pattern match on the local shot's own
-        // recorded model — it must never fetch the grinder record (recorded here rather
-        // than thrown, since the plugin's own fetchGrinder swallows fetch errors).
-        if (url.endsWith('/grinders/grinder-1')) {
-          globalThis.__grinderFetched = true;
-          return { ok: true, json: async () => ({ id: 'grinder-1', model: 'EG1', burrs: 'Core' }) };
-        }
-        if (url.endsWith('/shots/local-c') && init.method === 'PUT') {
-          globalThis.__localUpdate = JSON.parse(init.body);
-          return { ok: true, json: async () => ({}) };
-        }
-        throw new Error('Unexpected URL: ' + url + ' ' + (init.method || 'GET'));
-      };
-    ''',
+        _uploadThenBackSyncFetchSource(shot, remoteGrinderModel: 'EG1 (Core)'),
         settings: const {'BackSync': true},
       );
-      manager.dispatchEvent(_manifest.id, 'storageRead', {
-        'key': 'shotMap',
-        'value': jsonEncode({'visualizer-c': 'local-c'}),
-      });
       manager.dispatchEvent(_manifest.id, 'storageRead', {
         'key': 'backSyncCursor',
         'value': '100',
       });
+
+      _startAutoUpload(manager);
+      await _waitForJs(manager, 'globalThis.__uploadStamp');
       manager.js.evaluate('globalThis.__runTimers(30000)');
 
-      final localUpdate =
-          await _waitForJs(manager, 'globalThis.__localUpdate')
+      final update =
+          await _waitForJs(manager, 'globalThis.__backSyncUpdate')
               as Map<String, dynamic>;
-      final context = (localUpdate['workflow'] as Map)['context'] as Map;
+      final context = (update['workflow'] as Map?)?['context'] as Map?;
 
-      expect(context.containsKey('grinderModel'), isFalse);
-      final grinderFetched = manager.js.evaluate(
-        'JSON.stringify(globalThis.__grinderFetched)',
-      );
-      expect(jsonDecode(grinderFetched.stringResult), isFalse);
+      expect(context?.containsKey('grinderModel') ?? false, isFalse);
     },
   );
 
   test(
-    'back sync applies a Visualizer grinder_model that is a genuine remote edit',
+    'upload then back sync applies a genuine Visualizer edit of the same shape',
     () async {
+      final shot = _shot(
+        context: {
+          'grinderId': 'grinder-1',
+          'grinderModel': 'EG1',
+          'grinderBurrs': 'Core',
+        },
+      );
       final manager = await _loadPlugin(
-        '''
-      globalThis.__grinderFetched = false;
-      globalThis.fetch = async (url, init = {}) => {
-        if (url.endsWith('/me')) {
-          return { ok: true, json: async () => ({ id: 'user-1' }) };
-        }
-        if (url.includes('/shots?sort=updated_at&items=50&page=1')) {
-          return { ok: true, json: async () => ({ user_id: 'user-1', data: [{ id: 'visualizer-d', updated_at: 110 }] }) };
-        }
-        if (url.endsWith('/shots/visualizer-d?essentials=1')) {
-          return { ok: true, json: async () => ({ id: 'visualizer-d', updated_at: 110, grinder_model: 'Niche Zero' }) };
-        }
-        if (url.endsWith('/shots/local-d') && (!init.method || init.method === 'GET')) {
-          return { ok: true, json: async () => ({ id: 'local-d', workflow: { context: { grinderId: 'grinder-1', grinderModel: 'EG1' } } }) };
-        }
-        // The round-trip check never fetches the grinder record (see the sibling test).
-        if (url.endsWith('/grinders/grinder-1')) {
-          globalThis.__grinderFetched = true;
-          return { ok: true, json: async () => ({ id: 'grinder-1', model: 'EG1', burrs: 'Core' }) };
-        }
-        if (url.endsWith('/shots/local-d') && init.method === 'PUT') {
-          globalThis.__localUpdate = JSON.parse(init.body);
-          return { ok: true, json: async () => ({}) };
-        }
-        throw new Error('Unexpected URL: ' + url + ' ' + (init.method || 'GET'));
-      };
-    ''',
+        _uploadThenBackSyncFetchSource(
+          shot,
+          remoteGrinderModel: 'EG1 (Lab Sweet)',
+        ),
         settings: const {'BackSync': true},
       );
-      manager.dispatchEvent(_manifest.id, 'storageRead', {
-        'key': 'shotMap',
-        'value': jsonEncode({'visualizer-d': 'local-d'}),
-      });
       manager.dispatchEvent(_manifest.id, 'storageRead', {
         'key': 'backSyncCursor',
         'value': '100',
       });
+
+      _startAutoUpload(manager);
+      await _waitForJs(manager, 'globalThis.__uploadStamp');
       manager.js.evaluate('globalThis.__runTimers(30000)');
 
-      final localUpdate =
-          await _waitForJs(manager, 'globalThis.__localUpdate')
+      final update =
+          await _waitForJs(manager, 'globalThis.__backSyncUpdate')
               as Map<String, dynamic>;
-      final context = (localUpdate['workflow'] as Map)['context'] as Map;
+      final context = (update['workflow'] as Map)['context'] as Map;
 
-      expect(context['grinderModel'], 'Niche Zero');
-      final grinderFetched = manager.js.evaluate(
-        'JSON.stringify(globalThis.__grinderFetched)',
-      );
-      expect(jsonDecode(grinderFetched.stringResult), isFalse);
+      expect(context['grinderModel'], 'EG1 (Lab Sweet)');
     },
   );
 
   test(
-    'back sync leaves grinderModel untouched when the local shot cannot be read',
+    'back sync skips an echo of a mapping uploaded before this session',
     () async {
       final manager = await _loadPlugin(
-        '''
-      globalThis.fetch = async (url, init = {}) => {
-        if (url.endsWith('/me')) {
-          return { ok: true, json: async () => ({ id: 'user-1' }) };
-        }
-        if (url.includes('/shots?sort=updated_at&items=50&page=1')) {
-          return { ok: true, json: async () => ({ user_id: 'user-1', data: [{ id: 'visualizer-e', updated_at: 110 }] }) };
-        }
-        if (url.endsWith('/shots/visualizer-e?essentials=1')) {
-          return { ok: true, json: async () => ({ id: 'visualizer-e', updated_at: 110, grinder_model: 'EG1 (Core)' }) };
-        }
-        if (url.endsWith('/shots/local-e') && (!init.method || init.method === 'GET')) {
-          // The local shot is unreachable (deleted, timeout, ...) — there is nothing
-          // safe to compare the remote value against.
-          return { ok: false, status: 404 };
-        }
-        if (url.endsWith('/shots/local-e') && init.method === 'PUT') {
-          globalThis.__localUpdate = JSON.parse(init.body);
-          return { ok: true, json: async () => ({}) };
-        }
-        throw new Error('Unexpected URL: ' + url + ' ' + (init.method || 'GET'));
-      };
-    ''',
+        _backSyncFetchSource(remoteGrinderModel: 'EG1 (Core)'),
         settings: const {'BackSync': true},
       );
-      manager.dispatchEvent(_manifest.id, 'storageRead', {
-        'key': 'shotMap',
-        'value': jsonEncode({'visualizer-e': 'local-e'}),
-      });
-      manager.dispatchEvent(_manifest.id, 'storageRead', {
-        'key': 'backSyncCursor',
-        'value': '100',
-      });
+      _primeBackSyncMapping(manager);
       manager.js.evaluate('globalThis.__runTimers(30000)');
 
-      final localUpdate =
-          await _waitForJs(manager, 'globalThis.__localUpdate')
+      final update =
+          await _waitForJs(manager, 'globalThis.__backSyncUpdate')
               as Map<String, dynamic>;
-      final context = (localUpdate['workflow'] as Map)['context'] as Map;
+      final context = (update['workflow'] as Map?)?['context'] as Map?;
 
       expect(
-        context.containsKey('grinderModel'),
+        context?.containsKey('grinderModel') ?? false,
         isFalse,
         reason:
-            'cannot verify locally, so grinderModel is left alone rather than risking an overwrite',
+            'the value is recomputed from the shot\'s own recorded model and burrs',
       );
+      expect(_jsBool(manager, 'globalThis.__grinderFetched'), isFalse);
+    },
+  );
+
+  test(
+    'back sync applies a remote edit for a mapping uploaded before this session',
+    () async {
+      final manager = await _loadPlugin(
+        _backSyncFetchSource(remoteGrinderModel: 'EG1 (Lab Sweet)'),
+        settings: const {'BackSync': true},
+      );
+      _primeBackSyncMapping(manager);
+      manager.js.evaluate('globalThis.__runTimers(30000)');
+
+      final update =
+          await _waitForJs(manager, 'globalThis.__backSyncUpdate')
+              as Map<String, dynamic>;
+      final context = (update['workflow'] as Map)['context'] as Map;
+
+      expect(context['grinderModel'], 'EG1 (Lab Sweet)');
+      expect(_jsBool(manager, 'globalThis.__grinderFetched'), isFalse);
     },
   );
 

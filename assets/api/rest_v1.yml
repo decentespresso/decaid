@@ -7962,6 +7962,15 @@ components:
           nullable: true
           description: Grinder model name (display string)
           example: "Niche Zero"
+        grinderBurrs:
+          type: string
+          nullable: true
+          description: |
+            Burrs fitted to the grinder, snapshotted when the shot is stored so
+            later edits to the grinder record do not rewrite shot history.
+            Filled in from the linked grinder when `grinderId` is set and this
+            field is absent.
+          example: "SSP HU"
         grinderSetting:
           type: string
           nullable: true
@@ -8050,6 +8059,15 @@ components:
           nullable: true
           description: Grinder model name (display string)
           example: "Niche Zero"
+        grinderBurrs:
+          type: string
+          nullable: true
+          description: |
+            Burrs fitted to the grinder, snapshotted when the shot is stored so
+            later edits to the grinder record do not rewrite shot history.
+            Filled in from the linked grinder when `grinderId` is set and this
+            field is absent.
+          example: "SSP HU"
         grinderSetting:
           type: string
           nullable: true

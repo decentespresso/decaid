@@ -37,6 +37,7 @@ function createPlugin(host) {
     backSyncIntervalSeconds: 300,
     backSyncCursor: 0, // newest remote updated_at we've processed
     shotMap: {}, // visualizerId -> localShotId, for our own uploads only
+    uploadedGrinderModels: {}, // visualizerId -> exact grinder_model we uploaded
     backSyncState: {}, // visualizerId -> { remoteUpdatedAt }
     backSyncRunning: false,
     localSyncPending: {},
@@ -213,17 +214,6 @@ function createPlugin(host) {
     return Math.round(canonical * VISUALIZER_ENJOYMENT_SCALE);
   }
 
-  async function fetchGrinder(grinderId) {
-    if (!grinderId) return null;
-    try {
-      const res = await fetch(`${LOCAL_API_URL}/grinders/${encodeURIComponent(grinderId)}`);
-      if (!res.ok) return null;
-      return await res.json();
-    } catch (e) {
-      return null;
-    }
-  }
-
   function tokenizeGrinderText(s) {
     return String(s || "").toLowerCase().split(/[^a-z0-9]+/i).filter(Boolean);
   }
@@ -239,14 +229,18 @@ function createPlugin(host) {
     return `${trimmedModel} (${trimmedBurrs})`;
   }
 
-  async function resolveUploadGrinderModel(grinderId, baseModel) {
-    if (!grinderId) return baseModel;
-    const grinder = await fetchGrinder(grinderId);
-    if (!grinder || !grinder.burrs) return baseModel;
-    return combineModelAndBurrs(baseModel, grinder.burrs);
+  // Burrs come from the snapshot the shot itself recorded, never from the current
+  // grinder record. See doc/AI_PLUGINS_NOTES.md.
+  function uploadGrinderModel(context, baseModel) {
+    return combineModelAndBurrs(baseModel, context.grinderBurrs);
   }
 
-  async function convertReaToVisualizerFormat(reaShot) {
+  function uploadedGrinderModelOf(visualizerShot) {
+    const value = visualizerShot?.app?.data?.settings?.grinder_model;
+    return typeof value === "string" && value.trim() !== "" ? value : null;
+  }
+
+  function convertReaToVisualizerFormat(reaShot) {
     if (!reaShot || !reaShot.measurements || reaShot.measurements.length === 0) {
       throw new Error("Invalid or empty Decent shot data for conversion.");
     }
@@ -260,7 +254,7 @@ function createPlugin(host) {
     let totalWaterDispensed = 0;
 
     const baseGrinderModel = context.grinderModel ?? reaShot.workflow.grinderData?.model;
-    const grinderModel = await resolveUploadGrinderModel(context.grinderId, baseGrinderModel);
+    const grinderModel = uploadGrinderModel(context, baseGrinderModel);
 
     const visualizerShot = {
       // start_time: reaShot.measurements[0].machine.timestamp,
@@ -363,8 +357,9 @@ function createPlugin(host) {
         return;
       }
 
-      const result = await uploadShot(await convertReaToVisualizerFormat(fullShot), null);
-      rememberSuccessfulUpload(fullShot.id, result.id);
+      const visualizerShot = convertReaToVisualizerFormat(fullShot);
+      const result = await uploadShot(visualizerShot, null);
+      rememberSuccessfulUpload(fullShot.id, result.id, uploadedGrinderModelOf(visualizerShot));
       syncSuccessfulUpload(fullShot.id, result.id, fullShot);
 
       log(`Uploaded ${fullShot.id} → ${result.id}`);
@@ -396,6 +391,8 @@ function createPlugin(host) {
     } else if (payload.key === "shotMap") {
       state.shotMap = safeParseObject(payload.value) || {};
       log(`Loaded shot map (${Object.keys(state.shotMap).length} entries)`);
+    } else if (payload.key === "uploadedGrinderModels") {
+      state.uploadedGrinderModels = safeParseObject(payload.value) || {};
     } else if (payload.key === "backSyncCursor") {
       state.backSyncCursor = Number(payload.value) || 0;
     } else if (payload.key === "backSyncState") {
@@ -552,6 +549,7 @@ function createPlugin(host) {
 
   function persistBackSyncState() {
     host.storage({ type: "write", key: "shotMap", namespace: NS, data: JSON.stringify(state.shotMap) });
+    host.storage({ type: "write", key: "uploadedGrinderModels", namespace: NS, data: JSON.stringify(state.uploadedGrinderModels) });
     host.storage({ type: "write", key: "backSyncCursor", namespace: NS, data: String(state.backSyncCursor) });
     host.storage({ type: "write", key: "backSyncState", namespace: NS, data: JSON.stringify(state.backSyncState) });
     host.storage({ type: "write", key: "managedLocalTags", namespace: NS, data: JSON.stringify(state.managedLocalTags) });
@@ -597,9 +595,16 @@ function createPlugin(host) {
     return { total: Object.keys(state.shotMap).length, added };
   }
 
-  function rememberUpload(localId, visualizerId) {
+  function rememberUpload(localId, visualizerId, uploadedGrinderModel) {
     if (!localId || visualizerId == null) return;
-    state.shotMap = { ...state.shotMap, [String(visualizerId)]: localId };
+    const id = String(visualizerId);
+    state.shotMap = { ...state.shotMap, [id]: localId };
+    state.uploadedGrinderModels = { ...state.uploadedGrinderModels };
+    if (uploadedGrinderModel == null) {
+      delete state.uploadedGrinderModels[id];
+    } else {
+      state.uploadedGrinderModels[id] = uploadedGrinderModel;
+    }
     persistBackSyncState();
     const update = { annotations: { extras: { visualizerId: String(visualizerId) } } };
     suppressLocalSync(localId, update);
@@ -617,12 +622,12 @@ function createPlugin(host) {
       });
   }
 
-  function rememberSuccessfulUpload(localId, visualizerId) {
+  function rememberSuccessfulUpload(localId, visualizerId, uploadedGrinderModel) {
     state.lastUploadedShot = localId;
     state.lastVisualizerId = visualizerId;
     host.storage({ type: "write", key: "lastUploadedShot", namespace: NS, data: localId });
     host.storage({ type: "write", key: "lastVisualizerId", namespace: NS, data: visualizerId });
-    rememberUpload(localId, visualizerId);
+    rememberUpload(localId, visualizerId, uploadedGrinderModel);
   }
 
   function syncSuccessfulUpload(localId, visualizerId, fallbackShot) {
@@ -1089,23 +1094,22 @@ function createPlugin(host) {
     return String(s == null ? "" : s).trim().toLowerCase().replace(/\s+/g, " ");
   }
 
-  // See doc/AI_PLUGINS_NOTES.md for why this is a fuzzy, network-free pattern match
-  // rather than a recomputed exact string.
-  function isBaseModelRoundTrip(remoteGrinderModel, baseModel) {
-    const remote = normalizeGrinderModelText(remoteGrinderModel);
-    const base = normalizeGrinderModelText(baseModel);
-    if (!remote || !base) return false;
-    if (remote === base) return true;
-    return remote.startsWith(base + " (") && remote.endsWith(")");
-  }
-
-  async function shouldSkipBackSyncedGrinderModel(localId, remoteGrinderModel) {
+  // Only an exact match against what we uploaded counts as an echo, so a genuine
+  // Visualizer edit of the same shape still applies. See doc/AI_PLUGINS_NOTES.md.
+  async function shouldSkipBackSyncedGrinderModel(visualizerId, localId, remoteGrinderModel) {
     if (typeof remoteGrinderModel !== "string" || remoteGrinderModel.trim() === "") return false;
+    const remote = normalizeGrinderModelText(remoteGrinderModel);
+
+    const uploaded = state.uploadedGrinderModels[String(visualizerId)];
+    if (uploaded != null) return remote === normalizeGrinderModelText(uploaded);
+
     const shot = await fetchShot(localId);
-    if (!shot) return true;
+    if (!shot) return false;
     const context = shot.workflow?.context || {};
     const baseModel = context.grinderModel ?? shot.workflow?.grinderData?.model;
-    return isBaseModelRoundTrip(remoteGrinderModel, baseModel);
+    if (baseModel == null) return false;
+    const base = normalizeGrinderModelText(baseModel);
+    return remote === base || remote === normalizeGrinderModelText(uploadGrinderModel(context, baseModel));
   }
 
   async function runBackSync(opts) {
@@ -1182,7 +1186,7 @@ function createPlugin(host) {
         const update = mapRemoteToLocal(detail);
         if (hasOwn(update.workflow?.context, "grinderModel")) {
           const remoteGrinderModel = update.workflow.context.grinderModel;
-          if (await shouldSkipBackSyncedGrinderModel(localId, remoteGrinderModel)) {
+          if (await shouldSkipBackSyncedGrinderModel(item.id, localId, remoteGrinderModel)) {
             delete update.workflow.context.grinderModel;
             if (Object.keys(update.workflow.context).length === 0) delete update.workflow;
           }
@@ -1268,6 +1272,7 @@ function createPlugin(host) {
       host.storage({ type: "read", key: "lastUploadedShot", namespace: NS });
       host.storage({ type: "read", key: "lastVisualizerId", namespace: NS });
       host.storage({ type: "read", key: "shotMap", namespace: NS });
+      host.storage({ type: "read", key: "uploadedGrinderModels", namespace: NS });
       host.storage({ type: "read", key: "backSyncCursor", namespace: NS });
       host.storage({ type: "read", key: "backSyncState", namespace: NS });
       host.storage({ type: "read", key: "managedLocalTags", namespace: NS });
@@ -1340,6 +1345,7 @@ function createPlugin(host) {
         }
 
         let requestedShot;
+        let uploadedModel = null;
         return fetch(`${LOCAL_API_URL}/shots/${encodeURIComponent(shotId)}`)
           .then(async (response) => {
             const body = await response.text();
@@ -1352,12 +1358,14 @@ function createPlugin(host) {
 
             return JSON.parse(body);
           })
-          .then(async (shot) => {
+          .then((shot) => {
             requestedShot = shot;
-            return uploadShot(await convertReaToVisualizerFormat(shot), null);
+            const visualizerShot = convertReaToVisualizerFormat(shot);
+            uploadedModel = uploadedGrinderModelOf(visualizerShot);
+            return uploadShot(visualizerShot, null);
           })
           .then((shotResponse) => {
-            rememberSuccessfulUpload(shotId, shotResponse.id);
+            rememberSuccessfulUpload(shotId, shotResponse.id, uploadedModel);
             syncSuccessfulUpload(shotId, shotResponse.id, requestedShot);
 
             return {

@@ -11,6 +11,7 @@ void main() {
         targetWaterVolume: 55.0,
         grinderId: 'grinder-123',
         grinderModel: 'Niche Zero',
+        grinderBurrs: 'SSP HU',
         grinderSetting: '15',
         beanBatchId: 'batch-456',
         coffeeName: 'Gesha Village',
@@ -31,6 +32,7 @@ void main() {
       expect(restored.targetWaterVolume, 55.0);
       expect(restored.grinderId, 'grinder-123');
       expect(restored.grinderModel, 'Niche Zero');
+      expect(restored.grinderBurrs, 'SSP HU');
       expect(restored.grinderSetting, '15');
       expect(restored.beanBatchId, 'batch-456');
       expect(restored.coffeeName, 'Gesha Village');
@@ -212,6 +214,7 @@ void main() {
           'setting': '15',
           'manufacturer': 'Niche',
           'model': 'Zero',
+          'burrs': 'Stock',
         },
         'coffeeData': {'name': 'Gesha Village', 'roaster': 'Sey'},
         'steamSettings': {
@@ -235,6 +238,7 @@ void main() {
       expect(workflow.context!.targetYield, 36.0);
       expect(workflow.context!.grinderSetting, '15');
       expect(workflow.context!.grinderModel, 'Zero');
+      expect(workflow.context!.grinderBurrs, 'Stock');
       expect(workflow.context!.coffeeName, 'Gesha Village');
       expect(workflow.context!.coffeeRoaster, 'Sey');
     });

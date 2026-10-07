@@ -50,6 +50,7 @@ class Workflow {
         targetYield: ctx.targetYield ?? parseOptionalDouble(dose?['doseOut']),
         grinderSetting: ctx.grinderSetting ?? grinder?['setting'] as String?,
         grinderModel: ctx.grinderModel ?? grinder?['model'] as String?,
+        grinderBurrs: ctx.grinderBurrs ?? grinder?['burrs'] as String?,
         coffeeName: ctx.coffeeName ?? coffee?['name'] as String?,
         coffeeRoaster: ctx.coffeeRoaster ?? coffee?['roaster'] as String?,
       );
@@ -62,6 +63,7 @@ class Workflow {
         targetYield: dose != null ? parseOptionalDouble(dose['doseOut']) : null,
         grinderSetting: grinder?['setting'] as String?,
         grinderModel: grinder?['model'] as String?,
+        grinderBurrs: grinder?['burrs'] as String?,
         coffeeName: coffee?['name'] as String?,
         coffeeRoaster: coffee?['roaster'] as String?,
       );
