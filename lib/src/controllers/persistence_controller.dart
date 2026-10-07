@@ -46,25 +46,30 @@ class PersistenceController {
   Future<ShotRecord> _withGrinderBurrsSnapshot(ShotRecord record) async {
     final context = record.workflow.context;
     final grinderId = context?.grinderId;
-    if (grinderId == null || context!.grinderBurrs != null) return record;
+    if (grinderId == null) return record;
 
     final grinders = grinderStorageService;
     if (grinders == null) return record;
 
+    String? burrs;
     try {
-      final grinder = await grinders.getGrinderById(grinderId);
-      final burrs = grinder?.burrs;
-      if (burrs == null || burrs.trim().isEmpty) return record;
-      return record.copyWith(
-        workflow: record.workflow.copyWith(
-          id: record.workflow.id,
-          context: context.copyWith(grinderBurrs: burrs),
-        ),
-      );
+      burrs = (await grinders.getGrinderById(grinderId))?.burrs;
     } catch (e, st) {
-      _log.warning("Could not snapshot grinder burrs for shot", e, st);
-      return record;
+      _log.warning("Could not read grinder burrs for shot", e, st);
+      burrs = null;
     }
+    if (burrs != null && burrs.trim().isEmpty) burrs = null;
+    if (burrs == context!.grinderBurrs) return record;
+
+    return record.copyWith(
+      workflow: record.workflow.copyWith(
+        id: record.workflow.id,
+        context: context.copyWith(
+          grinderBurrs: burrs,
+          clearGrinderBurrs: burrs == null,
+        ),
+      ),
+    );
   }
 
   Future<void> updateShot(ShotRecord record) async {

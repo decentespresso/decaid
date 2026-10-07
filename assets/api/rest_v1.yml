@@ -7968,8 +7968,10 @@ components:
           description: |
             Burrs fitted to the grinder, snapshotted when the shot is stored so
             later edits to the grinder record do not rewrite shot history.
-            Filled in from the linked grinder when `grinderId` is set and this
-            field is absent.
+            Resolved from the linked grinder whenever `grinderId` is set, which
+            replaces a value inherited from a repeated shot; a context with no
+            `grinderId` keeps the value it was given. Send an explicit null to
+            clear it.
           example: "SSP HU"
         grinderSetting:
           type: string
@@ -8065,8 +8067,10 @@ components:
           description: |
             Burrs fitted to the grinder, snapshotted when the shot is stored so
             later edits to the grinder record do not rewrite shot history.
-            Filled in from the linked grinder when `grinderId` is set and this
-            field is absent.
+            Resolved from the linked grinder whenever `grinderId` is set, which
+            replaces a value inherited from a repeated shot; a context with no
+            `grinderId` keeps the value it was given. Send an explicit null to
+            clear it.
           example: "SSP HU"
         grinderSetting:
           type: string

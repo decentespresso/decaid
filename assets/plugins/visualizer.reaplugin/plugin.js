@@ -392,7 +392,12 @@ function createPlugin(host) {
       state.shotMap = safeParseObject(payload.value) || {};
       log(`Loaded shot map (${Object.keys(state.shotMap).length} entries)`);
     } else if (payload.key === "uploadedGrinderModels") {
-      state.uploadedGrinderModels = safeParseObject(payload.value) || {};
+      // Layer the stored values under anything recorded since load: this read can
+      // land after an upload has already remembered its string.
+      state.uploadedGrinderModels = {
+        ...(safeParseObject(payload.value) || {}),
+        ...state.uploadedGrinderModels,
+      };
     } else if (payload.key === "backSyncCursor") {
       state.backSyncCursor = Number(payload.value) || 0;
     } else if (payload.key === "backSyncState") {
@@ -620,6 +625,15 @@ function createPlugin(host) {
         consumeLocalSyncSuppression(localId, update);
         log(`Could not stamp visualizerId on ${localId}: ${e.message}`);
       });
+  }
+
+  // A remote model edit we apply locally makes our recorded upload string stale: keeping
+  // it would suppress a later revert to that very value. See doc/AI_PLUGINS_NOTES.md.
+  function forgetUploadedGrinderModel(visualizerId) {
+    const id = String(visualizerId);
+    if (!hasOwn(state.uploadedGrinderModels, id)) return;
+    state.uploadedGrinderModels = { ...state.uploadedGrinderModels };
+    delete state.uploadedGrinderModels[id];
   }
 
   function rememberSuccessfulUpload(localId, visualizerId, uploadedGrinderModel) {
@@ -1094,7 +1108,7 @@ function createPlugin(host) {
     return String(s == null ? "" : s).trim().toLowerCase().replace(/\s+/g, " ");
   }
 
-  // Only an exact match against what we uploaded counts as an echo, so a genuine
+  // Only normalized equality with what we uploaded counts as an echo, so a genuine
   // Visualizer edit of the same shape still applies. See doc/AI_PLUGINS_NOTES.md.
   async function shouldSkipBackSyncedGrinderModel(visualizerId, localId, remoteGrinderModel) {
     if (typeof remoteGrinderModel !== "string" || remoteGrinderModel.trim() === "") return false;
@@ -1184,11 +1198,17 @@ function createPlugin(host) {
         const itemUpdatedAt = Number(detail?.updated_at) || item.updatedAt || 0;
 
         const update = mapRemoteToLocal(detail);
+        let appliedGrinderModelEdit = false;
         if (hasOwn(update.workflow?.context, "grinderModel")) {
           const remoteGrinderModel = update.workflow.context.grinderModel;
-          if (await shouldSkipBackSyncedGrinderModel(item.id, localId, remoteGrinderModel)) {
+          const remoteNamesModel =
+            typeof remoteGrinderModel === "string" && remoteGrinderModel.trim() !== "";
+          if (remoteNamesModel && await shouldSkipBackSyncedGrinderModel(item.id, localId, remoteGrinderModel)) {
             delete update.workflow.context.grinderModel;
             if (Object.keys(update.workflow.context).length === 0) delete update.workflow;
+          } else if (remoteNamesModel) {
+            update.workflow.context.grinderBurrs = null;
+            appliedGrinderModelEdit = true;
           }
         }
         let processed = Object.keys(update).length === 0;
@@ -1202,6 +1222,7 @@ function createPlugin(host) {
           if (res.ok) {
             applied++;
             processed = true;
+            if (appliedGrinderModelEdit) forgetUploadedGrinderModel(item.id);
             host.emit("shotBackSynced", { shotId: localId, visualizerId: item.id, timestamp: Date.now() });
           } else {
             consumeLocalSyncSuppression(localId, update);

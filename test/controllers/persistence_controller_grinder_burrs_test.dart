@@ -150,7 +150,7 @@ void main() {
     expect(grinders.lookups, ['grinder-1']);
   });
 
-  test('persistShot keeps a burrs value the context already carries', () async {
+  test('persistShot refreshes a burrs snapshot inherited by Repeat', () async {
     final grinders = _FakeGrinderStorage([
       _grinder(id: 'grinder-1', burrs: 'SSP HU'),
     ]);
@@ -170,9 +170,115 @@ void main() {
       ),
     );
 
-    expect(storedContext()?.grinderBurrs, 'Core');
-    expect(grinders.lookups, isEmpty);
+    expect(
+      storedContext()?.grinderBurrs,
+      'SSP HU',
+      reason: 'the burrs were swapped since the repeated shot was recorded',
+    );
+    expect(grinders.lookups, ['grinder-1']);
   });
+
+  test(
+    'persistShot clears an inherited snapshot when the grinder has no burrs',
+    () async {
+      final grinders = _FakeGrinderStorage([_grinder(id: 'grinder-1')]);
+      final controller = PersistenceController(
+        storageService: storage,
+        grinderStorageService: grinders,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.persistShot(
+        _shot(
+          const WorkflowContext(
+            grinderId: 'grinder-1',
+            grinderModel: 'EG1',
+            grinderBurrs: 'Core',
+          ),
+        ),
+      );
+
+      expect(storedContext()?.grinderBurrs, isNull);
+      expect(storedContext()?.grinderModel, 'EG1');
+    },
+  );
+
+  test(
+    'persistShot takes the burrs of a newly selected grinder, not the inherited one',
+    () async {
+      final grinders = _FakeGrinderStorage([
+        _grinder(id: 'grinder-1', burrs: 'Core'),
+        _grinder(id: 'grinder-2', burrs: 'MP'),
+      ]);
+      final controller = PersistenceController(
+        storageService: storage,
+        grinderStorageService: grinders,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.persistShot(
+        _shot(
+          const WorkflowContext(
+            grinderId: 'grinder-2',
+            grinderModel: 'P64',
+            grinderBurrs: 'Core',
+          ),
+        ),
+      );
+
+      expect(storedContext()?.grinderBurrs, 'MP');
+    },
+  );
+
+  test('persistShot clears an inherited snapshot it cannot verify', () async {
+    final grinders = _FakeGrinderStorage([
+      _grinder(id: 'grinder-1', burrs: 'Core'),
+    ])..fail = true;
+    final controller = PersistenceController(
+      storageService: storage,
+      grinderStorageService: grinders,
+    );
+    addTearDown(controller.dispose);
+
+    await controller.persistShot(
+      _shot(
+        const WorkflowContext(
+          grinderId: 'grinder-1',
+          grinderModel: 'EG1',
+          grinderBurrs: 'Core',
+        ),
+      ),
+    );
+
+    expect(
+      storedContext()?.grinderBurrs,
+      isNull,
+      reason: 'an unverifiable snapshot must not claim burrs it cannot confirm',
+    );
+  });
+
+  test(
+    'persistShot leaves burrs recorded without a grinder link alone',
+    () async {
+      final grinders = _FakeGrinderStorage([
+        _grinder(id: 'grinder-1', burrs: 'Core'),
+      ]);
+      final controller = PersistenceController(
+        storageService: storage,
+        grinderStorageService: grinders,
+      );
+      addTearDown(controller.dispose);
+
+      await controller.persistShot(
+        _shot(
+          const WorkflowContext(grinderModel: 'EG1', grinderBurrs: 'Stock'),
+        ),
+      );
+
+      expect(storedContext()?.grinderBurrs, 'Stock');
+      expect(grinders.lookups, isEmpty);
+    },
+  );
 
   test(
     'persistShot stores the shot unchanged when burrs are unavailable',

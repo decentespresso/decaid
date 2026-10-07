@@ -602,9 +602,9 @@ Update just the profile:
   A PUT also refuses a whole `"context": null` and a non-numeric `targetYield` with `400`
 - `grinderId` (string): ID of a managed Grinder entity (see Grinders API)
 - `grinderModel` (string): Grinder model name (display string)
-- `grinderBurrs` (string): Burrs fitted to the grinder (display string). Snapshotted
-  from the linked grinder when a shot is stored, so later grinder edits leave shot
-  history alone
+- `grinderBurrs` (string): Burrs fitted to the grinder (display string). Resolved from the
+  linked grinder each time a shot is stored, so a stored shot records the burrs that were
+  fitted when it was pulled and later grinder edits leave that history alone
 - `grinderSetting` (string): Current grinder setting
 - `beanBatchId` (string): ID of a managed BeanBatch entity (see Beans API)
 - `coffeeName` (string): Coffee bean name (display string)
@@ -849,7 +849,7 @@ Decaid manages coffee beans, bean batches, and grinders as first-class entities 
 - **Bean** represents a coffee origin (roaster + name + metadata). A bean can have multiple **BeanBatches** — each batch tracks a specific purchase with roast date, weight remaining, price, and frozen state.
 - **Grinder** represents grinder equipment with its burr info and setting type (numeric dial or named presets).
 - **WorkflowContext** ties everything together in a workflow. Set `grinderId` and `beanBatchId` to link to managed entities. Also include display strings (`grinderModel`, `coffeeName`, etc.) so UIs can show the info without extra lookups.
-- When a shot is pulled, the current workflow context is saved with the shot record, creating a permanent record of which beans, grinder, and settings were used. Storing a shot also snapshots the linked grinder's `burrs` into `grinderBurrs` when the context does not already carry it.
+- When a shot is pulled, the current workflow context is saved with the shot record, creating a permanent record of which beans, grinder, and settings were used. Storing a shot also resolves the linked grinder's `burrs` into `grinderBurrs`, replacing any value the context inherited from a repeated shot; a context with no `grinderId` keeps whatever burrs it carries.
 
 #### Typical Workflow
 

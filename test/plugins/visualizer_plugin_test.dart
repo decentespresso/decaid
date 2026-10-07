@@ -298,6 +298,108 @@ bool _jsBool(PluginManager manager, String expression) {
   return jsonDecode(result.stringResult) == true;
 }
 
+// A mock whose local shot is mutated by the plugin's own PUTs, so one test can
+// upload, take a remote edit through back-sync, and upload again.
+String _roundTripFetchSource(Map<String, dynamic> shot) =>
+    '''
+      globalThis.__shot = ${jsonEncode(shot)};
+      globalThis.__uploads = [];
+      globalThis.__puts = [];
+      globalThis.__remoteGrinderModel = 'EG1 (Core)';
+      globalThis.__merge = (base, patch) => {
+        for (const key of Object.keys(patch)) {
+          const value = patch[key];
+          if (value && typeof value === 'object' && !Array.isArray(value)) {
+            const target = base[key] && typeof base[key] === 'object' ? base[key] : {};
+            base[key] = globalThis.__merge(target, value);
+          } else {
+            base[key] = value;
+          }
+        }
+        return base;
+      };
+      globalThis.fetch = async (url, init = {}) => {
+        if (url.endsWith('/me')) {
+          return { ok: true, json: async () => ({ id: 'user-1' }) };
+        }
+        if (url.includes('/shots?limit=')) {
+          return { ok: true, json: async () => ({ items: [globalThis.__shot], total: 1 }) };
+        }
+        if (url.endsWith('/shots/latest')) {
+          return { ok: true, json: async () => ({ id: 'shot-1' }) };
+        }
+        if (url.endsWith('/shots/shot-1') && (!init.method || init.method === 'GET')) {
+          return {
+            ok: true,
+            json: async () => globalThis.__shot,
+            text: async () => JSON.stringify(globalThis.__shot),
+          };
+        }
+        if (url.endsWith('/shots/upload')) {
+          const start = init.body.indexOf('\\r\\n\\r\\n') + 4;
+          const end = init.body.lastIndexOf('\\r\\n--');
+          globalThis.__uploads = [...globalThis.__uploads, JSON.parse(init.body.slice(start, end))];
+          return { ok: true, json: async () => ({ id: 'visualizer-1' }) };
+        }
+        if (url.endsWith('/shots/shot-1') && init.method === 'PUT') {
+          const patch = JSON.parse(init.body);
+          globalThis.__puts = [...globalThis.__puts, patch];
+          globalThis.__merge(globalThis.__shot, patch);
+          return { ok: true, json: async () => ({}) };
+        }
+        if (url.endsWith('/shots/visualizer-1?essentials=1')) {
+          return {
+            ok: true,
+            json: async () => ({
+              id: 'visualizer-1',
+              updated_at: 110,
+              tags: [],
+              grinder_model: globalThis.__remoteGrinderModel,
+            }),
+          };
+        }
+        if (url.endsWith('/shots/visualizer-1') && init.method === 'PATCH') {
+          return { ok: true, json: async () => ({ id: 'visualizer-1', updated_at: 1 }) };
+        }
+        throw new Error('Unexpected URL: ' + url + ' ' + (init.method || 'GET'));
+      };
+    ''';
+
+Map<String, dynamic> _snapshotShot() => _shot(
+  context: {
+    'grinderId': 'grinder-1',
+    'grinderModel': 'EG1',
+    'grinderBurrs': 'Core',
+  },
+);
+
+String? _uploadedModelAt(Map<String, dynamic> upload) {
+  final settings = ((upload['app'] as Map)['data'] as Map)['settings'] as Map;
+  return settings['grinder_model'] as String?;
+}
+
+Map<String, dynamic> _lastContextPut(PluginManager manager) {
+  final result = manager.js.evaluate('JSON.stringify(globalThis.__puts ?? [])');
+  expect(result.isError, isFalse, reason: result.stringResult);
+  final puts = (jsonDecode(result.stringResult) as List)
+      .cast<Map<String, dynamic>>()
+      .where((put) => put.containsKey('workflow'))
+      .toList();
+  expect(
+    puts,
+    isNotEmpty,
+    reason: 'no back-sync update reached the local shot',
+  );
+  return (puts.last['workflow'] as Map)['context'] as Map<String, dynamic>;
+}
+
+void _setRemoteGrinderModel(PluginManager manager, String value) {
+  final result = manager.js.evaluate(
+    'globalThis.__remoteGrinderModel = ${jsonEncode(value)}',
+  );
+  expect(result.isError, isFalse, reason: result.stringResult);
+}
+
 void main() {
   test('upload encodes non-zero stage markers', () async {
     final shot = _shot();
@@ -1578,6 +1680,104 @@ void main() {
 
       expect(context['grinderModel'], 'EG1 (Lab Sweet)');
       expect(_jsBool(manager, 'globalThis.__grinderFetched'), isFalse);
+    },
+  );
+
+  test(
+    'a back-synced model edit owns the field and is not re-decorated on re-upload',
+    () async {
+      final manager = await _loadPlugin(
+        _roundTripFetchSource(_snapshotShot()),
+        settings: const {'BackSync': true},
+      );
+
+      _startAutoUpload(manager);
+      final first =
+          await _waitForJs(manager, 'globalThis.__uploads[0]')
+              as Map<String, dynamic>;
+      expect(_uploadedModelAt(first), 'EG1 (Core)');
+
+      _setRemoteGrinderModel(manager, 'EG1 (Lab Sweet)');
+      await _callApi(manager, 'backSyncNow', const {});
+
+      final context = _lastContextPut(manager);
+      expect(context['grinderModel'], 'EG1 (Lab Sweet)');
+      expect(
+        context.containsKey('grinderBurrs'),
+        isTrue,
+        reason: 'the edited text owns the field, so the snapshot is cleared',
+      );
+      expect(context['grinderBurrs'], isNull);
+
+      await _callApi(manager, 'upload', const {'shotId': 'shot-1'});
+      final second =
+          await _waitForJs(manager, 'globalThis.__uploads[1]')
+              as Map<String, dynamic>;
+
+      expect(
+        _uploadedModelAt(second),
+        'EG1 (Lab Sweet)',
+        reason: 'the burrs must not be appended to the edited model again',
+      );
+    },
+  );
+
+  test(
+    'back sync applies a remote revert to the value we originally uploaded',
+    () async {
+      final manager = await _loadPlugin(
+        _roundTripFetchSource(_snapshotShot()),
+        settings: const {'BackSync': true},
+      );
+
+      _startAutoUpload(manager);
+      await _waitForJs(manager, 'globalThis.__uploads[0]');
+
+      _setRemoteGrinderModel(manager, 'EG1 (Lab Sweet)');
+      await _callApi(manager, 'backSyncNow', const {});
+      expect(_lastContextPut(manager)['grinderModel'], 'EG1 (Lab Sweet)');
+
+      _setRemoteGrinderModel(manager, 'EG1 (Core)');
+      await _callApi(manager, 'backSyncNow', const {});
+
+      expect(
+        _lastContextPut(manager)['grinderModel'],
+        'EG1 (Core)',
+        reason:
+            'reverting to our uploaded value is a genuine edit, not our own echo',
+      );
+    },
+  );
+
+  test(
+    'an upload string recorded before the storage read survives it',
+    () async {
+      final manager = await _loadPlugin(
+        _roundTripFetchSource(_snapshotShot()),
+        settings: const {'BackSync': true},
+      );
+
+      _startAutoUpload(manager);
+      await _waitForJs(manager, 'globalThis.__uploads[0]');
+
+      final clearBurrs = manager.js.evaluate(
+        'globalThis.__shot.workflow.context.grinderBurrs = null',
+      );
+      expect(clearBurrs.isError, isFalse, reason: clearBurrs.stringResult);
+      manager.dispatchEvent(_manifest.id, 'storageRead', {
+        'key': 'uploadedGrinderModels',
+        'value': jsonEncode({'visualizer-9': 'Other (X)'}),
+      });
+
+      await _callApi(manager, 'backSyncNow', const {});
+
+      expect(
+        _lastContextPut(manager).containsKey('grinderModel'),
+        isFalse,
+        reason:
+            'the echo is still recognised, so the late read must not drop the '
+            'string this session recorded',
+      );
     },
   );
 
