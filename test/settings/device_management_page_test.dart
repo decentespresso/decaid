@@ -1,18 +1,29 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/material.dart' hide Router;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/plugins/plugin_device_service.dart';
+import 'package:reaprime/src/plugins/plugin_loader_service.dart';
+import 'package:reaprime/src/plugins/plugin_manager.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'package:reaprime/src/plugins/plugin_scale.dart';
 import 'package:reaprime/src/settings/device_management_page.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
+import 'package:reaprime/src/services/webserver_service.dart';
 import 'package:rxdart/rxdart.dart';
+import 'package:shelf_plus/shelf_plus.dart' hide Response;
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 import '../helpers/mock_device_discovery_service.dart';
 import '../helpers/mock_settings_service.dart';
 import '../helpers/test_scale.dart';
+import '../plugins/plugin_test_helpers.dart';
+
+class _UnusedPluginLoaderService extends Fake implements PluginLoaderService {}
 
 class _InformationScale extends TestScale implements DeviceInformationCapable {
   _InformationScale({
@@ -110,6 +121,7 @@ void main() {
         home: DeviceManagementPage(
           settingsController: settings,
           deviceController: controller,
+          isPluginRuntimeActive: (id) => id == 'explicit.owner',
           settingsLauncher: (uri) async {
             launched.add(uri);
             return true;
@@ -184,6 +196,7 @@ void main() {
           child: DeviceManagementPage(
             settingsController: settings,
             deviceController: controller,
+            isPluginRuntimeActive: (id) => id == 'test.plugin',
             settingsLauncher: (uri) async {
               launched.add(uri);
               return true;
@@ -208,6 +221,25 @@ void main() {
       'plugin:test.plugin:grinder:grinder',
     });
     expect(find.text('Auto-connect Grinder'), findsOneWidget);
+    await tester.ensureVisible(find.text('grinder name'));
+    await tester.tap(find.text('grinder name'));
+    await tester.pumpAndSettle();
+    expect(
+      settings.preferredGrinderDeviceId,
+      'plugin:test.plugin:grinder:grinder',
+    );
+    final grinderSection = find.ancestor(
+      of: find.text('Auto-connect Grinder'),
+      matching: find.byType(ShadCard),
+    );
+    final clearGrinder = find.descendant(
+      of: grinderSection,
+      matching: find.text('None'),
+    );
+    await tester.ensureVisible(clearGrinder);
+    await tester.tap(clearGrinder);
+    await tester.pumpAndSettle();
+    expect(settings.preferredGrinderDeviceId, isNull);
     for (final uri in launched) {
       final deviceId = uri.queryParameters['deviceId']!;
       final deviceName = controller.devices
@@ -251,6 +283,7 @@ void main() {
           child: DeviceManagementPage(
             settingsController: settings,
             deviceController: controller,
+            isPluginRuntimeActive: (id) => id == 'test.plugin',
             settingsLauncher: (_) async {
               launchCount++;
               return true;
@@ -315,6 +348,112 @@ void main() {
     service.dispose();
   });
 
+  testWidgets('refuses settings while plugin unload awaits disconnect', (
+    tester,
+  ) async {
+    const fixture = 'test/fixtures/plugins/plugin-device-settings.reaplugin';
+    final manifest = PluginManifest.fromJson(
+      jsonDecode(File('$fixture/manifest.json').readAsStringSync()),
+    );
+    final manager = PluginManager(kvStore: FakeKeyValueStoreService());
+    final controller = DeviceController([manager.deviceService]);
+    await controller.initialize();
+    final settings = SettingsController(MockSettingsService());
+    await settings.loadSettings();
+    await manager.loadPlugin(
+      id: manifest.id,
+      manifest: manifest,
+      settings: {},
+      jsCode: File('$fixture/plugin.js').readAsStringSync(),
+    );
+    final disconnect = Completer<void>();
+    var disconnectStarted = false;
+    await manager.deviceService.register(
+      pluginId: manifest.id,
+      generation: 1,
+      registrationHandle: 'one',
+      definition: {
+        'driverId': manifest.drivers.single.id,
+        'instanceId': 'one',
+        'name': 'Delayed sensor',
+        'vendor': 'Mock',
+        'dataChannels': [
+          {'key': 'value', 'type': 'number'},
+        ],
+      },
+      driver: manifest.drivers.single,
+      invoke: (operation, _) async {
+        if (operation == PluginDeviceOperation.disconnect) {
+          disconnectStarted = true;
+          await disconnect.future;
+        }
+        return const {};
+      },
+    );
+    final app = Router().plus;
+    PluginsHandler(
+      pluginManager: manager,
+      pluginService: _UnusedPluginLoaderService(),
+    ).addRoutes(app);
+    var launchCount = 0;
+    var httpRequestCount = 0;
+    int? httpStatus;
+    await tester.pumpWidget(
+      ShadApp(
+        home: ScaffoldMessenger(
+          child: DeviceManagementPage(
+            settingsController: settings,
+            deviceController: controller,
+            isPluginRuntimeActive: manager.isPluginRuntimeActive,
+            settingsLauncher: (uri) async {
+              launchCount++;
+              httpRequestCount++;
+              final response = await app.call(Request('GET', uri));
+              httpStatus = response.statusCode;
+              return true;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.byTooltip('Device settings'), findsOneWidget);
+    await tester.ensureVisible(find.byTooltip('Device settings'));
+    await tester.pumpAndSettle();
+    var unloadComplete = false;
+    final unload = manager.unloadPlugin(manifest.id).then((_) {
+      unloadComplete = true;
+    });
+    unawaited(unload);
+    try {
+      await tester.pump();
+      expect(disconnectStarted, isTrue);
+      expect(manager.isPluginRuntimeActive(manifest.id), isFalse);
+      expect(unloadComplete, isFalse);
+      expect(controller.devices, hasLength(1));
+      await tester.tap(find.byTooltip('Device settings'));
+      await tester.pump();
+      expect(launchCount, 0, reason: 'retiring runtime must refuse launch');
+      expect(httpRequestCount, 0);
+      expect(httpStatus, isNull);
+      expect(find.text('Unable to open device settings.'), findsOneWidget);
+      settings.notifyListeners();
+      await tester.pump();
+      expect(find.byTooltip('Device settings'), findsNothing);
+    } finally {
+      disconnect.complete();
+      await unload;
+      await tester.pumpAndSettle();
+      expect(unloadComplete, isTrue);
+      expect(controller.devices, isEmpty);
+      expect(manager.activePendingOpCount, 0);
+      expect(manager.activeTimerCount, 0);
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      await manager.dispose();
+    }
+  });
+
   testWidgets('browser refusal and exception show an error', (tester) async {
     final service = PluginDeviceService();
     final controller = DeviceController([service]);
@@ -333,6 +472,7 @@ void main() {
           child: DeviceManagementPage(
             settingsController: settings,
             deviceController: controller,
+            isPluginRuntimeActive: (id) => id == 'test.plugin',
             settingsLauncher: (_) async {
               if (throwOnLaunch) throw StateError('browser unavailable');
               return false;
@@ -379,6 +519,7 @@ void main() {
         home: DeviceManagementPage(
           settingsController: settingsController,
           deviceController: deviceController,
+          isPluginRuntimeActive: (_) => false,
         ),
       ),
     );

@@ -462,6 +462,10 @@ class _MyAppState extends State<MyApp> {
                       return DeviceManagementPage(
                         settingsController: widget.settingsController,
                         deviceController: widget.deviceController,
+                        isPluginRuntimeActive: widget
+                            .pluginLoaderService
+                            .pluginManager
+                            .isPluginRuntimeActive,
                       );
                     case DataManagementPage.routeName:
                       return DataManagementPage(

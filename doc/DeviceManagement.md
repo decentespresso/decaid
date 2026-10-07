@@ -1855,6 +1855,9 @@ plugin-backed device whose driver declares a validated surface with
 `role: "settings"`. Scale, Sensor, Grinder, and other plugin devices use the
 same `PluginDeviceSurfaceAuthority`. The action uses declared surfaces without
 connection/session availability filtering, so settings can open before connecting.
+The owning plugin runtime must be active: settings eligibility is revoked when
+the owning generation starts retiring, before asynchronous disconnect finishes.
+Button visibility and launch refusal use the same runtime-liveness gate.
 Machine, Scale, and Grinder auto-connect preferences remain independent; other
 devices with settings surfaces appear in a neutral listing.
 

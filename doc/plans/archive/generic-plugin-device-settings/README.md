@@ -11,6 +11,16 @@ surfaces are used without session availability filtering so a discovered device
 can open settings before connecting. Activation checks device instance identity,
 not just its public ID, to fence retired, replaced, and unloaded bindings.
 
+Button visibility and launch eligibility also require the owning plugin runtime
+in `PluginManager` to be active (`PluginRuntime.isAlive`). Eligibility is revoked
+when the owning generation starts retiring, even while its devices remain in the
+inventory awaiting disconnect. The required constructor-injected liveness query
+uses the authority's explicit plugin ID; there is no always-active default.
+Plugin-ID-level liveness is sufficient alongside the existing instance identity
+check: retirement stops the runtime and advances its generation before cleanup,
+and reload cannot republish the same device instance. The immutable surface
+authority therefore needs no generation field or lifecycle state.
+
 The query is `ui=1`, `deviceId`, plus an optional display-only `deviceName`. Native
 device management supplies the name to the shared authority so all query values
 are encoded once. Names never select storage or establish ownership. Omitting the

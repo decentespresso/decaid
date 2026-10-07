@@ -2,11 +2,13 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:reaprime/src/plugins/plugin_device_contract.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_manager.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
+import 'package:reaprime/src/services/storage/hive_store_service.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
 import 'plugin_test_helpers.dart';
@@ -149,6 +151,107 @@ void main() {
       expect(await get(secondUri), {
         'deviceId': second.deviceId,
         'value': 'second setting',
+      });
+      expect(manager.activePendingOpCount, 0);
+    },
+  );
+
+  test(
+    'device settings persist in the plugin Hive namespace across reload',
+    () async {
+      const fixture = 'test/fixtures/plugins/plugin-device-settings.reaplugin';
+      final manifest = PluginManifest.fromJson(
+        jsonDecode(File('$fixture/manifest.json').readAsStringSync()),
+      );
+      final jsCode = File('$fixture/plugin.js').readAsStringSync();
+      final directory = await Directory.systemTemp.createTemp(
+        'device-settings-kv-',
+      );
+      Hive.init(directory.path);
+      final store = HiveStoreService(defaultNamespace: 'plugins');
+      await store.initialize();
+      final manager = PluginManager(kvStore: store);
+      addTearDown(() async {
+        await manager.dispose();
+        await Hive.close();
+        await directory.delete(recursive: true);
+      });
+      final app = Router().plus;
+      PluginsHandler(
+        pluginManager: manager,
+        pluginService: _UnusedPluginLoaderService(),
+      ).addRoutes(app);
+
+      Future<PluginDeviceAdapter> loadDevice(int generation) async {
+        await manager.loadPlugin(
+          id: manifest.id,
+          manifest: manifest,
+          settings: {},
+          jsCode: jsCode,
+        );
+        await manager.deviceService.register(
+          pluginId: manifest.id,
+          generation: generation,
+          registrationHandle: 'one',
+          definition: {
+            'driverId': manifest.drivers.single.id,
+            'instanceId': 'one',
+            'name': 'Mock sensor #1',
+            'vendor': 'Mock',
+            'dataChannels': [
+              {'key': 'value', 'type': 'number'},
+            ],
+          },
+          driver: manifest.drivers.single,
+          invoke: (_, _) async => const {},
+        );
+        return (await manager.deviceService.devices.firstWhere(
+              (devices) => devices.length == 1,
+            )).single
+            as PluginDeviceAdapter;
+      }
+
+      Uri settingsUri(PluginDeviceAdapter device) =>
+          Uri.parse('http://localhost:8080').resolve(
+            device.surfaceAuthority!
+                .resolve(device.deviceId, deviceName: device.name)
+                .single['href']!,
+          );
+
+      Future<Map<String, dynamic>> get(Uri uri) async {
+        final response = await app.call(Request('GET', uri));
+        expect(response.statusCode, 200);
+        return jsonDecode(await response.readAsString())
+            as Map<String, dynamic>;
+      }
+
+      final first = await loadDevice(1);
+      final uri = settingsUri(first);
+      expect(
+        await get(
+          uri.replace(
+            queryParameters: {
+              ...uri.queryParameters,
+              'value': 'persisted across reload',
+            },
+          ),
+        ),
+        {'deviceId': first.deviceId, 'value': 'persisted across reload'},
+      );
+      await manager.unloadPlugin(manifest.id);
+      expect(manager.isPluginRuntimeActive(manifest.id), isFalse);
+      expect(await manager.deviceService.devices.first, isEmpty);
+      expect(
+        await store.get(namespace: manifest.id, key: first.deviceId),
+        'persisted across reload',
+      );
+      expect(await store.get(key: first.deviceId), isNull);
+      final reloaded = await loadDevice(3);
+      expect(identical(reloaded, first), isFalse);
+      expect(reloaded.deviceId, first.deviceId);
+      expect(await get(settingsUri(reloaded)), {
+        'deviceId': first.deviceId,
+        'value': 'persisted across reload',
       });
       expect(manager.activePendingOpCount, 0);
     },

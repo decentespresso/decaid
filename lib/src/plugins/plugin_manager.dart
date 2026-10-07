@@ -3026,6 +3026,9 @@ class PluginManager {
     return completer.future;
   }
 
+  bool isPluginRuntimeActive(String pluginId) =>
+      _plugins[pluginId]?.isAlive == true;
+
   List<PluginRuntime> get loadedPlugins => _plugins.values.toList();
 
   void attachWorkflowController(WorkflowController? controller) {

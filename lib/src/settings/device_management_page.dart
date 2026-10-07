@@ -17,6 +17,7 @@ class DeviceManagementPage extends StatefulWidget {
     super.key,
     required this.settingsController,
     required this.deviceController,
+    required this.isPluginRuntimeActive,
     this.settingsLauncher,
   });
 
@@ -24,6 +25,7 @@ class DeviceManagementPage extends StatefulWidget {
 
   final SettingsController settingsController;
   final DeviceController deviceController;
+  final bool Function(String pluginId) isPluginRuntimeActive;
   final DeviceSettingsLauncher? settingsLauncher;
 
   @override
@@ -293,11 +295,15 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
 
   String? _settingsHref(Device device) {
     if (device is! PluginDeviceAdapter) return null;
-    final surfaces = device.surfaceAuthority?.resolve(
+    final authority = device.surfaceAuthority;
+    if (authority == null ||
+        !widget.isPluginRuntimeActive(authority.pluginId)) {
+      return null;
+    }
+    final surfaces = authority.resolve(
       device.deviceId,
       deviceName: device.name,
     );
-    if (surfaces == null) return null;
     for (final surface in surfaces) {
       if (surface['role'] == 'settings') return surface['href'];
     }
