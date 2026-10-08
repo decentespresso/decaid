@@ -338,8 +338,7 @@ void main() {
       await disconnectChannel.ready;
       final connectResponse = connectChannel.stream
           .map((value) => jsonDecode(value.toString()) as Map<String, dynamic>)
-          .firstWhere((frame) => frame['operation'] == 'connect')
-          .timeout(const Duration(seconds: 5));
+          .firstWhere((frame) => frame['operation'] == 'connect');
       connectChannel.sink.add(
         jsonEncode({
           'command': 'connect',
@@ -361,7 +360,10 @@ void main() {
       await cancelled;
 
       scale.releaseConnect();
-      expect((await connectResponse)['outcome'], 'conflict');
+      final response = await connectResponse.timeout(
+        const Duration(seconds: 5),
+      );
+      expect(response['outcome'], 'conflict');
       expect(
         manager.auxiliaryScaleRegistry.isReserved(scale.deviceId),
         isFalse,
