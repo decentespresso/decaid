@@ -228,19 +228,19 @@ void main() {
     () async {
       final scale = _DelayedScale(deviceId: 'pending-rest-disconnect');
       addTearDown(scale.dispose);
+      addTearDown(scale.releaseConnect);
       discovery.addDevice(scale);
-      await settle();
+      await devices.deviceStream.firstWhere((found) => found.contains(scale));
 
       final connectFuture = connectRest(scale.deviceId, role: 'auxiliary');
-      await settle();
+      await scale.connectStarted.future.timeout(const Duration(seconds: 5));
       expect(manager.auxiliaryScaleRegistry.isReserved(scale.deviceId), isTrue);
       discovery.removeDevice(scale.deviceId);
-      await settle();
+      await devices.deviceStream.firstWhere((found) => !found.contains(scale));
       expect((await disconnectRest(scale.deviceId)).statusCode, 200);
 
       scale.releaseConnect();
       final connectResponse = await connectFuture;
-      await settle();
       expect(connectResponse.statusCode, 409);
       expect(
         manager.auxiliaryScaleRegistry.isReserved(scale.deviceId),
@@ -318,10 +318,11 @@ void main() {
   test(
     'WS disconnect cancels pending auxiliary connect after scanner removal',
     () async {
+      const barrierDeviceId = 'missing-ws-disconnect-barrier';
       final scale = _DelayedScale(deviceId: 'pending-ws-disconnect');
       addTearDown(scale.dispose);
       discovery.addDevice(scale);
-      await settle();
+      await devices.deviceStream.firstWhere((found) => found.contains(scale));
 
       final connectChannel = IOWebSocketChannel.connect(
         Uri.parse('ws://127.0.0.1:${server.port}/ws/v1/devices'),
@@ -329,8 +330,19 @@ void main() {
       final disconnectChannel = IOWebSocketChannel.connect(
         Uri.parse('ws://127.0.0.1:${server.port}/ws/v1/devices'),
       );
+      final disconnectBarrier = disconnectChannel.stream
+          .map((value) => jsonDecode(value.toString()) as Map<String, dynamic>)
+          .firstWhere(
+            (frame) => frame['error'] == 'Device not found: $barrierDeviceId',
+          );
       addTearDown(() => connectChannel.sink.close());
       addTearDown(() => disconnectChannel.sink.close());
+      addTearDown(scale.releaseConnect);
+      await connectChannel.ready;
+      await disconnectChannel.ready;
+      final connectResponse = connectChannel.stream
+          .map((value) => jsonDecode(value.toString()) as Map<String, dynamic>)
+          .firstWhere((frame) => frame['operation'] == 'connect');
       connectChannel.sink.add(
         jsonEncode({
           'command': 'connect',
@@ -338,17 +350,24 @@ void main() {
           'connectionRole': 'auxiliary',
         }),
       );
-      await settle();
+      await scale.connectStarted.future.timeout(const Duration(seconds: 5));
       expect(manager.auxiliaryScaleRegistry.isReserved(scale.deviceId), isTrue);
       discovery.removeDevice(scale.deviceId);
-      await settle();
+      await devices.deviceStream.firstWhere((found) => !found.contains(scale));
       disconnectChannel.sink.add(
         jsonEncode({'command': 'disconnect', 'deviceId': scale.deviceId}),
       );
-      await settle();
+      disconnectChannel.sink.add(
+        jsonEncode({'command': 'connect', 'deviceId': barrierDeviceId}),
+      );
+      await disconnectBarrier.timeout(const Duration(seconds: 5));
+      expect(manager.auxiliaryScaleRegistry.isReserved(scale.deviceId), isTrue);
 
       scale.releaseConnect();
-      await settle();
+      final response = await connectResponse.timeout(
+        const Duration(seconds: 5),
+      );
+      expect(response['outcome'], 'conflict');
       expect(
         manager.auxiliaryScaleRegistry.isReserved(scale.deviceId),
         isFalse,
@@ -397,13 +416,17 @@ void main() {
 }
 
 class _DelayedScale extends TestScale {
+  final Completer<void> connectStarted = Completer<void>();
   final Completer<void> _connectCompleted = Completer<void>();
   int disconnectCalls = 0;
 
   _DelayedScale({required super.deviceId});
 
   @override
-  Future<void> onConnect() => _connectCompleted.future;
+  Future<void> onConnect() {
+    connectStarted.complete();
+    return _connectCompleted.future;
+  }
 
   void releaseConnect() {
     if (!_connectCompleted.isCompleted) _connectCompleted.complete();
