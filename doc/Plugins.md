@@ -1253,6 +1253,12 @@ Provenance for a tracked install is stored in a Decaid-owned
 package, it is rewritten on every install, and it disappears when the plugin is
 removed.
 
+The Plugins page cogwheel menu provides **Refresh plugins**, **Check for
+updates**, and **Install plugin**. Installation opens the source choices:
+**GitHub Release**, **GitHub Branch**, **ZIP file**, and **Folder snapshot**.
+Each plugin's three-dot menu contains **Load** or **Unload**, **Settings**,
+**Reload**, and **Remove**.
+
 ### Packaging a release
 
 For a GitHub release install:

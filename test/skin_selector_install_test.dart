@@ -94,7 +94,9 @@ Future<void> _pumpPage(WidgetTester tester, _FakeWebUIStorage storage) async {
 }
 
 Future<void> _openInstallMenu(WidgetTester tester, String item) async {
-  await tester.tap(find.byIcon(Icons.add));
+  await tester.tap(find.byTooltip('Skin actions'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Install skin'));
   await tester.pumpAndSettle();
   await tester.tap(find.text(item));
   await tester.pumpAndSettle();
@@ -102,6 +104,50 @@ Future<void> _openInstallMenu(WidgetTester tester, String item) async {
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  testWidgets('the skin installation submenu fits a narrow screen', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await _pumpPage(tester, _FakeWebUIStorage());
+
+    await tester.tap(find.byTooltip('Skin actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Install skin'));
+    await tester.pumpAndSettle();
+    expect(find.text('GitHub Release').hitTestable(), findsOneWidget);
+    expect(find.text('ZIP file').hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('skin actions group updates and all installation sources', (
+    tester,
+  ) async {
+    await _pumpPage(tester, _FakeWebUIStorage());
+
+    expect(find.text('Check for updates'), findsNothing);
+    expect(find.byTooltip('Install skin'), findsNothing);
+    final cogwheel = find.widgetWithIcon(IconButton, LucideIcons.settings);
+    final button = tester.widget<IconButton>(cogwheel);
+    expect(button.iconSize, 28);
+    expect(
+      button.color,
+      ShadTheme.of(tester.element(cogwheel)).colorScheme.primary,
+    );
+    await tester.tap(find.byTooltip('Skin actions'));
+    await tester.pumpAndSettle();
+    expect(find.text('Check for updates'), findsOneWidget);
+    expect(find.text('Install skin'), findsOneWidget);
+    await tester.tap(find.text('Install skin'));
+    await tester.pumpAndSettle();
+    expect(find.text('GitHub Release'), findsOneWidget);
+    expect(find.text('GitHub Branch'), findsOneWidget);
+    expect(find.text('ZIP file'), findsOneWidget);
+    expect(find.text('Advanced'), findsNothing);
+  });
 
   testWidgets('install menu installs a skin from a GitHub release', (
     tester,

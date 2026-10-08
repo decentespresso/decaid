@@ -11,9 +11,12 @@ class _FakeLoader extends Fake implements PluginLoaderService {
   _FakeLoader(this.plugins);
 
   final List<PluginManifest> plugins;
+  int initializeCalls = 0;
 
   @override
-  Future<void> initialize() async {}
+  Future<void> initialize() async {
+    initializeCalls++;
+  }
 
   @override
   List<PluginManifest> get availablePlugins => plugins;
@@ -101,7 +104,21 @@ void main() {
     final sourceService = _FakeSourceService(_FakeLoader(const []));
     await pumpView(tester, sourceService: sourceService);
 
-    await tester.tap(find.byTooltip('Install Plugin'));
+    expect(find.byTooltip('Plugin actions'), findsOneWidget);
+    final cogwheel = find.widgetWithIcon(IconButton, LucideIcons.settings);
+    final button = tester.widget<IconButton>(cogwheel);
+    expect(button.iconSize, 28);
+    expect(
+      button.color,
+      ShadTheme.of(tester.element(cogwheel)).colorScheme.primary,
+    );
+    expect(find.byTooltip('Refresh Plugins'), findsNothing);
+    expect(find.byTooltip('Install Plugin'), findsNothing);
+    await tester.tap(find.byTooltip('Plugin actions'));
+    await tester.pumpAndSettle();
+    expect(find.text('Refresh plugins'), findsOneWidget);
+    expect(find.text('Check for updates'), findsOneWidget);
+    await tester.tap(find.text('Install plugin'));
     await tester.pumpAndSettle();
 
     expect(find.text('GitHub Release'), findsOneWidget);
@@ -114,10 +131,62 @@ void main() {
     final sourceService = _FakeSourceService(_FakeLoader(const []));
     await pumpView(tester, sourceService: sourceService);
 
-    await tester.tap(find.byTooltip('Check for updates'));
+    await tester.tap(find.byTooltip('Plugin actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Check for updates'));
     await tester.pumpAndSettle();
 
     expect(sourceService.updateCalls, 1);
+  });
+
+  testWidgets('refresh plugins reinitializes the list from the page menu', (
+    tester,
+  ) async {
+    final sourceService = _FakeSourceService(_FakeLoader(const []));
+    await pumpView(tester, sourceService: sourceService);
+    final loader =
+        tester
+                .widget<PluginsSettingsView>(find.byType(PluginsSettingsView))
+                .pluginLoaderService
+            as _FakeLoader;
+
+    expect(loader.initializeCalls, 1);
+    await tester.tap(find.byTooltip('Plugin actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Refresh plugins'));
+    await tester.pumpAndSettle();
+    expect(loader.initializeCalls, 2);
+  });
+
+  testWidgets('the installation submenu fits a narrow screen', (tester) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final sourceService = _FakeSourceService(_FakeLoader(const []));
+    await pumpView(tester, sourceService: sourceService);
+
+    await tester.tap(find.byTooltip('Plugin actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Install plugin'));
+    await tester.pumpAndSettle();
+    expect(find.text('GitHub Release').hitTestable(), findsOneWidget);
+    expect(find.text('Folder snapshot').hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('plugin actions have no duplicated card buttons', (tester) async {
+    final sourceService = _FakeSourceService(_FakeLoader(const []));
+    await pumpView(tester, sourceService: sourceService, plugins: [manifest()]);
+
+    expect(find.widgetWithText(ShadButton, 'Load'), findsNothing);
+    expect(find.widgetWithText(ShadButton, 'Settings'), findsNothing);
+    await tester.tap(find.byIcon(LucideIcons.ellipsisVertical));
+    await tester.pumpAndSettle();
+    expect(find.text('Load'), findsOneWidget);
+    expect(find.text('Settings'), findsOneWidget);
+    expect(find.text('Reload'), findsOneWidget);
+    expect(find.text('Remove'), findsOneWidget);
   });
 
   testWidgets('a GitHub-backed plugin shows its provenance', (tester) async {

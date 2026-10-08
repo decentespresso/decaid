@@ -177,46 +177,69 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
       appBar: AppBar(
         title: const Text('Plugins'),
         actions: [
-          IconButton(
-            icon: const Icon(LucideIcons.refreshCw),
-            onPressed: _isLoading ? null : _refreshPlugins,
-            tooltip: 'Refresh Plugins',
-          ),
-          IconButton(
-            icon: _isCheckingUpdates
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(LucideIcons.cloudDownload),
-            onPressed: _isLoading || _loadError != null || _isCheckingUpdates
-                ? null
-                : () => _checkForPluginUpdates(context),
-            tooltip: 'Check for updates',
-          ),
-          if (widget.allowInstall)
-            PopupMenuButton<String>(
-              enabled: !_isLoading && _loadError == null,
-              icon: const Icon(LucideIcons.plus),
-              tooltip: 'Install Plugin',
-              onSelected: (value) => _handleInstallAction(context, value),
-              itemBuilder: (context) => const [
-                PopupMenuItem<String>(
-                  value: 'github-release',
-                  child: Text('GitHub Release'),
-                ),
-                PopupMenuItem<String>(
-                  value: 'github-branch',
-                  child: Text('GitHub Branch'),
-                ),
-                PopupMenuItem<String>(value: 'zip', child: Text('ZIP file')),
-                PopupMenuItem<String>(
-                  value: 'folder',
-                  child: Text('Folder snapshot'),
-                ),
-              ],
+          MenuAnchor(
+            builder: (context, controller, child) => IconButton(
+              icon: const Icon(LucideIcons.settings),
+              iconSize: 28,
+              color: ShadTheme.of(context).colorScheme.primary,
+              tooltip: 'Plugin actions',
+              onPressed: _isLoading
+                  ? null
+                  : () => controller.isOpen
+                        ? controller.close()
+                        : controller.open(),
             ),
+            menuChildren: [
+              MenuItemButton(
+                leadingIcon: const Icon(LucideIcons.refreshCw),
+                onPressed: _isLoading ? null : _refreshPlugins,
+                child: const Text('Refresh plugins'),
+              ),
+              MenuItemButton(
+                leadingIcon: _isCheckingUpdates
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(LucideIcons.cloudDownload),
+                onPressed:
+                    _isLoading || _loadError != null || _isCheckingUpdates
+                    ? null
+                    : () => _checkForPluginUpdates(context),
+                child: const Text('Check for updates'),
+              ),
+              if (widget.allowInstall)
+                SubmenuButton(
+                  leadingIcon: const Icon(LucideIcons.plus),
+                  menuChildren: _loadError != null
+                      ? const []
+                      : [
+                          MenuItemButton(
+                            onPressed: () =>
+                                _handleInstallAction(context, 'github-release'),
+                            child: const Text('GitHub Release'),
+                          ),
+                          MenuItemButton(
+                            onPressed: () =>
+                                _handleInstallAction(context, 'github-branch'),
+                            child: const Text('GitHub Branch'),
+                          ),
+                          MenuItemButton(
+                            onPressed: () =>
+                                _handleInstallAction(context, 'zip'),
+                            child: const Text('ZIP file'),
+                          ),
+                          MenuItemButton(
+                            onPressed: () =>
+                                _handleInstallAction(context, 'folder'),
+                            child: const Text('Folder snapshot'),
+                          ),
+                        ],
+                  child: const Text('Install plugin'),
+                ),
+            ],
+          ),
         ],
       ),
       body: _buildPluginList(),
@@ -254,11 +277,6 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
             const Icon(LucideIcons.puzzle, size: 64),
             const SizedBox(height: 16),
             const Text('No plugins installed', style: TextStyle(fontSize: 18)),
-            const SizedBox(height: 8),
-            Text(
-              'Click the + button to install a plugin',
-              style: TextStyle(color: Colors.grey[600]),
-            ),
           ],
         ),
       );
@@ -425,26 +443,6 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                   ],
                 );
               },
-            ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                ShadButton.secondary(
-                  onPressed: () => _handlePluginAction(
-                    context,
-                    isLoaded ? 'unload' : 'load',
-                    plugin.id,
-                  ),
-                  child: Text(isLoaded ? 'Unload' : 'Load'),
-                ),
-                const SizedBox(width: 8),
-                ShadButton(
-                  onPressed: () =>
-                      _handlePluginAction(context, 'settings', plugin.id),
-                  child: const Text('Settings'),
-                ),
-              ],
             ),
           ],
         ),

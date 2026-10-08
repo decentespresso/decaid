@@ -80,20 +80,41 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
       appBar: AppBar(
         title: const Text('Web Interface'),
         actions: [
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.add),
-            tooltip: 'Install skin',
-            onSelected: (value) => _handleInstallAction(context, value),
-            itemBuilder: (context) => const [
-              PopupMenuItem<String>(
-                value: 'github-release',
-                child: Text('GitHub Release'),
+          MenuAnchor(
+            builder: (context, controller, child) => IconButton(
+              icon: const Icon(LucideIcons.settings),
+              iconSize: 28,
+              color: ShadTheme.of(context).colorScheme.primary,
+              tooltip: 'Skin actions',
+              onPressed: () =>
+                  controller.isOpen ? controller.close() : controller.open(),
+            ),
+            menuChildren: [
+              MenuItemButton(
+                leadingIcon: const Icon(LucideIcons.refreshCw),
+                onPressed: () => _checkForSkinUpdates(context),
+                child: const Text('Check for updates'),
               ),
-              PopupMenuItem<String>(
-                value: 'github-branch',
-                child: Text('GitHub Branch'),
+              SubmenuButton(
+                leadingIcon: const Icon(LucideIcons.plus),
+                menuChildren: [
+                  MenuItemButton(
+                    onPressed: () =>
+                        _handleInstallAction(context, 'github-release'),
+                    child: const Text('GitHub Release'),
+                  ),
+                  MenuItemButton(
+                    onPressed: () =>
+                        _handleInstallAction(context, 'github-branch'),
+                    child: const Text('GitHub Branch'),
+                  ),
+                  MenuItemButton(
+                    onPressed: () => _handleInstallAction(context, 'zip'),
+                    child: const Text('ZIP file'),
+                  ),
+                ],
+                child: const Text('Install skin'),
               ),
-              PopupMenuItem<String>(value: 'zip', child: Text('ZIP file')),
             ],
           ),
         ],
@@ -168,13 +189,6 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
               ),
             ],
           ),
-        ),
-        const SizedBox(width: 8),
-        _ActionButton.outline(
-          label: 'Check for updates',
-          icon: Icons.refresh,
-          size: ShadButtonSize.sm,
-          onPressed: () => _checkForSkinUpdates(context),
         ),
       ],
     );
@@ -272,6 +286,7 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
         child: DropdownButtonHideUnderline(
           child: DropdownButton<String>(
             borderRadius: BorderRadius.circular(8),
+            isExpanded: true,
             value: _selectedSkinId,
             onChanged: (value) async {
               if (value == null) return;
@@ -296,7 +311,9 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
                         size: 16,
                       ),
                       const SizedBox(width: 8),
-                      Text(skin.name),
+                      Flexible(
+                        child: Text(skin.name, overflow: TextOverflow.ellipsis),
+                      ),
                       if (skin.version != null) ...[
                         const SizedBox(width: 6),
                         Padding(
@@ -387,7 +404,12 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
                     children: [
                       Icon(Icons.folder_open, size: 16),
                       SizedBox(width: 8),
-                      Text('Live-edit from folder...'),
+                      Flexible(
+                        child: Text(
+                          'Live-edit from folder...',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                     ],
                   ),
                 ),

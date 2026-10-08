@@ -66,6 +66,8 @@ void main() {
       expect(find.textContaining('0.2.2'), findsOneWidget);
       expect(find.textContaining('0.2.3'), findsNothing);
 
+      await tester.tap(find.byTooltip('Skin actions'));
+      await tester.pumpAndSettle();
       final updateButton = find.text('Check for updates');
       await tester.ensureVisible(updateButton);
       await tester.tap(updateButton);

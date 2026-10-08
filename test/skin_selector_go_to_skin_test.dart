@@ -139,20 +139,22 @@ void main() {
     TargetPlatform.windows,
     TargetPlatform.linux,
   ]) {
-    testWidgets('live-camera controls on $platform follow platform support', (
-      tester,
-    ) async {
-      SharedPreferences.setMockInitialValues({});
-      await _pumpPage(tester, _FakeWebUIService());
-      await tester.pumpAndSettle();
-      expect(
-        find.text('Live camera access'),
-        platform == TargetPlatform.iOS || platform == TargetPlatform.macOS
-            ? findsOneWidget
-            : findsNothing,
-      );
-      expect(tester.takeException(), isNull);
-    }, variant: TargetPlatformVariant({platform}));
+    testWidgets(
+      'live-camera controls on $platform follow platform support',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        await _pumpPage(tester, _FakeWebUIService());
+        await tester.pumpAndSettle();
+        expect(
+          find.text('Live camera access'),
+          platform == TargetPlatform.iOS || platform == TargetPlatform.macOS
+              ? findsOneWidget
+              : findsNothing,
+        );
+        expect(tester.takeException(), isNull);
+      },
+      variant: TargetPlatformVariant({platform}),
+    );
   }
 
   testWidgets('renders a "Go to skin" button below the skin selector', (
@@ -173,6 +175,9 @@ void main() {
       expect(find.text('Open in browser'), findsOneWidget);
     }
     expect(find.text('Start server'), findsNothing);
+    expect(find.text('Check for updates'), findsNothing);
+    await tester.tap(find.byTooltip('Skin actions'));
+    await tester.pumpAndSettle();
     expect(find.text('Check for updates'), findsOneWidget);
   });
 
