@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
@@ -12,6 +14,7 @@ class _FakeLoader extends Fake implements PluginLoaderService {
 
   final List<PluginManifest> plugins;
   int initializeCalls = 0;
+  int autoLoadChanges = 0;
 
   @override
   Future<void> initialize() async {
@@ -28,6 +31,11 @@ class _FakeLoader extends Fake implements PluginLoaderService {
   Future<bool> shouldAutoLoad(String pluginId) async => false;
 
   @override
+  Future<void> setPluginAutoLoad(String pluginId, bool autoLoad) async {
+    autoLoadChanges++;
+  }
+
+  @override
   PluginManifest? getPluginManifest(String pluginId) {
     for (final plugin in plugins) {
       if (plugin.id == pluginId) return plugin;
@@ -37,9 +45,10 @@ class _FakeLoader extends Fake implements PluginLoaderService {
 }
 
 class _FakeSourceService extends PluginSourceService {
-  _FakeSourceService(super.loader, {this.source});
+  _FakeSourceService(super.loader, {this.source, this.updateCompletion});
 
   final PluginSource? source;
+  final Future<void>? updateCompletion;
   int updateCalls = 0;
   int approvals = 0;
 
@@ -49,6 +58,7 @@ class _FakeSourceService extends PluginSourceService {
   @override
   Future<void> updateAllPlugins() async {
     updateCalls++;
+    if (updateCompletion != null) await updateCompletion;
   }
 
   @override
@@ -156,6 +166,69 @@ void main() {
     await tester.tap(find.text('Refresh plugins'));
     await tester.pumpAndSettle();
     expect(loader.initializeCalls, 2);
+  });
+
+  testWidgets('dismissing plugin actions does not change auto-load', (
+    tester,
+  ) async {
+    final sourceService = _FakeSourceService(_FakeLoader(const []));
+    await pumpView(tester, sourceService: sourceService, plugins: [manifest()]);
+    final loader =
+        tester
+                .widget<PluginsSettingsView>(find.byType(PluginsSettingsView))
+                .pluginLoaderService
+            as _FakeLoader;
+
+    await tester.tap(find.byTooltip('Plugin actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(ShadSwitch));
+    await tester.pumpAndSettle();
+    expect(find.text('Install plugin'), findsNothing);
+    expect(loader.autoLoadChanges, 0);
+
+    await tester.tap(find.byType(ShadSwitch));
+    await tester.pumpAndSettle();
+    expect(loader.autoLoadChanges, 1);
+  });
+
+  testWidgets('plugin update progress stays visible after the menu closes', (
+    tester,
+  ) async {
+    final completion = Completer<void>();
+    final sourceService = _FakeSourceService(
+      _FakeLoader(const []),
+      updateCompletion: completion.future,
+    );
+    await pumpView(tester, sourceService: sourceService);
+
+    await tester.tap(find.byTooltip('Plugin actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Check for updates'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(sourceService.updateCalls, 1);
+    expect(find.text('Check for updates'), findsNothing);
+    final button = find.byWidgetPredicate(
+      (widget) => widget is IconButton && widget.tooltip == 'Plugin actions',
+    );
+    expect(
+      find.descendant(
+        of: button,
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsOneWidget,
+    );
+
+    completion.complete();
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: button,
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsNothing,
+    );
+    expect(find.byIcon(LucideIcons.settings), findsOneWidget);
   });
 
   testWidgets('the installation submenu fits a narrow screen', (tester) async {

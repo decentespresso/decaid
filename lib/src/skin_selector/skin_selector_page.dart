@@ -81,6 +81,7 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
         title: const Text('Web Interface'),
         actions: [
           MenuAnchor(
+            consumeOutsideTap: true,
             builder: (context, controller, child) => IconButton(
               icon: const Icon(LucideIcons.settings),
               iconSize: 28,

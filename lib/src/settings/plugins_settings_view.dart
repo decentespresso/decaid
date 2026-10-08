@@ -178,8 +178,18 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
         title: const Text('Plugins'),
         actions: [
           MenuAnchor(
+            consumeOutsideTap: true,
             builder: (context, controller, child) => IconButton(
-              icon: const Icon(LucideIcons.settings),
+              icon: _isCheckingUpdates
+                  ? SizedBox.square(
+                      dimension: 28,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: ShadTheme.of(context).colorScheme.primary,
+                        semanticsLabel: 'Checking for plugin updates',
+                      ),
+                    )
+                  : const Icon(LucideIcons.settings),
               iconSize: 28,
               color: ShadTheme.of(context).colorScheme.primary,
               tooltip: 'Plugin actions',
@@ -196,13 +206,7 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                 child: const Text('Refresh plugins'),
               ),
               MenuItemButton(
-                leadingIcon: _isCheckingUpdates
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(LucideIcons.cloudDownload),
+                leadingIcon: const Icon(LucideIcons.cloudDownload),
                 onPressed:
                     _isLoading || _loadError != null || _isCheckingUpdates
                     ? null

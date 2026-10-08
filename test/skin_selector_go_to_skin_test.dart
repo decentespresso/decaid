@@ -133,28 +133,44 @@ void main() {
     UrlLauncherPlatform.instance = original;
   });
 
+  testWidgets('dismissing skin actions does not stop the server', (
+    tester,
+  ) async {
+    final service = _FakeWebUIService(serving: true);
+    await _pumpPage(tester, service);
+
+    await tester.tap(find.byTooltip('Skin actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Stop server'));
+    await tester.pumpAndSettle();
+    expect(find.text('Install skin'), findsNothing);
+    expect(service.isServing, isTrue);
+
+    await tester.tap(find.text('Stop server'));
+    await tester.pumpAndSettle();
+    expect(service.isServing, isFalse);
+  });
+
   for (final platform in [
     TargetPlatform.iOS,
     TargetPlatform.macOS,
     TargetPlatform.windows,
     TargetPlatform.linux,
   ]) {
-    testWidgets(
-      'live-camera controls on $platform follow platform support',
-      (tester) async {
-        SharedPreferences.setMockInitialValues({});
-        await _pumpPage(tester, _FakeWebUIService());
-        await tester.pumpAndSettle();
-        expect(
-          find.text('Live camera access'),
-          platform == TargetPlatform.iOS || platform == TargetPlatform.macOS
-              ? findsOneWidget
-              : findsNothing,
-        );
-        expect(tester.takeException(), isNull);
-      },
-      variant: TargetPlatformVariant({platform}),
-    );
+    testWidgets('live-camera controls on $platform follow platform support', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      await _pumpPage(tester, _FakeWebUIService());
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Live camera access'),
+        platform == TargetPlatform.iOS || platform == TargetPlatform.macOS
+            ? findsOneWidget
+            : findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+    }, variant: TargetPlatformVariant({platform}));
   }
 
   testWidgets('renders a "Go to skin" button below the skin selector', (

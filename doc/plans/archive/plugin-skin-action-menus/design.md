@@ -8,6 +8,10 @@ now use a single cogwheel menu with icons and explicit action names.
 
 Both cogwheels use 28-pixel icons and the primary button color from the theme.
 Standard icon-button touch targets and disabled styling remain unchanged.
+Outside taps dismiss either menu without activating the underlying control.
+During plugin update checks, the cogwheel shows a fixed-size, 28-pixel progress
+indicator in the same primary color, so progress remains visible after the menu
+closes.
 
 The Plugins menu retains Refresh plugins, Check for updates, and Install plugin.
 The skin menu retains Check for updates and Install skin. Installation expands
@@ -31,15 +35,17 @@ main and excludes unrelated edits from the original workspace.
 
 ## Verification
 
-- Focused widget tests: 43 passed, including cogwheel size and color assertions
-  and both 320-pixel-wide menu checks.
+- Focused widget tests: 47 passed, including cogwheel size and color assertions,
+  consumed dismissal taps, persistent update progress, both 320-pixel-wide menu
+  checks, and a long, versioned, removable skin name.
 - Flutter-rendered screenshot checks: 2 passed; captures use sample plugin and
   skin data in the original workspace, not the tablet.
-- Full Flutter suite on the PR branch: 4777 passed, 2 skipped.
+- Full Flutter suite on the PR branch: 4781 passed, 2 skipped.
 - Static analysis on the PR branch: no issues found.
 - Changed Dart files pass the formatter check. Existing formatting differences
   elsewhere are left untouched.
-- Verification used Flutter 3.44.8 on Windows with local SDK-pinned dependency
-  resolution. SDK-only lockfile changes and ignored test assets are excluded
-  from the PR. Bundled-skin test assets follow the existing CI stub convention.
-- No tablet deployment. The regular Decaid app was left running and untouched.
+- Verification used Flutter 3.47.6 / Dart 3.13.5 on Windows, matching CI. No
+  tracked lockfile changes. Bundled-skin test assets follow the existing CI stub
+  convention.
+- Tablet interaction verification remains pending. No tablet deployment; the
+  regular Decaid app was left running and untouched.

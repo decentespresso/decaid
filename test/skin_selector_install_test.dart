@@ -15,15 +15,19 @@ class _FakeWebUIService extends Fake implements WebUIService {
 }
 
 class _FakeWebUIStorage extends Fake implements WebUIStorage {
-  final List<WebUISkin> _skins = [
-    WebUISkin(
-      id: 'streamline.js',
-      name: 'Streamline',
-      path: '/tmp/streamline.js',
-      version: '0.2.2',
-      isBundled: true,
-    ),
-  ];
+  _FakeWebUIStorage({WebUISkin? skin})
+    : _skins = [
+        skin ??
+            WebUISkin(
+              id: 'streamline.js',
+              name: 'Streamline',
+              path: '/tmp/streamline.js',
+              version: '0.2.2',
+              isBundled: true,
+            ),
+      ];
+
+  final List<WebUISkin> _skins;
 
   String? releaseRepo;
   String? releaseAsset;
@@ -147,6 +151,32 @@ void main() {
     expect(find.text('GitHub Branch'), findsOneWidget);
     expect(find.text('ZIP file'), findsOneWidget);
     expect(find.text('Advanced'), findsNothing);
+  });
+
+  testWidgets('long removable skin names fit the narrow dropdown', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    const name = 'A very long custom skin name for a narrow display';
+    final storage = _FakeWebUIStorage(
+      skin: WebUISkin(
+        id: 'long-custom-skin',
+        name: name,
+        path: '/tmp/long-custom-skin',
+        version: '1.2.3',
+        isBundled: false,
+      ),
+    );
+    await _pumpPage(tester, storage);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.byType(DropdownButton<String>).first);
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Remove $name').hitTestable(), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('install menu installs a skin from a GitHub release', (
