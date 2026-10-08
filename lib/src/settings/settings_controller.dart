@@ -73,6 +73,7 @@ class SettingsController with ChangeNotifier {
   bool _enableSimulatedWebViews = false;
 
   final Map<FeatureFlag, bool> _featureFlags = {};
+  Future<void> _featureFlagSave = Future.value();
 
   TelemetryService? _telemetryService;
 
@@ -492,10 +493,14 @@ class SettingsController with ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setFeatureFlag(FeatureFlag flag, bool value) async {
-    if (value == _featureFlags[flag]) return;
-    _featureFlags[flag] = value;
-    await _settingsService.setFeatureFlag(flag, value);
-    notifyListeners();
+  Future<void> setFeatureFlag(FeatureFlag flag, bool value) {
+    final save = _featureFlagSave.then((_) async {
+      if (value == _featureFlags[flag]) return;
+      await _settingsService.setFeatureFlag(flag, value);
+      _featureFlags[flag] = value;
+      notifyListeners();
+    });
+    _featureFlagSave = save.catchError((Object _) {});
+    return save;
   }
 }

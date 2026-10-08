@@ -137,6 +137,38 @@ live stream instead.
 
 Windows and Linux camera support remain unchanged.
 
+### Android Composition Diagnostics
+
+The native **Advanced > Skin composition (diagnostic)** selector offers
+**HC (default)** and **TLHC (HC fallback)**. Hybrid composition remains the
+default. The texture-layer option is experimental and persisted through the
+existing feature-flag settings. Changing it recreates the embedded WebView;
+unsaved page state may be lost. Failed saves keep the previous mode selected
+and report the failure. Other platforms are unaffected.
+Selections made while a save is pending are persisted in order, so the last
+selection wins. A failed save does not prevent a queued selection or retry.
+
+With the pinned Android plugin, `useHybridComposition: false` requests
+texture-layer hybrid composition with hybrid fallback, not Virtual Display.
+Impeller remains unchanged. Neither mode is claimed to be faster on all devices.
+
+Creation records in the app log and `webview_console.log` include view ID,
+requested mode, WebView provider/package version, Android SDK, Flutter version
+and revision, Android plugin version and read-back rendering settings. Missing
+or failed probes are recorded as null (Flutter metadata may be `unknown` in
+tests/custom builds). Renderer exits include the view ID, mode and crash data
+in the WebView log. The plugin does not expose which Flutter fallback path
+actually ran: `actualComposition` is explicitly `not-exposed-by-plugin`.
+Read-back settings are not proof that a texture path was selected.
+
+For a comparison, keep device, provider, skin/version and workload fixed;
+record the build and creation record for each run. Warm up each mode, reset
+`dumpsys gfxinfo` for the app package, repeat equal-length swipes and compare
+frame-time percentiles with skin renderer traces. Test keyboard, accessibility,
+native overlays and background/resume separately before retaining a mode.
+Windows unit tests and a Samsung test cannot establish an improvement on the
+reported Teclast P85Pro with WebView 91.
+
 ### Skin Origins and Browser Storage
 
 Each installed skin is served from its own **stable origin** — a port derived
