@@ -839,9 +839,13 @@ class _ActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final leading = Icon(icon, size: 16, color: foregroundColor);
-    final child = Text(
-      label,
-      style: foregroundColor != null ? TextStyle(color: foregroundColor) : null,
+    final child = Flexible(
+      child: Text(
+        label,
+        style: foregroundColor != null
+            ? TextStyle(color: foregroundColor)
+            : null,
+      ),
     );
 
     final ShadButton button = switch (variant) {

@@ -25,7 +25,9 @@ Settings buttons are removed. Loading, installation restrictions, initialization
 errors, and permission approval keep their existing behavior.
 
 The skin dropdown fills its available width and constrains labels so it does not
-overflow the narrow-screen menu regression check.
+overflow the narrow-screen menu regression check. Skin action button labels can
+wrap within their available width, including Linux's longer Open in Browser
+label.
 
 ## Scope
 
@@ -40,7 +42,10 @@ main and excludes unrelated edits from the original workspace.
   checks, and a long, versioned, removable skin name.
 - Flutter-rendered screenshot checks: 2 passed; captures use sample plugin and
   skin data in the original workspace, not the tablet.
-- Full Flutter suite on the PR branch: 4781 passed, 2 skipped.
+- Full Flutter suite on the PR branch with CI's four-worker setting: 4781 passed,
+  2 skipped.
+- A default-concurrency Windows run left six native-JS authority tests
+  incomplete. Their suite passed alone, and the four-worker full run passed.
 - Static analysis on the PR branch: no issues found.
 - Changed Dart files pass the formatter check. Existing formatting differences
   elsewhere are left untouched.
