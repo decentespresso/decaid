@@ -394,6 +394,10 @@ Plugin-created and BLE-backed device connection contexts share
 Publications use the existing plugin-generation, registration/binding and
 connection-session fencing and shared 64 KiB JSON payload bound. Oversized info
 returns `resource_limit`; retired contexts return `stale_session`.
+The shared device-request bridge rejects non-finite JavaScript numbers (`NaN`,
+`Infinity`, `-Infinity`) at any JSON depth with `invalid_argument` before they
+can be converted to `null`. This applies to info, snapshots and other device
+request payloads; explicit `null` remains supported.
 Session info clears when the connection retires, including replacement startup,
 disconnect, failed startup, reported connection/protocol failure, replacement or
 unregister, plugin unload/reload and dispose. Info does not satisfy readiness.
@@ -477,7 +481,8 @@ string (including an empty string) or `null`. Battery is an integer from 0 to
 100 inclusive or `null`; a non-null battery requires the existing `battery`
 capability. Omitted fields preserve accepted values; explicit `null` clears
 that field. Empty objects, unknown keys, malformed values, capability mismatches
-and out-of-range values return `invalid_argument` without changing accepted info.
+and out-of-range values, including `NaN`, `Infinity` and `-Infinity`, return
+`invalid_argument` without changing accepted info.
 
 Accepted info is available to native `DeviceInformationCapable` consumers and
 `GET /api/v1/scale/info`; cleared fields are omitted from the response. Info is

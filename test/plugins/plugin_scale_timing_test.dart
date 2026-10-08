@@ -14,30 +14,34 @@ import '../helpers/scale_timing_shot.dart';
 import 'plugin_test_helpers.dart';
 
 void main() {
-  test(
-    'BLE Scale info uses the session contract and invalid info is recoverable',
-    () async {
-      final manager = PluginManager(kvStore: FakeKeyValueStoreService());
-      var transport = PluginBleFixtureTransport('AA:BB');
-      addTearDown(manager.dispose);
-      await manager.loadPlugin(
-        id: 'info.ble.scale',
-        settings: {},
-        manifest: testManifest(
-          'info.ble.scale',
-          permissions: {PluginPermissions.emit, PluginPermissions.transportBle},
-          drivers: [
-            PluginDriverDeclaration(
-              id: 'scale',
-              type: PluginDriverType.scale,
-              capabilities: {PluginScaleCapability.battery},
-              ble: PluginBleMatcher.fromJson({
-                'serviceUuids': ['180f'],
-              }),
-            ),
-          ],
-        ),
-        jsCode: '''
+  for (final nonFinite in ['NaN', 'Infinity', '-Infinity']) {
+    test(
+      'BLE Scale rejects non-finite info and remains healthy: $nonFinite',
+      () async {
+        final manager = PluginManager(kvStore: FakeKeyValueStoreService());
+        var transport = PluginBleFixtureTransport('AA:BB');
+        addTearDown(manager.dispose);
+        await manager.loadPlugin(
+          id: 'info.ble.scale',
+          settings: {},
+          manifest: testManifest(
+            'info.ble.scale',
+            permissions: {
+              PluginPermissions.emit,
+              PluginPermissions.transportBle,
+            },
+            drivers: [
+              PluginDriverDeclaration(
+                id: 'scale',
+                type: PluginDriverType.scale,
+                capabilities: {PluginScaleCapability.battery},
+                ble: PluginBleMatcher.fromJson({
+                  'serviceUuids': ['180f'],
+                }),
+              ),
+            ],
+          ),
+          jsCode: '''
         function createPlugin(host) {
           globalThis.publishRetainedInfo = () => retainedScaleContext.publishInfo({firmwareVersion:'stale'}).then(
             () => host.emit('retainedInfo', 'accepted'),
@@ -66,85 +70,108 @@ void main() {
           }};
         }
       ''',
-      );
-      final evidence = BleAdvertisementEvidence(serviceUuids: ['180f']);
-      final scale =
-          await manager.bleService.createCandidate(
-                driver: manager.bleService.registry
-                    .decide(evidence)
-                    .drivers
-                    .single,
-                physicalId: 'AA:BB',
-                evidence: evidence,
-                admit: () => true,
-                createTransport: () => transport,
-              )
-              as Scale;
-      await scale.onConnect();
-      final information = scale as DeviceInformationCapable;
-      expect(information.currentDeviceInformation!.toJson(), {
-        'firmwareVersion': 'BLE opaque',
-        'batteryLevel': 0,
-      });
-      Future<String> notification(String update) async {
-        manager.js.evaluate('globalThis.infoUpdate = $update');
-        final result = manager.emitStream.firstWhere(
-          (e) => e['event'] == 'infoUpdate',
         );
-        transport.subscribers.values.single(Uint8List.fromList([53]));
-        return (await result.timeout(const Duration(seconds: 2)))['payload']
-            as String;
-      }
+        final evidence = BleAdvertisementEvidence(serviceUuids: ['180f']);
+        final scale =
+            await manager.bleService.createCandidate(
+                  driver: manager.bleService.registry
+                      .decide(evidence)
+                      .drivers
+                      .single,
+                  physicalId: 'AA:BB',
+                  evidence: evidence,
+                  admit: () => true,
+                  createTransport: () => transport,
+                )
+                as Scale;
+        await scale.onConnect();
+        final information = scale as DeviceInformationCapable;
+        expect(information.currentDeviceInformation!.toJson(), {
+          'firmwareVersion': 'BLE opaque',
+          'batteryLevel': 0,
+        });
+        Future<String> notification(String update) async {
+          manager.js.evaluate('globalThis.infoUpdate = $update');
+          final result = manager.emitStream.firstWhere(
+            (e) => e['event'] == 'infoUpdate',
+          );
+          transport.subscribers.values.single(Uint8List.fromList([53]));
+          return (await result.timeout(const Duration(seconds: 2)))['payload']
+              as String;
+        }
 
-      expect(await notification('{batteryLevel:100}'), 'accepted');
-      expect(information.currentDeviceInformation!.batteryLevel, 100);
-      expect(
-        await notification(
-          "{firmwareVersion:'must not apply', batteryLevel:101}",
-        ),
-        'invalid_argument',
-      );
-      expect(
-        await notification("{firmwareVersion:'x'.repeat(70 * 1024)}"),
-        'resource_limit',
-      );
-      await Future<void>.delayed(const Duration(milliseconds: 30));
-      expect(await scale.connectionState.first, ConnectionState.connected);
-      expect(transport.disconnectCalls, 0);
-      expect(information.currentDeviceInformation!.toJson(), {
-        'firmwareVersion': 'BLE opaque',
-        'batteryLevel': 100,
-      });
-      final weight = manager.emitStream.firstWhere(
-        (e) => e['event'] == 'weight',
-      );
-      expect(
-        await notification('{firmwareVersion:null, batteryLevel:null}'),
-        'accepted',
-      );
-      await weight.timeout(const Duration(seconds: 2));
-      expect(information.currentDeviceInformation, isNull);
-      await scale.disconnect();
-      transport = PluginBleFixtureTransport('AA:BB');
-      manager.js.evaluate('globalThis.infoUpdate = null');
-      await scale.onConnect();
-      final stale = manager.emitStream.firstWhere(
-        (e) => e['event'] == 'retainedInfo',
-      );
-      manager.js.evaluate('globalThis.publishRetainedInfo()');
-      while (manager.js.executePendingJob() > 0) {}
-      expect(
-        (await stale.timeout(const Duration(seconds: 2)))['payload'],
-        'stale_session',
-      );
-      expect(
-        information.currentDeviceInformation!.firmwareVersion,
-        'BLE opaque',
-      );
-      await manager.unloadPlugin('info.ble.scale');
-      expect(information.currentDeviceInformation, isNull);
-    },
-  );
+        expect(await notification('{batteryLevel:100}'), 'accepted');
+        expect(information.currentDeviceInformation!.batteryLevel, 100);
+        expect(
+          await notification(
+            "{firmwareVersion:'must not apply', batteryLevel:101}",
+          ),
+          'invalid_argument',
+        );
+        expect(
+          await notification("{firmwareVersion:'x'.repeat(70 * 1024)}"),
+          'resource_limit',
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(await scale.connectionState.first, ConnectionState.connected);
+        expect(transport.disconnectCalls, 0);
+        expect(information.currentDeviceInformation!.toJson(), {
+          'firmwareVersion': 'BLE opaque',
+          'batteryLevel': 100,
+        });
+        final result = await notification(
+          "{firmwareVersion:'must not apply', batteryLevel:$nonFinite}",
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(
+          {
+            'result': result,
+            'info': information.currentDeviceInformation?.toJson(),
+          },
+          {
+            'result': 'invalid_argument',
+            'info': {'firmwareVersion': 'BLE opaque', 'batteryLevel': 100},
+          },
+        );
+        expect(await scale.connectionState.first, ConnectionState.connected);
+        expect(transport.disconnectCalls, 0);
+        final nextWeight = manager.emitStream.firstWhere(
+          (e) => e['event'] == 'weight',
+        );
+        expect(await notification('{batteryLevel:87}'), 'accepted');
+        await nextWeight.timeout(const Duration(seconds: 2));
+        expect(information.currentDeviceInformation!.batteryLevel, 87);
+        final weight = manager.emitStream.firstWhere(
+          (e) => e['event'] == 'weight',
+        );
+        expect(
+          await notification('{firmwareVersion:null, batteryLevel:null}'),
+          'accepted',
+        );
+        await weight.timeout(const Duration(seconds: 2));
+        expect(information.currentDeviceInformation, isNull);
+        await scale.disconnect();
+        transport = PluginBleFixtureTransport('AA:BB');
+        manager.js.evaluate('globalThis.infoUpdate = null');
+        await scale.onConnect();
+        final stale = manager.emitStream.firstWhere(
+          (e) => e['event'] == 'retainedInfo',
+        );
+        manager.js.evaluate('globalThis.publishRetainedInfo()');
+        while (manager.js.executePendingJob() > 0) {}
+        expect(
+          (await stale.timeout(const Duration(seconds: 2)))['payload'],
+          'stale_session',
+        );
+        expect(
+          information.currentDeviceInformation!.firmwareVersion,
+          'BLE opaque',
+        );
+        await manager.unloadPlugin('info.ble.scale');
+        expect(information.currentDeviceInformation, isNull);
+      },
+    );
+  }
 
   for (final (batchSize, publicationDelay) in [
     (1, 0),

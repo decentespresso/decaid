@@ -20,6 +20,84 @@ import '../helpers/mock_settings_service.dart';
 import 'plugin_test_helpers.dart';
 
 void main() {
+  for (final nonFinite in ['NaN', 'Infinity', '-Infinity']) {
+    test('plugin-created Scale rejects non-finite info: $nonFinite', () async {
+      final manager = PluginManager(kvStore: FakeKeyValueStoreService());
+      addTearDown(manager.dispose);
+      await manager.loadPlugin(
+        id: 'finite.scale',
+        settings: {},
+        manifest: testManifest(
+          'finite.scale',
+          permissions: {PluginPermissions.emit},
+          drivers: [
+            PluginDriverDeclaration(
+              id: 'scale',
+              type: PluginDriverType.scale,
+              capabilities: {PluginScaleCapability.battery},
+            ),
+          ],
+        ),
+        jsCode: '''
+        function createPlugin(host) {
+          return {id:'finite.scale', async onLoad() {
+            await host.devices.register({driverId:'scale', instanceId:'one', name:'Finite Scale'}, {
+              async connect(context) {
+                globalThis.publishScaleInfo = info => context.publishInfo(info).then(
+                  () => host.emit('infoResult', 'accepted'),
+                  error => host.emit('infoResult', error.code)
+                );
+                await context.publishInfo({firmwareVersion:'accepted', batteryLevel:87});
+                await context.publish({weight:1});
+              },
+              disconnect() {}
+            });
+          }};
+        }
+        ''',
+      );
+      final scale =
+          (await manager.deviceService.devices.firstWhere(
+                (list) => list.isNotEmpty,
+              )).single
+              as Scale;
+      await scale.onConnect();
+      final information = scale as DeviceInformationCapable;
+      Future<String> publishInfo(String value) async {
+        final result = manager.emitStream.firstWhere(
+          (e) => e['event'] == 'infoResult',
+        );
+        manager.js.evaluate('globalThis.publishScaleInfo($value)');
+        while (manager.js.executePendingJob() > 0) {}
+        return (await result.timeout(const Duration(seconds: 2)))['payload']
+            as String;
+      }
+
+      final result = await publishInfo(
+        "{firmwareVersion:'must not apply', batteryLevel:$nonFinite}",
+      );
+      expect(
+        {
+          'result': result,
+          'info': information.currentDeviceInformation?.toJson(),
+        },
+        {
+          'result': 'invalid_argument',
+          'info': {'firmwareVersion': 'accepted', 'batteryLevel': 87},
+        },
+      );
+      expect(await publishInfo('{batteryLevel:0}'), 'accepted');
+      expect(information.currentDeviceInformation!.batteryLevel, 0);
+      expect(await publishInfo('{batteryLevel:100}'), 'accepted');
+      expect(information.currentDeviceInformation!.batteryLevel, 100);
+      expect(
+        await publishInfo('{firmwareVersion:null, batteryLevel:null}'),
+        'accepted',
+      );
+      expect(information.currentDeviceInformation, isNull);
+    });
+  }
+
   for (final timers in [true, false]) {
     test(
       'public non-BLE Scale REST/WS and reload with timers=$timers',

@@ -368,6 +368,7 @@ class PluginManager {
         // Add HTTP response handling
         const __nativeSendMessage = sendMessage;
         const __nativeJsonStringify = JSON.stringify.bind(JSON);
+        const __nativeNumberIsFinite = Number.isFinite;
         const __NativePromise = Promise;
         const __NativeError = Error;
         const __nativeFreeze = Object.freeze.bind(Object);
@@ -764,17 +765,30 @@ class PluginManager {
 
         const __devicePending = new Map();
         const __deviceHandlers = new Map();
-        function __sendDeviceMessage(message) {
-          __nativeSendMessage("devices", __nativeJsonStringify(message));
+        function __deviceJsonValue(key, value) {
+          if (typeof value === "number" && !__nativeNumberIsFinite(value)) {
+            const error = new __NativeError("Device payload numbers must be finite");
+            error.code = "invalid_argument";
+            throw error;
+          }
+          return value;
+        }
+        function __sendDeviceMessage(message, replacer) {
+          __nativeSendMessage("devices", __nativeJsonStringify(message, replacer));
         }
         __frozenTransportGlobal("__deviceRequest", function (bridgeToken, generation, requestId, type, payload) {
-          __sendDeviceMessage({
-            bridgeToken: bridgeToken,
-            generation: generation,
-            requestId: requestId,
-            type: type,
-            payload: payload
-          });
+          try {
+            __sendDeviceMessage({
+              bridgeToken: bridgeToken,
+              generation: generation,
+              requestId: requestId,
+              type: type,
+              payload: payload
+            }, __deviceJsonValue);
+          } catch (error) {
+            __mapDelete(__devicePending, requestId);
+            throw error;
+          }
         });
         __frozenTransportGlobal("__deviceRegisterPending", function (requestId, entry) {
           __mapSet(__devicePending, requestId, entry);
