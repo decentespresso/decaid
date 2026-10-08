@@ -370,6 +370,7 @@ class PluginManager {
         const __nativeJsonStringify = JSON.stringify.bind(JSON);
         const __nativeNumberIsFinite = Number.isFinite;
         const __nativeNumberValueOf = Number.prototype.valueOf;
+        const __nativeBigIntValueOf = typeof BigInt === "function" ? BigInt.prototype.valueOf : null;
         const __NativePromise = Promise;
         const __NativeError = Error;
         const __nativeFreeze = Object.freeze.bind(Object);
@@ -766,18 +767,23 @@ class PluginManager {
 
         const __devicePending = new Map();
         const __deviceHandlers = new Map();
-        function __isBoxedNumber(value) {
+        function __isBoxedNumericValue(value) {
           if (value === null || typeof value !== "object") return false;
           try {
             __nativeReflectApply(__nativeNumberValueOf, value, []);
             return true;
-          } catch (_) {
-            return false;
+          } catch (_) {}
+          if (__nativeBigIntValueOf !== null) {
+            try {
+              __nativeReflectApply(__nativeBigIntValueOf, value, []);
+              return true;
+            } catch (_) {}
           }
+          return false;
         }
         function __deviceJsonValue(key, value) {
-          if ((typeof value === "number" && !__nativeNumberIsFinite(value)) || __isBoxedNumber(value)) {
-            const error = new __NativeError("Device payload numbers must be finite and unboxed");
+          if ((typeof value === "number" && !__nativeNumberIsFinite(value)) || typeof value === "bigint" || __isBoxedNumericValue(value)) {
+            const error = new __NativeError("Device payload numbers must be finite, unboxed and not BigInt");
             error.code = "invalid_argument";
             throw error;
           }

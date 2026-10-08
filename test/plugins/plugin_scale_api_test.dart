@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_js/flutter_js.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
@@ -20,6 +21,42 @@ import '../helpers/mock_settings_service.dart';
 import 'plugin_test_helpers.dart';
 
 void main() {
+  test(
+    'device payload guard tolerates an unavailable BigInt intrinsic',
+    () async {
+      final js = getJavascriptRuntime(xhr: false);
+      js.evaluate('delete globalThis.BigInt');
+      final manager = PluginManager(
+        kvStore: FakeKeyValueStoreService(),
+        js: js,
+      );
+      addTearDown(manager.dispose);
+      expect(js.evaluate('typeof BigInt').stringResult, 'undefined');
+      for (final (value, expected) in [
+        ('null', 'accepted'),
+        ('0', 'accepted'),
+        ('100', 'accepted'),
+        ('{}', 'accepted'),
+        ('1n', 'invalid_argument'),
+        ('new Number(0)', 'invalid_argument'),
+      ]) {
+        expect(
+          js.evaluate('''
+          (() => {
+            try {
+              __deviceRequest('unknown', 1, 'probe', 'publishInfo', {batteryLevel:$value});
+              return 'accepted';
+            } catch (error) {
+              return error.code || String(error);
+            }
+          })()
+        ''').stringResult,
+          expected,
+          reason: value,
+        );
+      }
+    },
+  );
   for (final nonFinite in [
     'NaN',
     'Infinity',
@@ -29,6 +66,17 @@ void main() {
     'new Number(-Infinity)',
     'new Number(0)',
     'new Number(100)',
+    '1n',
+    'Object(1n)',
+    '''(() => {
+      const boxed = Object(1n);
+      boxed[Symbol.toStringTag] = 'Object';
+      BigInt.prototype.valueOf = () => 0;
+      Reflect.apply = () => 0;
+      Object.prototype.toString = () => '[object Object]';
+      globalThis.BigInt = undefined;
+      return boxed;
+    })()''',
     '''(() => {
       const boxed = new Number(NaN);
       boxed[Symbol.toStringTag] = 'Object';

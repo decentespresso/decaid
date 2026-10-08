@@ -395,8 +395,9 @@ Publications use the existing plugin-generation, registration/binding and
 connection-session fencing and shared 64 KiB JSON payload bound. Oversized info
 returns `resource_limit`; retired contexts return `stale_session`.
 The shared device-request bridge rejects non-finite JavaScript numbers (`NaN`,
-`Infinity`, `-Infinity`) and all boxed numbers (`new Number(...)`, including finite
-values) at any JSON depth with `invalid_argument` before serialization. This
+`Infinity`, `-Infinity`), all boxed numbers (`new Number(...)`, including finite
+values), and primitive or boxed BigInt values (`1n`, `Object(1n)`) at any JSON depth
+with `invalid_argument` before serialization. This
 applies to info, snapshots and other device request payloads; explicit `null`
 remains supported.
 Session info clears when the connection retires, including replacement startup,
@@ -482,8 +483,9 @@ string (including an empty string) or `null`. Battery is an integer from 0 to
 100 inclusive or `null`; a non-null battery requires the existing `battery`
 capability. Omitted fields preserve accepted values; explicit `null` clears
 that field. Empty objects, unknown keys, malformed values, capability mismatches
-and out-of-range values, including `NaN`, `Infinity`, `-Infinity` and all boxed
-numbers, return `invalid_argument` without changing accepted info.
+and out-of-range values, including `NaN`, `Infinity`, `-Infinity`, all boxed
+numbers, and primitive or boxed BigInt values, return `invalid_argument` without
+changing accepted info.
 
 Accepted info is available to native `DeviceInformationCapable` consumers and
 `GET /api/v1/scale/info`; cleared fields are omitted from the response. Info is

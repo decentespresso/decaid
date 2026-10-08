@@ -23,6 +23,17 @@ void main() {
     'new Number(-Infinity)',
     'new Number(0)',
     'new Number(100)',
+    '1n',
+    'Object(1n)',
+    '''(() => {
+      const boxed = Object(1n);
+      boxed[Symbol.toStringTag] = 'Object';
+      BigInt.prototype.valueOf = () => 0;
+      Reflect.apply = () => 0;
+      Object.prototype.toString = () => '[object Object]';
+      globalThis.BigInt = undefined;
+      return boxed;
+    })()''',
     '''(() => {
       const boxed = new Number(NaN);
       boxed[Symbol.toStringTag] = 'Object';
