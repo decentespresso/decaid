@@ -387,6 +387,20 @@ predicate makes the matcher a non-match. A definite match cannot win against an
 indeterminate competing driver. Two definite matches conflict. Discovery and connection
 admission still need to use these arbitration primitives.
 
+### Runtime-v2 session info
+
+Plugin-created and BLE-backed device connection contexts share
+`context.publishInfo(info)`. The device type defines the accepted fields.
+Publications use the existing plugin-generation, registration/binding and
+connection-session fencing and shared 64 KiB JSON payload bound. Oversized info
+returns `resource_limit`; retired contexts return `stale_session`.
+Session info clears when the connection retires, including replacement startup,
+disconnect, failed startup, reported connection/protocol failure, replacement or
+unregister, plugin unload/reload and dispose. Info does not satisfy readiness.
+Invalid info may propagate from a BLE notification callback without retiring an
+otherwise healthy connection; snapshot and protocol failures retain their
+existing failure semantics.
+
 ### Non-BLE Scale Registration
 
 Declare a Scale driver in the manifest. No `transport.ble` permission is needed:
@@ -448,6 +462,28 @@ Readiness requires both successful `connect` completion and a valid weight.
 Up to 256 initialization samples are retained for controller activation, then
 delivered once. Initialization is bounded; invalid samples cannot mark ready.
 Publication-ingress timestamps are provisional pending the required timing gate.
+
+#### Scale session info
+
+Both plugin-created and BLE-backed Scales use the
+[shared runtime-v2 session info lifecycle](#runtime-v2-session-info):
+
+```javascript
+await context.publishInfo({firmwareVersion: "R029", batteryLevel: 87});
+```
+
+Only `firmwareVersion` and `batteryLevel` are accepted. Firmware is an opaque
+string (including an empty string) or `null`. Battery is an integer from 0 to
+100 inclusive or `null`; a non-null battery requires the existing `battery`
+capability. Omitted fields preserve accepted values; explicit `null` clears
+that field. Empty objects, unknown keys, malformed values, capability mismatches
+and out-of-range values return `invalid_argument` without changing accepted info.
+
+Accepted info is available to native `DeviceInformationCapable` consumers and
+`GET /api/v1/scale/info`; cleared fields are omitted from the response. Info is
+separate from weight snapshots and does not replace the valid-weight readiness
+requirement. No info enters device inventory, persistence or a new WebSocket.
+Existing v1 Scale plugins that never call `publishInfo` remain compatible.
 
 ### Grinder Registration
 
