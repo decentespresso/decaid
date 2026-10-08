@@ -369,6 +369,7 @@ class PluginManager {
         const __nativeSendMessage = sendMessage;
         const __nativeJsonStringify = JSON.stringify.bind(JSON);
         const __nativeNumberIsFinite = Number.isFinite;
+        const __nativeNumberValueOf = Number.prototype.valueOf;
         const __NativePromise = Promise;
         const __NativeError = Error;
         const __nativeFreeze = Object.freeze.bind(Object);
@@ -765,9 +766,18 @@ class PluginManager {
 
         const __devicePending = new Map();
         const __deviceHandlers = new Map();
+        function __isBoxedNumber(value) {
+          if (value === null || typeof value !== "object") return false;
+          try {
+            __nativeReflectApply(__nativeNumberValueOf, value, []);
+            return true;
+          } catch (_) {
+            return false;
+          }
+        }
         function __deviceJsonValue(key, value) {
-          if (typeof value === "number" && !__nativeNumberIsFinite(value)) {
-            const error = new __NativeError("Device payload numbers must be finite");
+          if ((typeof value === "number" && !__nativeNumberIsFinite(value)) || __isBoxedNumber(value)) {
+            const error = new __NativeError("Device payload numbers must be finite and unboxed");
             error.code = "invalid_argument";
             throw error;
           }

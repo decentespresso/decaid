@@ -14,7 +14,26 @@ import '../helpers/scale_timing_shot.dart';
 import 'plugin_test_helpers.dart';
 
 void main() {
-  for (final nonFinite in ['NaN', 'Infinity', '-Infinity']) {
+  for (final nonFinite in [
+    'NaN',
+    'Infinity',
+    '-Infinity',
+    'new Number(NaN)',
+    'new Number(Infinity)',
+    'new Number(-Infinity)',
+    'new Number(0)',
+    'new Number(100)',
+    '''(() => {
+      const boxed = new Number(NaN);
+      boxed[Symbol.toStringTag] = 'Object';
+      Number.prototype.valueOf = () => 0;
+      Reflect.apply = () => 0;
+      Object.prototype.toString = () => '[object Object]';
+      globalThis.Number = function () {};
+      Number.isFinite = () => true;
+      return boxed;
+    })()''',
+  ]) {
     test(
       'BLE Scale rejects non-finite info and remains healthy: $nonFinite',
       () async {
@@ -58,7 +77,7 @@ void main() {
                       await context.publishInfo(globalThis.infoUpdate);
                       host.emit('infoUpdate', 'accepted');
                     } catch (error) {
-                      host.emit('infoUpdate', error.code);
+                      host.emit('infoUpdate', error.code || String(error));
                       throw error;
                     }
                   }
@@ -126,15 +145,25 @@ void main() {
         expect(
           {
             'result': result,
+            'disconnectCalls': transport.disconnectCalls,
+            'connectionState': await scale.connectionState.first,
             'info': information.currentDeviceInformation?.toJson(),
           },
           {
             'result': 'invalid_argument',
+            'disconnectCalls': 0,
+            'connectionState': ConnectionState.connected,
             'info': {'firmwareVersion': 'BLE opaque', 'batteryLevel': 100},
           },
         );
         expect(await scale.connectionState.first, ConnectionState.connected);
         expect(transport.disconnectCalls, 0);
+        final boundaryWeight = manager.emitStream.firstWhere(
+          (e) => e['event'] == 'weight',
+        );
+        expect(await notification('{batteryLevel:100}'), 'accepted');
+        await boundaryWeight.timeout(const Duration(seconds: 2));
+        expect(information.currentDeviceInformation!.batteryLevel, 100);
         final nextWeight = manager.emitStream.firstWhere(
           (e) => e['event'] == 'weight',
         );

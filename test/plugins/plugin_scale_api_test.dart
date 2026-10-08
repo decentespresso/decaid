@@ -20,7 +20,26 @@ import '../helpers/mock_settings_service.dart';
 import 'plugin_test_helpers.dart';
 
 void main() {
-  for (final nonFinite in ['NaN', 'Infinity', '-Infinity']) {
+  for (final nonFinite in [
+    'NaN',
+    'Infinity',
+    '-Infinity',
+    'new Number(NaN)',
+    'new Number(Infinity)',
+    'new Number(-Infinity)',
+    'new Number(0)',
+    'new Number(100)',
+    '''(() => {
+      const boxed = new Number(NaN);
+      boxed[Symbol.toStringTag] = 'Object';
+      Number.prototype.valueOf = () => 0;
+      Reflect.apply = () => 0;
+      Object.prototype.toString = () => '[object Object]';
+      globalThis.Number = function () {};
+      Number.isFinite = () => true;
+      return boxed;
+    })()''',
+  ]) {
     test('plugin-created Scale rejects non-finite info: $nonFinite', () async {
       final manager = PluginManager(kvStore: FakeKeyValueStoreService());
       addTearDown(manager.dispose);
@@ -45,7 +64,7 @@ void main() {
               async connect(context) {
                 globalThis.publishScaleInfo = info => context.publishInfo(info).then(
                   () => host.emit('infoResult', 'accepted'),
-                  error => host.emit('infoResult', error.code)
+                  error => host.emit('infoResult', error.code || String(error))
                 );
                 await context.publishInfo({firmwareVersion:'accepted', batteryLevel:87});
                 await context.publish({weight:1});
