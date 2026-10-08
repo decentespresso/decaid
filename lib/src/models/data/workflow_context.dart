@@ -7,6 +7,7 @@ class WorkflowContext {
 
   final String? grinderId;
   final String? grinderModel;
+  final String? grinderBurrs;
   final String? grinderSetting;
 
   final String? beanBatchId;
@@ -26,6 +27,7 @@ class WorkflowContext {
     this.targetWaterVolume,
     this.grinderId,
     this.grinderModel,
+    this.grinderBurrs,
     this.grinderSetting,
     this.beanBatchId,
     this.coffeeName,
@@ -48,6 +50,7 @@ class WorkflowContext {
       targetWaterVolume: parseOptionalDouble(json['targetWaterVolume']),
       grinderId: parseOptionalString(json['grinderId']),
       grinderModel: parseOptionalString(json['grinderModel']),
+      grinderBurrs: parseOptionalString(json['grinderBurrs']),
       grinderSetting: parseOptionalString(json['grinderSetting']),
       beanBatchId: parseOptionalString(json['beanBatchId']),
       coffeeName: parseOptionalString(json['coffeeName']),
@@ -66,6 +69,7 @@ class WorkflowContext {
       if (targetWaterVolume != null) 'targetWaterVolume': targetWaterVolume,
       if (grinderId != null) 'grinderId': grinderId,
       if (grinderModel != null) 'grinderModel': grinderModel,
+      if (grinderBurrs != null) 'grinderBurrs': grinderBurrs,
       if (grinderSetting != null) 'grinderSetting': grinderSetting,
       if (beanBatchId != null) 'beanBatchId': beanBatchId,
       if (coffeeName != null) 'coffeeName': coffeeName,
@@ -83,6 +87,7 @@ class WorkflowContext {
     targetWaterVolume: targetWaterVolume,
     grinderId: null,
     grinderModel: null,
+    grinderBurrs: null,
     grinderSetting: grinderSetting,
     beanBatchId: beanBatchId,
     coffeeName: coffeeName,
@@ -99,6 +104,7 @@ class WorkflowContext {
     targetWaterVolume: targetWaterVolume,
     grinderId: grinderId,
     grinderModel: grinderModel,
+    grinderBurrs: grinderBurrs,
     grinderSetting: grinderSetting,
     beanBatchId: null,
     coffeeName: null,
@@ -116,6 +122,8 @@ class WorkflowContext {
     bool clearTargetWaterVolume = false,
     String? grinderId,
     String? grinderModel,
+    String? grinderBurrs,
+    bool clearGrinderBurrs = false,
     String? grinderSetting,
     String? beanBatchId,
     String? coffeeName,
@@ -133,6 +141,9 @@ class WorkflowContext {
           : targetWaterVolume ?? this.targetWaterVolume,
       grinderId: grinderId ?? this.grinderId,
       grinderModel: grinderModel ?? this.grinderModel,
+      grinderBurrs: clearGrinderBurrs
+          ? null
+          : grinderBurrs ?? this.grinderBurrs,
       grinderSetting: grinderSetting ?? this.grinderSetting,
       beanBatchId: beanBatchId ?? this.beanBatchId,
       coffeeName: coffeeName ?? this.coffeeName,
@@ -159,6 +170,7 @@ class WorkflowContext {
         other.targetWaterVolume == targetWaterVolume &&
         other.grinderId == grinderId &&
         other.grinderModel == grinderModel &&
+        other.grinderBurrs == grinderBurrs &&
         other.grinderSetting == grinderSetting &&
         other.beanBatchId == beanBatchId &&
         other.coffeeName == coffeeName &&
@@ -176,6 +188,7 @@ class WorkflowContext {
     targetWaterVolume,
     grinderId,
     grinderModel,
+    grinderBurrs,
     grinderSetting,
     beanBatchId,
     coffeeName,

@@ -2,14 +2,19 @@ import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
 import 'package:reaprime/src/models/data/steam_record.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
+import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
 import 'package:reaprime/src/services/storage/storage_service.dart';
 import 'package:rxdart/rxdart.dart';
 
 class PersistenceController {
   final StorageService storageService;
+  final GrinderStorageService? grinderStorageService;
   final _log = Logger("PersistenceController");
 
-  PersistenceController({required this.storageService});
+  PersistenceController({
+    required this.storageService,
+    this.grinderStorageService,
+  });
 
   void Function(String shotId)? onShotStored;
 
@@ -30,12 +35,41 @@ class PersistenceController {
   Future<void> persistShot(ShotRecord record) async {
     _log.info("Storing shot");
     try {
-      await storageService.storeShot(record);
+      await storageService.storeShot(await _withGrinderBurrsSnapshot(record));
       _shotsChangedSubject.add(null);
       onShotStored?.call(record.id);
     } catch (e, st) {
       _log.severe("Error saving shot:", e, st);
     }
+  }
+
+  Future<ShotRecord> _withGrinderBurrsSnapshot(ShotRecord record) async {
+    final context = record.workflow.context;
+    final grinderId = context?.grinderId;
+    if (grinderId == null) return record;
+
+    final grinders = grinderStorageService;
+    if (grinders == null) return record;
+
+    String? burrs;
+    try {
+      burrs = (await grinders.getGrinderById(grinderId))?.burrs;
+    } catch (e, st) {
+      _log.warning("Could not read grinder burrs for shot", e, st);
+      burrs = null;
+    }
+    if (burrs != null && burrs.trim().isEmpty) burrs = null;
+    if (burrs == context!.grinderBurrs) return record;
+
+    return record.copyWith(
+      workflow: record.workflow.copyWith(
+        id: record.workflow.id,
+        context: context.copyWith(
+          grinderBurrs: burrs,
+          clearGrinderBurrs: burrs == null,
+        ),
+      ),
+    );
   }
 
   Future<void> updateShot(ShotRecord record) async {

@@ -157,6 +157,31 @@ void main() {
       },
     );
 
+    test(
+      'PUT clears the grinder burrs snapshot with an explicit null',
+      () async {
+        await persistence.persistShot(
+          makeShot(id: 'burrs', grinderModel: 'EG1', grinderBurrs: 'Core'),
+        );
+
+        final (putJson, getJson) = await putAndGet('burrs', {
+          'workflow': {
+            'context': {
+              'grinderModel': 'EG1 (Lab Sweet)',
+              'grinderBurrs': null,
+            },
+          },
+        });
+
+        for (final json in [putJson, getJson]) {
+          final context =
+              (json['workflow'] as Map)['context'] as Map<String, dynamic>;
+          expect(context['grinderModel'], 'EG1 (Lab Sweet)');
+          expect(context.containsKey('grinderBurrs'), isFalse);
+        }
+      },
+    );
+
     test('legacy shotNotes updates canonical notes and persists', () async {
       await persistAnnotatedShot();
 
@@ -581,6 +606,8 @@ ShotRecord makeShot({
   String? beanBatchId,
   String? coffeeName,
   String? coffeeRoaster,
+  String? grinderModel,
+  String? grinderBurrs,
   ShotAnnotations? annotations,
 }) {
   final workflow = WorkflowController().currentWorkflow.copyWith(
@@ -588,6 +615,8 @@ ShotRecord makeShot({
       beanBatchId: beanBatchId,
       coffeeName: coffeeName,
       coffeeRoaster: coffeeRoaster,
+      grinderModel: grinderModel,
+      grinderBurrs: grinderBurrs,
     ),
   );
   return ShotRecord(

@@ -12,6 +12,7 @@ class PluginDeviceSurfaceAuthority {
   List<Map<String, String>> resolve(
     String deviceId, {
     List<String>? available,
+    String? deviceName,
   }) => List.unmodifiable(
     declaredSurfaces
         .where((surface) => available == null || available.contains(surface.id))
@@ -29,7 +30,11 @@ class PluginDeviceSurfaceAuthority {
                 pluginId,
                 surface.endpoint,
               ],
-              queryParameters: {'ui': '1', 'deviceId': deviceId},
+              queryParameters: {
+                'ui': '1',
+                'deviceId': deviceId,
+                'deviceName': ?deviceName,
+              },
             ).toString(),
           }),
         ),

@@ -388,12 +388,13 @@ void main(List<String> args) async {
     return;
   }
 
-  final persistenceController = PersistenceController(
-    storageService: DriftStorageService(appDatabase),
-  );
-
   final beanStorage = DriftBeanStorageService(appDatabase);
   final grinderStorage = DriftGrinderStorageService(appDatabase);
+
+  final persistenceController = PersistenceController(
+    storageService: DriftStorageService(appDatabase),
+    grinderStorageService: grinderStorage,
+  );
   final profileStorage = DriftProfileStorageService(appDatabase);
 
   final WorkflowController workflowController = WorkflowController();
