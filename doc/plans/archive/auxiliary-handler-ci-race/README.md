@@ -106,5 +106,56 @@ Raw events, stderr, stalled copies, wrappers, and validation results remain in
 this worktree's ignored build/test-results/response-timeout/. The older stress
 record above refers to the previous test version, not this updated source.
 
+## Targeted Cancellation Review
+
+On 8 October 2026, review 5452257460 identifies that `changes.skip(1).first`
+accepts an unrelated registry notification as cancellation. Registry events
+carry a version rather than a device ID.
+
+The suggested `!isReserved(id)` predicate cannot complete before fake-connect
+release. `_cancelPending()` marks the pending operation cancelled but retains
+its reservation until `onConnect()` settles and connection cleanup finishes.
+The WebSocket disconnect command also has no success response to await.
+
+Use a test-only registry subclass through the existing constructor injection.
+It delegates disconnect to the real registry and emits the device ID after a
+successful result. Filter for the target ID before releasing the fake connect.
+Start the five-second cancellation timeout after sending the target command.
+Assert that cancellation keeps the reservation until late-connect cleanup.
+The observer closes its stream during disposal. Production code stays unchanged.
+
+The affected test connects and disconnects an unrelated scale before sending
+the target command. Its cancellation wait must remain pending. Test-first
+verification with the original wait fails this assertion with `Expected: false`
+and `Actual: true`; teardown also reports `Bad state: No element` after that
+failure. The targeted wait passes the same regression and the existing checks.
+
+Current verification uses Windows 11, Flutter 3.47.5 / Dart 3.13.4:
+
+- `dart format lib test`: 916 files, 1 formatted.
+- Focused auxiliary handler suite, four workers, seed 20261007: 11 passed.
+- `flutter analyze --no-pub`: no issues found, 81.6 seconds.
+- Full four-worker suite: 4741 passed, 0 failed, 2 skipped; exit 0, no error
+  events, empty stderr. Machine duration 159896ms; wall time 163.094s.
+  The existing 20000ms active-time gate passed.
+- Current affected WS test: 1000 passed, 0 failed, 0 skipped, no retries;
+  exit 0, no error events, empty stderr. Fresh wrapper suites use a four-suite
+  `setUpAll` barrier before original fixtures. Machine events verify four
+  overlapping affected executions, including setup and teardown. Machine
+  duration 360584ms; wall time 366.790s. Keep normal timeouts and security limits.
+
+Current test SHA-256:
+`5fbdd2dd341b77695949d240529590018487ee69cc440a88efb29fad31878636`
+
+Current full-suite event SHA-256:
+`d3e401eb12702c5792d73027610d889e916f04b7d29265262dc3f8e57fcbc085`
+
+Current stress event SHA-256:
+`23c6cd5f933b8560731466a4c61245c9d85d49bda78ef91a4a29c430ba49269b`
+
+Raw events, stderr, the failing test-first source, wrappers and validator remain
+in this worktree's ignored build/test-results/cancellation-state/. The previous
+sections describe earlier test versions.
+
 No API/spec, device-flow, plugin, skin, profile, or migration documentation changes
 are needed because this change affects only test synchronization and cleanup.
