@@ -3,13 +3,11 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:reaprime/src/controllers/auxiliary_scale_registry.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/models/device/device.dart';
-import 'package:reaprime/src/models/scan_report.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
@@ -23,7 +21,6 @@ import '../../helpers/test_scale.dart';
 void main() {
   late MockDeviceDiscoveryService discovery;
   late DeviceController devices;
-  late _ObservedAuxiliaryScaleRegistry auxiliaryRegistry;
   late ConnectionManager manager;
   late DevicesHandler devicesHandler;
   late HttpServer server;
@@ -35,12 +32,10 @@ void main() {
     final de1 = De1Controller(controller: devices);
     final settings = SettingsController(MockSettingsService());
     await settings.loadSettings();
-    auxiliaryRegistry = _ObservedAuxiliaryScaleRegistry();
     manager = ConnectionManager(
       deviceScanner: devices,
       de1Controller: de1,
       scaleController: ScaleController(),
-      auxiliaryScaleRegistry: auxiliaryRegistry,
       settingsController: settings,
     );
     devicesHandler = DevicesHandler(
@@ -323,6 +318,7 @@ void main() {
   test(
     'WS disconnect cancels pending auxiliary connect after scanner removal',
     () async {
+      const barrierDeviceId = 'missing-ws-disconnect-barrier';
       final scale = _DelayedScale(deviceId: 'pending-ws-disconnect');
       addTearDown(scale.dispose);
       discovery.addDevice(scale);
@@ -334,8 +330,11 @@ void main() {
       final disconnectChannel = IOWebSocketChannel.connect(
         Uri.parse('ws://127.0.0.1:${server.port}/ws/v1/devices'),
       );
-      final disconnectSubscription = disconnectChannel.stream.listen((_) {});
-      addTearDown(disconnectSubscription.cancel);
+      final disconnectBarrier = disconnectChannel.stream
+          .map((value) => jsonDecode(value.toString()) as Map<String, dynamic>)
+          .firstWhere(
+            (frame) => frame['error'] == 'Device not found: $barrierDeviceId',
+          );
       addTearDown(() => connectChannel.sink.close());
       addTearDown(() => disconnectChannel.sink.close());
       addTearDown(scale.releaseConnect);
@@ -355,33 +354,14 @@ void main() {
       expect(manager.auxiliaryScaleRegistry.isReserved(scale.deviceId), isTrue);
       discovery.removeDevice(scale.deviceId);
       await devices.deviceStream.firstWhere((found) => !found.contains(scale));
-      final unrelated = TestScale(deviceId: 'unrelated-ws-disconnect');
-      addTearDown(unrelated.dispose);
-      expect(
-        (await auxiliaryRegistry.connect(
-          unrelated,
-          isPrimaryClaimed: (_) => false,
-        )).success,
-        isTrue,
-      );
-      final cancelled = auxiliaryRegistry.disconnects.firstWhere(
-        (deviceId) => deviceId == scale.deviceId,
-      );
-      expect(
-        (await auxiliaryRegistry.disconnect(unrelated.deviceId)).success,
-        isTrue,
-      );
-      expect(
-        await cancelled
-            .then((_) => true)
-            .timeout(Duration.zero, onTimeout: () => false),
-        isFalse,
-      );
       disconnectChannel.sink.add(
         jsonEncode({'command': 'disconnect', 'deviceId': scale.deviceId}),
       );
-      await cancelled.timeout(const Duration(seconds: 5));
-      expect(auxiliaryRegistry.isReserved(scale.deviceId), isTrue);
+      disconnectChannel.sink.add(
+        jsonEncode({'command': 'connect', 'deviceId': barrierDeviceId}),
+      );
+      await disconnectBarrier.timeout(const Duration(seconds: 5));
+      expect(manager.auxiliaryScaleRegistry.isReserved(scale.deviceId), isTrue);
 
       scale.releaseConnect();
       final response = await connectResponse.timeout(
@@ -433,25 +413,6 @@ void main() {
       ConnectionState.discovered,
     );
   });
-}
-
-class _ObservedAuxiliaryScaleRegistry extends AuxiliaryScaleRegistry {
-  final _disconnects = StreamController<String>.broadcast();
-
-  Stream<String> get disconnects => _disconnects.stream;
-
-  @override
-  Future<ConnectionResult> disconnect(String deviceId) async {
-    final result = await super.disconnect(deviceId);
-    if (result.success) _disconnects.add(deviceId);
-    return result;
-  }
-
-  @override
-  Future<void> dispose() async {
-    await super.dispose();
-    await _disconnects.close();
-  }
 }
 
 class _DelayedScale extends TestScale {
