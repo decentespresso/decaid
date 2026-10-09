@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -13,6 +14,17 @@ import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'plugin_test_helpers.dart';
+
+class _FailingSeedSourceService extends PluginSourceService {
+  _FailingSeedSourceService(super.loader);
+
+  bool fail = true;
+
+  @override
+  void seedBundledSources() {
+    if (fail) throw StateError('source unavailable');
+  }
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -141,6 +153,56 @@ function createPlugin() {
       await loader.dispose();
       if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
     });
+
+    test(
+      'concurrent plugin checks share one future and allow another check',
+      () async {
+        await http.runWithClient(
+          () => service.installFromGitHubRelease('acme/plugin'),
+          gitHubClient,
+        );
+        final release = Completer<http.Response>();
+        var releaseRequests = 0;
+        await http.runWithClient(
+          () async {
+            final first = service.updateAllPlugins();
+            final second = service.updateAllPlugins();
+            try {
+              expect(second, same(first));
+              expect(service.updateCheck.value, same(first));
+            } finally {
+              release.complete(http.Response(releaseJson('v1.0.0', []), 200));
+              await Future.wait([first, second]);
+            }
+            expect(releaseRequests, 1);
+            expect(service.updateCheck.value, isNull);
+            await service.updateAllPlugins();
+            expect(releaseRequests, 2);
+          },
+          () => MockClient((request) async {
+            if (!request.url.path.contains('/acme/plugin/')) {
+              return http.Response('', 404);
+            }
+            releaseRequests++;
+            return release.future;
+          }),
+        );
+      },
+    );
+
+    test(
+      'failed plugin checks clear the shared future and allow retry',
+      () async {
+        final failing = _FailingSeedSourceService(loader);
+        final first = failing.updateAllPlugins();
+        expect(failing.updateCheck.value, same(first));
+        await expectLater(first, throwsStateError);
+        expect(failing.updateCheck.value, isNull);
+        failing.fail = false;
+        await failing.updateAllPlugins();
+        expect(failing.updateCheck.value, isNull);
+      },
+    );
 
     test('installs from a GitHub release and records provenance', () async {
       await http.runWithClient(

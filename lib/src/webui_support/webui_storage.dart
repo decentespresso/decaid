@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:logging/logging.dart';
 import 'package:http/http.dart' as http;
@@ -146,9 +146,12 @@ class WebUIStorage {
   final Map<String, WebUISkin> _installedSkins = {};
   final Map<String, WebUIReaMetadata> _skinMetadata = {};
   bool _initialized = false;
+  final ValueNotifier<Future<void>?> _updateCheck = ValueNotifier(null);
 
   WebUIStorage(this._settingsController, {Directory? webUIDir})
     : _webUIDirOverride = webUIDir;
+
+  ValueListenable<Future<void>?> get updateCheck => _updateCheck;
 
   @visibleForTesting
   static bool get diagnosticsSkinEnabled => bool.fromEnvironment('diagnostics');
@@ -481,7 +484,10 @@ class WebUIStorage {
     await _scanInstalledSkins();
   }
 
-  Future<void> updateAllSkins() async {
+  Future<void> updateAllSkins() => _updateCheck.value ??= _updateAllSkins()
+      .whenComplete(() => _updateCheck.value = null);
+
+  Future<void> _updateAllSkins() async {
     _log.info('Starting update check for all skins');
 
     try {
