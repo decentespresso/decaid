@@ -7,6 +7,7 @@ import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'package:reaprime/src/plugins/plugin_source.dart';
 import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/settings/plugins_settings_view.dart';
+import 'package:reaprime/src/widgets/page_action_menu.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 class _FakeLoader extends Fake implements PluginLoaderService {
@@ -114,6 +115,7 @@ void main() {
     final sourceService = _FakeSourceService(_FakeLoader(const []));
     await pumpView(tester, sourceService: sourceService);
 
+    expect(find.byType(PageActionMenu), findsOneWidget);
     expect(find.byTooltip('Plugin actions'), findsOneWidget);
     final cogwheel = find.widgetWithIcon(IconButton, LucideIcons.settings);
     final button = tester.widget<IconButton>(cogwheel);
@@ -203,7 +205,13 @@ void main() {
 
     await tester.tap(find.byTooltip('Plugin actions'));
     await tester.pumpAndSettle();
+    final startCheck = tester
+        .widget<MenuItemButton>(
+          find.widgetWithText(MenuItemButton, 'Check for updates'),
+        )
+        .onPressed!;
     await tester.tap(find.text('Check for updates'));
+    startCheck();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(sourceService.updateCalls, 1);
@@ -219,6 +227,18 @@ void main() {
       findsOneWidget,
     );
 
+    await tester.tap(find.byTooltip('Plugin actions'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(
+      tester
+          .widget<MenuItemButton>(
+            find.widgetWithText(MenuItemButton, 'Check for updates'),
+          )
+          .onPressed,
+      isNull,
+    );
+
     completion.complete();
     await tester.pumpAndSettle();
     expect(
@@ -229,6 +249,25 @@ void main() {
       findsNothing,
     );
     expect(find.byIcon(LucideIcons.settings), findsOneWidget);
+  });
+
+  testWidgets('plugin check completion after leaving the page is safe', (
+    tester,
+  ) async {
+    final completion = Completer<void>();
+    final sourceService = _FakeSourceService(
+      _FakeLoader(const []),
+      updateCompletion: completion.future,
+    );
+    await pumpView(tester, sourceService: sourceService);
+    await tester.tap(find.byTooltip('Plugin actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Check for updates'));
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox.shrink());
+    completion.complete();
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('the installation submenu fits a narrow screen', (tester) async {

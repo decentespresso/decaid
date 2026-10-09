@@ -3566,6 +3566,9 @@ Decaid tracks skin metadata in `.rea_metadata.json`:
   runs on the app's periodic update check, from `POST /api/v1/webui/skins/update`,
   from the web settings plugin's "Check for Skin Updates", and from the native
   skin page's cogwheel menu under **Check for updates**.
+- During a manual check on the native skin page, the cogwheel shows progress
+  and **Check for updates** is disabled until the check finishes, including
+  after a failure. The menu can still be opened to access installation.
 - Raw-URL and GitHub-release skins are compared against their recorded source
   on every check: URL skins via HTTP `ETag` / `Last-Modified` headers,
   release skins by re-resolving the latest release (honoring the recorded

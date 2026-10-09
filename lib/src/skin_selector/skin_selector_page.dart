@@ -8,6 +8,7 @@ import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/skin_feature/skin_view.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
+import 'package:reaprime/src/widgets/page_action_menu.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:reaprime/src/skin_feature/skin_camera_controls.dart';
@@ -80,43 +81,12 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
       appBar: AppBar(
         title: const Text('Web Interface'),
         actions: [
-          MenuAnchor(
-            consumeOutsideTap: true,
-            builder: (context, controller, child) => IconButton(
-              icon: const Icon(LucideIcons.settings),
-              iconSize: 28,
-              color: ShadTheme.of(context).colorScheme.primary,
-              tooltip: 'Skin actions',
-              onPressed: () =>
-                  controller.isOpen ? controller.close() : controller.open(),
-            ),
-            menuChildren: [
-              MenuItemButton(
-                leadingIcon: const Icon(LucideIcons.refreshCw),
-                onPressed: () => _checkForSkinUpdates(context),
-                child: const Text('Check for updates'),
-              ),
-              SubmenuButton(
-                leadingIcon: const Icon(LucideIcons.plus),
-                menuChildren: [
-                  MenuItemButton(
-                    onPressed: () =>
-                        _handleInstallAction(context, 'github-release'),
-                    child: const Text('GitHub Release'),
-                  ),
-                  MenuItemButton(
-                    onPressed: () =>
-                        _handleInstallAction(context, 'github-branch'),
-                    child: const Text('GitHub Branch'),
-                  ),
-                  MenuItemButton(
-                    onPressed: () => _handleInstallAction(context, 'zip'),
-                    child: const Text('ZIP file'),
-                  ),
-                ],
-                child: const Text('Install skin'),
-              ),
-            ],
+          PageActionMenu(
+            tooltip: 'Skin actions',
+            checkingLabel: 'Checking for skin updates',
+            onCheckForUpdates: () => _checkForSkinUpdates(context),
+            installLabel: 'Install skin',
+            onInstall: (action) => _handleInstallAction(context, action),
           ),
         ],
       ),
@@ -759,10 +729,6 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
   Future<void> _checkForSkinUpdates(BuildContext context) async {
     try {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Checking for skin updates...')),
-      );
-
       await widget.webUIStorage.updateAllSkins();
 
       if (mounted) setState(() {});

@@ -12,6 +12,7 @@ import 'package:reaprime/src/plugins/plugin_source.dart';
 import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/security_scoped_file.dart';
+import 'package:reaprime/src/widgets/page_action_menu.dart';
 
 const _maxPluginSafDepth = 32;
 const _maxPluginSafEntries = 10000;
@@ -119,7 +120,6 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
   List<PluginManifest> _plugins = [];
   Map<String, PluginSource> _sources = {};
   bool _isLoading = true;
-  bool _isCheckingUpdates = false;
   String? _loadError;
 
   late final PluginSourceService _sourceService =
@@ -177,72 +177,24 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
       appBar: AppBar(
         title: const Text('Plugins'),
         actions: [
-          MenuAnchor(
-            consumeOutsideTap: true,
-            builder: (context, controller, child) => IconButton(
-              icon: _isCheckingUpdates
-                  ? SizedBox.square(
-                      dimension: 28,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: ShadTheme.of(context).colorScheme.primary,
-                        semanticsLabel: 'Checking for plugin updates',
-                      ),
-                    )
-                  : const Icon(LucideIcons.settings),
-              iconSize: 28,
-              color: ShadTheme.of(context).colorScheme.primary,
-              tooltip: 'Plugin actions',
-              onPressed: _isLoading
-                  ? null
-                  : () => controller.isOpen
-                        ? controller.close()
-                        : controller.open(),
+          PageActionMenu(
+            tooltip: 'Plugin actions',
+            checkingLabel: 'Checking for plugin updates',
+            enabled: !_isLoading,
+            onCheckForUpdates: _loadError == null
+                ? () => _checkForPluginUpdates(context)
+                : null,
+            installLabel: 'Install plugin',
+            showInstall: widget.allowInstall,
+            includeFolder: true,
+            onInstall: _loadError == null
+                ? (action) => _handleInstallAction(context, action)
+                : null,
+            leadingAction: MenuItemButton(
+              leadingIcon: const Icon(LucideIcons.refreshCw),
+              onPressed: _isLoading ? null : _refreshPlugins,
+              child: const Text('Refresh plugins'),
             ),
-            menuChildren: [
-              MenuItemButton(
-                leadingIcon: const Icon(LucideIcons.refreshCw),
-                onPressed: _isLoading ? null : _refreshPlugins,
-                child: const Text('Refresh plugins'),
-              ),
-              MenuItemButton(
-                leadingIcon: const Icon(LucideIcons.cloudDownload),
-                onPressed:
-                    _isLoading || _loadError != null || _isCheckingUpdates
-                    ? null
-                    : () => _checkForPluginUpdates(context),
-                child: const Text('Check for updates'),
-              ),
-              if (widget.allowInstall)
-                SubmenuButton(
-                  leadingIcon: const Icon(LucideIcons.plus),
-                  menuChildren: _loadError != null
-                      ? const []
-                      : [
-                          MenuItemButton(
-                            onPressed: () =>
-                                _handleInstallAction(context, 'github-release'),
-                            child: const Text('GitHub Release'),
-                          ),
-                          MenuItemButton(
-                            onPressed: () =>
-                                _handleInstallAction(context, 'github-branch'),
-                            child: const Text('GitHub Branch'),
-                          ),
-                          MenuItemButton(
-                            onPressed: () =>
-                                _handleInstallAction(context, 'zip'),
-                            child: const Text('ZIP file'),
-                          ),
-                          MenuItemButton(
-                            onPressed: () =>
-                                _handleInstallAction(context, 'folder'),
-                            child: const Text('Folder snapshot'),
-                          ),
-                        ],
-                  child: const Text('Install plugin'),
-                ),
-            ],
           ),
         ],
       ),
@@ -637,7 +589,6 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
   }
 
   Future<void> _checkForPluginUpdates(BuildContext context) async {
-    setState(() => _isCheckingUpdates = true);
     try {
       await _sourceService.updateAllPlugins();
       if (context.mounted) _showSnackBar(context, 'Plugin update check done');
@@ -649,8 +600,7 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
         _showSnackBar(context, 'Update check failed: $e', isError: true);
       }
     } finally {
-      if (mounted) setState(() => _isCheckingUpdates = false);
-      _refreshPlugins();
+      if (mounted) _refreshPlugins();
     }
   }
 

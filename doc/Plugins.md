@@ -1256,6 +1256,8 @@ removed.
 The Plugins page cogwheel menu provides **Refresh plugins**, **Check for
 updates**, and **Install plugin**. Installation opens the source choices:
 **GitHub Release**, **GitHub Branch**, **ZIP file**, and **Folder snapshot**.
+While a manual update check runs, the cogwheel shows progress and **Check for
+updates** is disabled until the check finishes, including after a failure.
 Each plugin's three-dot menu contains **Load** or **Unload**, **Settings**,
 **Reload**, and **Remove**.
 
