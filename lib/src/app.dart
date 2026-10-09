@@ -44,6 +44,7 @@ import 'package:reaprime/src/launcher/launcher_scan_page.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
+import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/debug_feature/scale_debug_view.dart';
 import 'package:reaprime/src/services/storage/bean_storage_service.dart';
 import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
@@ -86,6 +87,7 @@ class MyApp extends StatefulWidget {
     required this.workflowController,
     required this.persistenceController,
     required this.pluginLoaderService,
+    required this.pluginSourceService,
     required this.webUIService,
     required this.webUIStorage,
     required this.webViewLogService,
@@ -112,6 +114,7 @@ class MyApp extends StatefulWidget {
   final WorkflowController workflowController;
   final PersistenceController persistenceController;
   final PluginLoaderService pluginLoaderService;
+  final PluginSourceService pluginSourceService;
   final WebUIService webUIService;
   final WebUIStorage webUIStorage;
   final WebViewLogService webViewLogService;
@@ -457,6 +460,7 @@ class _MyAppState extends State<MyApp> {
                     case PluginsSettingsView.routeName:
                       return PluginsSettingsView(
                         pluginLoaderService: widget.pluginLoaderService,
+                        pluginSourceService: widget.pluginSourceService,
                         decentAccountService: widget.decentAccountService,
                       );
                     case DeviceManagementPage.routeName:

@@ -15,6 +15,9 @@ class _FakeWebUIService extends Fake implements WebUIService {
 }
 
 class _FakeWebUIStorage extends Fake implements WebUIStorage {
+  @override
+  final ValueNotifier<Future<void>?> updateCheck = ValueNotifier(null);
+
   _FakeWebUIStorage({WebUISkin? skin})
     : _skins = [
         skin ??

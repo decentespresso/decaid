@@ -184,6 +184,8 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
             onCheckForUpdates: _loadError == null
                 ? () => _checkForPluginUpdates(context)
                 : null,
+            updateCheck: _sourceService.updateCheck,
+            onUpdatesChecked: _refreshPlugins,
             installLabel: 'Install plugin',
             showInstall: widget.allowInstall,
             includeFolder: true,
@@ -599,8 +601,6 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
       if (context.mounted) {
         _showSnackBar(context, 'Update check failed: $e', isError: true);
       }
-    } finally {
-      if (mounted) _refreshPlugins();
     }
   }
 

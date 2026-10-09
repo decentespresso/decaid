@@ -50,6 +50,8 @@ class _FakeSourceService extends PluginSourceService {
 
   final PluginSource? source;
   final Future<void>? updateCompletion;
+  @override
+  final ValueNotifier<Future<void>?> updateCheck = ValueNotifier(null);
   int updateCalls = 0;
   int approvals = 0;
 
@@ -57,7 +59,10 @@ class _FakeSourceService extends PluginSourceService {
   PluginSource? sourceFor(String pluginId) => source;
 
   @override
-  Future<void> updateAllPlugins() async {
+  Future<void> updateAllPlugins() => updateCheck.value ??= _updateAllPlugins()
+      .whenComplete(() => updateCheck.value = null);
+
+  Future<void> _updateAllPlugins() async {
     updateCalls++;
     if (updateCompletion != null) await updateCompletion;
   }
@@ -267,6 +272,53 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     completion.complete();
     await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('reopening plugins observes the existing update check', (
+    tester,
+  ) async {
+    final completion = Completer<void>();
+    final sourceService = _FakeSourceService(
+      _FakeLoader(const []),
+      updateCompletion: completion.future,
+    );
+    await pumpView(tester, sourceService: sourceService);
+    await tester.tap(find.byTooltip('Plugin actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Check for updates'));
+    await tester.pump();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await pumpView(tester, sourceService: sourceService);
+    final currentLoader =
+        tester
+                .widget<PluginsSettingsView>(find.byType(PluginsSettingsView))
+                .pluginLoaderService
+            as _FakeLoader;
+    expect(currentLoader.initializeCalls, 1);
+    expect(
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.byType(CircularProgressIndicator),
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.byTooltip('Plugin actions'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(
+      tester
+          .widget<MenuItemButton>(
+            find.widgetWithText(MenuItemButton, 'Check for updates'),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(sourceService.updateCalls, 1);
+    completion.complete();
+    await tester.pumpAndSettle();
+    expect(currentLoader.initializeCalls, 2);
+    expect(find.byIcon(LucideIcons.settings), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

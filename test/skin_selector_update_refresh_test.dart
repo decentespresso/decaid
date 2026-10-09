@@ -21,6 +21,8 @@ class _FakeWebUIStorage extends Fake implements WebUIStorage {
 
   String _version;
   final Future<void>? updateCompletion;
+  @override
+  final ValueNotifier<Future<void>?> updateCheck = ValueNotifier(null);
   int updateCount = 0;
 
   WebUISkin get _skin => WebUISkin(
@@ -41,7 +43,10 @@ class _FakeWebUIStorage extends Fake implements WebUIStorage {
   WebUISkin? getSkin(String id) => id == _skin.id ? _skin : null;
 
   @override
-  Future<void> updateAllSkins() async {
+  Future<void> updateAllSkins() => updateCheck.value ??= _updateAllSkins()
+      .whenComplete(() => updateCheck.value = null);
+
+  Future<void> _updateAllSkins() async {
     updateCount++;
     if (updateCompletion != null) await updateCompletion;
     _version = '0.2.3';
@@ -178,6 +183,48 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'reopening skins observes the existing update and refreshed version',
+    (tester) async {
+      final completion = Completer<void>();
+      final storage = _FakeWebUIStorage(
+        '0.2.2',
+        updateCompletion: completion.future,
+      );
+      await pumpView(tester, storage);
+      await tester.tap(find.byTooltip('Skin actions'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Check for updates'));
+      await tester.pump();
+      await tester.pumpWidget(const SizedBox.shrink());
+      await pumpView(tester, storage);
+      expect(
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.byType(CircularProgressIndicator),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(find.byTooltip('Skin actions'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(
+        tester
+            .widget<MenuItemButton>(
+              find.widgetWithText(MenuItemButton, 'Check for updates'),
+            )
+            .onPressed,
+        isNull,
+      );
+      expect(storage.updateCount, 1);
+      completion.complete();
+      await tester.pumpAndSettle();
+      expect(find.byIcon(LucideIcons.settings), findsOneWidget);
+      expect(find.textContaining('0.2.3'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'skins list refreshes to the new version after "Check for updates" '

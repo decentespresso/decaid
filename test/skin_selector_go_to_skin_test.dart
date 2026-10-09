@@ -64,6 +64,9 @@ class _FakeWebUIService extends Fake implements WebUIService {
 }
 
 class _FakeWebUIStorage extends Fake implements WebUIStorage {
+  @override
+  final ValueNotifier<Future<void>?> updateCheck = ValueNotifier(null);
+
   final WebUISkin _skin = WebUISkin(
     id: 'streamline.js',
     name: 'Streamline',
@@ -204,6 +207,37 @@ void main() {
 
     expect(find.text('Start server'), findsOneWidget);
     expect(find.text('Stop server'), findsNothing);
+  });
+
+  testWidgets('running server controls fit a 320px screen', (tester) async {
+    tester.view.physicalSize = const Size(320, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final service = _FakeWebUIService(serving: true);
+    await _pumpPage(tester, service);
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Skin server running'), findsOneWidget);
+    final status = tester.getRect(find.text('Skin server running'));
+    expect(status.width, greaterThan(100));
+    expect(status.left, greaterThanOrEqualTo(0));
+    expect(status.right, lessThanOrEqualTo(320));
+    for (final label in [
+      if (!Platform.isLinux) 'Open in browser',
+      'Stop server',
+    ]) {
+      await tester.ensureVisible(find.text(label));
+      final action = tester.getRect(find.text(label));
+      expect(action.left, greaterThanOrEqualTo(0));
+      expect(action.right, lessThanOrEqualTo(320));
+      expect(find.text(label).hitTestable(), findsOneWidget);
+    }
+    await tester.tap(find.text('Stop server'));
+    await tester.pumpAndSettle();
+    expect(service.isServing, isFalse);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('tapping "Go to skin" while serving opens the skin in-app '

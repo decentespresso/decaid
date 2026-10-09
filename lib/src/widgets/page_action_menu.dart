@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
@@ -7,23 +8,27 @@ class PageActionMenu extends StatefulWidget {
     required this.tooltip,
     required this.checkingLabel,
     required this.onCheckForUpdates,
+    required this.updateCheck,
     required this.installLabel,
     required this.onInstall,
     this.enabled = true,
     this.showInstall = true,
     this.includeFolder = false,
     this.leadingAction,
+    this.onUpdatesChecked,
   });
 
   final String tooltip;
   final String checkingLabel;
   final Future<void> Function()? onCheckForUpdates;
+  final ValueListenable<Future<void>?> updateCheck;
   final String installLabel;
   final ValueChanged<String>? onInstall;
   final bool enabled;
   final bool showInstall;
   final bool includeFolder;
   final Widget? leadingAction;
+  final VoidCallback? onUpdatesChecked;
 
   @override
   State<PageActionMenu> createState() => _PageActionMenuState();
@@ -32,12 +37,37 @@ class PageActionMenu extends StatefulWidget {
 class _PageActionMenuState extends State<PageActionMenu> {
   bool _isCheckingUpdates = false;
 
+  bool get _isBusy => _isCheckingUpdates || widget.updateCheck.value != null;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.updateCheck.addListener(_updateCheckChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant PageActionMenu oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.updateCheck != widget.updateCheck) {
+      oldWidget.updateCheck.removeListener(_updateCheckChanged);
+      widget.updateCheck.addListener(_updateCheckChanged);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.updateCheck.removeListener(_updateCheckChanged);
+    super.dispose();
+  }
+
+  void _updateCheckChanged() {
+    setState(() {});
+    if (widget.updateCheck.value == null) widget.onUpdatesChecked?.call();
+  }
+
   Future<void> _checkForUpdates() async {
     final checkForUpdates = widget.onCheckForUpdates;
-    if (!mounted ||
-        !widget.enabled ||
-        _isCheckingUpdates ||
-        checkForUpdates == null) {
+    if (!mounted || !widget.enabled || _isBusy || checkForUpdates == null) {
       return;
     }
     setState(() => _isCheckingUpdates = true);
@@ -61,7 +91,7 @@ class _PageActionMenuState extends State<PageActionMenu> {
     return MenuAnchor(
       consumeOutsideTap: true,
       builder: (context, controller, child) => IconButton(
-        icon: _isCheckingUpdates
+        icon: _isBusy
             ? SizedBox.square(
                 dimension: 28,
                 child: CircularProgressIndicator(
@@ -83,9 +113,7 @@ class _PageActionMenuState extends State<PageActionMenu> {
         MenuItemButton(
           leadingIcon: const Icon(LucideIcons.cloudDownload),
           onPressed:
-              widget.enabled &&
-                  !_isCheckingUpdates &&
-                  widget.onCheckForUpdates != null
+              widget.enabled && !_isBusy && widget.onCheckForUpdates != null
               ? _checkForUpdates
               : null,
           child: const Text('Check for updates'),

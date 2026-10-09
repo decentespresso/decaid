@@ -85,6 +85,8 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
             tooltip: 'Skin actions',
             checkingLabel: 'Checking for skin updates',
             onCheckForUpdates: () => _checkForSkinUpdates(context),
+            updateCheck: widget.webUIStorage.updateCheck,
+            onUpdatesChecked: () => setState(() {}),
             installLabel: 'Install skin',
             onInstall: (action) => _handleInstallAction(context, action),
           ),
@@ -234,12 +236,24 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
       );
     }
 
-    return Row(
-      children: [
-        Expanded(child: status),
-        const SizedBox(width: 12),
-        Wrap(spacing: 8, runSpacing: 8, children: actions),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final controls = Wrap(spacing: 8, runSpacing: 8, children: actions);
+        if (constraints.maxWidth < 600) {
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [status, const SizedBox(height: 8), controls],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: status),
+            const SizedBox(width: 12),
+            controls,
+          ],
+        );
+      },
     );
   }
 
@@ -730,8 +744,6 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
     try {
       if (!context.mounted) return;
       await widget.webUIStorage.updateAllSkins();
-
-      if (mounted) setState(() {});
 
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

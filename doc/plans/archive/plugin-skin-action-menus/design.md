@@ -11,15 +11,27 @@ Standard icon-button touch targets and disabled styling remain unchanged.
 Outside taps dismiss either menu without activating the underlying control.
 During plugin and skin update checks, the cogwheel shows a fixed-size, 28-pixel
 progress indicator in the same primary color, so progress remains visible after
-the menu closes. The update item is disabled while busy, and repeat invocations are ignored
-before the asynchronous check starts. Both success and failure restore the
+the menu closes. The update item is disabled while busy, and repeat invocations
+are ignored before the asynchronous check starts. Both success and failure restore the
 cogwheel and enable another check. Completion after leaving either page is safe.
 
-Both pages use `PageActionMenu`, which owns the common shell, busy state, update
+Both pages use `PageActionMenu`, which owns the common shell, progress UI, update
 item, and installation source submenu. Pages retain their update operations and
 result messages; Plugins supplies its extra refresh action and folder source.
 The skin progress snackbar is replaced by the same persistent indicator used
 for Plugins, so completion and error messages are not queued behind it.
+
+Each update service retains its in-flight future and returns it to concurrent
+callers. A read-only listenable exposes that future to the menu, so a recreated
+page shows the existing operation rather than allowing a duplicate. Completion
+refreshes the current page's data, including checks started outside the page.
+Menu listeners are removed on disposal. The local callback guard remains to
+prevent repeat UI callbacks before the service starts.
+
+Bootstrap injects one `PluginSourceService` into native routes, the periodic
+updater, and the REST handler. Previously those entry points created separate
+instances, which would defeat an instance-level guard. Skin storage already
+shares app-level ownership.
 
 The Plugins menu retains Refresh plugins, Check for updates, and Install plugin.
 The skin menu retains Check for updates and Install skin. Installation expands
@@ -35,13 +47,32 @@ errors, and permission approval keep their existing behavior.
 The skin dropdown fills its available width and constrains labels so it does not
 overflow the narrow-screen menu regression check. Skin action button labels can
 wrap within their available width, including Linux's longer Open in Browser
-label.
+label. Below 600 pixels of footer content width, server status sits above a
+bounded action wrap. This preserves readable status and accessible Open in
+browser and Stop server controls at 320 pixels; wider layouts retain the row.
 
 ## Scope
 
-Updated Plugins and Skins documentation. No backend, API, plugin permissions,
-skin selection, storage, or machine-control changes. The PR is based on current
+Updated Plugins and Skins documentation and internal update coalescing. No API
+contract, plugin permissions, skin selection, storage, or machine-control changes.
+The PR is based on current
 main and excludes unrelated edits from the original workspace.
+
+## Review Hardening Verification (2026-10-09)
+
+- The new running-server test reproduced a 226-pixel overflow at 320 pixels on
+  Windows, with both footer actions present, before the layout fix.
+- Reentry regressions failed before the fix because both recreated pages lost
+  progress. Service regressions also reproduced distinct concurrent futures.
+- Affected widget, service, periodic-updater, and handler tests: 152 passed.
+- Final full four-worker suite: 4791 passed, 0 failed, 2 skipped; process exit 0,
+  successful machine-event completion, no test-error events, empty stderr.
+- Static analysis: no issues found. Strict formatter check: 919 files, 0 changed.
+- The existing 20000ms active-time gate passed. Raw machine events include 96
+  non-JSON Shelf log lines from the existing invalid-UTF-8 negative tests; these
+  were inspected and are unrelated to this change.
+- Flutter 3.47.6 / Dart 3.13.5 on Windows. No tablet redeployment or physical
+  espresso operation was performed for this follow-up.
 
 ## Shared Menu Verification (2026-10-09)
 
