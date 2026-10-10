@@ -21,6 +21,7 @@ class MockSettingsService extends SettingsService {
   String? _preferredMachineId;
   String? _preferredScaleId;
   String? _preferredGrinderDeviceId;
+  Map<String, bool> _skalePoweredByUsbByDevice = {};
   String _defaultSkinId = 'streamline.js';
   bool _automaticUpdateCheck = true;
   UpdateChannel _updateChannel = UpdateChannel.stable;
@@ -124,6 +125,14 @@ class MockSettingsService extends SettingsService {
   @override
   Future<void> setPreferredGrinderDeviceId(String? deviceId) async =>
       _preferredGrinderDeviceId = deviceId;
+  @override
+  Future<Map<String, bool>> skalePoweredByUsbByDevice() async =>
+      Map.unmodifiable(_skalePoweredByUsbByDevice);
+  @override
+  Future<void> setSkalePoweredByUsbByDevice(Map<String, bool> value) async =>
+      _skalePoweredByUsbByDevice = Map.fromEntries(
+        value.entries.where((entry) => entry.value),
+      );
   @override
   Future<String> defaultSkinId() async => _defaultSkinId;
   @override
