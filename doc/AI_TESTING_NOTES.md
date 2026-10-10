@@ -25,7 +25,8 @@ All Dart tests (unit + integration) live in `test/` and run via `flutter test`. 
 
 - **`FakeBleTransport`:** `queueOnConnectResponses()` also queues `MMRItem.calFlowEst` (raw `1000` = `1.0`; override via `calFlowEst:`). Without it, every `onConnect()` pays the full MMR timeout (~12.6s: 3 x 4s + 2 x 300ms) because `UnifiedDe1.onConnect()` reads flow calibration last. `emitNotification(Endpoint, bytes)` pushes a characteristic notification through the registered subscriber (e.g. `Endpoint.shotSample`), keeping notification/input boundary tests out of private internals.
 - **`MockDeviceDiscoveryService`:** Controllable discovery for widget tests. Add/remove specific devices at specific times via `addDevice()`, `removeDevice()`, `clear()`.
-- **`TestScale`:** Use instead of `MockScale` — `MockScale` has `Timer.periodic` that conflicts with `pumpAndSettle()`.
+- **`TestScale`:** See
+  [`device-notes/simulators.md`](device-notes/simulators.md#test-behavior).
 - **`MockSettingsService`:** In-memory `SettingsService`. Sets `telemetryPromptShown` and `telemetryConsentDialogShown` to `true` to skip dialogs.
 
 ## Widget Test Patterns
@@ -38,29 +39,8 @@ Standard stream subscription `cancel()` futures also never complete under `fakeA
 ### fakeAsync + wall clock
 `fakeAsync` virtualizes timers but code that reads `DateTime.now()` still sees real time. When watchdog/throttle logic combines timers and wall-clock comparisons, make both controllable: inject `DateTime Function() now` at the device boundary, defaulting to `clock.now` (`package:clock` is fake_async-aware, and identical to `DateTime.now` outside a fake zone). Then `fakeAsync` tests get deterministic liveness/watchdog coverage with production durations, no manual clock bookkeeping.
 
-### Async simulation time
-
-`test/helpers/fake_time.dart` provides `FakeTime` for async simulation and timeout
-tests that need live RxDart seeds and awaited stream cancellation. Create and
-connect timer-owning devices inside `time.run(...)`, then replace simulation
-waits with `await time.elapse(...)`. Keep production durations and tick cadence.
-Disconnect and dispose normally; assert `time.pendingTimers` is empty in teardown.
-
-The helper virtualizes timers and `clock.now`. Zone-scheduled microtasks stay in
-the fake queue and drain after each timer, including timers with equal deadlines.
-A pump in the original test zone also flushes that queue so stream seeds and
-awaited cancellation can settle without advancing time.
-
-Native/root-zone async work, including RxDart seed delivery, still settles only
-between 10ms steps during an advance. Use this helper only for coarse simulation
-and timeout tests where ordering of that work within a step cannot affect the
-assertions. Use ordinary `fakeAsync` for synchronous timer-policy tests. This
-helper does not virtualize `DateTime.now`, `Stopwatch`, native I/O, or real hardware
-timing. Keep real timeout watchdogs when awaiting a result after the final advance;
-a virtual timeout cannot fire if the test stops advancing time.
-
 ### Hardware settle delays
-Hardware/protocol settle delays (e.g. Acaia `100/200/500ms` init steps, Skale2 `1s` init steps) should be configurable at the device implementation boundary (immutable timing object or optional constructor durations). Production keeps the real hardware-safe defaults. Unit tests that merely need an initialized device inject zero durations. Only tests specifically validating timing should exercise the actual durations — virtually via `fakeAsync`.
+See [`device-notes/simulators.md`](device-notes/simulators.md#test-behavior).
 
 ### Backoff semantics vs post-backoff behavior
 Distinguish: (1) tests proving the duration/backoff policy itself — use `fakeAsync` and keep production durations virtually; and (2) tests proving behavior that occurs *after* a delay (e.g. `ConnectionManager` scale reacquisition) — inject a zero/small base delay (`scaleReconnectBaseDelay`, `machineReconnectBaseDelay` are `@visibleForTesting` seams) and synchronize on the resulting event. Do not spend real seconds merely to reach the state being asserted.
@@ -74,18 +54,8 @@ A silent DE1 transport that intentionally causes the MMR timeout is appropriate 
 ### Suite wall span vs active test time
 Under concurrent `flutter test` runs, a suite's wall span (first test start to last test end) is not equivalent to its CPU/active cost — an isolate can sit idle waiting on the scheduler while another suite runs. When identifying optimization candidates use the cumulative sum of individual test durations (the `duration_ms` field in `--machine` events), not the suite wall span. Inspect the individual tests in a file before assuming a long suite span means expensive tests.
 
-PR CI uses four standard Flutter test workers. The machine-event summary reports
-aggregate loading and active test time separately, including the slowest loading
-files. These aggregates sum concurrent work; neither is wall-clock duration.
-Benchmark worker changes with warm caches and compare full-suite failures and
-counts. Do not treat a faster run with missing tests as an improvement.
-
 ### Mock simulator tick cadence
-Mock device simulators (`MockDe1` et al.) drive their state machine with a periodic tick whose model time-step is fixed (100ms of simulated time per tick). The wall-clock tick cadence is injectable (`MockDe1(simulationTickInterval: ...)`): shortening it makes simulated time run faster than wall time while preserving the machine's per-tick flow/pressure curves. When a simulation test asserts on those curves, shorten the tick and scale wall delays accordingly (e.g. 9000ms wait at 100ms ticks becomes 900ms at 10ms ticks — same 90 ticks, same simulated 9s). Do not scale wall delays alone (that changes the simulated trajectory) or change the model time-step (that changes the calibration). Tests that validate realistic elapsed-time behavior (e.g. a power-off timeout window measured with a Stopwatch) should keep real durations.
-
-Weight synthesis and Bengle probe heating integrate snapshot timestamp deltas,
-not tick counts. Keep the original cadence and virtualize time with `FakeTime` for
-those tests; accelerating only the tick would change weight and temperature.
+See [`device-notes/simulators.md`](device-notes/simulators.md#test-behavior).
 
 ### Stream Propagation
 Add devices to mock service *before* building widgets, then `await tester.pump()` to flush microtasks before `pumpWidget()`.
@@ -103,16 +73,8 @@ Use `pump()` not `pumpAndSettle()` when tree has `CircularProgressIndicator` or 
 
 ## Simulated Devices
 
-Available via `--dart-define=simulate=1` or settings UI toggle. For end-to-end API smoke tests, use `scripts/sb-dev.sh start` which defaults to simulate mode.
-
-| Flag value | Devices |
-|------------|---------|
-| `1` | All: `MockDe1`, `MockScale`, `MockBengle`, `MockSensor` |
-| `machine` | `MockDe1` only |
-| `scale` | `MockScale` only |
-| `bengle` | `MockBengle` only |
-| `sensor` | `MockSensor` only |
-| `replay` | `MockReplayDe1` (single device: replays recorded shots matched to the profile) |
+See [`device-notes/simulators.md`](device-notes/simulators.md). For end-to-end
+API smoke tests, `scripts/sb-dev.sh start` defaults to simulated devices.
 
 ## Pre-Commit Checklist
 

@@ -49,6 +49,23 @@ Decaid plugins are JavaScript modules that extend the functionality of Decaid.
 Plugins run in a sandboxed JavaScript environment and can react to machine events,
 store data, make HTTP requests, and emit events through the Decaid API.
 
+## External device plugins
+
+Concrete device integrations are maintained separately from the Decaid runtime
+and target the current `main` API baseline:
+
+- [Skale plugin](https://github.com/MaxRink/decaid-skale-plugin): opt-in Scale
+  integration. Skale machine actions remain held for the #845/#853 human review
+  decision; the repository does not make those actions part of the host contract.
+- [E64 WebSocket plugin](https://github.com/MaxRink/decaid-e64ws-plugin): opt-in
+  read-only `type: "grinder"` integration over the host network transport. It
+  must not bypass TLS trust or expose motor, calibration, or configuration-write
+  commands.
+
+These repositories are consumer plugins, not bundled runtime features. Validate
+their manifest and API compatibility against the Decaid `main` revision before
+installing or reviewing a change.
+
 ## Plugin Structure
 
 A Decaid plugin consists of two required files:
