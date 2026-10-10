@@ -55,7 +55,29 @@ simulated_types="$(
 grep -Fq "\`$simulated_types\`" "$SKILL_DIR/simulated-devices.md"
 
 TEMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TEMP_DIR"' EXIT
+TEST_RUNTIME="$TEMP_DIR/sb-dev-runtime"
+TEST_ARGS="$TEMP_DIR/flutter-args"
+TEST_SENTINEL="$TEMP_DIR/should-not-run"
+FAKE_BIN="$REPO_ROOT/scripts/test-fixtures/sb-dev-fake-bin"
+
+cp "$REPO_ROOT/flutter_with_commit.sh" "$TEMP_DIR/flutter_with_commit.sh"
+chmod +x "$TEMP_DIR/flutter_with_commit.sh"
+
+run_sb_dev() {
+  (
+    cd "$TEMP_DIR"
+    PATH="$FAKE_BIN:$PATH" \
+      SB_RUNTIME_DIR="$TEST_RUNTIME" \
+      SB_DEV_TEST_ARGS="$TEST_ARGS" \
+      "$REPO_ROOT/scripts/sb-dev.sh" "$@"
+  )
+}
+
+cleanup_sb_dev() {
+  run_sb_dev stop >/dev/null 2>&1 || true
+}
+
+trap 'cleanup_sb_dev; rm -rf "$TEMP_DIR"' EXIT
 
 indexed_scenarios="$TEMP_DIR/indexed-scenarios"
 actual_scenarios="$TEMP_DIR/actual-scenarios"
@@ -71,3 +93,45 @@ actual_scenarios="$TEMP_DIR/actual-scenarios"
 } > "$actual_scenarios"
 
 diff "$indexed_scenarios" "$actual_scenarios"
+
+: > "$TEST_ARGS"
+special_arg="value with spaces;\$(touch $TEST_SENTINEL)"
+run_sb_dev start \
+  --app-arg --serial \
+  --app-arg=--no-account \
+  --app-arg --bypass-onboarding \
+  --app-arg "$special_arg"
+run_sb_dev restart
+run_sb_dev stop
+
+expected_app_args="$TEMP_DIR/expected-app-args"
+{
+  printf '%s\n' \
+    '--dart-entrypoint-args=--serial' \
+    '--dart-entrypoint-args=--no-account' \
+    '--dart-entrypoint-args=--bypass-onboarding' \
+    "--dart-entrypoint-args=$special_arg" \
+    '--dart-entrypoint-args=--serial' \
+    '--dart-entrypoint-args=--no-account' \
+    '--dart-entrypoint-args=--bypass-onboarding' \
+    "--dart-entrypoint-args=$special_arg"
+} > "$expected_app_args"
+grep '^--dart-entrypoint-args=' "$TEST_ARGS" > "$TEMP_DIR/actual-app-args"
+diff "$expected_app_args" "$TEMP_DIR/actual-app-args"
+test ! -e "$TEST_SENTINEL"
+
+set +e
+missing_value_output="$(run_sb_dev start --app-arg 2>&1)"
+missing_value_rc=$?
+newline_output="$(run_sb_dev start --app-arg $'bad\nvalue' 2>&1)"
+newline_rc=$?
+equals_newline_output="$(run_sb_dev start --app-arg=$'bad\nvalue' 2>&1)"
+equals_newline_rc=$?
+set -e
+
+test "$missing_value_rc" -eq 2
+grep -Fq 'Missing value for --app-arg' <<<"$missing_value_output"
+test "$newline_rc" -eq 2
+grep -Fq 'App arguments cannot contain newlines' <<<"$newline_output"
+test "$equals_newline_rc" -eq 2
+grep -Fq 'App arguments cannot contain newlines' <<<"$equals_newline_output"
