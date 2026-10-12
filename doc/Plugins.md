@@ -288,7 +288,7 @@ Machine broadcasts require `events.machine`. Shot lifecycle broadcasts require
   ```
 
 - **`storageWrite`**: Confirmation of storage write
-- **`shotStored`**: A new shot finished persisting, including successful backup and Settings JSON imports. Payload: `{id: "<shot id>"}`.
+- **`shotStored`**: A new shot finished persisting, including successful backup, Settings JSON, and De1App/onboarding backup imports. Payload: `{id: "<shot id>"}`.
 - **`shotUpdated`**: A stored shot was edited (e.g. notes in History, `PUT /api/v1/shots/<id>`, or a changed backup overwrite). The payload always contains `id`, `shot` (current metadata without measurements), and `patch` (fields changed by this mutation). PUT preserves the submitted request patch; native edits provide an equivalent field patch; backup overwrites provide changed replacement metadata, with removed fields set to `null`. Measurement-only overwrites can have an empty metadata patch. Unchanged, skipped, and failed imports emit no Shot event. Events are per Shot, not batched. The Visualizer plugin uses the patch to forward-sync only edited fields without overwriting unrelated remote edits.
 
   ```javascript

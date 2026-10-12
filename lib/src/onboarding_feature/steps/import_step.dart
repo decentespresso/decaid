@@ -250,7 +250,7 @@ class _ImportStepViewState extends State<_ImportStepView> {
     });
 
     final importer = De1appImporter(
-      storageService: widget.storageService,
+      controller: widget.persistenceController,
       profileStorageService: widget.profileStorageService,
       beanStorageService: widget.beanStorageService,
       grinderStorageService: widget.grinderStorageService,

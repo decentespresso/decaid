@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/import/de1app_importer.dart';
 import 'package:reaprime/src/import/import_result.dart';
 import 'package:reaprime/src/models/data/bean.dart';
@@ -23,6 +24,7 @@ import '../helpers/mock_settings_service.dart';
 
 class FakeStorageService implements StorageService {
   final shots = <String, ShotRecord>{};
+  final failedIds = <String>{};
   final List<String> _existingIds;
   Workflow? _currentWorkflow;
 
@@ -31,7 +33,10 @@ class FakeStorageService implements StorageService {
       _currentWorkflow = currentWorkflow;
 
   @override
-  Future<void> storeShot(ShotRecord record) async => shots[record.id] = record;
+  Future<void> storeShot(ShotRecord record) async {
+    if (failedIds.contains(record.id)) throw StateError('write failed');
+    shots[record.id] = record;
+  }
 
   @override
   Future<List<String>> getShotIds() async => List.unmodifiable(_existingIds);
@@ -238,13 +243,16 @@ class FakeGrinderStorageService implements GrinderStorageService {
 
 De1appImporter makeImporter({
   FakeStorageService? storage,
+  PersistenceController? controller,
   FakeProfileStorageService? profileStorage,
   FakeBeanStorageService? beanStorage,
   FakeGrinderStorageService? grinderStorage,
   SettingsController? settingsController,
 }) {
   return De1appImporter(
-    storageService: storage ?? FakeStorageService(),
+    controller:
+        controller ??
+        PersistenceController(storageService: storage ?? FakeStorageService()),
     profileStorageService: profileStorage ?? FakeProfileStorageService(),
     beanStorageService: beanStorage ?? FakeBeanStorageService(),
     grinderStorageService: grinderStorage ?? FakeGrinderStorageService(),
@@ -841,6 +849,79 @@ void main() {
           expect(context, isNotNull);
           expect(context!.grinderId, isNotNull);
         }
+      });
+    });
+
+    group('notifies plugin shot events', () {
+      late Directory tempDir;
+      late ScanResult scanResult;
+
+      setUpAll(() async {
+        tempDir = await Directory.systemTemp.createTemp(
+          'de1app_importer_events_',
+        );
+        await Directory('${tempDir.path}/history_v2').create();
+        await File(
+          '$_fixturesPath/history_v2/20240315T143022.json',
+        ).copy('${tempDir.path}/history_v2/20240315T143022.json');
+        scanResult = ScanResult(
+          shotCount: 1,
+          profileCount: 0,
+          hasDyeGrinders: false,
+          hasSettings: false,
+          sourcePath: tempDir.path,
+          shotSource: 'history_v2',
+        );
+      });
+
+      tearDownAll(() async {
+        await tempDir.delete(recursive: true);
+      });
+
+      test('emits exactly one shotStored per stored shot', () async {
+        final received = <String>[];
+        final controller = PersistenceController(
+          storageService: FakeStorageService(),
+        )..onShotStored = received.add;
+
+        final result = await makeImporter(
+          controller: controller,
+        ).import(scanResult);
+
+        expect(result.shotsImported, equals(1));
+        expect(received, equals(['de1app-1710510622']));
+      });
+
+      test('emits nothing for a shot skipped as already present', () async {
+        final received = <String>[];
+        final controller = PersistenceController(
+          storageService: FakeStorageService(
+            existingIds: ['de1app-1710510622'],
+          ),
+        )..onShotStored = received.add;
+
+        final result = await makeImporter(
+          controller: controller,
+        ).import(scanResult);
+
+        expect(result.shotsSkipped, equals(1));
+        expect(received, isEmpty);
+      });
+
+      test('emits nothing for a shot whose store fails', () async {
+        final received = <String>[];
+        final controller = PersistenceController(
+          storageService: FakeStorageService()
+            ..failedIds.add('de1app-1710510622'),
+        )..onShotStored = received.add;
+
+        final result = await makeImporter(
+          controller: controller,
+        ).import(scanResult);
+
+        expect(result.shotsImported, equals(0));
+        expect(result.errors, hasLength(1));
+        expect(received, isEmpty);
       });
     });
   });

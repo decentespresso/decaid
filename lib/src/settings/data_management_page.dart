@@ -789,7 +789,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
 
       try {
         final importer = De1appImporter(
-          storageService: widget.persistenceController.storageService,
+          controller: widget.persistenceController,
           profileStorageService: widget.profileStorageService!,
           beanStorageService: widget.beanStorageService!,
           grinderStorageService: widget.grinderStorageService!,

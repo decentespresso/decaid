@@ -13,13 +13,13 @@ import 'package:reaprime/src/import/parsers/tcl_shot_parser.dart';
 import 'package:reaprime/src/services/storage/bean_storage_service.dart';
 import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
 import 'package:reaprime/src/services/storage/profile_storage_service.dart';
-import 'package:reaprime/src/services/storage/storage_service.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
 import 'package:reaprime/src/import/parsers/settings_tdb_parser.dart';
 import 'package:reaprime/src/models/wake_schedule.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
 import 'package:reaprime/src/models/data/workflow_context.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
+import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/settings/scale_power_mode.dart';
 import 'dart:convert';
@@ -27,7 +27,7 @@ import 'dart:convert';
 final _log = Logger('De1appImporter');
 
 class De1appImporter {
-  final StorageService storageService;
+  final PersistenceController controller;
   final ProfileStorageService profileStorageService;
   final BeanStorageService beanStorageService;
   final GrinderStorageService grinderStorageService;
@@ -35,7 +35,7 @@ class De1appImporter {
   final WorkflowController? workflowController;
 
   De1appImporter({
-    required this.storageService,
+    required this.controller,
     required this.profileStorageService,
     required this.beanStorageService,
     required this.grinderStorageService,
@@ -221,7 +221,7 @@ class De1appImporter {
       );
     }
 
-    final existingIds = (await storageService.getShotIds()).toSet();
+    final existingIds = (await controller.storageService.getShotIds()).toSet();
 
     for (var i = 0; i < parsedShots.length; i++) {
       final parsed = parsedShots[i];
@@ -255,7 +255,7 @@ class De1appImporter {
           : shot;
 
       try {
-        await storageService.storeShot(updatedShot);
+        await controller.storeShot(updatedShot);
         shotsImported++;
       } catch (e, st) {
         _log.warning('Failed to store shot ${shot.id}', e, st);
@@ -373,7 +373,7 @@ class De1appImporter {
           }
 
           final baseWorkflow =
-              await storageService.loadCurrentWorkflow() ??
+              await controller.storageService.loadCurrentWorkflow() ??
               WorkflowController().newWorkflow();
           final updatedContext =
               (baseWorkflow.context ?? const WorkflowContext()).copyWith(
@@ -401,7 +401,7 @@ class De1appImporter {
             hotWaterData: updatedWater,
             rinseData: updatedRinse,
           );
-          await storageService.storeCurrentWorkflow(updatedWorkflow);
+          await controller.storageService.storeCurrentWorkflow(updatedWorkflow);
           workflowController?.setWorkflow(updatedWorkflow);
 
           settingsApplied = true;
