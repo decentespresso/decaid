@@ -225,6 +225,14 @@ const upload = await host.decentProxy("support/api/shot_upload", {
 
 The returned object has `{ status, headers, body }`. Consent denial or non-decision rejects with `error.code === "account_consent_denied"`. `GET` (read) needs `proxy.decent_api`; `POST` (write) needs `proxy.decent_api.write` and a path on the write allowlist. Credentials are attached in Dart and never exposed to plugin JS.
 
+Decaid automatically gzips JSON POST bodies to `support/api/shot_upload` when
+they are at least 1,024 UTF-8 bytes and gzip reduces their size. The outbound
+request carries `Content-Encoding: gzip` and retains its original `Content-Type`.
+JSON media types are matched case-insensitively and may include parameters such
+as `charset=utf-8`. Plugins continue sending plain JSON through the existing
+API; no compression option or plugin update is needed. Other requests remain
+unchanged. A failed compressed POST is not automatically retried as plain JSON.
+
 ## Events System
 
 ### Events from Flutter → Plugin

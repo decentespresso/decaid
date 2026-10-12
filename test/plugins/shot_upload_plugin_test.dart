@@ -160,7 +160,7 @@ void main() {
   }
 
   test(
-    'shotStored triggers an authenticated upload with correct provenance',
+    'shotStored triggers an authenticated gzip upload with correct provenance',
     () async {
       final captured = <http.Request>[];
       final manager = await load(
@@ -189,7 +189,11 @@ void main() {
         req.url.toString(),
         'https://decentespresso.com/support/api/shot_upload',
       );
-      final body = jsonDecode(req.body) as Map<String, dynamic>;
+      expect(req.headers['content-encoding'], 'gzip');
+      expect(req.contentLength, req.bodyBytes.length);
+      final body =
+          jsonDecode(utf8.decode(gzip.decode(req.bodyBytes)))
+              as Map<String, dynamic>;
       expect(body['id'], 'shot-1');
       expect(body['machine']['serialNumber'], '6262');
       expect(body['machine']['firmwareVersion'], '1293');

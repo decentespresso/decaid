@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show gzip;
 
 import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
@@ -151,6 +152,18 @@ class DecentProxyService {
       outbound.bodyBytes = bodyBytes;
     } else if (body != null) {
       outbound.bodyBytes = utf8.encode(body);
+    }
+
+    if (normalizedMethod == 'POST' &&
+        normalizedPath == 'support/api/shot_upload' &&
+        contentType?.split(';').first.trim().toLowerCase() ==
+            'application/json' &&
+        outbound.bodyBytes.length >= 1024) {
+      final compressed = gzip.encode(outbound.bodyBytes);
+      if (compressed.length < outbound.bodyBytes.length) {
+        outbound.bodyBytes = compressed;
+        outbound.headers['content-encoding'] = 'gzip';
+      }
     }
 
     final response = await _httpClient.send(outbound);

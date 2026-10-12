@@ -5581,8 +5581,18 @@ paths:
       description: >
         Forwards a POST to `https://decentespresso.com/support/api/{endpoint}`
         with the linked account's credentials attached server-side as Basic
-        auth, relaying the request body, upstream status code, and body
-        verbatim. Clients never see the credentials.
+        auth, relaying the upstream status code and response body verbatim.
+        Clients never see the credentials.
+
+
+        JSON POST bodies to `support/api/shot_upload` are automatically gzipped
+        when they are at least 1,024 bytes and gzip reduces their size. The
+        upstream request has `Content-Encoding: gzip` and retains its original
+        `Content-Type`. The `application/json` media type is matched
+        case-insensitively and may include parameters such as `charset=utf-8`.
+        Clients send uncompressed bodies; other endpoints and body types are
+        relayed verbatim. Failed uploads are not automatically retried with a
+        plain body.
 
 
         Requires `Authorization: Bearer <token>` scoped
@@ -5599,7 +5609,10 @@ paths:
           schema:
             type: string
       requestBody:
-        description: Request body relayed verbatim to the upstream endpoint.
+        description: >
+          Uncompressed request body. JSON shot-upload bodies of at least 1,024
+          bytes are gzipped upstream only when compression reduces size;
+          other bodies are relayed verbatim.
         required: false
         content:
           application/octet-stream:
@@ -5631,8 +5644,9 @@ paths:
     put:
       summary: Auth-enriching write proxy to the Decent backend
       description: >
-        Same as the POST form but forwards a PUT. Requires a token scoped
-        `account:proxy:write`.
+        Same authentication and response behavior as the POST form but forwards
+        a PUT. Request bodies are relayed verbatim without automatic gzip.
+        Requires a token scoped `account:proxy:write`.
       tags: [Account]
       parameters:
         - name: endpoint

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -172,6 +173,46 @@ void main() {
         upstream.headers['authorization'],
         'Basic ${base64Encode(utf8.encode('user@example.com:cryptpw_abc123'))}',
       );
+    },
+  );
+
+  test(
+    'large JSON uploads are gzipped without changing the plugin API',
+    () async {
+      await linkAccount();
+      final body = jsonEncode({'notes': '\u00e9\u4e2d' * 500});
+      late http.Request upstream;
+
+      final result =
+          await bridge((request) async {
+            upstream = request;
+            return http.Response(
+              '{"ok":true}',
+              201,
+              headers: {
+                'content-type': 'application/json',
+                'authorization': 'Basic must-not-leak',
+              },
+            );
+          }).proxyForPlugin(
+            pluginId: 'test.plugin',
+            manifest: manifestWith({PluginPermissions.proxyDecentApiWrite}),
+            path: 'support/api/shot_upload',
+            method: 'POST',
+            query: {'replace': '1'},
+            body: body,
+            contentType: 'application/json',
+          );
+
+      expect(upstream.headers['content-encoding'], 'gzip');
+      expect(gzip.decode(upstream.bodyBytes), utf8.encode(body));
+      expect(upstream.contentLength, upstream.bodyBytes.length);
+      expect(upstream.url.queryParameters, {'replace': '1'});
+      expect(result, {
+        'status': 201,
+        'headers': {'content-type': 'application/json'},
+        'body': '{"ok":true}',
+      });
     },
   );
 
