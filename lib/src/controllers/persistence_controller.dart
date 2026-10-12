@@ -42,9 +42,12 @@ class PersistenceController {
     }
   }
 
-  Future<void> storeShot(ShotRecord record) async {
+  Future<void> storeShot(
+    ShotRecord record, {
+    bool notifyApplication = true,
+  }) async {
     await storageService.storeShot(record);
-    _shotsChangedSubject.add(null);
+    if (notifyApplication) _shotsChangedSubject.add(null);
     onShotStored?.call(record.id);
   }
 
@@ -81,11 +84,12 @@ class PersistenceController {
     ShotRecord record, {
     required Map<String, dynamic> patch,
     bool notifyPlugins = true,
+    bool notifyApplication = true,
   }) async {
     _log.info("Updating shot: ${record.id}");
     try {
       await storageService.updateShot(record);
-      _shotsChangedSubject.add(null);
+      if (notifyApplication) _shotsChangedSubject.add(null);
       if (notifyPlugins) onShotUpdated?.call(record, patch);
     } catch (e, st) {
       _log.severe("Error updating shot:", e, st);

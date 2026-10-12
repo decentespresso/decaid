@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
@@ -878,11 +879,64 @@ void main() {
         await tempDir.delete(recursive: true);
       });
 
+      test(
+        'bulk import keeps per-shot plugin events and one refresh',
+        () async {
+          final bulkDir = await Directory.systemTemp.createTemp('de1app_bulk_');
+          addTearDown(() => bulkDir.delete(recursive: true));
+          await Directory('${bulkDir.path}/history_v2').create();
+          final fixture =
+              jsonDecode(
+                    await File(
+                      '$_fixturesPath/history_v2/20240315T143022.json',
+                    ).readAsString(),
+                  )
+                  as Map<String, dynamic>;
+          for (var i = 0; i < 3; i++) {
+            await File(
+              '${bulkDir.path}/history_v2/shot-$i.json',
+            ).writeAsString(jsonEncode({...fixture, 'clock': 1710510622 + i}));
+          }
+          final received = <String>[];
+          final controller = PersistenceController(
+            storageService: FakeStorageService(),
+          )..onShotStored = received.add;
+          addTearDown(controller.dispose);
+          var changes = 0;
+          final subscription = controller.shotsChanged.listen((_) => changes++);
+          addTearDown(subscription.cancel);
+          final result = await makeImporter(controller: controller).import(
+            ScanResult(
+              shotCount: 3,
+              profileCount: 0,
+              hasDyeGrinders: false,
+              hasSettings: false,
+              sourcePath: bulkDir.path,
+              shotSource: 'history_v2',
+            ),
+          );
+          await Future<void>.delayed(Duration.zero);
+          expect(result.shotsImported, 3);
+          expect(received.toSet(), {
+            'de1app-1710510622',
+            'de1app-1710510623',
+            'de1app-1710510624',
+          });
+          expect(received, hasLength(3));
+          expect(changes, 1);
+        },
+      );
+
       test('emits exactly one shotStored per stored shot', () async {
         final received = <String>[];
         final controller = PersistenceController(
           storageService: FakeStorageService(),
         )..onShotStored = received.add;
+
+        addTearDown(controller.dispose);
+        var changes = 0;
+        final subscription = controller.shotsChanged.listen((_) => changes++);
+        addTearDown(subscription.cancel);
 
         final result = await makeImporter(
           controller: controller,
@@ -890,6 +944,8 @@ void main() {
 
         expect(result.shotsImported, equals(1));
         expect(received, equals(['de1app-1710510622']));
+        await Future<void>.delayed(Duration.zero);
+        expect(changes, 1);
       });
 
       test('emits nothing for a shot skipped as already present', () async {
@@ -900,12 +956,19 @@ void main() {
           ),
         )..onShotStored = received.add;
 
+        addTearDown(controller.dispose);
+        var changes = 0;
+        final subscription = controller.shotsChanged.listen((_) => changes++);
+        addTearDown(subscription.cancel);
+
         final result = await makeImporter(
           controller: controller,
         ).import(scanResult);
 
         expect(result.shotsSkipped, equals(1));
         expect(received, isEmpty);
+        await Future<void>.delayed(Duration.zero);
+        expect(changes, 0);
       });
 
       test('emits nothing for a shot whose store fails', () async {
@@ -915,6 +978,11 @@ void main() {
             ..failedIds.add('de1app-1710510622'),
         )..onShotStored = received.add;
 
+        addTearDown(controller.dispose);
+        var changes = 0;
+        final subscription = controller.shotsChanged.listen((_) => changes++);
+        addTearDown(subscription.cancel);
+
         final result = await makeImporter(
           controller: controller,
         ).import(scanResult);
@@ -922,6 +990,8 @@ void main() {
         expect(result.shotsImported, equals(0));
         expect(result.errors, hasLength(1));
         expect(received, isEmpty);
+        await Future<void>.delayed(Duration.zero);
+        expect(changes, 0);
       });
     });
   });

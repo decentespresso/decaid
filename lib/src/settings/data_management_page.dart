@@ -532,10 +532,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
       if (!mounted) return;
 
       await _showImportResultDialog(importResponse);
-
-      if (importResponse.shouldNotifyShotsChanged) {
-        widget.persistenceController.notifyShotsChanged();
-      }
     } on BackupImportException catch (e) {
       _log.severe("Failed to import backup", e);
       if (mounted) {

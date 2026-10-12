@@ -16,16 +16,20 @@ class ShotImporter {
     }
 
     int count = 0;
-    for (var item in decoded) {
-      if (item is! Map<String, dynamic>) {
-        throw FormatException(
-          'Expected JSON object in array, got ${item.runtimeType}',
-        );
+    try {
+      for (var item in decoded) {
+        if (item is! Map<String, dynamic>) {
+          throw FormatException(
+            'Expected JSON object in array, got ${item.runtimeType}',
+          );
+        }
+        _validateDecaidShotExportShape(item);
+        final shot = ShotRecord.fromRecordedJson(item);
+        await controller.storeShot(shot, notifyApplication: false);
+        count++;
       }
-      _validateDecaidShotExportShape(item);
-      final shot = ShotRecord.fromRecordedJson(item);
-      await controller.storeShot(shot);
-      count++;
+    } finally {
+      if (count > 0) controller.notifyShotsChanged();
     }
 
     return count;
@@ -40,7 +44,8 @@ class ShotImporter {
 
     _validateDecaidShotExportShape(json);
     final shot = ShotRecord.fromRecordedJson(json);
-    await controller.storeShot(shot);
+    await controller.storeShot(shot, notifyApplication: false);
+    controller.notifyShotsChanged();
   }
 
   void _validateDecaidShotExportShape(Map<String, dynamic> json) {

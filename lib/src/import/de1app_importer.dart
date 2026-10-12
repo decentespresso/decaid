@@ -255,7 +255,7 @@ class De1appImporter {
           : shot;
 
       try {
-        await controller.storeShot(updatedShot);
+        await controller.storeShot(updatedShot, notifyApplication: false);
         shotsImported++;
       } catch (e, st) {
         _log.warning('Failed to store shot ${shot.id}', e, st);
@@ -278,6 +278,8 @@ class De1appImporter {
         ),
       );
     }
+
+    if (shotsImported > 0) controller.notifyShotsChanged();
 
     final profileFiles = (await _mergedFiles(
       preferred: Directory('${scanResult.sourcePath}/profiles_v2'),

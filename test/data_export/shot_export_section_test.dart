@@ -184,6 +184,39 @@ ShotSnapshot _snapshot() => ShotSnapshot(
 
 void main() {
   group('ShotExportSection', () {
+    test('bulk import keeps per-shot plugin events and one refresh', () async {
+      final storage = ShotEventStorage();
+      storage.shots['existing'] = eventShot(id: 'existing');
+      final controller = PersistenceController(storageService: storage);
+      addTearDown(controller.dispose);
+      final stored = <String>[];
+      final updated = <String>[];
+      controller.onShotStored = stored.add;
+      controller.onShotUpdated = (shot, patch) => updated.add(shot.id);
+      var changes = 0;
+      final subscription = controller.shotsChanged.listen((_) => changes++);
+      addTearDown(subscription.cancel);
+      final section = ShotExportSection(
+        controller: controller,
+        pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) async =>
+            [],
+      );
+      final result = await importSectionJson(
+        section,
+        jsonEncode([
+          eventShot(id: 'new-1').toJson(),
+          eventShot(id: 'existing', notes: 'changed').toJson(),
+          eventShot(id: 'new-2').toJson(),
+        ]),
+        ConflictStrategy.overwrite,
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(result.imported, 3);
+      expect(stored, ['new-1', 'new-2']);
+      expect(updated, ['existing']);
+      expect(changes, 1);
+    });
+
     for (final scenario in [
       'new',
       'changed',

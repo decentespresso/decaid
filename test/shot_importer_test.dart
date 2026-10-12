@@ -135,6 +135,54 @@ void main() {
   tearDown(() => controller.dispose());
 
   test(
+    'single, empty and failed imports refresh only successful writes',
+    () async {
+      final storage = ShotEventStorage()..failedIds.add('failed');
+      final persistence = PersistenceController(storageService: storage);
+      addTearDown(persistence.dispose);
+      final events = <String>[];
+      persistence.onShotStored = events.add;
+      var changes = 0;
+      final subscription = persistence.shotsChanged.listen((_) => changes++);
+      addTearDown(subscription.cancel);
+      final importer = ShotImporter(controller: persistence);
+      expect(await importer.importShotsJson('[]'), 0);
+      await expectLater(
+        importer.importShotsJson(
+          jsonEncode([eventShot(id: 'failed').toJson()]),
+        ),
+        throwsStateError,
+      );
+      await expectLater(
+        importer.importShotJson(jsonEncode(eventShot(id: 'failed').toJson())),
+        throwsStateError,
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(events, isEmpty);
+      expect(changes, 0);
+      await importer.importShotJson(jsonEncode(eventShot(id: 'ok').toJson()));
+      await Future<void>.delayed(Duration.zero);
+      expect(events, ['ok']);
+      expect(changes, 1);
+    },
+  );
+
+  test('bulk import keeps per-shot plugin events and one refresh', () async {
+    var changes = 0;
+    final subscription = controller.shotsChanged.listen((_) => changes++);
+    addTearDown(subscription.cancel);
+    final count = await importer.importShotsJson(
+      jsonEncode([
+        for (var i = 0; i < 3; i++) eventShot(id: 'shot-$i').toJson(),
+      ]),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(count, 3);
+    expect(storedEvents, ['shot-0', 'shot-1', 'shot-2']);
+    expect(changes, 1);
+  });
+
+  test(
     'failed import propagates and notifies only earlier successful inserts',
     () async {
       final storage = ShotEventStorage()..failedIds.add('failed');
@@ -142,6 +190,9 @@ void main() {
       addTearDown(persistence.dispose);
       final events = <String>[];
       persistence.onShotStored = events.add;
+      var changes = 0;
+      final subscription = persistence.shotsChanged.listen((_) => changes++);
+      addTearDown(subscription.cancel);
       final importer = ShotImporter(controller: persistence);
       await expectLater(
         importer.importShotsJson(
@@ -155,11 +206,15 @@ void main() {
       );
       expect(events, ['ok']);
       expect(storage.shots.keys, ['ok']);
+      await Future<void>.delayed(Duration.zero);
+      expect(changes, 1);
       await expectLater(
         importer.importShotJson(jsonEncode(eventShot(id: 'failed').toJson())),
         throwsStateError,
       );
       expect(events, ['ok']);
+      await Future<void>.delayed(Duration.zero);
+      expect(changes, 1);
     },
   );
 

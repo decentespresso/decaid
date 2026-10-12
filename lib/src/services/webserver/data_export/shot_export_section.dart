@@ -87,18 +87,23 @@ class ShotExportSection implements DataExportSection {
                 replacement.contentSignature(),
               ),
               notifyPlugins: contentChanged,
+              notifyApplication: false,
             );
             imported++;
           } else {
             skipped++;
           }
         } else {
-          await _controller.storeShot(record);
+          await _controller.storeShot(record, notifyApplication: false);
           imported++;
         }
       } catch (e) {
         errors.add('Failed to import shot: $e');
       }
+    }
+
+    if (imported > 0) {
+      _controller.notifyShotsChanged();
     }
 
     return SectionImportResult(
