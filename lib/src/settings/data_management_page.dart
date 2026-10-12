@@ -832,8 +832,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
           ),
         ),
       );
-
-      widget.persistenceController.notifyShotsChanged();
     } finally {
       if (Platform.isAndroid) {
         await SafFolderCopier().cleanup();

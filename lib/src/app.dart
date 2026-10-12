@@ -178,7 +178,6 @@ class _MyAppState extends State<MyApp> {
             shouldShow: () async =>
                 !widget.settingsController.onboardingCompleted,
             builder: createImportStep(
-              storageService: widget.persistenceController.storageService,
               profileStorageService: widget.profileStorageService!,
               beanStorageService: widget.beanStorage!,
               grinderStorageService: widget.grinderStorage!,
