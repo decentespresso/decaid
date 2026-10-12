@@ -160,12 +160,25 @@ class FakeProfileStorageService implements ProfileStorageService {
 class FakeBeanStorageService implements BeanStorageService {
   final beans = <String, Bean>{};
   final batches = <String, BeanBatch>{};
+  final failedBeanNames = <String>{};
+  final failedBatchBeanNames = <String>{};
 
   @override
-  Future<void> insertBean(Bean bean) async => beans[bean.id] = bean;
+  Future<void> insertBean(Bean bean) async {
+    if (failedBeanNames.contains(bean.name)) {
+      throw StateError('bean write failed');
+    }
+    beans[bean.id] = bean;
+  }
 
   @override
-  Future<void> insertBatch(BeanBatch batch) async => batches[batch.id] = batch;
+  Future<void> insertBatch(BeanBatch batch) async {
+    final bean = beans[batch.beanId];
+    if (failedBatchBeanNames.contains(bean?.name)) {
+      throw StateError('batch write failed');
+    }
+    batches[batch.id] = batch;
+  }
 
   @override
   Future<List<Bean>> getAllBeans({bool includeArchived = false}) async =>
@@ -218,10 +231,15 @@ class FakeBeanStorageService implements BeanStorageService {
 
 class FakeGrinderStorageService implements GrinderStorageService {
   final grinders = <String, Grinder>{};
+  final failedModels = <String>{};
 
   @override
-  Future<void> insertGrinder(Grinder grinder) async =>
-      grinders[grinder.id] = grinder;
+  Future<void> insertGrinder(Grinder grinder) async {
+    if (failedModels.contains(grinder.model)) {
+      throw StateError('grinder write failed');
+    }
+    grinders[grinder.id] = grinder;
+  }
 
   @override
   Future<List<Grinder>> getAllGrinders({bool includeArchived = false}) async =>
@@ -305,8 +323,279 @@ Future<String?> _importShotSources({
   }
 }
 
+Future<ImportResult> importEntityShots({
+  required FakeStorageService storage,
+  required FakeBeanStorageService beans,
+  required FakeGrinderStorageService grinders,
+  List<Map<String, dynamic>> identities = const [{}],
+  String? dye,
+}) async {
+  final directory = await Directory.systemTemp.createTemp('de1app_entities_');
+  try {
+    await Directory('${directory.path}/history_v2').create();
+    final fixture =
+        jsonDecode(
+              await File(
+                '$_fixturesPath/history_v2/20240315T143022.json',
+              ).readAsString(),
+            )
+            as Map<String, dynamic>;
+    for (var i = 0; i < identities.length; i++) {
+      final identity = identities[i];
+      final meta = fixture['meta'] as Map<String, dynamic>;
+      final shot = {
+        ...fixture,
+        'clock': 1710510622 + i,
+        'app': <String, dynamic>{},
+        'meta': {
+          ...meta,
+          'bean': {...meta['bean'] as Map<String, dynamic>, ...identity},
+          'grinder': {
+            ...meta['grinder'] as Map<String, dynamic>,
+            'model': identity['model'] ?? 'Niche Zero',
+          },
+        },
+      };
+      await File(
+        '${directory.path}/history_v2/$i.json',
+      ).writeAsString(jsonEncode(shot));
+    }
+    if (dye != null) {
+      await Directory('${directory.path}/plugins/DYE').create(recursive: true);
+      await File(
+        '${directory.path}/plugins/DYE/grinders.tdb',
+      ).writeAsString(dye);
+    }
+    return await makeImporter(
+      storage: storage,
+      beanStorage: beans,
+      grinderStorage: grinders,
+    ).import(
+      ScanResult(
+        shotCount: identities.length,
+        profileCount: 0,
+        hasDyeGrinders: dye != null,
+        hasSettings: false,
+        sourcePath: directory.path,
+        shotSource: 'history_v2',
+      ),
+    );
+  } finally {
+    await directory.delete(recursive: true);
+  }
+}
+
+Future<void> expectResolvedReferences(
+  FakeStorageService storage,
+  FakeBeanStorageService beans,
+  FakeGrinderStorageService grinders,
+) async {
+  expect(storage.shots, isNotEmpty);
+  for (final shot in storage.shots.values) {
+    final context = shot.workflow.context!;
+    if (context.beanBatchId != null) {
+      final batch = await beans.getBatchById(context.beanBatchId!);
+      expect(batch, isNotNull, reason: 'unresolved batch on ${shot.id}');
+      expect(await beans.getBeanById(batch!.beanId), isNotNull);
+    }
+    if (context.grinderId != null) {
+      expect(
+        await grinders.getGrinderById(context.grinderId!),
+        isNotNull,
+        reason: 'unresolved grinder on ${shot.id}',
+      );
+    }
+  }
+}
+
 void main() {
   group('De1appImporter', () {
+    group('reconciles stored entity references', () {
+      for (final variant in [
+        'exact',
+        'incoming whitespace',
+        'stored whitespace',
+        'case',
+      ]) {
+        test('reuses persisted IDs for $variant identities', () async {
+          final storage = FakeStorageService();
+          final beans = FakeBeanStorageService();
+          final grinders = FakeGrinderStorageService();
+          String value(String text, bool incoming) {
+            if (variant == 'case' && incoming) return text.toUpperCase();
+            if (variant ==
+                (incoming ? 'incoming whitespace' : 'stored whitespace')) {
+              return '  $text  ';
+            }
+            return text;
+          }
+
+          final bean = Bean.create(
+            roaster: value('Banibeans', false),
+            name: value('Ethiopia Yirgacheffe', false),
+          );
+          final batch = BeanBatch.create(
+            beanId: bean.id,
+            roastDate: DateTime(2024, 3, 1),
+          );
+          final grinder = Grinder.create(model: value('Niche Zero', false));
+          await beans.insertBean(bean);
+          await beans.insertBatch(batch);
+          await grinders.insertGrinder(grinder);
+          final result = await importEntityShots(
+            storage: storage,
+            beans: beans,
+            grinders: grinders,
+            identities: [
+              {
+                'brand': value('Banibeans', true),
+                'type': value('Ethiopia Yirgacheffe', true),
+                'model': value('Niche Zero', true),
+              },
+            ],
+          );
+          expect(result.errors, isEmpty);
+          expect(result.beansCreated, 0);
+          expect(result.beansSkipped, 1);
+          expect(result.grindersCreated, 0);
+          expect(result.grindersSkipped, 1);
+          expect(beans.beans, hasLength(1));
+          expect(beans.batches, hasLength(1));
+          expect(grinders.grinders, hasLength(1));
+          final context = storage.shots.values.single.workflow.context!;
+          expect(context.beanBatchId, batch.id);
+          expect(context.grinderId, grinder.id);
+          await expectResolvedReferences(storage, beans, grinders);
+        });
+      }
+
+      for (final entity in ['Bean', 'BeanBatch', 'Grinder']) {
+        test(
+          '$entity insert failure is reported without dangling references',
+          () async {
+            final storage = FakeStorageService();
+            final beans = FakeBeanStorageService();
+            final grinders = FakeGrinderStorageService();
+            if (entity == 'Bean') {
+              beans.failedBeanNames.add('Ethiopia Yirgacheffe');
+            }
+            if (entity == 'BeanBatch') {
+              beans.failedBatchBeanNames.add('Ethiopia Yirgacheffe');
+            }
+            if (entity == 'Grinder') grinders.failedModels.add('Niche Zero');
+            final result = await importEntityShots(
+              storage: storage,
+              beans: beans,
+              grinders: grinders,
+              identities: [
+                {},
+                {
+                  'brand': 'Other Roaster',
+                  'type': 'Other Bean',
+                  'model': 'Other Grinder',
+                },
+              ],
+            );
+            expect(result.shotsImported, 2);
+            final failedContext =
+                storage.shots['de1app-1710510622']!.workflow.context!;
+            if (entity == 'Grinder') {
+              expect(failedContext.grinderId, isNull);
+              expect(failedContext.beanBatchId, isNotNull);
+            } else {
+              expect(failedContext.beanBatchId, isNull);
+              expect(failedContext.grinderId, isNotNull);
+            }
+            final otherContext =
+                storage.shots['de1app-1710510623']!.workflow.context!;
+            expect(otherContext.beanBatchId, isNotNull);
+            expect(otherContext.grinderId, isNotNull);
+            await expectResolvedReferences(storage, beans, grinders);
+            expect(result.hasErrors, isTrue);
+            expect(result.errors, hasLength(1));
+            expect(result.errors.single.reason, contains(entity));
+            expect(
+              result.errors.single.filename,
+              contains(
+                entity == 'Grinder' ? 'Niche Zero' : 'Ethiopia Yirgacheffe',
+              ),
+            );
+            expect(result.errors.single.details, contains('write failed'));
+            if (entity == 'Bean') expect(beans.batches, hasLength(1));
+          },
+        );
+      }
+
+      test(
+        'DYE enriches linked grinders and imports DYE-only presets',
+        () async {
+          final storage = FakeStorageService();
+          final beans = FakeBeanStorageService();
+          final grinders = FakeGrinderStorageService();
+          final result = await importEntityShots(
+            storage: storage,
+            beans: beans,
+            grinders: grinders,
+            dye: await File(
+              '$_fixturesPath/plugins/DYE/grinders.tdb',
+            ).readAsString(),
+          );
+          expect(result.errors, isEmpty);
+          final linked = await grinders.getGrinderById(
+            storage.shots.values.single.workflow.context!.grinderId!,
+          );
+          expect(linked!.model, 'Niche Zero');
+          expect(linked.settingType, GrinderSettingType.numeric);
+          expect(linked.settingSmallStep, 1);
+          expect(linked.settingBigStep, 10);
+          final preset = grinders.grinders.values.singleWhere(
+            (g) => g.model == 'Baratza Encore',
+          );
+          expect(preset.settingType, GrinderSettingType.preset);
+          expect(preset.settingValues, ['Coarse', 'Fine', 'Medium']);
+          expect(preset.settingBigStep, 5);
+          expect(
+            grinders.grinders.values.any((g) => g.model == 'EK43'),
+            isTrue,
+          );
+          await expectResolvedReferences(storage, beans, grinders);
+        },
+      );
+    });
+
+    test(
+      'DYE preset merge matches case variants and keeps unmatched shot grinders',
+      () async {
+        final storage = FakeStorageService();
+        final beans = FakeBeanStorageService();
+        final grinders = FakeGrinderStorageService();
+        final result = await importEntityShots(
+          storage: storage,
+          beans: beans,
+          grinders: grinders,
+          identities: [
+            {'model': 'baratza encore'},
+            {'model': 'Unknown Grinder'},
+          ],
+          dye:
+              'Baratza\\ Encore {is_numeric 0 default Medium big_step 5 values {Coarse Fine Medium}}',
+        );
+        expect(result.errors, isEmpty);
+        expect(grinders.grinders, hasLength(2));
+        final context = storage.shots['de1app-1710510622']!.workflow.context!;
+        final preset = await grinders.getGrinderById(context.grinderId!);
+        expect(preset!.model, 'baratza encore');
+        expect(preset.settingType, GrinderSettingType.preset);
+        expect(preset.settingValues, ['Coarse', 'Fine', 'Medium']);
+        expect(preset.settingBigStep, 5);
+        expect(
+          grinders.grinders.values.any((g) => g.model == 'Unknown Grinder'),
+          isTrue,
+        );
+        await expectResolvedReferences(storage, beans, grinders);
+      },
+    );
+
     group('selects shots sharing a basename by modification time', () {
       final older = DateTime.utc(2024, 1, 1);
       final newer = DateTime.utc(2024, 2, 1);
@@ -821,9 +1110,13 @@ void main() {
 
     group('links shots to bean batch and grinder IDs', () {
       late FakeStorageService storage;
+      late FakeBeanStorageService beans;
+      late FakeGrinderStorageService grinders;
 
       setUpAll(() async {
         storage = FakeStorageService();
+        beans = FakeBeanStorageService();
+        grinders = FakeGrinderStorageService();
         final scanResult = ScanResult(
           shotCount: 2,
           profileCount: 0,
@@ -832,25 +1125,40 @@ void main() {
           sourcePath: _fixturesPath,
           shotSource: 'both',
         );
-        await makeImporter(storage: storage).import(scanResult);
+        await makeImporter(
+          storage: storage,
+          beanStorage: beans,
+          grinderStorage: grinders,
+        ).import(scanResult);
       });
 
-      test('every stored shot has beanBatchId in workflow context', () {
-        expect(storage.shots, hasLength(2));
-        for (final shot in storage.shots.values) {
-          final context = shot.workflow.context;
-          expect(context, isNotNull);
-          expect(context!.beanBatchId, isNotNull);
-        }
-      });
+      test(
+        'every stored shot has a persisted beanBatchId in workflow context',
+        () async {
+          expect(storage.shots, hasLength(2));
+          for (final shot in storage.shots.values) {
+            final context = shot.workflow.context;
+            expect(context, isNotNull);
+            expect(context!.beanBatchId, isNotNull);
+            expect(await beans.getBatchById(context.beanBatchId!), isNotNull);
+          }
+        },
+      );
 
-      test('every stored shot has grinderId in workflow context', () {
-        for (final shot in storage.shots.values) {
-          final context = shot.workflow.context;
-          expect(context, isNotNull);
-          expect(context!.grinderId, isNotNull);
-        }
-      });
+      test(
+        'every stored shot has a persisted grinderId in workflow context',
+        () async {
+          for (final shot in storage.shots.values) {
+            final context = shot.workflow.context;
+            expect(context, isNotNull);
+            expect(context!.grinderId, isNotNull);
+            expect(
+              await grinders.getGrinderById(context.grinderId!),
+              isNotNull,
+            );
+          }
+        },
+      );
     });
 
     group('notifies plugin shot events', () {
