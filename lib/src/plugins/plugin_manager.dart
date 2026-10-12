@@ -450,7 +450,7 @@ class PluginManager {
           return __nativeFreeze(wrapped);
         }
 
-        function __decentProxy(pluginId, generation, bridgeToken, path, method, query, body, contentType) {
+        function __decentProxy(pluginId, generation, bridgeToken, path, method, query, body, contentType, gzip) {
           const requestId = "__decent_proxy_" + __decentProxyNonce + "_" + (++__decentProxySeq);
           const promise = new __NativePromise((resolve, reject) => {
             const pendingByPlugin = __pendingDecentProxyByPlugin(pluginId);
@@ -466,7 +466,8 @@ class PluginManager {
                 method: method,
                 query: query,
                 body: body,
-                contentType: contentType
+                contentType: contentType,
+                gzip: gzip
               });
             } catch (e) {
               __mapDelete(pendingByPlugin, requestId);
@@ -2304,6 +2305,9 @@ class PluginManager {
             if (method === "POST" && !${manifest.permissions.contains(PluginPermissions.proxyDecentApiWrite)}) {
               return rejectPermission("proxy.decent_api.write");
             }
+            if (options.gzip !== undefined && typeof options.gzip !== "boolean") {
+              return Promise.reject(new TypeError("gzip must be a boolean"));
+            }
             return globalThis.__reaprimePluginBridge.decentProxy(
               pluginId,
               pluginGeneration,
@@ -2312,7 +2316,8 @@ class PluginManager {
               options.method || "GET",
               options.query || {},
               options.body ?? null,
-              options.contentType ?? null
+              options.contentType ?? null,
+              options.gzip === undefined ? false : options.gzip
             );
           },
           transport: transport,
@@ -2920,6 +2925,7 @@ class PluginManager {
         query: _stringMap(msg['query']),
         body: msg['body'] as String?,
         contentType: msg['contentType'] as String?,
+        gzipBody: msg.containsKey('gzip') ? msg['gzip'] as bool : false,
       );
       _completeOp(op, result: response);
     } on DecentProxyConsentDeniedException catch (e) {
@@ -2947,6 +2953,7 @@ class PluginManager {
     Map<String, String>? query,
     String? body,
     String? contentType,
+    bool gzipBody = false,
   }) async {
     _ensureActive();
     return _decentProxyBridge.proxyForPlugin(
@@ -2957,6 +2964,7 @@ class PluginManager {
       query: query,
       body: body,
       contentType: contentType,
+      gzipBody: gzipBody,
     );
   }
 

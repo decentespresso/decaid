@@ -33,6 +33,7 @@ void main() {
     String? contentType = 'application/json',
     String? body,
     List<int>? bodyBytes,
+    bool gzipBody = true,
   }) async {
     late http.Request captured;
     final service = DecentProxyService(
@@ -51,6 +52,7 @@ void main() {
       contentType: contentType,
       body: body,
       bodyBytes: bodyBytes,
+      gzipBody: gzipBody,
     );
     return captured;
   }
@@ -77,7 +79,7 @@ void main() {
   }
 
   test(
-    'uses normalized method, path, and parameterized JSON media type',
+    'preserves normalized method, path, and parameterized content type',
     () async {
       const contentType = 'Application/JSON; charset=utf-8';
       final request = await captureRequest(
@@ -184,12 +186,34 @@ void main() {
         path: path,
         contentType: contentType,
         bodyBytes: originalBytes,
+        gzipBody: false,
       );
 
       expect(request.bodyBytes, originalBytes);
       expect(request.headers.containsKey('content-encoding'), isFalse);
     });
   }
+
+  test('identical shot uploads stay plain without an explicit flag', () async {
+    final request = await captureRequest(body: unicodeBody, gzipBody: false);
+    expect(request.bodyBytes, originalBytes);
+    expect(request.headers.containsKey('content-encoding'), isFalse);
+  });
+
+  test(
+    'explicit compression does not infer an endpoint or media type',
+    () async {
+      final request = await captureRequest(
+        method: 'PUT',
+        path: 'support/api/upload',
+        contentType: 'text/plain; charset=utf-8',
+        body: unicodeBody,
+      );
+      expect(request.headers['content-encoding'], 'gzip');
+      expect(gzip.decode(request.bodyBytes), originalBytes);
+      expect(request.headers['content-type'], 'text/plain; charset=utf-8');
+    },
+  );
 
   test('does not retry a rejected compressed POST with a plain body', () async {
     var calls = 0;
@@ -208,6 +232,7 @@ void main() {
       path: 'support/api/shot_upload',
       contentType: 'application/json',
       body: unicodeBody,
+      gzipBody: true,
     );
 
     expect(calls, 1);
@@ -248,6 +273,7 @@ void main() {
       query: {'replace': '1'},
       contentType: 'application/json',
       body: unicodeBody,
+      gzipBody: true,
     );
     final wire = await received;
 

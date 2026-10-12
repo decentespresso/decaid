@@ -93,6 +93,7 @@ class DecentProxyService {
     List<int>? bodyBytes,
     String? body,
     String? contentType,
+    bool gzipBody = false,
   }) async {
     final normalizedMethod = method.toUpperCase();
     if (normalizedMethod != 'GET' &&
@@ -154,11 +155,7 @@ class DecentProxyService {
       outbound.bodyBytes = utf8.encode(body);
     }
 
-    if (normalizedMethod == 'POST' &&
-        normalizedPath == 'support/api/shot_upload' &&
-        contentType?.split(';').first.trim().toLowerCase() ==
-            'application/json' &&
-        outbound.bodyBytes.length >= 1024) {
+    if (gzipBody && outbound.bodyBytes.length >= 1024) {
       final compressed = gzip.encode(outbound.bodyBytes);
       if (compressed.length < outbound.bodyBytes.length) {
         outbound.bodyBytes = compressed;
@@ -214,6 +211,7 @@ class DecentProxyService {
     List<int>? bodyBytes,
     String? body,
     String? contentType,
+    bool gzipBody = false,
   }) {
     return proxy(
       callerId: callerId,
@@ -224,6 +222,7 @@ class DecentProxyService {
       bodyBytes: bodyBytes,
       body: body,
       contentType: contentType,
+      gzipBody: gzipBody,
     );
   }
 
@@ -235,6 +234,7 @@ class DecentProxyService {
     List<int>? bodyBytes,
     String? body,
     String? contentType,
+    bool gzipBody = false,
   }) {
     return proxy(
       callerId: callerId,
@@ -245,6 +245,7 @@ class DecentProxyService {
       bodyBytes: bodyBytes,
       body: body,
       contentType: contentType,
+      gzipBody: gzipBody,
     );
   }
 

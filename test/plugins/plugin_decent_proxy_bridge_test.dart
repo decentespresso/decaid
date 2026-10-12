@@ -177,7 +177,7 @@ void main() {
   );
 
   test(
-    'large JSON uploads are gzipped without changing the plugin API',
+    'large JSON uploads are gzipped when the plugin explicitly requests it',
     () async {
       await linkAccount();
       final body = jsonEncode({'notes': '\u00e9\u4e2d' * 500});
@@ -202,6 +202,7 @@ void main() {
             query: {'replace': '1'},
             body: body,
             contentType: 'application/json',
+            gzipBody: true,
           );
 
       expect(upstream.headers['content-encoding'], 'gzip');

@@ -219,19 +219,22 @@ if (response.status === 200) {
 const upload = await host.decentProxy("support/api/shot_upload", {
   method: "POST",
   body: JSON.stringify(shot),
-  contentType: "application/json"
+  contentType: "application/json",
+  gzip: true
 });
 ```
 
 The returned object has `{ status, headers, body }`. Consent denial or non-decision rejects with `error.code === "account_consent_denied"`. `GET` (read) needs `proxy.decent_api`; `POST` (write) needs `proxy.decent_api.write` and a path on the write allowlist. Credentials are attached in Dart and never exposed to plugin JS.
 
-Decaid automatically gzips JSON POST bodies to `support/api/shot_upload` when
-they are at least 1,024 UTF-8 bytes and gzip reduces their size. The outbound
-request carries `Content-Encoding: gzip` and retains its original `Content-Type`.
-JSON media types are matched case-insensitively and may include parameters such
-as `charset=utf-8`. Plugins continue sending plain JSON through the existing
-API; no compression option or plugin update is needed. Other requests remain
-unchanged. A failed compressed POST is not automatically retried as plain JSON.
+The optional `gzip` boolean lets a plugin request host-side compression for its
+POST body. It defaults to false; omitting it or passing false forwards the body
+unchanged, even for shot-upload JSON. Invalid types reject the request before
+upstream traffic. With `gzip: true`, Decaid compresses bodies of at least 1,024
+UTF-8 bytes only when gzip reduces their size, setting `Content-Encoding: gzip`
+and preserving `Content-Type`. The proxy does not infer compression from an
+endpoint or media type. Permissions, the write allowlist, and native account
+consent still apply. A failed compressed POST has no automatic plain-body
+fallback. This transport option is not a user-facing upload setting.
 
 ## Events System
 

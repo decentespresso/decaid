@@ -647,21 +647,12 @@ archive is also bounded by the 2 GiB import request limit.
 |--------|------|-------------|---------|
 | GET | `/api/v1/account/decent` | Decent account auth status: `{loggedIn}` (true only when stored credentials are accepted by the backend) | `account_handler.dart` |
 | GET | `/api/v1/account/proxy/<path>` | Auth-enriching proxy to `decentespresso.com/<path>` | `account_proxy_handler.dart` |
-| POST | `/api/v1/account/proxy/<path>` | Auth-enriching write proxy (automatically gzips large shot-upload JSON) | `account_proxy_handler.dart` |
+| POST | `/api/v1/account/proxy/<path>` | Auth-enriching write proxy (relays body) | `account_proxy_handler.dart` |
 | PUT | `/api/v1/account/proxy/<path>` | Auth-enriching write proxy (relays body) | `account_proxy_handler.dart` |
 
 Linking/unlinking a Decent account is **native-only** — there are no network login/logout routes. The webserver is unauthenticated with `Access-Control-Allow-Origin: *`, so exposing credential operations would let any LAN client or browser origin store attacker credentials or unlink the account. The status response omits the linked email (PII).
 
 The **proxy** lets clients *use* the account without ever seeing the credentials: it attaches the linked account's Basic auth server-side, forwards to `decentespresso.com`, and relays the upstream status + body verbatim. It requires `Authorization: Bearer <token>` and is enforced only on this path. `GET` requires `account:proxy` (including the skin token injected into served skin pages); `POST`/`PUT` require the stronger `account:proxy:write` scope, so the read-only skin token cannot write. Forwarding is restricted to the `support/api/` prefix. The OpenAPI spec documents the generated-client-safe `/support/api/{endpoint}` form; use this raw catch-all route when a Decent backend path contains additional slashes. Each served skin generation gets a fresh token bound to that skin's immutable consent key; switching or stopping the skin server revokes the previous token. The skin's origin normally remains stable across restarts, with a temporary fallback if its assigned port is occupied; see [Skin Origins and Browser Storage](Skins.md#skin-origins-and-browser-storage). The stable port 3000 entry point redirects without caching to the active origin and is the address to bookmark. The first request from each skin, plugin, or named API client pauses for native approval on the Decaid device. Explicit allow and deny decisions are remembered; a 30-second timeout denies only that request. Responses: 401 (missing/invalid token or no linked account), 403 (token unscoped, path not allowed, or account access not granted). Write-scoped tokens are minted from the account page's API-token UI by enabling "Allow write access". Headless operators can grant session-only access with `--trust-consent=<caller-key>` or `--trust-all-consent`.
-
-JSON POST bodies to `support/api/shot_upload` are automatically gzipped upstream
-when they are at least 1,024 bytes and compression reduces their size. Decaid sets
-`Content-Encoding: gzip` and preserves `Content-Type`; `application/json` is
-matched case-insensitively, including parameters such as `charset=utf-8`.
-Clients send their original, uncompressed body. Other endpoints, PUT/GET requests,
-non-JSON bodies, and bodies below the threshold are unchanged. Upstream responses
-remain unchanged, and there is no automatic plain-body fallback after a failed
-compressed POST.
 
 ### Other
 

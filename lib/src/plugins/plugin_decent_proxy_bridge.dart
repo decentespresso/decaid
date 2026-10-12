@@ -22,6 +22,7 @@ class PluginDecentProxyBridge {
     Map<String, String>? query,
     String? body,
     String? contentType,
+    bool gzipBody = false,
   }) async {
     if (manifest == null) {
       throw StateError('Plugin is not loaded: $pluginId');
@@ -69,6 +70,7 @@ class PluginDecentProxyBridge {
           query: query,
           body: body,
           contentType: contentType,
+          gzipBody: gzipBody,
         );
       default:
         throw UnsupportedError(
