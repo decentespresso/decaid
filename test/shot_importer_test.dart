@@ -1,11 +1,14 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
 import 'package:reaprime/src/models/data/steam_record.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
 import 'package:reaprime/src/services/storage/storage_service.dart';
 import 'package:reaprime/src/util/shot_importer.dart';
+
+import 'helpers/shot_event_storage.dart';
 
 class MockStorageService implements StorageService {
   final List<ShotRecord> storedShots = [];
@@ -118,11 +121,47 @@ class MockStorageService implements StorageService {
 void main() {
   late MockStorageService mockStorage;
   late ShotImporter importer;
+  late PersistenceController controller;
+  late List<String> storedEvents;
 
   setUp(() {
     mockStorage = MockStorageService();
-    importer = ShotImporter(storage: mockStorage);
+    storedEvents = [];
+    controller = PersistenceController(storageService: mockStorage)
+      ..onShotStored = storedEvents.add;
+    importer = ShotImporter(controller: controller);
   });
+
+  tearDown(() => controller.dispose());
+
+  test(
+    'failed import propagates and notifies only earlier successful inserts',
+    () async {
+      final storage = ShotEventStorage()..failedIds.add('failed');
+      final persistence = PersistenceController(storageService: storage);
+      addTearDown(persistence.dispose);
+      final events = <String>[];
+      persistence.onShotStored = events.add;
+      final importer = ShotImporter(controller: persistence);
+      await expectLater(
+        importer.importShotsJson(
+          jsonEncode([
+            eventShot(id: 'ok').toJson(),
+            eventShot(id: 'failed').toJson(),
+            eventShot(id: 'not reached').toJson(),
+          ]),
+        ),
+        throwsStateError,
+      );
+      expect(events, ['ok']);
+      expect(storage.shots.keys, ['ok']);
+      await expectLater(
+        importer.importShotJson(jsonEncode(eventShot(id: 'failed').toJson())),
+        throwsStateError,
+      );
+      expect(events, ['ok']);
+    },
+  );
 
   group('ShotImporter - Single Shot Import', () {
     test('should import a valid single shot JSON object', () async {
@@ -192,6 +231,7 @@ void main() {
 
       expect(mockStorage.storedShots.length, 1);
       expect(mockStorage.storedShots[0].id, 'shot-123');
+      expect(storedEvents, ['shot-123']);
       expect(mockStorage.storedShots[0].workflow.name, 'Test Workflow');
     });
 
@@ -372,6 +412,7 @@ void main() {
       final count = await importer.importShotsJson(validShotsJson);
 
       expect(count, 2);
+      expect(storedEvents, ['shot-1', 'shot-2']);
       expect(mockStorage.storedShots.length, 2);
       expect(mockStorage.storedShots[0].id, 'shot-1');
       expect(mockStorage.storedShots[1].id, 'shot-2');

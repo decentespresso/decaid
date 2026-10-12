@@ -3,7 +3,6 @@ import 'package:logging/logging.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/import/parsers/enjoyment_scale.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
-import 'package:reaprime/src/plugins/plugin_manager.dart';
 import 'package:reaprime/src/services/storage/bean_storage_service.dart';
 import 'package:reaprime/src/services/webserver/bounded_request_body.dart';
 import 'package:reaprime/src/services/webserver/json_response.dart';
@@ -12,17 +11,14 @@ import 'package:shelf_plus/shelf_plus.dart';
 class ShotsHandler {
   final PersistenceController _controller;
   final BeanStorageService? _beanStorage;
-  final PluginManager? _pluginManager;
 
   final Logger _log = Logger("ShotsHandler");
 
   ShotsHandler({
     required PersistenceController controller,
     BeanStorageService? beanStorage,
-    PluginManager? pluginManager,
   }) : _controller = controller,
-       _beanStorage = beanStorage,
-       _pluginManager = pluginManager;
+       _beanStorage = beanStorage;
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/shots', _getShots);
@@ -248,13 +244,7 @@ class ShotsHandler {
               .toIso8601String();
 
       final updatedShot = ShotRecord.fromRecordedJson(merged);
-      await _controller.updateShot(updatedShot);
-      _log.info("Broadcasting shotUpdated for ${updatedShot.id}");
-      _pluginManager?.broadcastEvent('shotUpdated', {
-        'id': updatedShot.id,
-        'shot': updatedShot.toJsonWithoutMeasurements(),
-        'patch': json,
-      });
+      await _controller.updateShot(updatedShot, patch: json);
 
       return jsonOk(updatedShot.toJson());
     } on RequestBodyReadException {

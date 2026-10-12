@@ -1,12 +1,12 @@
 import 'dart:convert';
 
 import 'package:reaprime/src/models/data/shot_record.dart';
-import 'package:reaprime/src/services/storage/storage_service.dart';
+import 'package:reaprime/src/controllers/persistence_controller.dart';
 
 class ShotImporter {
-  final StorageService storage;
+  final PersistenceController controller;
 
-  ShotImporter({required this.storage});
+  ShotImporter({required this.controller});
 
   Future<int> importShotsJson(String data) async {
     final decoded = jsonDecode(data);
@@ -24,7 +24,7 @@ class ShotImporter {
       }
       _validateDecaidShotExportShape(item);
       final shot = ShotRecord.fromRecordedJson(item);
-      await storage.storeShot(shot);
+      await controller.storeShot(shot);
       count++;
     }
 
@@ -40,7 +40,7 @@ class ShotImporter {
 
     _validateDecaidShotExportShape(json);
     final shot = ShotRecord.fromRecordedJson(json);
-    await storage.storeShot(shot);
+    await controller.storeShot(shot);
   }
 
   void _validateDecaidShotExportShape(Map<String, dynamic> json) {

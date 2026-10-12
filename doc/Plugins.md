@@ -288,8 +288,8 @@ Machine broadcasts require `events.machine`. Shot lifecycle broadcasts require
   ```
 
 - **`storageWrite`**: Confirmation of storage write
-- **`shotStored`**: A shot finished persisting
-- **`shotUpdated`**: A stored shot was edited via `PUT /api/v1/shots/<id>` (e.g. metadata changes — notes, enjoyment, bean/grinder). Broadcast to every plugin so they can react to edits (the Visualizer plugin uses it to forward-sync edited metadata).
+- **`shotStored`**: A new shot finished persisting, including successful backup and Settings JSON imports. Payload: `{id: "<shot id>"}`.
+- **`shotUpdated`**: A stored shot was edited (e.g. notes in History, `PUT /api/v1/shots/<id>`, or a changed backup overwrite). The payload always contains `id`, `shot` (current metadata without measurements), and `patch` (fields changed by this mutation). PUT preserves the submitted request patch; native edits provide an equivalent field patch; backup overwrites provide changed replacement metadata, with removed fields set to `null`. Measurement-only overwrites can have an empty metadata patch. Unchanged, skipped, and failed imports emit no Shot event. Events are per Shot, not batched. The Visualizer plugin uses the patch to forward-sync only edited fields without overwriting unrelated remote edits.
 
   ```javascript
   {
@@ -297,7 +297,7 @@ Machine broadcasts require `events.machine`. Shot lifecycle broadcasts require
     payload: {
       id: "shot-12345",       // local shot id
       shot: { /* full shot without measurements */ },
-      patch: { /* the partial update body that was PUT */ }
+      patch: { annotations: { espressoNotes: 'edited notes' } }
     }
   }
   ```

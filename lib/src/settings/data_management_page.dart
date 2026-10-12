@@ -580,9 +580,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
     _showProgressDialog(context, 'Importing shots...');
 
     try {
-      final importer = ShotImporter(
-        storage: widget.persistenceController.storageService,
-      );
+      final importer = ShotImporter(controller: widget.persistenceController);
       final file = File(filePath);
       final content = await file.readAsString();
       final decoded = jsonDecode(content);
@@ -597,8 +595,6 @@ class _DataManagementPageState extends State<DataManagementPage> {
 
       if (!mounted) return;
       Navigator.of(context).pop();
-
-      widget.persistenceController.notifyShotsChanged();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

@@ -601,6 +601,12 @@ void main(List<String> args) async {
   pluginService.pluginManager.attachWorkflowController(workflowController);
   persistenceController.onShotStored = (shotId) =>
       pluginService.pluginManager.broadcastEvent('shotStored', {'id': shotId});
+  persistenceController.onShotUpdated = (record, patch) =>
+      pluginService.pluginManager.broadcastEvent('shotUpdated', {
+        'id': record.id,
+        'shot': record.toJsonWithoutMeasurements(),
+        'patch': patch,
+      });
 
   BatteryController? batteryController;
   if (Platform.isAndroid || Platform.isIOS) {
