@@ -601,6 +601,12 @@ void main(List<String> args) async {
   pluginService.pluginManager.attachWorkflowController(workflowController);
   persistenceController.onShotStored = (shotId) =>
       pluginService.pluginManager.broadcastEvent('shotStored', {'id': shotId});
+  persistenceController.onShotUpdated = (record, patch) =>
+      pluginService.pluginManager.broadcastEvent('shotUpdated', {
+        'id': record.id,
+        'shot': record.toJsonWithoutMeasurements(),
+        'patch': patch,
+      });
 
   BatteryController? batteryController;
   if (Platform.isAndroid || Platform.isIOS) {
@@ -617,10 +623,11 @@ void main(List<String> args) async {
   );
   displayController.initialize();
 
+  final pluginSourceService = PluginSourceService(pluginService);
   final updateCheckService = UpdateCheckService(
     settingsService: SharedPreferencesSettingsService(),
     webUIStorage: webUIStorage,
-    pluginSourceService: PluginSourceService(pluginService),
+    pluginSourceService: pluginSourceService,
   );
 
   final macosUpdater = Platform.isMacOS && !BuildInfo.appStore
@@ -645,6 +652,7 @@ void main(List<String> args) async {
       batteryController,
       presenceController,
       displayController,
+      pluginSourceService: pluginSourceService,
       beanStorage: beanStorage,
       grinderStorage: grinderStorage,
       connectionManager: connectionManager,
@@ -790,6 +798,7 @@ void main(List<String> args) async {
         workflowController: workflowController,
         persistenceController: persistenceController,
         pluginLoaderService: pluginService,
+        pluginSourceService: pluginSourceService,
         webUIService: webUIService,
         webUIStorage: webUIStorage,
         updateCheckService: updateCheckService,
@@ -1017,6 +1026,7 @@ class AppRoot extends StatefulWidget {
   final WorkflowController workflowController;
   final PersistenceController persistenceController;
   final PluginLoaderService pluginLoaderService;
+  final PluginSourceService pluginSourceService;
   final WebUIService webUIService;
   final WebUIStorage webUIStorage;
   final UpdateCheckService? updateCheckService;
@@ -1044,6 +1054,7 @@ class AppRoot extends StatefulWidget {
     required this.workflowController,
     required this.persistenceController,
     required this.pluginLoaderService,
+    required this.pluginSourceService,
     required this.webUIService,
     required this.webUIStorage,
     required this.webViewLogService,
@@ -1135,6 +1146,7 @@ class _AppRootState extends State<AppRoot> {
         workflowController: widget.workflowController,
         persistenceController: widget.persistenceController,
         pluginLoaderService: widget.pluginLoaderService,
+        pluginSourceService: widget.pluginSourceService,
         webUIService: widget.webUIService,
         webUIStorage: widget.webUIStorage,
         updateCheckService: widget.updateCheckService,

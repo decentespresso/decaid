@@ -17,6 +17,7 @@ class PersistenceController {
   });
 
   void Function(String shotId)? onShotStored;
+  void Function(ShotRecord record, Map<String, dynamic> patch)? onShotUpdated;
 
   final _shotsChangedSubject = PublishSubject<void>();
   Stream<void> get shotsChanged => _shotsChangedSubject.stream;
@@ -35,12 +36,19 @@ class PersistenceController {
   Future<void> persistShot(ShotRecord record) async {
     _log.info("Storing shot");
     try {
-      await storageService.storeShot(await _withGrinderBurrsSnapshot(record));
-      _shotsChangedSubject.add(null);
-      onShotStored?.call(record.id);
+      await storeShot(await _withGrinderBurrsSnapshot(record));
     } catch (e, st) {
       _log.severe("Error saving shot:", e, st);
     }
+  }
+
+  Future<void> storeShot(
+    ShotRecord record, {
+    bool notifyApplication = true,
+  }) async {
+    await storageService.storeShot(record);
+    if (notifyApplication) _shotsChangedSubject.add(null);
+    onShotStored?.call(record.id);
   }
 
   Future<ShotRecord> _withGrinderBurrsSnapshot(ShotRecord record) async {
@@ -72,11 +80,17 @@ class PersistenceController {
     );
   }
 
-  Future<void> updateShot(ShotRecord record) async {
+  Future<void> updateShot(
+    ShotRecord record, {
+    required Map<String, dynamic> patch,
+    bool notifyPlugins = true,
+    bool notifyApplication = true,
+  }) async {
     _log.info("Updating shot: ${record.id}");
     try {
       await storageService.updateShot(record);
-      _shotsChangedSubject.add(null);
+      if (notifyApplication) _shotsChangedSubject.add(null);
+      if (notifyPlugins) onShotUpdated?.call(record, patch);
     } catch (e, st) {
       _log.severe("Error updating shot:", e, st);
       rethrow;

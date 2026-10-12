@@ -296,8 +296,8 @@ Machine broadcasts require `events.machine`. Shot lifecycle broadcasts require
   ```
 
 - **`storageWrite`**: Confirmation of storage write
-- **`shotStored`**: A shot finished persisting
-- **`shotUpdated`**: A stored shot was edited via `PUT /api/v1/shots/<id>` (e.g. metadata changes — notes, enjoyment, bean/grinder). Broadcast to every plugin so they can react to edits (the Visualizer plugin uses it to forward-sync edited metadata).
+- **`shotStored`**: A new shot finished persisting, including successful backup, Settings JSON, and De1App/onboarding backup imports. Payload: `{id: "<shot id>"}`.
+- **`shotUpdated`**: A stored shot was edited (e.g. notes in History, `PUT /api/v1/shots/<id>`, or a changed backup overwrite). The payload always contains `id`, `shot` (current metadata without measurements), and `patch` (fields changed by this mutation). PUT preserves the submitted request patch; native edits provide an equivalent field patch; backup overwrites provide changed replacement metadata, with removed fields set to `null`. Measurement-only overwrites can have an empty metadata patch. Unchanged, skipped, and failed imports emit no Shot event. Events are per Shot, not batched. The Visualizer plugin uses the patch to forward-sync only edited fields without overwriting unrelated remote edits.
 
   ```javascript
   {
@@ -305,7 +305,7 @@ Machine broadcasts require `events.machine`. Shot lifecycle broadcasts require
     payload: {
       id: "shot-12345",       // local shot id
       shot: { /* full shot without measurements */ },
-      patch: { /* the partial update body that was PUT */ }
+      patch: { annotations: { espressoNotes: 'edited notes' } }
     }
   }
   ```
@@ -395,6 +395,26 @@ predicate makes the matcher a non-match. A definite match cannot win against an
 indeterminate competing driver. Two definite matches conflict. Discovery and connection
 admission still need to use these arbitration primitives.
 
+### Runtime-v2 session info
+
+Plugin-created and BLE-backed device connection contexts share
+`context.publishInfo(info)`. The device type defines the accepted fields.
+Publications use the existing plugin-generation, registration/binding and
+connection-session fencing and shared 64 KiB JSON payload bound. Oversized info
+returns `resource_limit`; retired contexts return `stale_session`.
+The shared device-request bridge rejects non-finite JavaScript numbers (`NaN`,
+`Infinity`, `-Infinity`), all boxed numbers (`new Number(...)`, including finite
+values), and primitive or boxed BigInt values (`1n`, `Object(1n)`) at any JSON depth
+with `invalid_argument` before serialization. This
+applies to info, snapshots and other device request payloads; explicit `null`
+remains supported.
+Session info clears when the connection retires, including replacement startup,
+disconnect, failed startup, reported connection/protocol failure, replacement or
+unregister, plugin unload/reload and dispose. Info does not satisfy readiness.
+Invalid info may propagate from a BLE notification callback without retiring an
+otherwise healthy connection; snapshot and protocol failures retain their
+existing failure semantics.
+
 ### Non-BLE Scale Registration
 
 Declare a Scale driver in the manifest. No `transport.ble` permission is needed:
@@ -456,6 +476,30 @@ Readiness requires both successful `connect` completion and a valid weight.
 Up to 256 initialization samples are retained for controller activation, then
 delivered once. Initialization is bounded; invalid samples cannot mark ready.
 Publication-ingress timestamps are provisional pending the required timing gate.
+
+#### Scale session info
+
+Both plugin-created and BLE-backed Scales use the
+[shared runtime-v2 session info lifecycle](#runtime-v2-session-info):
+
+```javascript
+await context.publishInfo({firmwareVersion: "R029", batteryLevel: 87});
+```
+
+Only `firmwareVersion` and `batteryLevel` are accepted. Firmware is an opaque
+string (including an empty string) or `null`. Battery is an integer from 0 to
+100 inclusive or `null`; a non-null battery requires the existing `battery`
+capability. Omitted fields preserve accepted values; explicit `null` clears
+that field. Empty objects, unknown keys, malformed values, capability mismatches
+and out-of-range values, including `NaN`, `Infinity`, `-Infinity`, all boxed
+numbers, and primitive or boxed BigInt values, return `invalid_argument` without
+changing accepted info.
+
+Accepted info is available to native `DeviceInformationCapable` consumers and
+`GET /api/v1/scale/info`; cleared fields are omitted from the response. Info is
+separate from weight snapshots and does not replace the valid-weight readiness
+requirement. No info enters device inventory, persistence or a new WebSocket.
+Existing v1 Scale plugins that never call `publishInfo` remain compatible.
 
 ### Grinder Registration
 
@@ -1260,6 +1304,17 @@ Provenance for a tracked install is stored in a Decaid-owned
 `.rea_source.json` inside the plugin directory. It is not part of your plugin
 package, it is rewritten on every install, and it disappears when the plugin is
 removed.
+
+The Plugins page cogwheel menu provides **Refresh plugins**, **Check for
+updates**, and **Install plugin**. Installation opens the source choices:
+**GitHub Release**, **GitHub Branch**, **ZIP file**, and **Folder snapshot**.
+While an update check runs, the cogwheel shows progress and **Check for
+updates** is disabled until the check finishes, including after a failure.
+Concurrent native, periodic, and REST checks share one in-flight operation.
+Leaving and reopening the page preserves its busy state and refreshes the
+current plugin list when that operation finishes.
+Each plugin's three-dot menu contains **Load** or **Unload**, **Settings**,
+**Reload**, and **Remove**.
 
 ### Packaging a release
 

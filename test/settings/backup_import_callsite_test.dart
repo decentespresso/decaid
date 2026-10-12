@@ -70,7 +70,6 @@ void main() {
       final storage = _Storage();
       final called = Completer<void>();
       final step = createImportStep(
-        storageService: storage,
         profileStorageService: _Profiles(),
         beanStorageService: _Beans(),
         grinderStorageService: _Grinders(),

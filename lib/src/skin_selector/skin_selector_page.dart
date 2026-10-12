@@ -8,6 +8,7 @@ import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/skin_feature/skin_view.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
+import 'package:reaprime/src/widgets/page_action_menu.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:reaprime/src/skin_feature/skin_camera_controls.dart';
@@ -80,21 +81,14 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
       appBar: AppBar(
         title: const Text('Web Interface'),
         actions: [
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.add),
-            tooltip: 'Install skin',
-            onSelected: (value) => _handleInstallAction(context, value),
-            itemBuilder: (context) => const [
-              PopupMenuItem<String>(
-                value: 'github-release',
-                child: Text('GitHub Release'),
-              ),
-              PopupMenuItem<String>(
-                value: 'github-branch',
-                child: Text('GitHub Branch'),
-              ),
-              PopupMenuItem<String>(value: 'zip', child: Text('ZIP file')),
-            ],
+          PageActionMenu(
+            tooltip: 'Skin actions',
+            checkingLabel: 'Checking for skin updates',
+            onCheckForUpdates: () => _checkForSkinUpdates(context),
+            updateCheck: widget.webUIStorage.updateCheck,
+            onUpdatesChecked: () => setState(() {}),
+            installLabel: 'Install skin',
+            onInstall: (action) => _handleInstallAction(context, action),
           ),
         ],
       ),
@@ -169,13 +163,6 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
             ],
           ),
         ),
-        const SizedBox(width: 8),
-        _ActionButton.outline(
-          label: 'Check for updates',
-          icon: Icons.refresh,
-          size: ShadButtonSize.sm,
-          onPressed: () => _checkForSkinUpdates(context),
-        ),
       ],
     );
   }
@@ -249,12 +236,24 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
       );
     }
 
-    return Row(
-      children: [
-        Expanded(child: status),
-        const SizedBox(width: 12),
-        Wrap(spacing: 8, runSpacing: 8, children: actions),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final controls = Wrap(spacing: 8, runSpacing: 8, children: actions);
+        if (constraints.maxWidth < 600) {
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [status, const SizedBox(height: 8), controls],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: status),
+            const SizedBox(width: 12),
+            controls,
+          ],
+        );
+      },
     );
   }
 
@@ -272,6 +271,7 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
         child: DropdownButtonHideUnderline(
           child: DropdownButton<String>(
             borderRadius: BorderRadius.circular(8),
+            isExpanded: true,
             value: _selectedSkinId,
             onChanged: (value) async {
               if (value == null) return;
@@ -296,7 +296,9 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
                         size: 16,
                       ),
                       const SizedBox(width: 8),
-                      Text(skin.name),
+                      Flexible(
+                        child: Text(skin.name, overflow: TextOverflow.ellipsis),
+                      ),
                       if (skin.version != null) ...[
                         const SizedBox(width: 6),
                         Padding(
@@ -387,7 +389,12 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
                     children: [
                       Icon(Icons.folder_open, size: 16),
                       SizedBox(width: 8),
-                      Text('Live-edit from folder...'),
+                      Flexible(
+                        child: Text(
+                          'Live-edit from folder...',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -736,13 +743,7 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
   Future<void> _checkForSkinUpdates(BuildContext context) async {
     try {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Checking for skin updates...')),
-      );
-
       await widget.webUIStorage.updateAllSkins();
-
-      if (mounted) setState(() {});
 
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -816,9 +817,13 @@ class _ActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final leading = Icon(icon, size: 16, color: foregroundColor);
-    final child = Text(
-      label,
-      style: foregroundColor != null ? TextStyle(color: foregroundColor) : null,
+    final child = Flexible(
+      child: Text(
+        label,
+        style: foregroundColor != null
+            ? TextStyle(color: foregroundColor)
+            : null,
+      ),
     );
 
     final ShadButton button = switch (variant) {

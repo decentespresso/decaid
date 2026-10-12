@@ -16,7 +16,6 @@ import 'package:reaprime/src/services/storage/bean_storage_service.dart';
 import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
 import 'package:reaprime/src/services/storage/profile_storage_service.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
-import 'package:reaprime/src/services/storage/storage_service.dart';
 import 'package:reaprime/src/settings/backup_import_response.dart';
 import 'package:reaprime/src/settings/backup_import_presentation.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
@@ -25,7 +24,6 @@ import 'package:reaprime/src/controllers/workflow_controller.dart';
 enum _ImportPhase { pickSource, copying, scanning, summary, importing, result }
 
 OnboardingStep createImportStep({
-  required StorageService storageService,
   required ProfileStorageService profileStorageService,
   required BeanStorageService beanStorageService,
   required GrinderStorageService grinderStorageService,
@@ -39,7 +37,6 @@ OnboardingStep createImportStep({
     shouldShow: () async => true,
     builder: (controller) => _ImportStepView(
       controller: controller,
-      storageService: storageService,
       profileStorageService: profileStorageService,
       beanStorageService: beanStorageService,
       grinderStorageService: grinderStorageService,
@@ -53,7 +50,6 @@ OnboardingStep createImportStep({
 
 class _ImportStepView extends StatefulWidget {
   final OnboardingController controller;
-  final StorageService storageService;
   final ProfileStorageService profileStorageService;
   final BeanStorageService beanStorageService;
   final GrinderStorageService grinderStorageService;
@@ -64,7 +60,6 @@ class _ImportStepView extends StatefulWidget {
 
   const _ImportStepView({
     required this.controller,
-    required this.storageService,
     required this.profileStorageService,
     required this.beanStorageService,
     required this.grinderStorageService,
@@ -183,8 +178,6 @@ class _ImportStepViewState extends State<_ImportStepView> {
           await (widget.importBackup?.call(filePath) ?? _uploadZip(filePath));
       final result = importResponse.toImportResult();
 
-      widget.persistenceController.notifyShotsChanged();
-
       if (mounted) {
         setState(() {
           _importResult = result;
@@ -250,7 +243,7 @@ class _ImportStepViewState extends State<_ImportStepView> {
     });
 
     final importer = De1appImporter(
-      storageService: widget.storageService,
+      controller: widget.persistenceController,
       profileStorageService: widget.profileStorageService,
       beanStorageService: widget.beanStorageService,
       grinderStorageService: widget.grinderStorageService,

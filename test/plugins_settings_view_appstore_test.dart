@@ -13,21 +13,20 @@ class FakePluginLoaderService extends Fake implements PluginLoaderService {
   FakePluginLoaderService({
     List<PluginManifest> plugins = const [],
     this.settings = const {},
-    Future<void>? initialization,
-  }) : plugins = List.of(plugins),
-       initialization = initialization ?? Future.value();
+    this.initialization,
+  }) : plugins = List.of(plugins);
 
   final List<PluginManifest> plugins;
   final Map<String, dynamic> settings;
-  final Future<void> initialization;
+  final Future<void>? initialization;
   Map<String, dynamic>? savedSettings;
   int saveCallCount = 0;
   int initializeCallCount = 0;
 
   @override
-  Future<void> initialize() {
+  Future<void> initialize() async {
     initializeCallCount++;
-    return initialization;
+    if (initialization != null) await initialization;
   }
 
   @override
@@ -74,6 +73,13 @@ class FakeDecentAccountService extends Fake implements DecentAccountService {
   }
 }
 
+Future<void> _openPluginSettings(WidgetTester tester) async {
+  await tester.tap(find.byIcon(LucideIcons.ellipsisVertical));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Settings'));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   late FakePluginLoaderService fakePluginLoaderService;
 
@@ -92,8 +98,10 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.byTooltip('Install Plugin'), findsOneWidget);
-      expect(find.byTooltip('Refresh Plugins'), findsOneWidget);
+      await tester.tap(find.byTooltip('Plugin actions'));
+      await tester.pumpAndSettle();
+      expect(find.text('Install plugin'), findsOneWidget);
+      expect(find.text('Refresh plugins'), findsOneWidget);
     });
 
     testWidgets('hides install button when allowInstall is false', (
@@ -109,8 +117,10 @@ void main() {
       );
       await tester.pump();
 
-      expect(find.byTooltip('Install Plugin'), findsNothing);
-      expect(find.byTooltip('Refresh Plugins'), findsOneWidget);
+      await tester.tap(find.byTooltip('Plugin actions'));
+      await tester.pumpAndSettle();
+      expect(find.text('Install plugin'), findsNothing);
+      expect(find.text('Refresh plugins'), findsOneWidget);
     });
   });
 
@@ -131,15 +141,10 @@ void main() {
 
     expect(fakePluginLoaderService.initializeCallCount, 1);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    final installButton = find.byWidgetPredicate(
-      (widget) =>
-          widget is PopupMenuButton<String> &&
-          widget.tooltip == 'Install Plugin',
+    final actionsButton = find.byWidgetPredicate(
+      (widget) => widget is IconButton && widget.tooltip == 'Plugin actions',
     );
-    expect(
-      tester.widget<PopupMenuButton<String>>(installButton).enabled,
-      isFalse,
-    );
+    expect(tester.widget<IconButton>(actionsButton).onPressed, isNull);
 
     fakePluginLoaderService.plugins.add(
       PluginManifest(
@@ -158,10 +163,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Ready Plugin'), findsOneWidget);
-    expect(
-      tester.widget<PopupMenuButton<String>>(installButton).enabled,
-      isTrue,
-    );
+    expect(tester.widget<IconButton>(actionsButton).onPressed, isNotNull);
   });
 
   testWidgets('shows a retry state when initialization fails', (tester) async {
@@ -257,8 +259,7 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.tap(find.widgetWithText(ShadButton, 'Settings'));
-    await tester.pumpAndSettle();
+    await _openPluginSettings(tester);
     return accountService;
   }
 
@@ -389,8 +390,7 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.tap(find.widgetWithText(ShadButton, 'Settings'));
-    await tester.pumpAndSettle();
+    await _openPluginSettings(tester);
   }
 
   testWidgets('selects and saves enum settings', (tester) async {
@@ -475,8 +475,7 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.tap(find.widgetWithText(ShadButton, 'Settings'));
-    await tester.pumpAndSettle();
+    await _openPluginSettings(tester);
   }
 
   testWidgets('clears a stored secure setting explicitly', (tester) async {
@@ -610,8 +609,7 @@ void main() {
       ),
     );
     await tester.pump();
-    await tester.tap(find.widgetWithText(ShadButton, 'Settings'));
-    await tester.pumpAndSettle();
+    await _openPluginSettings(tester);
 
     final inputs = find.descendant(
       of: find.byType(AlertDialog),

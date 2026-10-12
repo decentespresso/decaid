@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -10,6 +11,19 @@ import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 
 import 'helpers/mock_settings_service.dart';
+
+class _BlockedUpdateStorage extends WebUIStorage {
+  _BlockedUpdateStorage(super.settingsController);
+
+  final completion = Completer<void>();
+  int downloadCalls = 0;
+
+  @override
+  Future<void> downloadRemoteSkins() async {
+    downloadCalls++;
+    await completion.future;
+  }
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -42,6 +56,29 @@ void main() {
           );
       if (tmpRoot.existsSync()) tmpRoot.deleteSync(recursive: true);
     });
+
+    test(
+      'concurrent skin checks share one future and allow another check',
+      () async {
+        final blocked = _BlockedUpdateStorage(
+          SettingsController(MockSettingsService()),
+        );
+        blocked.debugInitWithWebUIDir(webUIDir);
+        final first = blocked.updateAllSkins();
+        final second = blocked.updateAllSkins();
+        try {
+          expect(second, same(first));
+          expect(blocked.updateCheck.value, same(first));
+          expect(blocked.downloadCalls, 1);
+        } finally {
+          blocked.completion.complete();
+          await Future.wait([first, second]);
+        }
+        expect(blocked.updateCheck.value, isNull);
+        await blocked.updateAllSkins();
+        expect(blocked.downloadCalls, 2);
+      },
+    );
 
     Directory makeSkinSource(String version) {
       final dir = Directory('${tmpRoot.path}/src_$version');

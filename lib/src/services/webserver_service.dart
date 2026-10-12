@@ -168,6 +168,7 @@ Future<void> startWebServer(
   DecentProxyService? decentProxyService,
   ProxyTokenService? proxyTokenService,
   UpdateCheckService? updateCheckService,
+  required PluginSourceService pluginSourceService,
 }) async {
   log.info("starting webserver");
   final de1Handler = De1Handler(
@@ -211,7 +212,6 @@ Future<void> startWebServer(
   final ShotsHandler shotsHandler = ShotsHandler(
     controller: persistenceController,
     beanStorage: beanStorage,
-    pluginManager: pluginService.pluginManager,
   );
   final SteamsHandler steamsHandler = SteamsHandler(
     controller: persistenceController,
@@ -220,6 +220,7 @@ Future<void> startWebServer(
   final PluginsHandler pluginsHandler = PluginsHandler(
     pluginManager: pluginService.pluginManager,
     pluginService: pluginService,
+    pluginSourceService: pluginSourceService,
   );
 
   final profileHandler = ProfileHandler(controller: profileController);

@@ -24,6 +24,7 @@ Run commands from the repository root as `scripts/sb-dev.sh <command>`.
 | `--real` | Do not inject `--dart-define=simulate=1`; persisted simulated-device settings still apply. |
 | `--adb-forward` | Forward the REST port to an Android device until `stop`. |
 | `--dart-define <key=value>` | Pass an additional Dart define; repeat as needed. |
+| `--app-arg <value>` | Pass an argument to the app's `main()`; repeat as needed. |
 
 ```bash
 scripts/sb-dev.sh start \

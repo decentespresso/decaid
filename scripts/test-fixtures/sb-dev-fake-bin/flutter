@@ -1,0 +1,6 @@
+#!/bin/bash
+
+printf '%s\n' "$@" >> "${SB_DEV_TEST_ARGS:?}"
+while IFS= read -r line; do
+  [[ "$line" == q ]] && exit 0
+done

@@ -991,7 +991,14 @@ class _HistoryFeatureState extends State<HistoryFeature> {
                   annotations: updatedAnnotations,
                   updatedAt: DateTime.now().toUtc(),
                 );
-                await widget.persistenceController.updateShot(updatedShot);
+                await widget.persistenceController.updateShot(
+                  updatedShot,
+                  patch: {
+                    'annotations': {
+                      'espressoNotes': updatedAnnotations.espressoNotes,
+                    },
+                  },
+                );
                 if (!context.mounted) return;
                 Navigator.of(context).pop();
                 if (!mounted) return;

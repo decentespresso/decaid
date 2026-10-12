@@ -15,6 +15,7 @@ import 'package:reaprime/src/services/webserver/data_export/shot_export_section.
 import 'package:reaprime/src/util/incremental_json_parser.dart';
 
 import 'streaming_test_helpers.dart';
+import '../helpers/shot_event_storage.dart';
 
 class _TestShotStorage {
   final Map<String, Map<String, dynamic>> shots = {};
@@ -183,6 +184,151 @@ ShotSnapshot _snapshot() => ShotSnapshot(
 
 void main() {
   group('ShotExportSection', () {
+    test('bulk import keeps per-shot plugin events and one refresh', () async {
+      final storage = ShotEventStorage();
+      storage.shots['existing'] = eventShot(id: 'existing');
+      final controller = PersistenceController(storageService: storage);
+      addTearDown(controller.dispose);
+      final stored = <String>[];
+      final updated = <String>[];
+      controller.onShotStored = stored.add;
+      controller.onShotUpdated = (shot, patch) => updated.add(shot.id);
+      var changes = 0;
+      final subscription = controller.shotsChanged.listen((_) => changes++);
+      addTearDown(subscription.cancel);
+      final section = ShotExportSection(
+        controller: controller,
+        pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) async =>
+            [],
+      );
+      final result = await importSectionJson(
+        section,
+        jsonEncode([
+          eventShot(id: 'new-1').toJson(),
+          eventShot(id: 'existing', notes: 'changed').toJson(),
+          eventShot(id: 'new-2').toJson(),
+        ]),
+        ConflictStrategy.overwrite,
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(result.imported, 3);
+      expect(stored, ['new-1', 'new-2']);
+      expect(updated, ['existing']);
+      expect(changes, 1);
+    });
+
+    for (final scenario in [
+      'new',
+      'changed',
+      'unchanged',
+      'skipped',
+      'failed insert',
+      'failed overwrite',
+      'removed notes',
+      'removed annotations',
+      'bookkeeping',
+      'measurements',
+    ]) {
+      test(
+        '$scenario import emits only the corresponding successful mutation',
+        () async {
+          final storage = ShotEventStorage();
+          final existing = eventShot();
+          final isNew = scenario == 'new' || scenario == 'failed insert';
+          if (!isNew) storage.shots[existing.id] = existing;
+          if (scenario.startsWith('failed')) storage.failedIds.add(existing.id);
+          final controller = PersistenceController(storageService: storage);
+          addTearDown(controller.dispose);
+          final stored = <String>[];
+          final updated = <Map<String, dynamic>>[];
+          var changes = 0;
+          final subscription = controller.shotsChanged.listen((_) => changes++);
+          addTearDown(subscription.cancel);
+          controller.onShotStored = stored.add;
+          controller.onShotUpdated = (shot, patch) => updated.add({
+            'id': shot.id,
+            'shot': shot.toJsonWithoutMeasurements(),
+            'patch': patch,
+          });
+          final section = ShotExportSection(
+            controller: controller,
+            pageShots:
+                (limit, {afterTimestamp, afterCreatedAt, afterId}) async => [],
+          );
+          final imported = existing.toJson();
+          if (scenario != 'unchanged') {
+            imported['annotations'] = {
+              'espressoNotes': 'new',
+              'enjoyment': 7.0,
+            };
+            imported['shotNotes'] = 'new';
+          }
+          if (scenario == 'removed notes') {
+            imported['annotations'] = {'enjoyment': 7.0};
+            imported.remove('shotNotes');
+          }
+          if (scenario == 'removed annotations') {
+            imported.remove('annotations');
+            imported.remove('shotNotes');
+          }
+          if (scenario == 'bookkeeping') {
+            imported.addAll(existing.toJson());
+            imported['annotations']['extras'] = {'visualizerId': 'remote-id'};
+          }
+          if (scenario == 'measurements') {
+            imported.addAll(existing.toJson());
+            imported['measurements'] = [_snapshot().toJson()];
+          }
+          final result = await importSectionJson(
+            section,
+            jsonEncode([imported]),
+            scenario == 'skipped'
+                ? ConflictStrategy.skip
+                : ConflictStrategy.overwrite,
+          );
+          await Future<void>.delayed(Duration.zero);
+          final failed = scenario.startsWith('failed');
+          expect(result.errors, failed ? hasLength(1) : isEmpty);
+          expect(result.skipped, scenario == 'skipped' ? 1 : 0);
+          expect(result.imported, failed || scenario == 'skipped' ? 0 : 1);
+          expect(stored, scenario == 'new' ? [existing.id] : isEmpty);
+          final changed = [
+            'changed',
+            'removed notes',
+            'removed annotations',
+            'measurements',
+          ].contains(scenario);
+          expect(updated, changed ? hasLength(1) : isEmpty);
+          if (changed) {
+            expect(
+              updated.single['shot'],
+              storage.shots[existing.id]!.toJsonWithoutMeasurements(),
+            );
+            expect(updated.single['id'], existing.id);
+            expect(updated.single['shot'].containsKey('measurements'), isFalse);
+            expect(
+              updated.single['patch'],
+              scenario == 'measurements'
+                  ? isEmpty
+                  : {
+                      'annotations': {
+                        'espressoNotes': scenario.startsWith('removed')
+                            ? null
+                            : 'new',
+                        if (scenario == 'removed annotations')
+                          'enjoyment': null,
+                      },
+                      'shotNotes': scenario.startsWith('removed')
+                          ? null
+                          : 'new',
+                    },
+            );
+          }
+          expect(changes, failed || scenario == 'skipped' ? 0 : 1);
+        },
+      );
+    }
+
     test('streams records in bounded pages and encodes a JSON array', () async {
       final storage = _TestShotStorage();
       for (var i = 0; i < 250; i++) {
@@ -245,8 +391,12 @@ void main() {
     test('imports records incrementally with skip semantics', () async {
       final storage = _TestShotStorage();
       storage.shots['shot-1'] = makeShot(1).toJson();
+      final storedEvents = <String>[];
+      final controller = PersistenceController(storageService: storage.service)
+        ..onShotStored = storedEvents.add;
+      addTearDown(controller.dispose);
       final section = ShotExportSection(
-        controller: PersistenceController(storageService: storage.service),
+        controller: controller,
         pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) async =>
             [],
       );
@@ -261,6 +411,8 @@ void main() {
       expect(result.skipped, 1);
       expect(result.errors, isEmpty);
       expect(storage.shots, hasLength(50));
+      expect(storedEvents, hasLength(49));
+      expect(storedEvents, isNot(contains('shot-1')));
     });
 
     test('imports records incrementally with overwrite semantics', () async {

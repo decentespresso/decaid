@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive_io.dart';
+import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
@@ -35,8 +36,11 @@ class PluginSourceService {
 
   final PluginLoaderService _loader;
   final _log = Logger('PluginSourceService');
+  final ValueNotifier<Future<void>?> _updateCheck = ValueNotifier(null);
 
   PluginSourceService(this._loader);
+
+  ValueListenable<Future<void>?> get updateCheck => _updateCheck;
 
   PluginSource? sourceFor(String pluginId) {
     try {
@@ -208,7 +212,10 @@ class PluginSourceService {
     }
   }
 
-  Future<void> updateAllPlugins() async {
+  Future<void> updateAllPlugins() => _updateCheck.value ??= _updateAllPlugins()
+      .whenComplete(() => _updateCheck.value = null);
+
+  Future<void> _updateAllPlugins() async {
     _log.info('Starting update check for managed plugins');
     seedBundledSources();
 
