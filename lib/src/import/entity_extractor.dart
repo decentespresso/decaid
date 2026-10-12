@@ -201,7 +201,12 @@ class _ImportedShotEntities {
   ) {
     final context = shot.workflow.context;
     if (context == null) return shot;
-    final linked = context.copyWith(beanBatchId: batchId, grinderId: grinderId);
+    final linked = context.copyWith(
+      beanBatchId: batchId,
+      clearBeanBatchId: batchId == null,
+      grinderId: grinderId,
+      clearGrinderId: grinderId == null,
+    );
     return shot.copyWith(workflow: shot.workflow.copyWith(context: linked));
   }
 

@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/src/models/data/workflow_context.dart';
 
 import 'de1app_importer_test.dart'
     show
@@ -9,6 +10,50 @@ import 'de1app_importer_test.dart'
         expectResolvedReferences;
 
 void main() {
+  group('entity reference copyWith contract', () {
+    const context = WorkflowContext(
+      beanBatchId: 'batch',
+      grinderId: 'grinder',
+      targetYield: 36,
+    );
+
+    test('omitted or null IDs preserve existing references', () {
+      expect(context.copyWith(), context);
+      expect(context.copyWith(beanBatchId: null, grinderId: null), context);
+      expect(context.copyWith(targetYield: 40).toJson(), {
+        ...context.toJson(),
+        'targetYield': 40.0,
+      });
+      expect(
+        context
+            .copyWith(beanBatchId: 'new-batch', grinderId: 'new-grinder')
+            .toJson(),
+        {
+          ...context.toJson(),
+          'beanBatchId': 'new-batch',
+          'grinderId': 'new-grinder',
+        },
+      );
+    });
+
+    test('explicit clear flags override values independently', () {
+      final clearedBatch = context.copyWith(
+        beanBatchId: 'ignored',
+        clearBeanBatchId: true,
+      );
+      expect(clearedBatch.beanBatchId, isNull);
+      expect(clearedBatch.grinderId, context.grinderId);
+      expect(clearedBatch.targetYield, context.targetYield);
+      final clearedGrinder = context.copyWith(
+        grinderId: 'ignored',
+        clearGrinderId: true,
+      );
+      expect(clearedGrinder.grinderId, isNull);
+      expect(clearedGrinder.beanBatchId, context.beanBatchId);
+      expect(clearedGrinder.targetYield, context.targetYield);
+    });
+  });
+
   group('imported entity identity rules', () {
     test('deduplicates brand + type and model', () async {
       final storage = FakeStorageService();

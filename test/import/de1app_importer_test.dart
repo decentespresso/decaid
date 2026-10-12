@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/import/de1app_importer.dart';
 import 'package:reaprime/src/import/import_result.dart';
+import 'package:reaprime/src/import/parsers/shot_v2_json_parser.dart';
 import 'package:reaprime/src/models/data/bean.dart';
 import 'package:reaprime/src/models/data/grinder.dart';
 import 'package:reaprime/src/models/data/profile.dart';
@@ -12,6 +13,7 @@ import 'package:reaprime/src/models/data/profile_record.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
 import 'package:reaprime/src/models/data/steam_record.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
+import 'package:reaprime/src/models/data/workflow_context.dart';
 import 'package:reaprime/src/models/wake_schedule.dart';
 import 'package:reaprime/src/services/storage/bean_storage_service.dart';
 import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
@@ -267,6 +269,8 @@ De1appImporter makeImporter({
   FakeBeanStorageService? beanStorage,
   FakeGrinderStorageService? grinderStorage,
   SettingsController? settingsController,
+  ParsedShot Function(Map<String, dynamic>) parseV2Shot =
+      ShotV2JsonParser.parse,
 }) {
   return De1appImporter(
     controller:
@@ -276,6 +280,7 @@ De1appImporter makeImporter({
     beanStorageService: beanStorage ?? FakeBeanStorageService(),
     grinderStorageService: grinderStorage ?? FakeGrinderStorageService(),
     settingsController: settingsController,
+    parseV2Shot: parseV2Shot,
   );
 }
 
@@ -329,6 +334,7 @@ Future<ImportResult> importEntityShots({
   required FakeGrinderStorageService grinders,
   List<Map<String, dynamic>> identities = const [{}],
   String? dye,
+  WorkflowContext? inputContext,
 }) async {
   final directory = await Directory.systemTemp.createTemp('de1app_entities_');
   try {
@@ -370,6 +376,22 @@ Future<ImportResult> importEntityShots({
       storage: storage,
       beanStorage: beans,
       grinderStorage: grinders,
+      parseV2Shot: (json) {
+        final parsed = ShotV2JsonParser.parse(json);
+        if (inputContext == null) return parsed;
+        return ParsedShot(
+          shot: parsed.shot.copyWith(
+            workflow: parsed.shot.workflow.copyWith(context: inputContext),
+          ),
+          beanBrand: parsed.beanBrand,
+          beanType: parsed.beanType,
+          beanNotes: parsed.beanNotes,
+          roastDate: parsed.roastDate,
+          roastLevel: parsed.roastLevel,
+          grinderModel: parsed.grinderModel,
+          grinderSetting: parsed.grinderSetting,
+        );
+      },
     ).import(
       ScanResult(
         shotCount: identities.length,
@@ -411,6 +433,71 @@ Future<void> expectResolvedReferences(
 void main() {
   group('De1appImporter', () {
     group('reconciles stored entity references', () {
+      for (final resolved in ['neither', 'batch', 'grinder']) {
+        test('replaces stale IDs when $resolved resolves', () async {
+          final storage = FakeStorageService();
+          final beans = FakeBeanStorageService();
+          final grinders = FakeGrinderStorageService();
+          const inputContext = WorkflowContext(
+            beanBatchId: 'stale-batch',
+            grinderId: 'stale-grinder',
+            targetDoseWeight: 18,
+            targetYield: 36,
+            targetWaterVolume: 55,
+            grinderModel: 'Original grinder',
+            grinderBurrs: 'Original burrs',
+            grinderSetting: '12',
+            coffeeName: 'Original coffee',
+            coffeeRoaster: 'Original roaster',
+            finalBeverageType: 'espresso',
+            baristaName: 'Barista',
+            drinkerName: 'Drinker',
+            extras: {'source': 'original'},
+          );
+          final bean = Bean.create(
+            roaster: 'Banibeans',
+            name: 'Ethiopia Yirgacheffe',
+          );
+          final batch = BeanBatch.create(
+            beanId: bean.id,
+            roastDate: DateTime(2024, 3, 1),
+          );
+          final grinder = Grinder.create(model: 'Niche Zero');
+          if (resolved == 'batch') {
+            await beans.insertBean(bean);
+            await beans.insertBatch(batch);
+          } else {
+            beans.failedBatchBeanNames.add(bean.name);
+          }
+          if (resolved == 'grinder') {
+            await grinders.insertGrinder(grinder);
+          } else {
+            grinders.failedModels.add(grinder.model);
+          }
+          final result = await importEntityShots(
+            storage: storage,
+            beans: beans,
+            grinders: grinders,
+            inputContext: inputContext,
+          );
+          expect(result.shotsImported, 1);
+          expect(result.errors, hasLength(resolved == 'neither' ? 2 : 1));
+          final context = storage.shots.values.single.workflow.context!;
+          expect(context.beanBatchId, resolved == 'batch' ? batch.id : isNull);
+          expect(
+            context.grinderId,
+            resolved == 'grinder' ? grinder.id : isNull,
+          );
+          final expected = inputContext.toJson()
+            ..remove('beanBatchId')
+            ..remove('grinderId');
+          if (resolved == 'batch') expected['beanBatchId'] = batch.id;
+          if (resolved == 'grinder') expected['grinderId'] = grinder.id;
+          expect(context.toJson(), expected);
+          await expectResolvedReferences(storage, beans, grinders);
+        });
+      }
+
       for (final variant in [
         'exact',
         'incoming whitespace',

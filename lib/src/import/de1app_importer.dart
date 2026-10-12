@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/data/bean.dart';
 import 'package:reaprime/src/models/data/grinder.dart';
@@ -34,6 +35,7 @@ class De1appImporter {
   final GrinderStorageService grinderStorageService;
   final SettingsController? settingsController;
   final WorkflowController? workflowController;
+  final ParsedShot Function(Map<String, dynamic>) _parseV2Shot;
 
   De1appImporter({
     required this.controller,
@@ -42,7 +44,10 @@ class De1appImporter {
     required this.grinderStorageService,
     this.settingsController,
     this.workflowController,
-  });
+    @visibleForTesting
+    ParsedShot Function(Map<String, dynamic>) parseV2Shot =
+        ShotV2JsonParser.parse,
+  }) : _parseV2Shot = parseV2Shot;
 
   Future<ImportResult> import(
     ScanResult scanResult, {
@@ -76,7 +81,7 @@ class De1appImporter {
         ParsedShot parsed;
         if (entry.isPreferred) {
           final json = jsonDecode(content) as Map<String, dynamic>;
-          parsed = ShotV2JsonParser.parse(json);
+          parsed = _parseV2Shot(json);
         } else {
           parsed = TclShotParser.parse(content);
         }

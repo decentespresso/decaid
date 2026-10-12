@@ -121,11 +121,13 @@ class WorkflowContext {
     double? targetWaterVolume,
     bool clearTargetWaterVolume = false,
     String? grinderId,
+    bool clearGrinderId = false,
     String? grinderModel,
     String? grinderBurrs,
     bool clearGrinderBurrs = false,
     String? grinderSetting,
     String? beanBatchId,
+    bool clearBeanBatchId = false,
     String? coffeeName,
     String? coffeeRoaster,
     String? finalBeverageType,
@@ -139,13 +141,13 @@ class WorkflowContext {
       targetWaterVolume: clearTargetWaterVolume
           ? null
           : targetWaterVolume ?? this.targetWaterVolume,
-      grinderId: grinderId ?? this.grinderId,
+      grinderId: clearGrinderId ? null : grinderId ?? this.grinderId,
       grinderModel: grinderModel ?? this.grinderModel,
       grinderBurrs: clearGrinderBurrs
           ? null
           : grinderBurrs ?? this.grinderBurrs,
       grinderSetting: grinderSetting ?? this.grinderSetting,
-      beanBatchId: beanBatchId ?? this.beanBatchId,
+      beanBatchId: clearBeanBatchId ? null : beanBatchId ?? this.beanBatchId,
       coffeeName: coffeeName ?? this.coffeeName,
       coffeeRoaster: coffeeRoaster ?? this.coffeeRoaster,
       finalBeverageType: finalBeverageType ?? this.finalBeverageType,
