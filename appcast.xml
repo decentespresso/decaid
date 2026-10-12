@@ -6,6 +6,29 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Decaid</title>
         <item>
+            <title>0.9.0</title>
+            <pubDate>Mon, 12 Oct 2026 09:54:08 +0000</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>2933</sparkle:version>
+            <sparkle:shortVersionString>0.9.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* test: speed up full-suite CI without reducing coverage by @ODevStudio in https://github.com/decentespresso/decaid/pull/966
+* docs(api): include grinder in device inventory schema by @tadelv in https://github.com/decentespresso/decaid/pull/948
+* docs: clarify stable skin bookmark addresses by @ODevStudio in https://github.com/decentespresso/decaid/pull/940
+* fix: gate skin camera access on native consent on Android and Apple by @ODevStudio in https://github.com/decentespresso/decaid/pull/939
+* fix(visualizer): include grinder burrs in uploaded grinder_model by @allofmeng in https://github.com/decentespresso/decaid/pull/909
+* feat(plugins): open validated per-device settings from device management by @tadelv in https://github.com/decentespresso/decaid/pull/956
+* test: synchronize pending auxiliary cancellation checks by @ODevStudio in https://github.com/decentespresso/decaid/pull/968
+* feat(plugins): project Scale session publishInfo into connected Scale metadata by @tadelv in https://github.com/decentespresso/decaid/pull/970
+
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.8.8...v0.9.0-beta.1
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.9.0-beta.1/decaid-macos-0.9.0-beta.1.zip" length="65131810" type="application/octet-stream" sparkle:edSignature="HuGs4W4yYOQllcs1Dkge3QEcjrBex9AL6ImxEecoOWDJkR8vJoEMXLHeVUyDKAq1BePw8VKUYhyx62lk6SviDQ=="/>
+        </item>
+        <item>
             <title>0.8.8</title>
             <pubDate>Tue, 06 Oct 2026 15:04:30 +0000</pubDate>
             <sparkle:version>2900</sparkle:version>
@@ -568,6 +591,6 @@ See `doc/RELEASE.md` for install and verification instructions.
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: u5HISYXryRxoYLwFOLp8YYSB762NDZOSkq+6zKs8BlfN9p35owqwGDhRS0UmwYH+c3vDFihcBTyl/k01yKRSBQ==
-length: 49449
+edSignature: nTRI1BhxqSciqKSYO0aZN50mrKf1kBigysECMPTHph/e5B4D+ZJMKDgEYdWL4XJwL50JxSjZeZ10Y/ga7W2NDw==
+length: 51361
 -->
