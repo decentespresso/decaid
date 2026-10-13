@@ -534,8 +534,25 @@ class SettingsView extends StatelessWidget {
     } catch (e, stackTrace) {
       log.severe('Error checking for updates', e, stackTrace);
       if (!context.mounted) return;
+      final rateLimited = e is UpdateCheckException && e.rateLimited;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to check for updates: $e')),
+        SnackBar(
+          content: Text(
+            rateLimited
+                ? 'GitHub rate limit reached. Try again later or download the update from the releases page.'
+                : 'Failed to check for updates: $e',
+          ),
+          duration: Duration(seconds: rateLimited ? 10 : 4),
+          action: rateLimited
+              ? SnackBarAction(
+                  label: 'Open releases',
+                  onPressed: () => launchUrl(
+                    Uri.parse(updateCheckService!.getReleasesUrl()),
+                    mode: LaunchMode.externalApplication,
+                  ),
+                )
+              : null,
+        ),
       );
     }
   }

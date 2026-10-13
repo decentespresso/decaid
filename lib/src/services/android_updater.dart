@@ -45,7 +45,9 @@ class UpdateInfo {
 class UpdateCheckException implements Exception {
   final String message;
 
-  UpdateCheckException(this.message);
+  final bool rateLimited;
+
+  UpdateCheckException(this.message, {this.rateLimited = false});
 
   @override
   String toString() => message;
@@ -131,7 +133,12 @@ class AndroidUpdater {
                 'GitHub rejected releases request (HTTP ${response.statusCode}): $body$suffix';
           }
         }
-        throw UpdateCheckException(message);
+        throw UpdateCheckException(
+          message,
+          rateLimited:
+              (response.statusCode == 403 || response.statusCode == 429) &&
+              response.headers['x-ratelimit-remaining'] == '0',
+        );
       }
 
       final releases = json.decode(response.body) as List<dynamic>;

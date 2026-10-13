@@ -198,16 +198,18 @@ void main() {
         await expectLater(
           updater.checkForUpdate('0.7.14'),
           throwsA(
-            isA<UpdateCheckException>().having(
-              (e) => e.message,
-              'message',
-              allOf(
-                contains('HTTP 429'),
-                contains('rate limit remaining: 0'),
-                contains('2033-05-18'),
-                predicate<String>((message) => message.length < 500),
-              ),
-            ),
+            isA<UpdateCheckException>()
+                .having(
+                  (e) => e.message,
+                  'message',
+                  allOf(
+                    contains('HTTP 429'),
+                    contains('rate limit remaining: 0'),
+                    contains('2033-05-18'),
+                    predicate<String>((message) => message.length < 500),
+                  ),
+                )
+                .having((e) => e.rateLimited, 'rateLimited', isTrue),
           ),
         );
       },
