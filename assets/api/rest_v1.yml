@@ -1258,7 +1258,7 @@ paths:
   /api/v1/grinder/info:
     get:
       summary: Get connected grinder information
-      description: Returns runtime identity, unchanged capabilities, optional effective control descriptors and host-built available plugin surfaces. Runtime identity is separate from persisted grinder records under /api/v1/grinders.
+      description: Returns runtime identity, unchanged command capabilities, optional observation declarations, effective control descriptors and host-built available plugin surfaces. Runtime identity is separate from persisted grinder records under /api/v1/grinders.
       tags: [Grinder]
       responses:
         "200":
@@ -5782,6 +5782,13 @@ components:
           items:
             type: string
             enum: [startStop, grindSetting, rpmControl]
+        observations:
+          type: array
+          uniqueItems: true
+          description: Declared read-only observations, independent of command capabilities. Omitted when none are declared; declarations do not imply a currently available value or enable controls.
+          items:
+            type: string
+            enum: [setting, rpm]
         controls:
           type: object
           additionalProperties: false
@@ -5886,6 +5893,13 @@ components:
           type: integer
           minimum: 0
           description: Present only when rpmControl is declared and published.
+        observedSetting:
+          type: string
+          description: Explicit setting observation, independent of grindSetting command support. Omitted when unavailable in this snapshot; never reuse a previous value.
+        observedRpm:
+          type: integer
+          minimum: 0
+          description: Explicit RPM observation, independent of rpmControl command support. Omitted when unavailable in this snapshot; never reuse a previous value.
     GrinderSettingRequest:
       type: object
       required: [setting]
@@ -7670,6 +7684,13 @@ components:
                 items:
                   type: string
                   enum: [battery, flow, timerTelemetry, tare, timerControl, displayControl, disconnectToSleep, startStop, grindSetting, rpmControl]
+              observations:
+                type: array
+                uniqueItems: true
+                description: Grinder-only explicit observations, independent of command capabilities. Unsupported names and declarations on other driver types are rejected. Does not grant write support or expose controls. Omission declares no observations.
+                items:
+                  type: string
+                  enum: [setting, rpm]
               controls:
                 type: object
                 additionalProperties: false

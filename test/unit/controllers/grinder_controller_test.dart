@@ -19,6 +19,48 @@ import '../../helpers/mock_settings_service.dart';
 import '../../helpers/test_grinder.dart';
 
 void main() {
+  test('read-only fake observations do not authorize device writes', () async {
+    final controller = GrinderController();
+    final grinder = TestGrinder(
+      deviceId: 'read-only',
+      capabilities: const {},
+      observations: GrinderObservation.values.toSet(),
+    );
+    addTearDown(() async {
+      await controller.dispose();
+      await grinder.dispose();
+    });
+    await controller.connectToGrinder(grinder);
+    grinder.emit(
+      GrinderState.idle,
+      observedSetting: 'filter',
+      observedRpm: 700,
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.currentSnapshot!.observedSetting, 'filter');
+    expect(controller.currentSnapshot!.observedRpm, 700);
+    for (final command in [
+      () => controller.setGrindSetting('12'),
+      () => controller.setRpm(900),
+    ]) {
+      await expectLater(
+        Future.sync(command),
+        throwsA(
+          isA<GrinderOperationException>().having(
+            (e) => e.code,
+            'code',
+            'unsupported_operation',
+          ),
+        ),
+      );
+    }
+    expect(grinder.operations, isEmpty);
+    grinder.emit(GrinderState.idle);
+    await Future<void>.delayed(Duration.zero);
+    expect(controller.currentSnapshot!.observedSetting, isNull);
+    expect(controller.currentSnapshot!.observedRpm, isNull);
+  });
+
   test('late subscribers immediately receive the current snapshot', () async {
     final controller = GrinderController();
     final grinder = TestGrinder(deviceId: 'current');
@@ -268,16 +310,29 @@ void main() {
     () async {
       final controller = GrinderController();
       final gate = Completer<void>();
-      final pending = TestGrinder(deviceId: 'pending', connectGate: gate);
-      final replacement = TestGrinder(deviceId: 'replacement');
+      final pending = TestGrinder(
+        deviceId: 'pending',
+        connectGate: gate,
+        observations: {GrinderObservation.setting},
+      );
+      final replacement = TestGrinder(
+        deviceId: 'replacement',
+        observations: {GrinderObservation.rpm},
+      );
       addTearDown(controller.dispose);
 
       final pendingConnection = controller.connectToGrinder(pending);
       final pendingFailure = expectLater(pendingConnection, throwsA(anything));
       await Future<void>.delayed(Duration.zero);
       await controller.connectToGrinder(replacement);
+      replacement.emit(GrinderState.idle, observedRpm: 700);
+      pending.emit(GrinderState.idle, observedSetting: 'superseded');
       gate.complete();
       await pendingFailure;
+      pending.emit(GrinderState.idle, observedSetting: 'late');
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.currentSnapshot!.observedRpm, 700);
+      expect(controller.currentSnapshot!.observedSetting, isNull);
 
       expect(pending.disconnectCalls, greaterThanOrEqualTo(1));
       expect(controller.connectedGrinder(), same(replacement));
@@ -333,12 +388,15 @@ void main() {
         deviceId: 'plugin-grinder',
         name: 'Plugin grinder',
         capabilities: const {},
+        observations: GrinderObservation.values.toSet(),
         invoke: (operation, payload) async {
           if (operation == PluginDeviceOperation.connect) {
             connections++;
             if (connections == 1) {
               grinder.publish({
                 'state': 'grinding',
+                'observedSetting': 'old',
+                'observedRpm': 900,
               }, session: payload['session'] as String);
             } else {
               await reconnectGate.future;
@@ -359,6 +417,7 @@ void main() {
       await controller.connectToGrinder(grinder);
       await Future<void>.delayed(Duration.zero);
       expect(frames.map((frame) => frame.state), [GrinderState.grinding]);
+      expect(controller.currentSnapshot!.observedSetting, 'old');
       await controller.disconnect();
 
       final reconnect = controller.connectToGrinder(grinder);

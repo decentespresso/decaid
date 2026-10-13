@@ -14,6 +14,12 @@ class TestGrinder implements GrinderDevice {
     this.connectError,
     this.disconnectError,
     this.emitInitialSnapshot = false,
+    this.observations = const {},
+    this.capabilities = const {
+      GrinderCapability.startStop,
+      GrinderCapability.grindSetting,
+      GrinderCapability.rpmControl,
+    },
   });
 
   @override
@@ -33,17 +39,27 @@ class TestGrinder implements GrinderDevice {
 
   void connect() => _connection.add(ConnectionState.connected);
 
-  void emit(GrinderState state, {String? setting, int? rpm}) => _snapshots.add(
+  void emit(
+    GrinderState state, {
+    String? setting,
+    int? rpm,
+    String? observedSetting,
+    int? observedRpm,
+  }) => _snapshots.add(
     GrinderSnapshot(
       timestamp: DateTime.now().toUtc(),
       state: state,
       setting: setting,
       rpm: rpm,
+      observedSetting: observedSetting,
+      observedRpm: observedRpm,
     ),
   );
 
   @override
-  Set<GrinderCapability> get capabilities => GrinderCapability.values.toSet();
+  final Set<GrinderCapability> capabilities;
+  @override
+  final Set<GrinderObservation> observations;
   @override
   Map<String, GrinderControlDescriptor> get controls => const {};
   @override

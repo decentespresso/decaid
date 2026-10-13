@@ -11,6 +11,8 @@ import 'plugin_protocol_device.dart';
 class PluginGrinder extends PluginProtocolDevice implements GrinderDevice {
   @override
   final Set<GrinderCapability> capabilities;
+  @override
+  final Set<GrinderObservation> observations;
   final StreamController<GrinderSnapshot> _snapshots =
       StreamController.broadcast();
   Completer<void> _firstState = Completer<void>();
@@ -36,6 +38,7 @@ class PluginGrinder extends PluginProtocolDevice implements GrinderDevice {
   PluginGrinder({
     super.pluginId,
     Map<String, GrinderControlDescriptor> controls = const {},
+    Set<GrinderObservation> observations = const {},
     super.surfaces,
     required super.deviceId,
     required super.name,
@@ -45,7 +48,8 @@ class PluginGrinder extends PluginProtocolDevice implements GrinderDevice {
     super.prepareConnection,
     super.onReady,
     super.invocationTimeout,
-  }) : _fixedControls = Map.unmodifiable(controls),
+  }) : observations = Set.unmodifiable(observations),
+       _fixedControls = Map.unmodifiable(controls),
        capabilities = Set.unmodifiable(
          capabilities.map(
            (capability) => GrinderCapability.values.byName(capability.name),
@@ -84,6 +88,10 @@ class PluginGrinder extends PluginProtocolDevice implements GrinderDevice {
     final state = snapshot['state'];
     final setting = snapshot['setting'];
     final rpm = snapshot['rpm'];
+    final observedSetting = snapshot['observedSetting'];
+    final observedRpm = snapshot['observedRpm'];
+    final hasObservedSetting = snapshot.containsKey('observedSetting');
+    final hasObservedRpm = snapshot.containsKey('observedRpm');
     final hasSetting = snapshot.containsKey('setting');
     final hasRpm = snapshot.containsKey('rpm');
     final validState =
@@ -91,9 +99,22 @@ class PluginGrinder extends PluginProtocolDevice implements GrinderDevice {
         GrinderState.values.any((value) => value.name == state);
     if (snapshot.isEmpty ||
         snapshot.keys.any(
-          (key) => !const {'state', 'setting', 'rpm'}.contains(key),
+          (key) => !const {
+            'state',
+            'setting',
+            'rpm',
+            'observedSetting',
+            'observedRpm',
+          }.contains(key),
         ) ||
         !validState ||
+        (hasObservedSetting &&
+            (observedSetting is! String ||
+                !observations.contains(GrinderObservation.setting))) ||
+        (hasObservedRpm &&
+            (observedRpm is! int ||
+                observedRpm < 0 ||
+                !observations.contains(GrinderObservation.rpm))) ||
         (hasSetting &&
             (setting is! String ||
                 !capabilities.contains(GrinderCapability.grindSetting))) ||
@@ -111,6 +132,8 @@ class PluginGrinder extends PluginProtocolDevice implements GrinderDevice {
       state: GrinderState.values.byName(state),
       setting: setting as String?,
       rpm: rpm as int?,
+      observedSetting: observedSetting as String?,
+      observedRpm: observedRpm as int?,
     );
     _latestSnapshot = publication;
     _snapshots.add(publication);

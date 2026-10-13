@@ -29,7 +29,11 @@ import '../helpers/mock_settings_service.dart';
 import 'plugin_test_helpers.dart';
 
 typedef _GrinderFixtureFactory =
-    Future<_GrinderFixture> Function({required bool controls, bool metadata});
+    Future<_GrinderFixture> Function({
+      required bool controls,
+      bool metadata,
+      Set<GrinderObservation>? observations,
+    });
 
 void main() {
   final factories = <String, _GrinderFixtureFactory>{
@@ -148,6 +152,202 @@ void main() {
 
   for (final entry in factories.entries) {
     group('${entry.key} Grinder contract', () {
+      test(
+        'undeclared observations are rejected at the JS host boundary',
+        () async {
+          final fixture = await entry.value(
+            controls: false,
+            observations: {GrinderObservation.setting},
+          );
+          addTearDown(fixture.dispose);
+          await fixture.grinder.onConnect();
+          fixture.manager.js.evaluate("""
+          globalThis.undeclaredObservationCode = null;
+          currentGrinderContext.publish({state: 'idle', observedRpm: 900}).then(
+            () => globalThis.undeclaredObservationCode = 'resolved',
+            error => globalThis.undeclaredObservationCode = error.code
+          );
+        """);
+          expect(
+            await _waitForJsResult(
+              fixture.manager,
+              'undeclaredObservationCode',
+            ),
+            'invalid_argument',
+          );
+          expect(
+            (await fixture.grinder.currentSnapshot.first).toJson(),
+            isNot(contains('observedRpm')),
+          );
+        },
+      );
+
+      test(
+        'read-only observations cross the JS, REST and WebSocket boundaries',
+        () async {
+          final fixture = await entry.value(controls: false);
+          addTearDown(fixture.dispose);
+          final grinder = fixture.grinder;
+          await grinder.onConnect();
+          final controller = GrinderController();
+          addTearDown(controller.dispose);
+          await controller.adoptGrinder(grinder);
+          final router = Router().plus;
+          GrinderHandler(controller: controller).addRoutes(router);
+          final server = await shelf_io.serve(router.call, '127.0.0.1', 0);
+          addTearDown(() => server.close(force: true));
+          final channel = IOWebSocketChannel.connect(
+            Uri.parse('ws://127.0.0.1:${server.port}/ws/v1/grinder/snapshot'),
+          );
+          final frames = <Map<String, dynamic>>[];
+          final subscription = channel.stream.listen(
+            (data) =>
+                frames.add(jsonDecode(data as String) as Map<String, dynamic>),
+          );
+          addTearDown(() async {
+            await channel.sink.close();
+            await subscription.cancel();
+          });
+          await channel.ready;
+          Future<Map<String, dynamic>> get(String resource) async {
+            final response = await router.call(
+              Request(
+                'GET',
+                Uri.parse('http://localhost/api/v1/grinder/$resource'),
+              ),
+            );
+            expect(response.statusCode, HttpStatus.ok);
+            return jsonDecode(await response.readAsString())
+                as Map<String, dynamic>;
+          }
+
+          Future<String> publish(Object? snapshot) async {
+            fixture.manager.js.evaluate('''
+            globalThis.observationCode = null;
+            currentGrinderContext.publish(${jsonEncode(snapshot)}).then(
+              () => globalThis.observationCode = 'resolved',
+              error => globalThis.observationCode = error.code
+            );
+          ''');
+            return _waitForJsResult(fixture.manager, 'observationCode');
+          }
+
+          final info = await get('info');
+          expect(info['observations'], ['setting', 'rpm']);
+          expect(info['capabilities'], isEmpty);
+          expect(info, isNot(contains('controls')));
+          expect(
+            await publish({
+              'state': 'idle',
+              'observedSetting': 'espresso/A',
+              'observedRpm': 0,
+            }),
+            'resolved',
+          );
+          final accepted = await get('state');
+          expect(accepted['observedSetting'], 'espresso/A');
+          expect(accepted['observedRpm'], 0);
+          expect(accepted, isNot(contains('setting')));
+          expect(accepted, isNot(contains('rpm')));
+          for (final invalid in <Object?>[
+            null,
+            [],
+            'bad',
+            {},
+            {'observedSetting': 'x'},
+            {'state': 'idle', 'observedSetting': null},
+            {'state': 'idle', 'observedSetting': 1},
+            {'state': 'idle', 'observedSetting': {}},
+            for (final rpm in [null, -1, 1.5, '900', true])
+              {'state': 'idle', 'observedRpm': rpm},
+            {'state': 'idle', 'observedVendor': 1},
+            {'state': 'idle', 'setting': 'x'},
+            {'state': 'idle', 'rpm': 900},
+          ]) {
+            expect(
+              await publish(invalid),
+              invalid is! Map && entry.key == 'network'
+                  ? 'plugin_device_error'
+                  : 'invalid_argument',
+              reason: '$invalid',
+            );
+            expect(await get('state'), accepted);
+          }
+          fixture.manager.js.evaluate('''
+          globalThis.observationInfoCode = null;
+          currentGrinderContext.publishInfo({controls: {grindSetting: {kind: 'opaque'}}}).then(
+            () => globalThis.observationInfoCode = 'resolved',
+            error => globalThis.observationInfoCode = error.code
+          );
+        ''');
+          expect(
+            await _waitForJsResult(fixture.manager, 'observationInfoCode'),
+            'invalid_argument',
+          );
+          for (final command in [
+            () => controller.setGrindSetting('12'),
+            () => controller.setRpm(900),
+          ]) {
+            await expectLater(
+              Future.sync(command),
+              throwsA(
+                isA<GrinderOperationException>().having(
+                  (e) => e.code,
+                  'code',
+                  'unsupported_operation',
+                ),
+              ),
+            );
+          }
+          expect(fixture.events, isEmpty);
+          expect(await publish({'state': 'idle'}), 'resolved');
+          expect(await get('state'), isNot(contains('observedSetting')));
+          expect(await get('state'), isNot(contains('observedRpm')));
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          expect(
+            frames.any(
+              (frame) =>
+                  frame['observedSetting'] == 'espresso/A' &&
+                  frame['observedRpm'] == 0,
+            ),
+            isTrue,
+          );
+          expect(frames.last, isNot(contains('observedSetting')));
+          expect(frames.last, isNot(contains('observedRpm')));
+          fixture.manager.js.evaluate(
+            'globalThis.retainedObservationContext = currentGrinderContext',
+          );
+          await grinder.disconnect();
+          expect(
+            await publish({'state': 'idle', 'observedRpm': 99}),
+            'stale_session',
+          );
+          await grinder.onConnect();
+          await controller.adoptGrinder(grinder);
+          Future<void> latePublication() async {
+            fixture.manager.js.evaluate('''
+            globalThis.lateObservationCode = null;
+            retainedObservationContext.publish({state: 'idle', observedSetting: 'late', observedRpm: 99}).then(
+              () => globalThis.lateObservationCode = 'resolved',
+              error => globalThis.lateObservationCode = error.code
+            );
+          ''');
+            expect(
+              await _waitForJsResult(fixture.manager, 'lateObservationCode'),
+              'stale_session',
+            );
+            expect(await get('state'), isNot(contains('observedRpm')));
+          }
+
+          await latePublication();
+          final replacement = await fixture.replace();
+          await replacement.onConnect();
+          await controller.adoptGrinder(replacement);
+          await latePublication();
+          expect(controller.connectedGrinder(), same(replacement));
+        },
+      );
+
       test(
         'fixed and runtime metadata share command and info contracts',
         () async {
@@ -586,6 +786,7 @@ class _GrinderFixture {
 PluginDriverDeclaration _driver({
   required bool controls,
   bool metadata = false,
+  Set<GrinderObservation>? observations,
   PluginBleMatcher? ble,
 }) => PluginDriverDeclaration(
   id: 'grinder',
@@ -615,6 +816,8 @@ PluginDriverDeclaration _driver({
           ),
         ]
       : const [],
+  grinderObservations:
+      observations ?? (controls ? const {} : GrinderObservation.values.toSet()),
   grinderCapabilities: controls
       ? PluginGrinderCapability.values.toSet()
       : const {},
@@ -623,6 +826,7 @@ PluginDriverDeclaration _driver({
 Future<_GrinderFixture> _networkFixture({
   required bool controls,
   bool metadata = false,
+  Set<GrinderObservation>? observations,
 }) async {
   final manager = PluginManager(kvStore: FakeKeyValueStoreService());
   final events = <Map<String, dynamic>>[];
@@ -635,7 +839,13 @@ Future<_GrinderFixture> _networkFixture({
         PluginPermissions.emit,
         if (metadata) PluginPermissions.api,
       },
-      drivers: [_driver(controls: controls, metadata: metadata)],
+      drivers: [
+        _driver(
+          controls: controls,
+          metadata: metadata,
+          observations: observations,
+        ),
+      ],
       api: metadata
           ? PluginApi(
               endpoints: [
@@ -675,6 +885,7 @@ Future<_GrinderFixture> _networkFixture({
 Future<_GrinderFixture> _bleFixture({
   required bool controls,
   bool metadata = false,
+  Set<GrinderObservation>? observations,
 }) async {
   final manager = PluginManager(kvStore: FakeKeyValueStoreService());
   final events = <Map<String, dynamic>>[];
@@ -691,7 +902,14 @@ Future<_GrinderFixture> _bleFixture({
         PluginPermissions.transportBle,
         if (metadata) PluginPermissions.api,
       },
-      drivers: [_driver(controls: controls, ble: matcher, metadata: metadata)],
+      drivers: [
+        _driver(
+          controls: controls,
+          ble: matcher,
+          metadata: metadata,
+          observations: observations,
+        ),
+      ],
       api: metadata
           ? PluginApi(
               endpoints: [
@@ -808,4 +1026,17 @@ Future<void> _flushJs(PluginManager manager) async {
     await Future<void>.delayed(Duration.zero);
     while (manager.js.executePendingJob() > 0) {}
   }
+}
+
+Future<String> _waitForJsResult(PluginManager manager, String key) async {
+  final stopwatch = Stopwatch()..start();
+  while (stopwatch.elapsed < const Duration(seconds: 2)) {
+    await _flushJs(manager);
+    if (manager.js.evaluate('typeof globalThis.$key').stringResult ==
+        'string') {
+      return manager.js.evaluate('globalThis.$key').stringResult;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 1));
+  }
+  throw StateError('$key did not settle');
 }

@@ -79,6 +79,7 @@ class PluginBleBinding {
         onReady: () => _session!.markReady(),
         invocationTimeout: invocationTimeout,
         capabilities: driver.declaration.grinderCapabilities,
+        observations: driver.declaration.grinderObservations,
         controls: driver.declaration.controls,
         surfaces: driver.declaration.surfaces,
         pluginId: driver.pluginId,

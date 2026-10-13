@@ -181,6 +181,7 @@ class GrinderController {
   Future<void> stop() => connectedGrinder().stop();
   Future<void> setGrindSetting(String setting) {
     final grinder = connectedGrinder();
+    _requireCapability(grinder, GrinderCapability.grindSetting);
     if (grinder.controls['grindSetting'] case final descriptor?) {
       if (!descriptor.acceptsSetting(setting)) {
         throw const GrinderOperationException(
@@ -194,6 +195,7 @@ class GrinderController {
 
   Future<void> setRpm(int rpm) {
     final grinder = connectedGrinder();
+    _requireCapability(grinder, GrinderCapability.rpmControl);
     final descriptor = grinder.controls['rpmControl'];
     if (rpm < 0 || (descriptor != null && !descriptor.acceptsRpm(rpm))) {
       throw const GrinderOperationException(
@@ -202,6 +204,15 @@ class GrinderController {
       );
     }
     return grinder.setRpm(rpm);
+  }
+
+  void _requireCapability(GrinderDevice grinder, GrinderCapability capability) {
+    if (!grinder.capabilities.contains(capability)) {
+      throw const GrinderOperationException(
+        'Grinder operation is unsupported',
+        code: 'unsupported_operation',
+      );
+    }
   }
 
   Future<void> disconnectDevice(GrinderDevice grinder) async {

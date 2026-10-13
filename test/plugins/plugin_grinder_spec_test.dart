@@ -37,5 +37,25 @@ void main() {
     final websocketSchemas =
         (websocket['components'] as YamlMap)['schemas'] as YamlMap;
     expect(websocketSchemas, contains('GrinderSnapshot'));
+    final restProperties = schemas['GrinderSnapshot']['properties'] as YamlMap;
+    final wsProperties =
+        websocketSchemas['GrinderSnapshot']['properties'] as YamlMap;
+    for (final properties in [restProperties, wsProperties]) {
+      expect(properties['observedSetting']['type'], 'string');
+      expect(properties['observedRpm']['type'], 'integer');
+      expect(properties['observedRpm']['minimum'], 0);
+      expect(properties['setting']['type'], 'string');
+      expect(properties['rpm']['type'], 'integer');
+    }
+    expect(restProperties['observedSetting'], wsProperties['observedSetting']);
+    expect(restProperties['observedRpm'], wsProperties['observedRpm']);
+    final info = schemas['GrinderInfo']['properties'] as YamlMap;
+    expect(info['observations']['items']['enum'], ['setting', 'rpm']);
+    expect(info['controls']['properties'].keys, ['grindSetting', 'rpmControl']);
+    final driver =
+        schemas['PluginManifest']['properties']['drivers']['items']['properties']
+            as YamlMap;
+    expect(driver['observations']['items']['enum'], ['setting', 'rpm']);
+    expect(driver['observations']['uniqueItems'], true);
   });
 }

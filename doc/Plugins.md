@@ -501,6 +501,18 @@ Declare a Grinder driver with only the controls it supports:
 {"drivers":[{"id":"grinder","type":"grinder","capabilities":["startStop","grindSetting","rpmControl"]}]}
 ```
 
+A read-only Grinder may declare observations without any command capabilities:
+
+```json
+{"drivers":[{"id":"grinder","type":"grinder","observations":["setting","rpm"]}]}
+```
+
+`observations` is a unique array of standard names (`setting`, `rpm`), valid only
+for Grinder drivers. Unsupported names and invalid declarations are rejected.
+Observations never enable handlers, command capabilities or writable controls.
+No observation metadata is exposed as a control; unknown vendor values stay in
+plugin diagnostics unless mapped to a standard observation.
+
 Optional driver `controls` describe only declared `grindSetting` and `rpmControl`
 capabilities. `grindSetting` supports `{ "kind": "opaque" }`, finite numeric
 `min`/`max` and optional positive `step`, or a nonempty unique string `values`
@@ -552,7 +564,17 @@ runtime `PluginGrinder`. Every connection receives a fresh session context and
 must publish a valid initial snapshot before it is ready. Snapshots require
 `state` (`idle`, `grinding`, `error`, or `unknown`); optional string `setting`
 requires `grindSetting`, and optional nonnegative integer `rpm` requires
-`rpmControl`. Unknown fields, plugin timestamps, and stale-session publications
+`rpmControl`; these existing v1 fields retain their compatibility semantics and
+are not redefined as observations. Optional string `observedSetting` requires a
+`setting` observation declaration; optional nonnegative integer `observedRpm`
+requires an `rpm` observation declaration, independently of command support.
+For example, `context.publish({state: "idle", observedSetting: "espresso/A",
+observedRpm: 900})` reports read-only values. Explicit nulls and invalid types
+are rejected. Each snapshot is self-contained: omitted observed fields mean
+currently unavailable, never zero or reuse of a previous value. Drivers decide
+freshness during an active session; Decaid rejects disconnected, retired,
+superseded and stale-session callbacks before they can become current state.
+No `stale` operational state is added. Unknown fields, plugin timestamps, and stale-session publications
 are rejected. Decaid supplies the timestamp. `context.publish(...)` accepts
 only typed snapshots; controls and surfaces are never snapshot fields. The same
 connection context provides `context.publishInfo({controls, surfaces})` for

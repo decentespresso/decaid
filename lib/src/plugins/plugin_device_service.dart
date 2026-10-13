@@ -151,6 +151,7 @@ class PluginDeviceService implements DeviceDiscoveryService {
         deviceId: deviceId,
         name: name,
         capabilities: driver!.grinderCapabilities,
+        observations: driver.grinderObservations,
         controls: driver.controls,
         surfaces: driver.surfaces,
         pluginId: pluginId,

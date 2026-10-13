@@ -4,6 +4,8 @@ enum GrinderState { idle, grinding, error, unknown }
 
 enum GrinderCapability { startStop, grindSetting, rpmControl }
 
+enum GrinderObservation { setting, rpm }
+
 class GrinderControlDescriptor {
   final String kind;
   final num? min;
@@ -96,6 +98,7 @@ class GrinderControlDescriptor {
 
 abstract class GrinderDevice extends Device {
   Set<GrinderCapability> get capabilities;
+  Set<GrinderObservation> get observations => const {};
   Map<String, GrinderControlDescriptor> get controls => const {};
   List<Map<String, String>> get surfaces => const [];
   bool get hasSurfaceDeclarations => false;
@@ -112,12 +115,16 @@ class GrinderSnapshot {
   final GrinderState state;
   final String? setting;
   final int? rpm;
+  final String? observedSetting;
+  final int? observedRpm;
 
   const GrinderSnapshot({
     required this.timestamp,
     required this.state,
     this.setting,
     this.rpm,
+    this.observedSetting,
+    this.observedRpm,
   });
 
   Map<String, dynamic> toJson() => {
@@ -125,6 +132,8 @@ class GrinderSnapshot {
     'state': state.name,
     if (setting != null) 'setting': setting,
     if (rpm != null) 'rpm': rpm,
+    if (observedSetting != null) 'observedSetting': observedSetting,
+    if (observedRpm != null) 'observedRpm': observedRpm,
   };
 }
 

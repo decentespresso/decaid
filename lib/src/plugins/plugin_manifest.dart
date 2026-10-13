@@ -112,6 +112,7 @@ class PluginDriverDeclaration {
   final PluginBleMatcher? ble;
   final Set<PluginScaleCapability> capabilities;
   final Set<PluginGrinderCapability> grinderCapabilities;
+  final Set<GrinderObservation> grinderObservations;
   final Map<String, GrinderControlDescriptor> controls;
   final List<PluginDeviceSurface> surfaces;
 
@@ -121,6 +122,7 @@ class PluginDriverDeclaration {
     this.ble,
     this.capabilities = const {},
     this.grinderCapabilities = const {},
+    this.grinderObservations = const {},
     this.controls = const {},
     this.surfaces = const [],
   });
@@ -180,6 +182,25 @@ class PluginDriverDeclaration {
       }
       ble = PluginBleMatcher.fromJson(declaration['match']);
     }
+    final rawObservations = json.containsKey('observations')
+        ? json['observations']
+        : const [];
+    if (rawObservations is! List ||
+        rawObservations.any(
+          (value) =>
+              value is! String ||
+              !GrinderObservation.values.any(
+                (observation) => observation.name == value,
+              ),
+        ) ||
+        rawObservations.toSet().length != rawObservations.length ||
+        (json.containsKey('observations') &&
+            type != PluginDriverType.grinder)) {
+      throw const FormatException('Invalid Grinder observations');
+    }
+    final observations = rawObservations
+        .map((value) => GrinderObservation.values.byName(value as String))
+        .toSet();
     final rawControls = json['controls'];
     if (json.containsKey('controls') &&
         (type != PluginDriverType.grinder ||
@@ -221,6 +242,7 @@ class PluginDriverDeclaration {
       ble: ble,
       capabilities: Set.unmodifiable(capabilities),
       grinderCapabilities: Set.unmodifiable(grinderCapabilities),
+      grinderObservations: Set.unmodifiable(observations),
       controls: Map.unmodifiable(controls),
       surfaces: List.unmodifiable(surfaces),
     );
@@ -236,6 +258,8 @@ class PluginDriverDeclaration {
                   : capabilities)
               .map((value) => value.name)
               .toList(),
+    if (grinderObservations.isNotEmpty)
+      'observations': grinderObservations.map((value) => value.name).toList(),
     if (ble != null) 'ble': {'match': ble!.toJson()},
     if (controls.isNotEmpty)
       'controls': controls.map((key, value) => MapEntry(key, value.toJson())),

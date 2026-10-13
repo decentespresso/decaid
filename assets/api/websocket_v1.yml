@@ -635,6 +635,13 @@ components:
           type: integer
           minimum: 0
           description: Present only when rpmControl is declared and published.
+        observedSetting:
+          type: string
+          description: Explicit setting observation, independent of grindSetting command support. Omitted when unavailable in this snapshot; never reuse a previous value.
+        observedRpm:
+          type: integer
+          minimum: 0
+          description: Explicit RPM observation, independent of rpmControl command support. Omitted when unavailable in this snapshot; never reuse a previous value.
     ShotStateEvent:
       type: object
       description: >

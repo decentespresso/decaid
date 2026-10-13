@@ -30,6 +30,10 @@ class GrinderHandler {
         'capabilities': grinder.capabilities
             .map((value) => value.name)
             .toList(),
+        if (grinder.observations.isNotEmpty)
+          'observations': grinder.observations
+              .map((value) => value.name)
+              .toList(),
         if (grinder.controls.isNotEmpty)
           'controls': grinder.controls.map(
             (key, value) => MapEntry(key, value.toJson()),

@@ -349,7 +349,7 @@ The singular `/api/v1/grinder/*` surface controls the one selected runtime
 
 | Method | Path | Description | Handler |
 |--------|------|-------------|---------|
-| GET | `/api/v1/grinder/info` | Runtime `deviceId`, unchanged capabilities, optional effective controls and available plugin surfaces | `grinder_handler.dart` |
+| GET | `/api/v1/grinder/info` | Runtime `deviceId`, unchanged command capabilities, optional observations, effective controls and available plugin surfaces | `grinder_handler.dart` |
 | GET | `/api/v1/grinder/state` | Latest validated grinder snapshot | |
 | PUT | `/api/v1/grinder/state/grinding` | Start grinding | |
 | PUT | `/api/v1/grinder/state/idle` | Stop grinding | |
@@ -365,10 +365,20 @@ settings require a finite parsed value within inclusive bounds; enumerated
 settings match exactly; opaque settings accept any string. `step` is a display
 hint, never a rounding rule. Without descriptors, v1 commands remain valid.
 
+`observations`, when present in info, lists independently declared `setting`
+and/or `rpm` observations; it is omitted when none are declared. These declarations
+do not enable commands or create writable controls. Snapshot `observedSetting`
+(string) and `observedRpm` (nonnegative integer) report only declared observations.
+They are omitted when unavailable for that snapshot, never defaulted or carried
+forward. Drivers decide freshness in an active session; the host fences stale,
+disconnected, retired and superseded sessions. Existing `setting` / `rpm` retain
+v1 semantics and require their existing command capabilities in plugin publications.
+Observations are runtime-only and are not saved to shot history or equipment records.
+
 `controls` is omitted when no descriptors exist. `surfaces` is omitted when
 none are declared, or `[]` when declared surfaces are temporarily hidden.
 Plugins update session info through `context.publishInfo({controls, surfaces})`,
-not snapshot `context.publish({state, setting, rpm})`. Info and snapshot publication
+not snapshot `context.publish({state, setting, rpm, observedSetting, observedRpm})`. Info and snapshot publication
 share connection authority and cleanup; invalid info preserves accepted values.
 Each surface has a host-owned role and a host-built same-plugin `href` with the
 runtime `deviceId` query-encoded once; do not treat that identity as a persisted
