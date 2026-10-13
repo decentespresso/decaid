@@ -5,6 +5,7 @@ import 'package:logging/logging.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/services/android_updater.dart';
+import 'package:reaprime/src/services/github_rate_limit.dart';
 import 'package:reaprime/src/services/app_update_state.dart';
 import 'package:reaprime/src/settings/settings_service.dart';
 import 'package:reaprime/src/plugins/plugin_source_service.dart';
@@ -39,9 +40,16 @@ class UpdateCheckService {
     PluginSourceService? pluginSourceService,
     bool? platformIsAndroid,
     bool? platformIsMacOS,
+    GithubRateLimit? rateLimit,
     this.externallyManaged = BuildInfo.appStore,
   }) : _settingsService = settingsService,
-       _updater = updater ?? AndroidUpdater(owner: 'tadelv', repo: 'reaprime'),
+       _updater =
+           updater ??
+           AndroidUpdater(
+             owner: 'tadelv',
+             repo: 'reaprime',
+             rateLimit: rateLimit,
+           ),
        _webUIStorage = webUIStorage,
        _pluginSourceService = pluginSourceService,
        _isAndroid = platformIsAndroid ?? Platform.isAndroid,

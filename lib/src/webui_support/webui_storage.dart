@@ -7,6 +7,7 @@ import 'package:logging/logging.dart';
 import 'package:http/http.dart' as http;
 import 'package:archive/archive_io.dart';
 import 'package:path/path.dart' as p;
+import 'package:reaprime/src/services/github_rate_limit.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/services/storage/app_directories.dart';
 import 'package:reaprime/src/util/safe_path.dart';
@@ -148,8 +149,36 @@ class WebUIStorage {
   bool _initialized = false;
   final ValueNotifier<Future<void>?> _updateCheck = ValueNotifier(null);
 
-  WebUIStorage(this._settingsController, {Directory? webUIDir})
-    : _webUIDirOverride = webUIDir;
+  final GithubRateLimit _rateLimit;
+
+  WebUIStorage(
+    this._settingsController, {
+    Directory? webUIDir,
+    GithubRateLimit? rateLimit,
+  }) : _webUIDirOverride = webUIDir,
+       _rateLimit = rateLimit ?? GithubRateLimit();
+
+  Future<http.Response> _getGitHubRelease(String apiUrl) async {
+    final resetAt = _rateLimit.resetAt;
+    if (resetAt != null) {
+      throw Exception(
+        'GitHub rate limit active; skin updates resume at '
+        '${resetAt.toIso8601String()}',
+      );
+    }
+    final response = await http.get(
+      Uri.parse(apiUrl),
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'Decent-WebUI',
+      },
+    );
+    if (response.statusCode != 200) {
+      _rateLimit.recordIfLimited(response);
+      throw Exception('Failed to fetch GitHub release: ${response.statusCode}');
+    }
+    return response;
+  }
 
   ValueListenable<Future<void>?> get updateCheck => _updateCheck;
 
@@ -372,19 +401,7 @@ class WebUIStorage {
           ? 'https://api.github.com/repos/$repo/releases'
           : 'https://api.github.com/repos/$repo/releases/latest';
 
-      final releaseResponse = await http.get(
-        Uri.parse(apiUrl),
-        headers: {
-          'Accept': 'application/vnd.github.v3+json',
-          'User-Agent': 'Decent-WebUI',
-        },
-      );
-
-      if (releaseResponse.statusCode != 200) {
-        throw Exception(
-          'Failed to fetch GitHub release: ${releaseResponse.statusCode}',
-        );
-      }
+      final releaseResponse = await _getGitHubRelease(apiUrl);
 
       final dynamic releaseData = includePrerelease
           ? (jsonDecode(releaseResponse.body) as List).first
@@ -575,19 +592,7 @@ class WebUIStorage {
 
       _log.fine('Fetching GitHub release info from: $apiUrl');
 
-      final releaseResponse = await http.get(
-        Uri.parse(apiUrl),
-        headers: {
-          'Accept': 'application/vnd.github.v3+json',
-          'User-Agent': 'Decent-WebUI',
-        },
-      );
-
-      if (releaseResponse.statusCode != 200) {
-        throw Exception(
-          'Failed to fetch GitHub release: ${releaseResponse.statusCode}',
-        );
-      }
+      final releaseResponse = await _getGitHubRelease(apiUrl);
 
       final dynamic releaseData = includePrerelease
           ? (jsonDecode(releaseResponse.body) as List).first
