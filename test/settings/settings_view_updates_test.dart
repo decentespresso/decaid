@@ -385,6 +385,7 @@ void main() {
       updater.checkError = UpdateCheckException(
         'GitHub rejected releases request (HTTP 403)',
         rateLimited: true,
+        resetAt: DateTime.utc(2030, 1, 1, 12),
       );
 
       await tester.tap(find.text('Check for updates'));
@@ -398,6 +399,7 @@ void main() {
       }
 
       expect(find.textContaining('GitHub rate limit reached'), findsOneWidget);
+      expect(find.textContaining('Update checks resume at'), findsOneWidget);
       expect(find.text('Open releases'), findsOneWidget);
 
       await tester.pump(const Duration(seconds: 10));

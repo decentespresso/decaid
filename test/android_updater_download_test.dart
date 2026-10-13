@@ -215,6 +215,93 @@ void main() {
       },
     );
 
+    group('rate-limit cooldown', () {
+      final resetAt = DateTime.utc(2030, 1, 1, 12);
+      late DateTime clock;
+      late int requests;
+      late AndroidUpdater updater;
+
+      setUp(() {
+        clock = DateTime.utc(2030, 1, 1, 11);
+        requests = 0;
+        updater = AndroidUpdater(
+          owner: 'tadelv',
+          repo: 'reaprime',
+          now: () => clock,
+          httpClient: MockClient((_) async {
+            requests++;
+            if (requests == 1) {
+              return http.Response(
+                'API rate limit exceeded',
+                403,
+                headers: {
+                  'x-ratelimit-remaining': '0',
+                  'x-ratelimit-reset':
+                      '${resetAt.millisecondsSinceEpoch ~/ 1000}',
+                },
+              );
+            }
+            return http.Response('[]', 200);
+          }),
+        );
+      });
+
+      test('skips the network until the reset time', () async {
+        await expectLater(
+          updater.checkForUpdate('0.7.14'),
+          throwsA(isA<UpdateCheckException>()),
+        );
+        expect(requests, 1);
+
+        await expectLater(
+          updater.checkForUpdate('0.7.14'),
+          throwsA(
+            isA<UpdateCheckException>()
+                .having((e) => e.rateLimited, 'rateLimited', isTrue)
+                .having((e) => e.resetAt, 'resetAt', resetAt),
+          ),
+        );
+        expect(requests, 1);
+      });
+
+      test('resumes requests once the reset time has passed', () async {
+        await expectLater(
+          updater.checkForUpdate('0.7.14'),
+          throwsA(isA<UpdateCheckException>()),
+        );
+
+        clock = resetAt;
+        expect(await updater.checkForUpdate('0.7.14'), isNull);
+        expect(requests, 2);
+      });
+
+      test('does not start a cooldown without a reset header', () async {
+        var calls = 0;
+        final noReset = AndroidUpdater(
+          owner: 'tadelv',
+          repo: 'reaprime',
+          now: () => clock,
+          httpClient: MockClient((_) async {
+            calls++;
+            return calls == 1
+                ? http.Response(
+                    'rate limited',
+                    403,
+                    headers: {'x-ratelimit-remaining': '0'},
+                  )
+                : http.Response('[]', 200);
+          }),
+        );
+
+        await expectLater(
+          noReset.checkForUpdate('0.7.14'),
+          throwsA(isA<UpdateCheckException>()),
+        );
+        expect(await noReset.checkForUpdate('0.7.14'), isNull);
+        expect(calls, 2);
+      });
+    });
+
     test(
       'keeps 403 response details when quota headers conflict with the body',
       () async {

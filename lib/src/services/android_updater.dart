@@ -47,7 +47,9 @@ class UpdateCheckException implements Exception {
 
   final bool rateLimited;
 
-  UpdateCheckException(this.message, {this.rateLimited = false});
+  final DateTime? resetAt;
+
+  UpdateCheckException(this.message, {this.rateLimited = false, this.resetAt});
 
   @override
   String toString() => message;
@@ -61,13 +63,17 @@ class AndroidUpdater {
   final String _repo;
   final http.Client _httpClient;
   final ApkInstaller _apkInstaller;
+  final DateTime Function() _now;
+  DateTime? _rateLimitedUntil;
 
   AndroidUpdater({
     required String owner,
     required String repo,
     http.Client? httpClient,
     ApkInstaller? apkInstaller,
+    DateTime Function()? now,
   }) : _owner = owner,
+       _now = now ?? DateTime.now,
        _repo = repo,
        _httpClient = httpClient ?? http.Client(),
        _apkInstaller = apkInstaller ?? ApkInstaller();
@@ -79,6 +85,18 @@ class AndroidUpdater {
     String currentVersion, {
     UpdateChannel channel = UpdateChannel.stable,
   }) async {
+    final cooldownEnd = _rateLimitedUntil;
+    if (cooldownEnd != null) {
+      if (_now().isBefore(cooldownEnd)) {
+        throw UpdateCheckException(
+          'GitHub rate limit active; update checks resume at '
+          '${cooldownEnd.toIso8601String()}',
+          rateLimited: true,
+          resetAt: cooldownEnd,
+        );
+      }
+      _rateLimitedUntil = null;
+    }
     try {
       _log.info(
         'Checking for updates on $channel channel (current: $currentVersion)',
@@ -117,6 +135,7 @@ class AndroidUpdater {
             final resetAt = resetDate == null
                 ? 'reset time unavailable'
                 : 'resets at ${resetDate.toIso8601String()}';
+            _rateLimitedUntil = resetDate;
             final quotaContext = 'rate limit remaining: 0; $resetAt';
             if (body.isNotEmpty) {
               final suffix = response.body.length > 200 ? '…' : '';
@@ -138,6 +157,7 @@ class AndroidUpdater {
           rateLimited:
               (response.statusCode == 403 || response.statusCode == 429) &&
               response.headers['x-ratelimit-remaining'] == '0',
+          resetAt: _rateLimitedUntil,
         );
       }
 

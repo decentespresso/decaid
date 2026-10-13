@@ -535,11 +535,15 @@ class SettingsView extends StatelessWidget {
       log.severe('Error checking for updates', e, stackTrace);
       if (!context.mounted) return;
       final rateLimited = e is UpdateCheckException && e.rateLimited;
+      final resetAt = e is UpdateCheckException ? e.resetAt?.toLocal() : null;
+      final resumeNote = resetAt == null
+          ? 'Try again later'
+          : 'Update checks resume at ${TimeOfDay.fromDateTime(resetAt).format(context)}';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             rateLimited
-                ? 'GitHub rate limit reached. Try again later or download the update from the releases page.'
+                ? 'GitHub rate limit reached. $resumeNote, or download the update from the releases page.'
                 : 'Failed to check for updates: $e',
           ),
           duration: Duration(seconds: rateLimited ? 10 : 4),
