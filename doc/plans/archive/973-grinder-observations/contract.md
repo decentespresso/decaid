@@ -12,6 +12,16 @@ Keep PluginProtocolDevice session checks and BLE registry/binding generation fen
 
 No blocking product question: names, types, independent declarations, omission semantics and lifecycle ownership are fixed by #973. #974 is a separate proposal and supplies no implementation scope.
 
+## Observation admission is an adapter responsibility
+
+Enforcing that a snapshot carries only declared observations belongs at each device adapter's own
+boundary, not in `GrinderController`. `PluginGrinder.publish()` needs the check because plugins hand
+it untyped JSON across the JS host boundary; a Dart adapter constructs the typed `GrinderSnapshot`
+directly, so its constructor already constrains what it can emit. `GrinderController` therefore
+forwards adapter-produced snapshots unchanged, and each adapter is responsible for keeping
+`observedSetting` / `observedRpm` within its declared `observations`. Revisit this if a second,
+non-plugin `GrinderDevice` adapter ever normalises untrusted observation input.
+
 ## Verification mapping (acceptance criteria in issue order)
 
 1. Manifest round-trip and network/BLE read-only runtime registration; read-only fake declaration.
