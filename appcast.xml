@@ -7,6 +7,32 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
         <title>Decaid</title>
         <item>
             <title>0.9.0</title>
+            <pubDate>Wed, 14 Oct 2026 13:06:36 +0000</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>2970</sparkle:version>
+            <sparkle:shortVersionString>0.9.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* feat(ui): clarify plugin and skin action menus by @ODevStudio in https://github.com/decentespresso/decaid/pull/971
+* fix(plugins): emit shotStored/shotUpdated for native Shot edits and imports by @tadelv in https://github.com/decentespresso/decaid/pull/978
+* fix(dev): forward application arguments through sb-dev by @MaxRink in https://github.com/decentespresso/decaid/pull/850
+* fix(import): concentrate imported-shot entity reconciliation and reference resolution by @tadelv in https://github.com/decentespresso/decaid/pull/984
+* feat(plugins): explicit proxy gzip opt-in by @ODevStudio in https://github.com/decentespresso/decaid/pull/982
+* feat(grinder): expose read-only setting and RPM observations by @tadelv in https://github.com/decentespresso/decaid/pull/988
+* fix(update): offer releases page when GitHub rate limit blocks update check by @allofmeng in https://github.com/decentespresso/decaid/pull/987
+* fix(update): share GitHub rate-limit cooldown with skin updates by @allofmeng in https://github.com/decentespresso/decaid/pull/989
+* docs: separate device-specific implementation notes by @MaxRink in https://github.com/decentespresso/decaid/pull/808
+* fix(skin): pin the WebView's text zoom to 100% by @allofmeng in https://github.com/decentespresso/decaid/pull/928
+* fix(connection): opt-in preferred scale reconnect after scan teardown (#954) by @tadelv in https://github.com/decentespresso/decaid/pull/993
+
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.9.0-beta.1...v0.9.0-beta.2
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.9.0-beta.2/decaid-macos-0.9.0-beta.2.zip" length="65197316" type="application/octet-stream" sparkle:edSignature="AF6j7Ij+ipPwv59Hwh7BwxgDA1DYFg8MnvXzSEfQxsTllMddCe7chUaOTFL/JCde7LmklzdsOEyB63dDj/iEAg=="/>
+        </item>
+        <item>
+            <title>0.9.0</title>
             <pubDate>Mon, 12 Oct 2026 09:54:08 +0000</pubDate>
             <sparkle:channel>beta</sparkle:channel>
             <sparkle:version>2933</sparkle:version>
@@ -591,6 +617,6 @@ See `doc/RELEASE.md` for install and verification instructions.
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: nTRI1BhxqSciqKSYO0aZN50mrKf1kBigysECMPTHph/e5B4D+ZJMKDgEYdWL4XJwL50JxSjZeZ10Y/ga7W2NDw==
-length: 51361
+edSignature: hjyD668TKWFCrgr34HYC1pgnqpfyUxCRzF4uOewmRqR+4tja3xi9WK72SAPvnukjrfu/TRzZaIjuHlzMI5eIAQ==
+length: 53666
 -->
