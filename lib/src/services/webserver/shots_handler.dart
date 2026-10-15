@@ -325,7 +325,7 @@ class ShotsHandler {
         annotations['espressoNotes'] == null;
   }
 
-  void _representClearedNoteAsEmpty(
+  static void _representClearedNoteAsEmpty(
     Map<String, dynamic> patch,
     Map<String, dynamic> merged,
   ) {
