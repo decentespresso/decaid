@@ -741,11 +741,23 @@ void main(List<String> args) async {
   bleDiscoveryService.requestLargeMtuNonAndroid = () =>
       settingsController.isFeatureFlagEnabled(.largeBleMtuNonAndroid);
 
-  if (cliArgs.bypassOnboarding) {
+  if (cliArgs.bypassOnboarding && cliArgs.forceOnboarding) {
+    log.warning(
+      '--bypass-onboarding and --force-onboarding are mutually exclusive; '
+      '--force-onboarding wins',
+    );
+  }
+  if (cliArgs.bypassOnboarding && !cliArgs.forceOnboarding) {
     log.info('--bypass-onboarding: skipping onboarding screens');
     await settingsController.setOnboardingCompleted(true);
     await settingsController.setAccountStepSeen(true);
     await settingsController.setAndroidWarningDismissed(true);
+  }
+  if (cliArgs.forceOnboarding) {
+    log.info('--force-onboarding: re-arming onboarding screens');
+    await settingsController.setOnboardingCompleted(false);
+    await settingsController.setAccountStepSeen(false);
+    await settingsController.setAndroidWarningDismissed(false);
   }
   if (cliArgs.skinId != null) {
     log.info('--skin: setting default skin to ${cliArgs.skinId}');

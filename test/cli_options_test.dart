@@ -7,6 +7,7 @@ void main() {
       final args = parseCliArgs([]);
       expect(args.serial, isFalse);
       expect(args.bypassOnboarding, isFalse);
+      expect(args.forceOnboarding, isFalse);
       expect(args.direct, isFalse);
       expect(args.noAccount, isFalse);
       expect(args.trustedConsentKeys, isEmpty);
@@ -23,6 +24,18 @@ void main() {
     test('--bypass-onboarding', () {
       final args = parseCliArgs(['--bypass-onboarding']);
       expect(args.bypassOnboarding, isTrue);
+    });
+
+    test('--force-onboarding', () {
+      final args = parseCliArgs(['--force-onboarding']);
+      expect(args.forceOnboarding, isTrue);
+      expect(args.bypassOnboarding, isFalse);
+    });
+
+    test('--force-onboarding with --bypass-onboarding parses both', () {
+      final args = parseCliArgs(['--bypass-onboarding', '--force-onboarding']);
+      expect(args.bypassOnboarding, isTrue);
+      expect(args.forceOnboarding, isTrue);
     });
 
     test('--direct', () {
@@ -68,6 +81,7 @@ void main() {
       final args = parseCliArgs([
         '--serial',
         '--bypass-onboarding',
+        '--force-onboarding',
         '--direct',
         '--no-account',
         '--trust-consent=skin:streamline.js',
@@ -77,6 +91,7 @@ void main() {
       ]);
       expect(args.serial, isTrue);
       expect(args.bypassOnboarding, isTrue);
+      expect(args.forceOnboarding, isTrue);
       expect(args.direct, isTrue);
       expect(args.noAccount, isTrue);
       expect(args.trustedConsentKeys, {'skin:streamline.js'});

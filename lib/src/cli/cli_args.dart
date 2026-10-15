@@ -3,6 +3,7 @@ import 'package:args/args.dart';
 class CliArgs {
   final bool serial;
   final bool bypassOnboarding;
+  final bool forceOnboarding;
   final bool direct;
   final bool noAccount;
   final bool printStoragePaths;
@@ -14,6 +15,7 @@ class CliArgs {
   const CliArgs({
     this.serial = false,
     this.bypassOnboarding = false,
+    this.forceOnboarding = false,
     this.direct = false,
     this.noAccount = false,
     this.printStoragePaths = false,
@@ -30,6 +32,12 @@ CliArgs parseCliArgs(List<String> args) {
     ..addFlag(
       'bypass-onboarding',
       help: 'Skip onboarding screens (welcome, login, import).',
+    )
+    ..addFlag(
+      'force-onboarding',
+      help:
+          'Re-arm onboarding screens (welcome, login, import) by '
+          'clearing their completion flags. Wins over --bypass-onboarding.',
     )
     ..addFlag(
       'direct',
@@ -62,6 +70,7 @@ CliArgs parseCliArgs(List<String> args) {
   return CliArgs(
     serial: results['serial'] as bool,
     bypassOnboarding: results['bypass-onboarding'] as bool,
+    forceOnboarding: results['force-onboarding'] as bool,
     direct: results['direct'] as bool,
     noAccount: results['no-account'] as bool,
     printStoragePaths: results['print-storage-paths'] as bool,
