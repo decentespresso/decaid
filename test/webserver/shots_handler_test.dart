@@ -354,6 +354,54 @@ void main() {
       },
     );
 
+    test(
+      'clearing a shot that never had a note stores an empty note',
+      () async {
+        await persistence.persistShot(makeShot(id: 'plain'));
+
+        final (putJson, getJson) = await putAndGet('plain', {
+          'annotations': {'espressoNotes': null},
+        });
+
+        for (final json in [putJson, getJson]) {
+          expect(json['annotations']['espressoNotes'], '');
+          expect(json['shotNotes'], '');
+        }
+      },
+    );
+
+    test(
+      'annotations null ignores a legacy shotNotes in the same request',
+      () async {
+        await persistAnnotatedShot();
+
+        final (putJson, getJson) = await putAndGet('annotated', {
+          'annotations': null,
+          'shotNotes': 'ignored',
+        });
+
+        for (final json in [putJson, getJson]) {
+          expect(json['annotations'], {'espressoNotes': ''});
+          expect(json['shotNotes'], '');
+        }
+      },
+    );
+
+    test('an unrelated edit keeps a cleared note empty', () async {
+      await persistAnnotatedShot();
+      await putAndGet('annotated', {
+        'annotations': {'espressoNotes': null},
+      });
+
+      final (putJson, getJson) = await putAndGet('annotated', {
+        'annotations': {'enjoyment': 7},
+      });
+
+      for (final json in [putJson, getJson]) {
+        expect(json['annotations']['espressoNotes'], '');
+        expect(json['annotations']['enjoyment'], 7);
+      }
+    });
 
     test('legacy nulls clear canonical values and aliases', () async {
       await persistAnnotatedShot();
