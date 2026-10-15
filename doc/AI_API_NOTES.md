@@ -56,6 +56,17 @@ is genuinely cleared by an explicit `null`. `WorkflowContext` stays nullable thr
 since a stored shot legitimately has no target and it is the GET and 200 response shape.
 `test/webserver/workflow_patch_schema_test.dart` pins the pair against drift.
 
+A cleared shot note is persisted as `''`, not `null`: `ShotAnnotations.toJson` omits a
+null field, so a note cleared through `PUT /api/v1/shots/:id` and a note that was never
+set reach a client as the same response, and a client that falls back to the pre-shot
+`workflow.context.extras.note` (DYE2 does, deliberately, for historical shots whose only
+note lives there) shows the old note again — decentespresso/dye2#16.
+`ShotsHandler._representClearedNoteAsEmpty` normalises the clear inside the single PUT the
+host already serialises, so no plugin event, read-modify-write or tri-state model field is
+needed. The same null-versus-absent ambiguity still applies to every other
+`ShotAnnotations` field, and `copyWith` cannot clear any of them (`??`); only the note is
+normalised, because only the note has a consumer that falls back.
+
 A nested patch object needs the refusal at both levels. `Workflow.fromJson` drops the whole
 context when `context` is `null`, so `{"context": null}` used to clear `targetYield` through
 the back door and answer `200` while the schema — a bare `$ref`, and bare `$ref` is

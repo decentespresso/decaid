@@ -276,8 +276,8 @@ void main() {
       });
 
       for (final json in [putJson, getJson]) {
-        expect(json['annotations'].containsKey('espressoNotes'), isFalse);
-        expect(json.containsKey('shotNotes'), isFalse);
+        expect(json['annotations']['espressoNotes'], '');
+        expect(json['shotNotes'], '');
         expect(json['annotations']['extras'], {
           'favorite': false,
           'origin': 'existing',
@@ -307,8 +307,8 @@ void main() {
       });
 
       for (final json in [putJson, getJson]) {
-        expect(json.containsKey('annotations'), isFalse);
-        expect(json.containsKey('shotNotes'), isFalse);
+        expect(json['annotations'], {'espressoNotes': ''});
+        expect(json['shotNotes'], '');
         expect(json.containsKey('metadata'), isFalse);
       }
     });
@@ -323,11 +323,37 @@ void main() {
       });
 
       for (final json in [putJson, getJson]) {
-        expect(json.containsKey('annotations'), isFalse);
-        expect(json.containsKey('shotNotes'), isFalse);
+        expect(json['annotations'], {'espressoNotes': ''});
+        expect(json['shotNotes'], '');
         expect(json.containsKey('metadata'), isFalse);
       }
     });
+
+    test(
+      'a cleared note stays cleared over a pre-shot workflow note',
+      () async {
+        await persistence.persistShot(
+          makeShot(
+            id: 'preshot',
+            annotations: const ShotAnnotations(espressoNotes: 'After shot'),
+            contextExtras: const {'note': 'Before shot'},
+          ),
+        );
+
+        final (putJson, getJson) = await putAndGet('preshot', {
+          'annotations': {'espressoNotes': null},
+        });
+
+        for (final json in [putJson, getJson]) {
+          expect(json['annotations']['espressoNotes'], '');
+          expect(json['shotNotes'], '');
+          expect(json['workflow']['context']['extras'], {
+            'note': 'Before shot',
+          });
+        }
+      },
+    );
+
 
     test('legacy nulls clear canonical values and aliases', () async {
       await persistAnnotatedShot();
@@ -336,8 +362,8 @@ void main() {
         'shotNotes': null,
       });
       for (final json in [notesPut, notesGet]) {
-        expect(json['annotations'].containsKey('espressoNotes'), isFalse);
-        expect(json.containsKey('shotNotes'), isFalse);
+        expect(json['annotations']['espressoNotes'], '');
+        expect(json['shotNotes'], '');
         expect(json['annotations']['extras'], isNotNull);
       }
 
@@ -643,6 +669,7 @@ ShotRecord makeShot({
   String? grinderModel,
   String? grinderBurrs,
   ShotAnnotations? annotations,
+  Map<String, dynamic>? contextExtras,
 }) {
   final workflow = WorkflowController().currentWorkflow.copyWith(
     context: WorkflowContext(
@@ -651,6 +678,7 @@ ShotRecord makeShot({
       coffeeRoaster: coffeeRoaster,
       grinderModel: grinderModel,
       grinderBurrs: grinderBurrs,
+      extras: contextExtras,
     ),
   );
   return ShotRecord(
