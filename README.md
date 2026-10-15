@@ -176,7 +176,8 @@ In-depth guides and API references are available in the [`doc/`](doc/) directory
 
 ### Prerequisites
 
-- **Flutter SDK**: Version 3.7.0 or later
+- **Flutter SDK**: 3.44.2 (project/CI development version)
+- **Dart SDK**: `^3.10.0` (from `pubspec.yaml`)
 - **Platform-specific tools**:
   - Android: Android Studio / SDK
   - macOS: Xcode
@@ -238,12 +239,13 @@ This reduces startup races but does not replace the application's Bluetooth reco
 
 - **Android**: 9.0 (API 28) or later
 - **macOS**: 13.0 or later
-- **iOS**: 15.0 or later (experimental)
-- **Linux**: Modern distribution with GTK 3.0+
-- **Windows**: Windows 10 or later (the release ZIP bundles the Visual C++ runtime; no separate redistributable install is needed)
+- **iOS/iPadOS**: 16.7 or later
+- **Linux**: Ubuntu 22.04 or a distribution with an equivalent or newer glibc, with GTK 3.0+ (release builds for x86_64 and ARM64)
+- **Windows**: Windows 10 or later (x64; the release ZIP bundles the Visual C++ runtime; no separate redistributable install is needed)
 
 ### Recommended
 
+- **Android**: 12+ (API 31+) for the full embedded-WebView experience; older supported versions may have reduced performance and WebView issues, and do not automatically open the embedded skin
 - **RAM**: 2GB+ available
 - **Storage**: 500MB for app + skins
 - **Network**: Local WiFi network for skin access
