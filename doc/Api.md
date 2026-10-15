@@ -262,6 +262,16 @@ differs outside the bookkeeping keys. The bookkeeping keys are
 Writes confined to those keys persist without touching `updatedAt`, so
 consumers can reconcile edits by comparing `updatedAt` against their own sync
 marker without feedback loops.
+**Clearing the note.** `annotations.espressoNotes: null` (and `annotations: null`,
+which clears every post-shot annotation) persists the cleared note as an empty
+string, and the response carries `espressoNotes: ""` with its `shotNotes` alias
+mirroring it. `ShotAnnotations.toJson` omits a null field, so an omitted
+`espressoNotes` means a note that was never set; an empty string means a note
+the user cleared. Clients that fall back to a pre-shot note in
+`workflow.context.extras.note` must not apply that fallback to an empty string.
+Every other cleared annotation is omitted from the response, since nothing falls
+back on those.
+
 An `extras` map emptied by that exclusion compares equal to no `extras`, and
 an `annotations` map emptied by it compares equal to no `annotations`, so the
 first-ever sync marker on a clean shot does not dirty it. All other `extras`
