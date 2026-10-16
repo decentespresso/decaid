@@ -45,6 +45,7 @@ import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_source_service.dart';
+import 'package:reaprime/src/plugins/shot_upload_notifications.dart';
 import 'package:reaprime/src/debug_feature/scale_debug_view.dart';
 import 'package:reaprime/src/services/storage/bean_storage_service.dart';
 import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
@@ -306,6 +307,17 @@ class _MyAppState extends State<MyApp> {
         builder: (BuildContext context, Widget? child) {
           return ShadApp(
             restorationScopeId: null,
+            builder: (context, child) => ShotUploadNotifications(
+              events: widget.pluginLoaderService.pluginManager.emitStream,
+              onSignIn: () => NavigationService.navigatorKey.currentState
+                  ?.pushNamed(AccountPage.routeName),
+              onSupport: openShotUploadSupport,
+              refreshOwnership: () => widget.pluginLoaderService.pluginManager
+                  .broadcastEvent('decentAccountChanged', const {}),
+              refreshAccount:
+                  widget.decentAccountService?.refreshRegisteredMachines,
+              child: child ?? const SizedBox.shrink(),
+            ),
 
             supportedLocales: const [Locale('en', '')],
 

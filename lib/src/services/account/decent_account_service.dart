@@ -93,6 +93,8 @@ class DecentAccountService {
 
   Stream<void> get identityAuthorityChanges => _identityAuthorityChanges.stream;
 
+  int get authenticationGeneration => _authGeneration;
+
   void _notifyIdentityAuthorityChanged() {
     _identityAuthorityChanges.add(null);
   }

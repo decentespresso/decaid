@@ -2575,6 +2575,7 @@ class PluginManager {
       'stateUpdate' => PluginPermissions.eventsMachine,
       'shotStored' || 'shotUpdated' => PluginPermissions.eventsShots,
       'workflowUpdated' => PluginPermissions.eventsWorkflow,
+      'decentAccountChanged' => PluginPermissions.proxyDecentApi,
       _ => null,
     };
     if (permission != null && !_hasPermission(pluginId, permission)) return;
@@ -2933,6 +2934,18 @@ class PluginManager {
         op,
         error: e.toString(),
         errorCode: DecentProxyConsentDeniedException.code,
+      );
+    } on DecentAccountAuthInvalidException catch (e) {
+      _completeOp(
+        op,
+        error: e.toString(),
+        errorCode: 'account_authentication_required',
+      );
+    } on DecentAccountNotLinkedException catch (e) {
+      _completeOp(
+        op,
+        error: e.toString(),
+        errorCode: 'account_authentication_required',
       );
     } catch (e) {
       _completeOp(op, error: e.toString());

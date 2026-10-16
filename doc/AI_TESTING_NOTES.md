@@ -95,6 +95,34 @@ Add widget test gotchas, mock helper changes, and test infrastructure patterns. 
 
 ## Plugin transport tests (`test/plugins/plugin_manager_transport*_test.dart`)
 
+QuickJS can report an async helper's synchronous fast-path rejection as unhandled
+before its caller attaches the await handler. A one-microtask yield before the
+cached shot-upload ownership guard avoids that transient diagnostic. Verify such
+helpers in the native runtime as well as Node; Node alone did not expose it.
+The account lookup also uses a single async request with try/catch/finally;
+rethrowing through a chained catch/finally produced the same native diagnostic
+for authentication failures. Cover the host's auth-failure event before its 401
+response when verifying account-refresh scheduling.
+
+Device probes must capture the plugin-scoped `fetch`; `globalThis.fetch` rejects
+with `fetch is only available to plugins`. A temporary read-only uploader probe
+should deny upstream non-GET requests and local HTTP writes, leave automatic
+upload off, and restore the exact source and manifest after checking the real
+ownership guard and already-uploaded-shot path.
+The native fetch bridge passes an opaque caller token, not a plugin ID, as its
+first argument. Install any read-only test interception before the first plugin
+locks the bridge; do not mistake a token for an ID when selecting test requests.
+
+The Android update snackbar lasts a day. Native upload-pause tests must cover
+that persistent banner already being present; queued account actions would
+otherwise remain invisible until the unrelated banner was dismissed.
+
+Support recovery also depends on URL launch mode: override the iOS target in a
+platform-interface test and assert `externalApplication`, not just simulated
+pause/resume callbacks. Post-consent proxy tests must distinguish a completed
+new login, an unfinished credential write, and a generation change during reads.
+Final credential reread failures must leave an upstream 401 intact.
+
 `PluginManager` accepts optional `connectWebSocket` / `connectSocket` /
 `connectSecureSocket` connectors (defaulting to `WebSocket.connect` /
 `Socket.connect` / `SecureSocket.connect`) forwarded to

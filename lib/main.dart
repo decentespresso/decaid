@@ -552,6 +552,8 @@ void main(List<String> args) async {
       baseUrl: decentBaseUrl,
       onAuthFailure: () => decentAccountService!.reportAuthenticationFailure(),
       isAuthKnownInvalid: decentAccountService.isAuthKnownInvalid,
+      authenticationGeneration: () =>
+          decentAccountService!.authenticationGeneration,
     );
     accountTokensController = AccountTokensController(
       tokenService: proxyTokenService,
@@ -601,6 +603,7 @@ void main(List<String> args) async {
     decentProxyService: decentProxyService,
     credentialStore: credentialStore,
     deviceService: pluginDeviceService,
+    decentAccountChanges: decentAccountService?.identityAuthorityChanges,
   );
   await pluginService.pluginManager.attachDe1Controller(de1Controller);
   pluginService.pluginManager.attachWorkflowController(workflowController);
