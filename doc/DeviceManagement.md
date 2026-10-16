@@ -890,6 +890,17 @@ clear the connected-session value. Battery metadata is nullable and appears in
 the Devices UI and the connected-scale `GET /api/v1/scale/info` response when
 available.
 
+Each connected USB-configurable Skale row in Settings > Devices provides an
+opt-in `skalePoweredByUsbByDevice` override through its settings button. Values
+are keyed by exact device ID, default to `false`, and are persisted and
+exported. This is a manual power-source declaration for each Skale device;
+while enabled, that device's battery reads and refresh polling stop, its
+battery value is cleared, and metadata reports `powerSource: usb` with
+`powerSourceProvenance: manualOverride`. Disabling it clears the manual state
+immediately and resumes a battery read and the normal refresh interval when the
+device exposes the Battery Service; otherwise battery remains unknown. Other
+scale implementations and other Skale devices are unaffected.
+
 ### Bengle integrated scale
 
 See [`device-notes/bengle.md`](device-notes/bengle.md#integrated-scale).
