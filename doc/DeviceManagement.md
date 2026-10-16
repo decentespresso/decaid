@@ -1093,6 +1093,27 @@ De1StateManager({
 
 See [`device-notes/de1.md`](device-notes/de1.md#legacy-identity-resolution).
 
+### Guarded plugin machine actions
+
+The REST machine-state route has an opt-in guarded body for an external Skale
+plugin's brewing-scale controls. `GET /api/v1/scale/connections` supplies the
+primary scale's physical device ID and opaque connection and selection
+identities under its `primary` property. A
+guarded espresso start requires the captured machine connection and
+generation, an idle snapshot, an inactive group-head controller, the same
+primary scale connection, and a non-full gateway. These preconditions are
+rechecked immediately before the queued write.
+
+A guarded espresso-to-idle stop requires the corresponding espresso snapshot
+and source identity. It goes directly through the machine request path so a
+full gateway or queued-start backpressure cannot delay the stop. The hardware
+request remains asynchronous. Every accepted idle stop advances a controller
+cancellation epoch, so an older queued guarded start cannot run after the
+stop. Non-primary source requests are rejected with 409. Auxiliary and dosing
+projection work is separate and does not change this primary-only policy.
+Legacy bodyless and
+ordinary unguarded requests retain their existing behavior.
+
 ### Hot water stop-at-weight
 
 See [`device-notes/de1.md`](device-notes/de1.md#hot-water-stop-at-weight).
