@@ -175,6 +175,120 @@ void main() {
     expect(manager.activePendingOpCount, 0);
   });
 
+  test(
+    'redirect error rejects every HTTP redirect without contacting target',
+    () async {
+      for (final status in const [301, 302, 303, 307, 308]) {
+        final targetAuthorization = <String?>[];
+        final target = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        target.listen((request) {
+          targetAuthorization.add(
+            request.headers.value(HttpHeaders.authorizationHeader),
+          );
+          request.response
+            ..statusCode = 200
+            ..write('target');
+          request.response.close();
+        });
+
+        final redirectAuthorization = <String?>[];
+        final redirect = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        redirect.listen((request) {
+          redirectAuthorization.add(
+            request.headers.value(HttpHeaders.authorizationHeader),
+          );
+          request.response
+            ..statusCode = status
+            ..headers.set(
+              HttpHeaders.locationHeader,
+              'http://127.0.0.1:${target.port}/target',
+            );
+          request.response.close();
+        });
+
+        try {
+          final result = await runFetch(
+            'http://127.0.0.1:${redirect.port}/redirect',
+            init: {
+              'redirect': 'error',
+              'headers': {'Authorization': 'Basic test-secret'},
+            },
+          );
+
+          expect(
+            result,
+            contains('fetch redirect rejected'),
+            reason: '$status',
+          );
+          expect(redirectAuthorization, ['Basic test-secret']);
+          expect(targetAuthorization, isEmpty);
+        } finally {
+          await redirect.close(force: true);
+          await target.close(force: true);
+        }
+      }
+    },
+  );
+
+  test('unsupported redirect mode rejects before opening a request', () async {
+    var requests = 0;
+    final server = await startServer((res) async {
+      requests += 1;
+      res.write('unexpected');
+    });
+    addTearDown(server.close);
+
+    final result = await runFetch(
+      'http://127.0.0.1:${server.port}/redirect',
+      init: {'redirect': 'manual'},
+    );
+
+    expect(result, contains('only "follow" and "error" are supported'));
+    expect(requests, 0);
+  });
+
+  test('redirect error mode still permits an ordinary response', () async {
+    final server = await startServer((res) async {
+      res.write('ordinary');
+    });
+    addTearDown(server.close);
+
+    final result = await runFetch(
+      'http://127.0.0.1:${server.port}/ordinary',
+      init: {'redirect': 'error'},
+    );
+
+    expect(result, 'ok:ordinary');
+  });
+
+  test('default redirect mode continues to follow redirects', () async {
+    final target = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    target.listen((request) {
+      request.response
+        ..statusCode = 200
+        ..write('followed');
+      request.response.close();
+    });
+    final redirect = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    redirect.listen((request) {
+      request.response
+        ..statusCode = 302
+        ..headers.set(
+          HttpHeaders.locationHeader,
+          'http://127.0.0.1:${target.port}/target',
+        );
+      request.response.close();
+    });
+    addTearDown(() async {
+      await redirect.close(force: true);
+      await target.close(force: true);
+    });
+
+    final result = await runFetch('http://127.0.0.1:${redirect.port}/redirect');
+
+    expect(result, 'ok:followed');
+  });
+
   test('request timeout rejects the promise', () async {
     final server = await startServer((res) async {
       await Future<void>.delayed(const Duration(seconds: 10));

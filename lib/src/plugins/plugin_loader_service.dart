@@ -48,6 +48,8 @@ class PluginLoaderService {
 
   final PluginManager pluginManager;
   final CredentialStore? _credentialStore;
+  final Future<bool> Function(String pluginId, String? scope)?
+  _credentialScopeWriter;
   final _log = Logger('PluginLoaderService');
 
   late Directory _pluginsDir;
@@ -65,8 +67,11 @@ class PluginLoaderService {
     required KeyValueStoreService kvStore,
     DecentProxyService? decentProxyService,
     CredentialStore? credentialStore,
+    Future<bool> Function(String pluginId, String? scope)?
+    credentialScopeWriter,
     PluginDeviceService? deviceService,
   }) : _credentialStore = credentialStore,
+       _credentialScopeWriter = credentialScopeWriter,
        pluginManager = PluginManager(
          kvStore: kvStore,
          decentProxyService: decentProxyService,
@@ -377,6 +382,7 @@ class PluginLoaderService {
     await _withPluginSettingsLock(pluginId, () async {
       await _deleteSecureSettings(pluginId);
       await _prefs.remove('plugin.settings.$pluginId');
+      await _prefs.remove(_credentialScopeKey(pluginId));
       await _prefs.remove('plugin.autoload.$pluginId');
       await _prefs.remove(_loadFailureKey(pluginId));
       if (_prefs.getString(_loadingPluginKey) == pluginId) {
@@ -564,6 +570,21 @@ class PluginLoaderService {
         settings.entries.where((entry) => !secureKeys.contains(entry.key)),
       );
       var secure = stored.secure;
+      var credentialScopeChanged = false;
+      final scopeKey = manifest.credentialScope;
+      if (scopeKey != null && ordinaryPatch.containsKey(scopeKey)) {
+        final previousScope = _effectiveCredentialScope(
+          manifest,
+          stored.ordinary,
+        );
+        final nextOrdinary = {...stored.ordinary, ...ordinaryPatch};
+        if (ordinaryPatch[scopeKey] == null) nextOrdinary.remove(scopeKey);
+        final nextScope = _effectiveCredentialScope(manifest, nextOrdinary);
+        if (previousScope != nextScope) {
+          secure = {};
+          credentialScopeChanged = true;
+        }
+      }
       for (final entry in settings.entries.where(
         (entry) => secureKeys.contains(entry.key),
       )) {
@@ -579,9 +600,43 @@ class PluginLoaderService {
       for (final entry in ordinaryPatch.entries) {
         if (entry.value == null) mergedOrdinary.remove(entry.key);
       }
+      if (credentialScopeChanged) {
+        for (final key in _credentialUsernameKeys(manifest)) {
+          mergedOrdinary.remove(key);
+          final replacement = settings[key];
+          if (replacement is String && replacement.isNotEmpty) {
+            mergedOrdinary[key] = replacement;
+          }
+        }
+      }
 
-      await _writeSecureSettings(pluginId, secure);
-      await _writeOrdinarySettings(pluginId, mergedOrdinary);
+      final nextScope = scopeKey == null
+          ? null
+          : _effectiveCredentialScope(manifest, mergedOrdinary);
+      if (credentialScopeChanged) {
+        // The credential store and preferences have no common transaction.
+        // Clear first so a failed scope write cannot leave a secret bound to A.
+        await _writeSecureSettings(pluginId, {});
+        await _writeCredentialScope(pluginId, nextScope);
+        await _writeOrdinarySettings(pluginId, mergedOrdinary);
+        try {
+          await _writeSecureSettings(pluginId, secure);
+        } catch (_) {
+          try {
+            await _writeSecureSettings(pluginId, {});
+          } catch (cleanupError) {
+            _log.severe(
+              'Failed to clear credentials after scope rotation failure',
+              cleanupError,
+            );
+          }
+          rethrow;
+        }
+      } else {
+        await _writeSecureSettings(pluginId, secure);
+        if (scopeKey != null) await _writeCredentialScope(pluginId, nextScope);
+        await _writeOrdinarySettings(pluginId, mergedOrdinary);
+      }
 
       _log.fine('Settings saved for plugin: $pluginId');
     });
@@ -643,6 +698,9 @@ class PluginLoaderService {
   String _secureSettingsKey(String pluginId) =>
       'plugin.settings.secure.$pluginId';
 
+  String _credentialScopeKey(String pluginId) =>
+      'plugin.settings.credential-scope.$pluginId';
+
   Future<T> _withPluginSettingsLock<T>(
     String pluginId,
     Future<T> Function() action,
@@ -674,6 +732,125 @@ class PluginLoaderService {
       if (entry.value is Map && entry.value['secure'] == true) entry.key,
   };
 
+  Set<String> _credentialUsernameKeys(PluginManifest manifest) => {
+    for (final entry in manifest.settings.entries)
+      if (entry.value is Map &&
+          entry.value['secure'] != true &&
+          entry.key.toLowerCase() == 'username')
+        entry.key,
+  };
+
+  String? _effectiveCredentialScope(
+    PluginManifest manifest,
+    Map<String, dynamic> ordinary,
+  ) {
+    final key = manifest.credentialScope;
+    if (key == null) return null;
+    final schema = manifest.settings[key];
+    if (schema is! Map || schema['type'] != 'string') {
+      throw PluginSettingsValidationException(
+        'credentialScope "$key" must reference a string setting',
+      );
+    }
+    final value = ordinary[key] ?? schema['default'];
+    if (value == null) return null;
+    if (value is! String) {
+      throw PluginSettingsValidationException(
+        'Setting "$key" must be a URL string',
+      );
+    }
+    return _canonicalizeCredentialScope(value, key: key);
+  }
+
+  String _canonicalizeCredentialScope(String value, {required String key}) {
+    if (value != value.trim() ||
+        value.contains(RegExp(r'\s')) ||
+        value.contains('\\')) {
+      throw PluginSettingsValidationException(
+        'Setting "$key" must be a valid http or https URL',
+      );
+    }
+    if (RegExp(
+      r'/(?:\.|%2e){1,2}(?:/|[?#]|$)',
+      caseSensitive: false,
+    ).hasMatch(value)) {
+      throw PluginSettingsValidationException(
+        'Setting "$key" cannot contain dot path segments',
+      );
+    }
+    late final Uri uri;
+    try {
+      uri = Uri.parse(value.trim());
+    } catch (_) {
+      throw PluginSettingsValidationException(
+        'Setting "$key" must be a valid http or https URL',
+      );
+    }
+    final scheme = uri.scheme.toLowerCase();
+    if ((scheme != 'http' && scheme != 'https') || uri.host.isEmpty) {
+      throw PluginSettingsValidationException(
+        'Setting "$key" must be a valid http or https URL',
+      );
+    }
+    if (uri.port < 1 || uri.port > 65535) {
+      throw PluginSettingsValidationException(
+        'Setting "$key" has an invalid port',
+      );
+    }
+    if (uri.userInfo.isNotEmpty || uri.hasQuery || uri.hasFragment) {
+      throw PluginSettingsValidationException(
+        'Setting "$key" cannot contain credentials, a query, or a fragment',
+      );
+    }
+    if (uri.pathSegments.contains('.') || uri.pathSegments.contains('..')) {
+      throw PluginSettingsValidationException(
+        'Setting "$key" cannot contain dot path segments',
+      );
+    }
+    final port =
+        (scheme == 'http' && uri.port == 80) ||
+            (scheme == 'https' && uri.port == 443) ||
+            uri.port == 0
+        ? null
+        : uri.port;
+    var path = uri.path;
+    while (path.isNotEmpty && path.endsWith('/')) {
+      path = path.substring(0, path.length - 1);
+    }
+    var canonical = Uri(
+      scheme: scheme,
+      host: uri.host.toLowerCase(),
+      port: port,
+      path: path,
+    ).toString();
+    if (path.isEmpty && canonical.endsWith('/')) {
+      canonical = canonical.substring(0, canonical.length - 1);
+    }
+    return canonical;
+  }
+
+  Future<void> _writeCredentialScope(String pluginId, String? scope) async {
+    final writer = _credentialScopeWriter;
+    if (writer != null) {
+      if (!await writer(pluginId, scope)) {
+        throw StateError('Failed to save credential scope for $pluginId');
+      }
+      return;
+    }
+    final key = _credentialScopeKey(pluginId);
+    if (scope == null) {
+      await _prefs.remove(key);
+      return;
+    }
+    final saved = await _prefs.setString(key, scope);
+    if (!saved) {
+      throw StateError('Failed to save credential scope for $pluginId');
+    }
+  }
+
+  String? _readCredentialScope(String pluginId) =>
+      _prefs.getString(_credentialScopeKey(pluginId));
+
   bool _isSecureState(dynamic value) =>
       value is Map && value.length == 1 && value['isSet'] is bool;
 
@@ -696,15 +873,44 @@ class PluginLoaderService {
     );
 
     final storedOrdinary = _readOrdinarySettings(manifest.id);
-    final ordinary = _reconcileOrdinarySettings(manifest, storedOrdinary);
+    var ordinary = _reconcileOrdinarySettings(manifest, storedOrdinary);
+    final scope = _effectiveCredentialScope(manifest, ordinary);
+    final storedScope = _readCredentialScope(manifest.id);
+    final scopeMismatch =
+        manifest.credentialScope != null &&
+        (storedScope == null
+            ? scope != _effectiveCredentialScope(manifest, const {})
+            : storedScope != scope);
+    if (scopeMismatch) {
+      secureBase.clear();
+      ordinary = Map.fromEntries(
+        ordinary.entries.where(
+          (entry) =>
+              !_credentialUsernameKeys(manifest).contains(entry.key) &&
+              !secureKeys.contains(entry.key),
+        ),
+      );
+    }
+    final scopeKey = manifest.credentialScope;
+    if (scopeKey != null && ordinary.containsKey(scopeKey)) {
+      if (scope == null) {
+        ordinary.remove(scopeKey);
+      } else {
+        ordinary[scopeKey] = scope;
+      }
+    }
 
-    final legacySecure = Map.fromEntries(
-      ordinary.entries.where((entry) => secureKeys.contains(entry.key)),
-    );
+    final legacySecure = scopeMismatch
+        ? <String, dynamic>{}
+        : Map.fromEntries(
+            ordinary.entries.where((entry) => secureKeys.contains(entry.key)),
+          );
     final secure = _reconcileSecureSettings(manifest, {
       ...legacySecure,
       ...secureBase,
     });
+    final scopeChanged =
+        manifest.credentialScope != null && storedScope != scope;
 
     if (legacySecure.isEmpty) {
       if (!mapEquals(storedSecure, secure)) {
@@ -713,6 +919,7 @@ class PluginLoaderService {
       if (!mapEquals(storedOrdinary, ordinary)) {
         await _writeOrdinarySettings(manifest.id, ordinary);
       }
+      if (scopeChanged) await _writeCredentialScope(manifest.id, scope);
       return (ordinary: ordinary, secure: secure);
     }
 
@@ -721,6 +928,7 @@ class PluginLoaderService {
     );
     await _writeSecureSettings(manifest.id, secure);
     await _writeOrdinarySettings(manifest.id, migratedOrdinary);
+    if (scopeChanged) await _writeCredentialScope(manifest.id, scope);
     return (ordinary: migratedOrdinary, secure: secure);
   }
 
@@ -861,21 +1069,34 @@ class PluginLoaderService {
     );
   }
 
-  Future<({Map<String, dynamic> ordinary, Map<String, dynamic> secure})>
+  Future<
+    ({
+      Map<String, dynamic> ordinary,
+      Map<String, dynamic> secure,
+      String? credentialScope,
+    })
+  >
   _capturePersistedSettings(String pluginId) =>
       _withPluginSettingsLock(pluginId, () async {
         return (
           ordinary: _readOrdinarySettings(pluginId),
           secure: await _readSecureSettings(pluginId),
+          credentialScope: _readCredentialScope(pluginId),
         );
       });
 
   Future<void> _restorePersistedSettings(
     String pluginId,
-    ({Map<String, dynamic> ordinary, Map<String, dynamic> secure}) settings,
+    ({
+      Map<String, dynamic> ordinary,
+      Map<String, dynamic> secure,
+      String? credentialScope,
+    })
+    settings,
   ) => _withPluginSettingsLock(pluginId, () async {
     await _writeOrdinarySettings(pluginId, settings.ordinary);
     await _writeSecureSettings(pluginId, settings.secure);
+    await _writeCredentialScope(pluginId, settings.credentialScope);
   });
 
   Future<void> _deleteSecureSettings(String pluginId) async {
@@ -1088,6 +1309,23 @@ class PluginLoaderService {
     Map<String, dynamic> settings,
   ) {
     final manifestSettings = manifest.settings;
+
+    if (manifest.credentialScope != null) {
+      final scopeKey = manifest.credentialScope!;
+      final scopeSchema = manifestSettings[scopeKey];
+      final scopeValue = settings.containsKey(scopeKey)
+          ? settings[scopeKey]
+          : scopeSchema is Map
+          ? scopeSchema['default']
+          : null;
+      if (scopeValue != null) {
+        _effectiveCredentialScope(manifest, {scopeKey: scopeValue});
+      } else if (scopeSchema is! Map || scopeSchema['type'] != 'string') {
+        throw PluginSettingsValidationException(
+          'credentialScope "$scopeKey" must reference a string setting',
+        );
+      }
+    }
 
     if (manifestSettings.isEmpty) {
       return;
