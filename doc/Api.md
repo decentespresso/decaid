@@ -102,12 +102,22 @@ For browser clients on a different origin, `ETag` is exposed via `Access-Control
 | PUT | `/api/v1/machine/cupWarmer` | Set setpoint (whole °C, 0–80) and/or `enabled`; temperature-only requests also enable manual heating (back-compat), `enabled:false` keeps the setpoint — Bengle only | |
 | GET | `/api/v1/machine/cupWarmer/preheat` | Read scheduled pre-warm `enabled`/`leadMinutes`/`active` (firmware-owned timing) — Bengle only, 404 elsewhere | |
 | PUT | `/api/v1/machine/cupWarmer/preheat` | Set pre-warm `enabled` and/or `leadMinutes` (0–120, persisted in firmware) — Bengle only | |
-| GET | `/api/v1/machine/ledStrip` | Read LED strip palette (3 zones × 2 modes, 16-bit RGB; `frontSwitch` derived, not a hardware control); 503 until firmware hydration succeeds — Bengle only | |
-| PUT | `/api/v1/machine/ledStrip` | Write palette write-through to FW registers (persisted immediately; `frontSwitch` ignored). The 200 body is the canonical stored palette — strips quantized to the firmware's 8 bits per channel, `frontSwitch` derived — replacing the former `{"status":"accepted"}` acknowledgement, which now only appears if the machine reports no stored palette after the write — Bengle only | |
+| GET | `/api/v1/machine/ledStrip` | Read stored LED strip palette only (never live preview state; 3 zones × 2 modes, 16-bit RGB; `frontSwitch` derived, not a hardware control); 503 until firmware hydration succeeds — Bengle only | |
+| PUT | `/api/v1/machine/ledStrip` | Write palette write-through to FW registers (persisted immediately; `frontSwitch` ignored). Every save writes all four stored registers, even if the app cache matches. The 200 body is the canonical stored palette — strips quantized to the firmware's 8 bits per channel, `frontSwitch` derived — replacing the former `{"status":"accepted"}` acknowledgement, which now only appears if the machine reports no stored palette after the write — Bengle only | |
+| POST | `/api/v1/machine/ledStrip/preview` | Show `frontStrip`/`backStrip` as volatile display state on the live registers, never mutating the stored palette; either optional, same 16-bit RGB spelling as GET. The stored palette does not move, so an asleep colour can be shown on an awake machine. A frame repeating the colour already shown writes nothing — Bengle only | |
+| POST | `/api/v1/machine/ledStrip/preview/clear` | End a preview: the strips return to the stored palette for the state the machine is in — Bengle only | |
 | POST | `/api/v1/machine/ledStrip/commit` | Compatibility no-op (palette writes are already persisted) — Bengle only | |
 | POST | `/api/v1/machine/ledStrip/reset` | Re-read palette from FW and return refreshed state (truthful reload, not a rollback) — Bengle only | |
 | GET | `/api/v1/machine/scaleCalibration` | Read decoded scale-calibration state (step, cell, sub-state, seconds remaining, status) — Bengle only, 404 elsewhere | |
 | PUT | `/api/v1/machine/scaleCalibration` | Start `zero`/`latch`/`abort` calibration step (`weightGrams` 1–10000 required for `latch`); 202 accepted / 409 rejected (busy or shot in progress) — Bengle only | |
+
+LED preview volatility is guaranteed by firmware rheasman/Bengle#114, not
+merely by selecting the live registers. The four stored palette rows remain
+persistent; firmware rewrites the live pair at boot and on every sleep/wake
+transition. Both preview routes are available without a firmware-build gate.
+On pre-#114 firmware, each changed preview frame still flash-writes the live
+registers. `GET /api/v1/machine/ledStrip` always returns only the stored palette;
+preview and clear never change it.
 
 For classic DE1 machines, snapshot `mixTemperature` is not a reliable
 measurement of dispensed hot-water outlet temperature while the machine is in

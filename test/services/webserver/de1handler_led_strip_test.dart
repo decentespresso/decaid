@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
@@ -7,12 +8,16 @@ import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
+import 'package:reaprime/src/models/device/impl/bengle/bengle.dart';
+import 'package:reaprime/src/models/device/impl/bengle/bengle_mmr.dart';
 import 'package:reaprime/src/models/device/impl/bengle/mock_bengle.dart';
+import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/models/device/led_strip.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
+import '../../helpers/fake_ble_transport.dart';
 import '../../helpers/mock_device_discovery_service.dart';
 import '../../helpers/mock_settings_service.dart';
 import '../../helpers/test_scale.dart';
@@ -72,14 +77,15 @@ void main() {
     ),
   );
 
-  Future<Response> post(String path) async => await handler(
-    Request(
-      'POST',
-      Uri.parse('http://localhost$path'),
-      body: jsonEncode(const {}),
-      headers: {HttpHeaders.contentTypeHeader: 'application/json'},
-    ),
-  );
+  Future<Response> post(String path, [Object body = const {}]) async =>
+      await handler(
+        Request(
+          'POST',
+          Uri.parse('http://localhost$path'),
+          body: jsonEncode(body),
+          headers: {HttpHeaders.contentTypeHeader: 'application/json'},
+        ),
+      );
 
   group('GET /api/v1/machine/capabilities — ledStrip', () {
     test(
@@ -296,6 +302,163 @@ void main() {
       });
       expect(res.statusCode, 404);
     });
+  });
+
+  group('LED preview routes', () {
+    const previewPath = '/api/v1/machine/ledStrip/preview';
+    const palettePath = '/api/v1/machine/ledStrip';
+    const preview = {'frontStrip': '12FF345678AB', 'backStrip': 'ABCD12345678'};
+    late FakeBleTransport transport;
+
+    Future<void> connectBengle() async {
+      transport = FakeBleTransport();
+      transport.queueOnConnectResponses(v13Model: 128);
+      transport.queueMmrResponseInt(BengleMmr.frontLedAwake, 0xFF8000);
+      transport.queueMmrResponseInt(BengleMmr.frontLedSleep, 0x302010);
+      transport.queueMmrResponseInt(BengleMmr.rearLedAwake, 0x00FF00);
+      transport.queueMmrResponseInt(BengleMmr.rearLedSleep, 0x0000FF);
+      await wireWith(Bengle(transport: transport));
+      addTearDown(() async {
+        await controller.dispose();
+        await transport.dispose();
+      });
+      transport.writes.clear();
+    }
+
+    List<(int, int)> mmrWrites() => transport.writes
+        .where((w) => w.characteristicUUID == Endpoint.writeToMMR.uuid)
+        .map((w) {
+          expect(w.data[0], 4);
+          final address = (w.data[1] << 16) | (w.data[2] << 8) | w.data[3];
+          final rgb = ByteData.sublistView(
+            w.data,
+            4,
+            8,
+          ).getUint32(0, Endian.little);
+          return (address, rgb);
+        })
+        .toList();
+
+    test('preview writes front and rear only to the live registers', () async {
+      await connectBengle();
+
+      final res = await post(previewPath, preview);
+
+      expect(res.statusCode, 202);
+      expect(mmrWrites(), [(0x00803890, 0x123478), (0x00803894, 0xAB1256)]);
+      expect(
+        mmrWrites().map((w) => w.$1),
+        isNot(
+          anyElement(isIn([0x00803898, 0x0080389C, 0x008038A0, 0x008038A4])),
+        ),
+      );
+    });
+
+    test('GET remains stored-palette-only during a preview', () async {
+      await connectBengle();
+      final before = await get(palettePath);
+      expect(before.statusCode, 200);
+      final stored = await before.readAsString();
+      expect(jsonDecode(stored)['frontStrip']['awake'], 'FF0080000000');
+
+      expect((await post(previewPath, preview)).statusCode, 202);
+
+      final after = await get(palettePath);
+      expect(after.statusCode, 200);
+      expect(await after.readAsString(), stored);
+    });
+
+    test(
+      'clear returns 503 when palette hydration remains unavailable',
+      () async {
+        transport = FakeBleTransport();
+        transport.queueOnConnectResponses(v13Model: 128);
+        transport.failMmrReadsForAddresses.addAll([
+          BengleMmr.frontLedAwake.address,
+          BengleMmr.frontLedSleep.address,
+          BengleMmr.rearLedAwake.address,
+          BengleMmr.rearLedSleep.address,
+        ]);
+        await wireWith(Bengle(transport: transport));
+        addTearDown(() async {
+          await controller.dispose();
+          await transport.dispose();
+        });
+
+        final res = await post('$previewPath/clear');
+
+        expect(res.statusCode, 503);
+        expect(jsonDecode(await res.readAsString()), {
+          'error':
+              'ledStrip state unavailable (hydration failed or not yet complete)',
+        });
+      },
+    );
+
+    test(
+      'clear uses the latest stateInfo after sleep without a shot',
+      () async {
+        await connectBengle();
+        transport.emitNotification(Endpoint.stateInfo, [0x02, 0]);
+        await pumpEventQueue();
+        transport.emitNotification(Endpoint.bengleShotSample, Uint8List(28));
+        await pumpEventQueue();
+        expect((await post(previewPath, preview)).statusCode, 202);
+        transport.writes.clear();
+
+        transport.emitNotification(Endpoint.stateInfo, [0x00, 0]);
+        await pumpEventQueue();
+        final res = await post('$previewPath/clear');
+
+        expect(res.statusCode, 202);
+        expect(mmrWrites(), [(0x00803890, 0x302010), (0x00803894, 0x0000FF)]);
+      },
+    );
+
+    for (final asleep in [false, true]) {
+      test('preview then clear restores the ${asleep ? 'sleeping' : 'awake'} '
+          'palette through live writes', () async {
+        await connectBengle();
+        transport.emitNotification(Endpoint.stateInfo, [
+          asleep ? 0x00 : 0x02,
+          0,
+        ]);
+        await pumpEventQueue();
+        transport.emitNotification(Endpoint.bengleShotSample, Uint8List(28));
+        await pumpEventQueue();
+        expect((await post(previewPath, preview)).statusCode, 202);
+        expect(mmrWrites(), hasLength(2));
+        transport.writes.clear();
+
+        final res = await post('$previewPath/clear');
+
+        expect(res.statusCode, 202);
+        expect(mmrWrites(), [
+          (0x00803890, asleep ? 0x302010 : 0xFF8000),
+          (0x00803894, asleep ? 0x0000FF : 0x00FF00),
+        ]);
+        final stored = await get(palettePath);
+        expect(stored.statusCode, 200);
+        expect(jsonDecode(await stored.readAsString())['frontStrip'], {
+          'sleeping': '300020001000',
+          'awake': 'FF0080000000',
+        });
+      });
+    }
+
+    for (final path in [previewPath, '$previewPath/clear']) {
+      test('$path returns the capability-gate 404 on plain DE1', () async {
+        await wireWith(MockDe1());
+        addTearDown(controller.dispose);
+
+        final res = await post(path, preview);
+
+        expect(res.statusCode, 404);
+        expect(jsonDecode(await res.readAsString()), {
+          'error': 'ledStrip not supported',
+        });
+      });
+    }
   });
 
   group('POST /api/v1/machine/ledStrip/commit', () {

@@ -452,12 +452,14 @@ safety path is the exception documented below:
 - `POST /api/v1/machine/calibration`
 - `POST /api/v1/machine/waterLevels`
 - `PUT /api/v1/machine/cupWarmer`, `PUT /api/v1/machine/ledStrip`,
+  `POST /api/v1/machine/ledStrip/preview`,
+  `POST /api/v1/machine/ledStrip/preview/clear`,
   `POST /api/v1/machine/ledStrip/commit`, `POST /api/v1/machine/ledStrip/reset`
 
 Every endpoint above can return `503` when the 32-entry pending queue is full and
 `400` for malformed JSON bodies
 (machine settings, advanced, calibration, waterLevels, cupWarmer, ledStrip,
-profile, and shot settings parse their complete body before reserving a queue entry).
+preview, profile, and shot settings parse their complete body before reserving a queue entry).
 Machine-write failures otherwise map to `500`.
 
 Documented bypasses:

@@ -8,6 +8,7 @@ import 'package:reaprime/src/controllers/connection/connection_timings.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/device/de1_firmwaremodel.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
+import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/de1_rawmessage.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
@@ -120,6 +121,14 @@ class UnifiedDe1 implements De1Interface {
   @override
   Stream<MachineSnapshot> get currentSnapshot =>
       implementation == .bengle ? _bengleSnapshot : _de1Snapshot;
+
+  MachineState? get latestMachineState {
+    final stateInfo = _transport.latestStateInfo;
+    if (stateInfo == null || stateInfo.lengthInBytes == 0) return null;
+    return mapDe1ToMachineState(
+      De1StateEnum.fromHexValue(stateInfo.getUint8(0)),
+    );
+  }
 
   @override
   String get deviceId => _transport.id;
