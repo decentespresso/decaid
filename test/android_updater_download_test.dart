@@ -249,7 +249,15 @@ void main() {
       test('skips the network until the reset time', () async {
         await expectLater(
           updater.checkForUpdate('0.7.14'),
-          throwsA(isA<UpdateCheckException>()),
+          throwsA(
+            isA<UpdateCheckException>()
+                .having((e) => e.statusCode, 'statusCode', 403)
+                .having(
+                  (e) => e.userMessage,
+                  'userMessage',
+                  'The service is receiving too many requests. Try again later.',
+                ),
+          ),
         );
         expect(requests, 1);
 
@@ -258,7 +266,12 @@ void main() {
           throwsA(
             isA<UpdateCheckException>()
                 .having((e) => e.rateLimited, 'rateLimited', isTrue)
-                .having((e) => e.resetAt, 'resetAt', resetAt),
+                .having((e) => e.resetAt, 'resetAt', resetAt)
+                .having(
+                  (e) => e.userMessage,
+                  'userMessage',
+                  'The service is receiving too many requests. Try again later.',
+                ),
           ),
         );
         expect(requests, 1);

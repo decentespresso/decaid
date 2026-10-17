@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/services/telemetry/telemetry_forwarder_filter.dart';
+import 'package:reaprime/src/util/remote_error.dart';
 
 LogRecord _record(
   Level level,
@@ -17,6 +18,24 @@ LogRecord _record(
 }
 
 void main() {
+  test(
+    'typed download service failures remain excluded from crash telemetry',
+    () {
+      for (final logger in ['WebUIStorage', 'AndroidUpdater']) {
+        expect(
+          shouldForwardToTelemetry(
+            _record(
+              Level.SEVERE,
+              logger,
+              'Download failed',
+              remoteHttpError(404),
+            ),
+          ),
+          isFalse,
+        );
+      }
+    },
+  );
   group('shouldForwardToTelemetry', () {
     group('SEVERE floor', () {
       test('WARNING with no noise pattern is dropped', () {

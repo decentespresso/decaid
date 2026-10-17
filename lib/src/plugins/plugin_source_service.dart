@@ -10,6 +10,8 @@ import 'package:reaprime/src/plugins/plugin_package.dart';
 import 'package:reaprime/src/plugins/plugin_source.dart';
 import 'package:reaprime/src/plugins/plugin_version.dart';
 import 'package:reaprime/src/util/github_archive.dart';
+import 'package:reaprime/src/util/remote_error.dart';
+import 'package:reaprime/src/util/remote_update_exception.dart';
 import 'package:reaprime/src/webui_support/webui_zip_support.dart';
 
 class PluginApprovalRequiredException implements Exception {
@@ -218,23 +220,36 @@ class PluginSourceService {
   Future<void> _updateAllPlugins() async {
     _log.info('Starting update check for managed plugins');
     seedBundledSources();
+    var failures = const <({String item, Object error})>[];
+    var attemptedCount = 0;
 
     for (final manifest in _loader.availablePlugins) {
       final source = sourceFor(manifest.id);
       if (source == null || !source.kind.isManaged) continue;
+      attemptedCount++;
 
       try {
         await _updatePlugin(manifest, source);
       } catch (e, st) {
         _log.warning('Failed to update plugin "${manifest.id}"', e, st);
+        failures = [...failures, (item: manifest.id, error: e)];
         _writeSource(
           manifest.id,
-          source.copyWith(lastChecked: DateTime.now(), lastError: '$e'),
+          source.copyWith(
+            lastChecked: DateTime.now(),
+            lastError: remoteErrorMessage(e, action: 'update the plugin'),
+          ),
         );
       }
     }
 
     _log.info('Finished update check for managed plugins');
+    if (failures.isNotEmpty) {
+      throw RemoteUpdateException(
+        attemptedCount: attemptedCount,
+        failures: failures,
+      );
+    }
   }
 
   Future<void> _updatePlugin(

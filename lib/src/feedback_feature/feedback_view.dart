@@ -414,7 +414,9 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
                 height: 16,
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
-            : const Text('Submit'),
+            : Text(
+                _controller.state == FeedbackState.error ? 'Retry' : 'Submit',
+              ),
       ),
     ];
   }

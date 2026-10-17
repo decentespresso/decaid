@@ -12,6 +12,7 @@ class FeedbackController extends ChangeNotifier {
 
   FeedbackState _state = FeedbackState.idle;
   FeedbackSubmissionResult? _lastResult;
+  bool _disposed = false;
 
   FeedbackController({required FeedbackService service}) : _service = service;
 
@@ -26,6 +27,13 @@ class FeedbackController extends ChangeNotifier {
   Future<FeedbackSubmissionResult> submitFeedback(
     FeedbackRequest request,
   ) async {
+    if (_disposed) {
+      return FeedbackSubmissionResult.failed('Feedback was closed.');
+    }
+    if (_state == FeedbackState.success) return _lastResult!;
+    if (isSubmitting) {
+      return FeedbackSubmissionResult.failed('Feedback is already being sent.');
+    }
     _state = FeedbackState.submitting;
     _lastResult = null;
     notifyListeners();
@@ -33,6 +41,7 @@ class FeedbackController extends ChangeNotifier {
     _log.info('Submitting feedback: ${request.type.name}');
 
     final result = await _service.submitFeedback(request);
+    if (_disposed) return result;
 
     _lastResult = result;
     _state = result.success ? FeedbackState.success : FeedbackState.error;
@@ -48,8 +57,15 @@ class FeedbackController extends ChangeNotifier {
   }
 
   void reset() {
+    if (_disposed) return;
     _state = FeedbackState.idle;
     _lastResult = null;
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 }

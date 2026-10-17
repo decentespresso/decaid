@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
@@ -7,6 +8,7 @@ import 'package:reaprime/src/webui_support/webui_storage.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
 class FakeWebUIStorage extends Fake implements WebUIStorage {
+  Object? remoteError;
   bool installFromGitHubReleaseCalled = false;
   bool installFromGitHubCalled = false;
   bool installFromUrlCalled = false;
@@ -18,11 +20,13 @@ class FakeWebUIStorage extends Fake implements WebUIStorage {
     bool includePrerelease = false,
   }) async {
     installFromGitHubReleaseCalled = true;
+    if (remoteError != null) throw remoteError!;
   }
 
   @override
   Future<void> installFromGitHub(String repo, {String branch = 'main'}) async {
     installFromGitHubCalled = true;
+    if (remoteError != null) throw remoteError!;
   }
 
   @override
@@ -33,6 +37,12 @@ class FakeWebUIStorage extends Fake implements WebUIStorage {
     bool? includePrerelease,
   }) async {
     installFromUrlCalled = true;
+    if (remoteError != null) throw remoteError!;
+  }
+
+  @override
+  Future<void> updateAllSkins() async {
+    if (remoteError != null) throw remoteError!;
   }
 }
 
@@ -75,6 +85,27 @@ void main() {
       setUp(() {
         handler = buildHandler();
       });
+
+      test(
+        'all online install routes return friendly connection errors',
+        () async {
+          fakeStorage.remoteError = const SocketException(
+            'private host lookup',
+          );
+          for (final source in ['github-release', 'github-branch', 'url']) {
+            final response = await sendPost(
+              handler,
+              '/api/v1/webui/skins/install/$source',
+              {'repo': 'user/repo', 'url': 'https://example.test/skin.zip'},
+            );
+            expect(response.statusCode, 500);
+            expect(
+              jsonDecode(await response.readAsString())['error'],
+              "Couldn't install the skin. Check your internet connection and try again.",
+            );
+          }
+        },
+      );
 
       test(
         'POST /api/v1/webui/skins/install/github-release calls storage',

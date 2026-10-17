@@ -512,6 +512,7 @@ components:
         error:
           type: string
           nullable: true
+          description: Plain-language failure guidance; connection, timeout, and secure-connection failures do not expose transport exceptions or internal URLs.
     UpdateCommand:
       type: object
       required: [command]

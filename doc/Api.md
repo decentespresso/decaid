@@ -696,6 +696,16 @@ The **proxy** lets clients *use* the account without ever seeing the credentials
 | GET | `/api/v1/webview/logs` | WebView console log forwarding, newest first (`?order=asc` for original chronological order) | `webview_logs_handler.dart` |
 | POST | `/api/v1/derek/answers/stream` | Relay to the Derek RAG assistant: forwards the JSON body verbatim to `derek.decentespresso.com/api/answers/stream` and pipes the SSE response back unbuffered. No auth (public data). Exists so browser skins avoid Derek's failing CORS preflight. | `derek_handler.dart` |
 
+Online skin/plugin actions, app updates, feedback, and host-side account/Derek
+connection failures return plain-language guidance. Transport/parser details stay
+in logs. Timeouts and secure-connection failures have distinct messages; connection
+errors never assert Wi-Fi is off. JSON fields and upstream passthrough are unchanged.
+Plugin validation and downgrade failures retain HTTP 400 and 409, respectively.
+
+Skin/plugin batches attempt all items and retain successes. Any failure returns
+HTTP 500 with an `error` describing complete or partial failure. Background checks
+stay quiet; retries are manual.
+
 Feedback verifies the stored Decent credentials before uploading attachments,
 creating an issue, or contacting Support. Missing, rejected, or unverifiable
 credentials return `400` with `success: false`, `error: "Decent account required"`,

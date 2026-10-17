@@ -7,6 +7,7 @@ import 'package:reaprime/src/skin_selector/skin_selector_page.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 import 'package:reaprime/src/widgets/page_action_menu.dart';
+import 'package:reaprime/src/util/remote_update_exception.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
 import 'helpers/mock_settings_service.dart';
@@ -24,6 +25,7 @@ class _FakeWebUIStorage extends Fake implements WebUIStorage {
   @override
   final ValueNotifier<Future<void>?> updateCheck = ValueNotifier(null);
   int updateCount = 0;
+  Object? updateError;
 
   WebUISkin get _skin => WebUISkin(
     id: 'streamline.js',
@@ -49,6 +51,7 @@ class _FakeWebUIStorage extends Fake implements WebUIStorage {
   Future<void> _updateAllSkins() async {
     updateCount++;
     if (updateCompletion != null) await updateCompletion;
+    if (updateError != null) throw updateError!;
     _version = '0.2.3';
   }
 }
@@ -153,7 +156,7 @@ void main() {
 
     expect(find.byIcon(LucideIcons.settings), findsOneWidget);
     expect(
-      find.textContaining('Failed to check for skin updates'),
+      find.textContaining("Couldn't check for skin updates"),
       findsOneWidget,
     );
     expect(find.textContaining('0.2.2'), findsOneWidget);
@@ -182,6 +185,35 @@ void main() {
     completion.complete();
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('partial skin checks warn and Retry clears the old error', (
+    tester,
+  ) async {
+    final storage = _FakeWebUIStorage('0.2.2')
+      ..updateError = RemoteUpdateException(
+        attemptedCount: 2,
+        failures: [(item: 'one', error: StateError('private detail'))],
+      );
+    await pumpView(tester, storage);
+    await tester.tap(find.byTooltip('Skin actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Check for updates'));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining("Some updates couldn't be completed"),
+      findsOneWidget,
+    );
+    expect(find.text('Skin updates completed'), findsNothing);
+    storage.updateError = null;
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+    expect(storage.updateCount, 2);
+    expect(find.text('Skin updates completed'), findsOneWidget);
+    expect(
+      find.textContaining("Some updates couldn't be completed"),
+      findsNothing,
+    );
   });
 
   testWidgets(

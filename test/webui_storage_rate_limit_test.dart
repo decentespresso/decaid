@@ -7,6 +7,7 @@ import 'package:http/testing.dart';
 import 'package:reaprime/src/services/android_updater.dart';
 import 'package:reaprime/src/services/github_rate_limit.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
+import 'package:reaprime/src/util/remote_error.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 
 import 'helpers/mock_settings_service.dart';
@@ -57,12 +58,31 @@ void main() {
   );
 
   test('skin release fetches skip the network until the reset time', () async {
-    await expectLater(install(), throwsException);
+    await expectLater(
+      install(),
+      throwsA(
+        isA<RemoteServiceException>()
+            .having((e) => e.statusCode, 'statusCode', 403)
+            .having(
+              (e) => e.userMessage,
+              'userMessage',
+              'The service is receiving too many requests. Try again later.',
+            ),
+      ),
+    );
     expect(requests, 1);
 
     await expectLater(
       install(),
-      throwsA(predicate((e) => e.toString().contains('rate limit active'))),
+      throwsA(
+        isA<RemoteServiceException>()
+            .having((e) => e.statusCode, 'statusCode', 429)
+            .having(
+              (e) => e.userMessage,
+              'userMessage',
+              'The service is receiving too many requests. Try again later.',
+            ),
+      ),
     );
     expect(requests, 1);
 

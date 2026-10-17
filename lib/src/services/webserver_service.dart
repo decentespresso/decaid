@@ -35,6 +35,7 @@ import 'package:reaprime/src/services/webserver/opaque_path_component.dart';
 import 'package:reaprime/src/services/webserver/bounded_request_body.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
+import 'package:reaprime/src/util/remote_error.dart';
 import 'package:reaprime/src/services/webserver/data_export_handler.dart';
 import 'package:reaprime/src/services/webserver/data_sync_handler.dart';
 import 'package:reaprime/src/services/webserver/firmware_handler.dart';

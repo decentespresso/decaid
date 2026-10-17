@@ -13,6 +13,7 @@ import 'package:reaprime/src/models/feedback/feedback_result.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/storage/app_directories.dart';
 import 'package:reaprime/src/services/telemetry/anonymization.dart';
+import 'package:reaprime/src/util/remote_error.dart';
 
 class FeedbackService {
   final String _githubToken;
@@ -127,7 +128,9 @@ class FeedbackService {
       );
     } catch (e, st) {
       _log.severe('Failed to submit feedback', e, st);
-      return FeedbackSubmissionResult.failed('Failed to submit feedback: $e');
+      return FeedbackSubmissionResult.failed(
+        remoteErrorMessage(e, action: 'send feedback'),
+      );
     }
   }
 
@@ -358,11 +361,11 @@ class FeedbackService {
         _log.severe(
           'Failed to create issue: ${response.statusCode} - ${response.body}',
         );
-        return null;
+        throw remoteHttpError(response.statusCode);
       }
-    } catch (e) {
-      _log.severe('Failed to create GitHub issue', e);
-      return null;
+    } catch (e, st) {
+      _log.severe('Failed to create GitHub issue', e, st);
+      rethrow;
     }
   }
 

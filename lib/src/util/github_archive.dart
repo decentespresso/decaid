@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:reaprime/src/util/remote_error.dart';
+import 'package:reaprime/src/util/user_facing_exception.dart';
 
 class GitHubAsset {
   final String name;
@@ -27,7 +29,9 @@ const _headers = {
 void validateGitHubRepo(String repo) {
   final parts = repo.split('/');
   if (parts.length != 2 || parts.any((p) => p.isEmpty)) {
-    throw FormatException('Invalid GitHub repo "$repo". Use: owner/repo');
+    throw const UserFacingFormatException(
+      'Invalid GitHub repo. Use: owner/repo',
+    );
   }
 }
 
@@ -42,16 +46,18 @@ Future<GitHubRelease> fetchLatestGitHubRelease(
 
   final response = await http.get(Uri.parse(url), headers: _headers);
   if (response.statusCode != 200) {
-    throw Exception(
-      'Failed to fetch GitHub release for $repo: ${response.statusCode}',
-    );
+    throw remoteHttpError(response.statusCode);
   }
 
   final decoded = jsonDecode(response.body);
   final Map<String, dynamic> release;
   if (includePrerelease) {
     final list = (decoded as List).cast<Map<String, dynamic>>();
-    if (list.isEmpty) throw Exception('No releases published for $repo');
+    if (list.isEmpty) {
+      throw const UserFacingFormatException(
+        'No releases published for this repository.',
+      );
+    }
     release = list.first;
   } else {
     release = decoded as Map<String, dynamic>;
@@ -67,9 +73,7 @@ Future<GitHubRelease> fetchGitHubReleaseByTag(String repo, String tag) async {
     headers: _headers,
   );
   if (response.statusCode != 200) {
-    throw Exception(
-      'Failed to fetch release "$tag" of $repo: ${response.statusCode}',
-    );
+    throw remoteHttpError(response.statusCode);
   }
   return _releaseFromJson(jsonDecode(response.body) as Map<String, dynamic>);
 }
@@ -95,11 +99,13 @@ Future<String> fetchGitHubBranchCommit(String repo, String branch) async {
     headers: _headers,
   );
   if (response.statusCode != 200) {
-    throw Exception('Failed to resolve $repo@$branch: ${response.statusCode}');
+    throw remoteHttpError(response.statusCode);
   }
   final commit = (jsonDecode(response.body) as Map<String, dynamic>)['sha'];
   if (commit is! String || commit.isEmpty) {
-    throw Exception('GitHub returned no commit for $repo@$branch');
+    throw const UserFacingFormatException(
+      'GitHub returned no commit for this branch.',
+    );
   }
   return commit;
 }
@@ -110,7 +116,7 @@ String gitHubCommitArchiveUrl(String repo, String commit) =>
 Future<List<int>> downloadGitHubArchive(String url) async {
   final response = await http.get(Uri.parse(url));
   if (response.statusCode != 200) {
-    throw Exception('Failed to download $url: ${response.statusCode}');
+    throw remoteHttpError(response.statusCode);
   }
   return response.bodyBytes;
 }

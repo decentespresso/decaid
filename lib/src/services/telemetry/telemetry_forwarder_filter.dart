@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/services/telemetry/crashlytics_error_filter.dart';
+import 'package:reaprime/src/util/remote_error.dart';
 
 const _webUiStorageLoggerName = 'WebUIStorage';
 const _skinAlreadyExistsPrefix = 'Skin already exists';
@@ -38,6 +39,7 @@ bool shouldForwardToTelemetry(LogRecord record) {
 
 bool _isTransientNetworkError(Object? error) {
   if (error == null) return false;
+  if (error is RemoteServiceException) return true;
   if (error is SocketException) return true;
   if (error is TimeoutException) return true;
   if (error is HttpException) return true;

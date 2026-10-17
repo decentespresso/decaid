@@ -55,9 +55,11 @@ final class PluginsHandler {
       try {
         await pluginSourceService.updateAllPlugins();
         return jsonOk({'message': 'Plugin update check complete'});
-      } catch (e) {
-        _log.warning('Plugin update check failed', e);
-        return jsonError({'error': 'Failed to update plugins: $e'});
+      } catch (e, st) {
+        _log.warning('Plugin update check failed', e, st);
+        return jsonError({
+          'error': remoteErrorMessage(e, action: 'check for plugin updates'),
+        });
       }
     });
 
@@ -110,11 +112,16 @@ final class PluginsHandler {
         });
       } on PluginApprovalRequiredException catch (e) {
         return jsonConflict({'error': e.message});
-      } on FormatException catch (e) {
-        return jsonBadRequest({'error': e.message});
-      } catch (e) {
-        _log.warning('Failed to approve update of plugin $id', e);
-        return jsonError({'error': 'Failed to approve update: $e'});
+      } on FormatException catch (e, st) {
+        _log.warning('Invalid plugin update', e, st);
+        return jsonBadRequest({
+          'error': remoteErrorMessage(e, action: 'update the plugin'),
+        });
+      } catch (e, st) {
+        _log.warning('Failed to approve update of plugin $id', e, st);
+        return jsonError({
+          'error': remoteErrorMessage(e, action: 'update the plugin'),
+        });
       }
     });
 
@@ -226,11 +233,16 @@ final class PluginsHandler {
       });
     } on PluginDowngradeException catch (e) {
       return jsonConflict({'error': e.message});
-    } on FormatException catch (e) {
-      return jsonBadRequest({'error': e.message});
-    } catch (e) {
-      _log.warning('Plugin installation failed', e);
-      return jsonError({'error': 'Failed to install plugin: $e'});
+    } on FormatException catch (e, st) {
+      _log.warning('Invalid plugin installation', e, st);
+      return jsonBadRequest({
+        'error': remoteErrorMessage(e, action: 'install the plugin'),
+      });
+    } catch (e, st) {
+      _log.warning('Plugin installation failed', e, st);
+      return jsonError({
+        'error': remoteErrorMessage(e, action: 'install the plugin'),
+      });
     }
   }
 

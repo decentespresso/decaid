@@ -42,6 +42,11 @@ class AccountProxyHandler {
       return jsonForbidden({'error': 'Path not allowed'});
     } on DecentProxyConsentDeniedException {
       return jsonForbidden({'error': 'Account access was not granted'});
+    } catch (e, st) {
+      log.warning('Decent account proxy request failed', e, st);
+      return jsonError({
+        'error': remoteErrorMessage(e, action: 'reach your Decent account'),
+      });
     }
   }
 
@@ -90,6 +95,11 @@ class AccountProxyHandler {
       return jsonForbidden({'error': 'Path not allowed'});
     } on DecentProxyConsentDeniedException {
       return jsonForbidden({'error': 'Account access was not granted'});
+    } catch (e, st) {
+      log.warning('Decent account proxy request failed', e, st);
+      return jsonError({
+        'error': remoteErrorMessage(e, action: 'reach your Decent account'),
+      });
     }
   }
 }

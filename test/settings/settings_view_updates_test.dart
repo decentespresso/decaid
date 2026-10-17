@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -33,6 +35,13 @@ class _RecordingUpdater extends AndroidUpdater {
   void dispose() {}
 }
 
+class _OfflineContentStorage extends WebUIStorage {
+  _OfflineContentStorage(super.settingsController);
+
+  @override
+  Future<void> downloadRemoteSkins() async {}
+}
+
 const _channel = MethodChannel('net.tadel.reaprime/macos_updater');
 
 Future<(UpdateCheckService, _RecordingUpdater)> _pumpSettingsView(
@@ -65,7 +74,7 @@ Future<(UpdateCheckService, _RecordingUpdater)> _pumpSettingsView(
     de1Controller: De1Controller(controller: DeviceController(const [])),
     settingsController: settingsController,
   );
-  final webUIStorage = WebUIStorage(settingsController);
+  final webUIStorage = _OfflineContentStorage(settingsController);
   final updater = _RecordingUpdater();
   final updateCheckService = UpdateCheckService(
     settingsService: MockSettingsService(),
@@ -260,7 +269,10 @@ void main() {
         await tester.pump(const Duration(milliseconds: 300));
 
         expect(calls.where((c) => c.method == 'checkForUpdates'), hasLength(1));
-        expect(find.textContaining('Update check failed'), findsOneWidget);
+        expect(
+          find.textContaining("Couldn't check for app updates"),
+          findsOneWidget,
+        );
 
         await tester.pump(const Duration(seconds: 4));
         await tester.pump(const Duration(milliseconds: 300));
@@ -376,6 +388,34 @@ void main() {
       await tester.pump(const Duration(seconds: 4));
       await tester.pump(const Duration(milliseconds: 300));
     });
+
+    testWidgets(
+      'connection failures keep friendly Retry after rate-limit integration',
+      (tester) async {
+        final (_, updater) = await _pumpSettingsView(tester, [], macos: false);
+        updater.checkError = const SocketException('private host lookup');
+        await tester.tap(find.text('Check for updates'));
+        await tester.pump();
+        for (var i = 0; i < 20 && find.text('Retry').evaluate().isEmpty; i++) {
+          await tester.pump(const Duration(seconds: 1));
+        }
+        expect(
+          find.text(
+            "Couldn't check for app updates. Check your internet connection and try again.",
+          ),
+          findsOneWidget,
+        );
+        await tester.pumpAndSettle();
+        updater.checkError = null;
+        await tester.tap(find.text('Retry'));
+        await tester.pumpAndSettle();
+        expect(updater.checkCalls, 2);
+        expect(
+          find.textContaining("Couldn't check for app updates"),
+          findsNothing,
+        );
+      },
+    );
 
     testWidgets('rate-limited manual check offers the releases page', (
       tester,

@@ -3385,6 +3385,10 @@ paths:
         after stripping the optional leading v. When the release carries several
         .zip assets, assetName must name the one to install. Downgrades are
         rejected; remove the plugin first to go back to an older version.
+        Download failures use plain-language error messages; transport details
+        remain in application logs. Clients may retry with the same options.
+        Malformed downloaded data and package manifests return HTTP 400 with
+        plain-language validation errors, without parser diagnostics or source snippets.
       tags: [Plugins]
       requestBody:
         required: true
@@ -3437,6 +3441,8 @@ paths:
         package, and installs it. The resolved commit is stored and later drives
         updates, so a branch-backed plugin updates even when its manifest
         version does not change.
+        Download failures use plain-language error messages rather than raw
+        transport exceptions.
       tags: [Plugins]
       requestBody:
         required: true
@@ -3487,6 +3493,8 @@ paths:
         installed when the candidate keeps the same permissions or fewer, and
         recorded as a pendingUpdate when it asks for more. One plugin failing
         does not stop the others.
+        After all items are processed, any failure (including partial completion)
+        returns HTTP 500 with a plain-language error. Successful updates are kept.
       tags: [Plugins]
       responses:
         "200":
@@ -3499,7 +3507,7 @@ paths:
                   message:
                     type: string
         "500":
-          description: The update check could not run
+          description: The update check could not run or some items failed
           content:
             application/json:
               schema:
@@ -4225,7 +4233,12 @@ paths:
   /api/v1/webui/skins/update:
     post:
       summary: Check for skin updates
-      description: Triggers an update check for all skins from their remote sources (GitHub releases, branches). Skins with newer versions available will be downloaded and updated.
+      description: >
+        Triggers an update check for all skins from their remote sources
+        (GitHub releases, branches). Skins with newer versions available are
+        downloaded and updated. Every item is attempted; any failure, including
+        partial completion, returns HTTP 500 with a plain-language error.
+        Successful updates are retained.
       tags: [WebUI]
       responses:
         "200":
@@ -4239,7 +4252,7 @@ paths:
                     type: string
                     example: "Skin update check completed"
         "500":
-          description: Update check failed
+          description: Update check failed or completed only partially; error contains a plain-language message
 
   /api/v1/webui/server/status:
     get:
@@ -5565,6 +5578,8 @@ paths:
         403; a path outside the allowed prefix gets 403; no linked account gets
         401. A caller's first linked-account request pauses for native consent;
         denial or a 30-second timeout gets 403 before any upstream request.
+        Host-side connection failures return HTTP 500 with a plain-language
+        error field. Upstream HTTP statuses and bodies remain unchanged.
       tags: [Account]
       parameters:
         - name: endpoint
@@ -5609,6 +5624,8 @@ paths:
         403. Other rejection rules match the GET form (401 unknown token / no
         linked account; 403 unscoped, disallowed path, or account consent not
         granted).
+        Host-side connection failures return HTTP 500 with a plain-language
+        error field. Upstream HTTP statuses and bodies remain unchanged.
       tags: [Account]
       parameters:
         - name: endpoint
@@ -5652,6 +5669,8 @@ paths:
       description: >
         Same as the POST form but forwards a PUT. Requires a token scoped
         `account:proxy:write`.
+        Host-side connection failures return HTTP 500 with a plain-language
+        error field, as in the GET and POST forms.
       tags: [Account]
       parameters:
         - name: endpoint
@@ -5706,6 +5725,9 @@ paths:
         middleware handles. Derek is public knowledge-base data, so this route
         needs no authentication. Request validation, rate limiting, and error
         shapes are Derek's — the upstream status and body are relayed verbatim.
+        If the host cannot establish the upstream connection, it instead returns
+        HTTP 500 with a plain-language JSON error. Active streams are not
+        buffered or rewritten.
       tags: [System]
       requestBody:
         description: >
@@ -5978,7 +6000,7 @@ components:
         error:
           type: string
           nullable: true
-          description: Set while phase is error.
+          description: Plain-language failure guidance while phase is error; no raw transport exception or internal URL.
       required:
         - phase
         - currentVersion
@@ -7934,7 +7956,7 @@ components:
         lastError:
           type: string
           nullable: true
-          description: Why the most recent update check or install failed
+          description: Plain-language explanation of the most recent update failure; technical details remain in application logs
 
     PluginPendingUpdate:
       type: object

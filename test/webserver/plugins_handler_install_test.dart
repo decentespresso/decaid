@@ -118,6 +118,9 @@ void main() {
           );
       service = PluginLoaderService(kvStore: FakeKeyValueStoreService());
       await service.initialize();
+      for (final plugin in service.availablePlugins) {
+        await service.removePlugin(plugin.id);
+      }
       final app = Router().plus;
       PluginsHandler(
         pluginManager: service.pluginManager,
@@ -176,6 +179,63 @@ void main() {
       final res = await post('/api/v1/plugins/install/github-release', {});
       expect(res.statusCode, 400);
     });
+
+    test('malformed release data returns a safe validation error', () async {
+      final response = await http.runWithClient(
+        () => post('/api/v1/plugins/install/github-release', {
+          'repo': 'acme/plugin',
+        }),
+        () => MockClient(
+          (_) async =>
+              http.Response('{ broken https://private.example/internal', 200),
+        ),
+      );
+      expect(response.statusCode, 400);
+      expect(
+        jsonDecode(await response.readAsString())['error'],
+        "Couldn't install the plugin. The downloaded data or package is invalid. Check the source and try again.",
+      );
+    });
+
+    test(
+      'offline installation and update checks report friendly errors',
+      () async {
+        MockClient offline() => MockClient(
+          (_) async => throw const SocketException('private host lookup'),
+        );
+        final install = await http.runWithClient(
+          () => post('/api/v1/plugins/install/github-release', {
+            'repo': 'acme/plugin',
+          }),
+          offline,
+        );
+        expect(install.statusCode, 500);
+        expect(
+          jsonDecode(await install.readAsString())['error'],
+          "Couldn't install the plugin. Check your internet connection and try again.",
+        );
+        await http.runWithClient(
+          () => post('/api/v1/plugins/install/github-release', {
+            'repo': 'acme/plugin',
+          }),
+          gitHubClient,
+        );
+        final update = await http.runWithClient(
+          () => post('/api/v1/plugins/update'),
+          offline,
+        );
+        expect(update.statusCode, 500);
+        expect(
+          await update.readAsString(),
+          contains('Check your internet connection'),
+        );
+        final listed = await listedPlugin();
+        expect(
+          listed['source']['lastError'],
+          isNot(contains('SocketException')),
+        );
+      },
+    );
 
     test('rejects a tag that disagrees with the manifest with 400', () async {
       final res = await http.runWithClient(

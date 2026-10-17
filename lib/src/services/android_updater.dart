@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pub_semver/pub_semver.dart';
 import 'package:reaprime/src/services/apk_installer.dart';
 import 'package:reaprime/src/services/github_rate_limit.dart';
+import 'package:reaprime/src/util/remote_error.dart';
 
 class UpdateInfo {
   final String version;
@@ -43,14 +44,22 @@ class UpdateInfo {
   }
 }
 
-class UpdateCheckException implements Exception {
+class UpdateCheckException extends RemoteServiceException {
   final String message;
 
   final bool rateLimited;
 
   final DateTime? resetAt;
 
-  UpdateCheckException(this.message, {this.rateLimited = false, this.resetAt});
+  UpdateCheckException(
+    this.message, {
+    int statusCode = 0,
+    this.rateLimited = false,
+    this.resetAt,
+  }) : super(
+         statusCode,
+         remoteHttpError(rateLimited ? 429 : statusCode).userMessage,
+       );
 
   @override
   String toString() => message;
@@ -152,6 +161,7 @@ class AndroidUpdater {
         }
         throw UpdateCheckException(
           message,
+          statusCode: response.statusCode,
           rateLimited:
               (response.statusCode == 403 || response.statusCode == 429) &&
               response.headers['x-ratelimit-remaining'] == '0',
@@ -208,7 +218,7 @@ class AndroidUpdater {
       final response = await _httpClient.send(request);
 
       if (response.statusCode != 200) {
-        throw Exception('Failed to download update: ${response.statusCode}');
+        throw remoteHttpError(response.statusCode);
       }
 
       final total = response.contentLength;

@@ -1423,6 +1423,15 @@ skin updates, and on demand from the Plugins settings screen or
 - one plugin's failure never stops the others; the failure is recorded in
   `lastError`.
 
+Native/API errors and new `lastError` values use plain-language guidance; parser
+details stay in logs. **Retry** retains options and reopens current permission
+review for approval downloads. Changed candidates require fresh confirmation.
+Downgrades explain removal of the installed version and retain HTTP 409.
+Failed or partial batches return HTTP 500 after processing all items, retaining
+successes. Background failures stay quiet; installed plugins remain usable offline.
+Native folder installation and plugin removal also use plain-language guidance,
+with filesystem and parser diagnostics kept in logs.
+
 ### Bundled plugins
 
 A bundled plugin is copied out of the app at startup and stays the app-owned

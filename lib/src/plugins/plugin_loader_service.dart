@@ -20,6 +20,7 @@ import 'package:reaprime/src/services/account/decent_account_service.dart'
     show CredentialStore;
 import 'package:reaprime/src/services/account/decent_proxy_service.dart';
 import 'package:reaprime/src/util/safe_path.dart';
+import 'package:reaprime/src/util/user_facing_exception.dart';
 
 class PluginSettingsValidationException implements Exception {
   final String message;
@@ -29,7 +30,8 @@ class PluginSettingsValidationException implements Exception {
   String toString() => message;
 }
 
-class PluginDowngradeException implements Exception {
+class PluginDowngradeException implements UserFacingException {
+  @override
   final String message;
   PluginDowngradeException(this.message);
 

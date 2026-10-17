@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -103,6 +104,38 @@ void main() {
     expect(response.statusCode, 401);
     expect(upstream, isNull);
   });
+
+  test(
+    'an unreachable account service returns friendly text for reads and writes',
+    () async {
+      await linkAccount();
+      final proxy = DecentProxyService(
+        requireConsent: (_) async => true,
+        httpClient: http_testing.MockClient(
+          (_) async => throw const SocketException('private host lookup'),
+        ),
+        credentialStore: store,
+      );
+      final app = Router().plus;
+      AccountProxyHandler(proxy: proxy, enableWrites: true).addRoutes(app);
+      handler = const Pipeline()
+          .addMiddleware(proxyAuthMiddleware(tokens))
+          .addHandler(app.call);
+      registerWriteToken();
+      for (final method in ['GET', 'POST', 'PUT']) {
+        final response = await send(
+          method,
+          '/api/v1/account/proxy/support/api/sn',
+          token: method == 'GET' ? 'skin-token' : 'write-token',
+        );
+        expect(response.statusCode, 500);
+        expect(
+          jsonDecode(await response.readAsString())['error'],
+          "Couldn't reach your Decent account. Check your internet connection and try again.",
+        );
+      }
+    },
+  );
 
   test('authenticated but unlinked returns 401', () async {
     final response = await get(
