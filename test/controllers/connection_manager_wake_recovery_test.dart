@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter/widgets.dart' hide ConnectionState;
 import 'package:flutter_test/flutter_test.dart';
@@ -80,6 +82,7 @@ class _WakeHarness {
     bool watch = false,
     TransportType? transport,
     bool withDisplayManager = false,
+    ScalePowerMode powerMode = ScalePowerMode.disconnect,
   }) {
     scanner.supportsWatch = watch;
     if (transport != null) {
@@ -98,7 +101,7 @@ class _WakeHarness {
     remembered.initialize();
     time.flushMicrotasks();
     settings.setPreferredScaleId(preferred);
-    settings.setScalePowerMode(ScalePowerMode.disconnect);
+    settings.setScalePowerMode(powerMode);
     time.flushMicrotasks();
     manager.snapshotStalenessTimeout = const Duration(minutes: 10);
     if (withDisplayManager) {
@@ -193,6 +196,115 @@ void main() {
       });
     },
   );
+
+  test(
+    'queued wake recovery drops after the in-flight scan connects a scale',
+    () {
+      run((h) {
+        h.start();
+        h.wake();
+        h.elapse(const Duration(seconds: 1));
+        h.scanner.scanCompleter = Completer<void>();
+        var scanCompleted = false;
+        h.manager.connect(scaleOnly: true).then((_) => scanCompleted = true);
+        h.elapse(Duration.zero);
+        expect(h.scanner.scanCallCount, 1);
+        h.elapse(const Duration(seconds: 2));
+        expect(h.manager.connectionWorkActive, isTrue);
+        expect(scanCompleted, isFalse);
+        final queuedWake = h.manager.debugQueuedScaleOnlyConnection;
+        expect(queuedWake, isNotNull);
+        var queuedCompleted = false;
+        queuedWake!.then((_) => queuedCompleted = true);
+        h.scanner.addDevice(h.scale('in-flight-scale'));
+        h.scanner.completeScan();
+        h.elapse(Duration.zero);
+        expect(h.scales.currentConnectionState, ConnectionState.connected);
+        expect(h.scanner.scanCallCount, 1);
+        expect(scanCompleted, isTrue);
+        expect(queuedCompleted, isTrue);
+        expect(h.manager.connectionWorkActive, isFalse);
+      });
+    },
+  );
+
+  for (final normalRequestFirst in [false, true]) {
+    test(
+      'ordinary scale-only queue survives wake coalescing ($normalRequestFirst)',
+      () {
+        run((h) {
+          h.start();
+          h.wake();
+          h.scanner.scanCompleter = Completer<void>();
+          h.manager.connect(scaleOnly: true);
+          h.elapse(Duration.zero);
+          var queuedCompleted = false;
+          void queueNormalRequest() {
+            h.manager
+                .connect(scaleOnly: true)
+                .then((_) => queuedCompleted = true);
+            h.time.flushMicrotasks();
+          }
+
+          if (normalRequestFirst) queueNormalRequest();
+          h.elapse(const Duration(seconds: 3));
+          if (!normalRequestFirst) queueNormalRequest();
+          expect(queuedCompleted, isFalse);
+          h.scanner.addDevice(h.scale('in-flight-scale'));
+          h.scanner.completeScan();
+          h.elapse(Duration.zero);
+          expect(h.scales.currentConnectionState, ConnectionState.connected);
+          expect(h.scanner.scanCallCount, 2);
+          expect(queuedCompleted, isTrue);
+          expect(h.manager.connectionWorkActive, isFalse);
+        });
+      },
+    );
+  }
+
+  test(
+    'wake reschedules a pending fallback without consuming a backoff tier',
+    () {
+      run((h) {
+        h.start(preferred: 'preferred', powerMode: ScalePowerMode.displayOff);
+        expect(h.manager.scaleReconnectScheduled, isTrue);
+        expect(h.manager.scaleReconnectFailures, 1);
+        h.elapse(const Duration(seconds: 1));
+        h.wake();
+        expect(h.manager.scaleReconnectFailures, 1);
+        h.elapse(const Duration(seconds: 3));
+        expect(h.scanner.scanCallCount, 1);
+        expect(h.manager.scaleReconnectFailures, 2);
+        h.elapse(const Duration(milliseconds: 9999));
+        expect(h.scanner.scanCallCount, 1);
+        h.elapse(const Duration(milliseconds: 1));
+        expect(h.scanner.scanCallCount, 2);
+        expect(h.manager.scaleReconnectFailures, 3);
+        h.elapse(const Duration(milliseconds: 19999));
+        expect(h.scanner.scanCallCount, 2);
+        h.elapse(const Duration(milliseconds: 1));
+        expect(h.scanner.scanCallCount, 3);
+        expect(h.manager.scaleReconnectFailures, 4);
+      });
+    },
+  );
+
+  test('wake drops a pending fallback when the preferred watch is healthy', () {
+    run((h) {
+      h.scanner.failNextWatchWith = StateError('watch initially unavailable');
+      h.start(
+        preferred: 'preferred',
+        watch: true,
+        powerMode: ScalePowerMode.displayOff,
+      );
+      expect(h.manager.scaleReconnectScheduled, isTrue);
+      h.wake();
+      expect(h.scanner.watchActive, isTrue);
+      h.elapse(const Duration(seconds: 9));
+      expect(h.scanner.scanCallCount, 0);
+      expect(h.scanner.watchActive, isTrue);
+    });
+  });
 
   test('wake recovery 3: preferred BLE watch never competes with a burst', () {
     run((h) {
