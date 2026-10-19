@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pub_semver/pub_semver.dart';
+import 'package:uuid/uuid.dart';
 import 'package:reaprime/src/services/apk_installer.dart';
 import 'package:reaprime/src/services/github_rate_limit.dart';
 
@@ -214,7 +215,7 @@ class AndroidUpdater {
       final total = response.contentLength;
       final dir = cacheDir ?? await getTemporaryDirectory();
       final apkPath = '${dir.path}/update_${updateInfo.version}.apk';
-      final partialFile = File('$apkPath.part');
+      final partialFile = File('$apkPath.${const Uuid().v4()}.part');
 
       try {
         final output = await partialFile.open(mode: FileMode.write);

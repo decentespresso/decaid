@@ -458,7 +458,7 @@ void main() {
 
         Stream<List<int>> responseChunks() async* {
           yield chunks.first;
-          final partial = File('${tmp.path}/update_1.2.3.apk.part');
+          final partial = tmp.listSync().whereType<File>().single;
           expect(await partial.readAsBytes(), chunks.first);
           expect(File('${tmp.path}/update_1.2.3.apk').existsSync(), isFalse);
           yield chunks[1];
@@ -501,6 +501,83 @@ void main() {
       },
     );
 
+    test('isolates overlapping downloads of the same version', () async {
+      final firstWritten = [Completer<void>(), Completer<void>()];
+      final resume = [Completer<void>(), Completer<void>()];
+      final payloads = [
+        [1, 2, 3, 4, 5, 6],
+        [7, 8, 9, 10, 11, 12],
+      ];
+      final finalPath = '${tmp.path}/update_1.2.3.apk';
+      var requests = 0;
+
+      Stream<List<int>> responseChunks(int index) async* {
+        yield payloads[index].sublist(0, 3);
+        await resume[index].future;
+        yield payloads[index].sublist(3);
+        if (index == 1) {
+          expect(await File(finalPath).readAsBytes(), payloads.first);
+        }
+      }
+
+      final updater = AndroidUpdater(
+        owner: 'tadelv',
+        repo: 'reaprime',
+        httpClient: MockClient.streaming((request, body) async {
+          return http.StreamedResponse(
+            responseChunks(requests++),
+            200,
+            contentLength: 6,
+          );
+        }),
+      );
+      addTearDown(updater.dispose);
+      final downloads = List.generate(2, (index) {
+        return updater.downloadUpdate(
+          info(),
+          cacheDir: tmp,
+          onProgress: (progress) {
+            if (progress == 0.5) firstWritten[index].complete();
+          },
+        );
+      });
+      final allDownloads = Future.wait(downloads);
+
+      try {
+        await Future.wait(firstWritten.map((written) => written.future));
+        final partials = tmp.listSync().whereType<File>().toList();
+        expect(partials, hasLength(2));
+        expect(partials.map((file) => file.path).toSet(), hasLength(2));
+        expect(partials.every((file) => file.path.endsWith('.part')), isTrue);
+        expect(
+          partials.map((file) => file.readAsBytesSync()),
+          unorderedEquals(payloads.map((payload) => payload.sublist(0, 3))),
+        );
+        expect(File(finalPath).existsSync(), isFalse);
+
+        resume.first.complete();
+        expect(await downloads.first, finalPath);
+        expect(await File(finalPath).readAsBytes(), payloads.first);
+        expect(
+          tmp.listSync().where((entry) => entry.path.endsWith('.part')),
+          hasLength(1),
+        );
+
+        resume.last.complete();
+        expect(await downloads.last, finalPath);
+        expect(await File(finalPath).readAsBytes(), payloads.last);
+        expect(await allDownloads, [finalPath, finalPath]);
+        expect(tmp.listSync().map((entry) => entry.path), [finalPath]);
+      } finally {
+        for (final release in resume) {
+          if (!release.isCompleted) release.complete();
+        }
+        try {
+          await allDownloads;
+        } catch (_) {}
+      }
+    });
+
     test('streams a real HTTP response to the final APK', () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       final firstWritten = Completer<void>();
@@ -537,10 +614,11 @@ void main() {
         onProgress: (value) {
           progress.add(value);
           if (value >= 0.5 && !firstWritten.isCompleted) {
-            expect(
-              File('${tmp.path}/update_1.2.3.apk.part').readAsBytesSync(),
-              [1, 2, 3],
-            );
+            expect(tmp.listSync().whereType<File>().single.readAsBytesSync(), [
+              1,
+              2,
+              3,
+            ]);
             firstWritten.complete();
           }
         },
@@ -559,7 +637,7 @@ void main() {
       final failure = const HttpException('connection cancelled');
       Stream<List<int>> responseChunks() async* {
         yield [1, 2, 3];
-        expect(await File('${tmp.path}/update_1.2.3.apk.part').readAsBytes(), [
+        expect(await tmp.listSync().whereType<File>().single.readAsBytes(), [
           1,
           2,
           3,
