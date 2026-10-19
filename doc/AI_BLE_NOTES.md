@@ -64,7 +64,16 @@ During the scan, preferred machines and scales are connected as they appear
 (`connectPreferredDuringScan: true`). The scan stops early once all
 preferences are satisfied (`stopScanAfterPreferredConnect: true`).
 Preferred-scale watch and deferred scale scan handle the wake-after-connect
-race.
+race. `ConnectionManager` also owns sleeping-to-awake recovery through its
+machine snapshot listener and the same three-second deferred scale scan timer.
+The callback revalidates the current primary slot, machine connection and power
+mode before recovery, so a scale connecting during settling cannot trigger a
+stale burst. A supported preferred BLE watch re-arms on wake without a competing
+burst; a failed watch retains the existing reconnect backoff. No preference,
+serial/WiFi preference and unsupported watch platforms use settled scale-only
+discovery. `De1StateManager` retains physical sleep/wake operations and expectation
+marks, not recovery timing or transport policy. Bengle integrated-scale ownership
+is unchanged.
 
 ### explicit `scanAndConnect()`
 

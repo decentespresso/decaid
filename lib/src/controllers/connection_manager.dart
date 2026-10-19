@@ -908,7 +908,7 @@ class ConnectionManager {
       if (settingsController.preferredScaleId != null) {
         _ensureScaleReacquisition();
       } else {
-        _armPostQuickConnectScaleScan();
+        _armDeferredScaleScan();
       }
     }
     _publishStatus(currentStatus.copyWith(phase: ConnectionPhase.ready));
@@ -1599,7 +1599,7 @@ class ConnectionManager {
           if (settingsController.preferredScaleId != null) {
             _ensureScaleReacquisition();
           } else {
-            _armPostQuickConnectScaleScan();
+            _armDeferredScaleScan();
           }
         }
         _publishStatus(currentStatus.copyWith(phase: ConnectionPhase.ready));
@@ -1834,12 +1834,13 @@ class ConnectionManager {
     }
   }
 
-  void _armPostQuickConnectScaleScan() {
+  void _armDeferredScaleScan() {
     if (_shuttingDown) return;
-    if (_scaleConnected) return;
+    if (_scaleConnected || !_machineConnected) return;
     if (_scaleReconnectBlockedByPowerMode) return;
+    if (_disconnectSupervisor.latestMachine is BengleInterface) return;
     _log.fine(
-      'Quick-connected machine without a scale; '
+      'Machine without a scale; '
       'arming deferred scale scan in ${deferredScaleScanDelay.inSeconds}s',
     );
     _deferredScaleScan?.cancel();
@@ -1847,26 +1848,18 @@ class ConnectionManager {
       _deferredScaleScan = null;
       if (_scaleConnected) return;
       if (!_machineConnected || _scaleReconnectBlockedByPowerMode) return;
+      if (supportsBackgroundScaleWatch &&
+          settingsController.preferredScaleId != null) {
+        if (_preferredScaleReconnect == null) _ensureScaleReacquisition();
+        return;
+      }
       connect(scaleOnly: true);
     });
   }
 
   void _maybeArmDeferredScaleScan() {
-    if (_shuttingDown) return;
     if (!_earlyStopFired) return;
-    if (!_machineConnected || _scaleConnected) return;
-    if (_scaleReconnectBlockedByPowerMode) return;
-    _log.fine(
-      'Machine connected without a scale after an early stop; '
-      'arming deferred scale rescan in ${deferredScaleScanDelay.inSeconds}s',
-    );
-    _deferredScaleScan?.cancel();
-    _deferredScaleScan = Timer(deferredScaleScanDelay, () {
-      _deferredScaleScan = null;
-      if (_scaleConnected) return;
-      if (!_machineConnected || _scaleReconnectBlockedByPowerMode) return;
-      connect(scaleOnly: true);
-    });
+    _armDeferredScaleScan();
   }
 
   void _ensureScaleReacquisition() {
@@ -2052,6 +2045,10 @@ class ConnectionManager {
           );
           _pauseScaleReconnectForPowerMode();
         } else {
+          if (waking) {
+            _cancelPreferredScaleReconnect(resetFailures: false);
+            _armDeferredScaleScan();
+          }
           _ensureScaleReacquisition();
           if (waking &&
               _shouldRetryPreferredScale() &&
