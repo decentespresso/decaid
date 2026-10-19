@@ -18,10 +18,22 @@ import 'helpers/mock_scale_controller.dart';
 import 'helpers/mock_settings_service.dart';
 import 'helpers/test_scale.dart';
 
+class _TrackingDeviceController extends DeviceController {
+  int stopScanCalls = 0;
+
+  _TrackingDeviceController(super.services);
+
+  @override
+  void stopScan() {
+    stopScanCalls++;
+    super.stopScan();
+  }
+}
+
 void main() {
   late MockConnectionManager mockCm;
   late MockDeviceScanner mockScanner;
-  late DeviceController deviceController;
+  late _TrackingDeviceController deviceController;
   late SettingsController settingsController;
   late ScanStateGuardian scanStateGuardian;
   late MockBleDiscoveryService discovery;
@@ -41,7 +53,7 @@ void main() {
     );
 
     discovery = MockBleDiscoveryService();
-    deviceController = DeviceController([discovery]);
+    deviceController = _TrackingDeviceController([discovery]);
     await deviceController.initialize();
     settingsController = settings;
     scanStateGuardian = ScanStateGuardian(bleService: discovery);
@@ -50,6 +62,7 @@ void main() {
   Widget buildView({
     VoidCallback? initialConnectionIntent,
     VoidCallback? onExit,
+    VoidCallback? onConnected,
     String exitLabel = 'Dashboard',
   }) {
     return ShadApp(
@@ -59,12 +72,113 @@ void main() {
         settingsController: settingsController,
         scanStateGuardian: scanStateGuardian,
         initialConnectionIntent: initialConnectionIntent,
-        onConnected: () {},
+        onConnected: onConnected ?? () {},
         onExit: onExit ?? () {},
         exitLabel: exitLabel,
       ),
     );
   }
+
+  group('scan exit ownership', () {
+    testWidgets(
+      'immediate exit cancels before navigation and ignores late work',
+      (tester) async {
+        var exits = 0;
+        var connections = 0;
+        await tester.pumpWidget(
+          buildView(
+            onConnected: () => connections++,
+            onExit: () {
+              expect(mockCm.cancelActiveScanCallCount, 1);
+              expect(deviceController.stopScanCalls, 1);
+              exits++;
+            },
+          ),
+        );
+        await tester.pump();
+
+        await tester.tap(find.text('Continue to Dashboard'));
+        await tester.pump();
+        expect(exits, 1);
+
+        mockCm.emitStatus(const ConnectionStatus(phase: ConnectionPhase.ready));
+        scanStateGuardian.onAppResumed();
+        discovery.addDevice(FakeDe1());
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 5)),
+        );
+        await tester.pump();
+        expect(deviceController.devices, hasLength(1));
+        expect(find.textContaining('Found 1 device'), findsNothing);
+        await tester.pump(ScanFlowView.scanTooLongThreshold);
+        await tester.pump(const Duration(milliseconds: 500));
+
+        expect(connections, 0);
+        expect(mockCm.scanAndConnectCallCount, 0);
+        expect(
+          tester.widget<AnimatedOpacity>(find.byType(AnimatedOpacity)).opacity,
+          0,
+        );
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.text('Continue to Dashboard'));
+        expect(exits, 1);
+      },
+    );
+
+    testWidgets('picker exit ignores late ready while still mounted', (
+      tester,
+    ) async {
+      var connections = 0;
+      mockCm.emitStatus(
+        const ConnectionStatus(
+          phase: ConnectionPhase.idle,
+          pendingAmbiguity: AmbiguityReason.machinePicker,
+        ),
+      );
+      await tester.pumpWidget(buildView(onConnected: () => connections++));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Dashboard'));
+      mockCm.emitStatus(const ConnectionStatus(phase: ConnectionPhase.ready));
+      await tester.pump();
+      expect(connections, 0);
+      expect(mockCm.cancelActiveScanCallCount, 1);
+      expect(deviceController.stopScanCalls, 1);
+    });
+
+    testWidgets('disposal cancels unfinished scan and ignores late ready', (
+      tester,
+    ) async {
+      var connections = 0;
+      await tester.pumpWidget(buildView(onConnected: () => connections++));
+      await tester.pump();
+      await tester.pumpWidget(const SizedBox());
+      mockCm.emitStatus(const ConnectionStatus(phase: ConnectionPhase.ready));
+      scanStateGuardian.onAppResumed();
+      await tester.pump();
+      expect(mockCm.cancelActiveScanCallCount, 1);
+      expect(deviceController.stopScanCalls, 1);
+      expect(connections, 0);
+      expect(mockCm.scanAndConnectCallCount, 0);
+    });
+
+    testWidgets('successful ready advances once without cancellation', (
+      tester,
+    ) async {
+      var connections = 0;
+      await tester.pumpWidget(buildView(onConnected: () => connections++));
+      await tester.pump();
+      mockCm.emitStatus(const ConnectionStatus(phase: ConnectionPhase.ready));
+      await tester.pump();
+      mockCm.emitStatus(const ConnectionStatus(phase: ConnectionPhase.ready));
+      scanStateGuardian.onAppResumed();
+      await tester.pump();
+      expect(connections, 1);
+      expect(mockCm.scanAndConnectCallCount, 0);
+      await tester.pumpWidget(const SizedBox());
+      expect(mockCm.cancelActiveScanCallCount, 0);
+      expect(deviceController.stopScanCalls, 0);
+    });
+  });
 
   group('initial connection intent', () {
     testWidgets('uses scanAndConnect when intent is provided', (tester) async {

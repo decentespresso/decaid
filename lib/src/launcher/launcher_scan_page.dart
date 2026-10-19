@@ -21,31 +21,17 @@ class LauncherScanPage extends StatelessWidget {
   final SettingsController settingsController;
   final ScanStateGuardian scanStateGuardian;
 
-  void _cancelAndExit(BuildContext context) {
-    connectionManager.cancelActiveScan();
-    deviceController.stopScan();
-    Navigator.of(context).pop();
-  }
-
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        if (!didPop) {
-          _cancelAndExit(context);
-        }
-      },
-      child: ScanFlowView(
-        connectionManager: connectionManager,
-        deviceController: deviceController,
-        settingsController: settingsController,
-        scanStateGuardian: scanStateGuardian,
-        initialConnectionIntent: () => connectionManager.scanAndConnect(),
-        onConnected: () => Navigator.of(context).pop(),
-        onExit: () => _cancelAndExit(context),
-        exitLabel: 'Cancel',
-      ),
+    return ScanFlowView(
+      connectionManager: connectionManager,
+      deviceController: deviceController,
+      settingsController: settingsController,
+      scanStateGuardian: scanStateGuardian,
+      initialConnectionIntent: () => connectionManager.scanAndConnect(),
+      onConnected: () => Navigator.of(context).pop(),
+      onExit: () => Navigator.of(context).pop(),
+      exitLabel: 'Cancel',
     );
   }
 }

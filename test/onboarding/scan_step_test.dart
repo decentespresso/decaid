@@ -99,6 +99,25 @@ void main() {
     );
   }
 
+  testWidgets(
+    'immediate dashboard exit ignores ready after onboarding disposal',
+    (tester) async {
+      await tester.pumpWidget(buildSubject());
+      await tester.pump();
+      await tester.tap(find.text('Continue to Dashboard'));
+      expect(mockConnectionManager.cancelActiveScanCallCount, 1);
+      expect(onboardingController.advanceCallCount, 1);
+      onboardingController.dispose();
+      mockConnectionManager.emitStatus(
+        const ConnectionStatus(phase: ConnectionPhase.ready),
+      );
+      scanStateGuardian.onAppResumed();
+      await tester.pump();
+      expect(onboardingController.advanceCallCount, 1);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   group('scanning phase', () {
     testWidgets('shows progress indicator during scanning', (tester) async {
       await tester.pumpWidget(buildSubject());
@@ -151,7 +170,10 @@ void main() {
       expect(find.text('Re-start scan'), findsOneWidget);
       expect(find.text('Troubleshoot'), findsOneWidget);
       expect(find.text('Export logs'), findsOneWidget);
-      expect(find.text('Continue to Dashboard'), findsOneWidget);
+      expect(
+        find.widgetWithText(ListTile, 'Continue to Dashboard'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('Re-start scan uses the scan-first connection path', (
@@ -185,7 +207,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
 
       final before = onboardingController.advanceCallCount;
-      await tester.tap(find.text('Continue to Dashboard'));
+      await tester.tap(find.widgetWithText(ListTile, 'Continue to Dashboard'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
 

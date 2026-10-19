@@ -998,6 +998,22 @@ never retain the disconnected instance beside its connected replacement.
 
 If multiple machines or scales are found without a preferred device set, ConnectionManager emits `pendingAmbiguity: machinePicker` or `scalePicker`, and the UI shows a picker dialog.
 
+### Leaving Initial Discovery
+
+The onboarding scan offers **Continue to Dashboard** immediately while scanning
+or connecting. The 16-second **This is taking a while...** troubleshooting sheet
+remains available when the user keeps waiting.
+
+`ScanFlowView` owns exit cancellation for both onboarding and `LauncherScanPage`.
+Dashboard/Cancel actions and system back finish the flow before calling
+`ConnectionManager.cancelActiveScan()` and `DeviceController.stopScan()`, then
+invoke the caller's navigation callback. Disposal of an unfinished scan also
+cancels it. Late status, discovery, guardian events and the threshold timer
+cannot restart the flow or invoke `onConnected` after exit. Successful `ready`
+auto-navigation does not cancel connected devices or their follow-up work.
+`OnboardingController` also ignores advancement and pending initialization after
+disposal so closed subjects cannot receive late completions.
+
 ### Explicit Retry from Native Device UI
 
 The legacy `home_feature` StatusTile reconnect affordance is retired. Native
