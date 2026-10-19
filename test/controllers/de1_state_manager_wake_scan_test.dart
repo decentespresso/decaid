@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/widgets.dart' hide ConnectionState;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
@@ -30,6 +31,7 @@ import '../helpers/mock_device_discovery_service.dart';
 import '../helpers/mock_device_scanner.dart';
 import '../helpers/mock_settings_service.dart';
 import '../helpers/test_de1.dart';
+import '../helpers/test_scale.dart';
 
 class _SpyConnectionManager extends ConnectionManager {
   _SpyConnectionManager({
@@ -41,11 +43,33 @@ class _SpyConnectionManager extends ConnectionManager {
   });
 
   int scaleSleepMarks = 0;
+  final connectCalls = <bool>[];
+
+  @override
+  Future<void> connect({bool scaleOnly = false}) {
+    connectCalls.add(scaleOnly);
+    return super.connect(scaleOnly: scaleOnly);
+  }
 
   @override
   void markScaleSleeping(String deviceId) {
     scaleSleepMarks++;
     super.markScaleSleeping(deviceId);
+  }
+}
+
+class _DisplayScale extends TestScale {
+  int sleepDisplayCalls = 0;
+  int wakeDisplayCalls = 0;
+
+  @override
+  Future<void> sleepDisplay() async {
+    sleepDisplayCalls++;
+  }
+
+  @override
+  Future<void> wakeDisplay() async {
+    wakeDisplayCalls++;
   }
 }
 
@@ -211,6 +235,18 @@ void main() {
     }
   }
 
+  De1StateManager createStateManager() => De1StateManager(
+    de1Controller: de1Controller,
+    scaleController: scaleController,
+    workflowController: WorkflowController(),
+    persistenceController: PersistenceController(
+      storageService: _NoopStorageService(),
+    ),
+    settingsController: settingsController,
+    connectionManager: connectionManager,
+    navigatorKey: GlobalKey<NavigatorState>(),
+  );
+
   setUp(() async {
     testDe1 = TestDe1();
     final deviceController = DeviceController([MockDeviceDiscoveryService()]);
@@ -238,17 +274,7 @@ void main() {
       rememberedDevices: rememberedDevices,
     );
 
-    manager = De1StateManager(
-      de1Controller: de1Controller,
-      scaleController: scaleController,
-      workflowController: WorkflowController(),
-      persistenceController: PersistenceController(
-        storageService: _NoopStorageService(),
-      ),
-      settingsController: settingsController,
-      connectionManager: connectionManager,
-      navigatorKey: GlobalKey<NavigatorState>(),
-    );
+    manager = createStateManager();
   });
 
   tearDown(() async {
@@ -259,6 +285,81 @@ void main() {
     await testDe1.dispose();
     mockScanner.dispose();
   });
+
+  for (final connectedOnWake in [true, false]) {
+    test(
+      connectedOnWake
+          ? 'wake only wakes the connected displayOff scale once'
+          : 'wake with a disconnected scale does not wake or recover it',
+      () async {
+        manager.dispose();
+        await connectionManager.dispose();
+        final time = FakeAsync();
+        Future<void> settle() async {
+          for (var i = 0; i < 6; i++) {
+            time.flushMicrotasks();
+            await pump();
+          }
+        }
+
+        final scale = _DisplayScale();
+        addTearDown(scale.dispose);
+        time.run((_) {
+          de1Controller = _TestDe1Controller(controller: DeviceController([]));
+          scaleController = ScaleController();
+          connectionManager = _SpyConnectionManager(
+            deviceScanner: mockScanner,
+            de1Controller: _TestDe1Controller(controller: DeviceController([])),
+            scaleController: scaleController,
+            settingsController: settingsController,
+          );
+          manager = createStateManager();
+          settingsController.setScalePowerMode(ScalePowerMode.displayOff);
+          scaleController.connectToScale(scale);
+          de1Controller.connect(testDe1);
+        });
+        try {
+          await settle();
+          testDe1.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
+          await settle();
+          testDe1.emitStateAndSubstate(
+            MachineState.sleeping,
+            MachineSubstate.idle,
+          );
+          await settle();
+          expect(scale.sleepDisplayCalls, 1);
+          expect(scale.wakeDisplayCalls, 0);
+
+          if (!connectedOnWake) {
+            scale.setConnectionState(ConnectionState.disconnected);
+            await settle();
+          }
+          expect(
+            scaleController.currentConnectionState,
+            connectedOnWake
+                ? ConnectionState.connected
+                : ConnectionState.disconnected,
+          );
+          testDe1.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
+          await settle();
+          expect(scale.wakeDisplayCalls, connectedOnWake ? 1 : 0);
+          testDe1.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
+          time.elapse(const Duration(seconds: 9));
+          await settle();
+
+          expect(scale.wakeDisplayCalls, connectedOnWake ? 1 : 0);
+          expect(mockScanner.scanCallCount, 0);
+          expect(mockScanner.startWatchCallCount, 0);
+          expect(connectionManager.connectCalls, isEmpty);
+        } finally {
+          manager.dispose();
+          final disposal = connectionManager.dispose();
+          await settle();
+          await disposal;
+        }
+      },
+    );
+  }
 
   test('plugin display-off disconnect marks the scale sleeping', () async {
     mockScanner.supportsWatch = true;
