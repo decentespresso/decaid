@@ -4,7 +4,8 @@ Read this when debugging BLE errors, diagnosing platform-specific crashes, inves
 
 ## Source Of Truth
 
-- Error filter: `lib/src/services/crashlytics_error_filter.dart`.
+- Framework error filter: `lib/src/services/telemetry/crashlytics_error_filter.dart`.
+- Log forwarding filter: `lib/src/services/telemetry/telemetry_forwarder_filter.dart`.
 - Logging: `package:logging`, configured in `main.dart`.
 
 ## General Debugging Principles
@@ -15,6 +16,22 @@ Read this when debugging BLE errors, diagnosing platform-specific crashes, inves
 - **Simulate mode:** Reproduce without hardware using `--dart-define=simulate=1`. Mock devices are deterministic — use them to isolate whether an issue is transport or logic.
 - **`simulate=0` (debug-on-real):** `--dart-define=simulate=0` enables debug routes and disables Firebase/telemetry while keeping real BLE/USB hardware. Use for temporary tuning builds where `/api/v1/debug/*` must be reachable against real devices. Must not be shipped to users.
 - **Stream debugging:** Enable `Logger('ShotState')` for structured shot decisions. `Logger('Ble')` for BLE operations.
+
+## Recoverable diagnostics versus exception reports
+
+`shouldForwardToTelemetry` excludes exception-free `StatusPublisher` records:
+`emitError` logs connection-state transitions, not thrown failures. These retain
+their severity and still reach the scrubbed log buffer before the telemetry
+filter runs. Inspect those diagnostics when investigating connection loops;
+the absence of a Crashlytics issue does not mean the state was not logged.
+
+Handled `FormatException`s from `DataManagement` (including invalid legacy shot
+imports) also stay in logs rather than becoming exception reports. This is a
+logger-and-type rule, not a global parse-error exclusion. Unexpected exceptions
+from these loggers, and format errors from other subsystems, remain eligible
+under the existing forwarding rules. Keep the original exception and stack when
+logging a real failure so attribution stays at its source rather than the queue.
+Revisit these rules if either logger gains new responsibilities.
 
 ## Common Error Patterns
 

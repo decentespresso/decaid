@@ -18,6 +18,14 @@ const _httpFetcherLoggers = <String>{_webUiStorageLoggerName, 'AndroidUpdater'};
 bool shouldForwardToTelemetry(LogRecord record) {
   if (record.level < Level.SEVERE) return false;
 
+  if (record.loggerName == 'StatusPublisher' && record.error == null) {
+    return false;
+  }
+  if (record.loggerName == 'DataManagement' &&
+      record.error is FormatException) {
+    return false;
+  }
+
   if (record.error is DeviceNotConnectedException) return false;
   if (record.error is MmrTimeoutException) return false;
   if (record.error case final error? when isBenignFrameworkError(error)) {

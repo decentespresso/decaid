@@ -266,6 +266,33 @@ void main() {
       });
     });
 
+    group('handled input failures', () {
+      test(
+        'DataManagement FormatException is dropped without message matching',
+        () {
+          final record = _record(
+            Level.SEVERE,
+            'DataManagement',
+            'any handled input diagnostic',
+            const FormatException('invalid export shape'),
+          );
+          expect(shouldForwardToTelemetry(record), isFalse);
+        },
+      );
+
+      for (final logger in ['BleTransport', 'ShotsHandler', 'SomeParser']) {
+        test('FormatException from $logger is kept', () {
+          final record = _record(
+            Level.SEVERE,
+            logger,
+            'Legacy shot import failed',
+            const FormatException('unexpected internal data'),
+          );
+          expect(shouldForwardToTelemetry(record), isTrue);
+        });
+      }
+    });
+
     group('keeps genuinely-unexpected exceptions', () {
       test('StateError from any logger is kept', () {
         final record = _record(
