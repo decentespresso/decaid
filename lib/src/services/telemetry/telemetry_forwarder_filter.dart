@@ -5,6 +5,7 @@ import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/services/telemetry/crashlytics_error_filter.dart';
 import 'package:reaprime/src/util/remote_error.dart';
+import 'package:reaprime/src/util/user_facing_exception.dart';
 
 const _webUiStorageLoggerName = 'WebUIStorage';
 const _skinAlreadyExistsPrefix = 'Skin already exists';
@@ -22,7 +23,7 @@ bool shouldForwardToTelemetry(LogRecord record) {
     return false;
   }
   if (record.loggerName == 'DataManagement' &&
-      record.error is FormatException) {
+      record.error is UserFacingFormatException) {
     return false;
   }
 

@@ -25,13 +25,16 @@ their severity and still reach the scrubbed log buffer before the telemetry
 filter runs. Inspect those diagnostics when investigating connection loops;
 the absence of a Crashlytics issue does not mean the state was not logged.
 
-Handled `FormatException`s from `DataManagement` (including invalid legacy shot
-imports) also stay in logs rather than becoming exception reports. This is a
-logger-and-type rule, not a global parse-error exclusion. Unexpected exceptions
-from these loggers, and format errors from other subsystems, remain eligible
-under the existing forwarding rules. Keep the original exception and stack when
-logging a real failure so attribution stays at its source rather than the queue.
-Revisit these rules if either logger gains new responsibilities.
+Only `UserFacingFormatException`s from `DataManagement` are excluded as handled
+input failures. `ShotImporter.importJson` decodes legacy-shot files and dispatches
+objects/arrays; decoding, export-shape validation and shot-construction format
+failures use this existing user-facing type. Storage and application callbacks
+run outside that conversion boundary, including after partial batch imports.
+Plain `FormatException`s from `DataManagement` (also used for backups, exports and
+De1App operations), unexpected exceptions, and format errors from other loggers
+remain eligible. Keep the original exception and stack when logging a real
+failure so attribution stays at its source rather than the queue. Revisit these
+rules if either logger gains new responsibilities.
 
 ## Common Error Patterns
 

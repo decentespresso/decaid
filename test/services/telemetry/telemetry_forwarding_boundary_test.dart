@@ -1,14 +1,18 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/controllers/connection/status_publisher.dart';
 import 'package:reaprime/src/controllers/connection_error.dart';
+import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/services/telemetry/anonymization.dart';
 import 'package:reaprime/src/services/telemetry/log_buffer.dart';
 import 'package:reaprime/src/services/telemetry/telemetry_forwarder_filter.dart';
 import 'package:reaprime/src/services/telemetry/telemetry_report_queue.dart';
+import 'package:reaprime/src/util/shot_importer.dart';
+import 'package:reaprime/src/util/user_facing_exception.dart';
+
+import '../../helpers/shot_event_storage.dart';
 
 void main() {
   late Level previousLevel;
@@ -94,8 +98,13 @@ void main() {
   );
 
   test('handled invalid shot JSON stays buffered, not reported', () async {
+    final controller = PersistenceController(
+      storageService: ShotEventStorage(),
+    );
+    addTearDown(controller.dispose);
+    final importer = ShotImporter(controller: controller);
     try {
-      jsonDecode('{invalid shot JSON');
+      await importer.importJson('{invalid shot JSON');
       fail('Invalid input must throw');
     } on FormatException catch (error, stack) {
       Logger(
@@ -104,13 +113,46 @@ void main() {
     }
     await pumpEventQueue();
 
-    expect(records.single.error, isA<FormatException>());
+    expect(records.single.error, isA<UserFacingFormatException>());
     expect(
       logBuffer.getContents(),
       contains('DataManagement: Legacy shot import failed'),
     );
     expect(sentErrors, isEmpty);
   });
+
+  for (final logger in ['DataManagement', 'BLETransport-device']) {
+    test(
+      'unexpected $logger FormatException retains its origin through queue',
+      () async {
+        late FormatException originalError;
+        late StackTrace originalStack;
+        try {
+          _unexpectedFormatFailure();
+        } on FormatException catch (error, stack) {
+          originalError = error;
+          originalStack = stack;
+          Logger(logger).severe('Unexpected parser failure', error, stack);
+        }
+        await pumpEventQueue();
+
+        expect(records.single.error, same(originalError));
+        expect(records.single.stackTrace, same(originalStack));
+        expect(sentErrors, hasLength(1));
+        expect(sentErrors.single, same(originalError));
+        expect(sentErrors.single, isNot(isA<UserFacingFormatException>()));
+        expect(sentStacks.single, same(originalStack));
+        expect(
+          sentStacks.single.toString(),
+          contains('_unexpectedFormatFailure'),
+        );
+        expect(
+          logBuffer.getContents(),
+          contains('$logger: Unexpected parser failure'),
+        );
+      },
+    );
+  }
 
   for (final logger in [
     'BLETransport-device',
@@ -145,3 +187,6 @@ void main() {
 }
 
 Never _unexpectedFailure() => throw StateError('Unexpected subsystem failure');
+
+Never _unexpectedFormatFailure() =>
+    throw const FormatException('Unexpected internal data');

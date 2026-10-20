@@ -579,15 +579,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       final importer = ShotImporter(controller: widget.persistenceController);
       final file = File(filePath);
       final content = await file.readAsString();
-      final decoded = jsonDecode(content);
-
-      int count = 0;
-      if (decoded is List) {
-        count = await importer.importShotsJson(content);
-      } else {
-        await importer.importShotJson(content);
-        count = 1;
-      }
+      final count = await importer.importJson(content);
 
       if (!mounted) return;
       Navigator.of(context).pop();
