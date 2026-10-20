@@ -36,6 +36,8 @@ abstract class SettingsService {
   Future<void> setPreferredScaleId(String? scaleId);
   Future<String?> preferredGrinderDeviceId();
   Future<void> setPreferredGrinderDeviceId(String? deviceId);
+  Future<Map<String, bool>> skalePoweredByUsbByDevice();
+  Future<void> setSkalePoweredByUsbByDevice(Map<String, bool> value);
   Future<String> defaultSkinId();
   Future<void> setDefaultSkinId(String skinId);
   Future<bool> automaticUpdateCheck();
@@ -268,6 +270,24 @@ class SharedPreferencesSettingsService extends SettingsService {
         deviceId,
       );
     }
+  }
+
+  @override
+  Future<Map<String, bool>> skalePoweredByUsbByDevice() async {
+    final ids =
+        await prefs.getStringList(
+          SettingsKeys.skalePoweredByUsbByDevice.name,
+        ) ??
+        [];
+    return {for (final id in ids) id: true};
+  }
+
+  @override
+  Future<void> setSkalePoweredByUsbByDevice(Map<String, bool> value) async {
+    await prefs.setStringList(SettingsKeys.skalePoweredByUsbByDevice.name, [
+      for (final entry in value.entries)
+        if (entry.value) entry.key,
+    ]);
   }
 
   @override
@@ -556,6 +576,7 @@ enum SettingsKeys {
   preferredMachineId,
   preferredScaleId,
   preferredGrinderDeviceId,
+  skalePoweredByUsbByDevice,
   defaultSkinId,
   automaticUpdateCheck,
   updateChannel,
