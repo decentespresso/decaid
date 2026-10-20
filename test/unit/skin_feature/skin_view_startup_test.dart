@@ -89,14 +89,25 @@ class _StaticController extends _Controller {
 
 class _TimerController extends _Controller {
   final calls = <String>[];
+
+  Iterable<String> callsTo(String method) =>
+      calls.where((call) => call == method);
+  Future<void> Function()? onPause;
+  Future<void> Function()? onResume;
   Future<void> Function()? onPauseTimers;
   Future<void> Function()? onResumeTimers;
 
   @override
-  Future<void> pause() async => calls.add('pause');
+  Future<void> pause() async {
+    calls.add('pause');
+    await onPause?.call();
+  }
 
   @override
-  Future<void> resume() async => calls.add('resume');
+  Future<void> resume() async {
+    calls.add('resume');
+    await onResume?.call();
+  }
 
   @override
   Future<void> pauseTimers() async {
@@ -196,6 +207,18 @@ Future<void> _pumpSkin(
 PlatformInAppWebViewWidgetCreationParams _params(WidgetTester tester) =>
     tester.widget<InAppWebView>(find.byType(InAppWebView)).platform.params;
 
+Future<_TimerController> _pumpTimerView(
+  WidgetTester tester, {
+  Set<PlatformInAppWebViewControllerMethod> unsupported = const {},
+}) async {
+  await _pumpSkin(
+    tester,
+    checkCompatibility: () async => const CompatibilityResult.compatible(),
+    unsupported: unsupported,
+  );
+  return _createTimerView(tester);
+}
+
 List<LogRecord> _recordSkinLogs() {
   final records = <LogRecord>[];
   final subscription = Logger('SkinView').onRecord.listen(records.add);
@@ -217,6 +240,38 @@ Future<_TimerController> _createTimerView(WidgetTester tester) async {
   await tester.pump();
   controller.calls.clear();
   return controller;
+}
+
+Object _bridgeError(String failure) => switch (failure) {
+  'unimplemented' => UnimplementedError('bridge unavailable'),
+  'missing plugin' => MissingPluginException('bridge unavailable'),
+  'platform error' => PlatformException(code: 'bridge-failed'),
+  _ => throw ArgumentError.value(failure),
+};
+
+void _expectBridgeError(List<LogRecord> records, String failure) {
+  final errors = records.where((record) => record.error != null);
+  expect(errors, hasLength(1));
+  expect(
+    errors.single.level,
+    failure == 'unimplemented' ? Level.WARNING : Level.SEVERE,
+  );
+  expect(
+    errors.single.message,
+    failure == 'unimplemented' ? 'Unimplemented: ' : 'Unexpected: ',
+  );
+  expect(errors.single.error.runtimeType, _bridgeError(failure).runtimeType);
+}
+
+void _expectBalance(List<LogRecord> records, int count, [String? where]) {
+  expect(
+    records.where(
+      (record) => where == null
+          ? record.message.startsWith('Balanced')
+          : record.message == 'Balanced WebView timer pause in $where',
+    ),
+    hasLength(count),
+  );
 }
 
 void main() {
@@ -471,59 +526,72 @@ void main() {
     TargetPlatform.iOS,
   });
 
+  for (final operation in ['pause', 'resume']) {
+    for (final failure in [
+      'unimplemented',
+      'missing plugin',
+      'platform error',
+    ]) {
+      testWidgets('WebView $operation async $failure is caught', (
+        tester,
+      ) async {
+        final records = _recordSkinLogs();
+        final controller = await _pumpTimerView(tester);
+        final completion = Completer<void>();
+        if (operation == 'pause') {
+          controller.onPause = () => completion.future;
+        } else {
+          controller.onResume = () => completion.future;
+        }
+        _lifecycle(
+          tester,
+          operation == 'pause'
+              ? AppLifecycleState.paused
+              : AppLifecycleState.resumed,
+        );
+        await tester.pump();
+        expect(controller.calls, contains(operation));
+        completion.completeError(_bridgeError(failure));
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+        _expectBridgeError(records, failure);
+        await tester.pumpWidget(const SizedBox.shrink());
+      }, variant: mobile);
+    }
+  }
+
   for (final exit in ['resume', 'dispose']) {
     for (final failure in ['unsupported', 'missing plugin', 'platform error']) {
       testWidgets('timer pause $failure followed by $exit is balanced', (
         tester,
       ) async {
         final records = _recordSkinLogs();
-        await _pumpSkin(
+        final controller = await _pumpTimerView(
           tester,
-          checkCompatibility: () async =>
-              const CompatibilityResult.compatible(),
           unsupported: failure == 'unsupported' ? {.pauseTimers} : {},
         );
-        final controller = await _createTimerView(tester);
         final pause = Completer<void>();
         controller.onPauseTimers = () => pause.future;
         _lifecycle(tester, AppLifecycleState.paused);
         await tester.pump();
         expect(
-          controller.calls.where((call) => call == 'pauseTimers').length,
+          controller.callsTo('pauseTimers').length,
           failure == 'unsupported' ? 0 : 1,
         );
         if (failure != 'unsupported') {
-          pause.completeError(
-            failure == 'missing plugin'
-                ? MissingPluginException('pause unavailable')
-                : PlatformException(code: 'pause-failed'),
-          );
+          pause.completeError(_bridgeError(failure));
           await tester.pump();
           expect(tester.takeException(), isNull);
-          expect(
-            records.where((record) => record.level == Level.SEVERE),
-            contains(
-              isA<LogRecord>().having(
-                (record) => record.error,
-                'bridge error',
-                failure == 'missing plugin'
-                    ? isA<MissingPluginException>()
-                    : isA<PlatformException>(),
-              ),
-            ),
-          );
+          _expectBridgeError(records, failure);
         }
         if (exit == 'resume') {
           _lifecycle(tester, AppLifecycleState.resumed);
           await tester.pump();
         }
         await tester.pumpWidget(const SizedBox.shrink());
+        _expectBalance(records, 0);
         expect(
-          records.where((record) => record.message.startsWith('Balanced')),
-          isEmpty,
-        );
-        expect(
-          controller.calls.where((call) => call == 'resumeTimers').length,
+          controller.callsTo('resumeTimers').length,
           exit == 'resume' ? 1 : 0,
         );
       }, variant: mobile);
@@ -535,11 +603,7 @@ void main() {
       tester,
     ) async {
       final records = _recordSkinLogs();
-      await _pumpSkin(
-        tester,
-        checkCompatibility: () async => const CompatibilityResult.compatible(),
-      );
-      final controller = await _createTimerView(tester);
+      final controller = await _pumpTimerView(tester);
       final pause = Completer<void>();
       controller.onPauseTimers = () => pause.future;
       _lifecycle(tester, AppLifecycleState.paused);
@@ -554,10 +618,7 @@ void main() {
       expect(controller.calls, isNot(contains('resumeTimers')));
       pause.complete();
       await tester.pump();
-      expect(
-        controller.calls.where((call) => call == 'resumeTimers').length,
-        1,
-      );
+      expect(controller.callsTo('resumeTimers').length, 1);
       expect(tester.takeException(), isNull);
       if (exit == 'resume') await tester.pumpWidget(const SizedBox.shrink());
       expect(records.where((record) => record.level == Level.SEVERE), isEmpty);
@@ -571,13 +632,10 @@ void main() {
       ) async {
         final unsupported = <PlatformInAppWebViewControllerMethod>{};
         final records = _recordSkinLogs();
-        await _pumpSkin(
+        final controller = await _pumpTimerView(
           tester,
-          checkCompatibility: () async =>
-              const CompatibilityResult.compatible(),
           unsupported: unsupported,
         );
-        final controller = await _createTimerView(tester);
         _lifecycle(tester, AppLifecycleState.paused);
         await tester.pump();
         if (failure == 'unsupported') {
@@ -585,19 +643,14 @@ void main() {
         } else {
           controller.onResumeTimers = () async {
             await Future<void>.value();
-            if (failure == 'missing plugin') {
-              throw MissingPluginException('resume unavailable');
-            }
-            throw PlatformException(code: 'resume-failed');
+            throw _bridgeError(failure);
           };
         }
         _lifecycle(tester, AppLifecycleState.resumed);
         await tester.pump();
         expect(tester.takeException(), isNull);
-        expect(
-          records.where((record) => record.message.startsWith('Balanced')),
-          isEmpty,
-        );
+        _expectBalance(records, 0);
+        if (failure != 'unsupported') _expectBridgeError(records, failure);
         expect(
           records.where((record) => record.level == Level.SEVERE),
           hasLength(failure == 'unsupported' ? 0 : 1),
@@ -607,31 +660,12 @@ void main() {
           controller.onResumeTimers = null;
         }
         await tester.pumpWidget(const SizedBox.shrink());
-        expect(
-          records.where((record) => record.message.startsWith('Balanced')),
-          hasLength(recovery == 'dispose' ? 1 : 0),
-        );
-        final afterDispose = controller.calls
-            .where((call) => call == 'resumeTimers')
-            .length;
-        await _pumpSkin(
-          tester,
-          checkCompatibility: () async =>
-              const CompatibilityResult.compatible(),
-        );
-        await _createTimerView(tester);
+        _expectBalance(records, recovery == 'dispose' ? 1 : 0);
+        final afterDispose = controller.callsTo('resumeTimers').length;
+        await _pumpTimerView(tester);
         await tester.pumpWidget(const SizedBox.shrink());
-        expect(
-          controller.calls.where((call) => call == 'resumeTimers'),
-          hasLength(afterDispose),
-        );
-        expect(
-          records.where(
-            (record) =>
-                record.message == 'Balanced WebView timer pause in $recovery',
-          ),
-          hasLength(1),
-        );
+        expect(controller.callsTo('resumeTimers'), hasLength(afterDispose));
+        _expectBalance(records, 1, recovery);
       }, variant: mobile);
     }
   }
@@ -639,11 +673,7 @@ void main() {
   testWidgets('a queued pause is discarded after the lifecycle resumes', (
     tester,
   ) async {
-    await _pumpSkin(
-      tester,
-      checkCompatibility: () async => const CompatibilityResult.compatible(),
-    );
-    final controller = await _createTimerView(tester);
+    final controller = await _pumpTimerView(tester);
     final resume = Completer<void>();
     controller.onResumeTimers = () => resume.future;
     _lifecycle(tester, AppLifecycleState.resumed);
@@ -660,11 +690,7 @@ void main() {
     tester,
   ) async {
     final records = _recordSkinLogs();
-    await _pumpSkin(
-      tester,
-      checkCompatibility: () async => const CompatibilityResult.compatible(),
-    );
-    final old = await _createTimerView(tester);
+    final old = await _pumpTimerView(tester);
     final pause = Completer<void>();
     old.onPauseTimers = () => pause.future;
     _lifecycle(tester, AppLifecycleState.paused);
@@ -683,12 +709,7 @@ void main() {
     expect(replacement.calls, contains('pauseTimers'));
     records.clear();
     await tester.pumpWidget(const SizedBox.shrink());
-    expect(
-      records.where(
-        (record) => record.message == 'Balanced WebView timer pause in dispose',
-      ),
-      hasLength(1),
-    );
+    _expectBalance(records, 1, 'dispose');
   }, variant: mobile);
 
   testWidgets('late old view disposal cannot resume a replacement pause', (
@@ -736,26 +757,14 @@ void main() {
     expect(replacement.calls, ['resumeTimers', 'pause', 'pauseTimers']);
     records.clear();
     await tester.pumpWidget(const SizedBox.shrink());
-    expect(
-      replacement.calls.where((call) => call == 'resumeTimers'),
-      hasLength(2),
-    );
-    expect(
-      records.where(
-        (record) => record.message == 'Balanced WebView timer pause in dispose',
-      ),
-      hasLength(1),
-    );
+    expect(replacement.callsTo('resumeTimers'), hasLength(2));
+    _expectBalance(records, 1, 'dispose');
   }, variant: mobile);
 
   testWidgets('renderer recovery balances timers and creates a fresh view', (
     tester,
   ) async {
-    await _pumpSkin(
-      tester,
-      checkCompatibility: () async => const CompatibilityResult.compatible(),
-    );
-    final old = await _createTimerView(tester);
+    final old = await _pumpTimerView(tester);
     _lifecycle(tester, AppLifecycleState.paused);
     await tester.pump();
     _params(tester).onRenderProcessGone!(
@@ -784,11 +793,7 @@ void main() {
   testWidgets('successful background blanks after ten minutes and reloads', (
     tester,
   ) async {
-    await _pumpSkin(
-      tester,
-      checkCompatibility: () async => const CompatibilityResult.compatible(),
-    );
-    final controller = await _createTimerView(tester);
+    final controller = await _pumpTimerView(tester);
     _lifecycle(tester, AppLifecycleState.paused);
     await tester.pump(const Duration(minutes: 9));
     expect(controller.calls, ['pause', 'pauseTimers']);
@@ -812,11 +817,7 @@ void main() {
     final previous = simulatedWebViewDevice.value;
     addTearDown(() => simulatedWebViewDevice.value = previous);
     final records = _recordSkinLogs();
-    await _pumpSkin(
-      tester,
-      checkCompatibility: () async => const CompatibilityResult.compatible(),
-    );
-    final old = await _createTimerView(tester);
+    final old = await _pumpTimerView(tester);
     final resume = Completer<void>();
     old.onResumeTimers = () => resume.future;
     _lifecycle(tester, AppLifecycleState.resumed);
@@ -832,16 +833,8 @@ void main() {
     expect(replacement.calls, contains('pauseTimers'));
     records.clear();
     await tester.pumpWidget(const SizedBox.shrink());
-    expect(
-      replacement.calls.where((call) => call == 'resumeTimers'),
-      hasLength(2),
-    );
-    expect(
-      records.where(
-        (record) => record.message == 'Balanced WebView timer pause in dispose',
-      ),
-      hasLength(1),
-    );
+    expect(replacement.callsTo('resumeTimers'), hasLength(2));
+    _expectBalance(records, 1, 'dispose');
   }, variant: mobile);
 
   testWidgets('stale pause finishes before replacement timer work', (
@@ -849,11 +842,7 @@ void main() {
   ) async {
     final previous = simulatedWebViewDevice.value;
     addTearDown(() => simulatedWebViewDevice.value = previous);
-    await _pumpSkin(
-      tester,
-      checkCompatibility: () async => const CompatibilityResult.compatible(),
-    );
-    final old = await _createTimerView(tester);
+    final old = await _pumpTimerView(tester);
     final pause = Completer<void>();
     old.onPauseTimers = () => pause.future;
     _lifecycle(tester, AppLifecycleState.paused);
@@ -870,10 +859,7 @@ void main() {
     expect(old.calls, isNot(contains('resumeTimers')));
     expect(replacement.calls, contains('pauseTimers'));
     await tester.pumpWidget(const SizedBox.shrink());
-    expect(
-      replacement.calls.where((call) => call == 'resumeTimers'),
-      hasLength(2),
-    );
+    expect(replacement.callsTo('resumeTimers'), hasLength(2));
   }, variant: mobile);
 
   testWidgets('other platforms do not acquire a Windows startup timeout', (

@@ -64,10 +64,15 @@ backgrounded. After ten minutes in the background, it unloads the page and
 reloads the selected skin when the app returns. Skin state that must survive
 this reload should be persisted through the Decaid API or browser storage.
 
-WebView timer bridge failures are logged without terminating the view;
-unsupported timer methods are skipped. Timer operations are ordered across view
-replacements; a failed resume remains eligible for retry on disposal or when a
-new WebView is created.
+WebView pause/resume and timer bridge failures are awaited and logged without
+terminating the view; unsupported methods are skipped. Timer operations are
+ordered across view replacements; a failed resume remains eligible for retry on
+disposal or when a new WebView is created. Native timers are process-global, so
+an unresolved native timer call must finish before any later timer operation,
+even in a replacement view. A native timer Future that never completes therefore
+blocks the timer queue until process restart. Generation fencing cannot cancel a
+native call or prevent its late global side effect, so bypassing that call would
+violate ordering. WebView pause/resume calls run independently of this queue.
 
 On Windows, an embedded skin that has not finished its initial load within
 30 seconds shows an error with **Open in Browser** and **Go to Dashboard**

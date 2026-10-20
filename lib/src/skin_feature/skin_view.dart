@@ -122,6 +122,8 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   bool _rendererCrashed = false;
 
   static bool _globalTimersPaused = false;
+  // Native timers are process-global: an unresolved call must finish before
+  // any generation advances; abandoning it could apply a late global side effect.
   static Future<void>? _timerOperations;
   static Object? _timerViewAttempt;
 
@@ -185,15 +187,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused) {
       if (_webViewController == null) return;
       _log.info('App backgrounded — pausing WebView and loading blank page');
-      try {
-        if (InAppWebViewController.isMethodSupported(.pause)) {
-          _webViewController?.pause();
-        }
-      } on UnimplementedError catch (e) {
-        _log.warning("Unimplemented: ", e);
-      } catch (e, st) {
-        _log.severe("Unexpected: ", e, st);
-      }
+      unawaited(_changeWebViewActivity(_webViewController!, pause: true));
       _timerLifecycle = Object();
       unawaited(
         _changeWebViewTimers(_webViewController!, 'pause', pause: true),
@@ -213,15 +207,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
       _log.info('App foregrounded — resuming WebView and reloading skin');
       _timerLifecycle = Object();
       unawaited(_changeWebViewTimers(_webViewController!, 'resume'));
-      try {
-        if (InAppWebViewController.isMethodSupported(.resume)) {
-          _webViewController?.resume();
-        }
-      } on UnimplementedError catch (e) {
-        _log.warning("Unimplemented: ", e);
-      } catch (e, st) {
-        _log.severe("Unexpected: ", e, st);
-      }
+      unawaited(_changeWebViewActivity(_webViewController!));
       if (_didBlank) {
         _didBlank = false;
         _webViewController?.loadUrl(
@@ -785,6 +771,25 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
     });
     _log.info(message);
     widget.webViewLogService.log(skinId, 'INFO', message);
+  }
+
+  Future<void> _changeWebViewActivity(
+    InAppWebViewController controller, {
+    bool pause = false,
+  }) async {
+    try {
+      if (pause) {
+        if (InAppWebViewController.isMethodSupported(.pause)) {
+          await controller.pause();
+        }
+      } else if (InAppWebViewController.isMethodSupported(.resume)) {
+        await controller.resume();
+      }
+    } on UnimplementedError catch (e) {
+      _log.warning("Unimplemented: ", e);
+    } catch (e, st) {
+      _log.severe("Unexpected: ", e, st);
+    }
   }
 
   Future<void> _changeWebViewTimers(
