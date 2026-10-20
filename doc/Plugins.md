@@ -147,6 +147,7 @@ A Decaid plugin consists of two required files:
   `GET /api/v1/plugins` returns this schema verbatim under `settings`, so a skin can render a settings form — labels, help text and defaults included — without reading the plugin's repository. `GET /api/v1/plugins/:id/settings` returns the stored values only.
 
   Write a `label` and a `description` for every setting. Without a `label`, clients fall back to the storage key, so a user sees `LengthThreshold` rather than "Minimum shot length"; the `description` is the only explanation they get.
+- **credentialScope**: Optional name of an ordinary string setting containing an HTTP(S) server URL. The host binds secure settings to its normalized URL. A changed scope clears secure settings and ordinary `Username` fields unless replacements are supplied in the same patch; an `isSet` marker cannot preserve a password across servers. Credentials remain in platform storage. Returning to a previous server requires entering its credentials again.
 - **api**: HTTP and WebSocket endpoints exposed by the plugin
 
 Unknown permission names make the manifest invalid. Calls without their required
@@ -336,6 +337,25 @@ The bundled Visualizer plugin merges recipe and shot-review tags, reads the curr
 
 Upload folds the `grinderBurrs` snapshot recorded on the shot into the uploaded `grinder_model` (Visualizer has no separate field for them). Back-sync suppresses only a value that matches the string it uploaded, compared on normalized text, so a genuine remote edit still applies; an applied edit takes ownership of the field, clearing the shot's burrs snapshot so a re-upload does not decorate the edited text again — see `doc/AI_PLUGINS_NOTES.md` for why and how.
 
+The Visualizer plugin's `ServerUrl` setting defaults to `https://visualizer.coffee`
+and accepts an `http` or `https` base URL with an optional reverse-proxy path
+prefix. Uploads, account checks, share-code imports, profile imports and both
+sync directions derive their API paths from that base. Trailing slashes are
+removed; credentials, queries and fragments are rejected. Mapping and sync
+state are stored per normalized server. Changing `ServerUrl` clears secure
+Visualizer credentials through the manifest's `credentialScope`, so credentials
+must be entered again before authenticated requests to the new server. Legacy
+unbound credentials and unscoped mappings belong only to
+`https://visualizer.coffee`; custom servers require entering credentials again. Newly uploaded
+shots carry `annotations.extras.visualizerServerUrl` beside `visualizerId`.
+Upload results and `lastUpload` return the selected `serverUrl` and `shotUrl`.
+Plain HTTP sends credentials and shot data without encryption; prefer HTTPS.
+TLS validation remains enabled, and Visualizer requests reject redirects. Set
+`ServerUrl` to the final server address rather than a redirecting alias.
+Credential verification accepts an optional `serverUrl` to check an unsaved
+server using explicitly supplied credentials and returns `valid`, `serverUrl`
+and an actionable `error` on failure.
+
 ### Events from Plugin → Flutter
 
 Plugins can emit custom events that the Flutter app can listen to:
@@ -368,6 +388,12 @@ Plugins can make HTTP requests using the standard `fetch` API (polyfilled by the
 
 Plugin `fetch` requires `api`. Declared HTTP endpoints also require `api` before
 Decaid dispatches a request to the plugin.
+
+The fetch bridge supports `redirect: "follow"` (the default) and
+`redirect: "error"`. The latter rejects HTTP 301, 302, 303, 307 and 308 before
+contacting the redirect target. Other redirect modes are rejected before network
+access. Use `error` when credentials must remain bound to one server. Per-request
+abort signals and browser-complete fetch options remain unsupported.
 
 ```javascript
 // Basic GET request
@@ -1332,8 +1358,8 @@ it in Decaid UI.
   certificates are not supported
 - Storage is isolated per plugin
 - No filesystem access beyond the plugin's own directory
-- HTTP/fetch cannot reach localhost or private IPs (except for the Decaid
-  API); `host.transport` has no such restriction
+- HTTP/fetch can reach local or private servers under the `api` permission;
+  there is no host-level private-IP allowlist
 
 ## External First-Party Plugins
 

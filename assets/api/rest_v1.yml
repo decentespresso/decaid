@@ -7824,6 +7824,13 @@ components:
               label: Minimum shot length
               description: Only upload shots longer than this many seconds (skips flushes)
               default: 5
+        credentialScope:
+          type: string
+          description: >
+            Optional ordinary string setting key containing an HTTP(S) server URL.
+            A normalized URL change clears secure settings and ordinary
+            Username fields unless replacements are supplied.
+            Masked isSet state does not preserve credentials across servers.
         api:
           type: array
           description: A list of endpoints this plugin will expose
