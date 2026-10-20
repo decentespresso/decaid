@@ -122,6 +122,11 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   bool _rendererCrashed = false;
 
   static bool _globalTimersPaused = false;
+  static Future<void>? _timerOperations;
+  static Object? _timerViewAttempt;
+
+  Object _timerLifecycle = Object();
+  int _pendingTimerPauses = 0;
 
   InAppWebViewController? _webViewController;
   Object _webViewAttempt = Object();
@@ -158,10 +163,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
     unawaited(widget.displayController.setBrightness(100));
     _blankPageTimer?.cancel();
     _blankPageTimer = null;
-    final controller = _webViewController;
-    if (_globalTimersPaused && controller != null) {
-      unawaited(_resumeWebViewTimers(controller, 'dispose'));
-    }
+    _balanceWebViewTimers('dispose');
     WidgetsBinding.instance.removeObserver(this);
     simulatedWebViewDevice.removeListener(_resetWebView);
     if (Platform.isAndroid) {
@@ -175,7 +177,8 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (!(Platform.isAndroid || Platform.isIOS)) {
+    if (defaultTargetPlatform != TargetPlatform.android &&
+        defaultTargetPlatform != TargetPlatform.iOS) {
       return;
     }
 
@@ -191,16 +194,10 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
       } catch (e, st) {
         _log.severe("Unexpected: ", e, st);
       }
-      try {
-        if (InAppWebViewController.isMethodSupported(.pauseTimers)) {
-          _webViewController?.pauseTimers();
-          _globalTimersPaused = true;
-        }
-      } on UnimplementedError catch (e) {
-        _log.warning("Unimplemented: ", e);
-      } catch (e, st) {
-        _log.severe("Unexpected: ", e, st);
-      }
+      _timerLifecycle = Object();
+      unawaited(
+        _changeWebViewTimers(_webViewController!, 'pause', pause: true),
+      );
       _didBlank = false;
       _blankPageTimer?.cancel();
       _blankPageTimer = Timer(Duration(minutes: 10), () {
@@ -214,7 +211,8 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
       _blankPageTimer = null;
       if (_webViewController == null) return;
       _log.info('App foregrounded — resuming WebView and reloading skin');
-      unawaited(_resumeWebViewTimers(_webViewController!, 'resume'));
+      _timerLifecycle = Object();
+      unawaited(_changeWebViewTimers(_webViewController!, 'resume'));
       try {
         if (InAppWebViewController.isMethodSupported(.resume)) {
           _webViewController?.resume();
@@ -614,11 +612,12 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
         if (!isCurrentView()) return;
         if (supportsSkinCamera) _camera.invalidate();
         _log.info('InAppWebView created');
+        _timerViewAttempt = attempt;
         setState(() => _webViewController = controller);
         if (Platform.isAndroid) {
           unawaited(_logRenderingDiagnostics(controller, texture));
         }
-        unawaited(_resumeWebViewTimers(controller, 'onWebViewCreated'));
+        unawaited(_changeWebViewTimers(controller, 'onWebViewCreated'));
       },
       onLoadStart: (controller, url) {
         if (!isCurrentView()) return;
@@ -729,6 +728,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
           'didCrash: ${detail.didCrash}, '
           'rendererPriorityAtExit: ${detail.rendererPriorityAtExit}',
         );
+        _balanceWebViewTimers('renderer exit');
         _webViewController = null;
         setState(() {
           _rendererCrashed = true;
@@ -744,14 +744,25 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
     );
   }
 
-  void _resetWebView() => setState(() {
-    _webViewAttempt = Object();
-    _webViewController = null;
-    _isLoading = true;
-    _errorMessage = null;
-    _mainFrameUri = null;
-    _rendererCrashed = false;
-  });
+  void _balanceWebViewTimers(String where) {
+    final controller = _webViewController;
+    if (controller != null &&
+        (_globalTimersPaused || _pendingTimerPauses > 0)) {
+      unawaited(_changeWebViewTimers(controller, where));
+    }
+  }
+
+  void _resetWebView() {
+    _balanceWebViewTimers('reset');
+    setState(() {
+      _webViewAttempt = Object();
+      _webViewController = null;
+      _isLoading = true;
+      _errorMessage = null;
+      _mainFrameUri = null;
+      _rendererCrashed = false;
+    });
+  }
 
   Future<void> _logRenderingDiagnostics(
     InAppWebViewController controller,
@@ -776,23 +787,53 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
     widget.webViewLogService.log(skinId, 'INFO', message);
   }
 
-  Future<void> _resumeWebViewTimers(
+  Future<void> _changeWebViewTimers(
     InAppWebViewController controller,
-    String where,
-  ) async {
-    final wasPaused = _globalTimersPaused;
-    try {
-      if (InAppWebViewController.isMethodSupported(.resumeTimers)) {
-        await controller.resumeTimers();
-        _globalTimersPaused = false;
-        if (wasPaused) {
-          _log.warning('Balanced WebView timer pause in $where');
+    String where, {
+    bool pause = false,
+  }) {
+    final attempt = _webViewAttempt;
+    final lifecycle = _timerLifecycle;
+    bool isCurrentView() =>
+        mounted &&
+        identical(attempt, _webViewAttempt) &&
+        _webViewController == controller &&
+        identical(lifecycle, _timerLifecycle) &&
+        identical(attempt, _timerViewAttempt);
+    if (pause) _pendingTimerPauses++;
+    Future<void> run() async {
+      try {
+        if (pause) {
+          if (!isCurrentView()) return;
+          if (InAppWebViewController.isMethodSupported(.pauseTimers)) {
+            await controller.pauseTimers();
+            _globalTimersPaused = true;
+          }
+        } else if (identical(attempt, _timerViewAttempt) &&
+            InAppWebViewController.isMethodSupported(.resumeTimers)) {
+          final wasPaused = _globalTimersPaused;
+          await controller.resumeTimers();
+          _globalTimersPaused = false;
+          if (wasPaused && identical(attempt, _timerViewAttempt)) {
+            _log.warning('Balanced WebView timer pause in $where');
+          }
         }
+      } on UnimplementedError catch (e) {
+        _log.warning("Unimplemented: ", e);
+      } catch (e, st) {
+        _log.severe("Unexpected: ", e, st);
+      } finally {
+        if (pause) _pendingTimerPauses--;
       }
-    } on UnimplementedError catch (e) {
-      _log.warning("Unimplemented: ", e);
-    } catch (e, st) {
-      _log.severe("Unexpected: ", e, st);
     }
+
+    final operation = _timerOperations?.then((_) => run()) ?? run();
+    _timerOperations = operation;
+    unawaited(
+      operation.then((_) {
+        if (identical(_timerOperations, operation)) _timerOperations = null;
+      }),
+    );
+    return operation;
   }
 }

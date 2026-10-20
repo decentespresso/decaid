@@ -64,6 +64,11 @@ backgrounded. After ten minutes in the background, it unloads the page and
 reloads the selected skin when the app returns. Skin state that must survive
 this reload should be persisted through the Decaid API or browser storage.
 
+WebView timer bridge failures are logged without terminating the view;
+unsupported timer methods are skipped. Timer operations are ordered across view
+replacements; a failed resume remains eligible for retry on disposal or when a
+new WebView is created.
+
 On Windows, an embedded skin that has not finished its initial load within
 30 seconds shows an error with **Open in Browser** and **Go to Dashboard**
 instead of an indefinite spinner. The log distinguishes browser creation from
