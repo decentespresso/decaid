@@ -4,6 +4,15 @@ on:
   push:
     tags:
       - 'v*'  # Triggers on tags like v1.0.0, v2.1.3, etc.
+  # Build-only validation: dispatch on a branch to exercise every build job
+  # without publishing a release or touching the appcast feed.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version label used in dry-run artifact names'
+        type: string
+        default: '0.0.0-dryrun'
+        required: false
 
 # Two tags pushed close together must not race the appcast feed.
 concurrency:
@@ -27,14 +36,21 @@ jobs:
       - name: Resolve tag and version
         id: meta
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-          case "$TAG" in
-            v*) VERSION="${TAG#v}" ;;
-            *)
-              echo "Expected a v* tag, got: $TAG" >&2
-              exit 1
-              ;;
-          esac
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+            if [ -z "$VERSION" ]; then VERSION="0.0.0-dryrun"; fi
+            TAG=""
+            echo "Dry run: building $VERSION without publishing" >&2
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+            case "$TAG" in
+              v*) VERSION="${TAG#v}" ;;
+              *)
+                echo "Expected a v* tag, got: $TAG" >&2
+                exit 1
+                ;;
+            esac
+          fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
@@ -754,6 +770,8 @@ jobs:
   create-release:
     name: Create GitHub Release
     needs: [release-metadata, build-android, build-macos, build-linux, build-raspberrypi, build-windows, build-ios]
+    # Publishing stays bound to a v* tag push; workflow_dispatch is build-only.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -837,6 +855,7 @@ jobs:
   publish-appcast:
     name: Publish Sparkle appcast
     needs: [create-release]
+    if: github.event_name == 'push'
     runs-on: macos-latest
     permissions:
       contents: write

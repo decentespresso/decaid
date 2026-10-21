@@ -54,6 +54,19 @@ Get-FileHash decaid-windows-x64-<version>.zip -Algorithm SHA256
 
 The Windows build is unsigned, so a clean machine may show an unknown-publisher warning when `Decaid.exe` is first launched. There is no installer; the ZIP is portable. Decaid stores user data and logs under `%APPDATA%`, not in the extraction folder, so deleting the extracted folder does not remove them.
 
+### Dry-run validation before tagging
+
+`Create Release` also accepts `workflow_dispatch`, which builds every platform job and then stops: `create-release` and `publish-appcast` are guarded by `if: github.event_name == 'push'`, so a dispatch never creates a release, uploads assets to one, or touches the `gh-pages` appcast feed. This is the way to validate a change to the workflow itself, or a new action/runtime version, without cutting a tag.
+
+Dispatch it on the branch that contains the workflow change and pass an optional `version` label (default `0.0.0-dryrun`) used only in the artifact filenames:
+
+```bash
+gh workflow run "Create Release" --ref <branch> -f version=0.0.0-dryrun
+gh run watch "$(gh run list --workflow "Create Release" --limit 1 --json databaseId --jq '.[0].databaseId')"
+```
+
+The dry run exercises the build jobs, so it costs the same runner time as a real release. The tag push remains the only path that publishes.
+
 ### Step 1: Tag Your Release
 
 ```bash
