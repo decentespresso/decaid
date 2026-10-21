@@ -6,6 +6,29 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Decaid</title>
         <item>
+            <title>0.9.1</title>
+            <pubDate>Wed, 21 Oct 2026 14:43:31 +0000</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>3012</sparkle:version>
+            <sparkle:shortVersionString>0.9.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* fix(discovery): make initial scan exit immediate and safe by @tadelv in https://github.com/decentespresso/decaid/pull/1010
+* fix(updater): stream APK downloads to disk by @tadelv in https://github.com/decentespresso/decaid/pull/1011
+* fix: bound Windows skin startup and add diagnostics by @ODevStudio in https://github.com/decentespresso/decaid/pull/1012
+* fix: show plain-language errors for online actions by @ODevStudio in https://github.com/decentespresso/decaid/pull/998
+* fix(connection): centralize primary-scale wake recovery by @tadelv in https://github.com/decentespresso/decaid/pull/1013
+* fix(skin): guard async WebView timer lifecycle operations by @tadelv in https://github.com/decentespresso/decaid/pull/1014
+* fix(telemetry): exclude recoverable state and handled input errors by @tadelv in https://github.com/decentespresso/decaid/pull/1017
+* expose the firmware's live LED registers, so a colour can be shown without storing it by @ChampionDesigns in https://github.com/decentespresso/decaid/pull/801
+
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.9.0...v0.9.1-beta.1
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.9.1-beta.1/decaid-macos-0.9.1-beta.1.zip" length="65336215" type="application/octet-stream" sparkle:edSignature="hp0bbWx/5ueTuxzCbmYxrrbOlNPCCgeeQVx2Duys458hzA/ipivf9j4gDFuCafaG6ALFC2AeB3lJ03pXuIQhBg=="/>
+        </item>
+        <item>
             <title>0.9.0</title>
             <pubDate>Fri, 16 Oct 2026 10:51:34 +0000</pubDate>
             <sparkle:version>2977</sparkle:version>
@@ -653,6 +676,6 @@ See `doc/RELEASE.md` for install and verification instructions.
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: EvRcOvEUVir017rmxU1JPDziiEq/qml04574dnLJuffsQu7VASRMk6/5ZmD0WpMiZ23f39g09zu+HCxGin6dCw==
-length: 57287
+edSignature: JoyoJQpDxUM39S8sbmlBIhOxqVHrP4gtEu5aHz3fuv0I+c5uPBAkHNccDS5kiU8zy7WvaEr1y0VMjCJFLYdkAg==
+length: 59179
 -->
