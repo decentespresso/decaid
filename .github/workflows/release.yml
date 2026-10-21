@@ -472,7 +472,7 @@ jobs:
           pub-cache: true
 
       - name: Install nuget
-        uses: nuget/setup-nuget@v2
+        uses: nuget/setup-nuget@v3
         with:
           nuget-version: 'latest'
 
@@ -815,7 +815,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             release-artifacts/android-apk/*
