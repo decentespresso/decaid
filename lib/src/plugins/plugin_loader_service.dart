@@ -50,6 +50,7 @@ class PluginLoaderService {
 
   final PluginManager pluginManager;
   final CredentialStore? _credentialStore;
+  late final StreamSubscription<void>? _accountSubscription;
   final _log = Logger('PluginLoaderService');
 
   late Directory _pluginsDir;
@@ -68,13 +69,20 @@ class PluginLoaderService {
     DecentProxyService? decentProxyService,
     CredentialStore? credentialStore,
     PluginDeviceService? deviceService,
+    Stream<void>? decentAccountChanges,
   }) : _credentialStore = credentialStore,
        pluginManager = PluginManager(
          kvStore: kvStore,
          decentProxyService: decentProxyService,
          deviceService: deviceService,
          bleRegistry: PluginBleRegistry(initiallyReady: false),
-       );
+       ) {
+    _accountSubscription = decentAccountChanges?.listen((_) {
+      if (_lifecycle == PluginLoaderLifecycle.active) {
+        pluginManager.broadcastEvent('decentAccountChanged', const {});
+      }
+    });
+  }
 
   bool _initialized = false;
   PluginLoaderLifecycle get lifecycle => _lifecycle;
@@ -1153,6 +1161,7 @@ class PluginLoaderService {
     }
 
     try {
+      await waitFor('account subscription', _accountSubscription?.cancel());
       await waitFor('initialization', _initialization);
       await waitFor('plugin load queue', _pluginLoadQueue);
       await waitFor('manager disposal', pluginManager.dispose());
