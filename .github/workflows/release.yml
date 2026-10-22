@@ -14,9 +14,11 @@ on:
         default: '0.0.0-dryrun'
         required: false
 
-# Two tags pushed close together must not race the appcast feed.
+# Tag pushes serialize on the appcast feed: two tags pushed close together
+# must not race it. Dry runs are build validation and must never hold that
+# lock (or block a release), so they get a per-branch group instead.
 concurrency:
-  group: sparkle-appcast
+  group: ${{ github.event_name == 'workflow_dispatch' && format('release-dry-run-{0}', github.ref_name) || 'sparkle-appcast' }}
   cancel-in-progress: false
 
 # bundle_skins.sh (invoked by flutter_with_commit.sh) hits api.github.com.
@@ -695,6 +697,7 @@ jobs:
             -exportOptionsPlist ExportOptions.plist
 
       - name: Upload dSYMs to Firebase Crashlytics
+        if: github.event_name == 'push'
         run: |
           DSYM_PATH="build/ios/archive/Runner.xcarchive/dSYMs"
           if [ ! -d "$DSYM_PATH" ] || [ -z "$(ls -A "$DSYM_PATH" 2>/dev/null)" ]; then
@@ -733,6 +736,7 @@ jobs:
             --default-config=default
 
       - name: Upload to TestFlight
+        if: github.event_name == 'push'
         env:
           API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
