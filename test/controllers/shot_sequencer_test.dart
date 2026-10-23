@@ -1659,12 +1659,11 @@ void main() {
           [0.0, 0.0, 0.0, 18.0],
           reason: 'pre-tare frames are 0; real weight only after the pour tare',
         );
-        expect(recorded.map((s) => s.scale?.weightFlow).toList(), [
-          0.0,
-          0.0,
-          0.0,
-          2.0,
-        ], reason: 'flow off the un-tared cup must not leak either');
+        expect(
+          recorded.map((s) => s.scale?.weightFlow).toList(),
+          [0.0, 0.0, 0.0, 2.0],
+          reason: 'flow off the un-tared cup must not leak either',
+        );
 
         shotSequencer.dispose();
       });
@@ -1711,6 +1710,63 @@ void main() {
           reason: 'no-scale shot never enters the drip-settling window',
         );
         expect(shotSequencer.trustedFinalYield, isNull);
+
+        shotSequencer.dispose();
+      });
+    });
+
+    test('0 g yield still stops the scale timer before finishing', () {
+      fakeAsync((async) {
+        final shotSequencer = ShotSequencer(
+          scaleController: scaleController,
+          de1controller: de1Controller,
+          persistenceController: persistenceController,
+          targetProfile: profile,
+          targetYield: 36.0,
+          bypassSAW: false,
+          blockOnNoScale: false,
+          weightFlowMultiplier: 0.0,
+          volumeFlowMultiplier: 0.0,
+          stepExitArbiterEnabled: true,
+        );
+        final states = <ShotState>[];
+        shotSequencer.state.listen(states.add);
+        async.elapse(const Duration(milliseconds: 10));
+
+        scaleController.emitWeight(0.0);
+        async.elapse(const Duration(milliseconds: 10));
+
+        driveToPouring(shotSequencer);
+        async.elapse(const Duration(milliseconds: 10));
+
+        expect(
+          testScale.startTimerCallCount,
+          1,
+          reason: 'the pour should start the connected scale timer',
+        );
+
+        testDe1.emitStateAndSubstate(
+          MachineState.espresso,
+          MachineSubstate.pouringDone,
+        );
+        async.elapse(const Duration(milliseconds: 50));
+
+        expect(
+          states,
+          contains(ShotState.finished),
+          reason: '0 g has no trusted yield, so it finishes immediately',
+        );
+        expect(
+          states,
+          isNot(contains(ShotState.stopping)),
+          reason: '0 g skips the settling window',
+        );
+        expect(shotSequencer.trustedFinalYield, isNull);
+        expect(
+          testScale.stopTimerCallCount,
+          1,
+          reason: 'the scale timer must stop on every shot end',
+        );
 
         shotSequencer.dispose();
       });

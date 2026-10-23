@@ -198,6 +198,7 @@ class ShotSequencer {
   final double? targetWaterVolume;
   ShotState _state = ShotState.idle;
   bool _scaleLost = false;
+  bool _scaleTimerStopped = false;
   bool _scaleConnected = false;
   bool _continueScaleless = false;
   int _scaleConnectionGeneration = 0;
@@ -355,6 +356,7 @@ class ShotSequencer {
       case ShotState.idle:
         if (machine.state.state == MachineState.espresso &&
             machine.state.substate == MachineSubstate.preparingForShot) {
+          _scaleTimerStopped = false;
           _resetCommand.add(true);
           _shotStartTime = DateTime.now();
 
@@ -507,11 +509,7 @@ class ShotSequencer {
 
       case ShotState.stopping:
         _volumeCountingActive = false;
-        if (_bypassSAW == false && scale != null && !_scaleLost) {
-          scaleController.connectedScale().stopTimer().catchError(
-            (e) => _log.warning('Failed to stop scale timer', e),
-          );
-        }
+        _stopScaleTimer();
 
         _refineStoppingYield(scale);
         if (_stoppingYieldLocked) {
@@ -645,9 +643,22 @@ class ShotSequencer {
         );
   }
 
+  void _stopScaleTimer() {
+    if (_scaleTimerStopped || _bypassSAW) return;
+    _scaleTimerStopped = true;
+    try {
+      scaleController.connectedScale().stopTimer().catchError(
+        (e) => _log.warning('Failed to stop scale timer', e),
+      );
+    } catch (e) {
+      _log.warning('Failed to stop scale timer', e);
+    }
+  }
+
   void _enterStopping(WeightSnapshot? scale) {
     _latchTrustedFinalYield(scale);
     dataCollectionEnabled = false;
+    _stopScaleTimer();
     _state = _trustedFinalYield != null
         ? ShotState.stopping
         : ShotState.finished;
