@@ -1982,6 +1982,9 @@ paths:
         A null canonical field clears that field; annotations: null clears all post-shot
         annotations and ignores legacy values in the same request. Legacy aliases in
         responses mirror the resulting canonical values and never retain cleared data.
+        A cleared espressoNotes is stored and returned as an empty string, not an
+        omitted field, so a client can tell a cleared note from one that was never
+        set; every other cleared annotation is omitted from the response.
       tags: [Shots History]
       parameters:
         - in: path
@@ -7556,7 +7559,10 @@ components:
         espressoNotes:
           type: string
           nullable: true
-          description: Null clears the note and its legacy shotNotes alias on update.
+          description: >-
+            Null clears the note and its legacy shotNotes alias on update. A cleared
+            note is returned as an empty string, so it stays distinguishable from a
+            note that was never set.
         extras:
           type: object
           nullable: true
