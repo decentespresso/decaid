@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/de1_rawmessage.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
@@ -66,6 +68,17 @@ void main() {
       final receipt = await writeAndAwaitReceipt('00401ebaff00ff00');
 
       expect(receipt.payload, '00401EBAFF00FF00');
+    });
+
+    test('receipt matches the bytes handed to the transport', () async {
+      final receipt = await writeAndAwaitReceipt('DEADBEEF');
+
+      expect(receipt.payload, 'DEADBEEF');
+      final frame = transport.writes.singleWhere(
+        (w) => w.characteristicUUID == 'A010',
+      );
+      expect(frame.data, Uint8List.fromList([0xDE, 0xAD, 0xBE, 0xEF]));
+      expect(frame.withResponse, isTrue);
     });
 
     test('write response echoes on a characteristic other than A010', () async {
