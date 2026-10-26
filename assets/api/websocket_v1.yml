@@ -846,7 +846,11 @@ components:
           description: UUID of the characteristic (len = 4).
         payload:
           type: string
-          description: The data payload as a hex string.
+          description: >-
+            The data payload as a hex string. A write response echoes the
+            payload the client submitted, as uppercase hex — the same encoding
+            a read response uses, so a client can tell which write a response
+            acknowledges.
     De1RawMessageType:
       type: string
       enum:

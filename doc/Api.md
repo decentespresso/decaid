@@ -814,6 +814,9 @@ For clients this means:
 - **A gap in frames is not a dead socket.** If a client needs a liveness signal, use `/ws/v1/devices`.
 - `/ws/v1/machine/raw` writes are delivered to the machine the socket is *currently* bound to, not the
   one that was present when the socket was opened.
+- A `write` response echoes the payload the client submitted, as `payload` in uppercase hex — the
+  same encoding a `read` response uses. A client can compare it with what it sent to tell which
+  write a response acknowledges; clients that ignore `payload` are unaffected.
 - If a raw command is sent while no machine is connected, the server replies with
   `{"error": "No machine connected"}` rather than silently dropping it. The socket stays open and
   resumes normal operation when a machine reconnects. Raw commands are not queued for later delivery.
