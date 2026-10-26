@@ -63,6 +63,6 @@ API smoke test: `scripts/sb-dev.sh start` then `curl` / `websocat` per `.agents/
 - `test/` test files — read only the ones relevant to the change.
 - `assets/` assets unrelated to API specs.
 - `ios/`, `android/`, `macos/`, `linux/`, `windows/` — platform-native project files. Only touch when adding platform capabilities.
-- `packages/dye2-plugin/` — DYE2 plugin source, **not built or bundled by Decaid**. The bundled copy is pinned and fetched from [decentespresso/dye2](https://github.com/decentespresso/dye2) releases via `scripts/fetch_dye2_plugin.sh` (see `doc/Plugins.md`). Do DYE2 compatibility work against that repo, not this in-tree copy.
+- `packages/dye2-plugin/` — DYE2 plugin source, **not built or bundled by Decaid**. The bundled copy is fetched at build time from the latest [decentespresso/dye2](https://github.com/decentespresso/dye2) release via `scripts/fetch_dye2_plugin.sh` (see `doc/Plugins.md`). Do DYE2 compatibility work against that repo, not this in-tree copy.
 - `assets/plugins/shot-upload.reaplugin/` — generated from the pinned [decentespresso/shot-upload](https://github.com/decentespresso/shot-upload) release by `scripts/fetch_shot_upload_plugin.sh`. Do shot-upload behavior work in that repository, not against the generated Decaid asset.
 - `assets/plugins/dcamp.reaplugin/` — generated from the pinned [decentespresso/decaid-dcamp-plugin](https://github.com/decentespresso/decaid-dcamp-plugin) release by `scripts/fetch_dcamp_plugin.sh`. Do dcamp behavior work in that repository, not against the generated Decaid asset.
