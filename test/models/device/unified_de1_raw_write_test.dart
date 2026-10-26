@@ -19,16 +19,24 @@ void main() {
       transport.dispose();
     });
 
-    De1RawMessage writeRequest(String payload) => De1RawMessage(
+    De1RawMessage writeRequest(
+      String payload, {
+      String characteristicUUID = 'A010',
+    }) => De1RawMessage(
       type: De1RawMessageType.request,
       operation: De1RawOperationType.write,
-      characteristicUUID: 'A010',
+      characteristicUUID: characteristicUUID,
       payload: payload,
     );
 
-    Future<De1RawMessage> writeAndAwaitReceipt(String payload) {
+    Future<De1RawMessage> writeAndAwaitReceipt(
+      String payload, {
+      String characteristicUUID = 'A010',
+    }) {
       final receipt = de1.rawOutStream.first;
-      de1.sendRawMessage(writeRequest(payload));
+      de1.sendRawMessage(
+        writeRequest(payload, characteristicUUID: characteristicUUID),
+      );
       return receipt.timeout(const Duration(seconds: 5));
     }
 
@@ -58,6 +66,17 @@ void main() {
       final receipt = await writeAndAwaitReceipt('00401ebaff00ff00');
 
       expect(receipt.payload, '00401EBAFF00FF00');
+    });
+
+    test('write response echoes on a characteristic other than A010', () async {
+      final receipt = await writeAndAwaitReceipt(
+        '0102030405',
+        characteristicUUID: 'A00F',
+      );
+
+      expect(receipt.characteristicUUID, 'A00F');
+      expect(receipt.operation, De1RawOperationType.write);
+      expect(receipt.payload, '0102030405');
     });
   });
 }

@@ -815,8 +815,10 @@ For clients this means:
 - `/ws/v1/machine/raw` writes are delivered to the machine the socket is *currently* bound to, not the
   one that was present when the socket was opened.
 - A `write` response echoes the payload the client submitted, as `payload` in uppercase hex — the
-  same encoding a `read` response uses. A client can compare it with what it sent to tell which
-  write a response acknowledges; clients that ignore `payload` are unaffected.
+  same encoding a `read` response uses, so a client can correlate **the payload that completed**. It
+  does not identify an individual write: two writes carrying the same payload are indistinguishable,
+  and the stream is machine-level, so another raw client sending the same payload is equally
+  indistinguishable. Clients that ignore `payload` are unaffected.
 - If a raw command is sent while no machine is connected, the server replies with
   `{"error": "No machine connected"}` rather than silently dropping it. The socket stays open and
   resumes normal operation when a machine reconnects. Raw commands are not queued for later delivery.

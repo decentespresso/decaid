@@ -849,8 +849,12 @@ components:
           description: >-
             The data payload as a hex string. A write response echoes the
             payload the client submitted, as uppercase hex — the same encoding
-            a read response uses, so a client can tell which write a response
-            acknowledges.
+            a read response uses, so a client can correlate the payload that
+            completed. It does not identify an individual write: two writes
+            carrying the same payload are indistinguishable, and the stream is
+            machine-level, so another raw client sending the same payload is
+            equally indistinguishable. Clients that ignore payload are
+            unaffected.
     De1RawMessageType:
       type: string
       enum:
