@@ -41,6 +41,13 @@ via `combineModelAndBurrs`. Invariants to preserve when changing this:
   guard suppress a later revert to that value. Only a remote value that names a model counts
   as an edit — an absent or empty `grinder_model` is the generic null-ing `mapRemoteToLocal`
   already does, and leaves both alone.
+- **Only send the note when Visualizer actually sent one.** `mapRemoteToLocal` null-s every
+  field it does not find, which is harmless for fields nothing falls back on. The note is
+  different: the host now persists an explicit `espressoNotes: null` as `''`
+  (`doc/AI_API_NOTES.md`), so a rating-only back-sync of a response without `espresso_notes`
+  would clear a workflow-only note for every client that honours the empty string. The
+  mapping therefore omits `espressoNotes` unless the remote response carries the key; a
+  present `null` or `''` is a real remote clear and still maps to `null`.
 - **Keep the `storageRead` layering.** The reply for `uploadedGrinderModels` layers under
   whatever the session has already recorded, because that read can land after an upload has
   remembered its string.

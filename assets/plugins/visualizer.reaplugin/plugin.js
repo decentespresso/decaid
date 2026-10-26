@@ -1081,7 +1081,9 @@ function createPlugin(host) {
         ? Math.min(Math.max(remoteEnjoyment, 0), 100) / VISUALIZER_ENJOYMENT_SCALE
         : remoteEnjoyment
     );
-    set(annotations, "espressoNotes", stringField("espresso_notes"));
+    if (has("espresso_notes")) {
+      set(annotations, "espressoNotes", stringField("espresso_notes"));
+    }
     set(annotations, "actualDoseWeight", numberField("bean_weight"));
     set(annotations, "actualYield", numberField("drink_weight"));
     set(context, "coffeeRoaster", stringField("bean_brand"));

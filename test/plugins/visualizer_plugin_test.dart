@@ -1528,6 +1528,97 @@ void main() {
       expect((localUpdate['annotations'] as Map)['enjoyment'], 8);
     },
   );
+  test(
+    'back sync omits the note when the Visualizer response has no espresso_notes',
+    () async {
+      final manager = await _loadPlugin(
+        '''
+      globalThis.fetch = async (url, init = {}) => {
+        if (url.endsWith('/me')) {
+          return { ok: true, json: async () => ({ id: 'user-1' }) };
+        }
+        if (url.includes('/shots?sort=updated_at&items=50&page=1')) {
+          return { ok: true, json: async () => ({ user_id: 'user-1', data: [{ id: 'visualizer-a', updated_at: 110 }] }) };
+        }
+        if (url.endsWith('/shots/visualizer-a?essentials=1')) {
+          return { ok: true, json: async () => ({ id: 'visualizer-a', updated_at: 110, espresso_enjoyment: '80' }) };
+        }
+        if (url.endsWith('/shots/local-a') && init.method === 'PUT') {
+          globalThis.__localUpdate = JSON.parse(init.body);
+          return { ok: true, json: async () => ({}) };
+        }
+        throw new Error('Unexpected URL: ' + url + ' ' + (init.method || 'GET'));
+      };
+    ''',
+        settings: const {'BackSync': true},
+      );
+      manager.dispatchEvent(_manifest.id, 'storageRead', {
+        'key': 'shotMap',
+        'value': jsonEncode({'visualizer-a': 'local-a'}),
+      });
+      manager.dispatchEvent(_manifest.id, 'storageRead', {
+        'key': 'backSyncCursor',
+        'value': '100',
+      });
+      manager.js.evaluate('globalThis.__runTimers(30000)');
+
+      final localUpdate =
+          await _waitForJs(manager, 'globalThis.__localUpdate')
+              as Map<String, dynamic>;
+
+      expect((localUpdate['annotations'] as Map)['enjoyment'], 8);
+      expect(
+        (localUpdate['annotations'] as Map).containsKey('espressoNotes'),
+        isFalse,
+      );
+    },
+  );
+
+  test(
+    'back sync clears the note when Visualizer sends an explicit empty espresso_notes',
+    () async {
+      final manager = await _loadPlugin(
+        '''
+      globalThis.fetch = async (url, init = {}) => {
+        if (url.endsWith('/me')) {
+          return { ok: true, json: async () => ({ id: 'user-1' }) };
+        }
+        if (url.includes('/shots?sort=updated_at&items=50&page=1')) {
+          return { ok: true, json: async () => ({ user_id: 'user-1', data: [{ id: 'visualizer-a', updated_at: 110 }] }) };
+        }
+        if (url.endsWith('/shots/visualizer-a?essentials=1')) {
+          return { ok: true, json: async () => ({ id: 'visualizer-a', updated_at: 110, espresso_notes: '' }) };
+        }
+        if (url.endsWith('/shots/local-a') && init.method === 'PUT') {
+          globalThis.__localUpdate = JSON.parse(init.body);
+          return { ok: true, json: async () => ({}) };
+        }
+        throw new Error('Unexpected URL: ' + url + ' ' + (init.method || 'GET'));
+      };
+    ''',
+        settings: const {'BackSync': true},
+      );
+      manager.dispatchEvent(_manifest.id, 'storageRead', {
+        'key': 'shotMap',
+        'value': jsonEncode({'visualizer-a': 'local-a'}),
+      });
+      manager.dispatchEvent(_manifest.id, 'storageRead', {
+        'key': 'backSyncCursor',
+        'value': '100',
+      });
+      manager.js.evaluate('globalThis.__runTimers(30000)');
+
+      final localUpdate =
+          await _waitForJs(manager, 'globalThis.__localUpdate')
+              as Map<String, dynamic>;
+
+      expect((localUpdate['annotations'] as Map)['espressoNotes'], isNull);
+      expect(
+        (localUpdate['annotations'] as Map).containsKey('espressoNotes'),
+        isTrue,
+      );
+    },
+  );
 
   test(
     'back sync clamps an out-of-range Visualizer enjoyment before local PUT',
