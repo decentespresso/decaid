@@ -34,6 +34,7 @@ jobs:
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
       version: ${{ steps.meta.outputs.version }}
+      dye2_version: ${{ steps.dye2.outputs.version }}
     steps:
       - name: Resolve tag and version
         id: meta
@@ -55,6 +56,18 @@ jobs:
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve DYE2 release
+        id: dye2
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DYE2_VERSION="$(gh release view --repo decentespresso/dye2 --json tagName -q .tagName)"
+          if [ -z "$DYE2_VERSION" ] || [ "$DYE2_VERSION" = null ]; then
+            echo "Could not resolve the latest DYE2 release" >&2
+            exit 1
+          fi
+          echo "version=$DYE2_VERSION" >> "$GITHUB_OUTPUT"
 
   build-android:
     needs: release-metadata
@@ -107,6 +120,7 @@ jobs:
           ./scripts/fetch_dcamp_plugin.sh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DYE2_VERSION: ${{ needs.release-metadata.outputs.dye2_version }}
 
       - name: Build Android APK
         run: ./flutter_with_commit.sh build apk --release
@@ -154,6 +168,7 @@ jobs:
           ./scripts/fetch_dcamp_plugin.sh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DYE2_VERSION: ${{ needs.release-metadata.outputs.dye2_version }}
 
       - name: Install FlutterFire CLI
         run: dart pub global activate flutterfire_cli
@@ -371,6 +386,7 @@ jobs:
           ./scripts/fetch_dcamp_plugin.sh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DYE2_VERSION: ${{ needs.release-metadata.outputs.dye2_version }}
 
       - name: Build Linux app (unsigned)
         run: ./flutter_with_commit.sh build linux --release
@@ -439,6 +455,7 @@ jobs:
           ./scripts/fetch_dcamp_plugin.sh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DYE2_VERSION: ${{ needs.release-metadata.outputs.dye2_version }}
 
       - name: Build Linux app (ARM64)
         run: ./flutter_with_commit.sh build linux --release
@@ -505,6 +522,7 @@ jobs:
           ./scripts/fetch_dcamp_plugin.sh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DYE2_VERSION: ${{ needs.release-metadata.outputs.dye2_version }}
 
       - name: Build Windows app (unsigned)
         shell: bash
@@ -590,6 +608,7 @@ jobs:
           ./scripts/fetch_dcamp_plugin.sh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DYE2_VERSION: ${{ needs.release-metadata.outputs.dye2_version }}
 
       - name: Build IPA
         run: ./flutter_with_commit.sh build ipa --release --dart-define=APP_STORE=true --no-codesign
