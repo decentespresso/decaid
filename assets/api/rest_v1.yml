@@ -881,9 +881,12 @@ paths:
         Fan values written through this API are retained per machine and reapplied after
         reconnect; 55 is used until a value is written (DE1 clamps it to 50). Values are
         persisted locally across app restarts in a bounded map of 32 machines, evicting
-        the oldest-updated entry. Machine identity uses the handshake serial when valid,
-        otherwise the device ID; identity changes do not migrate buckets. If neither serial
-        nor device ID is available, defaults are used and no retained entry is created.
+        the oldest-updated entry. A connection captures the raw handshake serial when valid,
+        otherwise its device ID; account-resolved effective serials are never used for this
+        bucket. Raw identity changes across connections do not migrate buckets, while
+        account-only effective identity changes within a connection leave the bucket fixed.
+        If neither raw serial nor device ID is available, defaults are used and no retained
+        entry is created.
       tags: [Machine]
       requestBody:
         required: true
@@ -920,9 +923,12 @@ paths:
         Refill-kit values written through this API are retained per machine and reapplied
         after reconnect; auto is used until a value is written. Values are persisted locally
         across app restarts in a bounded map of 32 machines, evicting the oldest-updated
-        entry. Machine identity uses the handshake serial when valid, otherwise the device
-        ID; identity changes do not migrate buckets. If neither serial nor device ID is
-        available, defaults are used and no retained entry is created. The connect-time
+        entry. A connection captures the raw handshake serial when valid, otherwise its
+        device ID; account-resolved effective serials are never used for this bucket. Raw
+        identity changes across connections do not migrate buckets, while account-only
+        effective identity changes within a connection leave the bucket fixed. If neither
+        raw serial nor device ID is available, defaults are used and no retained entry is
+        created. The connect-time
         detection read and firmware handoff remain separate from this override.
       tags: [Machine]
       requestBody:

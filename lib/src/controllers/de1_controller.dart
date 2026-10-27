@@ -14,6 +14,7 @@ import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/firmware_update_state.dart';
 import 'package:reaprime/src/models/device/machine.dart';
+import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/settings/machine_settings_store.dart';
 import 'package:rxdart/subjects.dart';
@@ -113,6 +114,7 @@ class De1Controller {
 
   int _connectionGeneration = 0;
   String _connectionMachineIdentity = '';
+  String _settingsMachineIdentity = '';
 
   final BehaviorSubject<int?> _initSettledSubject = BehaviorSubject.seeded(
     null,
@@ -162,6 +164,7 @@ class De1Controller {
     if (generation != _connectionGeneration) return;
     _de1 = de1Interface;
     _connectionMachineIdentity = _machineIdentity(de1Interface);
+    _settingsMachineIdentity = _captureMachineSettingsIdentity(de1Interface);
     _de1Controller.add(_de1);
 
     _subscriptions.add(
@@ -208,6 +211,7 @@ class De1Controller {
     _resetForNewDevice();
     _de1 = de1Interface;
     _connectionMachineIdentity = _machineIdentity(de1Interface);
+    _settingsMachineIdentity = _captureMachineSettingsIdentity(de1Interface);
     _de1Controller.add(_de1);
 
     _subscriptions.add(
@@ -255,6 +259,7 @@ class De1Controller {
     _initSettledSubject.add(null);
     _shotSettingsDebounce?.cancel();
     _shotSettingsDebounce = null;
+    _settingsMachineIdentity = '';
     for (var sub in _subscriptions) {
       sub.cancel();
     }
@@ -710,8 +715,16 @@ class De1Controller {
   }
 
   String _machineSettingsIdentity(De1Interface device) {
+    if (!identical(device, _de1)) return '';
+    return _settingsMachineIdentity;
+  }
+
+  String _captureMachineSettingsIdentity(De1Interface device) {
     try {
-      final serial = device.machineInfo.serialNumber.trim();
+      final info = device is UnifiedDe1
+          ? device.rawMachineInfo
+          : device.machineInfo;
+      final serial = info.serialNumber.trim();
       if (serial.isNotEmpty && serial != '0') return 'serial:$serial';
     } catch (_) {}
     final deviceId = device.deviceId.trim();
@@ -865,6 +878,7 @@ class De1Controller {
     _subscriptions.clear();
     await _de1?.dispose();
     _de1 = null;
+    _settingsMachineIdentity = '';
     if (!_initSettledSubject.isClosed) _initSettledSubject.close();
     if (!_de1Controller.isClosed) _de1Controller.close();
     if (!_steamDataController.isClosed) _steamDataController.close();

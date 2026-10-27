@@ -115,6 +115,7 @@ extension Defaults on De1Controller {
   }
 
   Future<void> applySettingsDefaults(De1Interface device) async {
+    final identity = _machineSettingsIdentity(device);
     await device.setFanThreshhold(55);
 
     await device.setHeaterIdleTemp(95);
@@ -126,6 +127,6 @@ extension Defaults on De1Controller {
 
     await device.setFlowEstimation(1.0);
     await device.setSteamPurgeMode(0);
-    await _machineSettings.clear(_machineSettingsIdentity(device));
+    await _machineSettings.clear(identity);
   }
 }
