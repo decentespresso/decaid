@@ -151,7 +151,8 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           if git diff --quiet "$BASE_SHA...$HEAD_SHA" -- \
-            tools tool/ci .github/workflows/pr-checks.yml; then
+            tools tool/ci scripts .github/workflows/pr-checks.yml \
+            .github/workflows/release.yml; then
             echo "python=false" >> "$GITHUB_OUTPUT"
           else
             status=$?
@@ -370,7 +371,11 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v5
 
+      - name: Install Python dependencies
+        run: python3 -m pip install --quiet pyyaml
+
       - name: Test Python tools
         run: |
           python3 tools/analyze_weight_flow_test.py
           python3 tool/ci/summarize_flutter_tests_test.py
+          python3 scripts/test_release_dye2.py
