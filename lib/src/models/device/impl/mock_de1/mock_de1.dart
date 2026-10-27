@@ -10,6 +10,7 @@ import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/de1_rawmessage.dart';
 import 'package:reaprime/src/models/device/firmware_update_state.dart';
+import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/simulated_device.dart';
 import 'package:reaprime/src/models/errors.dart';
@@ -159,7 +160,9 @@ class MockDe1 implements De1Interface, SimulatedDevice {
   }
 
   @override
-  Future<void> dispose() async {}
+  Future<void> dispose() async {
+    await _rawMessageController.close();
+  }
 
   @override
   DeviceType get type => DeviceType.machine;
@@ -807,12 +810,58 @@ class MockDe1 implements De1Interface, SimulatedDevice {
     _heaterPhase2Timeout = val;
   }
 
+  final StreamController<De1RawMessage> _rawMessageController =
+      StreamController.broadcast();
+
+  final Map<String, List<int>?> rawReadResponses = {
+    for (final endpoint in Endpoint.values) endpoint.uuid: <int>[],
+  };
+
+  final List<({String characteristicUUID, Uint8List data})> rawWrites = [];
+
   @override
-  Stream<De1RawMessage> get rawOutStream => throw UnimplementedError();
+  Stream<De1RawMessage> get rawOutStream => _rawMessageController.stream;
 
   @override
   void sendRawMessage(De1RawMessage message) {
-    _log.fine("sending raw message: ${message.toJson()}");
+    if (message.operation == De1RawOperationType.notify ||
+        Endpoint.fromUuid(message.characteristicUUID) == null) {
+      return;
+    }
+    final readResponse = rawReadResponses[message.characteristicUUID];
+    if (readResponse == null) return;
+    try {
+      final Uint8List bytes;
+      switch (message.operation) {
+        case De1RawOperationType.read:
+          bytes = Uint8List.fromList(readResponse);
+        case De1RawOperationType.write:
+          bytes = Uint8List.fromList([
+            for (int i = 0; i < message.payload.length; i += 2)
+              int.parse(message.payload.substring(i, i + 2), radix: 16),
+          ]);
+          rawWrites.add((
+            characteristicUUID: message.characteristicUUID,
+            data: bytes,
+          ));
+        case De1RawOperationType.notify:
+          return;
+      }
+      _rawMessageController.add(
+        De1RawMessage(
+          type: De1RawMessageType.response,
+          operation: message.operation,
+          characteristicUUID: message.characteristicUUID,
+          payload: bytes
+              .map(
+                (byte) => byte.toRadixString(16).padLeft(2, '0').toUpperCase(),
+              )
+              .join(),
+        ),
+      );
+    } catch (e, st) {
+      _log.severe("Failed to process raw: $e", e, st);
+    }
   }
 
   FirmwareUpdateState _firmwareUpdateState = FirmwareUpdateState.idle;
