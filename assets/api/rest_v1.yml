@@ -6936,8 +6936,9 @@ components:
 
             This is the configuration, not a detection result. UnifiedDe1 reads the
             machine's detection register at connect, writes `2` (auto) as the firmware
-            handoff, then Decaid reapplies the persisted override when one exists. For
-            detection, read `MachineInfo.extra.refillKit`.
+            handoff, then Decaid reapplies the persisted override only when one exists.
+            With no saved override, the handoff is the only refill-kit write on connect.
+            For detection, read `MachineInfo.extra.refillKit`.
 
             The value is served from Decaid's in-memory cache of the last successfully
             written override; raw/direct device writes may update that cache. The register

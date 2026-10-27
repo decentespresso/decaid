@@ -6,13 +6,14 @@ extension Defaults on De1Controller {
     bool Function() stillCurrent,
   ) async {
     final saved = await _machineSettings.read(_machineSettingsIdentity(device));
+    final savedRefill = saved?.refillKitSetting;
     if (!stillCurrent()) return;
     await device.setFanThreshhold(saved?.fanThreshold ?? 55);
     if (!stillCurrent()) return;
-    await device.setRefillKitSettings(
-      saved?.refillKitSetting ?? De1RefillKitSettings.auto,
-    );
-    if (!stillCurrent()) return;
+    if (savedRefill != null) {
+      await device.setRefillKitSettings(savedRefill);
+      if (!stillCurrent()) return;
+    }
 
     if (defaultWorkflow == null) {
       return;
