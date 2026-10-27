@@ -15,6 +15,7 @@ import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/firmware_update_state.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/errors.dart';
+import 'package:reaprime/src/settings/machine_settings_store.dart';
 import 'package:rxdart/subjects.dart';
 
 part 'de1_controller.defaults.dart';
@@ -22,6 +23,7 @@ part 'de1_controller.governor.dart';
 
 class De1Controller {
   final DeviceController _deviceController;
+  final MachineSettingsStore _machineSettings;
 
   Workflow? defaultWorkflow;
 
@@ -125,11 +127,13 @@ class De1Controller {
 
   De1Controller({
     required DeviceController controller,
+    MachineSettingsStore? machineSettings,
     this.machineReplacementTimeout =
         ConnectionTimings.machineReplacementTimeout,
     this.maxPendingDeviceWrites = 32,
   }) : assert(maxPendingDeviceWrites >= 0),
-       _deviceController = controller {
+       _deviceController = controller,
+       _machineSettings = machineSettings ?? const NoopMachineSettingsStore() {
     _log.info("checking ${_deviceController.devices}");
   }
 
@@ -633,8 +637,12 @@ class De1Controller {
     int? steamPurgeMode,
   }) async {
     await runDeviceWrite((device) async {
+      final identity = _machineSettingsIdentity(device);
       if (usb != null) await device.setUsbChargerMode(usb);
-      if (fan != null) await device.setFanThreshhold(fan);
+      if (fan != null) {
+        await device.setFanThreshhold(fan);
+        await _saveMachineSettings(identity, fanThreshold: fan);
+      }
       if (flushTemp != null) await device.setFlushTemperature(flushTemp);
       if (flushFlow != null) await device.setFlushFlow(flushFlow);
       if (flushTimeout != null) await device.setFlushTimeout(flushTimeout);
@@ -654,6 +662,60 @@ class De1Controller {
     }
     if (hotWaterFlow != null) _publishHotWaterFlow(hotWaterFlow);
     if (steamFlow != null) _publishSteamFlow(steamFlow);
+  }
+
+  Future<void> updateAdvancedMachineSettings({
+    double? heaterPh1Flow,
+    double? heaterPh2Flow,
+    double? heaterIdleTemp,
+    double? heaterPh2Timeout,
+    De1HeaterVoltage? heaterVoltage,
+    De1RefillKitSettings? refillKitSetting,
+  }) async {
+    await runDeviceWrite((device) async {
+      final identity = _machineSettingsIdentity(device);
+      if (heaterPh1Flow != null) {
+        await device.setHeaterPhase1Flow(heaterPh1Flow);
+      }
+      if (heaterPh2Flow != null) {
+        await device.setHeaterPhase2Flow(heaterPh2Flow);
+      }
+      if (heaterIdleTemp != null) {
+        await device.setHeaterIdleTemp(heaterIdleTemp);
+      }
+      if (heaterPh2Timeout != null) {
+        await device.setHeaterPhase2Timeout(heaterPh2Timeout);
+      }
+      if (heaterVoltage != null) await device.setHeaterVoltage(heaterVoltage);
+      if (refillKitSetting != null) {
+        await device.setRefillKitSettings(refillKitSetting);
+        await _saveMachineSettings(
+          identity,
+          refillKitSetting: refillKitSetting,
+        );
+      }
+    });
+  }
+
+  Future<void> _saveMachineSettings(
+    String identity, {
+    int? fanThreshold,
+    De1RefillKitSettings? refillKitSetting,
+  }) async {
+    await _machineSettings.update(
+      identity,
+      fanThreshold: fanThreshold,
+      refillKitSetting: refillKitSetting,
+    );
+  }
+
+  String _machineSettingsIdentity(De1Interface device) {
+    try {
+      final serial = device.machineInfo.serialNumber.trim();
+      if (serial.isNotEmpty && serial != '0') return 'serial:$serial';
+    } catch (_) {}
+    final deviceId = device.deviceId.trim();
+    return deviceId.isEmpty ? '' : 'device:$deviceId';
   }
 
   void _publishSteamFlow(double newFlow) {

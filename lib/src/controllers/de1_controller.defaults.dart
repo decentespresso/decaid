@@ -5,7 +5,13 @@ extension Defaults on De1Controller {
     De1Interface device,
     bool Function() stillCurrent,
   ) async {
-    await device.setFanThreshhold(55);
+    final saved = await _machineSettings.read(_machineSettingsIdentity(device));
+    if (!stillCurrent()) return;
+    await device.setFanThreshhold(saved?.fanThreshold ?? 55);
+    if (!stillCurrent()) return;
+    await device.setRefillKitSettings(
+      saved?.refillKitSetting ?? De1RefillKitSettings.auto,
+    );
     if (!stillCurrent()) return;
 
     if (defaultWorkflow == null) {
@@ -119,5 +125,6 @@ extension Defaults on De1Controller {
 
     await device.setFlowEstimation(1.0);
     await device.setSteamPurgeMode(0);
+    await _machineSettings.clear(_machineSettingsIdentity(device));
   }
 }
