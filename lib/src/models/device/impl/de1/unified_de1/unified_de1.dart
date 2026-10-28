@@ -261,9 +261,13 @@ class UnifiedDe1 implements De1Interface {
     return value;
   }
 
+  static const _refreshTimeout = Duration(seconds: 1);
+
   Future<void> _refreshFlowEstimation() async {
     try {
-      await getFlowEstimation();
+      // Bounded on purpose: the read-back holds the device-write queue, so a
+      // silent machine must not stall it for the full MMR retry window.
+      await getFlowEstimation().timeout(_refreshTimeout);
     } catch (error, stackTrace) {
       _log.warning(
         'Could not refresh flow calibration after a write: $error',

@@ -171,7 +171,10 @@ void main() {
   test('saved calibration override writes explicit 1.0 at connect', () async {
     final settings = _MemoryMachineSettingsStore();
     await settings.update('serial:12345', flowCalibration: 1.0);
-    final harness = await _connect(settings: settings);
+    final harness = await _connect(
+      settings: settings,
+      calFlowEstSequence: [1000, 1000],
+    );
     addTearDown(harness.controller.dispose);
 
     expect(_flowRegisterWrites(harness.transport), [1000]);
@@ -222,7 +225,11 @@ void main() {
   test('legacy raw serial fallback keeps one calibration identity', () async {
     final settings = _MemoryMachineSettingsStore();
     await settings.update('device:fake-ble', flowCalibration: 1.25);
-    final first = await _connect(settings: settings, serialN: 0);
+    final first = await _connect(
+      settings: settings,
+      serialN: 0,
+      calFlowEstSequence: [1000, 1250],
+    );
     final second = await _connect(settings: settings, serialN: 999);
     addTearDown(first.controller.dispose);
     addTearDown(second.controller.dispose);
