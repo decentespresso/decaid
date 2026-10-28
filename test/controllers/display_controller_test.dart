@@ -168,8 +168,6 @@ class _TestDe1 implements De1Interface {
   @override
   Future<void> writeCalibration(De1Calibration calibration) async {}
   @override
-  Future<void> resetCalibration(De1CalibrationTarget target) async {}
-  @override
   Future<bool> getUsbChargerMode() async => false;
   @override
   Future<void> setUsbChargerMode(bool t) async {}

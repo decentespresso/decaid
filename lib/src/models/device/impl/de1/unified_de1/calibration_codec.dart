@@ -17,7 +17,6 @@ final class De1CalibrationCodec {
 
   static const int readCommand = 0;
   static const int writeCommand = 1;
-  static const int resetCommand = 2;
   static const int factoryReadCommand = 3;
 
   static const int _readWriteKey = 1;
@@ -37,18 +36,6 @@ final class De1CalibrationCodec {
     bytes.setUint8(5, target.wireValue);
     bytes.setUint32(6, 0, Endian.big);
     bytes.setInt32(10, 0, Endian.big);
-    return bytes.buffer.asUint8List();
-  }
-
-  /// Sensor-calibration reset packet (CalCommand 2). Available primitive;
-  /// the generic machine-settings reset never sends it.
-  static Uint8List encodeReset(De1CalibrationTarget target) {
-    final bytes = ByteData(packetLength);
-    bytes.setUint32(0, _writeWriteKey, Endian.big);
-    bytes.setUint8(4, resetCommand);
-    bytes.setUint8(5, target.wireValue);
-    bytes.setUint32(6, 0, Endian.big);
-    bytes.setUint32(10, 0, Endian.big);
     return bytes.buffer.asUint8List();
   }
 

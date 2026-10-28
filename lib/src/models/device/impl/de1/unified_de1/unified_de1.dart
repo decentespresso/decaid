@@ -265,29 +265,6 @@ class UnifiedDe1 implements De1Interface {
     return value;
   }
 
-  static const _refreshTimeout = Duration(seconds: 1);
-
-  Future<void> _refreshFlowEstimation({required int epoch}) async {
-    try {
-      // Bounded at the source: a single short attempt with no retries, so no
-      // orphaned read outlives this write and no outer timeout is needed.
-      final value = await _readMMRScaled(
-        MMRItem.calFlowEst,
-        timeout: _refreshTimeout,
-        retries: 0,
-      );
-      if (epoch == _flowEstimationEpoch) {
-        _cachedFlowEstimation = value;
-      }
-    } catch (error, stackTrace) {
-      _log.warning(
-        'Could not refresh flow calibration after a write: $error',
-        error,
-        stackTrace,
-      );
-    }
-  }
-
   @override
   double? get cachedFlowEstimation => _cachedFlowEstimation;
 
@@ -535,8 +512,13 @@ class UnifiedDe1 implements De1Interface {
   }
 
   Future<void> _setFlowEstimationLocked(double multiplier, int epoch) async {
+    final effective =
+        _scaledClampedMMRInt(MMRItem.calFlowEst, multiplier).toDouble() *
+        MMRItem.calFlowEst.readScale;
     await _writeMMRScaled(MMRItem.calFlowEst, multiplier);
-    await _refreshFlowEstimation(epoch: epoch);
+    if (epoch == _flowEstimationEpoch) {
+      _cachedFlowEstimation = effective;
+    }
   }
 
   @override
@@ -568,14 +550,6 @@ class UnifiedDe1 implements De1Interface {
     await _transport.writeWithResponse(
       Endpoint.calibration,
       De1CalibrationCodec.encodeWrite(calibration),
-    );
-  }
-
-  @override
-  Future<void> resetCalibration(De1CalibrationTarget target) async {
-    await _transport.writeWithResponse(
-      Endpoint.calibration,
-      De1CalibrationCodec.encodeReset(target),
     );
   }
 
