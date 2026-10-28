@@ -22,6 +22,75 @@ void main() {
       );
     });
 
+    for (final pair in [
+      (bundled: '1.0.0-2', installed: '1.0.0-0x1'),
+      (bundled: '1.0.0-0', installed: '1.0.0--1'),
+    ]) {
+      test('numeric prerelease ranks below ${pair.installed}', () {
+        expect(
+          shouldReplaceBundledPlugin(pair.bundled, pair.installed),
+          isFalse,
+        );
+        expect(
+          shouldReplaceBundledPlugin(pair.installed, pair.bundled),
+          isTrue,
+        );
+      });
+    }
+
+    for (final version in [
+      '01.0.0',
+      '1.01.0',
+      '1.0.01',
+      '1.0.0-01',
+      '1.0.0-alpha.01',
+    ]) {
+      test('rejects bundled leading zeros: $version', () {
+        expect(shouldReplaceBundledPlugin(version, '0.0.1'), isFalse);
+      });
+      test('rejects installed leading zeros: $version', () {
+        expect(shouldReplaceBundledPlugin('9.0.0', version), isFalse);
+      });
+    }
+
+    test('overflowing numeric prerelease does not outrank alphanumeric', () {
+      expect(
+        shouldReplaceBundledPlugin('1.0.0-99999999999999999999', '1.0.0-0x1'),
+        isFalse,
+      );
+    });
+
+    test('fails closed between overflowing numeric prereleases', () {
+      expect(
+        shouldReplaceBundledPlugin(
+          '1.0.0-99999999999999999999',
+          '1.0.0-100000000000000000000',
+        ),
+        isFalse,
+      );
+    });
+
+    test('fails closed for overflowing bundled numeric prerelease', () {
+      expect(
+        shouldReplaceBundledPlugin('1.0.0-alpha.99999999999999999999', '0.0.1'),
+        isFalse,
+      );
+    });
+
+    test('fails closed for overflowing installed numeric prerelease', () {
+      expect(
+        shouldReplaceBundledPlugin('9.0.0', '1.0.0-alpha.99999999999999999999'),
+        isFalse,
+      );
+    });
+
+    test('permits leading zeros in build metadata without ordering by it', () {
+      expect(shouldReplaceBundledPlugin('1.0.0+01', '0.9.0'), isTrue);
+      expect(shouldReplaceBundledPlugin('1.0.1', '1.0.0+01'), isTrue);
+      expect(shouldReplaceBundledPlugin('1.0.0+01', '1.0.0+02'), isFalse);
+      expect(shouldReplaceBundledPlugin('1.0.0+02', '1.0.0+01'), isFalse);
+    });
+
     test(
       'fails closed for missing or malformed complete versions on either side',
       () {

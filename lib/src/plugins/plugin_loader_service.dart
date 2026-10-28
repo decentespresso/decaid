@@ -948,6 +948,13 @@ class PluginLoaderService {
         final existingManifest = PluginManifest.fromJson(
           jsonDecode(await existingManifestFile.readAsString()),
         );
+        final existingScriptFile = File('${destDir.path}/plugin.js');
+        if (!existingScriptFile.existsSync()) {
+          throw FileSystemException(
+            'Missing plugin.js',
+            existingScriptFile.path,
+          );
+        }
         if (!shouldReplaceBundledPlugin(
           newManifest.version,
           existingManifest.version,
@@ -966,7 +973,10 @@ class PluginLoaderService {
 
         _log.fine('Updated bundled plugin: $pluginName');
       } catch (e) {
-        _log.warning('Failed to copy bundled plugins', e);
+        _log.warning(
+          'Failed to copy bundled plugin $pluginPath; manual reinstallation may be required',
+          e,
+        );
       }
     }
   }
