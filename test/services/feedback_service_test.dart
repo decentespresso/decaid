@@ -10,7 +10,11 @@ import 'package:path_provider_platform_interface/path_provider_platform_interfac
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:reaprime/src/models/feedback/feedback_request.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
+import 'package:reaprime/src/plugins/plugin_manifest.dart';
+import 'package:reaprime/src/plugins/plugin_runtime.dart';
 import 'package:reaprime/src/services/feedback_service.dart';
+import 'package:reaprime/src/services/installed_components.dart';
+import 'package:reaprime/src/webui_support/webui_storage.dart';
 
 class _FakePathProvider extends Fake
     with MockPlatformInterfaceMixin
@@ -342,50 +346,36 @@ void main() {
     expect(githubRequests.map((request) => request.method), ['POST']);
   });
 
-  test('component lines name the active skin and each loaded plugin', () {
-    expect(
-      installedComponentLines(
-        activeSkinId: 'streamline.js',
-        activeSkinVersion: '0.2.19',
-        pluginVersions: const {
-          'dye2.reaplugin': '1.3.0',
-          'time-to-ready.reaplugin': '0.2.0',
-        },
-      ),
-      [
-        'Skin: streamline.js 0.2.19',
-        'Plugins: dye2.reaplugin 1.3.0, time-to-ready.reaplugin 0.2.0',
-      ],
-    );
-  });
-
-  test('an unknown skin version or an empty plugin set still reads', () {
-    expect(
-      installedComponentLines(
-        activeSkinId: 'tcl',
-        activeSkinVersion: null,
-        pluginVersions: const {},
-      ),
-      ['Skin: tcl unknown', 'Plugins: none'],
-    );
-    expect(
-      installedComponentLines(
-        activeSkinId: null,
-        activeSkinVersion: null,
-        pluginVersions: const {},
-      ),
-      ['Skin: unknown', 'Plugins: none'],
-    );
-  });
-
-  test('system info carries the skin and plugin versions', () async {
+  test('system info carries the served skin and the loaded plugins', () async {
     final service = FeedbackService(
       githubToken: 'token',
       currentSerialNumbers: () => const [],
       installedComponents: () => installedComponentLines(
-        activeSkinId: 'streamline.js',
-        activeSkinVersion: '0.2.19',
-        pluginVersions: const {'dye2.reaplugin': '1.3.0'},
+        isServing: true,
+        servedPath: '/skins/streamline.js',
+        installedSkins: [
+          WebUISkin(
+            id: 'streamline.js',
+            name: 'Streamline',
+            path: '/skins/streamline.js',
+            version: '0.2.19',
+          ),
+        ],
+        loadedPlugins: [
+          PluginRuntime(
+            pluginId: 'dye2.reaplugin',
+            manifest: PluginManifest.fromJson(const {
+              'id': 'dye2.reaplugin',
+              'name': 'DYE2',
+              'author': 'test',
+              'description': 'test',
+              'version': '1.3.0',
+              'apiVersion': 1,
+              'permissions': ['log'],
+              'api': [],
+            }),
+          ),
+        ],
       ),
     );
 
@@ -399,7 +389,7 @@ void main() {
     );
 
     expect(report, contains('Skin: streamline.js 0.2.19'));
-    expect(report, contains('Plugins: dye2.reaplugin 1.3.0'));
+    expect(report, contains('Loaded plugins: dye2.reaplugin 1.3.0'));
   });
 
   test('a provider that throws does not cost us the report', () async {
