@@ -1,3 +1,19 @@
+import 'package:pub_semver/pub_semver.dart';
+
+bool shouldReplaceBundledPlugin(
+  String? bundledVersion,
+  String? installedVersion,
+) {
+  if (bundledVersion == null || installedVersion == null) return false;
+  try {
+    Version.parse(bundledVersion);
+    Version.parse(installedVersion);
+  } on FormatException {
+    return false;
+  }
+  return comparePluginVersions(bundledVersion, installedVersion) > 0;
+}
+
 int comparePluginVersions(String a, String b) {
   final versionA = _PluginVersion.parse(a);
   final versionB = _PluginVersion.parse(b);
