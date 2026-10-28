@@ -129,19 +129,10 @@ extension Defaults on De1Controller {
 
     await device.setRefillKitSettings(.auto);
 
-    await device.resetCalibration(De1CalibrationTarget.flow);
-    try {
-      // Bounded: a reset acknowledgement is not proof of restoration, and the
-      // read-back must not hold the device-write queue on a silent machine.
-      await device.getFlowEstimation().timeout(const Duration(seconds: 1));
-    } catch (error, stackTrace) {
-      _log.warning(
-        'Could not refresh flow calibration after reset: $error',
-        error,
-        stackTrace,
-      );
-    }
+    // Generic settings reset leaves flow calibration alone: calibration is
+    // managed by its own endpoints, so no A012 packet is sent and the
+    // machine's multiplier is neither read nor modified here.
     await device.setSteamPurgeMode(0);
-    await _machineSettings.clear(identity);
+    await _machineSettings.clearExceptFlowCalibration(identity);
   }
 }

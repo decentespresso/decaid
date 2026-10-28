@@ -27,6 +27,17 @@ Uint8List _packet({
   return bytes.buffer.asUint8List();
 }
 
+Uint8List _mmrResponse(int rawValue) {
+  final resp = Uint8List(20);
+  final view = ByteData.sublistView(resp);
+  view.setUint8(0, 0);
+  view.setUint8(1, (MMRItem.calFlowEst.address >> 16) & 0xff);
+  view.setUint8(2, (MMRItem.calFlowEst.address >> 8) & 0xff);
+  view.setUint8(3, MMRItem.calFlowEst.address & 0xff);
+  view.setInt32(4, rawValue, Endian.little);
+  return resp;
+}
+
 class _FailingCalibrationWriteTransport extends FakeBleTransport {
   @override
   Future<void> write(
@@ -38,6 +49,32 @@ class _FailingCalibrationWriteTransport extends FakeBleTransport {
   }) async {
     if (characteristicUUID == Endpoint.calibration.uuid) {
       throw StateError('simulated calibration write failure');
+    }
+    return super.write(
+      serviceUUID,
+      characteristicUUID,
+      data,
+      withResponse: withResponse,
+      timeout: timeout,
+    );
+  }
+}
+
+class _SwallowMmrReadTransport extends FakeBleTransport {
+  bool swallowReads = false;
+  int swallowedReads = 0;
+
+  @override
+  Future<void> write(
+    String serviceUUID,
+    String characteristicUUID,
+    Uint8List data, {
+    bool withResponse = true,
+    Duration? timeout,
+  }) async {
+    if (swallowReads && characteristicUUID == Endpoint.readFromMMR.uuid) {
+      swallowedReads++;
+      return;
     }
     return super.write(
       serviceUUID,
@@ -231,6 +268,8 @@ void main() {
     },
   );
 
+  // The typed reset below is covered as an available but unwired primitive:
+  // the generic machine-settings reset never sends an A012 packet.
   test(
     'sends a typed calibration reset request with write acknowledgement',
     () async {
@@ -330,6 +369,119 @@ void main() {
       expect(de1.cachedFlowEstimation, 1.0);
     },
   );
+
+  test(
+    'flow refresh is retry-free: a dropped read keeps the cache and leaves the queued reply',
+    () async {
+      expect(de1.cachedFlowEstimation, 1.0);
+      transport.dropNextMmrResponses = 1;
+      transport.queueMmrResponseInt(MMRItem.calFlowEst, 1250);
+
+      await de1.setFlowEstimation(1.5);
+
+      expect(de1.cachedFlowEstimation, 1.0);
+      expect(await de1.getFlowEstimation(), closeTo(1.25, 1e-9));
+      expect(de1.cachedFlowEstimation, closeTo(1.25, 1e-9));
+    },
+  );
+
+  test('normal flow reads still retry a dropped response', () async {
+    transport.dropNextMmrResponses = 1;
+    transport.queueMmrResponseInt(MMRItem.calFlowEst, 1300);
+
+    expect(await de1.getFlowEstimation(), closeTo(1.3, 1e-9));
+    expect(de1.cachedFlowEstimation, closeTo(1.3, 1e-9));
+  });
+
+  test(
+    'overlapping flow writes complete in order with the latest value cached',
+    () async {
+      transport.queueMmrResponseIntSequence(MMRItem.calFlowEst, [1500, 1250]);
+
+      final first = de1.setFlowEstimation(1.5);
+      final second = de1.setFlowEstimation(1.25);
+      await Future.wait([first, second]);
+
+      final mmrWrites = transport.writes
+          .where((w) => w.characteristicUUID == Endpoint.writeToMMR.uuid)
+          .map((w) => ByteData.sublistView(w.data).getUint32(4, Endian.little))
+          .toList();
+      expect(mmrWrites, [1500, 1250]);
+      expect(de1.cachedFlowEstimation, closeTo(1.25, 1e-9));
+
+      transport.emitNotification(Endpoint.readFromMMR, _mmrResponse(1500));
+      await pumpEventQueue();
+      expect(de1.cachedFlowEstimation, closeTo(1.25, 1e-9));
+    },
+  );
+
+  test('a superseded refresh cannot publish before the newer write', () async {
+    final swallowed = _SwallowMmrReadTransport()..queueOnConnectResponses();
+    final de1 = UnifiedDe1(transport: swallowed);
+    addTearDown(de1.dispose);
+    await de1.onConnect();
+    swallowed.writes.clear();
+    expect(de1.cachedFlowEstimation, 1.0);
+
+    swallowed.swallowReads = true;
+    final first = de1.setFlowEstimation(1.5);
+    await pumpEventQueue();
+    expect(swallowed.swallowedReads, 1);
+    final second = de1.setFlowEstimation(1.25);
+
+    // The first refresh resolves while superseded; it must not publish.
+    swallowed.emitNotification(Endpoint.readFromMMR, _mmrResponse(1500));
+    await first;
+    expect(de1.cachedFlowEstimation, 1.0);
+
+    swallowed.swallowReads = false;
+    swallowed.queueMmrResponseInt(MMRItem.calFlowEst, 1250);
+    await second;
+    expect(de1.cachedFlowEstimation, closeTo(1.25, 1e-9));
+  });
+
+  test('a stale calibration read cannot publish after a newer write', () async {
+    final swallowed = _SwallowMmrReadTransport()..queueOnConnectResponses();
+    final held = UnifiedDe1(transport: swallowed);
+    addTearDown(held.dispose);
+    await held.onConnect();
+    swallowed.writes.clear();
+    expect(held.cachedFlowEstimation, 1.0);
+
+    // Neither refresh read gets a reply, so both writes complete with the
+    // last confirmed cache once the source-bounded reads give up.
+    swallowed.swallowReads = true;
+    await held.setFlowEstimation(1.5);
+    await held.setFlowEstimation(1.25);
+    expect(swallowed.swallowedReads, 2);
+    expect(held.cachedFlowEstimation, 1.0);
+
+    // Late replies to the dead reads must not overwrite the cache.
+    swallowed.emitNotification(Endpoint.readFromMMR, _mmrResponse(1500));
+    await pumpEventQueue();
+    expect(held.cachedFlowEstimation, 1.0);
+
+    swallowed.swallowReads = false;
+    swallowed.queueMmrResponseInt(MMRItem.calFlowEst, 1500);
+    expect(await held.getFlowEstimation(), closeTo(1.5, 1e-9));
+  });
+
+  test('a read superseded by a write does not overwrite the cache', () async {
+    final swallowed = _SwallowMmrReadTransport()..queueOnConnectResponses();
+    final de1 = UnifiedDe1(transport: swallowed);
+    addTearDown(de1.dispose);
+    await de1.onConnect();
+    swallowed.writes.clear();
+    expect(de1.cachedFlowEstimation, 1.0);
+
+    swallowed.swallowReads = true;
+    final pendingRead = de1.getFlowEstimation();
+    await pumpEventQueue();
+    await de1.setFlowEstimation(1.5);
+    swallowed.emitNotification(Endpoint.readFromMMR, _mmrResponse(1500));
+    expect(await pendingRead, closeTo(1.5, 1e-9));
+    expect(de1.cachedFlowEstimation, 1.0);
+  });
 
   test(
     'real and simulated writes reject multiplicative encoded zero',

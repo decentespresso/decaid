@@ -1989,7 +1989,6 @@ void main() {
           'heaterPh2:4.0',
           'heaterPh2Timeout:4.0',
           'refillKit:De1RefillKitSettings.auto',
-          'calibrationReset:De1CalibrationTarget.flow',
           'steamPurgeMode:0',
           'steam:$laterSteamFlow',
         ]);

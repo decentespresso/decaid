@@ -34,6 +34,17 @@ class _MemoryMachineSettingsStore implements MachineSettingsStore {
 
   @override
   Future<void> clear(String identity) async => _settings.remove(identity);
+
+  @override
+  Future<void> clearExceptFlowCalibration(String identity) async {
+    final current = _settings[identity];
+    _settings.remove(identity);
+    if (current?.flowCalibration != null) {
+      _settings[identity] = MachineSettings(
+        flowCalibration: current?.flowCalibration,
+      );
+    }
+  }
 }
 
 class _EmptyTransport extends FakeBleTransport {

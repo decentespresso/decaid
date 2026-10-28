@@ -40,6 +40,8 @@ final class De1CalibrationCodec {
     return bytes.buffer.asUint8List();
   }
 
+  /// Sensor-calibration reset packet (CalCommand 2). Available primitive;
+  /// the generic machine-settings reset never sends it.
   static Uint8List encodeReset(De1CalibrationTarget target) {
     final bytes = ByteData(packetLength);
     bytes.setUint32(0, _writeWriteKey, Endian.big);
