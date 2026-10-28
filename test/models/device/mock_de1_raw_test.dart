@@ -143,7 +143,10 @@ void main() {
         mockResponse,
         realResponse,
       ]).timeout(const Duration(seconds: 2));
+      // An absent characteristic suppresses writes as well as reads.
+      de1.sendRawMessage(request(De1RawOperationType.write, 'A00B', '0102'));
       await Future<void>.delayed(Duration.zero);
+      expect(de1.rawWrites, isEmpty);
 
       expect(mockResponses.map((response) => response.toJson()).toList(), [
         {
