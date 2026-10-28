@@ -12,6 +12,7 @@ void main() {
       'serial:one',
       fanThreshold: 42,
       refillKitSetting: De1RefillKitSettings.forceOn,
+      flowCalibration: 1.0,
     );
 
     final restarted = SharedPreferencesMachineSettingsStore();
@@ -22,7 +23,29 @@ void main() {
     final settings = await restarted.read('serial:one');
     expect(settings?.fanThreshold, 42);
     expect(settings?.refillKitSetting, De1RefillKitSettings.forceOn);
+    expect(settings?.flowCalibration, 1.0);
   });
+
+  test(
+    'persists calibration-only explicit 1.0 and distinguishes absent',
+    () async {
+      final store = SharedPreferencesMachineSettingsStore();
+      await store.update('serial:calibration', flowCalibration: 1.0);
+
+      final restarted = SharedPreferencesMachineSettingsStore();
+      expect(
+        (await restarted.read('serial:calibration'))?.flowCalibration,
+        1.0,
+      );
+      expect((await restarted.read('serial:absent'))?.flowCalibration, isNull);
+
+      await restarted.update('serial:calibration', fanThreshold: 42);
+      expect(
+        (await restarted.read('serial:calibration'))?.flowCalibration,
+        1.0,
+      );
+    },
+  );
 
   test('does not create a bucket for an unknown identity', () async {
     final store = SharedPreferencesMachineSettingsStore();

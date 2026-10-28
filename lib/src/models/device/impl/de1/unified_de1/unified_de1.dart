@@ -261,6 +261,18 @@ class UnifiedDe1 implements De1Interface {
     return value;
   }
 
+  Future<void> _refreshFlowEstimation() async {
+    try {
+      await getFlowEstimation();
+    } catch (error, stackTrace) {
+      _log.warning(
+        'Could not refresh flow calibration after a write: $error',
+        error,
+        stackTrace,
+      );
+    }
+  }
+
   @override
   double? get cachedFlowEstimation => _cachedFlowEstimation;
 
@@ -499,7 +511,7 @@ class UnifiedDe1 implements De1Interface {
   @override
   Future<void> setFlowEstimation(double multiplier) async {
     await _writeMMRScaled(MMRItem.calFlowEst, multiplier);
-    _cachedFlowEstimation = multiplier;
+    await _refreshFlowEstimation();
   }
 
   @override
@@ -531,6 +543,14 @@ class UnifiedDe1 implements De1Interface {
     await _transport.writeWithResponse(
       Endpoint.calibration,
       De1CalibrationCodec.encodeWrite(calibration),
+    );
+  }
+
+  @override
+  Future<void> resetCalibration(De1CalibrationTarget target) async {
+    await _transport.writeWithResponse(
+      Endpoint.calibration,
+      De1CalibrationCodec.encodeReset(target),
     );
   }
 

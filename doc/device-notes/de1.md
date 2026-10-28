@@ -11,6 +11,17 @@ authoritative source for DE1 protocol behavior, BLE characteristics, machine
 state logic, and MMR definitions. Profiles use Profile JSON v2; see
 [`Profiles.md`](../Profiles.md).
 
+### Calibration reset evidence
+
+Related issue [#706](https://github.com/decentespresso/decaid/issues/706) records
+measured DE1Pro firmware 1358 behavior: factory-read command 3 reported the
+same values as current calibration for flow, pressure, and temperature; a
+`+0.5°C` correction moved both temperature readings. The temperature reset
+command 2 (`CAFEF00D02020000000000000000`) was acknowledged twice without an
+observed calibration or other-setting change. A similar firmware 1357 report is
+unmeasured. Flow-target reset behavior, and reset behavior on older firmware,
+remain unverified; an acknowledgement is not evidence of factory restoration.
+
 `tools/ingest_profiles.py` rejects de1app TCL profiles whose type is
 `settings_2a` or `settings_2b`, even when `advanced_shot` is populated. That
 stored field is not authoritative for simple-profile types. Generate final

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -37,6 +38,32 @@ class _FailingCalibrationWriteTransport extends FakeBleTransport {
   }) async {
     if (characteristicUUID == Endpoint.calibration.uuid) {
       throw StateError('simulated calibration write failure');
+    }
+    return super.write(
+      serviceUUID,
+      characteristicUUID,
+      data,
+      withResponse: withResponse,
+      timeout: timeout,
+    );
+  }
+}
+
+class _GatedCalibrationWriteTransport extends FakeBleTransport {
+  final writeEntered = Completer<void>();
+  final releaseWrite = Completer<void>();
+
+  @override
+  Future<void> write(
+    String serviceUUID,
+    String characteristicUUID,
+    Uint8List data, {
+    bool withResponse = true,
+    Duration? timeout,
+  }) async {
+    if (characteristicUUID == Endpoint.calibration.uuid) {
+      if (!writeEntered.isCompleted) writeEntered.complete();
+      await releaseWrite.future;
     }
     return super.write(
       serviceUUID,
@@ -205,6 +232,106 @@ void main() {
   );
 
   test(
+    'sends a typed calibration reset request with write acknowledgement',
+    () async {
+      await de1.resetCalibration(De1CalibrationTarget.flow);
+
+      final calibrationWrites = transport.writes
+          .where(
+            (write) => write.characteristicUUID == Endpoint.calibration.uuid,
+          )
+          .toList();
+      expect(calibrationWrites, hasLength(1));
+      expect(calibrationWrites.single.data, [
+        0xCA, 0xFE, 0xF0, 0x0D, 0x02, 0x00, //
+        0, 0, 0, 0, 0, 0, 0, 0,
+      ]);
+      expect(
+        transport.writes.where(
+          (write) => write.characteristicUUID == Endpoint.readFromMMR.uuid,
+        ),
+        isEmpty,
+      );
+      expect(de1.cachedFlowEstimation, 1.0);
+    },
+  );
+
+  test(
+    'typed calibration reset waits for the transport write acknowledgement',
+    () async {
+      final gatedTransport = _GatedCalibrationWriteTransport()
+        ..queueOnConnectResponses();
+      final gatedDe1 = UnifiedDe1(transport: gatedTransport);
+      addTearDown(() async {
+        if (!gatedTransport.releaseWrite.isCompleted) {
+          gatedTransport.releaseWrite.complete();
+        }
+        await gatedDe1.dispose();
+      });
+      await gatedDe1.onConnect();
+      gatedTransport.writes.clear();
+
+      var completed = false;
+      final resetFuture = gatedDe1
+          .resetCalibration(De1CalibrationTarget.flow)
+          .then((_) {
+            completed = true;
+          });
+      await gatedTransport.writeEntered.future;
+      await pumpEventQueue();
+      expect(completed, isFalse);
+
+      try {
+        gatedTransport.releaseWrite.complete();
+        await resetFuture;
+        expect(completed, isTrue);
+        expect(
+          gatedTransport.writes.where(
+            (write) => write.characteristicUUID == Endpoint.calibration.uuid,
+          ),
+          hasLength(1),
+        );
+      } finally {
+        if (!gatedTransport.releaseWrite.isCompleted) {
+          gatedTransport.releaseWrite.complete();
+        }
+      }
+    },
+  );
+
+  test(
+    'setFlowEstimation caches the effective clamped register value',
+    () async {
+      transport.queueMmrResponseIntSequence(MMRItem.calFlowEst, [2000, 2000]);
+
+      await de1.setFlowEstimation(3.0);
+
+      final mmrWrite = transport.writes.singleWhere(
+        (write) => write.characteristicUUID == Endpoint.writeToMMR.uuid,
+      );
+      expect(mmrWrite.data.sublist(0, 4), [0x04, 0x80, 0x38, 0x3C]);
+      expect(
+        ByteData.sublistView(mmrWrite.data).getUint32(4, Endian.little),
+        2000,
+      );
+      expect(de1.cachedFlowEstimation, 2.0);
+      expect(await de1.getFlowEstimation(), 2.0);
+    },
+  );
+
+  test(
+    'setFlowEstimation retains its previous cache when readback fails',
+    () async {
+      expect(de1.cachedFlowEstimation, 1.0);
+      transport.dropNextMmrResponses = 1;
+
+      await de1.setFlowEstimation(1.5);
+
+      expect(de1.cachedFlowEstimation, 1.0);
+    },
+  );
+
+  test(
     'real and simulated writes reject multiplicative encoded zero',
     () async {
       final mock = MockDe1();
@@ -326,6 +453,7 @@ void main() {
   test('flow estimation MMR API stays untouched by calibration', () async {
     transport.queueMmrResponseInt(MMRItem.calFlowEst, 1234);
     expect(await de1.getFlowEstimation(), closeTo(1.234, 1e-9));
+    transport.queueMmrResponseInt(MMRItem.calFlowEst, 1500);
     await de1.setFlowEstimation(1.5);
 
     expect(

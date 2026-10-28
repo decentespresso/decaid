@@ -743,6 +743,8 @@ Future<void> connectToDe1(De1Interface de1Interface) async {
 }
 ```
 
+On connect, the DE1 firmware calibration is read first, then a nullable saved flow override is applied during startup defaults and read back at its effective value; absent overrides leave firmware calibration untouched. The override identity is captured from the raw serial, falling back to device ID, and is not recomputed after connection identity resolution.
+
 **Key Streams:**
 - `de1`: Current connected DE1 (or null)
 - `steamData`: Steam settings
