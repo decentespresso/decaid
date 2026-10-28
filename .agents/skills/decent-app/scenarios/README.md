@@ -23,6 +23,7 @@ Pick the scenario that matches the task and run it before calling related work d
 | ETag conditional GETs | `scenarios/etag-conditional-gets.md` |
 | Read-only Grinder observations | `scenarios/grinder-observations.md` |
 | Firmware endpoints | `scenarios/firmware.md` |
+| Guarded plugin machine actions | `scenarios/guarded-plugin-machine-actions.md` |
 | Hot-water stop at weight | `scenarios/hot-water-stop-at-weight.md` |
 | Onboarding connection phases | `scenarios/onboarding-connection-phases.md` |
 | Preferred-device fast path | `scenarios/onboarding-preferred-device.md` |
