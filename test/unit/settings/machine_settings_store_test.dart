@@ -86,4 +86,48 @@ void main() {
     expect(await store.read('serial:one'), isNull);
     expect((await store.read('serial:two'))?.fanThreshold, 43);
   });
+
+  test('clearExceptFlowCalibration keeps the saved override', () async {
+    final store = SharedPreferencesMachineSettingsStore();
+    await store.update(
+      'serial:one',
+      fanThreshold: 42,
+      refillKitSetting: De1RefillKitSettings.forceOn,
+      flowCalibration: 1.25,
+    );
+    await store.update('serial:two', fanThreshold: 43);
+
+    await store.clearExceptFlowCalibration('serial:one');
+
+    final kept = await store.read('serial:one');
+    expect(kept?.flowCalibration, 1.25);
+    expect(kept?.fanThreshold, isNull);
+    expect(kept?.refillKitSetting, isNull);
+    expect((await store.read('serial:two'))?.fanThreshold, 43);
+  });
+
+  test(
+    'clearExceptFlowCalibration removes entries without an override',
+    () async {
+      final store = SharedPreferencesMachineSettingsStore();
+      await store.update('serial:one', fanThreshold: 42);
+
+      await store.clearExceptFlowCalibration('serial:one');
+
+      expect(await store.read('serial:one'), isNull);
+    },
+  );
+
+  test(
+    'clearExceptFlowCalibration ignores unknown and empty identities',
+    () async {
+      final store = SharedPreferencesMachineSettingsStore();
+      await store.update('serial:one', flowCalibration: 1.25);
+
+      await store.clearExceptFlowCalibration('serial:absent');
+      await store.clearExceptFlowCalibration('');
+
+      expect((await store.read('serial:one'))?.flowCalibration, 1.25);
+    },
+  );
 }

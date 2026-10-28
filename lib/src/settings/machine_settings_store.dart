@@ -26,6 +26,11 @@ abstract interface class MachineSettingsStore {
   });
 
   Future<void> clear(String identity);
+
+  /// Clears fan and refill entries for [identity] while preserving the saved
+  /// flow-calibration override. A generic machine-settings reset uses this so
+  /// a live multiplier keeps its saved intent across the reset.
+  Future<void> clearExceptFlowCalibration(String identity);
 }
 
 class NoopMachineSettingsStore implements MachineSettingsStore {
@@ -44,6 +49,9 @@ class NoopMachineSettingsStore implements MachineSettingsStore {
 
   @override
   Future<void> clear(String identity) async {}
+
+  @override
+  Future<void> clearExceptFlowCalibration(String identity) async {}
 }
 
 class SharedPreferencesMachineSettingsStore implements MachineSettingsStore {
@@ -98,6 +106,23 @@ class SharedPreferencesMachineSettingsStore implements MachineSettingsStore {
     if (entries.remove(identity) != null) {
       await _writeEntries(entries);
     }
+  }
+
+  @override
+  Future<void> clearExceptFlowCalibration(String identity) async {
+    if (identity.isEmpty) return;
+    final entries = await _readEntries();
+    final entry = entries[identity];
+    if (entry is! Map) return;
+    final flow = entry['flowCalibration'];
+    entries.remove(identity);
+    if (flow is num && flow.isFinite) {
+      entries[identity] = {
+        'flowCalibration': flow.toDouble(),
+        'updatedAt': _updatedAt(entry),
+      };
+    }
+    await _writeEntries(entries);
   }
 
   Future<Map<String, dynamic>> _readEntries() async {

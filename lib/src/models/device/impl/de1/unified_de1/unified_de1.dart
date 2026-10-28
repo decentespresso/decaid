@@ -65,6 +65,7 @@ class UnifiedDe1 implements De1Interface {
   final Duration firmwareVerificationTimeout;
   final Duration calibrationTimeout;
   Future<void> _calibrationQueue = Future<void>.value();
+  Future<void> _flowEstimationQueue = Future<void>.value();
 
   final Logger _log = Logger("DE1");
 
@@ -256,18 +257,28 @@ class UnifiedDe1 implements De1Interface {
 
   @override
   Future<double> getFlowEstimation() async {
+    final epoch = _flowEstimationEpoch;
     final value = await _readMMRScaled(MMRItem.calFlowEst);
-    _cachedFlowEstimation = value;
+    if (epoch == _flowEstimationEpoch) {
+      _cachedFlowEstimation = value;
+    }
     return value;
   }
 
   static const _refreshTimeout = Duration(seconds: 1);
 
-  Future<void> _refreshFlowEstimation() async {
+  Future<void> _refreshFlowEstimation({required int epoch}) async {
     try {
-      // Bounded on purpose: the read-back holds the device-write queue, so a
-      // silent machine must not stall it for the full MMR retry window.
-      await getFlowEstimation().timeout(_refreshTimeout);
+      // Bounded at the source: a single short attempt with no retries, so no
+      // orphaned read outlives this write and no outer timeout is needed.
+      final value = await _readMMRScaled(
+        MMRItem.calFlowEst,
+        timeout: _refreshTimeout,
+        retries: 0,
+      );
+      if (epoch == _flowEstimationEpoch) {
+        _cachedFlowEstimation = value;
+      }
     } catch (error, stackTrace) {
       _log.warning(
         'Could not refresh flow calibration after a write: $error',
@@ -291,6 +302,7 @@ class UnifiedDe1 implements De1Interface {
   int _refillKitDetected = -1;
   De1RefillKitSettings _refillKitSetting = De1RefillKitSettings.auto;
   double? _cachedFlowEstimation;
+  int _flowEstimationEpoch = 0;
   int? _connectedModelValue;
 
   @protected
@@ -513,9 +525,18 @@ class UnifiedDe1 implements De1Interface {
   }
 
   @override
-  Future<void> setFlowEstimation(double multiplier) async {
+  Future<void> setFlowEstimation(double multiplier) {
+    final epoch = ++_flowEstimationEpoch;
+    final operation = _flowEstimationQueue.then(
+      (_) => _setFlowEstimationLocked(multiplier, epoch),
+    );
+    _flowEstimationQueue = operation.catchError((_) {});
+    return operation;
+  }
+
+  Future<void> _setFlowEstimationLocked(double multiplier, int epoch) async {
     await _writeMMRScaled(MMRItem.calFlowEst, multiplier);
-    await _refreshFlowEstimation();
+    await _refreshFlowEstimation(epoch: epoch);
   }
 
   @override

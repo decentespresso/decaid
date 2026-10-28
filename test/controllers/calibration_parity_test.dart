@@ -13,15 +13,6 @@ import 'package:reaprime/src/models/device/scale.dart';
 import '../helpers/fake_ble_transport.dart';
 import '../helpers/test_scale.dart';
 
-bool _bytesEqual(Iterable<int> actual, List<int> expected) {
-  final actualList = actual.toList();
-  if (actualList.length != expected.length) return false;
-  for (var i = 0; i < expected.length; i++) {
-    if (actualList[i] != expected[i]) return false;
-  }
-  return true;
-}
-
 List<int> _mmrWriteValues(FakeBleTransport transport, MmrAddress address) {
   return transport.writes
       .where(
@@ -40,7 +31,7 @@ List<int> _mmrWriteValues(FakeBleTransport transport, MmrAddress address) {
 
 void main() {
   test(
-    'settings defaults request a flow reset and preserve reported calibration',
+    'settings defaults send no calibration packet and keep reported calibration',
     () async {
       final transport = FakeBleTransport()
         ..queueOnConnectResponses(calFlowEst: 1200);
@@ -48,42 +39,17 @@ void main() {
       addTearDown(de1.dispose);
       await de1.onConnect();
       transport.writes.clear();
-      transport.queueMmrResponseInt(MMRItem.calFlowEst, 1200);
       expect(de1.cachedFlowEstimation, 1.2);
 
       final controller = De1Controller(controller: DeviceController(const []));
       await controller.applySettingsDefaults(de1);
 
-      final calibrationWrites = transport.writes
-          .where(
-            (write) => write.characteristicUUID == Endpoint.calibration.uuid,
-          )
-          .toList();
-      expect(calibrationWrites, hasLength(1));
-      final resetIndex = transport.writes.indexWhere(
-        (write) =>
-            write.characteristicUUID == Endpoint.calibration.uuid &&
-            _bytesEqual(write.data, [
-              0xCA, 0xFE, 0xF0, 0x0D, 0x02, 0x00, //
-              0, 0, 0, 0, 0, 0, 0, 0,
-            ]),
+      expect(
+        transport.writes.where(
+          (write) => write.characteristicUUID == Endpoint.calibration.uuid,
+        ),
+        isEmpty,
       );
-      expect(resetIndex, greaterThanOrEqualTo(0));
-      expect(calibrationWrites.single.data, [
-        0xCA, 0xFE, 0xF0, 0x0D, 0x02, 0x00, //
-        0, 0, 0, 0, 0, 0, 0, 0,
-      ]);
-      final flowReadIndexes = <int>[];
-      for (var i = 0; i < transport.writes.length; i++) {
-        final write = transport.writes[i];
-        if (write.characteristicUUID == Endpoint.readFromMMR.uuid &&
-            write.data.length >= 4 &&
-            _bytesEqual(write.data.sublist(1, 4), [0x80, 0x38, 0x3C])) {
-          flowReadIndexes.add(i);
-        }
-      }
-      expect(flowReadIndexes, hasLength(1));
-      expect(flowReadIndexes.single, greaterThan(resetIndex));
       expect(_mmrWriteValues(transport, MMRItem.calFlowEst), isEmpty);
       expect(de1.cachedFlowEstimation, 1.2);
     },

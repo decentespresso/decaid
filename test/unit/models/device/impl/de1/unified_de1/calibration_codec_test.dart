@@ -67,6 +67,8 @@ void main() {
   });
 
   group('encodeReset', () {
+    // Available primitive only: the generic machine-settings reset path
+    // never sends this packet (see the settings-reset regression test).
     test('encodes the flow reset request packet', () {
       expect(De1CalibrationCodec.encodeReset(De1CalibrationTarget.flow), [
         0xCA, 0xFE, 0xF0, 0x0D, 0x02, 0x00, //

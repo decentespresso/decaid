@@ -22,6 +22,10 @@ observed calibration or other-setting change. A similar firmware 1357 report is
 unmeasured. Flow-target reset behavior, and reset behavior on older firmware,
 remain unverified; an acknowledgement is not evidence of factory restoration.
 
+Decaid's generic machine-settings reset sends no calibration packet at all:
+it leaves the machine multiplier and the saved per-machine flow override
+untouched. The typed reset packet remains available as an unwired primitive.
+
 `tools/ingest_profiles.py` rejects de1app TCL profiles whose type is
 `settings_2a` or `settings_2b`, even when `advanced_shot` is populated. That
 stored field is not authoritative for simple-profile types. Generate final

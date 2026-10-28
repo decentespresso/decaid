@@ -50,6 +50,10 @@ abstract class De1Interface extends Machine {
     De1CalibrationSource source = De1CalibrationSource.current,
   });
   Future<void> writeCalibration(De1Calibration calibration);
+
+  /// Available A012 sensor-calibration reset primitive. It is not wired to
+  /// the generic machine-settings reset, which leaves flow calibration and
+  /// its saved override untouched.
   Future<void> resetCalibration(De1CalibrationTarget target);
 
   Future<De1HeaterVoltage> getHeaterVoltage();

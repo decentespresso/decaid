@@ -43,6 +43,17 @@ class _MemoryMachineSettingsStore implements MachineSettingsStore {
 
   @override
   Future<void> clear(String identity) async => values.remove(identity);
+
+  @override
+  Future<void> clearExceptFlowCalibration(String identity) async {
+    final current = values[identity];
+    values.remove(identity);
+    if (current?.flowCalibration != null) {
+      values[identity] = MachineSettings(
+        flowCalibration: current?.flowCalibration,
+      );
+    }
+  }
 }
 
 const _shotSettings = <int>[

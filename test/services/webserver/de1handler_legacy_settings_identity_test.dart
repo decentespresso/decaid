@@ -65,6 +65,7 @@ class _RecordingMachineSettingsStore implements MachineSettingsStore {
   final List<String> reads = [];
   final List<String> updates = [];
   final List<String> clears = [];
+  final List<String> clearsExceptCalibration = [];
   void Function(String identity)? onRead;
 
   @override
@@ -95,6 +96,18 @@ class _RecordingMachineSettingsStore implements MachineSettingsStore {
   Future<void> clear(String identity) async {
     clears.add(identity);
     values.remove(identity);
+  }
+
+  @override
+  Future<void> clearExceptFlowCalibration(String identity) async {
+    clearsExceptCalibration.add(identity);
+    final current = values[identity];
+    values.remove(identity);
+    if (current?.flowCalibration != null) {
+      values[identity] = MachineSettings(
+        flowCalibration: current?.flowCalibration,
+      );
+    }
   }
 }
 
@@ -316,9 +329,10 @@ void main() {
         ),
       );
       expect(reset.statusCode, 202);
-      expect(machineSettings.clears, ['device:fake-ble']);
+      expect(machineSettings.clears, isEmpty);
+      expect(machineSettings.clearsExceptCalibration, ['device:fake-ble']);
       expect(
-        machineSettings.clears,
+        machineSettings.clearsExceptCalibration,
         isNot(contains('serial:resolved-a-third-time')),
       );
       expect(_mmrWrites(third.transport, MMRItem.fanThreshold).last, 50);
@@ -499,7 +513,8 @@ void main() {
       blockingTransport.releaseResetWrite.complete();
       await replacing;
       await expectLater(reset, throwsA(isA<StateError>()));
-      expect(machineSettings.clears, ['device:fake-ble']);
+      expect(machineSettings.clears, isEmpty);
+      expect(machineSettings.clearsExceptCalibration, ['device:fake-ble']);
     },
   );
 
