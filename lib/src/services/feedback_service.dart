@@ -568,17 +568,3 @@ class FeedbackService {
 }
 
 List<String> _noComponents() => const [];
-
-List<String> installedComponentLines({
-  required String? activeSkinId,
-  required String? activeSkinVersion,
-  required Map<String, String> pluginVersions,
-}) {
-  final skin = activeSkinId == null
-      ? 'Skin: unknown'
-      : 'Skin: $activeSkinId ${activeSkinVersion ?? 'unknown'}';
-  final plugins = pluginVersions.isEmpty
-      ? 'Plugins: none'
-      : 'Plugins: ${pluginVersions.entries.map((entry) => '${entry.key} ${entry.value}').join(', ')}';
-  return [skin, plugins];
-}
