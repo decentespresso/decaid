@@ -413,6 +413,9 @@ class MockReplayDe1 implements BengleInterface, SimulatedDevice {
   Future<void> writeCalibration(De1Calibration calibration) =>
       _synthetic.writeCalibration(calibration);
   @override
+  Future<void> resetCalibration(De1CalibrationTarget target) =>
+      _synthetic.resetCalibration(target);
+  @override
   Future<De1HeaterVoltage> getHeaterVoltage() => _synthetic.getHeaterVoltage();
   @override
   Future<void> setHeaterVoltage(De1HeaterVoltage v) =>

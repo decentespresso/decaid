@@ -564,6 +564,9 @@ class MockDe1 implements De1Interface, SimulatedDevice {
     _flowEstimation = multiplier;
   }
 
+  @override
+  Future<void> resetCalibration(De1CalibrationTarget target) async {}
+
   final Map<De1CalibrationTarget, double> _currentCalibration = {
     De1CalibrationTarget.flow: 1.0,
     De1CalibrationTarget.pressure: 9.0,

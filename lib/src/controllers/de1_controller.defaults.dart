@@ -14,7 +14,11 @@ extension Defaults on De1Controller {
       await device.setRefillKitSettings(savedRefill);
       if (!stillCurrent()) return;
     }
-
+    final savedFlowCalibration = saved?.flowCalibration;
+    if (savedFlowCalibration != null) {
+      await device.setFlowEstimation(savedFlowCalibration);
+      if (!stillCurrent()) return;
+    }
     if (defaultWorkflow == null) {
       return;
     }
@@ -125,7 +129,16 @@ extension Defaults on De1Controller {
 
     await device.setRefillKitSettings(.auto);
 
-    await device.setFlowEstimation(1.0);
+    await device.resetCalibration(De1CalibrationTarget.flow);
+    try {
+      await device.getFlowEstimation();
+    } catch (error, stackTrace) {
+      _log.warning(
+        'Could not refresh flow calibration after reset: $error',
+        error,
+        stackTrace,
+      );
+    }
     await device.setSteamPurgeMode(0);
     await _machineSettings.clear(identity);
   }

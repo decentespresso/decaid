@@ -50,6 +50,7 @@ abstract class De1Interface extends Machine {
     De1CalibrationSource source = De1CalibrationSource.current,
   });
   Future<void> writeCalibration(De1Calibration calibration);
+  Future<void> resetCalibration(De1CalibrationTarget target);
 
   Future<De1HeaterVoltage> getHeaterVoltage();
   Future<void> setHeaterVoltage(De1HeaterVoltage voltage);

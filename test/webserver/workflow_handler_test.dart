@@ -257,6 +257,11 @@ class SpyDe1 implements De1Interface {
   Future<void> writeCalibration(De1Calibration calibration) async {}
 
   @override
+  Future<void> resetCalibration(De1CalibrationTarget target) async {
+    writeOrder.add('calibrationReset:$target');
+  }
+
+  @override
   Future<bool> getUsbChargerMode() async => false;
   @override
   Future<void> setUsbChargerMode(bool t) async {}
@@ -1984,7 +1989,7 @@ void main() {
           'heaterPh2:4.0',
           'heaterPh2Timeout:4.0',
           'refillKit:De1RefillKitSettings.auto',
-          'flowEstimation:1.0',
+          'calibrationReset:De1CalibrationTarget.flow',
           'steamPurgeMode:0',
           'steam:$laterSteamFlow',
         ]);
