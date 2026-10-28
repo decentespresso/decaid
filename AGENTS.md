@@ -56,12 +56,13 @@ All three steps are required, not optional.
 ## Worktrees and local verification
 
 - **A fresh worktree lacks the untracked bundled assets.** `assets/plugins/{dye2,shot-upload,dcamp}.reaplugin`
-  and `assets/bundled_skins` are excluded via `.git/info/exclude`, so `flutter analyze` reports four
+  and `assets/bundled_skins` are listed in the tracked root `.gitignore`, so `flutter analyze` reports four
   `asset_directory_does_not_exist` warnings and `bundled_plugin_permissions_test.dart` fails (~34 cases)
   with or without your change. Copy them in from the main checkout (they stay untracked and the tree stays
   clean) or state the baseline failure explicitly in the PR.
-- **Debug builds need `android/app/debug.keystore`**, copied from the main checkout (it is gitignored).
-  Delete it from the worktree once you are done building.
+- **Debug builds need `android/app/debug.keystore`** (ignored by `android/.gitignore`). Copy it from the main
+  checkout only if the worktree does not already have one, and never overwrite an existing keystore. Delete
+  the file after verification only if you created that copy; leave any pre-existing keystore alone.
 - **`scripts/sb-dev.sh` injects `--dart-define=simulate=1` unless you pass `--real`.** Simulate mode adds
   mock devices (`MockDe1`, `MockBengle`, `Mock Scale`, `DebugPort`, `SensorBasket`); their behaviour is not
   product behaviour. `MockDe1.rawOutStream` throws `UnimplementedError`, so the raw channel cannot be
