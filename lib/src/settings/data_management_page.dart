@@ -48,6 +48,7 @@ class DataManagementPage extends StatefulWidget {
     this.grinderStorageService,
     this.workflowController,
     this.importBackup,
+    this.installedComponents,
   });
 
   static const routeName = '/data';
@@ -60,6 +61,7 @@ class DataManagementPage extends StatefulWidget {
   final BeanStorageService? beanStorageService;
   final GrinderStorageService? grinderStorageService;
   final WorkflowController? workflowController;
+  final List<String> Function()? installedComponents;
   final Future<BackupImportResponse> Function(
     String? filePath,
     String strategy,
@@ -268,6 +270,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
               ),
               serialNumbers: () => widget.de1Controller.seenSerials,
               accountService: widget.decentAccountService,
+              installedComponents: widget.installedComponents,
             ),
           ),
         ],

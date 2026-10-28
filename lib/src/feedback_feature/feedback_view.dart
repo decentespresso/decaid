@@ -18,6 +18,7 @@ void showFeedbackDialog(
   required String githubToken,
   required List<String> Function() serialNumbers,
   required DecentAccountService? accountService,
+  List<String> Function()? installedComponents,
 }) {
   showShadDialog(
     context: context,
@@ -25,6 +26,7 @@ void showFeedbackDialog(
       githubToken: githubToken,
       serialNumbers: serialNumbers,
       accountService: accountService,
+      installedComponents: installedComponents,
     ),
   );
 }
@@ -33,12 +35,14 @@ class FeedbackDialog extends StatefulWidget {
   final String githubToken;
   final List<String> Function() serialNumbers;
   final DecentAccountService? accountService;
+  final List<String> Function()? installedComponents;
 
   const FeedbackDialog({
     super.key,
     required this.githubToken,
     required this.serialNumbers,
     required this.accountService,
+    this.installedComponents,
   });
 
   @override
@@ -64,6 +68,7 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
     _service = FeedbackService(
       githubToken: widget.githubToken,
       currentSerialNumbers: widget.serialNumbers,
+      installedComponents: widget.installedComponents,
       accountService: widget.accountService,
     );
     _controller = FeedbackController(service: _service);

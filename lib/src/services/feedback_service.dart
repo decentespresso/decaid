@@ -19,6 +19,7 @@ class FeedbackService {
   final String _githubToken;
   final String _repo;
   final List<String> Function() _currentSerialNumbers;
+  final List<String> Function() _installedComponents;
   final DecentAccountService? _accountService;
   final Duration _supportLinkTimeout;
   final Logger _log = Logger('FeedbackService');
@@ -29,11 +30,13 @@ class FeedbackService {
     required String githubToken,
     String repo = 'decentespresso/decaid',
     required List<String> Function() currentSerialNumbers,
+    List<String> Function()? installedComponents,
     DecentAccountService? accountService,
     Duration supportLinkTimeout = const Duration(seconds: 30),
   }) : _githubToken = githubToken,
        _repo = repo,
        _currentSerialNumbers = currentSerialNumbers,
+       _installedComponents = installedComponents ?? _noComponents,
        _accountService = accountService,
        _supportLinkTimeout = supportLinkTimeout;
 
@@ -145,7 +148,19 @@ class FeedbackService {
     info.writeln('- Platform: ${Platform.operatingSystem}');
     info.writeln('- OS Version: ${Platform.operatingSystemVersion}');
     info.writeln('- Dart Version: ${Platform.version}');
+    for (final component in _readInstalledComponents()) {
+      info.writeln('- $component');
+    }
     return info.toString();
+  }
+
+  List<String> _readInstalledComponents() {
+    try {
+      return _installedComponents();
+    } catch (e, st) {
+      _log.warning('Could not read installed component versions', e, st);
+      return const [];
+    }
   }
 
   Future<String?> _uploadGist({
@@ -550,4 +565,20 @@ class FeedbackService {
     'Accept': 'application/vnd.github.v3+json',
     'Content-Type': 'application/json',
   };
+}
+
+List<String> _noComponents() => const [];
+
+List<String> installedComponentLines({
+  required String? activeSkinId,
+  required String? activeSkinVersion,
+  required Map<String, String> pluginVersions,
+}) {
+  final skin = activeSkinId == null
+      ? 'Skin: unknown'
+      : 'Skin: $activeSkinId ${activeSkinVersion ?? 'unknown'}';
+  final plugins = pluginVersions.isEmpty
+      ? 'Plugins: none'
+      : 'Plugins: ${pluginVersions.entries.map((entry) => '${entry.key} ${entry.value}').join(', ')}';
+  return [skin, plugins];
 }
