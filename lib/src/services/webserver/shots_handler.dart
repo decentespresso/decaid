@@ -225,10 +225,9 @@ class ShotsHandler {
         return jsonNotFound({"error": "Shot not found"});
       }
 
-      final merged = _deepMerge(
-        existingShot.toJson(),
-        _normalizeLegacyAnnotationPatch(json),
-      );
+      final normalizedPatch = _normalizeLegacyAnnotationPatch(json);
+      final merged = _deepMerge(existingShot.toJson(), normalizedPatch);
+      _representClearedNoteAsEmpty(normalizedPatch, merged);
       _synchronizeLegacyAnnotationAliases(merged);
       merged['id'] = id;
 
@@ -315,6 +314,27 @@ class ShotsHandler {
     normalized.remove('shotNotes');
     normalized.remove('metadata');
     return normalized;
+  }
+
+  static bool _clearsEspressoNotes(Map<String, dynamic> patch) {
+    if (!patch.containsKey('annotations')) return false;
+    final annotations = patch['annotations'];
+    if (annotations == null) return true;
+    return annotations is Map<String, dynamic> &&
+        annotations.containsKey('espressoNotes') &&
+        annotations['espressoNotes'] == null;
+  }
+
+  static void _representClearedNoteAsEmpty(
+    Map<String, dynamic> patch,
+    Map<String, dynamic> merged,
+  ) {
+    if (!_clearsEspressoNotes(patch)) return;
+    final annotations = merged['annotations'];
+    merged['annotations'] = <String, dynamic>{
+      if (annotations is Map<String, dynamic>) ...annotations,
+      'espressoNotes': '',
+    };
   }
 
   void _synchronizeLegacyAnnotationAliases(Map<String, dynamic> json) {

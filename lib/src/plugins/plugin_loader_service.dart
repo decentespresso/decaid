@@ -943,24 +943,26 @@ class PluginLoaderService {
         final manifestAsset = await rootBundle.loadString(
           '$pluginPath/manifest.json',
         );
-        if (kReleaseMode) {
-          final newManifest = PluginManifest.fromJson(
-            jsonDecode(manifestAsset),
+        final newManifest = PluginManifest.fromJson(jsonDecode(manifestAsset));
+        final existingManifestFile = File('${destDir.path}/manifest.json');
+        final existingManifest = PluginManifest.fromJson(
+          jsonDecode(await existingManifestFile.readAsString()),
+        );
+        final existingScriptFile = File('${destDir.path}/plugin.js');
+        if (!existingScriptFile.existsSync()) {
+          throw FileSystemException(
+            'Missing plugin.js',
+            existingScriptFile.path,
           );
-          final existingManifestFile = File('${destDir.path}/manifest.json');
-          final existingManifest = PluginManifest.fromJson(
-            jsonDecode(await existingManifestFile.readAsString()),
+        }
+        if (!shouldReplaceBundledPlugin(
+          newManifest.version,
+          existingManifest.version,
+        )) {
+          _log.fine(
+            "not overriding bundled plugin: [bundled: ${newManifest.version}], [existing: ${existingManifest.version}]",
           );
-          if (comparePluginVersions(
-                newManifest.version,
-                existingManifest.version,
-              ) <=
-              0) {
-            _log.fine(
-              "not overriding bundled plugin: [bundled: ${newManifest.version}], [existing: ${existingManifest.version}]",
-            );
-            continue;
-          }
+          continue;
         }
         File('${destDir.path}/manifest.json').writeAsStringSync(manifestAsset);
 
@@ -971,7 +973,10 @@ class PluginLoaderService {
 
         _log.fine('Updated bundled plugin: $pluginName');
       } catch (e) {
-        _log.warning('Failed to copy bundled plugins', e);
+        _log.warning(
+          'Failed to copy bundled plugin $pluginPath; manual reinstallation may be required',
+          e,
+        );
       }
     }
   }

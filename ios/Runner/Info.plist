@@ -27,7 +27,7 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSBluetoothAlwaysUsageDescription</key>
-	<string>Needed to discover devices</string>
+	<string>Decaid connects to your DE1 espresso machine and scales over Bluetooth to control shots and read live data.</string>
 	<key>NSDocumentsFolderUsageDescription</key>
 	<string>Needed for local storage</string>
 	<key>NSDownloadsFolderUsageDescription</key>
@@ -35,7 +35,7 @@
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2025-2026 Decent Espresso. Licensed under GPL v3.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Needed to discover local devices</string>
+	<string>Decaid uses your local network to reach your espresso machine and scales, and to find nearby wireless scales.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_decentscale._tcp</string>
@@ -46,12 +46,6 @@
 	<string>Needed to include sound when you choose to record a video using a skin's system camera picker. Live microphone access from skins is not allowed.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Needed to import photos for shot notes and feedback</string>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Needed to discover local devices</string>
-	<key>NSLocationAlwaysUsageDescription</key>
-	<string>Needed to discover local devices</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Needed to discover local devices</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -562,25 +562,15 @@ class De1Handler {
           ? null
           : De1RefillKitSettings.fromInt(refillKitRaw);
 
-      return withQueuedDe1((de1) async {
-        if (heaterPh1Flow != null) {
-          await de1.setHeaterPhase1Flow(heaterPh1Flow);
-        }
-        if (heaterPh2Flow != null) {
-          await de1.setHeaterPhase2Flow(heaterPh2Flow);
-        }
-        if (heaterIdleTemp != null) {
-          await de1.setHeaterIdleTemp(heaterIdleTemp);
-        }
-        if (heaterPh2Timeout != null) {
-          await de1.setHeaterPhase2Timeout(heaterPh2Timeout);
-        }
-        if (heaterVoltage != null) {
-          await de1.setHeaterVoltage(heaterVoltage);
-        }
-        if (refillKitSetting != null) {
-          await de1.setRefillKitSettings(refillKitSetting);
-        }
+      return _mapDe1WriteErrors(() async {
+        await _controller.updateAdvancedMachineSettings(
+          heaterPh1Flow: heaterPh1Flow,
+          heaterPh2Flow: heaterPh2Flow,
+          heaterIdleTemp: heaterIdleTemp,
+          heaterPh2Timeout: heaterPh2Timeout,
+          heaterVoltage: heaterVoltage,
+          refillKitSetting: refillKitSetting,
+        );
         return jsonAccepted();
       });
     });

@@ -118,7 +118,7 @@ dependencies:
   # every platform: NsdManager (Android), Bonjour (Apple), Avahi (Linux),
   # dns_sd (Windows) — so no app-managed MulticastLock is needed on Android.
   bonsoir: ^7.1.1
-  pub_semver: ^2.2.0
+  pub_semver: ^2.2.1
   # path: ../flutter_libserialport
   # git:
   #   url: https://github.com/tadelv/flutter_libserialport.git

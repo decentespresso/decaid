@@ -876,7 +876,17 @@ paths:
                 $ref: "#/components/schemas/De1SettingsResponse"
     post:
       summary: Set machine settings
-      description: set additional settings on the machine, each setting can be set individually
+      description: |
+        Set additional settings on the machine, each setting can be set individually.
+        Fan values written through this API are retained per machine and reapplied after
+        reconnect; 55 is used until a value is written (DE1 clamps it to 50). Values are
+        persisted locally across app restarts in a bounded map of 32 machines, evicting
+        the oldest-updated entry. A connection captures the raw handshake serial when valid,
+        otherwise its device ID; account-resolved effective serials are never used for this
+        bucket. Raw identity changes across connections do not migrate buckets, while
+        account-only effective identity changes within a connection leave the bucket fixed.
+        If neither raw serial nor device ID is available, defaults are used and no retained
+        entry is created.
       tags: [Machine]
       requestBody:
         required: true
@@ -908,7 +918,18 @@ paths:
                 $ref: "#/components/schemas/De1AdvancedSettingsResponse"
     post:
       summary: Set advanced machine settings
-      description: Set advanced settings on the machine, each setting can be sent separately
+      description: |
+        Set advanced settings on the machine, each setting can be sent separately.
+        Refill-kit values written through this API are retained per machine and reapplied
+        after reconnect; auto is used until a value is written. Values are persisted locally
+        across app restarts in a bounded map of 32 machines, evicting the oldest-updated
+        entry. A connection captures the raw handshake serial when valid, otherwise its
+        device ID; account-resolved effective serials are never used for this bucket. Raw
+        identity changes across connections do not migrate buckets, while account-only
+        effective identity changes within a connection leave the bucket fixed. If neither
+        raw serial nor device ID is available, defaults are used and no retained entry is
+        created. The connect-time
+        detection read and firmware handoff remain separate from this override.
       tags: [Machine]
       requestBody:
         required: true
@@ -932,7 +953,8 @@ paths:
       description: |
         Reapplies a baseline set of machine settings (fan threshold, heater idle temp,
         heater phase 1/2 flows, heater phase 2 timeout, refill kit auto mode,
-        flow estimation multiplier, steam purge mode). Profile and workflow are not touched.
+        flow estimation multiplier, steam purge mode), and clears the retained fan/refill
+        overrides for the connected machine only. Profile and workflow are not touched.
       tags: [Machine]
       responses:
         "202":
@@ -1982,6 +2004,9 @@ paths:
         A null canonical field clears that field; annotations: null clears all post-shot
         annotations and ignores legacy values in the same request. Legacy aliases in
         responses mirror the resulting canonical values and never retain cleared data.
+        A cleared espressoNotes is stored and returned as an empty string, not an
+        omitted field, so a client can tell a cleared note from one that was never
+        set; every other cleared annotation is omitted from the response.
       tags: [Shots History]
       parameters:
         - in: path
@@ -6799,6 +6824,7 @@ components:
         fan:
           type: integer
           nullable: true
+          description: Fan threshold; retained per machine and reapplied after reconnect. Default is 55 (DE1 clamps it to 50) until a value is written.
         flushTemp:
           type: integer
           nullable: true
@@ -6882,9 +6908,9 @@ components:
             `MachineInfo.extra.refillKit`, which is what the machine detected
             at connect.
 
-            The override is not persisted. Decaid writes `2` (auto) at connect,
-            so a force-on or force-off selection lasts only until the machine is
-            discovered and connected again.
+            The override is retained per machine and reapplied after reconnect.
+            Decaid uses `2` (auto) until a value is written. The retained values
+            are bounded to 32 machines and reset clears only the connected machine.
 
             Any value other than `0`, `1` or `2` is rejected with `400`.
           type: integer
@@ -6917,13 +6943,15 @@ components:
             Refill kit override currently in effect: `2` = auto, `1` = force on,
             `0` = force off.
 
-            This is the configuration, not a detection result. Decaid writes `2`
-            (auto) at connect, so a machine that has not been written to since
-            reports `2` whether or not it has a kit fitted. For detection, read
-            `MachineInfo.extra.refillKit`.
+            This is the configuration, not a detection result. UnifiedDe1 reads the
+            machine's detection register at connect, writes `2` (auto) as the firmware
+            handoff, then Decaid reapplies the persisted override only when one exists.
+            With no saved override, the handoff is the only refill-kit write on connect.
+            For detection, read `MachineInfo.extra.refillKit`.
 
-            The value is served from Decaid's cache of the last override
-            written; the register is not re-read.
+            The value is served from Decaid's in-memory cache of the last successfully
+            written override; raw/direct device writes may update that cache. The register
+            is not re-read for this response.
           type: integer
           enum: [0, 1, 2]
     De1CalibrationRequest:
@@ -7556,7 +7584,10 @@ components:
         espressoNotes:
           type: string
           nullable: true
-          description: Null clears the note and its legacy shotNotes alias on update.
+          description: >-
+            Null clears the note and its legacy shotNotes alias on update. A cleared
+            note is returned as an empty string, so it stays distinguishable from a
+            note that was never set.
         extras:
           type: object
           nullable: true

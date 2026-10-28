@@ -276,8 +276,8 @@ void main() {
       });
 
       for (final json in [putJson, getJson]) {
-        expect(json['annotations'].containsKey('espressoNotes'), isFalse);
-        expect(json.containsKey('shotNotes'), isFalse);
+        expect(json['annotations']['espressoNotes'], '');
+        expect(json['shotNotes'], '');
         expect(json['annotations']['extras'], {
           'favorite': false,
           'origin': 'existing',
@@ -307,8 +307,8 @@ void main() {
       });
 
       for (final json in [putJson, getJson]) {
-        expect(json.containsKey('annotations'), isFalse);
-        expect(json.containsKey('shotNotes'), isFalse);
+        expect(json['annotations'], {'espressoNotes': ''});
+        expect(json['shotNotes'], '');
         expect(json.containsKey('metadata'), isFalse);
       }
     });
@@ -323,9 +323,83 @@ void main() {
       });
 
       for (final json in [putJson, getJson]) {
-        expect(json.containsKey('annotations'), isFalse);
-        expect(json.containsKey('shotNotes'), isFalse);
+        expect(json['annotations'], {'espressoNotes': ''});
+        expect(json['shotNotes'], '');
         expect(json.containsKey('metadata'), isFalse);
+      }
+    });
+
+    test(
+      'a cleared note stays cleared over a pre-shot workflow note',
+      () async {
+        await persistence.persistShot(
+          makeShot(
+            id: 'preshot',
+            annotations: const ShotAnnotations(espressoNotes: 'After shot'),
+            contextExtras: const {'note': 'Before shot'},
+          ),
+        );
+
+        final (putJson, getJson) = await putAndGet('preshot', {
+          'annotations': {'espressoNotes': null},
+        });
+
+        for (final json in [putJson, getJson]) {
+          expect(json['annotations']['espressoNotes'], '');
+          expect(json['shotNotes'], '');
+          expect(json['workflow']['context']['extras'], {
+            'note': 'Before shot',
+          });
+        }
+      },
+    );
+
+    test(
+      'clearing a shot that never had a note stores an empty note',
+      () async {
+        await persistence.persistShot(makeShot(id: 'plain'));
+
+        final (putJson, getJson) = await putAndGet('plain', {
+          'annotations': {'espressoNotes': null},
+        });
+
+        for (final json in [putJson, getJson]) {
+          expect(json['annotations']['espressoNotes'], '');
+          expect(json['shotNotes'], '');
+        }
+      },
+    );
+
+    test(
+      'annotations null ignores a legacy shotNotes in the same request',
+      () async {
+        await persistAnnotatedShot();
+
+        final (putJson, getJson) = await putAndGet('annotated', {
+          'annotations': null,
+          'shotNotes': 'ignored',
+        });
+
+        for (final json in [putJson, getJson]) {
+          expect(json['annotations'], {'espressoNotes': ''});
+          expect(json['shotNotes'], '');
+        }
+      },
+    );
+
+    test('an unrelated edit keeps a cleared note empty', () async {
+      await persistAnnotatedShot();
+      await putAndGet('annotated', {
+        'annotations': {'espressoNotes': null},
+      });
+
+      final (putJson, getJson) = await putAndGet('annotated', {
+        'annotations': {'enjoyment': 7},
+      });
+
+      for (final json in [putJson, getJson]) {
+        expect(json['annotations']['espressoNotes'], '');
+        expect(json['annotations']['enjoyment'], 7);
       }
     });
 
@@ -336,8 +410,8 @@ void main() {
         'shotNotes': null,
       });
       for (final json in [notesPut, notesGet]) {
-        expect(json['annotations'].containsKey('espressoNotes'), isFalse);
-        expect(json.containsKey('shotNotes'), isFalse);
+        expect(json['annotations']['espressoNotes'], '');
+        expect(json['shotNotes'], '');
         expect(json['annotations']['extras'], isNotNull);
       }
 
@@ -643,6 +717,7 @@ ShotRecord makeShot({
   String? grinderModel,
   String? grinderBurrs,
   ShotAnnotations? annotations,
+  Map<String, dynamic>? contextExtras,
 }) {
   final workflow = WorkflowController().currentWorkflow.copyWith(
     context: WorkflowContext(
@@ -651,6 +726,7 @@ ShotRecord makeShot({
       coffeeRoaster: coffeeRoaster,
       grinderModel: grinderModel,
       grinderBurrs: grinderBurrs,
+      extras: contextExtras,
     ),
   );
   return ShotRecord(

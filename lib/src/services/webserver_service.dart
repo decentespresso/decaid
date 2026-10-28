@@ -85,6 +85,7 @@ import 'package:stack_trace/stack_trace.dart';
 import 'package:reaprime/src/models/device/de1_rawmessage.dart';
 import 'package:reaprime/src/plugins/plugin_manager.dart';
 import 'package:reaprime/src/services/feedback_service.dart';
+import 'package:reaprime/src/services/installed_components.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/account/decent_proxy_service.dart';
 import 'package:reaprime/src/services/account/proxy_token_service.dart';
@@ -237,6 +238,11 @@ Future<void> startWebServer(
         const String.fromEnvironment('GITHUB_FEEDBACK_TOKEN', defaultValue: ''),
       ),
       currentSerialNumbers: () => de1Controller.seenSerials,
+      installedComponents: () => collectInstalledComponents(
+        webUIService: webUIService,
+        webUIStorage: webUIStorage,
+        pluginService: pluginService,
+      ),
       accountService: decentAccountService,
     ),
   );
