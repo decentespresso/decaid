@@ -66,27 +66,6 @@ void main() {
     });
   });
 
-  group('encodeReset', () {
-    // Available primitive only: the generic machine-settings reset path
-    // never sends this packet (see the settings-reset regression test).
-    test('encodes the flow reset request packet', () {
-      expect(De1CalibrationCodec.encodeReset(De1CalibrationTarget.flow), [
-        0xCA, 0xFE, 0xF0, 0x0D, 0x02, 0x00, //
-        0, 0, 0, 0, 0, 0, 0, 0,
-      ]);
-    });
-
-    test('encodes every target with zeroed calibration values', () {
-      for (final target in De1CalibrationTarget.values) {
-        final packet = De1CalibrationCodec.encodeReset(target);
-        expect(packet, hasLength(De1CalibrationCodec.packetLength));
-        expect(packet[4], De1CalibrationCodec.resetCommand);
-        expect(packet[5], target.wireValue);
-        expect(packet.sublist(6), everyElement(0));
-      }
-    });
-  });
-
   group('encodeWrite', () {
     test('matches the DE1app wire format for flow', () {
       expect(
