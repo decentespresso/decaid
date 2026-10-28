@@ -7,6 +7,32 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
         <title>Decaid</title>
         <item>
             <title>0.9.1</title>
+            <pubDate>Wed, 28 Oct 2026 06:34:05 +0000</pubDate>
+            <sparkle:version>3027</sparkle:version>
+            <sparkle:shortVersionString>0.9.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* fix(discovery): make initial scan exit immediate and safe by @tadelv in https://github.com/decentespresso/decaid/pull/1010
+* fix(updater): stream APK downloads to disk by @tadelv in https://github.com/decentespresso/decaid/pull/1011
+* fix: bound Windows skin startup and add diagnostics by @ODevStudio in https://github.com/decentespresso/decaid/pull/1012
+* fix: show plain-language errors for online actions by @ODevStudio in https://github.com/decentespresso/decaid/pull/998
+* fix(connection): centralize primary-scale wake recovery by @tadelv in https://github.com/decentespresso/decaid/pull/1013
+* fix(skin): guard async WebView timer lifecycle operations by @tadelv in https://github.com/decentespresso/decaid/pull/1014
+* fix(telemetry): exclude recoverable state and handled input errors by @tadelv in https://github.com/decentespresso/decaid/pull/1017
+* expose the firmware's live LED registers, so a colour can be shown without storing it by @ChampionDesigns in https://github.com/decentespresso/decaid/pull/801
+* chore(ci): move action-gh-release and setup-nuget to Node 24 runtimes by @tadelv in https://github.com/decentespresso/decaid/pull/1018
+* fix(machine): return a receipt for writes to the raw endpoint (/machine/raw) by @tadelv in https://github.com/decentespresso/decaid/pull/1038
+* fix(machine): retain fan and refill overrides across reconnects by @tadelv in https://github.com/decentespresso/decaid/pull/1043
+* fix(shots): keep a note cleared with null distinguishable from one never set by @allofmeng in https://github.com/decentespresso/decaid/pull/997
+
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.9.0...v0.9.1
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.9.1/decaid-macos-0.9.1.zip" length="65465282" type="application/octet-stream" sparkle:edSignature="fZPSKPmWMRGlfhvtCxkHWjxaBBGu3jzMUALvrhwyZ0OQLFg624KBxZqn04CpsKFjNgls/gUR7CFcPHODxYS+Cg=="/>
+        </item>
+        <item>
+            <title>0.9.1</title>
             <pubDate>Wed, 21 Oct 2026 14:43:31 +0000</pubDate>
             <sparkle:channel>beta</sparkle:channel>
             <sparkle:version>3012</sparkle:version>
@@ -676,6 +702,6 @@ See `doc/RELEASE.md` for install and verification instructions.
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: JoyoJQpDxUM39S8sbmlBIhOxqVHrP4gtEu5aHz3fuv0I+c5uPBAkHNccDS5kiU8zy7WvaEr1y0VMjCJFLYdkAg==
-length: 59179
+edSignature: BtVhZKMC7BLyP5Inh/XKudT5O+V28Mz1VkizgV0vMjqT+wHN3ug2OxHImDLik0EKec35M6p12GHLRd9cpGJoBA==
+length: 61556
 -->
