@@ -237,6 +237,17 @@ Future<void> startWebServer(
         const String.fromEnvironment('GITHUB_FEEDBACK_TOKEN', defaultValue: ''),
       ),
       currentSerialNumbers: () => de1Controller.seenSerials,
+      installedComponents: () {
+        final skin = webUIStorage.defaultSkin;
+        return installedComponentLines(
+          activeSkinId: skin?.id,
+          activeSkinVersion: skin?.version,
+          pluginVersions: {
+            for (final plugin in pluginService.pluginManager.loadedPlugins)
+              plugin.manifest.id: plugin.manifest.version,
+          },
+        );
+      },
       accountService: decentAccountService,
     ),
   );

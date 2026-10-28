@@ -341,4 +341,84 @@ void main() {
     expect(result.issueNumber, 730);
     expect(githubRequests.map((request) => request.method), ['POST']);
   });
+
+  test('component lines name the active skin and each loaded plugin', () {
+    expect(
+      installedComponentLines(
+        activeSkinId: 'streamline.js',
+        activeSkinVersion: '0.2.19',
+        pluginVersions: const {
+          'dye2.reaplugin': '1.3.0',
+          'time-to-ready.reaplugin': '0.2.0',
+        },
+      ),
+      [
+        'Skin: streamline.js 0.2.19',
+        'Plugins: dye2.reaplugin 1.3.0, time-to-ready.reaplugin 0.2.0',
+      ],
+    );
+  });
+
+  test('an unknown skin version or an empty plugin set still reads', () {
+    expect(
+      installedComponentLines(
+        activeSkinId: 'tcl',
+        activeSkinVersion: null,
+        pluginVersions: const {},
+      ),
+      ['Skin: tcl unknown', 'Plugins: none'],
+    );
+    expect(
+      installedComponentLines(
+        activeSkinId: null,
+        activeSkinVersion: null,
+        pluginVersions: const {},
+      ),
+      ['Skin: unknown', 'Plugins: none'],
+    );
+  });
+
+  test('system info carries the skin and plugin versions', () async {
+    final service = FeedbackService(
+      githubToken: 'token',
+      currentSerialNumbers: () => const [],
+      installedComponents: () => installedComponentLines(
+        activeSkinId: 'streamline.js',
+        activeSkinVersion: '0.2.19',
+        pluginVersions: const {'dye2.reaplugin': '1.3.0'},
+      ),
+    );
+
+    final report = await service.generateHtmlReport(
+      FeedbackRequest(
+        description: 'profile change is not applied',
+        type: FeedbackType.bug,
+        includeLogs: false,
+        includeSystemInfo: true,
+      ),
+    );
+
+    expect(report, contains('Skin: streamline.js 0.2.19'));
+    expect(report, contains('Plugins: dye2.reaplugin 1.3.0'));
+  });
+
+  test('a provider that throws does not cost us the report', () async {
+    final service = FeedbackService(
+      githubToken: 'token',
+      currentSerialNumbers: () => const [],
+      installedComponents: () => throw StateError('skins not loaded'),
+    );
+
+    final report = await service.generateHtmlReport(
+      FeedbackRequest(
+        description: 'profile change is not applied',
+        type: FeedbackType.bug,
+        includeLogs: false,
+        includeSystemInfo: true,
+      ),
+    );
+
+    expect(report, contains('System Information'));
+    expect(report, isNot(contains('Skin:')));
+  });
 }
