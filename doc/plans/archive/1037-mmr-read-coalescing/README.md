@@ -99,8 +99,14 @@ notes rather than treated as a performance trade-off.
   suite-active-time guard passed in review round 2. Round 3 is documentation and
   comment cleanup only; it does not claim fresh hardware measurements.
 
-Physical serial hardware and Bengle coalescing remain unvalidated. LED hydration,
-cup-warmer preheat and on-connect identity reads are follow-up candidates only;
+Serial hardware: the sequential (non-coalesced) settings path was exercised on
+Bengle over USB serial from an Android tablet, and both endpoints returned
+correct values, so single-word MMR framing decodes correctly on that transport.
+Coalesced multi-word reads over serial are still unvalidated, because Bengle is
+excluded from coalescing and no DE1 was available over serial.
+
+Bengle coalescing remains unvalidated. LED hydration, cup-warmer preheat and
+on-connect identity reads are follow-up candidates only;
 see the device notes for their unverified ranges. This work does not validate
 those groups or other firmware versions. Enduring ownership and decoding rules
 live in [`doc/AI_BLE_NOTES.md`](../../../AI_BLE_NOTES.md#mmr-read-architecture).
