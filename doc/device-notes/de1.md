@@ -41,16 +41,28 @@ Bengle values are outside legacy DE1 identity resolution.
 The MMR request frame is 20 bytes: request byte 0 holds `length`, the
 additional words after the first (0-3), followed by the big-endian start
 address. Response payload words are little-endian signed int32 values at
-byte offsets `4 + 4 * wordIndex`. Response byte 0 is not a length echo;
-captured values on DE1Pro firmware v1358 are `0x04` (single word),
-`0x08` (2 words), `0x0C` (3 words) and `0x0A` (4 words).
+byte offsets `4 + 4 * wordIndex`. Response byte 0 grows with the number of
+words returned (`0x04` for one word, `0x08` for two on DE1Pro firmware
+v1358); Decaid does not parse it and must not depend on it.
 
-That firmware answers multi-word reads covering `0x00803850`/
-`0x00803854` (steamPurgeMode/allowUSBCharging) with zeroed words, while
-single-word reads of the same addresses return the true values (verified
-over BLE against live machine state, with request/response bytes from
-transport logs). Reads of those two registers must stay single-word;
-see `getCoalescedMachineSettings`.
+**Not every register survives multi-word framing.** Some registers are
+served by a table-driven read path that only answers single-word requests;
+in a multi-word frame their words come back zeroed. `0x00803850` and
+`0x00803854` (steamPurgeMode/allowUSBCharging) behave this way on firmware
+v1358: a single-word read returns the true value, a two-word read returns
+the first word correctly and zero for the second, with machine state
+otherwise identical (verified over BLE by installing both framings against
+the same live machine; the single-word build reported `usb = true`, the
+two-word build `usb = false`, with every other setting equal). Those two
+registers stay on single-word reads — see `getCoalescedMachineSettings`.
+
+So coalescing a group is only valid once that specific group has been
+checked on hardware; a group that reads correctly says nothing about the
+next one. The groups coalesced today (fan/tank, flush/hot-water,
+heater phases) are verified this way. The audit candidates still open —
+LED hydration `0x00803898`-`0x008038A4`, cup-warmer preheat
+`0x008038D0`-`0x008038D8`, on-connect identity reads — are **not**
+verified and must be checked before being coalesced.
 
 ## USB charger deduplication
 
