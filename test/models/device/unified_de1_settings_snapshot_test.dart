@@ -13,8 +13,6 @@ import 'package:reaprime/src/models/errors.dart';
 import '../../helpers/fake_ble_transport.dart';
 import '../../helpers/fake_serial_transport.dart';
 
-/// Distinct non-zero raw words per request group. Includes a negative value
-/// (signed decoding) and values whose scaling is not the identity.
 const _fanWords = [42, -7];
 const _steamWords = [150];
 const _flushWords = [123, 955, 100, 250];
@@ -29,8 +27,6 @@ List<FakeBleWrite> _mmrReads(FakeBleTransport transport) => transport.writes
     .where((w) => w.characteristicUUID == Endpoint.readFromMMR.uuid)
     .toList();
 
-/// Serial transport that never answers, for timeout tests. Uses only SDK
-/// streams: rxdart subjects do not deliver under fakeAsync.
 class _SilentSerialTransport extends SerialTransport {
   @override
   String get id => 'silent-serial-de1';
@@ -70,8 +66,6 @@ void _queueSettingsStubs(FakeBleTransport transport) {
   transport.queueMmrResponseWords(MMRItem.fanThreshold, _fanWords);
   transport.queueMmrResponseWords(MMRItem.targetSteamFlow, _steamWords);
   transport.queueMmrResponseWords(MMRItem.flushFlowRate, _flushWords);
-  // The purge pair stays on single-word reads: current firmware zeroes
-  // these words in multi-word responses (verified on hardware).
   transport.queueMmrResponseInt(MMRItem.steamPurgeMode, _purgeWords[0]);
   transport.queueMmrResponseInt(MMRItem.allowUSBCharging, _purgeWords[1]);
   transport.queueMmrResponseWords(MMRItem.heaterUp1Flow, _heaterWords);
@@ -357,7 +351,6 @@ void main() {
       while (_mmrReads(transport).isEmpty) {
         await Future<void>.delayed(Duration.zero);
       }
-      // 8-byte frame: header + a single word where two were requested.
       transport.emitNotification(Endpoint.readFromMMR, [
         0x01,
         0x80,
@@ -400,8 +393,6 @@ void main() {
       while (_mmrReads(transport).isEmpty) {
         await Future<void>.delayed(Duration.zero);
       }
-      // 24-byte frame: header + word 52 + 12 trailing bytes. The
-      // pre-existing single-word decoder reads the first word only.
       transport.emitNotification(Endpoint.readFromMMR, [
         0x04,
         0x80,
@@ -437,8 +428,6 @@ void main() {
       while (_mmrReads(transport).isEmpty) {
         await Future<void>.delayed(Duration.zero);
       }
-      // 8-byte frame: header + a single word, below the 20-byte minimum
-      // the single-word decoder has always required.
       transport.emitNotification(Endpoint.readFromMMR, [
         0x04,
         0x80,

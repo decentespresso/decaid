@@ -123,9 +123,6 @@ enum De1HeaterVoltage {
   }
 }
 
-/// Typed snapshot of the settings served by
-/// `GET /api/v1/machine/settings`. Field names follow the device getters;
-/// the HTTP handler maps them to the terse JSON keys.
 final class De1MachineSettings {
   final int fanThreshold;
   final bool usbChargerMode;
@@ -150,8 +147,6 @@ final class De1MachineSettings {
   });
 }
 
-/// Typed snapshot of the MMR-backed settings served by
-/// `GET /api/v1/machine/settings/advanced`.
 final class De1AdvancedMachineSettings {
   final double heaterPhase1Flow;
   final double heaterPhase2Flow;
@@ -166,14 +161,6 @@ final class De1AdvancedMachineSettings {
   });
 }
 
-/// Device-level settings read path used by the `/machine/settings` routes.
-///
-/// The extension composes the individual getters (one MMR round trip each),
-/// so simulated devices, replay devices and test doubles keep working
-/// unchanged. [UnifiedDe1] offers `getCoalescedMachineSettings` /
-/// `getCoalescedAdvancedMachineSettings` with coalesced multi-word MMR
-/// reads returning identical values; the HTTP handler selects those
-/// explicitly on live hardware because extension dispatch is static.
 extension De1SettingsSnapshots on De1Interface {
   Future<De1MachineSettings> getMachineSettingsSnapshot() async =>
       De1MachineSettings(
@@ -188,9 +175,6 @@ extension De1SettingsSnapshots on De1Interface {
         steamPurgeMode: await getSteamPurgeMode(),
       );
 
-  /// MMR-backed subset of `GET /api/v1/machine/settings/advanced`. Heater
-  /// voltage and refill-kit setting stay out: they come from local state,
-  /// not MMR requests.
   Future<De1AdvancedMachineSettings>
   getAdvancedMachineSettingsSnapshot() async => De1AdvancedMachineSettings(
     heaterPhase1Flow: await getHeaterPhase1Flow(),

@@ -273,20 +273,6 @@ class UnifiedDe1 implements De1Interface {
     return await _readMMRInt(MMRItem.steamPurgeMode);
   }
 
-  /// Reads the normal settings with 2 multi-word MMR requests plus 3
-  /// single-word reads instead of 9 single-word ones. Register groups are
-  /// asserted contiguous so a future [MMRItem] address change fails loudly
-  /// instead of decoding the wrong word. Scaling and boolean
-  /// interpretation match the individual getters.
-  ///
-  /// Hardware note (DE1Pro firmware v1358, verified over BLE): the
-  /// firmware answers multi-word reads of `steamPurgeMode`/`allowUSBCharging`
-  /// (`0x00803850`, `length` 1) with zeroed words while single-word reads
-  /// of the same addresses return the true values, so that pair stays on
-  /// single-word reads. Preferred over
-  /// [De1SettingsSnapshots.getMachineSettingsSnapshot] on live hardware;
-  /// the HTTP handler selects this explicitly because extension dispatch
-  /// is static.
   Future<De1MachineSettings> getCoalescedMachineSettings() async {
     assert(
       MMRItem.tankTemp.address == MMRItem.fanThreshold.address + 4,
@@ -314,8 +300,6 @@ class UnifiedDe1 implements De1Interface {
       wordCount: 4,
       label: 'machineSettings/flush',
     );
-    // Single-word reads: this pair does not survive multi-word framing on
-    // current firmware (see hardware note above).
     final steamPurgeMode = await getSteamPurgeMode();
     final usbChargerMode = await getUsbChargerMode();
     return De1MachineSettings(
@@ -331,10 +315,6 @@ class UnifiedDe1 implements De1Interface {
     );
   }
 
-  /// Reads the MMR-backed advanced settings with 1 multi-word MMR request
-  /// plus 1 single-word read instead of 4 single-word ones. Same contiguity
-  /// and scaling contract as [getCoalescedMachineSettings]. Same explicit
-  /// selection (see [De1SettingsSnapshots.getAdvancedMachineSettingsSnapshot]).
   Future<De1AdvancedMachineSettings>
   getCoalescedAdvancedMachineSettings() async {
     assert(

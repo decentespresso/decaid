@@ -37,6 +37,50 @@ The single BLE transport is `UniversalBleTransport` in `lib/src/services/ble/uni
 
 `UnifiedDe1Transport` wraps `UniversalBleTransport` and adds MMR read/write on top of raw characteristic I/O. It provides `rawData` stream, `readMmr()`, `writeMmr()`, and typed connection guards (`DeviceNotConnectedException.machine()` on read/write when disconnected).
 
+## MMR read architecture
+
+Consecutive MMR settings words can share one request, reducing transport round
+trips without caching live settings. Address contiguity alone is insufficient:
+validate every proposed group against single-word reads on real hardware before
+coalescing it. Verified groups and firmware-specific exceptions live in
+[`device-notes/de1.md`](device-notes/de1.md#multi-word-mmr-reads).
+
+`UnifiedDe1MMR._mmrReadWords` uses the existing raw read path, with one to four
+words per request. Each response word is decoded as signed little-endian int32
+at `4 + 4 * wordIndex`, then given its field's `MMRItem.readScale` or boolean
+conversion. Missing words throw rather than becoming zero/default values;
+trailing frame bytes are ignored. Settings groups assert register contiguity.
+Single-word getters and writes retain their existing decoding and framing.
+
+`_firmwareMmrGate` serialises MMR operations across reads and writes: only one
+operation owns the gate, including its response wait, retries and retry-settle
+delay. Address-only response correlation cannot distinguish simultaneous
+single-word and multi-word reads at the same start address; a padded single-word
+reply could silently supply zero for another caller's second word. Response
+header byte 0 is not a reliable word count (see the device notes), so length
+matching is not a substitute for serialisation. Acquire the gate only at the raw
+read/write boundary; permitted bodies must not nest MMR operations.
+
+Firmware updates require exclusive ownership of the same gate. An active MMR
+operation finishes before waiting firmware starts; waiting firmware takes
+priority even over already queued MMR work. Once firmware owners finish or fail,
+queued MMR work resumes one operation at a time in FIFO order. This preserves
+firmware exclusivity without discarding settings requests.
+
+The HTTP handlers explicitly select coalesced snapshots for `UnifiedDe1` devices
+that are not `BengleInterface`. Dart extension dispatch is static, so the
+`De1SettingsSnapshots` extension remains the sequential composition of individual
+getters for simulated devices, replay devices, test doubles and Bengle. Bengle
+inherits `UnifiedDe1` but needs its own hardware validation before coalescing.
+Serial DE1 devices use the same coalesced path and shared MMR framing; synthetic
+serial transport coverage is not physical serial validation. Advanced snapshots
+contain only the MMR fields; heater voltage and refill-kit setting retain their
+existing local-state handling.
+
+The decisions, measurements and verification limits for settings coalescing are
+recorded in
+[`plans/archive/1037-mmr-read-coalescing/README.md`](plans/archive/1037-mmr-read-coalescing/README.md).
+
 ## Terminal Lifecycle Teardown
 
 `AppLifecycleObserver` treats `detached` and `didRequestAppExit()` as best-effort terminal events. It cancels its state subscriptions, awaits `ConnectionManager.shutdown()`, then disposes the plugin loader before the app-log upload service. Shutdown rejects new connection work, stops discovery and recovery sources, releases queued requests, waits for in-flight work, then disconnects the machine and scale in order while isolating cleanup failures. `paused` and `hidden` preserve active connections.
