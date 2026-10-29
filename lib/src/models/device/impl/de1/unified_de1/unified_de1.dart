@@ -273,6 +273,94 @@ class UnifiedDe1 implements De1Interface {
     return await _readMMRInt(MMRItem.steamPurgeMode);
   }
 
+  /// Reads the normal settings with 3 multi-word MMR requests plus 2
+  /// single-word reads instead of 9 single-word ones. Register groups are
+  /// asserted contiguous so a future [MMRItem] address change fails loudly
+  /// instead of decoding the wrong word. Scaling and boolean
+  /// interpretation match the individual getters.
+  ///
+  /// Hardware note (DE1Pro firmware v1358, verified over BLE): the
+  /// firmware answers multi-word reads of `steamPurgeMode`/`allowUSBCharging`
+  /// (`0x00803850`, `length` 1) with zeroed words while single-word reads
+  /// of the same addresses return the true values, so that pair stays on
+  /// single-word reads. Preferred over
+  /// [De1SettingsSnapshots.getMachineSettingsSnapshot] on live hardware;
+  /// the HTTP handler selects this explicitly because extension dispatch
+  /// is static.
+  Future<De1MachineSettings> getCoalescedMachineSettings() async {
+    assert(
+      MMRItem.tankTemp.address == MMRItem.fanThreshold.address + 4,
+      'fanThreshold/tankTemp are no longer consecutive MMR words',
+    );
+    assert(
+      MMRItem.flushTemp.address == MMRItem.flushFlowRate.address + 4 &&
+          MMRItem.flushTimeout.address == MMRItem.flushFlowRate.address + 8 &&
+          MMRItem.hotWaterFlowRate.address ==
+              MMRItem.flushFlowRate.address + 12,
+      'flush/hot-water words are no longer consecutive MMR words',
+    );
+    final fanWords = await _mmrReadWords(
+      MMRItem.fanThreshold.address,
+      wordCount: 2,
+      label: 'machineSettings/fan',
+    );
+    final steamWords = await _mmrReadWords(
+      MMRItem.targetSteamFlow.address,
+      wordCount: 1,
+      label: 'machineSettings/steam',
+    );
+    final flushWords = await _mmrReadWords(
+      MMRItem.flushFlowRate.address,
+      wordCount: 4,
+      label: 'machineSettings/flush',
+    );
+    // Single-word reads: this pair does not survive multi-word framing on
+    // current firmware (see hardware note above).
+    final steamPurgeMode = await getSteamPurgeMode();
+    final usbChargerMode = await getUsbChargerMode();
+    return De1MachineSettings(
+      fanThreshold: fanWords[0],
+      tankTempThreshold: fanWords[1],
+      steamFlow: steamWords[0] * MMRItem.targetSteamFlow.readScale,
+      flushFlow: flushWords[0] * MMRItem.flushFlowRate.readScale,
+      flushTemperature: flushWords[1] * MMRItem.flushTemp.readScale,
+      flushTimeout: flushWords[2] * MMRItem.flushTimeout.readScale,
+      hotWaterFlow: flushWords[3] * MMRItem.hotWaterFlowRate.readScale,
+      steamPurgeMode: steamPurgeMode,
+      usbChargerMode: usbChargerMode,
+    );
+  }
+
+  /// Reads the MMR-backed advanced settings with 2 multi-word MMR requests
+  /// instead of 4 single-word ones. Same contiguity and scaling contract
+  /// as [getCoalescedMachineSettings]. Same explicit-selection contract
+  /// (see [De1SettingsSnapshots.getAdvancedMachineSettingsSnapshot]).
+  Future<De1AdvancedMachineSettings>
+  getCoalescedAdvancedMachineSettings() async {
+    assert(
+      MMRItem.heaterUp2Flow.address == MMRItem.heaterUp1Flow.address + 4 &&
+          MMRItem.waterHeaterIdleTemp.address ==
+              MMRItem.heaterUp1Flow.address + 8,
+      'heater phase/idle words are no longer consecutive MMR words',
+    );
+    final heaterWords = await _mmrReadWords(
+      MMRItem.heaterUp1Flow.address,
+      wordCount: 3,
+      label: 'advancedSettings/heater',
+    );
+    final timeoutWords = await _mmrReadWords(
+      MMRItem.heaterUp2Timeout.address,
+      wordCount: 1,
+      label: 'advancedSettings/heaterTimeout',
+    );
+    return De1AdvancedMachineSettings(
+      heaterPhase1Flow: heaterWords[0] * MMRItem.heaterUp1Flow.readScale,
+      heaterPhase2Flow: heaterWords[1] * MMRItem.heaterUp2Flow.readScale,
+      heaterIdleTemp: heaterWords[2] * MMRItem.waterHeaterIdleTemp.readScale,
+      heaterPhase2Timeout: timeoutWords[0] * MMRItem.heaterUp2Timeout.readScale,
+    );
+  }
+
   @override
   String get name => "DE1";
   int _voltage = -1;

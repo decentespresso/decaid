@@ -148,6 +148,53 @@ extension UnifiedDe1MMR on UnifiedDe1 {
     return bytes.getInt32(4, Endian.little);
   }
 
+  /// Decodes the word at [wordIndex] (0-based) from a multi-word MMR
+  /// response. Words are little-endian signed int32 values starting at byte
+  /// offset 4, one per consecutive register. Throws [StateError] when the
+  /// response is too short rather than substituting zero/default values.
+  /// Frames longer than 20 bytes decode the words in place without
+  /// consuming trailing bytes.
+  int _unpackMMRIntAt(List<int> buffer, int wordIndex) {
+    final needed = 4 + 4 * (wordIndex + 1);
+    if (buffer.length < needed) {
+      throw StateError(
+        'MMR response buffer too short (got ${buffer.length} bytes, '
+        'expected at least $needed for word $wordIndex)',
+      );
+    }
+    ByteData bytes = ByteData(20);
+    var list = bytes.buffer.asUint8List();
+    final copyable = buffer.length < 20 ? buffer.length : 20;
+    for (var i = 0; i < copyable; i++) {
+      list[i] = buffer[i];
+    }
+    return bytes.getInt32(4 + 4 * wordIndex, Endian.little);
+  }
+
+  /// Reads [wordCount] consecutive 32-bit words starting at [startAddress]
+  /// with a single MMR request (`length` = additional words after the
+  /// first) and returns the raw signed words in register order. Uses the
+  /// same request/response correlation, serialization gate, retry and
+  /// timeout machinery as single-word reads via [_mmrReadRaw].
+  Future<List<int>> _mmrReadWords(
+    int startAddress, {
+    required int wordCount,
+    String? label,
+  }) async {
+    if (wordCount < 1 || wordCount > 4) {
+      throw RangeError.range(wordCount, 1, 4, 'wordCount');
+    }
+    final result = await _mmrReadRaw(
+      startAddress,
+      length: wordCount - 1,
+      label: label ?? '0x${startAddress.toRadixString(16)}',
+    );
+    return List<int>.generate(
+      wordCount,
+      (index) => _unpackMMRIntAt(result, index),
+    );
+  }
+
   Uint8List _packMMRInt(int number) {
     var bytes = ByteData(4);
     bytes.setUint32(0, number, Endian.little);
