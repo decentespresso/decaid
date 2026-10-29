@@ -30,12 +30,23 @@ class _MemoryMachineSettingsStore implements MachineSettingsStore {
     String identity, {
     int? fanThreshold,
     De1RefillKitSettings? refillKitSetting,
+    double? flowCalibration,
   }) async {
     if (identity.isEmpty) return;
     final current = _settings[identity];
     _settings[identity] = MachineSettings(
       fanThreshold: fanThreshold ?? current?.fanThreshold,
       refillKitSetting: refillKitSetting ?? current?.refillKitSetting,
+      flowCalibration: flowCalibration ?? current?.flowCalibration,
+    );
+  }
+
+  @override
+  Future<void> clearExceptFlowCalibration(String identity) async {
+    final current = _settings[identity];
+    if (current == null) return;
+    _settings[identity] = MachineSettings(
+      flowCalibration: current.flowCalibration,
     );
   }
 
