@@ -500,16 +500,22 @@ class De1Handler {
 
     app.get('/api/v1/machine/settings', () async {
       return withDe1((de1) async {
+        // Live hardware answers from coalesced multi-word MMR reads;
+        // simulated, replay and test devices compose the identical
+        // snapshot from the individual getters via the extension fallback.
+        final settings = de1 is UnifiedDe1
+            ? await de1.getCoalescedMachineSettings()
+            : await de1.getMachineSettingsSnapshot();
         var json = <String, dynamic>{};
-        json['fan'] = await de1.getFanThreshhold();
-        json['usb'] = await de1.getUsbChargerMode();
-        json['flushTemp'] = await de1.getFlushTemperature();
-        json['flushTimeout'] = await de1.getFlushTimeout();
-        json['flushFlow'] = await de1.getFlushFlow();
-        json['hotWaterFlow'] = await de1.getHotWaterFlow();
-        json['steamFlow'] = await de1.getSteamFlow();
-        json['tankTemp'] = await de1.getTankTempThreshold();
-        json['steamPurgeMode'] = await de1.getSteamPurgeMode();
+        json['fan'] = settings.fanThreshold;
+        json['usb'] = settings.usbChargerMode;
+        json['flushTemp'] = settings.flushTemperature;
+        json['flushTimeout'] = settings.flushTimeout;
+        json['flushFlow'] = settings.flushFlow;
+        json['hotWaterFlow'] = settings.hotWaterFlow;
+        json['steamFlow'] = settings.steamFlow;
+        json['tankTemp'] = settings.tankTempThreshold;
+        json['steamPurgeMode'] = settings.steamPurgeMode;
         return jsonOk(json);
       });
     });
@@ -577,11 +583,14 @@ class De1Handler {
 
     app.get('/api/v1/machine/settings/advanced', () async {
       return withDe1((de1) async {
+        final settings = de1 is UnifiedDe1
+            ? await de1.getCoalescedAdvancedMachineSettings()
+            : await de1.getAdvancedMachineSettingsSnapshot();
         var json = <String, dynamic>{};
-        json['heaterPh1Flow'] = await de1.getHeaterPhase1Flow();
-        json['heaterPh2Flow'] = await de1.getHeaterPhase2Flow();
-        json['heaterIdleTemp'] = await de1.getHeaterIdleTemp();
-        json['heaterPh2Timeout'] = await de1.getHeaterPhase2Timeout();
+        json['heaterPh1Flow'] = settings.heaterPhase1Flow;
+        json['heaterPh2Flow'] = settings.heaterPhase2Flow;
+        json['heaterIdleTemp'] = settings.heaterIdleTemp;
+        json['heaterPh2Timeout'] = settings.heaterPhase2Timeout;
         json['heaterVoltage'] = (await de1.getHeaterVoltage()).voltage;
         json['refillKitSetting'] = (await de1.getRefillKitSettings()).hex;
         return jsonOk(json);
