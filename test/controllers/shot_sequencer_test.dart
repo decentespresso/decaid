@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
@@ -10,6 +11,7 @@ import 'package:reaprime/src/controllers/shot_sequencer.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
 import 'package:reaprime/src/models/data/shot_snapshot.dart';
+import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/models/data/steam_record.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
 import 'package:reaprime/src/models/device/device.dart';
@@ -106,7 +108,7 @@ class _TestScaleController extends ScaleController {
   @override
   Scale connectedScale() {
     if (_connectionState.value != ConnectionState.connected) {
-      throw 'No scale connected';
+      throw const DeviceNotConnectedException.scale();
     }
     return testScale;
   }
@@ -1659,11 +1661,12 @@ void main() {
           [0.0, 0.0, 0.0, 18.0],
           reason: 'pre-tare frames are 0; real weight only after the pour tare',
         );
-        expect(
-          recorded.map((s) => s.scale?.weightFlow).toList(),
-          [0.0, 0.0, 0.0, 2.0],
-          reason: 'flow off the un-tared cup must not leak either',
-        );
+        expect(recorded.map((s) => s.scale?.weightFlow).toList(), [
+          0.0,
+          0.0,
+          0.0,
+          2.0,
+        ], reason: 'flow off the un-tared cup must not leak either');
 
         shotSequencer.dispose();
       });
@@ -1769,6 +1772,55 @@ void main() {
         );
 
         shotSequencer.dispose();
+      });
+    });
+
+    test('a scaleless shot end logs no scale-timer failure', () {
+      fakeAsync((async) {
+        final warnings = <String>[];
+        final subscription = Logger.root.onRecord.listen((record) {
+          if (record.level >= Level.WARNING) {
+            warnings.add(record.message);
+          }
+        });
+
+        // No scale connected at all: the timer-stop path must treat this as an
+        // ordinary scaleless shot, not as a failed stopTimer call.
+        scaleController.simulateDisconnect();
+        final shotSequencer = ShotSequencer(
+          scaleController: scaleController,
+          de1controller: de1Controller,
+          persistenceController: persistenceController,
+          targetProfile: profile,
+          targetYield: 36.0,
+          bypassSAW: false,
+          blockOnNoScale: false,
+          weightFlowMultiplier: 0.0,
+          volumeFlowMultiplier: 0.0,
+          stepExitArbiterEnabled: true,
+        );
+        final states = <ShotState>[];
+        shotSequencer.state.listen(states.add);
+        async.elapse(const Duration(milliseconds: 10));
+
+        driveToPouring(shotSequencer);
+        async.elapse(const Duration(milliseconds: 10));
+        testDe1.emitStateAndSubstate(
+          MachineState.espresso,
+          MachineSubstate.pouringDone,
+        );
+        async.elapse(const Duration(milliseconds: 50));
+
+        expect(states, contains(ShotState.finished));
+        expect(testScale.stopTimerCallCount, 0);
+        expect(
+          warnings.where((m) => m.contains('Failed to stop scale timer')),
+          isEmpty,
+          reason: 'an absent scale is not a timer-stop failure',
+        );
+
+        shotSequencer.dispose();
+        subscription.cancel();
       });
     });
   });
