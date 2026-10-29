@@ -65,6 +65,7 @@ class UnifiedDe1 implements De1Interface {
   final Duration firmwareVerificationTimeout;
   final Duration calibrationTimeout;
   Future<void> _calibrationQueue = Future<void>.value();
+  Future<void> _flowEstimationQueue = Future<void>.value();
 
   final Logger _log = Logger("DE1");
 
@@ -256,8 +257,11 @@ class UnifiedDe1 implements De1Interface {
 
   @override
   Future<double> getFlowEstimation() async {
+    final epoch = _flowEstimationEpoch;
     final value = await _readMMRScaled(MMRItem.calFlowEst);
-    _cachedFlowEstimation = value;
+    if (epoch == _flowEstimationEpoch) {
+      _cachedFlowEstimation = value;
+    }
     return value;
   }
 
@@ -363,6 +367,7 @@ class UnifiedDe1 implements De1Interface {
   int _refillKitDetected = -1;
   De1RefillKitSettings _refillKitSetting = De1RefillKitSettings.auto;
   double? _cachedFlowEstimation;
+  int _flowEstimationEpoch = 0;
   int? _connectedModelValue;
 
   @protected
@@ -585,9 +590,22 @@ class UnifiedDe1 implements De1Interface {
   }
 
   @override
-  Future<void> setFlowEstimation(double multiplier) async {
+  Future<void> setFlowEstimation(double multiplier) {
+    ++_flowEstimationEpoch;
+    final operation = _flowEstimationQueue.then(
+      (_) => _setFlowEstimationLocked(multiplier),
+    );
+    _flowEstimationQueue = operation.catchError((_) {});
+    return operation;
+  }
+
+  Future<void> _setFlowEstimationLocked(double multiplier) async {
+    final effective =
+        _scaledClampedMMRInt(MMRItem.calFlowEst, multiplier).toDouble() *
+        MMRItem.calFlowEst.readScale;
     await _writeMMRScaled(MMRItem.calFlowEst, multiplier);
-    _cachedFlowEstimation = multiplier;
+    ++_flowEstimationEpoch;
+    _cachedFlowEstimation = effective;
   }
 
   @override

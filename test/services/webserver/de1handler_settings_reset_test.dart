@@ -31,18 +31,31 @@ class _MemoryMachineSettingsStore implements MachineSettingsStore {
     String identity, {
     int? fanThreshold,
     De1RefillKitSettings? refillKitSetting,
+    double? flowCalibration,
   }) async {
     if (identity.isEmpty) return;
     final current = _settings[identity];
     _settings[identity] = MachineSettings(
       fanThreshold: fanThreshold ?? current?.fanThreshold,
       refillKitSetting: refillKitSetting ?? current?.refillKitSetting,
+      flowCalibration: flowCalibration ?? current?.flowCalibration,
     );
   }
 
   @override
   Future<void> clear(String identity) async {
     _settings.remove(identity);
+  }
+
+  @override
+  Future<void> clearExceptFlowCalibration(String identity) async {
+    final current = _settings[identity];
+    _settings.remove(identity);
+    if (current?.flowCalibration != null) {
+      _settings[identity] = MachineSettings(
+        flowCalibration: current?.flowCalibration,
+      );
+    }
   }
 }
 
@@ -342,6 +355,7 @@ void main() {
     test('applies the baseline defaults to the mock', () async {
       final de1 = MockDe1();
       await wireWith(de1);
+      await de1.setFlowEstimation(1.25);
 
       final res = await delete('/api/v1/machine/settings/reset');
       expect(res.statusCode, 202);
@@ -352,7 +366,7 @@ void main() {
       expect(await de1.getHeaterPhase2Flow(), 4.0);
       expect(await de1.getHeaterPhase2Timeout(), 4.0);
       expect(await de1.getRefillKitSettings(), De1RefillKitSettings.auto);
-      expect(await de1.getFlowEstimation(), 1.0);
+      expect(await de1.getFlowEstimation(), 1.25);
       expect(await de1.getSteamPurgeMode(), 0);
       expect(controller.connectedDe1OrNull, same(de1));
     });
@@ -368,6 +382,7 @@ void main() {
       await wireWith(first);
       await post('/api/v1/machine/settings', {'fan': 42});
       await post('/api/v1/machine/settings/advanced', {'refillKitSetting': 1});
+      await post('/api/v1/machine/calibration', {'flowMultiplier': 1.25});
 
       final second = _SerialMockDe1(serial: 'second');
       await controller.connectToDe1(second);
@@ -376,6 +391,7 @@ void main() {
       );
       await post('/api/v1/machine/settings', {'fan': 43});
       await post('/api/v1/machine/settings/advanced', {'refillKitSetting': 0});
+      await post('/api/v1/machine/calibration', {'flowMultiplier': 1.5});
       await delete('/api/v1/machine/settings/reset');
 
       final firstAgain = _SerialMockDe1(serial: 'first');
@@ -388,6 +404,10 @@ void main() {
         await firstAgain.getRefillKitSettings(),
         De1RefillKitSettings.forceOn,
       );
+      expect(
+        (await machineSettings.read('serial:first'))?.flowCalibration,
+        1.25,
+      );
 
       final secondAgain = _SerialMockDe1(serial: 'second');
       await controller.connectToDe1(secondAgain);
@@ -399,7 +419,54 @@ void main() {
         await secondAgain.getRefillKitSettings(),
         De1RefillKitSettings.auto,
       );
+      expect(
+        (await machineSettings.read('serial:second'))?.flowCalibration,
+        1.5,
+      );
+      expect(await secondAgain.getFlowEstimation(), 1.5);
     });
+
+    test(
+      'reset leaves the live calibration and the saved override alone',
+      () async {
+        final de1 = _SerialMockDe1(serial: 'calibrated');
+        await wireWith(de1);
+        await post('/api/v1/machine/calibration', {'flowMultiplier': 1.25});
+        expect(await de1.getFlowEstimation(), 1.25);
+
+        final res = await delete('/api/v1/machine/settings/reset');
+        expect(res.statusCode, 202);
+
+        expect(await de1.getFlowEstimation(), 1.25);
+        expect(
+          (await machineSettings.read('serial:calibrated'))?.flowCalibration,
+          1.25,
+        );
+      },
+    );
+
+    test(
+      'reconnection after reset restores the saved override on a fresh machine',
+      () async {
+        final de1 = _SerialMockDe1(serial: 'power-cycled');
+        await wireWith(de1);
+        await post('/api/v1/machine/calibration', {'flowMultiplier': 1.25});
+        await delete('/api/v1/machine/settings/reset');
+        await de1.disconnect();
+        await Future<void>.delayed(Duration.zero);
+
+        // A fresh instance reports the firmware default, as after a power
+        // cycle that forgets the multiplier; the preserved override is
+        // reapplied at connect.
+        final replacement = _SerialMockDe1(serial: 'power-cycled');
+        expect(await replacement.getFlowEstimation(), 1.0);
+        await controller.connectToDe1(replacement);
+        await controller.initSettled.firstWhere(
+          (generation) => generation != null,
+        );
+        expect(await replacement.getFlowEstimation(), 1.25);
+      },
+    );
   });
 
   group('PUT /api/v1/machine/state/espresso — blockOnNoScale', () {

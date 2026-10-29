@@ -669,6 +669,15 @@ class De1Controller {
     if (steamFlow != null) _publishSteamFlow(steamFlow);
   }
 
+  Future<void> updateMachineCalibration(double? flowMultiplier) async {
+    await runDeviceWrite((device) async {
+      final identity = _machineSettingsIdentity(device);
+      if (flowMultiplier == null) return;
+      await device.setFlowEstimation(flowMultiplier);
+      await _saveMachineSettings(identity, flowCalibration: flowMultiplier);
+    });
+  }
+
   Future<void> updateAdvancedMachineSettings({
     double? heaterPh1Flow,
     double? heaterPh2Flow,
@@ -706,11 +715,13 @@ class De1Controller {
     String identity, {
     int? fanThreshold,
     De1RefillKitSettings? refillKitSetting,
+    double? flowCalibration,
   }) async {
     await _machineSettings.update(
       identity,
       fanThreshold: fanThreshold,
       refillKitSetting: refillKitSetting,
+      flowCalibration: flowCalibration,
     );
   }
 

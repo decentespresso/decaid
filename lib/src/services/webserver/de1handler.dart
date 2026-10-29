@@ -626,10 +626,8 @@ class De1Handler {
       final flowMultiplier = json['flowMultiplier'] == null
           ? null
           : parseDouble(json['flowMultiplier']);
-      return withQueuedDe1((de1) async {
-        if (flowMultiplier != null) {
-          await de1.setFlowEstimation(flowMultiplier);
-        }
+      return _mapDe1WriteErrors(() async {
+        await _controller.updateMachineCalibration(flowMultiplier);
         return jsonAccepted();
       });
     });

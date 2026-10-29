@@ -743,6 +743,8 @@ Future<void> connectToDe1(De1Interface de1Interface) async {
 }
 ```
 
+On connect, the DE1 firmware calibration is read first, then a nullable saved flow override is applied during startup defaults; absent overrides leave firmware calibration untouched. The persisted value is the **requested** multiplier; after the transport acknowledges the write, the cache holds the **effective** value derived from Decaid's own register encoding (requested value clamped to the raw 130–2000 range, converted back through the read scale), with no post-write read-back. Only an explicit `getFlowEstimation()` returns a value actually **reported** by the machine. The override identity is captured from the raw serial, falling back to device ID, and is not recomputed after connection identity resolution.
+
 **Key Streams:**
 - `de1`: Current connected DE1 (or null)
 - `steamData`: Steam settings

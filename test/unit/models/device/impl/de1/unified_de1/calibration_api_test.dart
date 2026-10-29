@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -26,6 +27,17 @@ Uint8List _packet({
   return bytes.buffer.asUint8List();
 }
 
+Uint8List _mmrResponse(int rawValue) {
+  final resp = Uint8List(20);
+  final view = ByteData.sublistView(resp);
+  view.setUint8(0, 0);
+  view.setUint8(1, (MMRItem.calFlowEst.address >> 16) & 0xff);
+  view.setUint8(2, (MMRItem.calFlowEst.address >> 8) & 0xff);
+  view.setUint8(3, MMRItem.calFlowEst.address & 0xff);
+  view.setInt32(4, rawValue, Endian.little);
+  return resp;
+}
+
 class _FailingCalibrationWriteTransport extends FakeBleTransport {
   @override
   Future<void> write(
@@ -37,6 +49,63 @@ class _FailingCalibrationWriteTransport extends FakeBleTransport {
   }) async {
     if (characteristicUUID == Endpoint.calibration.uuid) {
       throw StateError('simulated calibration write failure');
+    }
+    return super.write(
+      serviceUUID,
+      characteristicUUID,
+      data,
+      withResponse: withResponse,
+      timeout: timeout,
+    );
+  }
+}
+
+class _SwallowMmrReadTransport extends FakeBleTransport {
+  bool swallowReads = false;
+
+  @override
+  Future<void> write(
+    String serviceUUID,
+    String characteristicUUID,
+    Uint8List data, {
+    bool withResponse = true,
+    Duration? timeout,
+  }) async {
+    if (swallowReads && characteristicUUID == Endpoint.readFromMMR.uuid) {
+      return;
+    }
+    return super.write(
+      serviceUUID,
+      characteristicUUID,
+      data,
+      withResponse: withResponse,
+      timeout: timeout,
+    );
+  }
+}
+
+class _GatedMmrWriteTransport extends FakeBleTransport {
+  bool holdWrites = false;
+  final writeEntered = Completer<void>();
+  Completer<void>? releaseWrite;
+  bool swallowReads = false;
+  final readEntered = Completer<void>();
+
+  @override
+  Future<void> write(
+    String serviceUUID,
+    String characteristicUUID,
+    Uint8List data, {
+    bool withResponse = true,
+    Duration? timeout,
+  }) async {
+    if (holdWrites && characteristicUUID == Endpoint.writeToMMR.uuid) {
+      if (!writeEntered.isCompleted) writeEntered.complete();
+      await (releaseWrite ??= Completer<void>()).future;
+    }
+    if (swallowReads && characteristicUUID == Endpoint.readFromMMR.uuid) {
+      if (!readEntered.isCompleted) readEntered.complete();
+      return;
     }
     return super.write(
       serviceUUID,
@@ -205,6 +274,168 @@ void main() {
   );
 
   test(
+    'setFlowEstimation caches the effective clamped value without a read',
+    () async {
+      await de1.setFlowEstimation(3.0);
+
+      final mmrWrite = transport.writes.singleWhere(
+        (write) => write.characteristicUUID == Endpoint.writeToMMR.uuid,
+      );
+      expect(mmrWrite.data.sublist(0, 4), [0x04, 0x80, 0x38, 0x3C]);
+      expect(
+        ByteData.sublistView(mmrWrite.data).getUint32(4, Endian.little),
+        2000,
+      );
+      expect(de1.cachedFlowEstimation, 2.0);
+      expect(
+        transport.writes.where(
+          (write) => write.characteristicUUID == Endpoint.readFromMMR.uuid,
+        ),
+        isEmpty,
+      );
+    },
+  );
+
+  test(
+    'setFlowEstimation derives the cached value from the write itself',
+    () async {
+      expect(de1.cachedFlowEstimation, 1.0);
+
+      await de1.setFlowEstimation(1.2349);
+
+      expect(de1.cachedFlowEstimation, closeTo(1.234, 1e-9));
+      expect(
+        transport.writes.where(
+          (write) => write.characteristicUUID == Endpoint.readFromMMR.uuid,
+        ),
+        isEmpty,
+      );
+    },
+  );
+
+  test('normal flow reads still retry a dropped response', () async {
+    transport.dropNextMmrResponses = 1;
+    transport.queueMmrResponseInt(MMRItem.calFlowEst, 1300);
+
+    expect(await de1.getFlowEstimation(), closeTo(1.3, 1e-9));
+    expect(de1.cachedFlowEstimation, closeTo(1.3, 1e-9));
+  });
+
+  test(
+    'overlapping flow writes complete in order with the latest value cached',
+    () async {
+      final first = de1.setFlowEstimation(1.5);
+      final second = de1.setFlowEstimation(1.25);
+      await Future.wait([first, second]);
+
+      final mmrWrites = transport.writes
+          .where((w) => w.characteristicUUID == Endpoint.writeToMMR.uuid)
+          .map((w) => ByteData.sublistView(w.data).getUint32(4, Endian.little))
+          .toList();
+      expect(mmrWrites, [1500, 1250]);
+      expect(de1.cachedFlowEstimation, closeTo(1.25, 1e-9));
+
+      transport.emitNotification(Endpoint.readFromMMR, _mmrResponse(1500));
+      await pumpEventQueue();
+      expect(de1.cachedFlowEstimation, closeTo(1.25, 1e-9));
+    },
+  );
+
+  test(
+    'a failed newer write does not erase the earlier write cache update',
+    () async {
+      expect(de1.cachedFlowEstimation, 1.0);
+      transport.failMmrWriteOrdinalForAddresses[MMRItem.calFlowEst.address] = 2;
+
+      final first = de1.setFlowEstimation(1.5);
+      final second = de1.setFlowEstimation(1.25);
+      await first;
+      await expectLater(second, throwsStateError);
+      expect(de1.cachedFlowEstimation, closeTo(1.5, 1e-9));
+
+      transport.failMmrWriteOrdinalForAddresses.clear();
+      await de1.setFlowEstimation(1.5);
+      expect(de1.cachedFlowEstimation, closeTo(1.5, 1e-9));
+    },
+  );
+
+  test(
+    'a late MMR reply racing a newer write cannot corrupt the cache',
+    () async {
+      final gated = _GatedMmrWriteTransport()..queueOnConnectResponses();
+      final device = UnifiedDe1(transport: gated);
+      addTearDown(() async {
+        gated.holdWrites = false;
+        final release = gated.releaseWrite;
+        if (release != null && !release.isCompleted) release.complete();
+        await device.dispose();
+      });
+      await device.onConnect();
+      gated.writes.clear();
+
+      await device.setFlowEstimation(1.5);
+      expect(device.cachedFlowEstimation, closeTo(1.5, 1e-9));
+
+      gated.holdWrites = true;
+      final second = device.setFlowEstimation(1.25);
+      await gated.writeEntered.future;
+      gated.emitNotification(Endpoint.readFromMMR, _mmrResponse(1500));
+      await pumpEventQueue();
+      gated.releaseWrite!.complete();
+      await second;
+
+      expect(device.cachedFlowEstimation, closeTo(1.25, 1e-9));
+      expect(
+        gated.writes.where(
+          (write) => write.characteristicUUID == Endpoint.readFromMMR.uuid,
+        ),
+        isEmpty,
+      );
+    },
+  );
+
+  test('a read superseded by a write does not overwrite the cache', () async {
+    final swallowed = _SwallowMmrReadTransport()..queueOnConnectResponses();
+    final de1 = UnifiedDe1(transport: swallowed);
+    addTearDown(de1.dispose);
+    await de1.onConnect();
+    swallowed.writes.clear();
+    expect(de1.cachedFlowEstimation, 1.0);
+
+    swallowed.swallowReads = true;
+    final pendingRead = de1.getFlowEstimation();
+    await pumpEventQueue();
+    await de1.setFlowEstimation(1.5);
+    swallowed.emitNotification(Endpoint.readFromMMR, _mmrResponse(1300));
+    expect(await pendingRead, closeTo(1.3, 1e-9));
+    expect(de1.cachedFlowEstimation, closeTo(1.5, 1e-9));
+  });
+
+  test(
+    'a read started during a write cannot overwrite the newer cache',
+    () async {
+      final gated = _GatedMmrWriteTransport()..queueOnConnectResponses();
+      final device = UnifiedDe1(transport: gated);
+      addTearDown(device.dispose);
+      await device.onConnect();
+      gated.writes.clear();
+
+      // Hold the read response so the stale value below is delivered only
+      // after the write has completed; no sleeps, no write gating.
+      gated.swallowReads = true;
+      final write = device.setFlowEstimation(1.5);
+      final pendingRead = device.getFlowEstimation();
+      await gated.readEntered.future;
+      await write;
+      expect(device.cachedFlowEstimation, closeTo(1.5, 1e-9));
+
+      gated.emitNotification(Endpoint.readFromMMR, _mmrResponse(1000));
+      expect(await pendingRead, closeTo(1.0, 1e-9));
+      expect(device.cachedFlowEstimation, closeTo(1.5, 1e-9));
+    },
+  );
+
+  test(
     'real and simulated writes reject multiplicative encoded zero',
     () async {
       final mock = MockDe1();
@@ -326,6 +557,7 @@ void main() {
   test('flow estimation MMR API stays untouched by calibration', () async {
     transport.queueMmrResponseInt(MMRItem.calFlowEst, 1234);
     expect(await de1.getFlowEstimation(), closeTo(1.234, 1e-9));
+    transport.queueMmrResponseInt(MMRItem.calFlowEst, 1500);
     await de1.setFlowEstimation(1.5);
 
     expect(

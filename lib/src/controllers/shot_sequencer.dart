@@ -10,6 +10,7 @@ import 'package:reaprime/src/models/data/shot_snapshot.dart';
 import 'package:reaprime/src/models/data/shot_state_event.dart';
 import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/machine.dart';
+import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/device.dart' as device;
 import 'package:rxdart/rxdart.dart';
 
@@ -198,6 +199,8 @@ class ShotSequencer {
   final double? targetWaterVolume;
   ShotState _state = ShotState.idle;
   bool _scaleLost = false;
+  bool _scaleTimerStopped = false;
+  Scale? _scaleTimerScale;
   bool _scaleConnected = false;
   bool _continueScaleless = false;
   int _scaleConnectionGeneration = 0;
@@ -346,6 +349,7 @@ class ShotSequencer {
       );
       _volumeCountingActive = false;
       dataCollectionEnabled = false;
+      _stopScaleTimer();
       _state = ShotState.finished;
       _stateStream.add(_state);
       return;
@@ -355,6 +359,8 @@ class ShotSequencer {
       case ShotState.idle:
         if (machine.state.state == MachineState.espresso &&
             machine.state.substate == MachineSubstate.preparingForShot) {
+          _scaleTimerStopped = false;
+          _scaleTimerScale = null;
           _resetCommand.add(true);
           _shotStartTime = DateTime.now();
 
@@ -416,7 +422,8 @@ class ShotSequencer {
             scaleController.tare().catchError(
               (e) => _log.warning("Failed to tare scale for pour", e),
             );
-            scaleController.connectedScale().startTimer().catchError(
+            _scaleTimerScale = scaleController.connectedScale();
+            _scaleTimerScale!.startTimer().catchError(
               (e) => _log.warning('Failed to start scale timer', e),
             );
             _scaleTared = true;
@@ -507,11 +514,7 @@ class ShotSequencer {
 
       case ShotState.stopping:
         _volumeCountingActive = false;
-        if (_bypassSAW == false && scale != null && !_scaleLost) {
-          scaleController.connectedScale().stopTimer().catchError(
-            (e) => _log.warning('Failed to stop scale timer', e),
-          );
-        }
+        _stopScaleTimer();
 
         _refineStoppingYield(scale);
         if (_stoppingYieldLocked) {
@@ -645,9 +648,26 @@ class ShotSequencer {
         );
   }
 
+  void _stopScaleTimer() {
+    if (_scaleTimerStopped || _bypassSAW) return;
+    _scaleTimerStopped = true;
+
+    final scale = _scaleTimerScale;
+    if (scale == null) return;
+
+    try {
+      scale.stopTimer().catchError(
+        (e) => _log.warning('Failed to stop scale timer', e),
+      );
+    } catch (e) {
+      _log.warning('Failed to stop scale timer', e);
+    }
+  }
+
   void _enterStopping(WeightSnapshot? scale) {
     _latchTrustedFinalYield(scale);
     dataCollectionEnabled = false;
+    _stopScaleTimer();
     _state = _trustedFinalYield != null
         ? ShotState.stopping
         : ShotState.finished;

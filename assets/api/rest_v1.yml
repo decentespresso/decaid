@@ -952,9 +952,13 @@ paths:
       summary: Reset machine settings to defaults
       description: |
         Reapplies a baseline set of machine settings (fan threshold, heater idle temp,
-        heater phase 1/2 flows, heater phase 2 timeout, refill kit auto mode,
-        flow estimation multiplier, steam purge mode), and clears the retained fan/refill
-        overrides for the connected machine only. Profile and workflow are not touched.
+        heater phase 1/2 flows, heater phase 2 timeout, refill kit auto mode, and
+        steam purge mode), and clears the retained fan/refill overrides for the
+        connected machine only. Flow calibration is left untouched: no calibration
+        packet is sent, the machine multiplier is neither read nor modified, and the
+        saved per-machine calibration override is preserved for the next connection.
+        Profile and workflow are not touched. A reset acknowledgement is not evidence
+        of factory restoration.
       tags: [Machine]
       responses:
         "202":
@@ -982,9 +986,11 @@ paths:
     post:
       summary: Set machine calibration settings
       description: |
-        Updates the flow estimation calibration multiplier on the DE1
-        (calFlowEst MMR). For DE1 sensor calibration (flow/pressure/temperature)
-        see PUT /api/v1/machine/calibration/{target}.
+        Updates the flow estimation calibration multiplier on the DE1 (calFlowEst MMR) and persists
+        the requested multiplier for this machine. The override is keyed by raw serial number, or
+        the device ID when no usable serial exists, and is reapplied on the next connection. A
+        settings reset preserves this machine's saved override. For DE1 sensor calibration
+        (flow/pressure/temperature) see PUT /api/v1/machine/calibration/{target}.
       tags: [Machine]
       requestBody:
         required: true

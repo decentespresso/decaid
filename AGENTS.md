@@ -65,8 +65,8 @@ All three steps are required, not optional.
   the file after verification only if you created that copy; leave any pre-existing keystore alone.
 - **`scripts/sb-dev.sh` injects `--dart-define=simulate=1` unless you pass `--real`.** Simulate mode adds
   mock devices (`MockDe1`, `MockBengle`, `Mock Scale`, `DebugPort`, `SensorBasket`); their behaviour is not
-  product behaviour. `MockDe1.rawOutStream` throws `UnimplementedError`, so the raw channel cannot be
-  exercised that way.
+  product behaviour and does not prove real-hardware behaviour. `MockDe1` supports hardware-free raw
+  WebSocket smoke testing — see `.agents/skills/decent-app/scenarios/mock-de1-raw.md`.
 - **Do not probe a request/response WebSocket with a one-shot client.** `websocat -n` and anything else
   that closes on stdin EOF can drop the request before delivery, leaving only server-push frames. Use a
   persistent client: connect, send, then read for a few seconds. A control probe proves nothing when the
