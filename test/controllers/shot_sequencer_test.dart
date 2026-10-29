@@ -620,6 +620,177 @@ void main() {
       },
     );
 
+    ShotSequencer timerSequencer(ScaleController controller) => ShotSequencer(
+      scaleController: controller,
+      de1controller: de1Controller,
+      persistenceController: persistenceController,
+      targetProfile: profile,
+      targetYield: 36,
+      bypassSAW: false,
+      blockOnNoScale: false,
+      weightFlowMultiplier: 0,
+      volumeFlowMultiplier: 0,
+      stepExitArbiterEnabled: true,
+    );
+
+    void emitZeroWeight(TestScale scale) {
+      scale.emitSnapshot(
+        ScaleSnapshot(
+          timestamp: DateTime(2026, 1, 15, 8, 0),
+          weight: 0,
+          batteryLevel: 100,
+        ),
+      );
+    }
+
+    test(
+      'timer cleanup stops the original scale after a handoff, not B',
+      () async {
+        final controller = ScaleController();
+        final replacement = TestScale(deviceId: 'scale-B');
+        await controller.connectToScale(testScale);
+        await Future<void>.delayed(Duration.zero);
+        emitZeroWeight(testScale);
+        await Future<void>.delayed(Duration.zero);
+        expect(controller.currentConnectionState, ConnectionState.connected);
+        expect(controller.currentWeightSnapshot, isNotNull);
+        final sequencer = timerSequencer(controller);
+        await Future<void>.delayed(Duration.zero);
+        driveToPouring(sequencer);
+        await Future<void>.delayed(Duration.zero);
+        expect(testScale.startTimerCallCount, 1);
+
+        await controller.connectToScale(replacement);
+        await Future<void>.delayed(Duration.zero);
+        emitZeroWeight(replacement);
+        await Future<void>.delayed(Duration.zero);
+        testDe1.emitStateAndSubstate(
+          MachineState.espresso,
+          MachineSubstate.pouringDone,
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(sequencer.currentState, ShotState.finished);
+        expect(testScale.stopTimerCallCount, 1);
+        expect(replacement.startTimerCallCount, 0);
+        expect(replacement.stopTimerCallCount, 0);
+        sequencer.dispose();
+        controller.dispose();
+        replacement.dispose();
+      },
+    );
+
+    for (final reuseInstance in [true, false]) {
+      test(
+        reuseInstance
+            ? 'timer cleanup deliberately stops the reconnected original, not B'
+            : 'timer cleanup ignores a new instance on reconnect',
+        () async {
+          final controller = ScaleController();
+          final reconnected = reuseInstance
+              ? testScale
+              : TestScale(deviceId: testScale.deviceId);
+          await controller.connectToScale(testScale);
+          await Future<void>.delayed(Duration.zero);
+          emitZeroWeight(testScale);
+          await Future<void>.delayed(Duration.zero);
+          final sequencer = timerSequencer(controller);
+          await Future<void>.delayed(Duration.zero);
+          driveToPouring(sequencer);
+          await Future<void>.delayed(Duration.zero);
+          expect(testScale.startTimerCallCount, 1);
+          final generation = controller.connectionGeneration;
+
+          testScale.setConnectionState(ConnectionState.disconnected);
+          await Future<void>.delayed(Duration.zero);
+          reconnected.setConnectionState(ConnectionState.connected);
+          await controller.connectToScale(reconnected);
+          await Future<void>.delayed(Duration.zero);
+          expect(controller.connectionGeneration, greaterThan(generation));
+          expect(identical(controller.connectedScale(), reconnected), isTrue);
+          emitZeroWeight(reconnected);
+          await Future<void>.delayed(Duration.zero);
+          final replacement = TestScale(deviceId: 'scale-B');
+          if (reuseInstance) {
+            await controller.connectToScale(replacement);
+            await Future<void>.delayed(Duration.zero);
+          }
+          testDe1.emitStateAndSubstate(
+            MachineState.espresso,
+            MachineSubstate.pouringDone,
+          );
+          await Future<void>.delayed(Duration.zero);
+
+          expect(sequencer.currentState, ShotState.finished);
+          expect(reconnected.stopTimerCallCount, reuseInstance ? 1 : 0);
+          expect(replacement.stopTimerCallCount, 0);
+          sequencer.dispose();
+          controller.dispose();
+          replacement.dispose();
+          if (!reuseInstance) reconnected.dispose();
+        },
+      );
+    }
+
+    test(
+      'timer cleanup ignores a scale connecting after a scaleless start',
+      () async {
+        final controller = ScaleController();
+        final sequencer = timerSequencer(controller);
+        await Future<void>.delayed(Duration.zero);
+        driveToPouring(sequencer);
+        await Future<void>.delayed(Duration.zero);
+        expect(sequencer.currentState, ShotState.pouring);
+        await controller.connectToScale(testScale);
+        await Future<void>.delayed(Duration.zero);
+        emitZeroWeight(testScale);
+        await Future<void>.delayed(Duration.zero);
+        testDe1.emitStateAndSubstate(
+          MachineState.espresso,
+          MachineSubstate.pouringDone,
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(sequencer.currentState, ShotState.finished);
+        expect(testScale.startTimerCallCount, 0);
+        expect(testScale.stopTimerCallCount, 0);
+        sequencer.dispose();
+        controller.dispose();
+      },
+    );
+
+    test('synchronous timer stop failure logs and still finishes the shot', () {
+      fakeAsync((async) {
+        final records = <LogRecord>[];
+        final subscription = Logger.root.onRecord.listen(records.add);
+        testScale.throwOnStopTimer = true;
+        scaleController.emitWeight(0);
+        final sequencer = timerSequencer(scaleController);
+        driveToPouring(sequencer);
+        async.flushMicrotasks();
+        expect(testScale.startTimerCallCount, 1);
+        testDe1.emitStateAndSubstate(
+          MachineState.espresso,
+          MachineSubstate.pouringDone,
+        );
+        async.flushMicrotasks();
+
+        expect(sequencer.currentState, ShotState.finished);
+        expect(testScale.stopTimerCallCount, 1);
+        expect(
+          records.where(
+            (record) =>
+                record.level >= Level.WARNING &&
+                record.message == 'Failed to stop scale timer' &&
+                record.error is StateError,
+          ),
+          hasLength(1),
+        );
+        sequencer.dispose();
+        subscription.cancel();
+      });
+    });
+
     test('scale handoff during a shot stays scaleless', () {
       fakeAsync((async) {
         scaleController.emitWeight(0);
@@ -840,6 +1011,10 @@ void main() {
           async.elapse(const Duration(milliseconds: 100));
         }
         expect(optionalScale.calls, containsAll(['reset', 'start', 'stop']));
+        expect(
+          optionalScale.calls.where((call) => call == 'stop'),
+          hasLength(1),
+        );
         sequencer.dispose();
         optionalScale.dispose();
       });
@@ -2562,6 +2737,8 @@ void main() {
           final terminal = decisions.singleWhere(
             (d) => d.kind == ShotDecisionKind.terminal,
           );
+          expect(testScale.startTimerCallCount, 1);
+          expect(testScale.stopTimerCallCount, 1);
           expect(terminal.reason, ShotDecisionReason.error);
           expect(sequencer.finalStopReason, ShotDecisionReason.error);
           expect(states, contains(ShotState.finished));
