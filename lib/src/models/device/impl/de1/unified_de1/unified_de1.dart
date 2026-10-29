@@ -273,7 +273,7 @@ class UnifiedDe1 implements De1Interface {
     return await _readMMRInt(MMRItem.steamPurgeMode);
   }
 
-  /// Reads the normal settings with 3 multi-word MMR requests plus 2
+  /// Reads the normal settings with 2 multi-word MMR requests plus 3
   /// single-word reads instead of 9 single-word ones. Register groups are
   /// asserted contiguous so a future [MMRItem] address change fails loudly
   /// instead of decoding the wrong word. Scaling and boolean
@@ -331,10 +331,10 @@ class UnifiedDe1 implements De1Interface {
     );
   }
 
-  /// Reads the MMR-backed advanced settings with 2 multi-word MMR requests
-  /// instead of 4 single-word ones. Same contiguity and scaling contract
-  /// as [getCoalescedMachineSettings]. Same explicit-selection contract
-  /// (see [De1SettingsSnapshots.getAdvancedMachineSettingsSnapshot]).
+  /// Reads the MMR-backed advanced settings with 1 multi-word MMR request
+  /// plus 1 single-word read instead of 4 single-word ones. Same contiguity
+  /// and scaling contract as [getCoalescedMachineSettings]. Same explicit
+  /// selection (see [De1SettingsSnapshots.getAdvancedMachineSettingsSnapshot]).
   Future<De1AdvancedMachineSettings>
   getCoalescedAdvancedMachineSettings() async {
     assert(

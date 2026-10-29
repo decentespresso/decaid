@@ -500,10 +500,10 @@ class De1Handler {
 
     app.get('/api/v1/machine/settings', () async {
       return withDe1((de1) async {
-        // Live hardware answers from coalesced multi-word MMR reads;
-        // simulated, replay and test devices compose the identical
+        // Validated DE1 hardware uses coalesced multi-word MMR reads;
+        // Bengle, simulated, replay and test devices compose the identical
         // snapshot from the individual getters via the extension fallback.
-        final settings = de1 is UnifiedDe1
+        final settings = de1 is UnifiedDe1 && de1 is! BengleInterface
             ? await de1.getCoalescedMachineSettings()
             : await de1.getMachineSettingsSnapshot();
         var json = <String, dynamic>{};
@@ -583,7 +583,7 @@ class De1Handler {
 
     app.get('/api/v1/machine/settings/advanced', () async {
       return withDe1((de1) async {
-        final settings = de1 is UnifiedDe1
+        final settings = de1 is UnifiedDe1 && de1 is! BengleInterface
             ? await de1.getCoalescedAdvancedMachineSettings()
             : await de1.getAdvancedMachineSettingsSnapshot();
         var json = <String, dynamic>{};

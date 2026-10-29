@@ -60,30 +60,6 @@ class _FailingCalibrationWriteTransport extends FakeBleTransport {
   }
 }
 
-class _SwallowMmrReadTransport extends FakeBleTransport {
-  bool swallowReads = false;
-
-  @override
-  Future<void> write(
-    String serviceUUID,
-    String characteristicUUID,
-    Uint8List data, {
-    bool withResponse = true,
-    Duration? timeout,
-  }) async {
-    if (swallowReads && characteristicUUID == Endpoint.readFromMMR.uuid) {
-      return;
-    }
-    return super.write(
-      serviceUUID,
-      characteristicUUID,
-      data,
-      withResponse: withResponse,
-      timeout: timeout,
-    );
-  }
-}
-
 class _GatedMmrWriteTransport extends FakeBleTransport {
   bool holdWrites = false;
   final writeEntered = Completer<void>();
@@ -395,7 +371,7 @@ void main() {
   );
 
   test('a read superseded by a write does not overwrite the cache', () async {
-    final swallowed = _SwallowMmrReadTransport()..queueOnConnectResponses();
+    final swallowed = _GatedMmrWriteTransport()..queueOnConnectResponses();
     final de1 = UnifiedDe1(transport: swallowed);
     addTearDown(de1.dispose);
     await de1.onConnect();
@@ -404,10 +380,15 @@ void main() {
 
     swallowed.swallowReads = true;
     final pendingRead = de1.getFlowEstimation();
-    await pumpEventQueue();
-    await de1.setFlowEstimation(1.5);
+    await swallowed.readEntered.future;
+    swallowed.holdWrites = true;
+    final write = de1.setFlowEstimation(1.5);
     swallowed.emitNotification(Endpoint.readFromMMR, _mmrResponse(1300));
     expect(await pendingRead, closeTo(1.3, 1e-9));
+    await swallowed.writeEntered.future;
+    expect(de1.cachedFlowEstimation, 1.0);
+    swallowed.releaseWrite!.complete();
+    await write;
     expect(de1.cachedFlowEstimation, closeTo(1.5, 1e-9));
   });
 
@@ -420,11 +401,14 @@ void main() {
       await device.onConnect();
       gated.writes.clear();
 
-      // Hold the read response so the stale value below is delivered only
-      // after the write has completed; no sleeps, no write gating.
       gated.swallowReads = true;
+      gated.holdWrites = true;
       final write = device.setFlowEstimation(1.5);
+      await gated.writeEntered.future;
       final pendingRead = device.getFlowEstimation();
+      await pumpEventQueue();
+      expect(gated.readEntered.isCompleted, isFalse);
+      gated.releaseWrite!.complete();
       await gated.readEntered.future;
       await write;
       expect(device.cachedFlowEstimation, closeTo(1.5, 1e-9));
