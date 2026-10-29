@@ -10,7 +10,9 @@ import 'package:reaprime/src/models/data/shot_snapshot.dart';
 import 'package:reaprime/src/models/data/shot_state_event.dart';
 import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/machine.dart';
+import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/device.dart' as device;
+import 'package:reaprime/src/models/errors.dart';
 import 'package:rxdart/rxdart.dart';
 
 export 'package:reaprime/src/models/data/shot_state_event.dart'
@@ -646,13 +648,22 @@ class ShotSequencer {
   void _stopScaleTimer() {
     if (_scaleTimerStopped || _bypassSAW) return;
     _scaleTimerStopped = true;
+
+    final Scale scale;
     try {
-      scaleController.connectedScale().stopTimer().catchError(
-        (e) => _log.warning('Failed to stop scale timer', e),
-      );
+      scale = scaleController.connectedScale();
+    } on DeviceNotConnectedException {
+      // No scale is connected, so there is no timer to stop. This is the
+      // normal scaleless-shot path, not a failure worth a warning.
+      return;
     } catch (e) {
       _log.warning('Failed to stop scale timer', e);
+      return;
     }
+
+    scale.stopTimer().catchError(
+      (e) => _log.warning('Failed to stop scale timer', e),
+    );
   }
 
   void _enterStopping(WeightSnapshot? scale) {
