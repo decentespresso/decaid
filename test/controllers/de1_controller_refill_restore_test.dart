@@ -10,42 +10,7 @@ import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/settings/machine_settings_store.dart';
 
 import '../helpers/fake_ble_transport.dart';
-
-class _MemoryMachineSettingsStore implements MachineSettingsStore {
-  final Map<String, MachineSettings> _settings = {};
-
-  @override
-  Future<MachineSettings?> read(String identity) async => _settings[identity];
-
-  @override
-  Future<void> update(
-    String identity, {
-    int? fanThreshold,
-    De1RefillKitSettings? refillKitSetting,
-    double? flowCalibration,
-  }) async {
-    final current = _settings[identity];
-    _settings[identity] = MachineSettings(
-      fanThreshold: fanThreshold ?? current?.fanThreshold,
-      refillKitSetting: refillKitSetting ?? current?.refillKitSetting,
-      flowCalibration: flowCalibration ?? current?.flowCalibration,
-    );
-  }
-
-  @override
-  Future<void> clear(String identity) async => _settings.remove(identity);
-
-  @override
-  Future<void> clearExceptFlowCalibration(String identity) async {
-    final current = _settings[identity];
-    _settings.remove(identity);
-    if (current?.flowCalibration != null) {
-      _settings[identity] = MachineSettings(
-        flowCalibration: current?.flowCalibration,
-      );
-    }
-  }
-}
+import '../helpers/memory_machine_settings_store.dart';
 
 class _EmptyTransport extends FakeBleTransport {
   @override
@@ -157,8 +122,10 @@ void main() {
   test(
     'missing serial and transport identity preserve calibration without a write',
     () async {
-      final settings = _MemoryMachineSettingsStore();
+      final settings = MemoryMachineSettingsStore();
       await settings.update('serial:12345', flowCalibration: 1.25);
+      await settings.update('', flowCalibration: 1.5);
+      expect(await settings.read(''), isNull);
       final harness = await _connect(
         settings: settings,
         transport: _EmptyTransport(),
@@ -180,7 +147,7 @@ void main() {
   });
 
   test('saved calibration override writes explicit 1.0 at connect', () async {
-    final settings = _MemoryMachineSettingsStore();
+    final settings = MemoryMachineSettingsStore();
     await settings.update('serial:12345', flowCalibration: 1.0);
     final harness = await _connect(
       settings: settings,
@@ -194,7 +161,7 @@ void main() {
   test(
     'two machine identities restore independent calibration overrides',
     () async {
-      final settings = _MemoryMachineSettingsStore();
+      final settings = MemoryMachineSettingsStore();
       await settings.update('serial:12345', flowCalibration: 1.25);
       await settings.update('serial:54321', flowCalibration: 1.5);
       final firstA = await _connect(
@@ -234,7 +201,7 @@ void main() {
   );
 
   test('legacy raw serial fallback keeps one calibration identity', () async {
-    final settings = _MemoryMachineSettingsStore();
+    final settings = MemoryMachineSettingsStore();
     await settings.update('device:fake-ble', flowCalibration: 1.25);
     final first = await _connect(
       settings: settings,
@@ -259,7 +226,7 @@ void main() {
   });
 
   test('fan-only saved settings do not add a refill write', () async {
-    final settings = _MemoryMachineSettingsStore();
+    final settings = MemoryMachineSettingsStore();
     await settings.update('serial:12345', fanThreshold: 42);
     final harness = await _connect(settings: settings);
     addTearDown(harness.controller.dispose);
@@ -274,7 +241,7 @@ void main() {
     De1RefillKitSettings.forceOff,
   ]) {
     test('saved ${setting.name} follows auto on the wire', () async {
-      final settings = _MemoryMachineSettingsStore();
+      final settings = MemoryMachineSettingsStore();
       await settings.update('serial:12345', refillKitSetting: setting);
       final harness = await _connect(settings: settings);
       addTearDown(harness.controller.dispose);

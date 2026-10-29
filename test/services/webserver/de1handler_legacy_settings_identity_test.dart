@@ -22,6 +22,7 @@ import '../../helpers/mock_device_discovery_service.dart';
 import '../../helpers/mock_settings_service.dart';
 import '../../helpers/test_scale.dart';
 import '../../helpers/test_scale_controller.dart';
+import '../../helpers/memory_machine_settings_store.dart';
 
 class _BlockingResetTransport extends FakeBleTransport {
   final resetWriteStarted = Completer<void>();
@@ -57,57 +58,6 @@ class _BlockingResetTransport extends FakeBleTransport {
       withResponse: withResponse,
       timeout: timeout,
     );
-  }
-}
-
-class _RecordingMachineSettingsStore implements MachineSettingsStore {
-  final Map<String, MachineSettings> values = {};
-  final List<String> reads = [];
-  final List<String> updates = [];
-  final List<String> clears = [];
-  final List<String> clearsExceptCalibration = [];
-  void Function(String identity)? onRead;
-
-  @override
-  Future<MachineSettings?> read(String identity) async {
-    reads.add(identity);
-    onRead?.call(identity);
-    return values[identity];
-  }
-
-  @override
-  Future<void> update(
-    String identity, {
-    int? fanThreshold,
-    De1RefillKitSettings? refillKitSetting,
-    double? flowCalibration,
-  }) async {
-    updates.add(identity);
-    if (identity.isEmpty) return;
-    final current = values[identity];
-    values[identity] = MachineSettings(
-      fanThreshold: fanThreshold ?? current?.fanThreshold,
-      refillKitSetting: refillKitSetting ?? current?.refillKitSetting,
-      flowCalibration: flowCalibration ?? current?.flowCalibration,
-    );
-  }
-
-  @override
-  Future<void> clear(String identity) async {
-    clears.add(identity);
-    values.remove(identity);
-  }
-
-  @override
-  Future<void> clearExceptFlowCalibration(String identity) async {
-    clearsExceptCalibration.add(identity);
-    final current = values[identity];
-    values.remove(identity);
-    if (current?.flowCalibration != null) {
-      values[identity] = MachineSettings(
-        flowCalibration: current?.flowCalibration,
-      );
-    }
   }
 }
 
@@ -179,7 +129,7 @@ void main() {
     () async {
       final deviceController = DeviceController([MockDeviceDiscoveryService()]);
       await deviceController.initialize();
-      final machineSettings = _RecordingMachineSettingsStore();
+      final machineSettings = MemoryMachineSettingsStore();
       final controller = De1Controller(
         controller: deviceController,
         machineSettings: machineSettings,
@@ -348,7 +298,7 @@ void main() {
     () async {
       final deviceController = DeviceController([MockDeviceDiscoveryService()]);
       await deviceController.initialize();
-      final machineSettings = _RecordingMachineSettingsStore();
+      final machineSettings = MemoryMachineSettingsStore();
       final controller = De1Controller(
         controller: deviceController,
         machineSettings: machineSettings,
@@ -438,7 +388,7 @@ void main() {
     () async {
       final deviceController = DeviceController([MockDeviceDiscoveryService()]);
       await deviceController.initialize();
-      final machineSettings = _RecordingMachineSettingsStore()
+      final machineSettings = MemoryMachineSettingsStore()
         ..values['device:fake-ble'] = const MachineSettings(
           fanThreshold: 42,
           refillKitSetting: De1RefillKitSettings.forceOn,
@@ -476,7 +426,7 @@ void main() {
     () async {
       final deviceController = DeviceController([MockDeviceDiscoveryService()]);
       await deviceController.initialize();
-      final machineSettings = _RecordingMachineSettingsStore()
+      final machineSettings = MemoryMachineSettingsStore()
         ..values['device:fake-ble'] = const MachineSettings(
           fanThreshold: 42,
           refillKitSetting: De1RefillKitSettings.forceOn,
@@ -523,7 +473,7 @@ void main() {
     () async {
       final deviceController = DeviceController([MockDeviceDiscoveryService()]);
       await deviceController.initialize();
-      final machineSettings = _RecordingMachineSettingsStore()
+      final machineSettings = MemoryMachineSettingsStore()
         ..values['serial:12345'] = const MachineSettings(
           fanThreshold: 43,
           refillKitSetting: De1RefillKitSettings.forceOff,
