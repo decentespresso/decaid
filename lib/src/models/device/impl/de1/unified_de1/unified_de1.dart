@@ -503,22 +503,20 @@ class UnifiedDe1 implements De1Interface {
 
   @override
   Future<void> setFlowEstimation(double multiplier) {
-    final epoch = ++_flowEstimationEpoch;
+    ++_flowEstimationEpoch;
     final operation = _flowEstimationQueue.then(
-      (_) => _setFlowEstimationLocked(multiplier, epoch),
+      (_) => _setFlowEstimationLocked(multiplier),
     );
     _flowEstimationQueue = operation.catchError((_) {});
     return operation;
   }
 
-  Future<void> _setFlowEstimationLocked(double multiplier, int epoch) async {
+  Future<void> _setFlowEstimationLocked(double multiplier) async {
     final effective =
         _scaledClampedMMRInt(MMRItem.calFlowEst, multiplier).toDouble() *
         MMRItem.calFlowEst.readScale;
     await _writeMMRScaled(MMRItem.calFlowEst, multiplier);
-    if (epoch == _flowEstimationEpoch) {
-      _cachedFlowEstimation = effective;
-    }
+    _cachedFlowEstimation = effective;
   }
 
   @override

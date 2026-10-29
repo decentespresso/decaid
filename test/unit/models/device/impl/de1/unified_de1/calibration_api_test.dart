@@ -336,6 +336,24 @@ void main() {
   );
 
   test(
+    'a failed newer write does not erase the earlier write cache update',
+    () async {
+      expect(de1.cachedFlowEstimation, 1.0);
+      transport.failMmrWriteOrdinalForAddresses[MMRItem.calFlowEst.address] = 2;
+
+      final first = de1.setFlowEstimation(1.5);
+      final second = de1.setFlowEstimation(1.25);
+      await first;
+      await expectLater(second, throwsStateError);
+      expect(de1.cachedFlowEstimation, closeTo(1.5, 1e-9));
+
+      transport.failMmrWriteOrdinalForAddresses.clear();
+      await de1.setFlowEstimation(1.5);
+      expect(de1.cachedFlowEstimation, closeTo(1.5, 1e-9));
+    },
+  );
+
+  test(
     'a late MMR reply racing a newer write cannot corrupt the cache',
     () async {
       final gated = _GatedMmrWriteTransport()..queueOnConnectResponses();
