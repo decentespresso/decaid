@@ -4,14 +4,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
-import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/bengle/bengle.dart';
 import 'package:reaprime/src/models/device/impl/bengle/mock_bengle.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
-import 'package:reaprime/src/settings/machine_settings_store.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
@@ -20,43 +18,7 @@ import '../../helpers/mock_device_discovery_service.dart';
 import '../../helpers/mock_settings_service.dart';
 import '../../helpers/test_scale.dart';
 import '../../helpers/test_scale_controller.dart';
-
-class _MemoryMachineSettingsStore implements MachineSettingsStore {
-  final Map<String, MachineSettings> _settings = {};
-
-  @override
-  Future<MachineSettings?> read(String identity) async => _settings[identity];
-
-  @override
-  Future<void> update(
-    String identity, {
-    int? fanThreshold,
-    De1RefillKitSettings? refillKitSetting,
-    double? flowCalibration,
-  }) async {
-    if (identity.isEmpty) return;
-    final current = _settings[identity];
-    _settings[identity] = MachineSettings(
-      fanThreshold: fanThreshold ?? current?.fanThreshold,
-      refillKitSetting: refillKitSetting ?? current?.refillKitSetting,
-      flowCalibration: flowCalibration ?? current?.flowCalibration,
-    );
-  }
-
-  @override
-  Future<void> clearExceptFlowCalibration(String identity) async {
-    final current = _settings[identity];
-    if (current == null) return;
-    _settings[identity] = MachineSettings(
-      flowCalibration: current.flowCalibration,
-    );
-  }
-
-  @override
-  Future<void> clear(String identity) async {
-    _settings.remove(identity);
-  }
-}
+import '../../helpers/memory_machine_settings_store.dart';
 
 void main() {
   late Handler handler;
@@ -68,7 +30,7 @@ void main() {
     await deviceController.initialize();
     controller = De1Controller(
       controller: deviceController,
-      machineSettings: _MemoryMachineSettingsStore(),
+      machineSettings: MemoryMachineSettingsStore(),
     );
     transport = FakeBleTransport();
     transport.queueOnConnectResponses(v13Model: bengle ? 128 : 1);
@@ -203,7 +165,7 @@ void main() {
         await deviceController.initialize();
         controller = De1Controller(
           controller: deviceController,
-          machineSettings: _MemoryMachineSettingsStore(),
+          machineSettings: MemoryMachineSettingsStore(),
         );
         await controller.connectToDe1(device);
         final settingsController = SettingsController(MockSettingsService());

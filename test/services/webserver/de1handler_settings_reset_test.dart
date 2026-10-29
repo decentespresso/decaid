@@ -19,45 +19,7 @@ import '../../helpers/mock_device_discovery_service.dart';
 import '../../helpers/mock_settings_service.dart';
 import '../../helpers/test_scale.dart';
 import '../../helpers/test_scale_controller.dart';
-
-class _MemoryMachineSettingsStore implements MachineSettingsStore {
-  final Map<String, MachineSettings> _settings = {};
-
-  @override
-  Future<MachineSettings?> read(String identity) async => _settings[identity];
-
-  @override
-  Future<void> update(
-    String identity, {
-    int? fanThreshold,
-    De1RefillKitSettings? refillKitSetting,
-    double? flowCalibration,
-  }) async {
-    if (identity.isEmpty) return;
-    final current = _settings[identity];
-    _settings[identity] = MachineSettings(
-      fanThreshold: fanThreshold ?? current?.fanThreshold,
-      refillKitSetting: refillKitSetting ?? current?.refillKitSetting,
-      flowCalibration: flowCalibration ?? current?.flowCalibration,
-    );
-  }
-
-  @override
-  Future<void> clear(String identity) async {
-    _settings.remove(identity);
-  }
-
-  @override
-  Future<void> clearExceptFlowCalibration(String identity) async {
-    final current = _settings[identity];
-    _settings.remove(identity);
-    if (current?.flowCalibration != null) {
-      _settings[identity] = MachineSettings(
-        flowCalibration: current?.flowCalibration,
-      );
-    }
-  }
-}
+import '../../helpers/memory_machine_settings_store.dart';
 
 void main() {
   late Handler handler;
@@ -72,7 +34,7 @@ void main() {
   }) async {
     final deviceController = DeviceController([MockDeviceDiscoveryService()]);
     await deviceController.initialize();
-    machineSettings = persistedMachineSettings ?? _MemoryMachineSettingsStore();
+    machineSettings = persistedMachineSettings ?? MemoryMachineSettingsStore();
     controller = De1Controller(
       controller: deviceController,
       machineSettings: persistedMachineSettings ?? machineSettings,
