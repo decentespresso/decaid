@@ -49,12 +49,6 @@ class FakeBleTransport extends BLETransport {
 
   final Map<int, List<int>> _wordResponses = {};
 
-  /// Response header byte observed on hardware (DE1Pro firmware v1358):
-  /// the firmware does not echo the request length here. Captured from
-  /// transport logs: single-word reads -> 0x04; multi-word reads of
-  /// 2 words -> 0x08, 3 words -> 0x0C, 4 words -> 0x0A. The app never
-  /// reads this byte (correlation uses bytes 1-3, decoding starts at
-  /// byte 4), but the fake models it so tests exercise genuine frames.
   int _mmrResponseHeaderByte(int wordCount) => switch (wordCount) {
     1 => 0x04,
     2 => 0x08,
@@ -76,10 +70,6 @@ class FakeBleTransport extends BLETransport {
     _intResponseQueues.putIfAbsent(item.address, Queue.new).addAll(values);
   }
 
-  /// Queues a genuine multi-word MMR notification for a read starting at
-  /// [startItem.address]: the fake answers with [values] as consecutive
-  /// little-endian words instead of repeating the first word. Consumed by
-  /// the first matching read, like the single-word stubs.
   void queueMmrResponseWords(MmrAddress startItem, List<int> values) {
     assert(values.length <= 4, 'MMR frame holds at most 4 words');
     _wordResponses[startItem.address] = List<int>.of(values);

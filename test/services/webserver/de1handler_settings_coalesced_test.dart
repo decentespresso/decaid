@@ -114,8 +114,6 @@ void main() {
         100,
         250,
       ]);
-      // Purge pair stays single-word: firmware zeroes these words in
-      // multi-word responses (verified on hardware).
       transport.queueMmrResponseInt(MMRItem.steamPurgeMode, 2);
       transport.queueMmrResponseInt(MMRItem.allowUSBCharging, 1);
       transport.writes.clear();
@@ -236,8 +234,6 @@ void main() {
           'tankTemp',
           'steamPurgeMode',
         });
-        // Startup defaults may have adjusted the fan threshold; the fallback
-        // only promises the same keys and value types.
         expect(body['fan'], isA<int>());
         expect(body['usb'], false);
       });

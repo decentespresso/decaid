@@ -56,9 +56,10 @@ Bengle values are outside legacy DE1 identity resolution.
 The MMR request frame is 20 bytes: request byte 0 holds `length`, the
 additional words after the first (0-3), followed by the big-endian start
 address. Response payload words are little-endian signed int32 values at
-byte offsets `4 + 4 * wordIndex`. Response byte 0 grows with the number of
-words returned (`0x04` for one word, `0x08` for two on DE1Pro firmware
-v1358); Decaid does not parse it and must not depend on it.
+byte offsets `4 + 4 * wordIndex`. On DE1Pro firmware v1358, transport logs
+show response byte 0 as `0x04`, `0x08`, `0x0C`, and `0x0A` for one, two,
+three, and four words respectively. This byte is not a reliable word count;
+Decaid does not parse it and must not depend on it.
 
 **Not every register survives multi-word framing.** Some registers are
 served by a table-driven read path that only answers single-word requests;

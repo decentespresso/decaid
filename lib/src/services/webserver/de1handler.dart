@@ -500,9 +500,6 @@ class De1Handler {
 
     app.get('/api/v1/machine/settings', () async {
       return withDe1((de1) async {
-        // Validated DE1 hardware uses coalesced multi-word MMR reads;
-        // Bengle, simulated, replay and test devices compose the identical
-        // snapshot from the individual getters via the extension fallback.
         final settings = de1 is UnifiedDe1 && de1 is! BengleInterface
             ? await de1.getCoalescedMachineSettings()
             : await de1.getMachineSettingsSnapshot();

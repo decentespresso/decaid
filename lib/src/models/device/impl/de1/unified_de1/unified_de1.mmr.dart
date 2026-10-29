@@ -148,12 +148,6 @@ extension UnifiedDe1MMR on UnifiedDe1 {
     return bytes.getInt32(4, Endian.little);
   }
 
-  /// Decodes the word at [wordIndex] (0-based) from a multi-word MMR
-  /// response. Words are little-endian signed int32 values starting at byte
-  /// offset 4, one per consecutive register. Throws [StateError] when the
-  /// response is too short rather than substituting zero/default values.
-  /// Frames longer than 20 bytes decode the words in place without
-  /// consuming trailing bytes.
   int _unpackMMRIntAt(List<int> buffer, int wordIndex) {
     final needed = 4 + 4 * (wordIndex + 1);
     if (buffer.length < needed) {
@@ -171,11 +165,6 @@ extension UnifiedDe1MMR on UnifiedDe1 {
     return bytes.getInt32(4 + 4 * wordIndex, Endian.little);
   }
 
-  /// Reads [wordCount] consecutive 32-bit words starting at [startAddress]
-  /// with a single MMR request (`length` = additional words after the
-  /// first) and returns the raw signed words in register order. Uses the
-  /// same request/response correlation, serialization gate, retry and
-  /// timeout machinery as single-word reads via [_mmrReadRaw].
   Future<List<int>> _mmrReadWords(
     int startAddress, {
     required int wordCount,
