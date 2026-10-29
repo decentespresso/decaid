@@ -75,7 +75,10 @@ registers stay on single-word reads — see `getCoalescedMachineSettings`.
 So coalescing a group is only valid once that specific group has been
 checked on hardware; a group that reads correctly says nothing about the
 next one. The groups coalesced today (fan/tank, flush/hot-water,
-heater phases) are verified this way. The audit candidates still open —
+heater phases) are verified this way. Single-word MMR reads were also
+exercised over USB serial against a Bengle and decoded correctly, so the
+sequential settings path is not BLE-only on hardware. The audit
+candidates still open —
 LED hydration `0x00803898`-`0x008038A4`, cup-warmer preheat
 `0x008038D0`-`0x008038D8`, on-connect identity reads — are **not**
 verified and must be checked before being coalesced.
