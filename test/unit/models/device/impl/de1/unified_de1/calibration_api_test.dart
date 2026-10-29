@@ -88,6 +88,8 @@ class _GatedMmrWriteTransport extends FakeBleTransport {
   bool holdWrites = false;
   final writeEntered = Completer<void>();
   Completer<void>? releaseWrite;
+  bool swallowReads = false;
+  final readEntered = Completer<void>();
 
   @override
   Future<void> write(
@@ -100,6 +102,10 @@ class _GatedMmrWriteTransport extends FakeBleTransport {
     if (holdWrites && characteristicUUID == Endpoint.writeToMMR.uuid) {
       if (!writeEntered.isCompleted) writeEntered.complete();
       await (releaseWrite ??= Completer<void>()).future;
+    }
+    if (swallowReads && characteristicUUID == Endpoint.readFromMMR.uuid) {
+      if (!readEntered.isCompleted) readEntered.complete();
+      return;
     }
     return super.write(
       serviceUUID,
@@ -404,6 +410,30 @@ void main() {
     expect(await pendingRead, closeTo(1.3, 1e-9));
     expect(de1.cachedFlowEstimation, closeTo(1.5, 1e-9));
   });
+
+  test(
+    'a read started during a write cannot overwrite the newer cache',
+    () async {
+      final gated = _GatedMmrWriteTransport()..queueOnConnectResponses();
+      final device = UnifiedDe1(transport: gated);
+      addTearDown(device.dispose);
+      await device.onConnect();
+      gated.writes.clear();
+
+      // Hold the read response so the stale value below is delivered only
+      // after the write has completed; no sleeps, no write gating.
+      gated.swallowReads = true;
+      final write = device.setFlowEstimation(1.5);
+      final pendingRead = device.getFlowEstimation();
+      await gated.readEntered.future;
+      await write;
+      expect(device.cachedFlowEstimation, closeTo(1.5, 1e-9));
+
+      gated.emitNotification(Endpoint.readFromMMR, _mmrResponse(1000));
+      expect(await pendingRead, closeTo(1.0, 1e-9));
+      expect(device.cachedFlowEstimation, closeTo(1.5, 1e-9));
+    },
+  );
 
   test(
     'real and simulated writes reject multiplicative encoded zero',
