@@ -12,7 +12,6 @@ import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/device.dart' as device;
-import 'package:reaprime/src/models/errors.dart';
 import 'package:rxdart/rxdart.dart';
 
 export 'package:reaprime/src/models/data/shot_state_event.dart'
@@ -201,6 +200,7 @@ class ShotSequencer {
   ShotState _state = ShotState.idle;
   bool _scaleLost = false;
   bool _scaleTimerStopped = false;
+  Scale? _scaleTimerScale;
   bool _scaleConnected = false;
   bool _continueScaleless = false;
   int _scaleConnectionGeneration = 0;
@@ -349,6 +349,7 @@ class ShotSequencer {
       );
       _volumeCountingActive = false;
       dataCollectionEnabled = false;
+      _stopScaleTimer();
       _state = ShotState.finished;
       _stateStream.add(_state);
       return;
@@ -359,6 +360,7 @@ class ShotSequencer {
         if (machine.state.state == MachineState.espresso &&
             machine.state.substate == MachineSubstate.preparingForShot) {
           _scaleTimerStopped = false;
+          _scaleTimerScale = null;
           _resetCommand.add(true);
           _shotStartTime = DateTime.now();
 
@@ -420,7 +422,8 @@ class ShotSequencer {
             scaleController.tare().catchError(
               (e) => _log.warning("Failed to tare scale for pour", e),
             );
-            scaleController.connectedScale().startTimer().catchError(
+            _scaleTimerScale = scaleController.connectedScale();
+            _scaleTimerScale!.startTimer().catchError(
               (e) => _log.warning('Failed to start scale timer', e),
             );
             _scaleTared = true;
@@ -649,21 +652,16 @@ class ShotSequencer {
     if (_scaleTimerStopped || _bypassSAW) return;
     _scaleTimerStopped = true;
 
-    final Scale scale;
+    final scale = _scaleTimerScale;
+    if (scale == null) return;
+
     try {
-      scale = scaleController.connectedScale();
-    } on DeviceNotConnectedException {
-      // No scale is connected, so there is no timer to stop. This is the
-      // normal scaleless-shot path, not a failure worth a warning.
-      return;
+      scale.stopTimer().catchError(
+        (e) => _log.warning('Failed to stop scale timer', e),
+      );
     } catch (e) {
       _log.warning('Failed to stop scale timer', e);
-      return;
     }
-
-    scale.stopTimer().catchError(
-      (e) => _log.warning('Failed to stop scale timer', e),
-    );
   }
 
   void _enterStopping(WeightSnapshot? scale) {
