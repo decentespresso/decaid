@@ -516,6 +516,7 @@ class UnifiedDe1 implements De1Interface {
         _scaledClampedMMRInt(MMRItem.calFlowEst, multiplier).toDouble() *
         MMRItem.calFlowEst.readScale;
     await _writeMMRScaled(MMRItem.calFlowEst, multiplier);
+    ++_flowEstimationEpoch;
     _cachedFlowEstimation = effective;
   }
 
