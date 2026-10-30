@@ -9,6 +9,7 @@ import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'package:reaprime/src/plugins/plugin_package.dart';
 import 'package:reaprime/src/plugins/plugin_source.dart';
 import 'package:reaprime/src/plugins/plugin_version.dart';
+import 'package:reaprime/src/services/github_rate_limit.dart';
 import 'package:reaprime/src/util/github_archive.dart';
 import 'package:reaprime/src/util/remote_error.dart';
 import 'package:reaprime/src/util/remote_update_exception.dart';
@@ -37,10 +38,12 @@ class PluginSourceService {
   static const metadataFileName = '.rea_source.json';
 
   final PluginLoaderService _loader;
+  final GithubRateLimit _rateLimit;
   final _log = Logger('PluginSourceService');
   final ValueNotifier<Future<void>?> _updateCheck = ValueNotifier(null);
 
-  PluginSourceService(this._loader);
+  PluginSourceService(this._loader, {GithubRateLimit? rateLimit})
+    : _rateLimit = rateLimit ?? GithubRateLimit();
 
   ValueListenable<Future<void>?> get updateCheck => _updateCheck;
 
@@ -73,6 +76,7 @@ class PluginSourceService {
     final release = await fetchLatestGitHubRelease(
       repo,
       includePrerelease: includePrerelease,
+      rateLimit: _rateLimit,
     );
     final asset = _selectReleaseAsset(release, assetName);
     final bytes = await downloadGitHubArchive(asset.downloadUrl);
@@ -270,6 +274,7 @@ class PluginSourceService {
       final release = await fetchLatestGitHubRelease(
         source.repo!,
         includePrerelease: source.includePrerelease,
+        rateLimit: _rateLimit,
       );
       if (release.tag == source.releaseTag) {
         _writeSource(
@@ -397,7 +402,11 @@ class PluginSourceService {
         );
       }
 
-      final release = await fetchGitHubReleaseByTag(source.repo!, tag);
+      final release = await fetchGitHubReleaseByTag(
+        source.repo!,
+        tag,
+        rateLimit: _rateLimit,
+      );
       final asset = _selectReleaseAsset(release, source.assetName);
       final bytes = await downloadGitHubArchive(asset.downloadUrl);
 
