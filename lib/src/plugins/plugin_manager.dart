@@ -7,6 +7,9 @@ import 'package:flutter_js/flutter_js.dart';
 import 'package:logging/logging.dart';
 
 import 'plugin_manifest.dart';
+import 'plugin_notifications.dart';
+import '../notifications/native_notification.dart';
+import '../notifications/notification_center.dart';
 import 'plugin_ble_bridge.dart';
 import 'plugin_ble_registry.dart';
 import 'plugin_ble_service.dart';
@@ -82,6 +85,7 @@ class PluginManager {
   final JavascriptRuntime js;
   final KeyValueStoreService kvStore;
   final DecentProxyService? decentProxyService;
+  final NotificationCenter notifications;
   late final PluginDecentProxyBridge _decentProxyBridge;
   final Map<String, String> _pluginBridgeTokens = {};
   final Map<String, String> _pluginIdsByBridgeToken = {};
@@ -146,6 +150,7 @@ class PluginManager {
 
   PluginManager({
     required this.kvStore,
+    NotificationCenter? notifications,
     this.decentProxyService,
     this.fetchTimeout = const Duration(seconds: 30),
     this.maxFetchResponseBytes = 10 * 1024 * 1024,
@@ -159,7 +164,8 @@ class PluginManager {
     this.deviceInvocationTimeout = const Duration(seconds: 10),
     PluginDeviceService? deviceService,
     PluginBleRegistry? bleRegistry,
-  }) : js = js ?? getJavascriptRuntime(xhr: false),
+  }) : notifications = notifications ?? NotificationCenter(),
+       js = js ?? getJavascriptRuntime(xhr: false),
        deviceService = deviceService ?? PluginDeviceService() {
     _decentProxyBridge = PluginDecentProxyBridge(
       decentProxyService: decentProxyService,
@@ -267,6 +273,7 @@ class PluginManager {
       }
       await runStage('async operation cleanup', _cancelAllOperations);
       await runStage('event stream closure', _emitController.close);
+      await runStage('notification storage drain', () => notifications.settled);
       await runStage('JavaScript runtime disposal', js.dispose);
     } finally {
       for (final record in _timers.values) {
@@ -907,6 +914,7 @@ class PluginManager {
           __mapClear(__deviceHandlers);
         });
 
+        let __notificationSeq = 0;
         Object.defineProperty(globalThis, "host", {
           value: __nativeFreeze({
             log(bridgeToken, generation, message) {
@@ -925,6 +933,14 @@ class PluginManager {
                 event: eventName,
                 payload: payload
               });
+            },
+            notify(bridgeToken, generation, payload) {
+              const requestId = "notice_" + (++__notificationSeq);
+              __sendHostMessage({bridgeToken, generation, requestId, type: "notification", payload});
+              return requestId;
+            },
+            dismissNotification(bridgeToken, generation, id) {
+              __sendHostMessage({bridgeToken, generation, type: "notificationDismiss", payload: id ?? null});
             },
             storage(bridgeToken, generation, command) {
               __sendHostMessage({
@@ -1041,6 +1057,8 @@ class PluginManager {
               value: Object.freeze({
                 log: globalThis.host.log,
                 emit: globalThis.host.emit,
+                notify: globalThis.host.notify,
+                dismissNotification: globalThis.host.dismissNotification,
                 storage: globalThis.host.storage,
                 permissionDenied: globalThis.host.permissionDenied,
                 fetch: globalThis.__fetchFor,
@@ -1168,6 +1186,8 @@ class PluginManager {
       }
       final permission = switch (type) {
         'emit' => PluginPermissions.emit,
+        'notification' ||
+        'notificationDismiss' => PluginPermissions.notifications,
         'pluginStorage' => PluginPermissions.pluginStorage,
         _ => null,
       };
@@ -2294,6 +2314,12 @@ class PluginManager {
           emit: ${manifest.permissions.contains(PluginPermissions.emit)}
             ? (type, payload) => pluginHostBridge.emit(pluginBridgeToken, pluginGeneration, type, payload)
             : () => requirePermission("emit"),
+          notify: ${manifest.permissions.contains(PluginPermissions.notifications)}
+            ? (notice) => pluginHostBridge.notify(pluginBridgeToken, pluginGeneration, notice)
+            : () => requirePermission("notifications"),
+          dismissNotification: ${manifest.permissions.contains(PluginPermissions.notifications)}
+            ? (id) => pluginHostBridge.dismissNotification(pluginBridgeToken, pluginGeneration, id)
+            : () => requirePermission("notifications"),
           storage: ${manifest.permissions.contains(PluginPermissions.pluginStorage)}
             ? (cmd) => pluginHostBridge.storage(pluginBridgeToken, pluginGeneration, cmd)
             : () => requirePermission("pluginStorage"),
@@ -2385,6 +2411,9 @@ class PluginManager {
             workflowController.currentWorkflow.toJson(),
           );
         }
+        if (!manifest.permissions.contains(PluginPermissions.notifications)) {
+          await notifications.removeSource(NotificationNamespace.plugin, id);
+        }
       }
       _log.info("loaded: $id");
     } catch (e, st) {
@@ -2402,12 +2431,19 @@ class PluginManager {
     }
   }
 
-  Future<void> unloadPlugin(String id) async {
+  Future<void> unloadPlugin(
+    String id, {
+    bool preserveNotifications = false,
+  }) async {
     _ensureActive();
     await _unloadPlugin(id);
+    if (!preserveNotifications) {
+      await notifications.removeSource(NotificationNamespace.plugin, id);
+    }
   }
 
   Future<void> _unloadPlugin(String id) async {
+    notifications.retireSource(NotificationNamespace.plugin, id);
     _loggedPermissionDenials.removeWhere((denial) => denial.startsWith('$id:'));
     final pluginBridgeToken = _pluginBridgeTokens[id];
     final runtime = _plugins[id];
@@ -2575,6 +2611,10 @@ class PluginManager {
       'stateUpdate' => PluginPermissions.eventsMachine,
       'shotStored' || 'shotUpdated' => PluginPermissions.eventsShots,
       'workflowUpdated' => PluginPermissions.eventsWorkflow,
+      'decentAccountChanged' => PluginPermissions.proxyDecentApi,
+      'notificationAction' ||
+      'notificationResult' ||
+      'notificationDismissed' => PluginPermissions.notifications,
       _ => null,
     };
     if (permission != null && !_hasPermission(pluginId, permission)) return;
@@ -2611,6 +2651,73 @@ class PluginManager {
     final payload = msg['payload'];
 
     switch (type) {
+      case 'notification':
+        final generation = _pluginGenerations[pluginId];
+        void dispatchNotificationEvent(
+          String name,
+          Map<String, dynamic> event,
+        ) {
+          if (_lifecycle == PluginManagerLifecycle.active &&
+              _pluginGenerations[pluginId] == generation) {
+            dispatchEvent(pluginId, name, event);
+          }
+        }
+
+        String? id;
+        String? reason;
+        try {
+          if (payload is Map) id = notificationText(payload['id'], 128);
+          final notice = parsePluginNotification(
+            pluginId: pluginId,
+            pluginName: _plugins[pluginId]!.manifest.name,
+            payload: payload,
+            canOpenAccount: _plugins[pluginId]!.manifest.permissions.contains(
+              PluginPermissions.proxyDecentApi,
+            ),
+          );
+          await notifications.publish(
+            notice,
+            binding: NotificationBinding(
+              owner: (pluginId, generation),
+              isAlive: () =>
+                  _lifecycle == PluginManagerLifecycle.active &&
+                  _pluginGenerations[pluginId] == generation &&
+                  _plugins[pluginId]?.isAlive == true,
+              onAction: (action, phase) => dispatchNotificationEvent(
+                'notificationAction',
+                {'id': notice.id, 'actionId': action.id, 'phase': phase},
+              ),
+              onDismissed: (notice) => dispatchNotificationEvent(
+                'notificationDismissed',
+                {'id': notice.id},
+              ),
+            ),
+          );
+        } on NotificationCapacityException {
+          reason = 'capacity';
+        } on NotificationStorageException {
+          reason = 'storage';
+        } on FormatException {
+          reason = 'validation';
+        }
+        dispatchNotificationEvent('notificationResult', {
+          'requestId': msg['requestId'],
+          'id': ?id,
+          'status': reason == null ? 'accepted' : 'rejected',
+          'reason': ?reason,
+        });
+        break;
+
+      case 'notificationDismiss':
+        if (payload == null || payload is String) {
+          await notifications.removeSource(
+            NotificationNamespace.plugin,
+            pluginId,
+            payload as String?,
+          );
+        }
+        break;
+
       case 'emit':
         final Map<String, dynamic> eventData = {
           'pluginId': pluginId,
@@ -2933,6 +3040,18 @@ class PluginManager {
         op,
         error: e.toString(),
         errorCode: DecentProxyConsentDeniedException.code,
+      );
+    } on DecentAccountAuthInvalidException catch (e) {
+      _completeOp(
+        op,
+        error: e.toString(),
+        errorCode: 'account_authentication_required',
+      );
+    } on DecentAccountNotLinkedException catch (e) {
+      _completeOp(
+        op,
+        error: e.toString(),
+        errorCode: 'account_authentication_required',
       );
     } catch (e) {
       _completeOp(op, error: e.toString());

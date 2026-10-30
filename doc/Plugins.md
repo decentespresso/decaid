@@ -132,6 +132,7 @@ A Decaid plugin consists of two required files:
   - `log`: Call `host.log`
   - `api`: Use plugin `fetch` and expose declared HTTP endpoints
   - `emit`: Call `host.emit`
+  - `notifications`: Show, update, and dismiss plugin-attributed native notices
   - `pluginStorage`: Call `host.storage`
   - `events.machine`: Receive `stateUpdate`
   - `events.shots`: Receive `shotStored` and `shotUpdated`
@@ -198,6 +199,90 @@ Log messages to the Flutter app's logger. Requires `log`.
 ### `host.emit(eventName, payload)`
 Emit events to the Flutter app. Requires `emit`.
 
+### `host.notify(notification)` / `host.dismissNotification(id?)`
+
+Requires `notifications`. Save or update a native notice using a plugin-local ID:
+
+```javascript
+const requestId = host.notify({
+  id: "connection",
+  message: "The service needs your attention.",
+  action: {
+    id: "help",
+    label: "Help",
+    type: "openExternalUrl",
+    url: "https://example.com/help"
+  }
+});
+host.dismissNotification("connection");
+```
+
+`action` is optional. IDs are nonempty strings of at most 128 characters; messages
+are limited to 600, action labels to 40, and URLs to 2,048. Missing permission
+throws `PluginPermissionError`; Dart also checks the permission and live caller
+generation before accepting bridge calls.
+
+`notify` returns an opaque request ID. The host delivers `notificationResult`
+only to the originating live generation, with `{requestId, id, status}`. Status
+is `accepted` after saving, or `rejected` with a `reason` of `validation`,
+`capacity`, or `storage`. A rejected result includes `id` only when that ID is
+valid. Acceptance means retained for presentation, not displayed, read, or
+acknowledged. A plugin can retry capacity or storage rejection while its
+condition remains relevant; it must correlate each result with its request ID.
+
+Only two action types are supported: `openExternalUrl` opens an absolute HTTPS
+URL without embedded credentials in the external browser; `openDecentAccount`
+opens native account settings and additionally requires `proxy.decent_api`.
+Both require an explicit user tap. Plugins cannot supply native routes, custom
+URL schemes, executable callbacks, automatic actions, or UI priority. The host
+displays the plugin name/ID and external destination hostname alongside the copy.
+
+Notices appear in the native Notifications overlay. The dashboard destination
+remains available for read notices; the skin shows a bell and unread count only
+when unread notices exist. Incoming notices do not open the overlay or change
+the skin's WebView bounds. Existing transient SnackBars remain independent.
+Opening the overlay marks the captured content revisions read. Later arrivals
+and content changes remain unread until another opening. Closing the overlay
+does not dismiss a notice, resolve a condition, or resume plugin work.
+
+The app retains source identity, approved actions, order and read status in one
+private SharedPreferences snapshot, outside skin-accessible Hive namespaces.
+Identical publications preserve read state and order across restarts. Changing
+the message or action marks a notice unread. Restored notices say "Awaiting
+confirmation" and disable actions until the current generation republishes them.
+
+At most five notices per plugin and twenty plugin notices overall fit in the
+center. The host reserves a separate app-update entry. Capacity rejection does
+not evict existing notices. Omit the ID when dismissing to remove only the calling
+plugin's notices. Shutdown and reload retain messages but retire action bindings;
+explicit unload, disable, uninstall, removal of the notification permission,
+programmatic resolution and user dismissal remove the relevant messages.
+Failed saves preserve the previous visible state and report an error. Corrupt or
+unknown saved snapshots remain untouched rather than resetting the center.
+
+`notificationAction` is delivered only to the originating plugin, with payload
+`{id, actionId, phase}`. `activated` means the user invoked an action; `failed`
+reports an unsuccessful external launch. `returned` is delivered once after a
+successful external launch and a subsequent leave/resume transition, provided the
+notification and plugin generation remain current. It is not evidence that an
+external task succeeded. The plugin decides whether to refresh or retry.
+The app tracks browser return independently of the overlay. Closing the overlay
+or marking a notice read does not cancel an outstanding return; replacement,
+removal and generation retirement do.
+
+Dismissing a notice with its trash button or the header's Dismiss all control
+delivers `notificationDismissed`
+only to its originating live plugin, with payload `{id}` and the `notifications`
+permission. The notice is removed and pending actions invalidated before this
+event is delivered once. No action is required. Programmatic dismissal,
+replacement, unload, and stale dismiss buttons do not emit this event. Dismissal
+acknowledges the notice, not the underlying condition; recovery policy remains
+with the plugin.
+
+Hosts that reject unknown manifest permissions cannot load a plugin declaring
+`notifications` until they support this contract. No new REST or WebSocket route
+is introduced.
+
 ### `host.storage(command)`
 Interact with persistent storage. Requires `pluginStorage`. Commands:
 ```javascript
@@ -242,6 +327,17 @@ const upload = await host.decentProxy("support/api/shot_upload", {
 ```
 
 The returned object has `{ status, headers, body }`. Consent denial or non-decision rejects with `error.code === "account_consent_denied"`. `GET` (read) needs `proxy.decent_api`; `POST` (write) needs `proxy.decent_api.write` and a path on the write allowlist. Credentials are attached in Dart and never exposed to plugin JS.
+
+Missing or known-invalid stored credentials reject with
+`error.code === "account_authentication_required"` before any upstream request.
+An upstream HTTP 401 remains a response with `status: 401`.
+Only a 401 for unchanged credentials and authentication generation invalidates
+the host account. A late response cannot invalidate a newer login, even when
+that login uses the same stored credentials.
+The generation is captured with the final post-consent credential snapshot;
+account changes during that snapshot or an unfinished login abort before sending.
+Failure to reread credentials after an upstream 401 suppresses invalidation but
+does not replace the upstream response with a storage exception.
 
 The optional `gzip` boolean lets a plugin request host-side compression for its
 POST body. It defaults to false; omitting it or passing false forwards the body
@@ -303,6 +399,20 @@ Machine broadcasts require `events.machine`. Shot lifecycle broadcasts require
   ```
 
 - **`shutdown`**: Plugin is about to be unloaded
+- **`notificationAction`**: A host-approved notification action or browser-return
+  event. Requires `notifications`; see `host.notify` for the targeted payload
+  and lifecycle. No action event is broadcast to unrelated plugins.
+- **`notificationResult`**: A targeted persistence result for `host.notify`.
+  Requires `notifications`; see the request ID, status and rejection reasons
+  above. Other plugins cannot receive the result.
+- **`notificationDismissed`**: The user closed a current native notice. Requires
+  `notifications`; payload `{id}` is delivered only to the originating plugin.
+  Programmatic removals and retired notices do not emit dismissal events.
+- **`decentAccountChanged`**: The host account's authentication or registered
+  machines changed, or an explicit account refresh was requested. Payload is
+  `{}` and requires `proxy.decent_api`. Invalidate account-derived caches and
+  refetch required data before retrying account operations. The event
+  contains no account identifiers or credentials.
 - **`storageRead`**: Response to a storage read request
 
   ```javascript
@@ -1568,6 +1678,12 @@ plugin session; after restart one later idempotent retry is possible. In 0.2.1
 backlog reconciliation follows `AutoUpload`; the removed 0.2.0 `DrainHistory`
 setting no longer gates it. Consent denial or non-decision pauses reconciliation
 without a periodic retry.
+
+The companion ownership update uses `host.notify` for actionable pauses. Its
+messages, support destination, and recovery rules belong in the
+[plugin repository](https://github.com/decentespresso/shot-upload), not native
+UI. Existing bundled plugin pins remain unchanged until a verified release is
+available.
 
 ## Next Steps
 

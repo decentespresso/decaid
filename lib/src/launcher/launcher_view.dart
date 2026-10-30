@@ -25,6 +25,9 @@ import 'package:reaprime/src/skin_feature/skin_view.dart';
 import 'package:reaprime/src/skin_selector/skin_selector_page.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
+import '../notifications/notification_center.dart';
+import '../notifications/notification_actions.dart';
+import '../notifications/notification_overlay.dart';
 
 enum LauncherSkinSlot { browserHero, returnToSkin, skinUnavailable }
 
@@ -55,6 +58,8 @@ class LauncherView extends StatelessWidget {
     this.batteryController,
     this.decentAccountService,
     this.isDegradedAndroid = false,
+    this.notificationCenter,
+    this.notificationActions,
   });
 
   final De1Controller de1Controller;
@@ -68,6 +73,8 @@ class LauncherView extends StatelessWidget {
   final DecentAccountService? decentAccountService;
 
   final bool isDegradedAndroid;
+  final NotificationCenter? notificationCenter;
+  final NotificationActions? notificationActions;
 
   bool get _supportsWebView =>
       Platform.isIOS ||
@@ -201,23 +208,31 @@ class LauncherView extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final crossAxisCount = constraints.maxWidth > 400 ? 4 : 3;
+        final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
+        final crossAxisCount = (constraints.maxWidth / (128 * textScale))
+            .floor()
+            .clamp(1, 4);
         return GridView.count(
           crossAxisCount: crossAxisCount,
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           mainAxisSpacing: 12,
           crossAxisSpacing: 12,
-          childAspectRatio: 1.0,
-          children: destinations
-              .map(
-                (d) => DestinationCard(
-                  icon: d.icon,
-                  label: d.label,
-                  onTap: () => Navigator.of(context).pushNamed(d.route),
-                ),
-              )
-              .toList(),
+          mainAxisExtent: 112 * textScale,
+          children: [
+            if (notificationCenter != null && notificationActions != null)
+              NotificationDestination(
+                center: notificationCenter!,
+                actions: notificationActions!,
+              ),
+            ...destinations.map(
+              (d) => DestinationCard(
+                icon: d.icon,
+                label: d.label,
+                onTap: () => Navigator.of(context).pushNamed(d.route),
+              ),
+            ),
+          ],
         );
       },
     );
