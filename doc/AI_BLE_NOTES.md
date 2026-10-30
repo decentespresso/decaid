@@ -67,11 +67,11 @@ priority even over already queued MMR work. Once firmware owners finish or fail,
 queued MMR work resumes one operation at a time in FIFO order. This preserves
 firmware exclusivity without discarding settings requests.
 
-The HTTP handlers explicitly select coalesced snapshots for `UnifiedDe1` devices
-that are not `BengleInterface`. Dart extension dispatch is static, so the
-`De1SettingsSnapshots` extension remains the sequential composition of individual
-getters for simulated devices, replay devices, test doubles and Bengle. Bengle
-inherits `UnifiedDe1` but needs its own hardware validation before coalescing.
+The HTTP handlers select DE1's verified coalesced groups and Bengle's individually
+validated groups; the steam-purge/USB group stays sequential. Dart extension
+dispatch is static, so the `De1SettingsSnapshots` extension remains the sequential
+composition of individual getters for simulated, replay and interface-only
+devices. Device-specific validation evidence lives in `doc/device-notes/`.
 Serial DE1 devices use the same coalesced path and shared MMR framing; synthetic
 serial transport coverage is not physical serial validation. Advanced snapshots
 contain only the MMR fields; heater voltage and refill-kit setting retain their
