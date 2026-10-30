@@ -3460,6 +3460,7 @@ static const List<Map<String, dynamic>> _remoteWebUISources = [
 - Download skins on first app startup
 - Check for updates on subsequent startups
 - For GitHub releases: checks for new release tags
+- GitHub API release checks share the app/plugin quota cooldown. When GitHub reports exhausted quota, checks pause until the reported reset time; an unknown reset is reported as temporarily unavailable.
 - For branches/URLs: uses HTTP ETag/Last-Modified headers
 - Only re-download if remote version has changed
 - Mark these skins as "bundled" (users cannot remove them)

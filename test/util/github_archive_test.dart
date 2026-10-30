@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:reaprime/src/services/github_rate_limit.dart';
+import 'package:reaprime/src/services/github_request.dart';
 import 'package:reaprime/src/util/github_archive.dart';
 import 'package:reaprime/src/util/remote_error.dart';
 import 'package:reaprime/src/util/user_facing_exception.dart';
@@ -150,6 +151,231 @@ void main() {
     );
   });
 
+  group('release cache regressions', () {
+    late GitHubReleaseCache cache;
+    setUp(() => cache = GitHubReleaseCache());
+    test('changed release replaces ETag and metadata', () async {
+      var requests = 0;
+      await http.runWithClient(
+        () async {
+          final first = await fetchLatestGitHubRelease(
+            'acme/changed',
+            cache: cache,
+          );
+          final changed = await fetchLatestGitHubRelease(
+            'acme/changed',
+            cache: cache,
+          );
+          final unchanged = await fetchLatestGitHubRelease(
+            'acme/changed',
+            cache: cache,
+          );
+          expect(first.tag, 'v1.2.3');
+          expect(changed.tag, 'v2.0.0');
+          expect(changed.assets.single.name, 'new.zip');
+          expect(
+            changed.assets.single.downloadUrl,
+            'https://example.test/new.zip',
+          );
+          expect(unchanged, same(changed));
+        },
+        () => MockClient((request) async {
+          requests++;
+          expect(
+            request.headers['if-none-match'],
+            [null, '"v1"', '"v2"'][requests - 1],
+          );
+          if (requests == 3) return http.Response('', 304);
+          return http.Response(
+            jsonEncode(
+              requests == 1
+                  ? release
+                  : {
+                      'tag_name': 'v2.0.0',
+                      'assets': [
+                        {
+                          'name': 'new.zip',
+                          'browser_download_url':
+                              'https://example.test/new.zip',
+                        },
+                      ],
+                    },
+            ),
+            200,
+            headers: {'etag': requests == 1 ? '"v1"' : '"v2"'},
+          );
+        }),
+      );
+      expect(requests, 3);
+    });
+
+    test('cache keys separate repositories and release endpoints', () async {
+      final urls = [
+        'https://api.github.com/repos/acme/one/releases/latest',
+        'https://api.github.com/repos/acme/two/releases/latest',
+        'https://api.github.com/repos/acme/one/releases',
+        'https://api.github.com/repos/acme/one/releases/tags/v1',
+      ];
+      final calls = <String, int>{};
+      await http.runWithClient(
+        () async {
+          for (var pass = 0; pass < 2; pass++) {
+            final releases = [
+              await fetchLatestGitHubRelease('acme/one', cache: cache),
+              await fetchLatestGitHubRelease('acme/two', cache: cache),
+              await fetchLatestGitHubRelease(
+                'acme/one',
+                includePrerelease: true,
+                cache: cache,
+              ),
+              await fetchGitHubReleaseByTag('acme/one', 'v1', cache: cache),
+            ];
+            expect(releases.map((r) => r.tag), ['v0', 'v1', 'v2', 'v3']);
+          }
+        },
+        () => MockClient((request) async {
+          final url = request.url.toString();
+          final index = urls.indexOf(url);
+          final count = calls.update(url, (n) => n + 1, ifAbsent: () => 1);
+          if (count == 2) {
+            expect(request.headers['if-none-match'], '"$index"');
+            return http.Response('', 304);
+          }
+          expect(request.headers['if-none-match'], isNull);
+          final payload = {...release, 'tag_name': 'v$index'};
+          return http.Response(
+            jsonEncode(index == 2 ? [payload] : payload),
+            200,
+            headers: {'etag': '"$index"'},
+          );
+        }),
+      );
+      expect(calls.values, everyElement(2));
+    });
+
+    test('cache is bounded and evicts the oldest insertion', () async {
+      final seen = <String?>[];
+      await http.runWithClient(
+        () async {
+          for (var i = 0; i <= GitHubReleaseCache.capacity; i++) {
+            await fetchLatestGitHubRelease('acme/p$i', cache: cache);
+          }
+          await fetchLatestGitHubRelease('acme/p1', cache: cache);
+          await fetchLatestGitHubRelease('acme/p0', cache: cache);
+        },
+        () => MockClient((request) async {
+          seen.add(request.headers['if-none-match']);
+          return http.Response(
+            jsonEncode(release),
+            200,
+            headers: {'etag': '"v1"'},
+          );
+        }),
+      );
+      expect(seen.take(GitHubReleaseCache.capacity + 1), everyElement(isNull));
+      expect(seen[GitHubReleaseCache.capacity + 1], '"v1"');
+      expect(seen.last, isNull);
+    });
+
+    test('cache instances do not share validators or metadata', () async {
+      var requests = 0;
+      await http.runWithClient(
+        () async {
+          await fetchLatestGitHubRelease('acme/isolated', cache: cache);
+          final second = await fetchLatestGitHubRelease(
+            'acme/isolated',
+            cache: GitHubReleaseCache(),
+          );
+          expect(second.tag, 'v2');
+        },
+        () => MockClient((request) async {
+          requests++;
+          expect(request.headers['if-none-match'], isNull);
+          return http.Response(
+            jsonEncode({...release, 'tag_name': 'v$requests'}),
+            200,
+            headers: {'etag': '"$requests"'},
+          );
+        }),
+      );
+      expect(requests, 2);
+    });
+
+    test('200 without ETag invalidates the previous validator', () async {
+      var requests = 0;
+      await http.runWithClient(
+        () async {
+          await fetchLatestGitHubRelease('acme/no-etag', cache: cache);
+          await fetchLatestGitHubRelease('acme/no-etag', cache: cache);
+          final latest = await fetchLatestGitHubRelease(
+            'acme/no-etag',
+            cache: cache,
+          );
+          expect(latest.tag, 'v2.0.0');
+        },
+        () => MockClient((request) async {
+          requests++;
+          if (requests == 1) {
+            return http.Response(
+              jsonEncode(release),
+              200,
+              headers: {'etag': '"old"'},
+            );
+          }
+          if (requests == 2) {
+            expect(request.headers['if-none-match'], '"old"');
+          } else {
+            expect(request.headers['if-none-match'], isNull);
+          }
+          return http.Response(
+            jsonEncode({...release, 'tag_name': 'v2.0.0'}),
+            200,
+          );
+        }),
+      );
+      expect(requests, 3);
+    });
+
+    test('unexpected 304 retries once without conditional headers', () async {
+      var requests = 0;
+      final result = await http.runWithClient(
+        () => fetchLatestGitHubRelease('acme/unexpected-304', cache: cache),
+        () => MockClient((request) async {
+          requests++;
+          expect(request.headers['if-none-match'], isNull);
+          return requests == 1
+              ? http.Response('', 304)
+              : http.Response(jsonEncode(release), 200);
+        }),
+      );
+      expect(result.tag, 'v1.2.3');
+      expect(requests, 2);
+    });
+
+    test('repeated unexpected 304 raises a controlled remote error', () async {
+      var requests = 0;
+      await expectLater(
+        http.runWithClient(
+          () =>
+              fetchGitHubReleaseByTag('acme/repeated-304', 'v1', cache: cache),
+          () => MockClient((request) async {
+            requests++;
+            expect(request.headers['if-none-match'], isNull);
+            return http.Response('', 304);
+          }),
+        ),
+        throwsA(
+          isA<RemoteServiceException>().having(
+            (e) => e.statusCode,
+            'statusCode',
+            304,
+          ),
+        ),
+      );
+      expect(requests, 2);
+    });
+  });
+
   group('shared rate-limit cooldown', () {
     final resetAt = DateTime.utc(2030, 1, 1, 12);
     final beforeReset = DateTime.utc(2030, 1, 1, 11);
@@ -182,8 +408,10 @@ void main() {
           ),
         ),
         throwsA(
-          isA<RemoteServiceException>()
-              .having((e) => e.statusCode, 'statusCode', 429)
+          isA<GithubRequestException>()
+              .having((e) => e.rateLimited, 'rateLimited', isTrue)
+              .having((e) => e.resetAt, 'resetAt', resetAt)
+              .having((e) => e.statusCode, 'statusCode', 403)
               .having(
                 (e) => e.userMessage,
                 'userMessage',
@@ -262,6 +490,7 @@ void main() {
     });
 
     test('a 304 answers from cache instead of failing', () async {
+      final cache = GitHubReleaseCache();
       var requests = 0;
       String? seenIfNoneMatch;
       final client = MockClient((request) async {
@@ -279,11 +508,11 @@ void main() {
 
       final first = await withClient(
         client,
-        () => fetchLatestGitHubRelease('acme/etag-plugin'),
+        () => fetchLatestGitHubRelease('acme/etag-plugin', cache: cache),
       );
       final second = await withClient(
         client,
-        () => fetchLatestGitHubRelease('acme/etag-plugin'),
+        () => fetchLatestGitHubRelease('acme/etag-plugin', cache: cache),
       );
       expect(requests, 2);
       expect(seenIfNoneMatch, '"v1"');

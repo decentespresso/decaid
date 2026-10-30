@@ -257,7 +257,7 @@ void main() {
                 .having(
                   (e) => e.userMessage,
                   'userMessage',
-                  'The service is receiving too many requests. Try again later.',
+                  contains('temporarily unavailable until 12:00 UTC'),
                 ),
           ),
         );
@@ -272,7 +272,7 @@ void main() {
                 .having(
                   (e) => e.userMessage,
                   'userMessage',
-                  'The service is receiving too many requests. Try again later.',
+                  contains('temporarily unavailable until 12:00 UTC'),
                 ),
           ),
         );
@@ -290,31 +290,49 @@ void main() {
         expect(requests, 2);
       });
 
-      test('does not start a cooldown without a reset header', () async {
-        var calls = 0;
-        final noReset = AndroidUpdater(
-          owner: 'tadelv',
-          repo: 'reaprime',
-          now: () => clock,
-          httpClient: MockClient((_) async {
-            calls++;
-            return calls == 1
-                ? http.Response(
-                    'rate limited',
-                    403,
-                    headers: {'x-ratelimit-remaining': '0'},
-                  )
-                : http.Response('[]', 200);
-          }),
+      for (final reset in <String?>[null, 'malformed']) {
+        test(
+          'unknown reset $reset remains a mapped rate-limit error',
+          () async {
+            var calls = 0;
+            final noReset = AndroidUpdater(
+              owner: 'tadelv',
+              repo: 'reaprime',
+              now: () => clock,
+              httpClient: MockClient((_) async {
+                calls++;
+                return calls == 1
+                    ? http.Response(
+                        'rate limited',
+                        403,
+                        headers: {
+                          'x-ratelimit-remaining': '0',
+                          'x-ratelimit-reset': ?reset,
+                        },
+                      )
+                    : http.Response('[]', 200);
+              }),
+            );
+            addTearDown(noReset.dispose);
+            await expectLater(
+              noReset.checkForUpdate('0.7.14'),
+              throwsA(
+                isA<UpdateCheckException>()
+                    .having((e) => e.rateLimited, 'rateLimited', isTrue)
+                    .having((e) => e.resetAt, 'resetAt', isNull)
+                    .having((e) => e.statusCode, 'statusCode', 403)
+                    .having(
+                      (e) => e.userMessage,
+                      'userMessage',
+                      contains('temporarily unavailable'),
+                    ),
+              ),
+            );
+            expect(await noReset.checkForUpdate('0.7.14'), isNull);
+            expect(calls, 2);
+          },
         );
-
-        await expectLater(
-          noReset.checkForUpdate('0.7.14'),
-          throwsA(isA<UpdateCheckException>()),
-        );
-        expect(await noReset.checkForUpdate('0.7.14'), isNull);
-        expect(calls, 2);
-      });
+      }
     });
 
     test(
@@ -399,7 +417,7 @@ void main() {
           isA<UpdateCheckException>().having(
             (e) => e.message,
             'message',
-            'Failed to fetch releases: HTTP 404',
+            'GitHub request failed: HTTP 404',
           ),
         ),
       );
