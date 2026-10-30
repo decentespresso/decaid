@@ -150,6 +150,91 @@ void main() {
       },
     );
 
+    test('all selected groups use their coalesced frames', () async {
+      _queueSettingsStubs(transport);
+
+      await de1.getCoalescedMachineSettings(
+        fanTank: true,
+        flush: true,
+        purgeUsb: true,
+      );
+
+      final reads = _mmrReads(transport);
+      expect(reads.map(_mmrAddress), [
+        MMRItem.fanThreshold.address,
+        MMRItem.targetSteamFlow.address,
+        MMRItem.flushFlowRate.address,
+        MMRItem.steamPurgeMode.address,
+      ]);
+      expect(reads.map((w) => w.data[0]), [1, 0, 3, 1]);
+    });
+
+    test(
+      'fanTank can be selected while other groups stay sequential',
+      () async {
+        transport.queueMmrResponseWords(MMRItem.fanThreshold, _fanWords);
+        transport.queueMmrResponseWords(MMRItem.targetSteamFlow, _steamWords);
+        transport.queueMmrResponseInt(MMRItem.flushFlowRate, 123);
+        transport.queueMmrResponseInt(MMRItem.flushTemp, 955);
+        transport.queueMmrResponseInt(MMRItem.flushTimeout, 100);
+        transport.queueMmrResponseInt(MMRItem.hotWaterFlowRate, 250);
+        transport.queueMmrResponseInt(MMRItem.steamPurgeMode, 2);
+        transport.queueMmrResponseInt(MMRItem.allowUSBCharging, 1);
+
+        await de1.getCoalescedMachineSettings(
+          fanTank: true,
+          flush: false,
+          purgeUsb: false,
+        );
+
+        final reads = _mmrReads(transport);
+        expect(reads.map(_mmrAddress), [
+          MMRItem.fanThreshold.address,
+          MMRItem.targetSteamFlow.address,
+          MMRItem.flushFlowRate.address,
+          MMRItem.flushTemp.address,
+          MMRItem.flushTimeout.address,
+          MMRItem.hotWaterFlowRate.address,
+          MMRItem.steamPurgeMode.address,
+          MMRItem.allowUSBCharging.address,
+        ]);
+        expect(reads.map((w) => w.data[0]), [1, 0, 0, 0, 0, 0, 0, 0]);
+      },
+    );
+
+    test(
+      'purgeUsb can be selected while other groups stay sequential',
+      () async {
+        transport.queueMmrResponseInt(MMRItem.fanThreshold, 42);
+        transport.queueMmrResponseInt(MMRItem.tankTemp, -7);
+        transport.queueMmrResponseWords(MMRItem.targetSteamFlow, _steamWords);
+        transport.queueMmrResponseInt(MMRItem.flushFlowRate, 123);
+        transport.queueMmrResponseInt(MMRItem.flushTemp, 955);
+        transport.queueMmrResponseInt(MMRItem.flushTimeout, 100);
+        transport.queueMmrResponseInt(MMRItem.hotWaterFlowRate, 250);
+        transport.queueMmrResponseWords(MMRItem.steamPurgeMode, _purgeWords);
+
+        await de1.getCoalescedMachineSettings(
+          fanTank: false,
+          flush: false,
+          purgeUsb: true,
+        );
+
+        final reads = _mmrReads(transport);
+        expect(reads.map(_mmrAddress), [
+          MMRItem.fanThreshold.address,
+          MMRItem.tankTemp.address,
+          MMRItem.targetSteamFlow.address,
+          MMRItem.flushFlowRate.address,
+          MMRItem.flushTemp.address,
+          MMRItem.flushTimeout.address,
+          MMRItem.hotWaterFlowRate.address,
+          MMRItem.steamPurgeMode.address,
+        ]);
+        expect(reads.map((w) => w.data[0]), [0, 0, 0, 0, 0, 0, 0, 1]);
+      },
+    );
+
     test(
       'overlapping single and two-word reads keep their own responses',
       () async {
@@ -330,6 +415,83 @@ void main() {
           MMRItem.heaterUp2Timeout.address,
         ]);
         expect(reads.map((w) => w.data[0]).toList(), [2, 0]);
+      },
+    );
+
+    test('normal settings select coalesced groups independently', () async {
+      transport.queueMmrResponseWords(MMRItem.fanThreshold, _fanWords);
+      transport.queueMmrResponseWords(MMRItem.targetSteamFlow, _steamWords);
+      transport.queueMmrResponseInt(MMRItem.flushFlowRate, 123);
+      transport.queueMmrResponseInt(MMRItem.flushTemp, 955);
+      transport.queueMmrResponseInt(MMRItem.flushTimeout, 100);
+      transport.queueMmrResponseInt(MMRItem.hotWaterFlowRate, 250);
+      transport.queueMmrResponseWords(MMRItem.steamPurgeMode, _purgeWords);
+
+      final settings = await de1.getCoalescedMachineSettings(
+        fanTank: true,
+        flush: false,
+        purgeUsb: true,
+      );
+
+      expect(
+        {
+          'fan': settings.fanThreshold,
+          'usb': settings.usbChargerMode,
+          'flushTemp': settings.flushTemperature,
+          'flushTimeout': settings.flushTimeout,
+          'flushFlow': settings.flushFlow,
+          'hotWaterFlow': settings.hotWaterFlow,
+          'steamFlow': settings.steamFlow,
+          'tankTemp': settings.tankTempThreshold,
+          'steamPurgeMode': settings.steamPurgeMode,
+        },
+        {
+          'fan': 42,
+          'usb': true,
+          'flushTemp': 955 * 0.1,
+          'flushTimeout': 100 * 0.1,
+          'flushFlow': 123 * 0.1,
+          'hotWaterFlow': 250 * 0.1,
+          'steamFlow': 150 * 0.01,
+          'tankTemp': -7,
+          'steamPurgeMode': 2,
+        },
+      );
+      expect(_mmrReads(transport).map(_mmrAddress), [
+        MMRItem.fanThreshold.address,
+        MMRItem.targetSteamFlow.address,
+        MMRItem.flushFlowRate.address,
+        MMRItem.flushTemp.address,
+        MMRItem.flushTimeout.address,
+        MMRItem.hotWaterFlowRate.address,
+        MMRItem.steamPurgeMode.address,
+      ]);
+      expect(_mmrReads(transport).map((w) => w.data[0]), [1, 0, 0, 0, 0, 0, 1]);
+    });
+
+    test(
+      'advanced settings keep the heater group sequential when disabled',
+      () async {
+        transport.queueMmrResponseInt(MMRItem.heaterUp1Flow, 25);
+        transport.queueMmrResponseInt(MMRItem.heaterUp2Flow, 60);
+        transport.queueMmrResponseInt(MMRItem.waterHeaterIdleTemp, 980);
+        transport.queueMmrResponseInt(MMRItem.heaterUp2Timeout, 45);
+
+        final settings = await de1.getCoalescedAdvancedMachineSettings(
+          heater: false,
+        );
+
+        expect(settings.heaterPhase1Flow, 25 * 0.1);
+        expect(settings.heaterPhase2Flow, 60 * 0.1);
+        expect(settings.heaterIdleTemp, 980 * 0.1);
+        expect(settings.heaterPhase2Timeout, 45 * 0.1);
+        expect(_mmrReads(transport).map(_mmrAddress), [
+          MMRItem.heaterUp1Flow.address,
+          MMRItem.heaterUp2Flow.address,
+          MMRItem.waterHeaterIdleTemp.address,
+          MMRItem.heaterUp2Timeout.address,
+        ]);
+        expect(_mmrReads(transport).map((w) => w.data[0]), [0, 0, 0, 0]);
       },
     );
 

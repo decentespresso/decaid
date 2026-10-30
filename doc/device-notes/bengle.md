@@ -25,6 +25,13 @@ The original Bengle MMR surface below was verified against
 `CLoadCellCal.hpp`). LED persistence was updated for rheasman/Bengle#114
 (merge `57e97b1445`); no released firmware build is required by the app.
 
+## Settings MMR coalescing
+
+USB-serial Bengle settings use the validated fan/tank, flush, and heater groups;
+steam-purge/USB remains sequential because its coalesced second word was zeroed.
+BLE Bengle remains sequential. Firmware, measurements, and the experiment selector
+are recorded in [settings coalescing validation](bengle-settings-coalescing.md).
+
 ## Supported firmware surface
 
 Decaid supports exactly ONE Bengle firmware surface: the current one (MMR
