@@ -244,6 +244,17 @@ reaches `connected`.
 | PUT | `/api/v1/shots/:id` | Update shot annotations | |
 | DELETE | `/api/v1/shots/:id` | Delete shot | |
 
+**Filtering `GET /api/v1/shots`.** `grinderId`, `grinderModel`, `beanId`,
+`beanBatchId`, `coffeeName`, `coffeeRoaster`, `profileTitle`, `search`, and
+`minEnjoyment` all narrow the paginated list and apply to `total` as well as
+`items`. `minEnjoyment` is an inclusive threshold on the same 0-10 scale
+`PUT /api/v1/shots/:id` validates `annotations.enjoyment` against (not de1app's
+or visualizer.coffee's 0-100 scale); shots with no rating are excluded, since
+SQL comparisons against a NULL rating never match. A `minEnjoyment` that is not
+a finite number, or falls outside inclusive `0..10`, is rejected with 400.
+The legacy `ids` parameter is mutually exclusive with every filter above:
+combining them is rejected with 400 rather than silently dropping either side.
+
 Newly recorded shots snapshot `serialNumber`, `model`, `firmwareVersion`, and
 `flowCalibration` under `workflow.machine`. Historical records may omit these
 fields. Consumers must not infer missing capture-time identity from the machine

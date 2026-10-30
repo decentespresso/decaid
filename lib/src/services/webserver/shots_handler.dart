@@ -46,11 +46,21 @@ class ShotsHandler {
     final profileTitle = params['profileTitle'];
     final search = params['search'];
     final minEnjoymentRaw = params['minEnjoyment'];
-    final minEnjoyment = minEnjoymentRaw == null
-        ? null
-        : double.tryParse(minEnjoymentRaw);
-    if (minEnjoymentRaw != null && minEnjoyment == null) {
-      return jsonBadRequest({"error": "minEnjoyment must be a number"});
+    double? minEnjoyment;
+    if (minEnjoymentRaw != null) {
+      minEnjoyment = double.tryParse(minEnjoymentRaw);
+      final max = enjoymentMax.toStringAsFixed(0);
+      if (minEnjoyment == null || !minEnjoyment.isFinite) {
+        return jsonBadRequest({
+          "error": "minEnjoyment must be a number between 0 and $max",
+        });
+      }
+      if (minEnjoyment < 0 || minEnjoyment > enjoymentMax) {
+        return jsonBadRequest({
+          "error":
+              "minEnjoyment must be between 0 and $max, got $minEnjoymentRaw",
+        });
+      }
     }
 
     final rawIds = req.url.queryParametersAll['ids'];
@@ -69,7 +79,13 @@ class ShotsHandler {
         search != null ||
         minEnjoyment != null;
 
-    if (ids != null && ids.isNotEmpty && !hasFilters) {
+    if (ids != null && ids.isNotEmpty && hasFilters) {
+      return jsonBadRequest({
+        "error": "ids cannot be combined with other filters",
+      });
+    }
+
+    if (ids != null && ids.isNotEmpty) {
       final shots = <ShotRecord>[];
       for (final id in ids) {
         final shot = await _controller.storageService.getShot(id);

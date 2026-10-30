@@ -1892,16 +1892,24 @@ paths:
         - in: query
           name: minEnjoyment
           description: |
-            Filter to shots rated at least this enjoyment, on the 0-10 scale
-            PUT /api/v1/shots/{id} accepts for annotations.enjoyment (not de1app's
-            0-100 or visualizer.coffee's 0-100 scale). Shots with no rating are
-            excluded.
+            Filter to shots rated at least this enjoyment (inclusive), on the
+            0-10 scale PUT /api/v1/shots/{id} accepts for annotations.enjoyment
+            (not de1app's 0-100 or visualizer.coffee's 0-100 scale). Shots with
+            no rating are excluded. A non-numeric, non-finite or out-of-range
+            value is rejected with 400.
           required: false
           schema:
             type: number
+            minimum: 0
+            maximum: 10
         - in: query
           name: ids
-          description: "Legacy: filter by shot IDs (comma separated). Prefer limit/offset pagination."
+          description: |
+            Legacy: filter by shot IDs (comma separated). Prefer limit/offset
+            pagination. Cannot be combined with any other filter
+            (grinderId, grinderModel, beanId, beanBatchId, coffeeName,
+            coffeeRoaster, profileTitle, search, minEnjoyment); such a request
+            is rejected with 400.
           required: false
           schema:
             type: array
