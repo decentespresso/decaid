@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
+import 'package:reaprime/build_info.dart';
 import 'package:reaprime/main.dart';
 import 'package:reaprime/src/controllers/account_tokens_controller.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
@@ -35,6 +36,7 @@ import 'package:reaprime/src/theme/theme.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 import 'package:shadcn_ui/shadcn_ui.dart' hide Scale;
+import 'package:url_launcher/url_launcher.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
@@ -45,7 +47,10 @@ import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_source_service.dart';
-import 'package:reaprime/src/plugins/plugin_notification_banner.dart';
+import 'package:reaprime/src/notifications/notification_actions.dart';
+import 'package:reaprime/src/notifications/update_notifications.dart';
+import 'package:reaprime/src/services/android_updater.dart';
+import 'package:reaprime/src/settings/update_dialog.dart';
 import 'package:reaprime/src/debug_feature/scale_debug_view.dart';
 import 'package:reaprime/src/services/storage/bean_storage_service.dart';
 import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
@@ -142,12 +147,27 @@ class _MyAppState extends State<MyApp> {
   De1StateManager? _de1StateManager;
   Timer? _restartTimer;
   late final OnboardingController _onboardingController;
+  late final NotificationActions _notificationActions;
+  UpdateNotifications? _updateNotifications;
 
   bool _degradedAndroid = false;
 
   @override
   void initState() {
     super.initState();
+    _notificationActions = NotificationActions(
+      center: widget.pluginLoaderService.pluginManager.notifications,
+      updateCheckService: widget.updateCheckService,
+      onOpenAccount: () => NavigationService.navigatorKey.currentState
+          ?.pushNamed(AccountPage.routeName),
+    );
+    if (widget.updateCheckService case final service?) {
+      _updateNotifications = UpdateNotifications(
+        center: widget.pluginLoaderService.pluginManager.notifications,
+        service: service,
+        onDownload: _confirmUpdateDownload,
+      );
+    }
     _initializeDe1StateManager();
     _onboardingController = OnboardingController(
       steps: [
@@ -213,6 +233,31 @@ class _MyAppState extends State<MyApp> {
       }
     } catch (e) {
       _log.warning('Failed to resolve Android SDK for degraded check: $e');
+    }
+  }
+
+  Future<void> _confirmUpdateDownload(UpdateInfo update) async {
+    final context = NavigationService.context;
+    if (context == null || !context.mounted) return;
+    final updater = AndroidUpdater(owner: 'tadelv', repo: 'reaprime');
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => UpdateDialog(
+          updateInfo: update,
+          currentVersion: BuildInfo.version,
+          onViewReleaseNotes: () {
+            final url = widget.updateCheckService?.getReleaseUrl(update);
+            if (url != null) launchUrl(Uri.parse(url));
+          },
+          onDownload: (info, onProgress) =>
+              updater.downloadUpdate(info, onProgress: onProgress),
+          onInstall: updater.installUpdate,
+        ),
+      );
+    } finally {
+      updater.dispose();
     }
   }
 
@@ -288,6 +333,8 @@ class _MyAppState extends State<MyApp> {
     _de1StateManager?.dispose();
     _onboardingController.dispose();
     _restartTimer?.cancel();
+    _notificationActions.dispose();
+    unawaited(_updateNotifications?.dispose());
     super.dispose();
   }
 
@@ -307,12 +354,6 @@ class _MyAppState extends State<MyApp> {
         builder: (BuildContext context, Widget? child) {
           return ShadApp(
             restorationScopeId: null,
-            builder: (context, child) => PluginNotificationBanner(
-              center: widget.pluginLoaderService.pluginManager.notifications,
-              onOpenAccount: () => NavigationService.navigatorKey.currentState
-                  ?.pushNamed(AccountPage.routeName),
-              child: child ?? const SizedBox.shrink(),
-            ),
 
             supportedLocales: const [Locale('en', '')],
 
@@ -445,6 +486,11 @@ class _MyAppState extends State<MyApp> {
                       );
                     case LauncherView.routeName:
                       return LauncherView(
+                        notificationCenter: widget
+                            .pluginLoaderService
+                            .pluginManager
+                            .notifications,
+                        notificationActions: _notificationActions,
                         de1Controller: widget.de1Controller,
                         scaleController: widget.scaleController,
                         webUIService: widget.webUIService,
@@ -521,6 +567,11 @@ class _MyAppState extends State<MyApp> {
                       );
                     case SkinView.routeName:
                       return SkinView(
+                        notificationCenter: widget
+                            .pluginLoaderService
+                            .pluginManager
+                            .notifications,
+                        notificationActions: _notificationActions,
                         settingsController: widget.settingsController,
                         webViewLogService: widget.webViewLogService,
                         deviceIp: widget.webUIService.deviceIp(),

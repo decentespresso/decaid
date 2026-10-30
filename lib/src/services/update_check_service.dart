@@ -25,6 +25,7 @@ class UpdateCheckService {
 
   Timer? _periodicTimer;
   UpdateInfo? _availableUpdate;
+  bool _hasCompletedCheck = false;
 
   late final BehaviorSubject<AppUpdateState> _state;
 
@@ -61,6 +62,8 @@ class UpdateCheckService {
       externallyManaged ? null : _availableUpdate;
 
   bool get hasAvailableUpdate => availableUpdate != null;
+  bool get hasCompletedCheck => _hasCompletedCheck;
+  Future<String?> get skippedVersion => _settingsService.skippedVersion();
 
   Stream<AppUpdateState> get updateState => _state.stream;
 
@@ -231,6 +234,7 @@ class UpdateCheckService {
       );
 
       await _settingsService.setLastUpdateCheckTime(DateTime.now());
+      _hasCompletedCheck = true;
 
       if (updateInfo != null) {
         final skipped = await _settingsService.skippedVersion();
@@ -290,6 +294,7 @@ class UpdateCheckService {
 
   void clearAvailableUpdate() {
     _availableUpdate = null;
+    _hasCompletedCheck = true;
     _emit(AppUpdatePhase.idle);
   }
 
@@ -300,6 +305,7 @@ class UpdateCheckService {
       return;
     }
     _log.info('DEBUG: forcing fake update notification ($version)');
+    _hasCompletedCheck = true;
     _availableUpdate = UpdateInfo(
       version: version,
       downloadUrl:
@@ -315,11 +321,20 @@ class UpdateCheckService {
   Future<void> skipCurrentUpdate() async {
     final version = _availableUpdate?.version;
     if (version != null) {
-      _log.info('User skipped update: $version');
-      await _settingsService.setSkippedVersion(version);
+      await skipVersion(version);
+    } else {
+      _emit(AppUpdatePhase.idle);
     }
-    _availableUpdate = null;
-    _emit(AppUpdatePhase.idle);
+  }
+
+  Future<void> skipVersion(String version) async {
+    _log.info('User skipped update: $version');
+    await _settingsService.setSkippedVersion(version);
+    if (_availableUpdate?.version == version) {
+      _availableUpdate = null;
+      _hasCompletedCheck = true;
+      _emit(AppUpdatePhase.idle);
+    }
   }
 
   void dispose() {

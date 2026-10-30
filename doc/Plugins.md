@@ -201,10 +201,10 @@ Emit events to the Flutter app. Requires `emit`.
 
 ### `host.notify(notification)` / `host.dismissNotification(id?)`
 
-Requires `notifications`. Show or update a native notice using a plugin-local ID:
+Requires `notifications`. Save or update a native notice using a plugin-local ID:
 
 ```javascript
-host.notify({
+const requestId = host.notify({
   id: "connection",
   message: "The service needs your attention.",
   action: {
@@ -218,9 +218,17 @@ host.dismissNotification("connection");
 ```
 
 `action` is optional. IDs are nonempty strings of at most 128 characters; messages
-are limited to 600, action labels to 40, and URLs to 2,048. Invalid payloads are
-ignored and logged. Missing permission throws `PluginPermissionError`; Dart also
-checks the permission and live caller generation before accepting bridge calls.
+are limited to 600, action labels to 40, and URLs to 2,048. Missing permission
+throws `PluginPermissionError`; Dart also checks the permission and live caller
+generation before accepting bridge calls.
+
+`notify` returns an opaque request ID. The host delivers `notificationResult`
+only to the originating live generation, with `{requestId, id, status}`. Status
+is `accepted` after saving, or `rejected` with a `reason` of `validation`,
+`capacity`, or `storage`. A rejected result includes `id` only when that ID is
+valid. Acceptance means retained for presentation, not displayed, read, or
+acknowledged. A plugin can retry capacity or storage rejection while its
+condition remains relevant; it must correlate each result with its request ID.
 
 Only two action types are supported: `openExternalUrl` opens an absolute HTTPS
 URL without embedded credentials in the external browser; `openDecentAccount`
@@ -229,12 +237,28 @@ Both require an explicit user tap. Plugins cannot supply native routes, custom
 URL schemes, executable callbacks, automatic actions, or UI priority. The host
 displays the plugin name/ID and external destination hostname alongside the copy.
 
-Notices use a separate scrollable banner, never the global snackbar queue. They
-remain until dismissed, replaced, or unloaded. At most five notices per plugin
-and twenty total are retained; excess new IDs are ignored without evicting
-existing notices. Updating an existing ID preserves its position. Omit the ID
-when dismissing to clear only the calling plugin's notices. Reload/unload removes
-that plugin's notices and invalidates pending actions.
+Notices appear in the native Notifications overlay. The dashboard destination
+remains available for read notices; the skin shows a bell and unread count only
+when unread notices exist. Incoming notices do not open the overlay or change
+the skin's WebView bounds. Existing transient SnackBars remain independent.
+Opening the overlay marks the captured content revisions read. Later arrivals
+and content changes remain unread until another opening. Closing the overlay
+does not dismiss a notice, resolve a condition, or resume plugin work.
+
+The app retains source identity, approved actions, order and read status in one
+private SharedPreferences snapshot, outside skin-accessible Hive namespaces.
+Identical publications preserve read state and order across restarts. Changing
+the message or action marks a notice unread. Restored notices say "Awaiting
+confirmation" and disable actions until the current generation republishes them.
+
+At most five notices per plugin and twenty plugin notices overall fit in the
+center. The host reserves a separate app-update entry. Capacity rejection does
+not evict existing notices. Omit the ID when dismissing to remove only the calling
+plugin's notices. Shutdown and reload retain messages but retire action bindings;
+explicit unload, disable, uninstall, removal of the notification permission,
+programmatic resolution and user dismissal remove the relevant messages.
+Failed saves preserve the previous visible state and report an error. Corrupt or
+unknown saved snapshots remain untouched rather than resetting the center.
 
 `notificationAction` is delivered only to the originating plugin, with payload
 `{id, actionId, phase}`. `activated` means the user invoked an action; `failed`
@@ -242,8 +266,12 @@ reports an unsuccessful external launch. `returned` is delivered once after a
 successful external launch and a subsequent leave/resume transition, provided the
 notification and plugin generation remain current. It is not evidence that an
 external task succeeded. The plugin decides whether to refresh or retry.
+The app tracks browser return independently of the overlay. Closing the overlay
+or marking a notice read does not cancel an outstanding return; replacement,
+removal and generation retirement do.
 
-Closing a notice with the native dismiss button delivers `notificationDismissed`
+Dismissing a notice with its trash button or the header's Dismiss all control
+delivers `notificationDismissed`
 only to its originating live plugin, with payload `{id}` and the `notifications`
 permission. The notice is removed and pending actions invalidated before this
 event is delivered once. No action is required. Programmatic dismissal,
@@ -374,6 +402,9 @@ Machine broadcasts require `events.machine`. Shot lifecycle broadcasts require
 - **`notificationAction`**: A host-approved notification action or browser-return
   event. Requires `notifications`; see `host.notify` for the targeted payload
   and lifecycle. No action event is broadcast to unrelated plugins.
+- **`notificationResult`**: A targeted persistence result for `host.notify`.
+  Requires `notifications`; see the request ID, status and rejection reasons
+  above. Other plugins cannot receive the result.
 - **`notificationDismissed`**: The user closed a current native notice. Requires
   `notifications`; payload `{id}` is delivered only to the originating plugin.
   Programmatic removals and retired notices do not emit dismissal events.

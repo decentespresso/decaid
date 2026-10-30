@@ -14,6 +14,72 @@ void main() {
     tagName: 'v1.2.3',
   );
 
+  testWidgets('cancel never downloads or installs an update', (tester) async {
+    var downloadCalls = 0;
+    var installCalls = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () => showDialog<void>(
+              context: context,
+              builder: (_) => UpdateDialog(
+                updateInfo: updateInfo,
+                currentVersion: '1.2.2',
+                onViewReleaseNotes: () {},
+                onDownload: (_, _) async {
+                  downloadCalls++;
+                  return '/tmp/decent.apk';
+                },
+                onInstall: (_) async {
+                  installCalls++;
+                  return true;
+                },
+              ),
+            ),
+            child: const Text('Open update'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open update'));
+    await tester.pumpAndSettle();
+    expect(downloadCalls, 0);
+    expect(installCalls, 0);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.byType(UpdateDialog), findsNothing);
+    expect(downloadCalls, 0);
+    expect(installCalls, 0);
+  });
+
+  testWidgets('download waits for a separate install confirmation', (
+    tester,
+  ) async {
+    var installCalls = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: UpdateDialog(
+          updateInfo: updateInfo,
+          currentVersion: '1.2.2',
+          onViewReleaseNotes: () {},
+          onDownload: (_, _) async => '/tmp/decent.apk',
+          onInstall: (_) async {
+            installCalls++;
+            return false;
+          },
+        ),
+      ),
+    );
+    await tester.tap(find.text('Download'));
+    await tester.pumpAndSettle();
+    expect(find.text('Install'), findsOneWidget);
+    expect(installCalls, 0);
+    await tester.tap(find.text('Install'));
+    await tester.pumpAndSettle();
+    expect(installCalls, 1);
+  });
+
   testWidgets('shows determinate download progress and percentage', (
     tester,
   ) async {
