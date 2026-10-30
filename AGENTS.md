@@ -110,13 +110,16 @@ GitHub Issues on `decentespresso/decaid` is the canonical issue tracker. Use `gh
 
 **Triage labels** (used on `decentespresso/decaid`):
 
+New issues automatically receive `needs-triage` as an inbox label, regardless of whether they come from an issue form, a bot, or another creation path. When evaluating an issue, remove `needs-triage` and apply the appropriate reviewed state below. Do not treat `needs-triage` as implementation readiness.
+
 | Label | Meaning |
 |-------|---------|
-| `needs-triage` | Maintainer needs to evaluate this issue |
-| `needs-info` | Waiting on reporter for more information |
-| `ready-for-agent` | Fully specified, ready for an AFK agent |
-| `ready-for-human` | Requires human implementation |
-| `wontfix` | Will not be actioned |
+| `needs-triage` | New issue not yet evaluated by a maintainer |
+| `needs-info` | Reviewed; waiting on reporter for more information |
+| `needs-refinement` | Reviewed; product or engineering decisions are still needed |
+| `ready-for-agent` | Reviewed and fully specified, ready for an AFK agent |
+| `ready-for-human` | Reviewed; requires human implementation |
+| `wontfix` | Reviewed; will not be actioned (close as not planned when appropriate) |
 
 ## Deep References
 
