@@ -60,28 +60,26 @@ void main() {
     center.dispose();
   });
 
-  testWidgets(
-    'default link actions use the external browser on iOS',
-    (tester) async {
-      final original = UrlLauncherPlatform.instance;
-      final launcher = _Launcher();
-      UrlLauncherPlatform.instance = launcher;
-      try {
-        actions.dispose();
-        actions = NotificationActions(center: center, onOpenAccount: () {});
-        await actions.activate(center.value.single, action);
-        expect(launcher.launches.single.url, action.url.toString());
-        expect(
-          launcher.launches.single.options.mode,
-          PreferredLaunchMode.externalApplication,
-        );
-        expect(phases, ['activated']);
-      } finally {
-        UrlLauncherPlatform.instance = original;
-      }
-    },
-    variant: TargetPlatformVariant({TargetPlatform.iOS}),
-  );
+  testWidgets('default link actions use the external browser on iOS', (
+    tester,
+  ) async {
+    final original = UrlLauncherPlatform.instance;
+    final launcher = _Launcher();
+    UrlLauncherPlatform.instance = launcher;
+    try {
+      actions.dispose();
+      actions = NotificationActions(center: center, onOpenAccount: () {});
+      await actions.activate(center.value.single, action);
+      expect(launcher.launches.single.url, action.url.toString());
+      expect(
+        launcher.launches.single.options.mode,
+        PreferredLaunchMode.externalApplication,
+      );
+      expect(phases, ['activated']);
+    } finally {
+      UrlLauncherPlatform.instance = original;
+    }
+  }, variant: TargetPlatformVariant({TargetPlatform.iOS}));
 
   test(
     'account actions navigate without opening an external browser',
