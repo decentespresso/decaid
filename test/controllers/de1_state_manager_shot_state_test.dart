@@ -90,6 +90,7 @@ class _CapturingStorageService implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
     bool ascending = false,
   }) async => [];
   @override
@@ -102,6 +103,7 @@ class _CapturingStorageService implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
   }) async => 0;
   @override
   Future<ShotRecord?> getLatestShot() async => null;

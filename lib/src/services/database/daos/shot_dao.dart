@@ -59,6 +59,7 @@ class ShotDao extends DatabaseAccessor<AppDatabase> with _$ShotDaoMixin {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
     bool ascending = false,
   }) {
     final query = select(shotRecords);
@@ -96,6 +97,9 @@ class ShotDao extends DatabaseAccessor<AppDatabase> with _$ShotDaoMixin {
             s.espressoNotes.like(pattern),
       );
     }
+    if (minEnjoyment != null) {
+      query.where((s) => s.enjoyment.isBiggerOrEqualValue(minEnjoyment));
+    }
 
     query
       ..orderBy([
@@ -117,6 +121,7 @@ class ShotDao extends DatabaseAccessor<AppDatabase> with _$ShotDaoMixin {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
   }) async {
     final countExpr = shotRecords.id.count();
     final query = selectOnly(shotRecords)..addColumns([countExpr]);
@@ -152,6 +157,9 @@ class ShotDao extends DatabaseAccessor<AppDatabase> with _$ShotDaoMixin {
             shotRecords.grinderModel.like(pattern) |
             shotRecords.espressoNotes.like(pattern),
       );
+    }
+    if (minEnjoyment != null) {
+      query.where(shotRecords.enjoyment.isBiggerOrEqualValue(minEnjoyment));
     }
 
     final result = await query.getSingle();

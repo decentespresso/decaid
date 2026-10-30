@@ -77,6 +77,7 @@ class DriftStorageService implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
     bool ascending = false,
   }) async {
     final rows = await _db.shotDao.getShotsPaginated(
@@ -90,6 +91,7 @@ class DriftStorageService implements StorageService {
       coffeeRoaster: coffeeRoaster,
       profileTitle: profileTitle,
       search: search,
+      minEnjoyment: minEnjoyment,
       ascending: ascending,
     );
     return ShotMapper.fromRows(rows);
@@ -105,6 +107,7 @@ class DriftStorageService implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
   }) {
     return _db.shotDao.countShots(
       grinderId: grinderId,
@@ -115,6 +118,7 @@ class DriftStorageService implements StorageService {
       coffeeRoaster: coffeeRoaster,
       profileTitle: profileTitle,
       search: search,
+      minEnjoyment: minEnjoyment,
     );
   }
 

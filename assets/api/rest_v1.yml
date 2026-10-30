@@ -1814,7 +1814,8 @@ paths:
         the list response for performance — use GET /api/v1/shots/{id} to retrieve
         full shot data including measurements.
 
-        Supports filtering by grinder, coffee, and profile to help find specific shots.
+        Supports filtering by grinder, coffee, profile, and rating to help find
+        specific shots.
       tags: [Shots History]
       parameters:
         - in: query
@@ -1888,6 +1889,16 @@ paths:
           required: false
           schema:
             type: string
+        - in: query
+          name: minEnjoyment
+          description: |
+            Filter to shots rated at least this enjoyment, on the 0-10 scale
+            PUT /api/v1/shots/{id} accepts for annotations.enjoyment (not de1app's
+            0-100 or visualizer.coffee's 0-100 scale). Shots with no rating are
+            excluded.
+          required: false
+          schema:
+            type: number
         - in: query
           name: ids
           description: "Legacy: filter by shot IDs (comma separated). Prefer limit/offset pagination."
