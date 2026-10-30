@@ -199,9 +199,96 @@ void main() {
       ]);
     });
 
-    test('GET /api/v1/shots rejects a non-numeric minEnjoyment', () async {
-      final response = await sendGet('/api/v1/shots?minEnjoyment=great');
+    test('GET /api/v1/shots accepts the minEnjoyment range bounds', () async {
+      await persistence.persistShot(
+        makeShot(
+          id: 'zero',
+          timestamp: DateTime.utc(2026, 1, 1, 10),
+          annotations: const ShotAnnotations(enjoyment: 0),
+        ),
+      );
+      await persistence.persistShot(
+        makeShot(
+          id: 'ten',
+          timestamp: DateTime.utc(2026, 1, 2, 10),
+          annotations: const ShotAnnotations(enjoyment: 10),
+        ),
+      );
+
+      final atZero = await decode(
+        await sendGet('/api/v1/shots?minEnjoyment=0'),
+      );
+      expect((atZero['items'] as List).map((item) => item['id']).toList(), [
+        'ten',
+        'zero',
+      ]);
+      expect(atZero['total'], 2);
+
+      final atTen = await decode(
+        await sendGet('/api/v1/shots?minEnjoyment=10'),
+      );
+      expect((atTen['items'] as List).map((item) => item['id']).toList(), [
+        'ten',
+      ]);
+      expect(atTen['total'], 1);
+    });
+
+    test('GET /api/v1/shots rejects an out-of-contract minEnjoyment', () async {
+      for (final value in ['great', '-1', '11', 'NaN', 'Infinity']) {
+        final response = await sendGet('/api/v1/shots?minEnjoyment=$value');
+        expect(response.statusCode, 400, reason: 'minEnjoyment=$value');
+      }
+    });
+
+    test('GET /api/v1/shots rejects ids combined with a filter', () async {
+      await persistence.persistShot(
+        makeShot(
+          id: 'shot-a',
+          annotations: const ShotAnnotations(enjoyment: 2),
+        ),
+      );
+      await persistence.persistShot(
+        makeShot(
+          id: 'shot-b',
+          annotations: const ShotAnnotations(enjoyment: 9),
+        ),
+      );
+
+      final response = await sendGet('/api/v1/shots?ids=shot-a&minEnjoyment=6');
       expect(response.statusCode, 400);
+
+      final idsOnly = await sendGet('/api/v1/shots?ids=shot-a');
+      expect(idsOnly.statusCode, 200);
+      final body = jsonDecode(await idsOnly.readAsString()) as List;
+      expect(body.map((item) => item['id']).toList(), ['shot-a']);
+    });
+
+    test('GET /api/v1/shots total matches the filtered items', () async {
+      for (var i = 0; i < 5; i++) {
+        await persistence.persistShot(
+          makeShot(
+            id: 'shot-$i',
+            timestamp: DateTime.utc(2026, 1, 1 + i, 10),
+            coffeeName: i.isEven ? 'Match' : 'Other',
+            annotations: ShotAnnotations(enjoyment: i.toDouble() + 5),
+          ),
+        );
+      }
+
+      final page = await decode(
+        await sendGet('/api/v1/shots?search=Match&minEnjoyment=6&limit=1'),
+      );
+      expect(page['total'], 2);
+      expect((page['items'] as List), hasLength(1));
+
+      final all = await decode(
+        await sendGet('/api/v1/shots?search=Match&minEnjoyment=6&limit=100'),
+      );
+      expect((all['items'] as List).map((item) => item['id']).toList(), [
+        'shot-4',
+        'shot-2',
+      ]);
+      expect(all['total'], (all['items'] as List).length);
     });
 
     test(
