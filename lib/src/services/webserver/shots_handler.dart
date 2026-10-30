@@ -45,6 +45,13 @@ class ShotsHandler {
     final coffeeRoaster = params['coffeeRoaster'];
     final profileTitle = params['profileTitle'];
     final search = params['search'];
+    final minEnjoymentRaw = params['minEnjoyment'];
+    final minEnjoyment = minEnjoymentRaw == null
+        ? null
+        : double.tryParse(minEnjoymentRaw);
+    if (minEnjoymentRaw != null && minEnjoyment == null) {
+      return jsonBadRequest({"error": "minEnjoyment must be a number"});
+    }
 
     final rawIds = req.url.queryParametersAll['ids'];
     final ids = rawIds
@@ -59,7 +66,8 @@ class ShotsHandler {
         coffeeName != null ||
         coffeeRoaster != null ||
         profileTitle != null ||
-        search != null;
+        search != null ||
+        minEnjoyment != null;
 
     if (ids != null && ids.isNotEmpty && !hasFilters) {
       final shots = <ShotRecord>[];
@@ -112,6 +120,7 @@ class ShotsHandler {
         coffeeRoaster: coffeeRoaster,
         profileTitle: profileTitle,
         search: search,
+        minEnjoyment: minEnjoyment,
         ascending: ascending,
       );
 
@@ -124,6 +133,7 @@ class ShotsHandler {
         coffeeRoaster: coffeeRoaster,
         profileTitle: profileTitle,
         search: search,
+        minEnjoyment: minEnjoyment,
       );
 
       final items = shots.map((s) => s.toJsonWithoutMeasurements()).toList();

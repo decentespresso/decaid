@@ -69,6 +69,7 @@ class FakeStorageService implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
     bool ascending = false,
   }) => throw UnimplementedError();
   @override
@@ -81,6 +82,7 @@ class FakeStorageService implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
     bool ascending = false,
   }) => throw UnimplementedError();
   @override

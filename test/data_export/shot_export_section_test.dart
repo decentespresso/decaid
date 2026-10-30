@@ -51,6 +51,7 @@ class _FakeStorage implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
     bool ascending = false,
   }) async {
     throw StateError('offset paging must not be used for export');
@@ -98,6 +99,7 @@ class _FakeStorage implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
   }) async => owner.shots.length;
 
   @override

@@ -46,6 +46,7 @@ class ShotEventStorage implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
     bool ascending = false,
   }) async => shots.values.skip(offset).take(limit).toList();
 

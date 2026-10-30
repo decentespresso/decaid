@@ -170,6 +170,40 @@ void main() {
       ]);
     });
 
+    test('GET /api/v1/shots filters by minEnjoyment', () async {
+      await persistence.persistShot(
+        makeShot(
+          id: 'low',
+          timestamp: DateTime.utc(2026, 1, 1, 10),
+          annotations: const ShotAnnotations(enjoyment: 4),
+        ),
+      );
+      await persistence.persistShot(
+        makeShot(
+          id: 'high',
+          timestamp: DateTime.utc(2026, 1, 2, 10),
+          annotations: const ShotAnnotations(enjoyment: 8),
+        ),
+      );
+      await persistence.persistShot(
+        makeShot(id: 'unrated', timestamp: DateTime.utc(2026, 1, 3, 10)),
+      );
+
+      final response = await sendGet('/api/v1/shots?minEnjoyment=6');
+      expect(response.statusCode, 200);
+      final body =
+          jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      expect(body['total'], 1);
+      expect((body['items'] as List).map((item) => item['id']).toList(), [
+        'high',
+      ]);
+    });
+
+    test('GET /api/v1/shots rejects a non-numeric minEnjoyment', () async {
+      final response = await sendGet('/api/v1/shots?minEnjoyment=great');
+      expect(response.statusCode, 400);
+    });
+
     test(
       'GET /api/v1/shots with unknown beanId returns an empty page',
       () async {
