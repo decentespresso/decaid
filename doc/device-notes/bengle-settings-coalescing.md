@@ -2,17 +2,19 @@
 
 ## Decision
 
-Enable fan/tank, flush, and heater groups for USB-serial Bengle. Keep the
-steam-purge/USB pair sequential: its second word was zeroed despite single-word
-reads returning `1`. Normal settings therefore use five requests instead of nine;
-advanced settings use two instead of four. These counts are logical settings MMR
-reads, excluding retries and unrelated background traffic. BLE Bengle remains
-unverified and sequential. Simulated, replay, and interface-only test devices remain sequential.
+Enable fan/tank, flush, and heater groups for Bengle firmware regardless of
+transport. Keep the steam-purge/USB pair sequential on firmware 472: its second
+word was zeroed despite single-word reads returning `1`. Normal settings therefore
+use five requests instead of nine; advanced settings use two instead of four.
+These counts are logical settings MMR reads, excluding retries and unrelated
+background traffic. The group decision is firmware-scoped, not transport-scoped;
+BLE was not separately physically measured, and no BLE hardware run is claimed.
+Simulated, replay, and interface-only test devices remain sequential.
 
 No retry, timeout, MMR serialization, ownership, or framing rule changes were made.
 The Bengle-only capability gate is unrelated and remains unchanged. This
-USB-specific selection decision supersedes the older blanket Bengle exclusion in
-`doc/AI_BLE_NOTES.md`; that architecture summary was not edited because its
+firmware-scoped selection decision supersedes the older blanket Bengle exclusion
+in `doc/AI_BLE_NOTES.md`; that architecture summary was not edited because its
 ownership and framing rules did not change. LED,
 cup-warmer, identity-read coalescing, firmware changes, and DE1Pro measurements
 are outside this validation.
@@ -171,13 +173,16 @@ no pre-existing keystore was overwritten or deleted.
 ## Reproducing selection
 
 `--dart-define=bengleCoalescedSettings=fanTank,flush,heater` selects the measured
-USB-serial Bengle groups and is also the production default. An explicit empty
-value (`--dart-define=bengleCoalescedSettings=`) forces original sequential
-composition. A comma-separated subset selects mixed paths independently;
-`purgeUsb` is available only for explicit experiments and is not a validated
-default. Unknown names enable nothing. Normal and advanced routes select only
-their relevant groups. Compile-time defines require a new build/launch, not hot
-reload; do not use cross-restart snapshots as unchanged-state evidence.
+Bengle firmware groups and is also the production default across transports. An
+explicit empty value (`--dart-define=bengleCoalescedSettings=`) forces original
+sequential composition. A comma-separated subset selects mixed paths
+independently; `purgeUsb` is available only for explicit experiments and is not a
+validated default. Unknown names enable nothing. Normal and advanced routes
+select only their relevant groups. Compile-time defines require a new
+build/launch, not hot reload; do not use cross-restart snapshots as unchanged-state
+evidence. The USB-serial measurements above establish the group decision; BLE was
+not separately physically measured because the decision is a firmware property,
+not a link property.
 
 The investigation builds used the following commands. The second command was
 sequential before the measured default was introduced; to reproduce that path on

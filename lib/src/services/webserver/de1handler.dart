@@ -508,9 +508,9 @@ class De1Handler {
       return withDe1((de1) async {
         final settings = de1 is UnifiedDe1 && de1 is! BengleInterface
             ? await de1.getCoalescedMachineSettings()
-            : _isBengleSerial(de1) &&
+            : de1 is UnifiedDe1 &&
                   _hasBengleSettingsGroup({'fanTank', 'flush', 'purgeUsb'})
-            ? await (de1 as UnifiedDe1).getCoalescedMachineSettings(
+            ? await de1.getCoalescedMachineSettings(
                 fanTank: _bengleSettingsGroups.contains('fanTank'),
                 flush: _bengleSettingsGroups.contains('flush'),
                 purgeUsb: _bengleSettingsGroups.contains('purgeUsb'),
@@ -595,10 +595,8 @@ class De1Handler {
       return withDe1((de1) async {
         final settings = de1 is UnifiedDe1 && de1 is! BengleInterface
             ? await de1.getCoalescedAdvancedMachineSettings()
-            : _isBengleSerial(de1) && _hasBengleSettingsGroup({'heater'})
-            ? await (de1 as UnifiedDe1).getCoalescedAdvancedMachineSettings(
-                heater: true,
-              )
+            : de1 is UnifiedDe1 && _hasBengleSettingsGroup({'heater'})
+            ? await de1.getCoalescedAdvancedMachineSettings(heater: true)
             : await de1.getAdvancedMachineSettingsSnapshot();
         var json = <String, dynamic>{};
         json['heaterPh1Flow'] = settings.heaterPhase1Flow;
@@ -798,11 +796,6 @@ class De1Handler {
       .map((group) => group.trim())
       .where((group) => group.isNotEmpty)
       .toSet();
-
-  bool _isBengleSerial(De1Interface de1) =>
-      de1 is UnifiedDe1 &&
-      de1 is BengleInterface &&
-      de1.transportType == TransportType.serial;
 
   bool _hasBengleSettingsGroup(Iterable<String> groups) =>
       groups.any(_bengleSettingsGroups.contains);
