@@ -632,7 +632,10 @@ void main(List<String> args) async {
   );
   displayController.initialize();
 
-  final pluginSourceService = PluginSourceService(pluginService);
+  final pluginSourceService = PluginSourceService(
+    pluginService,
+    rateLimit: githubRateLimit,
+  );
   final updateCheckService = UpdateCheckService(
     settingsService: SharedPreferencesSettingsService(),
     webUIStorage: webUIStorage,

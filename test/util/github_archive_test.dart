@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:reaprime/src/services/github_rate_limit.dart';
 import 'package:reaprime/src/util/github_archive.dart';
+import 'package:reaprime/src/util/remote_error.dart';
 import 'package:reaprime/src/util/user_facing_exception.dart';
 
 void main() {
@@ -146,5 +148,148 @@ void main() {
       }, () => fetchGitHubBranchCommit('acme/plugin', 'main')),
       'abc123',
     );
+  });
+
+  group('shared rate-limit cooldown', () {
+    final resetAt = DateTime.utc(2030, 1, 1, 12);
+    final beforeReset = DateTime.utc(2030, 1, 1, 11);
+    String resetValue() => '${resetAt.millisecondsSinceEpoch ~/ 1000}';
+
+    Future<T> withClient<T>(MockClient client, Future<T> Function() action) =>
+        http.runWithClient(action, () => client);
+
+    test('a rate-limited fetch enters the shared cooldown', () async {
+      var requests = 0;
+      final limit = GithubRateLimit(now: () => beforeReset);
+      final client = MockClient((_) async {
+        requests++;
+        return http.Response(
+          'API rate limit exceeded',
+          403,
+          headers: {
+            'x-ratelimit-remaining': '0',
+            'x-ratelimit-reset': resetValue(),
+          },
+        );
+      });
+
+      await expectLater(
+        withClient(
+          client,
+          () => fetchLatestGitHubRelease(
+            'acme/rate-limited-plugin',
+            rateLimit: limit,
+          ),
+        ),
+        throwsA(
+          isA<RemoteServiceException>()
+              .having((e) => e.statusCode, 'statusCode', 429)
+              .having(
+                (e) => e.userMessage,
+                'userMessage',
+                allOf(contains('temporarily unavailable'), contains('12:00')),
+              ),
+        ),
+      );
+      expect(requests, 1);
+      expect(limit.isLimited, isTrue);
+      expect(limit.resetAt, resetAt);
+    });
+
+    test('a limited holder short-circuits without an HTTP request', () async {
+      final limit = GithubRateLimit(now: () => beforeReset);
+      limit.recordIfLimited(
+        http.Response(
+          '',
+          429,
+          headers: {
+            'x-ratelimit-remaining': '0',
+            'x-ratelimit-reset': resetValue(),
+          },
+        ),
+      );
+      expect(limit.isLimited, isTrue);
+
+      var requests = 0;
+      final client = MockClient((_) async {
+        requests++;
+        return http.Response(jsonEncode(release), 200);
+      });
+
+      await expectLater(
+        withClient(
+          client,
+          () => fetchLatestGitHubRelease(
+            'acme/short-circuited-plugin',
+            rateLimit: limit,
+          ),
+        ),
+        throwsA(
+          isA<RemoteServiceException>().having(
+            (e) => e.userMessage,
+            'userMessage',
+            contains('temporarily unavailable'),
+          ),
+        ),
+      );
+      expect(requests, 0);
+    });
+
+    test('a non-rate-limit error keeps the existing behaviour', () async {
+      final limit = GithubRateLimit(now: () => beforeReset);
+      final client = MockClient(
+        (_) async => http.Response('no such repo', 404),
+      );
+
+      await expectLater(
+        withClient(
+          client,
+          () =>
+              fetchLatestGitHubRelease('acme/missing-plugin', rateLimit: limit),
+        ),
+        throwsA(
+          isA<RemoteServiceException>()
+              .having((e) => e.statusCode, 'statusCode', 404)
+              .having(
+                (e) => e.userMessage,
+                'userMessage',
+                'The repository, release, or download was not found. '
+                    'Check the address and try again.',
+              ),
+        ),
+      );
+      expect(limit.isLimited, isFalse);
+    });
+
+    test('a 304 answers from cache instead of failing', () async {
+      var requests = 0;
+      String? seenIfNoneMatch;
+      final client = MockClient((request) async {
+        requests++;
+        if (requests == 1) {
+          return http.Response(
+            jsonEncode(release),
+            200,
+            headers: {'etag': '"v1"'},
+          );
+        }
+        seenIfNoneMatch = request.headers['if-none-match'];
+        return http.Response('', 304);
+      });
+
+      final first = await withClient(
+        client,
+        () => fetchLatestGitHubRelease('acme/etag-plugin'),
+      );
+      final second = await withClient(
+        client,
+        () => fetchLatestGitHubRelease('acme/etag-plugin'),
+      );
+      expect(requests, 2);
+      expect(seenIfNoneMatch, '"v1"');
+      expect(second.tag, first.tag);
+      expect(second.tag, 'v1.2.3');
+      expect(second.assets.single.name, 'plugin.zip');
+    });
   });
 }
