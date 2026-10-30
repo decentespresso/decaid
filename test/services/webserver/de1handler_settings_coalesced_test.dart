@@ -220,23 +220,23 @@ void main() {
       expect(reads.map((w) => w.data[0]).toList(), [1, 0, 3, 0, 0]);
     });
 
-    test('Bengle BLE stays sequential despite every group override', () async {
+    test('Bengle BLE coalesces the measured groups', () async {
       await wireWithUnifiedDe1(
         bengle: true,
-        bengleCoalescedSettings: 'fanTank,flush,heater,purgeUsb',
+        bengleCoalescedSettings: 'fanTank,flush,heater',
       );
       transport.queueMmrResponseWords(MMRItem.fanThreshold, [42, -7]);
       transport.queueMmrResponseInt(MMRItem.tankTemp, -7);
-      transport.queueMmrResponseInt(MMRItem.targetSteamFlow, 150);
+      transport.queueMmrResponseInt(MMRItem.flushTemp, 955);
+      transport.queueMmrResponseInt(MMRItem.flushTimeout, 100);
+      transport.queueMmrResponseInt(MMRItem.hotWaterFlowRate, 250);
+      transport.queueMmrResponseWords(MMRItem.targetSteamFlow, [150]);
       transport.queueMmrResponseWords(MMRItem.flushFlowRate, [
         123,
         955,
         100,
         250,
       ]);
-      transport.queueMmrResponseInt(MMRItem.flushTemp, 955);
-      transport.queueMmrResponseInt(MMRItem.flushTimeout, 100);
-      transport.queueMmrResponseInt(MMRItem.hotWaterFlowRate, 250);
       transport.queueMmrResponseInt(MMRItem.steamPurgeMode, 2);
       transport.queueMmrResponseInt(MMRItem.allowUSBCharging, 1);
       transport.writes.clear();
@@ -255,19 +255,59 @@ void main() {
         'tankTemp': -7,
         'steamPurgeMode': 2,
       });
-      expect(mmrReads().map((w) => w.data[0]), List.filled(9, 0));
+      expect(mmrReads().map((w) => w.data[0]), [1, 0, 3, 0, 0]);
       expect(mmrReads().map(mmrAddress), [
         MMRItem.fanThreshold.address,
-        MMRItem.allowUSBCharging.address,
-        MMRItem.flushTemp.address,
-        MMRItem.flushTimeout.address,
-        MMRItem.flushFlowRate.address,
-        MMRItem.hotWaterFlowRate.address,
         MMRItem.targetSteamFlow.address,
-        MMRItem.tankTemp.address,
+        MMRItem.flushFlowRate.address,
         MMRItem.steamPurgeMode.address,
+        MMRItem.allowUSBCharging.address,
       ]);
     });
+
+    test(
+      'Bengle BLE empty selector keeps normal settings sequential',
+      () async {
+        await wireWithUnifiedDe1(bengle: true, bengleCoalescedSettings: '');
+        transport.queueMmrResponseInt(MMRItem.fanThreshold, 42);
+        transport.queueMmrResponseInt(MMRItem.allowUSBCharging, 1);
+        transport.queueMmrResponseInt(MMRItem.flushTemp, 955);
+        transport.queueMmrResponseInt(MMRItem.flushTimeout, 100);
+        transport.queueMmrResponseInt(MMRItem.flushFlowRate, 123);
+        transport.queueMmrResponseInt(MMRItem.hotWaterFlowRate, 250);
+        transport.queueMmrResponseInt(MMRItem.targetSteamFlow, 150);
+        transport.queueMmrResponseInt(MMRItem.tankTemp, -7);
+        transport.queueMmrResponseInt(MMRItem.steamPurgeMode, 2);
+        transport.writes.clear();
+
+        final res = await get('/api/v1/machine/settings');
+
+        expect(res.statusCode, 200);
+        expect(jsonDecode(await res.readAsString()), {
+          'fan': 42,
+          'usb': true,
+          'flushTemp': 955 * 0.1,
+          'flushTimeout': 100 * 0.1,
+          'flushFlow': 123 * 0.1,
+          'hotWaterFlow': 250 * 0.1,
+          'steamFlow': 150 * 0.01,
+          'tankTemp': -7,
+          'steamPurgeMode': 2,
+        });
+        expect(mmrReads().map((w) => w.data[0]), List.filled(9, 0));
+        expect(mmrReads().map(mmrAddress), [
+          MMRItem.fanThreshold.address,
+          MMRItem.allowUSBCharging.address,
+          MMRItem.flushTemp.address,
+          MMRItem.flushTimeout.address,
+          MMRItem.flushFlowRate.address,
+          MMRItem.hotWaterFlowRate.address,
+          MMRItem.targetSteamFlow.address,
+          MMRItem.tankTemp.address,
+          MMRItem.steamPurgeMode.address,
+        ]);
+      },
+    );
 
     for (final device in [MockDe1(), MockBengle()]) {
       test('falls back to individual getters on ${device.name}', () async {
@@ -516,10 +556,39 @@ void main() {
       });
     });
 
+    test('Bengle BLE coalesces heater settings', () async {
+      await wireWithUnifiedDe1(
+        bengle: true,
+        bengleCoalescedSettings: 'fanTank,flush,heater',
+      );
+      transport.queueMmrResponseWords(MMRItem.heaterUp1Flow, [25, 60, 980]);
+      transport.queueMmrResponseInt(MMRItem.heaterUp2Flow, 60);
+      transport.queueMmrResponseInt(MMRItem.waterHeaterIdleTemp, 980);
+      transport.queueMmrResponseWords(MMRItem.heaterUp2Timeout, [45]);
+      transport.writes.clear();
+
+      final res = await get('/api/v1/machine/settings/advanced');
+
+      expect(res.statusCode, 200);
+      expect(jsonDecode(await res.readAsString()), {
+        'heaterPh1Flow': 25 * 0.1,
+        'heaterPh2Flow': 60 * 0.1,
+        'heaterIdleTemp': 980 * 0.1,
+        'heaterPh2Timeout': 45 * 0.1,
+        'heaterVoltage': 230,
+        'refillKitSetting': 2,
+      });
+      expect(mmrReads().map((w) => w.data[0]), [2, 0]);
+      expect(mmrReads().map(mmrAddress), [
+        MMRItem.heaterUp1Flow.address,
+        MMRItem.heaterUp2Timeout.address,
+      ]);
+    });
+
     test(
-      'Bengle uses four sequential reads with identical advanced JSON',
+      'Bengle BLE empty selector keeps advanced settings sequential',
       () async {
-        await wireWithUnifiedDe1(bengle: true);
+        await wireWithUnifiedDe1(bengle: true, bengleCoalescedSettings: '');
         transport.queueMmrResponseWords(MMRItem.heaterUp1Flow, [25, 60, 980]);
         transport.queueMmrResponseInt(MMRItem.heaterUp2Flow, 60);
         transport.queueMmrResponseInt(MMRItem.waterHeaterIdleTemp, 980);

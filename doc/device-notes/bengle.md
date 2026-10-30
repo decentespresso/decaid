@@ -27,10 +27,12 @@ The original Bengle MMR surface below was verified against
 
 ## Settings MMR coalescing
 
-USB-serial Bengle settings use the validated fan/tank, flush, and heater groups;
-steam-purge/USB remains sequential because its coalesced second word was zeroed.
-BLE Bengle remains sequential. Firmware, measurements, and the experiment selector
-are recorded in [settings coalescing validation](bengle-settings-coalescing.md).
+Bengle settings use the validated fan/tank, flush, and heater groups regardless
+of transport; steam-purge/USB remains sequential on firmware 472 because its
+coalesced second word was zeroed. The group decision is firmware-scoped, not
+transport-scoped. BLE was not separately physically measured, and no BLE hardware
+run is claimed. Firmware, measurements, and the experiment selector are recorded
+in [settings coalescing validation](bengle-settings-coalescing.md).
 
 ## Supported firmware surface
 
