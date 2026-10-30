@@ -66,7 +66,7 @@ void main() {
             .having(
               (e) => e.userMessage,
               'userMessage',
-              'The service is receiving too many requests. Try again later.',
+              contains('temporarily unavailable until 12:00 UTC'),
             ),
       ),
     );
@@ -80,7 +80,7 @@ void main() {
             .having(
               (e) => e.userMessage,
               'userMessage',
-              'The service is receiving too many requests. Try again later.',
+              contains('temporarily unavailable until 12:00 UTC'),
             ),
       ),
     );

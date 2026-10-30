@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 import 'package:reaprime/src/services/github_rate_limit.dart';
+import 'package:reaprime/src/services/github_request.dart';
 import 'package:reaprime/src/util/remote_error.dart';
 import 'package:reaprime/src/util/user_facing_exception.dart';
 
@@ -22,102 +23,37 @@ class GitHubRelease {
       assets.where((a) => a.name.toLowerCase().endsWith('.zip')).toList();
 }
 
-const _headers = {
-  'Accept': 'application/vnd.github.v3+json',
-  'User-Agent': 'Decaid',
-};
+class GitHubReleaseCache {
+  static const capacity = 32;
+  final _entries = <String, ({String etag, GitHubRelease release})>{};
 
-final _cachedReleaseEtags = <String, String>{};
-final _cachedReleases = <String, GitHubRelease>{};
-
-RemoteServiceException _githubRateLimited(DateTime? resetAt) {
-  if (resetAt == null) {
-    return RemoteServiceException(
-      429,
-      'GitHub updates are temporarily unavailable. Try again later.',
-    );
-  }
-  final utc = resetAt.toUtc();
-  final hour = utc.hour.toString().padLeft(2, '0');
-  final minute = utc.minute.toString().padLeft(2, '0');
-  return RemoteServiceException(
-    429,
-    'GitHub updates are temporarily unavailable until $hour:$minute UTC. '
-    'Try again later.',
-  );
-}
-
-Map<String, String> _releaseHeaders(String url) {
-  final headers = Map<String, String>.from(_headers);
-  final etag = _cachedReleaseEtags[url];
-  if (etag != null) {
-    headers['If-None-Match'] = etag;
-  }
-  return headers;
-}
-
-Future<http.Response> _rateLimitedGet(
-  String url,
-  GithubRateLimit? rateLimit,
-) async {
-  final limitedAt = rateLimit?.resetAt;
-  if (limitedAt != null) {
-    throw _githubRateLimited(limitedAt);
-  }
-  final response = await http.get(
-    Uri.parse(url),
-    headers: _releaseHeaders(url),
-  );
-  if (response.statusCode != 200 && response.statusCode != 304) {
-    final holder = rateLimit;
-    if (holder != null && holder.recordIfLimited(response)) {
-      throw _githubRateLimited(holder.resetAt);
+  void _store(String url, String? etag, GitHubRelease release) {
+    if (etag == null || etag.isEmpty) return;
+    if (_entries.length == capacity && !_entries.containsKey(url)) {
+      _entries.remove(_entries.keys.first);
     }
-    throw remoteHttpError(response.statusCode);
-  }
-  return response;
-}
-
-GitHubRelease? _cachedRelease(String url, http.Response response) {
-  if (response.statusCode != 304) {
-    return null;
-  }
-  return _cachedReleases[url];
-}
-
-void _storeRelease(String url, http.Response response, GitHubRelease release) {
-  final etag = response.headers['etag'];
-  if (etag != null && etag.isNotEmpty) {
-    _cachedReleaseEtags[url] = etag;
-    _cachedReleases[url] = release;
+    _entries[url] = (etag: etag, release: release);
   }
 }
 
-void validateGitHubRepo(String repo) {
-  final parts = repo.split('/');
-  if (parts.length != 2 || parts.any((p) => p.isEmpty)) {
-    throw const UserFacingFormatException(
-      'Invalid GitHub repo. Use: owner/repo',
-    );
-  }
-}
-
-Future<GitHubRelease> fetchLatestGitHubRelease(
-  String repo, {
+Future<GitHubRelease> _fetchRelease(
+  String url, {
+  required GithubRateLimit rateLimit,
+  required GitHubReleaseCache cache,
   bool includePrerelease = false,
-  GithubRateLimit? rateLimit,
 }) async {
-  validateGitHubRepo(repo);
-  final url = includePrerelease
-      ? 'https://api.github.com/repos/$repo/releases'
-      : 'https://api.github.com/repos/$repo/releases/latest';
-
-  final response = await _rateLimitedGet(url, rateLimit);
-  final notModified = _cachedRelease(url, response);
-  if (notModified != null) {
-    return notModified;
+  final cached = cache._entries[url];
+  var response = await githubGet(
+    url,
+    rateLimit: rateLimit,
+    headers: {if (cached != null) 'If-None-Match': cached.etag},
+    allowNotModified: true,
+  );
+  if (response.statusCode == 304) {
+    if (cached != null) return cached.release;
+    response = await githubGet(url, rateLimit: rateLimit);
   }
-
+  cache._entries.remove(url);
   final decoded = jsonDecode(response.body);
   final GitHubRelease release;
   if (includePrerelease) {
@@ -135,25 +71,49 @@ Future<GitHubRelease> fetchLatestGitHubRelease(
   } else {
     release = _releaseFromJson(decoded);
   }
-  _storeRelease(url, response, release);
+  cache._store(url, response.headers['etag'], release);
   return release;
+}
+
+void validateGitHubRepo(String repo) {
+  final parts = repo.split('/');
+  if (parts.length != 2 || parts.any((p) => p.isEmpty)) {
+    throw const UserFacingFormatException(
+      'Invalid GitHub repo. Use: owner/repo',
+    );
+  }
+}
+
+Future<GitHubRelease> fetchLatestGitHubRelease(
+  String repo, {
+  bool includePrerelease = false,
+  GithubRateLimit? rateLimit,
+  GitHubReleaseCache? cache,
+}) async {
+  validateGitHubRepo(repo);
+  final url = includePrerelease
+      ? 'https://api.github.com/repos/$repo/releases'
+      : 'https://api.github.com/repos/$repo/releases/latest';
+  return _fetchRelease(
+    url,
+    rateLimit: rateLimit ?? GithubRateLimit(),
+    cache: cache ?? GitHubReleaseCache(),
+    includePrerelease: includePrerelease,
+  );
 }
 
 Future<GitHubRelease> fetchGitHubReleaseByTag(
   String repo,
   String tag, {
   GithubRateLimit? rateLimit,
+  GitHubReleaseCache? cache,
 }) async {
   validateGitHubRepo(repo);
-  final url = 'https://api.github.com/repos/$repo/releases/tags/$tag';
-  final response = await _rateLimitedGet(url, rateLimit);
-  final notModified = _cachedRelease(url, response);
-  if (notModified != null) {
-    return notModified;
-  }
-  final release = _releaseFromJson(jsonDecode(response.body));
-  _storeRelease(url, response, release);
-  return release;
+  return _fetchRelease(
+    'https://api.github.com/repos/$repo/releases/tags/$tag',
+    rateLimit: rateLimit ?? GithubRateLimit(),
+    cache: cache ?? GitHubReleaseCache(),
+  );
 }
 
 GitHubRelease _releaseFromJson(Object? release) {
@@ -182,15 +142,16 @@ GitHubRelease _releaseFromJson(Object? release) {
   );
 }
 
-Future<String> fetchGitHubBranchCommit(String repo, String branch) async {
+Future<String> fetchGitHubBranchCommit(
+  String repo,
+  String branch, {
+  GithubRateLimit? rateLimit,
+}) async {
   validateGitHubRepo(repo);
-  final response = await http.get(
-    Uri.parse('https://api.github.com/repos/$repo/commits/$branch'),
-    headers: _headers,
+  final response = await githubGet(
+    'https://api.github.com/repos/$repo/commits/$branch',
+    rateLimit: rateLimit ?? GithubRateLimit(),
   );
-  if (response.statusCode != 200) {
-    throw remoteHttpError(response.statusCode);
-  }
   if (jsonDecode(response.body) case {
     'sha': final String commit,
   } when commit.isNotEmpty) {

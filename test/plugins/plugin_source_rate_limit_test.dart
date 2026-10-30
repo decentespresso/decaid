@@ -10,6 +10,7 @@ import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/services/android_updater.dart';
 import 'package:reaprime/src/services/github_rate_limit.dart';
+import 'package:reaprime/src/services/github_request.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/util/remote_error.dart';
 import 'package:reaprime/src/util/remote_update_exception.dart';
@@ -109,11 +110,9 @@ void main() {
         await expectLater(
           updater.checkForUpdate('0.1.0'),
           throwsA(
-            isA<UpdateCheckException>().having(
-              (e) => e.rateLimited,
-              'rateLimited',
-              isTrue,
-            ),
+            isA<UpdateCheckException>()
+                .having((e) => e.rateLimited, 'rateLimited', isTrue)
+                .having((e) => e.resetAt, 'resetAt', resetAt),
           ),
         );
         expect(requests, 1);
@@ -126,7 +125,12 @@ void main() {
             () => storage.installFromGitHubRelease('acme/plugin'),
             () => client,
           ),
-          throwsException,
+          throwsA(
+            isA<GithubRequestException>()
+                .having((e) => e.rateLimited, 'rateLimited', isTrue)
+                .having((e) => e.resetAt, 'resetAt', resetAt)
+                .having((e) => e.statusCode, 'statusCode', 429),
+          ),
         );
         expect(requests, 1);
 
@@ -172,8 +176,15 @@ void main() {
         });
 
         const id = 'managed.reaplugin';
+        const branchId = 'branch.reaplugin';
         final releaseClient = MockClient((request) async {
           final url = request.url.toString();
+          if (url.contains('/commits/')) {
+            return http.Response(jsonEncode({'sha': 'abc123'}), 200);
+          }
+          if (url.contains('/archive/')) {
+            return http.Response.bytes(pluginArchive(branchId), 200);
+          }
           if (url.contains('/releases/latest')) {
             return http.Response(releaseJson(), 200);
           }
@@ -186,6 +197,14 @@ void main() {
           () => releaseClient,
         );
         expect(service.sourceFor(id)?.releaseTag, 'v1.0.0');
+        await http.runWithClient(
+          () => service.installFromGitHubBranch(
+            'acme/branch-plugin',
+            branch: 'main',
+          ),
+          () => releaseClient,
+        );
+        expect(service.sourceFor(branchId)?.commit, 'abc123');
 
         limit.recordIfLimited(
           http.Response(
@@ -209,10 +228,12 @@ void main() {
           throwsA(isA<RemoteUpdateException>()),
         );
         expect(requests, 0);
-        expect(
-          service.sourceFor(id)?.lastError,
-          contains('temporarily unavailable'),
-        );
+        for (final pluginId in [id, branchId]) {
+          expect(
+            service.sourceFor(pluginId)?.lastError,
+            contains('temporarily unavailable'),
+          );
+        }
       },
     );
   });

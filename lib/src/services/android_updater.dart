@@ -8,6 +8,7 @@ import 'package:pub_semver/pub_semver.dart';
 import 'package:uuid/uuid.dart';
 import 'package:reaprime/src/services/apk_installer.dart';
 import 'package:reaprime/src/services/github_rate_limit.dart';
+import 'package:reaprime/src/services/github_request.dart';
 import 'package:reaprime/src/util/remote_error.dart';
 
 class UpdateInfo {
@@ -45,25 +46,13 @@ class UpdateInfo {
   }
 }
 
-class UpdateCheckException extends RemoteServiceException {
-  final String message;
-
-  final bool rateLimited;
-
-  final DateTime? resetAt;
-
+class UpdateCheckException extends GithubRequestException {
   UpdateCheckException(
-    this.message, {
-    int statusCode = 0,
-    this.rateLimited = false,
-    this.resetAt,
-  }) : super(
-         statusCode,
-         remoteHttpError(rateLimited ? 429 : statusCode).userMessage,
-       );
-
-  @override
-  String toString() => message;
+    super.message, {
+    super.statusCode,
+    super.rateLimited,
+    super.resetAt,
+  });
 }
 
 enum UpdateChannel { stable, beta }
@@ -96,79 +85,16 @@ class AndroidUpdater {
     String currentVersion, {
     UpdateChannel channel = UpdateChannel.stable,
   }) async {
-    final cooldownEnd = _rateLimit.resetAt;
-    if (cooldownEnd != null) {
-      throw UpdateCheckException(
-        'GitHub rate limit active; update checks resume at '
-        '${cooldownEnd.toIso8601String()}',
-        rateLimited: true,
-        resetAt: cooldownEnd,
-      );
-    }
     try {
       _log.info(
         'Checking for updates on $channel channel (current: $currentVersion)',
       );
 
-      final response = await _httpClient.get(
-        Uri.parse(_releasesUrl),
-        headers: const {
-          'Accept': 'application/vnd.github.v3+json',
-          'User-Agent': 'Decaid',
-        },
+      final response = await githubGet(
+        _releasesUrl,
+        rateLimit: _rateLimit,
+        client: _httpClient,
       );
-
-      if (response.statusCode != 200) {
-        _rateLimit.recordIfLimited(response);
-        var message = 'Failed to fetch releases: HTTP ${response.statusCode}';
-        if (response.statusCode == 403 || response.statusCode == 429) {
-          final remaining = response.headers['x-ratelimit-remaining'];
-          final body = response.body
-              .substring(
-                0,
-                response.body.length > 200 ? 200 : response.body.length,
-              )
-              .replaceAll(RegExp(r'[\x00-\x1f\x7f]'), ' ')
-              .trim();
-          if (remaining == '0') {
-            final reset = int.tryParse(
-              response.headers['x-ratelimit-reset'] ?? '',
-            );
-            final resetDate =
-                reset == null || reset < 0 || reset > 8640000000000
-                ? null
-                : DateTime.fromMillisecondsSinceEpoch(
-                    reset * 1000,
-                    isUtc: true,
-                  );
-            final resetAt = resetDate == null
-                ? 'reset time unavailable'
-                : 'resets at ${resetDate.toIso8601String()}';
-            final quotaContext = 'rate limit remaining: 0; $resetAt';
-            if (body.isNotEmpty) {
-              final suffix = response.body.length > 200 ? '…' : '';
-              message =
-                  'GitHub rejected releases request (HTTP ${response.statusCode}): $body$suffix '
-                  '($quotaContext)';
-            } else {
-              message =
-                  'GitHub rejected releases request (HTTP ${response.statusCode}; $quotaContext)';
-            }
-          } else if (body.isNotEmpty) {
-            final suffix = response.body.length > 200 ? '…' : '';
-            message =
-                'GitHub rejected releases request (HTTP ${response.statusCode}): $body$suffix';
-          }
-        }
-        throw UpdateCheckException(
-          message,
-          statusCode: response.statusCode,
-          rateLimited:
-              (response.statusCode == 403 || response.statusCode == 429) &&
-              response.headers['x-ratelimit-remaining'] == '0',
-          resetAt: _rateLimit.resetAt,
-        );
-      }
 
       final releases = json.decode(response.body) as List<dynamic>;
 
@@ -201,6 +127,14 @@ class AndroidUpdater {
         _log.info('Already on latest version');
         return null;
       }
+    } on GithubRequestException catch (e, stackTrace) {
+      _log.severe('Error checking for updates', e, stackTrace);
+      throw UpdateCheckException(
+        e.message,
+        statusCode: e.statusCode,
+        rateLimited: e.rateLimited,
+        resetAt: e.resetAt,
+      );
     } catch (e, stackTrace) {
       _log.severe('Error checking for updates', e, stackTrace);
       rethrow;

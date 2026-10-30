@@ -39,11 +39,16 @@ class PluginSourceService {
 
   final PluginLoaderService _loader;
   final GithubRateLimit _rateLimit;
+  final GitHubReleaseCache _releaseCache;
   final _log = Logger('PluginSourceService');
   final ValueNotifier<Future<void>?> _updateCheck = ValueNotifier(null);
 
-  PluginSourceService(this._loader, {GithubRateLimit? rateLimit})
-    : _rateLimit = rateLimit ?? GithubRateLimit();
+  PluginSourceService(
+    this._loader, {
+    GithubRateLimit? rateLimit,
+    GitHubReleaseCache? releaseCache,
+  }) : _rateLimit = rateLimit ?? GithubRateLimit(),
+       _releaseCache = releaseCache ?? GitHubReleaseCache();
 
   ValueListenable<Future<void>?> get updateCheck => _updateCheck;
 
@@ -77,6 +82,7 @@ class PluginSourceService {
       repo,
       includePrerelease: includePrerelease,
       rateLimit: _rateLimit,
+      cache: _releaseCache,
     );
     final asset = _selectReleaseAsset(release, assetName);
     final bytes = await downloadGitHubArchive(asset.downloadUrl);
@@ -106,7 +112,11 @@ class PluginSourceService {
     String repo, {
     String branch = 'main',
   }) async {
-    final commit = await fetchGitHubBranchCommit(repo, branch);
+    final commit = await fetchGitHubBranchCommit(
+      repo,
+      branch,
+      rateLimit: _rateLimit,
+    );
     final bytes = await downloadGitHubArchive(
       gitHubCommitArchiveUrl(repo, commit),
     );
@@ -275,6 +285,7 @@ class PluginSourceService {
         source.repo!,
         includePrerelease: source.includePrerelease,
         rateLimit: _rateLimit,
+        cache: _releaseCache,
       );
       if (release.tag == source.releaseTag) {
         _writeSource(
@@ -331,7 +342,11 @@ class PluginSourceService {
     }
 
     final branch = source.branch ?? 'main';
-    final commit = await fetchGitHubBranchCommit(source.repo!, branch);
+    final commit = await fetchGitHubBranchCommit(
+      source.repo!,
+      branch,
+      rateLimit: _rateLimit,
+    );
     if (commit == source.commit) {
       _writeSource(
         installed.id,
@@ -406,6 +421,7 @@ class PluginSourceService {
         source.repo!,
         tag,
         rateLimit: _rateLimit,
+        cache: _releaseCache,
       );
       final asset = _selectReleaseAsset(release, source.assetName);
       final bytes = await downloadGitHubArchive(asset.downloadUrl);

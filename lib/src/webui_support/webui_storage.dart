@@ -11,6 +11,7 @@ import 'package:reaprime/src/util/user_facing_exception.dart';
 import 'package:archive/archive_io.dart';
 import 'package:path/path.dart' as p;
 import 'package:reaprime/src/services/github_rate_limit.dart';
+import 'package:reaprime/src/services/github_request.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/services/storage/app_directories.dart';
 import 'package:reaprime/src/util/safe_path.dart';
@@ -162,31 +163,8 @@ class WebUIStorage {
   }) : _webUIDirOverride = webUIDir,
        _rateLimit = rateLimit ?? GithubRateLimit();
 
-  Future<http.Response> _getGitHubRelease(String apiUrl) async {
-    final resetAt = _rateLimit.resetAt;
-    if (resetAt != null) {
-      _log.fine(
-        'GitHub rate limit active; skin updates resume at '
-        '${resetAt.toIso8601String()}',
-      );
-      throw remoteHttpError(429);
-    }
-    final response = await http.get(
-      Uri.parse(apiUrl),
-      headers: {
-        'Accept': 'application/vnd.github.v3+json',
-        'User-Agent': 'Decent-WebUI',
-      },
-    );
-    if (response.statusCode != 200) {
-      final rateLimited = _rateLimit.recordIfLimited(response);
-      throw RemoteServiceException(
-        response.statusCode,
-        remoteHttpError(rateLimited ? 429 : response.statusCode).userMessage,
-      );
-    }
-    return response;
-  }
+  Future<http.Response> _getGitHubRelease(String apiUrl) =>
+      githubGet(apiUrl, rateLimit: _rateLimit);
 
   ValueListenable<Future<void>?> get updateCheck => _updateCheck;
 
