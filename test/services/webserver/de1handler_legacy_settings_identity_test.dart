@@ -280,9 +280,9 @@ void main() {
       );
       expect(reset.statusCode, 202);
       expect(machineSettings.clears, isEmpty);
-      expect(machineSettings.clearsExceptCalibration, ['device:fake-ble']);
+      expect(machineSettings.clearsExceptFlowCalibration, ['device:fake-ble']);
       expect(
-        machineSettings.clearsExceptCalibration,
+        machineSettings.clearsExceptFlowCalibration,
         isNot(contains('serial:resolved-a-third-time')),
       );
       expect(_mmrWrites(third.transport, MMRItem.fanThreshold).last, 50);
@@ -464,7 +464,7 @@ void main() {
       await replacing;
       await expectLater(reset, throwsA(isA<StateError>()));
       expect(machineSettings.clears, isEmpty);
-      expect(machineSettings.clearsExceptCalibration, ['device:fake-ble']);
+      expect(machineSettings.clearsExceptFlowCalibration, ['device:fake-ble']);
     },
   );
 
