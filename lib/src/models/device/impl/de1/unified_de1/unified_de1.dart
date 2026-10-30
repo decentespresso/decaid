@@ -273,7 +273,11 @@ class UnifiedDe1 implements De1Interface {
     return await _readMMRInt(MMRItem.steamPurgeMode);
   }
 
-  Future<De1MachineSettings> getCoalescedMachineSettings() async {
+  Future<De1MachineSettings> getCoalescedMachineSettings({
+    bool fanTank = true,
+    bool flush = true,
+    bool purgeUsb = false,
+  }) async {
     assert(
       MMRItem.tankTemp.address == MMRItem.fanThreshold.address + 4,
       'fanThreshold/tankTemp are no longer consecutive MMR words',
@@ -285,58 +289,102 @@ class UnifiedDe1 implements De1Interface {
               MMRItem.flushFlowRate.address + 12,
       'flush/hot-water words are no longer consecutive MMR words',
     );
-    final fanWords = await _mmrReadWords(
-      MMRItem.fanThreshold.address,
-      wordCount: 2,
-      label: 'machineSettings/fan',
+    assert(
+      MMRItem.allowUSBCharging.address == MMRItem.steamPurgeMode.address + 4,
+      'steam-purge/USB words are no longer consecutive MMR words',
     );
+    final fanWords = fanTank
+        ? await _mmrReadWords(
+            MMRItem.fanThreshold.address,
+            wordCount: 2,
+            label: 'machineSettings/fan',
+          )
+        : null;
+    final fanThreshold = fanWords?[0] ?? await getFanThreshhold();
+    final tankTempThreshold = fanWords?[1] ?? await getTankTempThreshold();
     final steamWords = await _mmrReadWords(
       MMRItem.targetSteamFlow.address,
       wordCount: 1,
       label: 'machineSettings/steam',
     );
-    final flushWords = await _mmrReadWords(
-      MMRItem.flushFlowRate.address,
-      wordCount: 4,
-      label: 'machineSettings/flush',
-    );
-    final steamPurgeMode = await getSteamPurgeMode();
-    final usbChargerMode = await getUsbChargerMode();
+    final steamFlow = steamWords[0] * MMRItem.targetSteamFlow.readScale;
+    final flushWords = flush
+        ? await _mmrReadWords(
+            MMRItem.flushFlowRate.address,
+            wordCount: 4,
+            label: 'machineSettings/flush',
+          )
+        : null;
+    final flushFlow = flushWords == null
+        ? await getFlushFlow()
+        : flushWords[0] * MMRItem.flushFlowRate.readScale;
+    final flushTemperature = flushWords == null
+        ? await getFlushTemperature()
+        : flushWords[1] * MMRItem.flushTemp.readScale;
+    final flushTimeout = flushWords == null
+        ? await getFlushTimeout()
+        : flushWords[2] * MMRItem.flushTimeout.readScale;
+    final hotWaterFlow = flushWords == null
+        ? await getHotWaterFlow()
+        : flushWords[3] * MMRItem.hotWaterFlowRate.readScale;
+    final purgeWords = purgeUsb
+        ? await _mmrReadWords(
+            MMRItem.steamPurgeMode.address,
+            wordCount: 2,
+            label: 'machineSettings/purgeUsb',
+          )
+        : null;
+    final steamPurgeMode = purgeWords?[0] ?? await getSteamPurgeMode();
+    final usbChargerMode = purgeWords == null
+        ? await getUsbChargerMode()
+        : purgeWords[1] == 1;
     return De1MachineSettings(
-      fanThreshold: fanWords[0],
-      tankTempThreshold: fanWords[1],
-      steamFlow: steamWords[0] * MMRItem.targetSteamFlow.readScale,
-      flushFlow: flushWords[0] * MMRItem.flushFlowRate.readScale,
-      flushTemperature: flushWords[1] * MMRItem.flushTemp.readScale,
-      flushTimeout: flushWords[2] * MMRItem.flushTimeout.readScale,
-      hotWaterFlow: flushWords[3] * MMRItem.hotWaterFlowRate.readScale,
+      fanThreshold: fanThreshold,
+      tankTempThreshold: tankTempThreshold,
+      steamFlow: steamFlow,
+      flushFlow: flushFlow,
+      flushTemperature: flushTemperature,
+      flushTimeout: flushTimeout,
+      hotWaterFlow: hotWaterFlow,
       steamPurgeMode: steamPurgeMode,
       usbChargerMode: usbChargerMode,
     );
   }
 
-  Future<De1AdvancedMachineSettings>
-  getCoalescedAdvancedMachineSettings() async {
+  Future<De1AdvancedMachineSettings> getCoalescedAdvancedMachineSettings({
+    bool heater = true,
+  }) async {
     assert(
       MMRItem.heaterUp2Flow.address == MMRItem.heaterUp1Flow.address + 4 &&
           MMRItem.waterHeaterIdleTemp.address ==
               MMRItem.heaterUp1Flow.address + 8,
       'heater phase/idle words are no longer consecutive MMR words',
     );
-    final heaterWords = await _mmrReadWords(
-      MMRItem.heaterUp1Flow.address,
-      wordCount: 3,
-      label: 'advancedSettings/heater',
-    );
+    final heaterWords = heater
+        ? await _mmrReadWords(
+            MMRItem.heaterUp1Flow.address,
+            wordCount: 3,
+            label: 'advancedSettings/heater',
+          )
+        : null;
+    final heaterPhase1Flow = heaterWords == null
+        ? await getHeaterPhase1Flow()
+        : heaterWords[0] * MMRItem.heaterUp1Flow.readScale;
+    final heaterPhase2Flow = heaterWords == null
+        ? await getHeaterPhase2Flow()
+        : heaterWords[1] * MMRItem.heaterUp2Flow.readScale;
+    final heaterIdleTemp = heaterWords == null
+        ? await getHeaterIdleTemp()
+        : heaterWords[2] * MMRItem.waterHeaterIdleTemp.readScale;
     final timeoutWords = await _mmrReadWords(
       MMRItem.heaterUp2Timeout.address,
       wordCount: 1,
       label: 'advancedSettings/heaterTimeout',
     );
     return De1AdvancedMachineSettings(
-      heaterPhase1Flow: heaterWords[0] * MMRItem.heaterUp1Flow.readScale,
-      heaterPhase2Flow: heaterWords[1] * MMRItem.heaterUp2Flow.readScale,
-      heaterIdleTemp: heaterWords[2] * MMRItem.waterHeaterIdleTemp.readScale,
+      heaterPhase1Flow: heaterPhase1Flow,
+      heaterPhase2Flow: heaterPhase2Flow,
+      heaterIdleTemp: heaterIdleTemp,
       heaterPhase2Timeout: timeoutWords[0] * MMRItem.heaterUp2Timeout.readScale,
     );
   }

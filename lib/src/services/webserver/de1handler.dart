@@ -5,6 +5,7 @@ class De1Handler {
   final De1Controller _controller;
   final ScaleController _scaleController;
   final WorkflowController _workflowController;
+  final String _bengleCoalescedSettings;
   final log = Logger("De1WebHandler");
 
   De1Handler({
@@ -12,10 +13,15 @@ class De1Handler {
     required SettingsController settingsController,
     required ScaleController scaleController,
     required WorkflowController workflowController,
+    String bengleCoalescedSettings = const String.fromEnvironment(
+      'bengleCoalescedSettings',
+      defaultValue: 'fanTank,flush,heater',
+    ),
   }) : _controller = controller,
        _settingsController = settingsController,
        _scaleController = scaleController,
-       _workflowController = workflowController;
+       _workflowController = workflowController,
+       _bengleCoalescedSettings = bengleCoalescedSettings;
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/machine/info', _infoHandler);
@@ -502,6 +508,13 @@ class De1Handler {
       return withDe1((de1) async {
         final settings = de1 is UnifiedDe1 && de1 is! BengleInterface
             ? await de1.getCoalescedMachineSettings()
+            : _isBengleSerial(de1) &&
+                  _hasBengleSettingsGroup({'fanTank', 'flush', 'purgeUsb'})
+            ? await (de1 as UnifiedDe1).getCoalescedMachineSettings(
+                fanTank: _bengleSettingsGroups.contains('fanTank'),
+                flush: _bengleSettingsGroups.contains('flush'),
+                purgeUsb: _bengleSettingsGroups.contains('purgeUsb'),
+              )
             : await de1.getMachineSettingsSnapshot();
         var json = <String, dynamic>{};
         json['fan'] = settings.fanThreshold;
@@ -582,6 +595,10 @@ class De1Handler {
       return withDe1((de1) async {
         final settings = de1 is UnifiedDe1 && de1 is! BengleInterface
             ? await de1.getCoalescedAdvancedMachineSettings()
+            : _isBengleSerial(de1) && _hasBengleSettingsGroup({'heater'})
+            ? await (de1 as UnifiedDe1).getCoalescedAdvancedMachineSettings(
+                heater: true,
+              )
             : await de1.getAdvancedMachineSettingsSnapshot();
         var json = <String, dynamic>{};
         json['heaterPh1Flow'] = settings.heaterPhase1Flow;
@@ -775,6 +792,20 @@ class De1Handler {
       return jsonError({'error': e.toString(), 'st': st.toString()});
     }
   }
+
+  Set<String> get _bengleSettingsGroups => _bengleCoalescedSettings
+      .split(',')
+      .map((group) => group.trim())
+      .where((group) => group.isNotEmpty)
+      .toSet();
+
+  bool _isBengleSerial(De1Interface de1) =>
+      de1 is UnifiedDe1 &&
+      de1 is BengleInterface &&
+      de1.transportType == TransportType.serial;
+
+  bool _hasBengleSettingsGroup(Iterable<String> groups) =>
+      groups.any(_bengleSettingsGroups.contains);
 
   Response? _bengleFirmwareGate(De1Interface de1, String feature) {
     if (de1 is! BengleInterface) {
