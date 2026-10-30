@@ -34,6 +34,7 @@ import 'package:reaprime/src/skin_feature/skin_view.dart';
 import 'package:reaprime/src/skin_feature/skin_camera_permission.dart';
 import 'package:reaprime/src/theme/theme.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
+import 'package:reaprime/src/services/installed_components.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 import 'package:shadcn_ui/shadcn_ui.dart' hide Scale;
 import 'package:url_launcher/url_launcher.dart';
@@ -534,6 +535,11 @@ class _MyAppState extends State<MyApp> {
                         beanStorageService: widget.beanStorage,
                         grinderStorageService: widget.grinderStorage,
                         workflowController: widget.workflowController,
+                        installedComponents: () => collectInstalledComponents(
+                          webUIService: widget.webUIService,
+                          webUIStorage: widget.webUIStorage,
+                          pluginService: widget.pluginLoaderService,
+                        ),
                       );
                     case SkinSelectorPage.routeName:
                       return SkinSelectorPage(

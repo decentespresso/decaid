@@ -59,6 +59,7 @@ class UnifiedDe1Transport {
   bool _bengleShotSampleEnabled = false;
 
   Stream<ByteData> get state => _stateSubject.asBroadcastStream();
+  ByteData? get latestStateInfo => _stateSubject.valueOrNull;
   Stream<ByteData> get shotSample => _shotSampleSubject.asBroadcastStream();
   Stream<ByteData> get shotSettings => _shotSettingsSubject.asBroadcastStream();
   Stream<ByteData> get waterLevels => _waterLevelsSubject.asBroadcastStream();

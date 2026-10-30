@@ -11,6 +11,21 @@ authoritative source for DE1 protocol behavior, BLE characteristics, machine
 state logic, and MMR definitions. Profiles use Profile JSON v2; see
 [`Profiles.md`](../Profiles.md).
 
+### Calibration reset evidence
+
+Related issue [#706](https://github.com/decentespresso/decaid/issues/706) records
+measured DE1Pro firmware 1358 behavior: factory-read command 3 reported the
+same values as current calibration for flow, pressure, and temperature; a
+`+0.5°C` correction moved both temperature readings. The temperature reset
+command 2 (`CAFEF00D02020000000000000000`) was acknowledged twice without an
+observed calibration or other-setting change. A similar firmware 1357 report is
+unmeasured. Flow-target reset behavior, and reset behavior on older firmware,
+remain unverified; an acknowledgement is not evidence of factory restoration.
+
+Decaid's generic machine-settings reset sends no calibration packet at all:
+it leaves the machine multiplier and the saved per-machine flow override
+untouched. No calibration-reset API is exposed.
+
 `tools/ingest_profiles.py` rejects de1app TCL profiles whose type is
 `settings_2a` or `settings_2b`, even when `advanced_shot` is populated. That
 stored field is not authoritative for simple-profile types. Generate final
@@ -35,6 +50,38 @@ generators in Decaid.
 
 `DecentMachineModel.fromInt` and API SKU parsing must use this mapping.
 Bengle values are outside legacy DE1 identity resolution.
+
+## Multi-word MMR reads
+
+The MMR request frame is 20 bytes: request byte 0 holds `length`, the
+additional words after the first (0-3), followed by the big-endian start
+address. Response payload words are little-endian signed int32 values at
+byte offsets `4 + 4 * wordIndex`. On DE1Pro firmware v1358, transport logs
+show response byte 0 as `0x04`, `0x08`, `0x0C`, and `0x0A` for one, two,
+three, and four words respectively. This byte is not a reliable word count;
+Decaid does not parse it and must not depend on it.
+
+**Not every register survives multi-word framing.** Some registers are
+served by a table-driven read path that only answers single-word requests;
+in a multi-word frame their words come back zeroed. `0x00803850` and
+`0x00803854` (steamPurgeMode/allowUSBCharging) behave this way on firmware
+v1358: a single-word read returns the true value, a two-word read returns
+the first word correctly and zero for the second, with machine state
+otherwise identical (verified over BLE by installing both framings against
+the same live machine; the single-word build reported `usb = true`, the
+two-word build `usb = false`, with every other setting equal). Those two
+registers stay on single-word reads — see `getCoalescedMachineSettings`.
+
+So coalescing a group is only valid once that specific group has been
+checked on hardware; a group that reads correctly says nothing about the
+next one. The groups coalesced today (fan/tank, flush/hot-water,
+heater phases) are verified this way. Single-word MMR reads were also
+exercised over USB serial against a Bengle and decoded correctly, so the
+sequential settings path is not BLE-only on hardware. The audit
+candidates still open —
+LED hydration `0x00803898`-`0x008038A4`, cup-warmer preheat
+`0x008038D0`-`0x008038D8`, on-connect identity reads — are **not**
+verified and must be checked before being coalesced.
 
 ## USB charger deduplication
 

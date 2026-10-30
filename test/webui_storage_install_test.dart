@@ -12,6 +12,13 @@ import 'package:reaprime/src/webui_support/webui_storage.dart';
 
 import 'helpers/mock_settings_service.dart';
 
+class _UserSkinStorage extends WebUIStorage {
+  _UserSkinStorage(super.settingsController);
+
+  @override
+  Future<void> downloadRemoteSkins() async {}
+}
+
 class _BlockedUpdateStorage extends WebUIStorage {
   _BlockedUpdateStorage(super.settingsController);
 
@@ -39,7 +46,7 @@ void main() {
 
       final settingsController = SettingsController(MockSettingsService());
       await settingsController.loadSettings();
-      storage = WebUIStorage(settingsController);
+      storage = _UserSkinStorage(settingsController);
       storage.debugInitWithWebUIDir(webUIDir);
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(

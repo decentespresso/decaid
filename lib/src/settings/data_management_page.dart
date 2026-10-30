@@ -48,6 +48,7 @@ class DataManagementPage extends StatefulWidget {
     this.grinderStorageService,
     this.workflowController,
     this.importBackup,
+    this.installedComponents,
   });
 
   static const routeName = '/data';
@@ -60,6 +61,7 @@ class DataManagementPage extends StatefulWidget {
   final BeanStorageService? beanStorageService;
   final GrinderStorageService? grinderStorageService;
   final WorkflowController? workflowController;
+  final List<String> Function()? installedComponents;
   final Future<BackupImportResponse> Function(
     String? filePath,
     String strategy,
@@ -268,6 +270,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
               ),
               serialNumbers: () => widget.de1Controller.seenSerials,
               accountService: widget.decentAccountService,
+              installedComponents: widget.installedComponents,
             ),
           ),
         ],
@@ -579,15 +582,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
       final importer = ShotImporter(controller: widget.persistenceController);
       final file = File(filePath);
       final content = await file.readAsString();
-      final decoded = jsonDecode(content);
-
-      int count = 0;
-      if (decoded is List) {
-        count = await importer.importShotsJson(content);
-      } else {
-        await importer.importShotJson(content);
-        count = 1;
-      }
+      final count = await importer.importJson(content);
 
       if (!mounted) return;
       Navigator.of(context).pop();

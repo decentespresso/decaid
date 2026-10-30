@@ -104,12 +104,34 @@ void main() {
   test('rejects a malformed manifest', () {
     final dir = Directory('${tempDir.path}/staged')
       ..createSync(recursive: true);
-    File('${dir.path}/manifest.json').writeAsStringSync('{ not json');
+    File(
+      '${dir.path}/manifest.json',
+    ).writeAsStringSync('{ not json https://private.example/internal');
     File('${dir.path}/plugin.js').writeAsStringSync('function f() {}');
 
     expect(
       () => resolvePluginPackage(dir),
-      throwsA(isA<PluginPackageException>()),
+      throwsA(
+        isA<PluginPackageException>().having(
+          (error) => error.message,
+          'message',
+          'The plugin manifest is invalid. Check the package and try again.',
+        ),
+      ),
+    );
+  });
+
+  test('does not expose manifest schema exceptions', () {
+    final dir = writePlugin('${tempDir.path}/staged', manifest: []);
+    expect(
+      () => resolvePluginPackage(dir),
+      throwsA(
+        isA<PluginPackageException>().having(
+          (error) => error.message,
+          'message',
+          'The plugin manifest is invalid. Check the package and try again.',
+        ),
+      ),
     );
   });
 

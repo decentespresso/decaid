@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -23,6 +24,45 @@ class _AccountService extends Fake implements DecentAccountService {
 }
 
 void main() {
+  testWidgets('offline feedback retains its text and offers manual Retry', (
+    tester,
+  ) async {
+    var requests = 0;
+    final account = _AccountService();
+    await http.runWithClient(
+      () async {
+        await tester.pumpWidget(
+          ShadApp(
+            home: Scaffold(
+              body: FeedbackDialog(
+                githubToken: 'test-token',
+                serialNumbers: () => const [],
+                accountService: account,
+              ),
+            ),
+          ),
+        );
+        await tester.enterText(find.byType(EditableText), 'Keep this report');
+        await tester.tap(find.text('Include application logs'));
+        await tester.tap(find.text('Submit'));
+        await tester.pumpAndSettle();
+        expect(
+          find.text(
+            "Couldn't send feedback. Check your internet connection and try again.",
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('Keep this report'), findsOneWidget);
+        expect(requests, 1);
+        expect(find.text('Retry'), findsOneWidget);
+      },
+      () => MockClient((_) async {
+        requests++;
+        throw const SocketException('private host lookup');
+      }),
+    );
+  });
+
   testWidgets('discloses that only the support message ID is public', (
     tester,
   ) async {

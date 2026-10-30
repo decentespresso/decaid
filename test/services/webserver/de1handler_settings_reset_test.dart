@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -6,8 +7,11 @@ import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
+import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
+import 'package:reaprime/src/settings/machine_settings_store.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
@@ -15,17 +19,26 @@ import '../../helpers/mock_device_discovery_service.dart';
 import '../../helpers/mock_settings_service.dart';
 import '../../helpers/test_scale.dart';
 import '../../helpers/test_scale_controller.dart';
+import '../../helpers/memory_machine_settings_store.dart';
 
 void main() {
   late Handler handler;
   late De1Controller controller;
   late SettingsController settingsController;
   late TestScaleController scaleController;
+  late MachineSettingsStore machineSettings;
 
-  Future<void> wireWith(De1Interface? device) async {
+  Future<void> wireWith(
+    De1Interface? device, {
+    MachineSettingsStore? persistedMachineSettings,
+  }) async {
     final deviceController = DeviceController([MockDeviceDiscoveryService()]);
     await deviceController.initialize();
-    controller = De1Controller(controller: deviceController);
+    machineSettings = persistedMachineSettings ?? MemoryMachineSettingsStore();
+    controller = De1Controller(
+      controller: deviceController,
+      machineSettings: persistedMachineSettings ?? machineSettings,
+    );
     if (device != null) {
       await controller.connectToDe1(device);
     }
@@ -109,6 +122,115 @@ void main() {
       expect(read, De1RefillKitSettings.forceOn);
     });
 
+    test('restores API settings after reconnecting the same machine', () async {
+      final first = MockDe1(deviceId: 'persistent-machine');
+      await wireWith(first);
+
+      expect(
+        (await post('/api/v1/machine/settings', {'fan': 42})).statusCode,
+        202,
+      );
+      expect(
+        (await post('/api/v1/machine/settings/advanced', {
+          'refillKitSetting': 1,
+        })).statusCode,
+        202,
+      );
+      await first.disconnect();
+      await Future<void>.delayed(Duration.zero);
+
+      final second = MockDe1(deviceId: 'persistent-machine');
+      await controller.connectToDe1(second);
+      await controller.initSettled.firstWhere(
+        (generation) => generation != null,
+      );
+
+      expect(await second.getFanThreshhold(), 42);
+      expect(await second.getRefillKitSettings(), De1RefillKitSettings.forceOn);
+    });
+
+    test(
+      'restores different settings independently for two machines',
+      () async {
+        final first = _SerialMockDe1(serial: 'first');
+        await wireWith(first);
+        await post('/api/v1/machine/settings', {'fan': 41});
+        await post('/api/v1/machine/settings/advanced', {
+          'refillKitSetting': 1,
+        });
+
+        final second = _SerialMockDe1(serial: 'second');
+        await controller.connectToDe1(second);
+        await controller.initSettled.firstWhere(
+          (generation) => generation != null,
+        );
+        await post('/api/v1/machine/settings', {'fan': 42});
+        await post('/api/v1/machine/settings/advanced', {
+          'refillKitSetting': 0,
+        });
+
+        final firstAgain = _SerialMockDe1(serial: 'first');
+        await controller.connectToDe1(firstAgain);
+        await controller.initSettled.firstWhere(
+          (generation) => generation != null,
+        );
+        expect(await firstAgain.getFanThreshhold(), 41);
+        expect(
+          await firstAgain.getRefillKitSettings(),
+          De1RefillKitSettings.forceOn,
+        );
+
+        final secondAgain = _SerialMockDe1(serial: 'second');
+        await controller.connectToDe1(secondAgain);
+        await controller.initSettled.firstWhere(
+          (generation) => generation != null,
+        );
+        expect(await secondAgain.getFanThreshhold(), 42);
+        expect(
+          await secondAgain.getRefillKitSettings(),
+          De1RefillKitSettings.forceOff,
+        );
+      },
+    );
+
+    test('unknown identity uses defaults without a bucket', () async {
+      final known = _SerialMockDe1(serial: 'known');
+      await wireWith(known);
+      await post('/api/v1/machine/settings', {'fan': 42});
+      await post('/api/v1/machine/settings/advanced', {'refillKitSetting': 1});
+
+      final unknown = _SerialMockDe1(serial: '0', deviceId: '');
+      await controller.connectToDe1(unknown);
+      await controller.initSettled.firstWhere(
+        (generation) => generation != null,
+      );
+      expect(await unknown.getFanThreshhold(), 55);
+      expect(await unknown.getRefillKitSettings(), De1RefillKitSettings.auto);
+    });
+
+    test('restores API settings through a reconstructed controller', () async {
+      SharedPreferences.setMockInitialValues({});
+      await wireWith(
+        MockDe1(deviceId: 'restart-machine'),
+        persistedMachineSettings: SharedPreferencesMachineSettingsStore(),
+      );
+      await post('/api/v1/machine/settings', {'fan': 41});
+      await post('/api/v1/machine/settings/advanced', {'refillKitSetting': 0});
+
+      await wireWith(
+        MockDe1(deviceId: 'restart-machine'),
+        persistedMachineSettings: SharedPreferencesMachineSettingsStore(),
+      );
+      await controller.initSettled.firstWhere(
+        (generation) => generation != null,
+      );
+      expect(await controller.connectedDe1().getFanThreshhold(), 41);
+      expect(
+        await controller.connectedDe1().getRefillKitSettings(),
+        De1RefillKitSettings.forceOff,
+      );
+    });
+
     test('round-trips through GET after write', () async {
       final de1 = MockDe1();
       await wireWith(de1);
@@ -160,6 +282,29 @@ void main() {
       });
       expect(res.statusCode, 500);
     });
+
+    test(
+      'does not save a completed write under a replacement machine',
+      () async {
+        final first = _BlockingFanMock(serial: 'first');
+        await wireWith(first);
+        first.blockNextFanWrite();
+        final write = controller.updateMachineSettings(fan: 44);
+        await first.fanWriteStarted.future;
+
+        final second = _SerialMockDe1(serial: 'second');
+        await controller.connectToDe1(second);
+        first.releaseFanWrite();
+        await expectLater(write, throwsA(isA<StateError>()));
+
+        final secondAgain = _SerialMockDe1(serial: 'second');
+        await controller.connectToDe1(secondAgain);
+        await controller.initSettled.firstWhere(
+          (generation) => generation != null,
+        );
+        expect(await secondAgain.getFanThreshhold(), 55);
+      },
+    );
   });
 
   group('DELETE /api/v1/machine/settings/reset', () {
@@ -172,6 +317,7 @@ void main() {
     test('applies the baseline defaults to the mock', () async {
       final de1 = MockDe1();
       await wireWith(de1);
+      await de1.setFlowEstimation(1.25);
 
       final res = await delete('/api/v1/machine/settings/reset');
       expect(res.statusCode, 202);
@@ -182,7 +328,7 @@ void main() {
       expect(await de1.getHeaterPhase2Flow(), 4.0);
       expect(await de1.getHeaterPhase2Timeout(), 4.0);
       expect(await de1.getRefillKitSettings(), De1RefillKitSettings.auto);
-      expect(await de1.getFlowEstimation(), 1.0);
+      expect(await de1.getFlowEstimation(), 1.25);
       expect(await de1.getSteamPurgeMode(), 0);
       expect(controller.connectedDe1OrNull, same(de1));
     });
@@ -192,6 +338,97 @@ void main() {
       final res = await delete('/api/v1/machine/settings/reset');
       expect(res.statusCode, 500);
     });
+
+    test('reset clears only the connected machine bucket', () async {
+      final first = _SerialMockDe1(serial: 'first');
+      await wireWith(first);
+      await post('/api/v1/machine/settings', {'fan': 42});
+      await post('/api/v1/machine/settings/advanced', {'refillKitSetting': 1});
+      await post('/api/v1/machine/calibration', {'flowMultiplier': 1.25});
+
+      final second = _SerialMockDe1(serial: 'second');
+      await controller.connectToDe1(second);
+      await controller.initSettled.firstWhere(
+        (generation) => generation != null,
+      );
+      await post('/api/v1/machine/settings', {'fan': 43});
+      await post('/api/v1/machine/settings/advanced', {'refillKitSetting': 0});
+      await post('/api/v1/machine/calibration', {'flowMultiplier': 1.5});
+      await delete('/api/v1/machine/settings/reset');
+
+      final firstAgain = _SerialMockDe1(serial: 'first');
+      await controller.connectToDe1(firstAgain);
+      await controller.initSettled.firstWhere(
+        (generation) => generation != null,
+      );
+      expect(await firstAgain.getFanThreshhold(), 42);
+      expect(
+        await firstAgain.getRefillKitSettings(),
+        De1RefillKitSettings.forceOn,
+      );
+      expect(
+        (await machineSettings.read('serial:first'))?.flowCalibration,
+        1.25,
+      );
+
+      final secondAgain = _SerialMockDe1(serial: 'second');
+      await controller.connectToDe1(secondAgain);
+      await controller.initSettled.firstWhere(
+        (generation) => generation != null,
+      );
+      expect(await secondAgain.getFanThreshhold(), 55);
+      expect(
+        await secondAgain.getRefillKitSettings(),
+        De1RefillKitSettings.auto,
+      );
+      expect(
+        (await machineSettings.read('serial:second'))?.flowCalibration,
+        1.5,
+      );
+      expect(await secondAgain.getFlowEstimation(), 1.5);
+    });
+
+    test(
+      'reset leaves the live calibration and the saved override alone',
+      () async {
+        final de1 = _SerialMockDe1(serial: 'calibrated');
+        await wireWith(de1);
+        await post('/api/v1/machine/calibration', {'flowMultiplier': 1.25});
+        expect(await de1.getFlowEstimation(), 1.25);
+
+        final res = await delete('/api/v1/machine/settings/reset');
+        expect(res.statusCode, 202);
+
+        expect(await de1.getFlowEstimation(), 1.25);
+        expect(
+          (await machineSettings.read('serial:calibrated'))?.flowCalibration,
+          1.25,
+        );
+      },
+    );
+
+    test(
+      'reconnection after reset restores the saved override on a fresh machine',
+      () async {
+        final de1 = _SerialMockDe1(serial: 'power-cycled');
+        await wireWith(de1);
+        await post('/api/v1/machine/calibration', {'flowMultiplier': 1.25});
+        await delete('/api/v1/machine/settings/reset');
+        await de1.disconnect();
+        await Future<void>.delayed(Duration.zero);
+
+        // A fresh instance reports the firmware default, as after a power
+        // cycle that forgets the multiplier; the preserved override is
+        // reapplied at connect.
+        final replacement = _SerialMockDe1(serial: 'power-cycled');
+        expect(await replacement.getFlowEstimation(), 1.0);
+        await controller.connectToDe1(replacement);
+        await controller.initSettled.firstWhere(
+          (generation) => generation != null,
+        );
+        expect(await replacement.getFlowEstimation(), 1.25);
+      },
+    );
   });
 
   group('PUT /api/v1/machine/state/espresso — blockOnNoScale', () {
@@ -240,4 +477,41 @@ void main() {
       expect(res.statusCode, 200);
     });
   });
+}
+
+class _SerialMockDe1 extends MockDe1 {
+  _SerialMockDe1({required this.serial, super.deviceId = 'serial-machine'});
+
+  final String serial;
+
+  @override
+  MachineInfo get machineInfo => MachineInfo(
+    version: '1337',
+    model: 'DE1Pro',
+    serialNumber: serial,
+    groupHeadControllerPresent: false,
+    extra: {},
+  );
+}
+
+class _BlockingFanMock extends _SerialMockDe1 {
+  _BlockingFanMock({required super.serial});
+
+  final fanWriteStarted = Completer<void>();
+  final _releaseFanWrite = Completer<void>();
+  bool _blockFanWrite = false;
+
+  void blockNextFanWrite() => _blockFanWrite = true;
+
+  void releaseFanWrite() => _releaseFanWrite.complete();
+
+  @override
+  Future<void> setFanThreshhold(int temp) async {
+    if (_blockFanWrite) {
+      _blockFanWrite = false;
+      fanWriteStarted.complete();
+      await _releaseFanWrite.future;
+    }
+    await super.setFanThreshhold(temp);
+  }
 }

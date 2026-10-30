@@ -1447,7 +1447,7 @@ it in Decaid UI.
 
 ## External First-Party Plugins
 
-DYE2 ships from [decentespresso/dye2](https://github.com/decentespresso/dye2), the Decent shot upload plugin ships from [decentespresso/shot-upload](https://github.com/decentespresso/shot-upload), and the dcamp community plugin ships from [decentespresso/decaid-dcamp-plugin](https://github.com/decentespresso/decaid-dcamp-plugin). Each repository publishes a `.reaplugin` directory as a release ZIP. CI and local setup run `scripts/fetch_dye2_plugin.sh`, `scripts/fetch_shot_upload_plugin.sh`, and `scripts/fetch_dcamp_plugin.sh` to download pinned releases, verify their checksums and manifest contracts, and unpack them into `assets/plugins/`. Bump a plugin's pinned version and checksum in a normal PR when its repository publishes a new release.
+DYE2 ships from [decentespresso/dye2](https://github.com/decentespresso/dye2), the Decent shot upload plugin ships from [decentespresso/shot-upload](https://github.com/decentespresso/shot-upload), and the dcamp community plugin ships from [decentespresso/decaid-dcamp-plugin](https://github.com/decentespresso/decaid-dcamp-plugin). Each repository publishes a `.reaplugin` directory as a release ZIP. CI and local setup run `scripts/fetch_dye2_plugin.sh`, `scripts/fetch_shot_upload_plugin.sh`, and `scripts/fetch_dcamp_plugin.sh` to download releases, verify their manifest contracts, and unpack them into `assets/plugins/`. DYE2 is not pinned: `scripts/fetch_dye2_plugin.sh` resolves the latest `decentespresso/dye2` release at build time, so a DYE2 fix ships without a Decaid PR and DYE2 code is reviewed in its own repository. Release builds resolve that tag once in `release-metadata` and pass it as `DYE2_VERSION` to every platform job, including reruns of failed jobs. Outside releases, the fetch script still resolves the latest tag unless `DYE2_VERSION=vX.Y.Z` selects a specific release. The shot upload and dcamp plugins are still pinned by version and checksum; bump those in a normal PR when their repositories publish a new release.
 
 `packages/dye2-plugin/` still holds the DYE2 plugin's original TypeScript + Vite source and is useful as a reference for advanced patterns (REST API client, HTML template rendering, Vite dev server — see `packages/dye2-plugin/README.md`), but it is **not** built or bundled by Decaid anymore and is not authoritative for what ships. Treat the external repositories as the source of truth; update the in-tree DYE2 copy only if it is being kept in sync deliberately.
 
@@ -1531,7 +1531,20 @@ skin updates, and on demand from the Plugins settings screen or
 - settings, secure settings and the auto-load preference survive an update. A
   running plugin is restarted on the new version; a disabled one stays disabled;
 - one plugin's failure never stops the others; the failure is recorded in
-  `lastError`.
+  `lastError` when its metadata is writable. Diagnostic write failures are logged
+  separately; the batch retains the original update failure and continues.
+
+Native/API errors and new `lastError` values use plain-language guidance; parser
+details stay in logs. **Retry** retains options and reopens current permission
+review for approval downloads. Changed candidates require fresh confirmation.
+Downgrades explain removal of the installed version and retain HTTP 409.
+Failed or partial batches return HTTP 500 after processing all items, retaining
+successes. Background failures stay quiet; installed plugins remain usable offline.
+Native folder installation and plugin removal also use plain-language guidance,
+with filesystem and parser diagnostics kept in logs.
+Invalid folder selections explicitly require a `.reaplugin` folder; denied iOS
+folder access asks the user to select it again and allow access without exposing
+the private path.
 
 ### Bundled plugins
 

@@ -48,6 +48,40 @@ class ShotDao extends DatabaseAccessor<AppDatabase> with _$ShotDaoMixin {
     return query.get();
   }
 
+  Expression<bool>? _shotFilter({
+    String? grinderId,
+    String? grinderModel,
+    String? beanBatchId,
+    List<String>? beanBatchIds,
+    String? coffeeName,
+    String? coffeeRoaster,
+    String? profileTitle,
+    String? search,
+    double? minEnjoyment,
+  }) {
+    final pattern = search == null || search.isEmpty ? null : '%$search%';
+    final predicates = <Expression<bool>>[
+      if (grinderId != null) shotRecords.grinderId.equals(grinderId),
+      if (grinderModel != null) shotRecords.grinderModel.equals(grinderModel),
+      if (beanBatchId != null) shotRecords.beanBatchId.equals(beanBatchId),
+      if (beanBatchIds != null) shotRecords.beanBatchId.isIn(beanBatchIds),
+      if (coffeeName != null) shotRecords.coffeeName.equals(coffeeName),
+      if (coffeeRoaster != null)
+        shotRecords.coffeeRoaster.equals(coffeeRoaster),
+      if (profileTitle != null) shotRecords.profileTitle.equals(profileTitle),
+      if (pattern != null)
+        shotRecords.coffeeName.like(pattern) |
+            shotRecords.coffeeRoaster.like(pattern) |
+            shotRecords.profileTitle.like(pattern) |
+            shotRecords.grinderModel.like(pattern) |
+            shotRecords.espressoNotes.like(pattern),
+      if (minEnjoyment != null)
+        shotRecords.enjoyment.isBiggerOrEqualValue(minEnjoyment),
+    ];
+    if (predicates.isEmpty) return null;
+    return predicates.reduce((a, b) => a & b);
+  }
+
   Future<List<ShotRecord>> getShotsPaginated({
     int limit = 20,
     int offset = 0,
@@ -59,42 +93,25 @@ class ShotDao extends DatabaseAccessor<AppDatabase> with _$ShotDaoMixin {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
     bool ascending = false,
   }) {
-    final query = select(shotRecords);
+    if (beanBatchIds != null && beanBatchIds.isEmpty) return Future.value([]);
 
-    if (grinderId != null) {
-      query.where((s) => s.grinderId.equals(grinderId));
-    }
-    if (grinderModel != null) {
-      query.where((s) => s.grinderModel.equals(grinderModel));
-    }
-    if (beanBatchId != null) {
-      query.where((s) => s.beanBatchId.equals(beanBatchId));
-    }
-    if (beanBatchIds != null) {
-      if (beanBatchIds.isEmpty) return Future.value([]);
-      query.where((s) => s.beanBatchId.isIn(beanBatchIds));
-    }
-    if (coffeeName != null) {
-      query.where((s) => s.coffeeName.equals(coffeeName));
-    }
-    if (coffeeRoaster != null) {
-      query.where((s) => s.coffeeRoaster.equals(coffeeRoaster));
-    }
-    if (profileTitle != null) {
-      query.where((s) => s.profileTitle.equals(profileTitle));
-    }
-    if (search != null && search.isNotEmpty) {
-      final pattern = '%$search%';
-      query.where(
-        (s) =>
-            s.coffeeName.like(pattern) |
-            s.coffeeRoaster.like(pattern) |
-            s.profileTitle.like(pattern) |
-            s.grinderModel.like(pattern) |
-            s.espressoNotes.like(pattern),
-      );
+    final query = select(shotRecords);
+    final filter = _shotFilter(
+      grinderId: grinderId,
+      grinderModel: grinderModel,
+      beanBatchId: beanBatchId,
+      beanBatchIds: beanBatchIds,
+      coffeeName: coffeeName,
+      coffeeRoaster: coffeeRoaster,
+      profileTitle: profileTitle,
+      search: search,
+      minEnjoyment: minEnjoyment,
+    );
+    if (filter != null) {
+      query.where((_) => filter);
     }
 
     query
@@ -117,41 +134,25 @@ class ShotDao extends DatabaseAccessor<AppDatabase> with _$ShotDaoMixin {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
   }) async {
+    if (beanBatchIds != null && beanBatchIds.isEmpty) return 0;
+
     final countExpr = shotRecords.id.count();
     final query = selectOnly(shotRecords)..addColumns([countExpr]);
-
-    if (grinderId != null) {
-      query.where(shotRecords.grinderId.equals(grinderId));
-    }
-    if (grinderModel != null) {
-      query.where(shotRecords.grinderModel.equals(grinderModel));
-    }
-    if (beanBatchId != null) {
-      query.where(shotRecords.beanBatchId.equals(beanBatchId));
-    }
-    if (beanBatchIds != null) {
-      if (beanBatchIds.isEmpty) return 0;
-      query.where(shotRecords.beanBatchId.isIn(beanBatchIds));
-    }
-    if (coffeeName != null) {
-      query.where(shotRecords.coffeeName.equals(coffeeName));
-    }
-    if (coffeeRoaster != null) {
-      query.where(shotRecords.coffeeRoaster.equals(coffeeRoaster));
-    }
-    if (profileTitle != null) {
-      query.where(shotRecords.profileTitle.equals(profileTitle));
-    }
-    if (search != null && search.isNotEmpty) {
-      final pattern = '%$search%';
-      query.where(
-        shotRecords.coffeeName.like(pattern) |
-            shotRecords.coffeeRoaster.like(pattern) |
-            shotRecords.profileTitle.like(pattern) |
-            shotRecords.grinderModel.like(pattern) |
-            shotRecords.espressoNotes.like(pattern),
-      );
+    final filter = _shotFilter(
+      grinderId: grinderId,
+      grinderModel: grinderModel,
+      beanBatchId: beanBatchId,
+      beanBatchIds: beanBatchIds,
+      coffeeName: coffeeName,
+      coffeeRoaster: coffeeRoaster,
+      profileTitle: profileTitle,
+      search: search,
+      minEnjoyment: minEnjoyment,
+    );
+    if (filter != null) {
+      query.where(filter);
     }
 
     final result = await query.getSingle();

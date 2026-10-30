@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/widgets.dart' hide ConnectionState;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
@@ -18,7 +19,6 @@ import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/remembered_device.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
-import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/services/storage/storage_service.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/settings/scale_power_mode.dart';
@@ -31,6 +31,7 @@ import '../helpers/mock_device_discovery_service.dart';
 import '../helpers/mock_device_scanner.dart';
 import '../helpers/mock_settings_service.dart';
 import '../helpers/test_de1.dart';
+import '../helpers/test_scale.dart';
 
 class _SpyConnectionManager extends ConnectionManager {
   _SpyConnectionManager({
@@ -42,11 +43,11 @@ class _SpyConnectionManager extends ConnectionManager {
   });
 
   int scaleSleepMarks = 0;
-  int scaleOnlyConnects = 0;
+  final connectCalls = <bool>[];
 
   @override
   Future<void> connect({bool scaleOnly = false}) {
-    if (scaleOnly) scaleOnlyConnects++;
+    connectCalls.add(scaleOnly);
     return super.connect(scaleOnly: scaleOnly);
   }
 
@@ -54,6 +55,21 @@ class _SpyConnectionManager extends ConnectionManager {
   void markScaleSleeping(String deviceId) {
     scaleSleepMarks++;
     super.markScaleSleeping(deviceId);
+  }
+}
+
+class _DisplayScale extends TestScale {
+  int sleepDisplayCalls = 0;
+  int wakeDisplayCalls = 0;
+
+  @override
+  Future<void> sleepDisplay() async {
+    sleepDisplayCalls++;
+  }
+
+  @override
+  Future<void> wakeDisplay() async {
+    wakeDisplayCalls++;
   }
 }
 
@@ -219,6 +235,18 @@ void main() {
     }
   }
 
+  De1StateManager createStateManager() => De1StateManager(
+    de1Controller: de1Controller,
+    scaleController: scaleController,
+    workflowController: WorkflowController(),
+    persistenceController: PersistenceController(
+      storageService: _NoopStorageService(),
+    ),
+    settingsController: settingsController,
+    connectionManager: connectionManager,
+    navigatorKey: GlobalKey<NavigatorState>(),
+  );
+
   setUp(() async {
     testDe1 = TestDe1();
     final deviceController = DeviceController([MockDeviceDiscoveryService()]);
@@ -246,18 +274,7 @@ void main() {
       rememberedDevices: rememberedDevices,
     );
 
-    manager = De1StateManager(
-      de1Controller: de1Controller,
-      scaleController: scaleController,
-      workflowController: WorkflowController(),
-      persistenceController: PersistenceController(
-        storageService: _NoopStorageService(),
-      ),
-      settingsController: settingsController,
-      connectionManager: connectionManager,
-      navigatorKey: GlobalKey<NavigatorState>(),
-    );
-    manager.deferredScaleScanDelay = Duration.zero;
+    manager = createStateManager();
   });
 
   tearDown(() async {
@@ -269,16 +286,82 @@ void main() {
     mockScanner.dispose();
   });
 
-  Future<void> wakeMachine() async {
-    testDe1.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
-    await pump();
-    testDe1.emitStateAndSubstate(MachineState.sleeping, MachineSubstate.idle);
-    await pump();
-    testDe1.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
-    await pump(6);
+  for (final connectedOnWake in [true, false]) {
+    test(
+      connectedOnWake
+          ? 'wake only wakes the connected displayOff scale once'
+          : 'wake with a disconnected scale does not wake or recover it',
+      () async {
+        manager.dispose();
+        await connectionManager.dispose();
+        final time = FakeAsync();
+        Future<void> settle() async {
+          for (var i = 0; i < 6; i++) {
+            time.flushMicrotasks();
+            await pump();
+          }
+        }
+
+        final scale = _DisplayScale();
+        addTearDown(scale.dispose);
+        time.run((_) {
+          de1Controller = _TestDe1Controller(controller: DeviceController([]));
+          scaleController = ScaleController();
+          connectionManager = _SpyConnectionManager(
+            deviceScanner: mockScanner,
+            de1Controller: _TestDe1Controller(controller: DeviceController([])),
+            scaleController: scaleController,
+            settingsController: settingsController,
+          );
+          manager = createStateManager();
+          settingsController.setScalePowerMode(ScalePowerMode.displayOff);
+          scaleController.connectToScale(scale);
+          de1Controller.connect(testDe1);
+        });
+        try {
+          await settle();
+          testDe1.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
+          await settle();
+          testDe1.emitStateAndSubstate(
+            MachineState.sleeping,
+            MachineSubstate.idle,
+          );
+          await settle();
+          expect(scale.sleepDisplayCalls, 1);
+          expect(scale.wakeDisplayCalls, 0);
+
+          if (!connectedOnWake) {
+            scale.setConnectionState(ConnectionState.disconnected);
+            await settle();
+          }
+          expect(
+            scaleController.currentConnectionState,
+            connectedOnWake
+                ? ConnectionState.connected
+                : ConnectionState.disconnected,
+          );
+          testDe1.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
+          await settle();
+          expect(scale.wakeDisplayCalls, connectedOnWake ? 1 : 0);
+          testDe1.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
+          time.elapse(const Duration(seconds: 9));
+          await settle();
+
+          expect(scale.wakeDisplayCalls, connectedOnWake ? 1 : 0);
+          expect(mockScanner.scanCallCount, 0);
+          expect(mockScanner.startWatchCallCount, 0);
+          expect(connectionManager.connectCalls, isEmpty);
+        } finally {
+          manager.dispose();
+          final disposal = connectionManager.dispose();
+          await settle();
+          await disposal;
+        }
+      },
+    );
   }
 
-  test('plugin display-off disconnect sleeps until machine wake', () async {
+  test('plugin display-off disconnect marks the scale sleeping', () async {
     mockScanner.supportsWatch = true;
     await settingsController.setPreferredScaleId('plugin-scale');
     await settingsController.setScalePowerMode(ScalePowerMode.displayOff);
@@ -306,12 +389,7 @@ void main() {
     await pump(6);
     expect(operations, contains(PluginDeviceOperation.disconnect));
     expect(mockScanner.scanCallCount, 0);
-    final watchStarts = mockScanner.startWatchCallCount;
-    await pump(6);
-    expect(mockScanner.startWatchCallCount, watchStarts);
-    testDe1.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
-    await pump(6);
-    expect(mockScanner.startWatchCallCount, greaterThan(watchStarts));
+    expect(connectionManager.scaleSleepMarks, 1);
   });
 
   test(
@@ -349,6 +427,18 @@ void main() {
           (data) => data.length == 7 && data[1] == 0x0A && data[2] == 0x04,
         ),
         isFalse,
+      );
+
+      transport.writes.clear();
+      testDe1.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
+      await pump(6);
+      expect(transport.disconnectCalls, 0);
+      expect(transport.nativeState, ConnectionState.connected);
+      expect(
+        transport.writes.any(
+          (data) => data.length == 7 && data[1] == 0x0A && data[2] == 0x01,
+        ),
+        isTrue,
       );
 
       await scale.disconnectForHandoff();
@@ -448,90 +538,4 @@ void main() {
       },
     );
   }
-
-  test('wake with watch support and a preferred scale skips the '
-      'scale-only burst scan', () async {
-    mockScanner.supportsWatch = true;
-    await settingsController.setPreferredScaleId('pref-scale');
-    de1Controller.connect(testDe1);
-    await pump();
-
-    await wakeMachine();
-
-    expect(
-      mockScanner.scanCallCount,
-      0,
-      reason:
-          'the persistent watch covers reacquisition — a wake burst '
-          'would starve the freshly woken DE1 link',
-    );
-    expect(
-      mockScanner.startWatchCallCount,
-      greaterThan(0),
-      reason: 'the watch (not the burst) must be handling reacquisition',
-    );
-  });
-
-  for (final transport in [TransportType.serial, TransportType.wifi]) {
-    test(
-      'wake with remembered ${transport.name} scale runs a scale-only burst',
-      () async {
-        mockScanner.supportsWatch = true;
-        connectionManager.scaleReconnectBaseDelay = const Duration(minutes: 5);
-        await settingsController.setPreferredScaleId('pref-scale');
-        scaleConnections.add(
-          RememberedDevice(
-            id: 'pref-scale',
-            name: 'Preferred scale',
-            type: DeviceType.scale,
-            transportType: transport,
-          ),
-        );
-        await pump();
-        expect(rememberedDevices.remembered.single.transportType, transport);
-        de1Controller.connect(testDe1);
-        await pump();
-        final scansBeforeWake = mockScanner.scanCallCount;
-        final connectsBeforeWake = connectionManager.scaleOnlyConnects;
-
-        await wakeMachine();
-
-        expect(connectionManager.supportsBackgroundScaleWatch, isFalse);
-        expect(connectionManager.scaleOnlyConnects, connectsBeforeWake + 1);
-        expect(mockScanner.scanCallCount, greaterThan(scansBeforeWake));
-        expect(mockScanner.startWatchCallCount, 0);
-      },
-    );
-  }
-
-  test('wake with no preferred scale still runs the discovery burst', () async {
-    mockScanner.supportsWatch = true;
-    de1Controller.connect(testDe1);
-    await pump();
-
-    await wakeMachine();
-
-    expect(
-      mockScanner.scanCallCount,
-      1,
-      reason:
-          'without a preferred scale the watch cannot help — the '
-          'burst feeds discovery/picker',
-    );
-  });
-
-  test('wake without watch support runs the legacy burst', () async {
-    mockScanner.supportsWatch = false;
-    await settingsController.setPreferredScaleId('pref-scale');
-    de1Controller.connect(testDe1);
-    await pump();
-
-    await wakeMachine();
-
-    expect(
-      mockScanner.scanCallCount,
-      1,
-      reason: 'non-watch platforms keep the legacy wake reconnect',
-    );
-  });
 }

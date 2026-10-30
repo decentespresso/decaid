@@ -12,6 +12,7 @@ mixin LedStripCapability on UnifiedDe1 {
   Future<LedStripState?> getLedStripState() => _ledStripState.first;
 
   Future<void> setLedStrip(LedStripState state) async {
+    _forgetLedStripPreview();
     final stored = state.canonical();
     try {
       await writeMmrInt(
@@ -41,6 +42,90 @@ mixin LedStripCapability on UnifiedDe1 {
     }
   }
 
+  Future<void> previewLedStrip({Color16? front, Color16? back}) async {
+    if (front != null) {
+      final rgb = _toFirmwareRgb(front);
+      if (rgb != _shownFront) {
+        final generation = _ledStripPreviewGeneration;
+        try {
+          await writeMmrInt(BengleMmr.frontLedColor, rgb);
+        } catch (_) {
+          _shownFront = null;
+          rethrow;
+        }
+        if (generation == _ledStripPreviewGeneration) {
+          _shownFront = rgb;
+        }
+      }
+    }
+    if (back != null) {
+      final rgb = _toFirmwareRgb(back);
+      if (rgb != _shownBack) {
+        final generation = _ledStripPreviewGeneration;
+        try {
+          await writeMmrInt(BengleMmr.rearLedColor, rgb);
+        } catch (_) {
+          _shownBack = null;
+          rethrow;
+        }
+        if (generation == _ledStripPreviewGeneration) {
+          _shownBack = rgb;
+        }
+      }
+    }
+  }
+
+  int? _shownFront;
+  int? _shownBack;
+  int _ledStripPreviewGeneration = 0;
+  StreamSubscription<bool>? _ledStripSleepSubscription;
+
+  void _forgetLedStripPreview() {
+    _ledStripPreviewGeneration++;
+    _shownFront = null;
+    _shownBack = null;
+  }
+
+  Future<void> clearLedStripPreview() async {
+    _forgetLedStripPreview();
+    await _hydrateLedStrip();
+    final state = _ledStripState.value;
+    if (state == null) {
+      throw LedStripStateUnavailableException(
+        'ledStrip state unavailable (hydration failed or not yet complete)',
+      );
+    }
+    for (var pass = 0; pass < 5; pass++) {
+      final machineState = latestMachineState;
+      if (machineState == null) {
+        throw LedStripStateUnavailableException(
+          'machine state unavailable (stateInfo not yet received)',
+        );
+      }
+      final asleep = machineState == MachineState.sleeping;
+      await writeMmrInt(
+        BengleMmr.frontLedColor,
+        _toFirmwareRgb(
+          asleep ? state.frontStrip.sleeping : state.frontStrip.awake,
+        ),
+      );
+      await writeMmrInt(
+        BengleMmr.rearLedColor,
+        _toFirmwareRgb(
+          asleep ? state.backStrip.sleeping : state.backStrip.awake,
+        ),
+      );
+      final restoredState = latestMachineState;
+      if (restoredState != null &&
+          (restoredState == MachineState.sleeping) == asleep) {
+        return;
+      }
+    }
+    throw LedStripStateUnavailableException(
+      'machine awake/sleep phase did not settle after five restore passes',
+    );
+  }
+
   Future<void> commitLedStrip() async {}
 
   Future<LedStripState?> resetLedStrip() async {
@@ -51,6 +136,13 @@ mixin LedStripCapability on UnifiedDe1 {
   }
 
   Future<void> initLedStrip() async {
+    await _ledStripSleepSubscription?.cancel();
+    _forgetLedStripPreview();
+    _ledStripSleepSubscription = notificationsFor(Endpoint.stateInfo)
+        .where((data) => data.lengthInBytes > 0)
+        .map((data) => data.getUint8(0) == De1StateEnum.sleep.hexValue)
+        .distinct()
+        .listen((_) => _forgetLedStripPreview());
     if (_ledStripState.isClosed) {
       _ledStripState = BehaviorSubject<LedStripState?>.seeded(null);
     }
@@ -87,6 +179,9 @@ mixin LedStripCapability on UnifiedDe1 {
   }
 
   Future<void> disposeLedStrip() async {
+    await _ledStripSleepSubscription?.cancel();
+    _ledStripSleepSubscription = null;
+    _forgetLedStripPreview();
     if (!_ledStripState.isClosed) {
       await _ledStripState.close();
     }

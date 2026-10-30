@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
 import 'package:reaprime/src/controllers/connection_error.dart';
@@ -7,10 +8,12 @@ import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/remembered_devices_controller.dart';
 import 'package:reaprime/src/models/adapter_state.dart';
+import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/device_attach_notifier.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
+import 'package:reaprime/src/models/device/impl/bengle/bengle_virtual_scale.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/remembered_device.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
@@ -142,6 +145,8 @@ class _FakeDe1 implements De1Interface {
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
+
+class _FakeBengle extends _FakeDe1 implements BengleInterface {}
 
 void main() {
   late _AttachScanner scanner;
@@ -402,6 +407,77 @@ void main() {
     Future<void> attachAndSettle() async {
       probeScanner.attach();
       await Future<void>.delayed(Duration.zero);
+    }
+
+    for (final bengle in [false, true]) {
+      test(
+        bengle
+            ? 'attached Bengle without a preferred scale never arms a burst'
+            : 'attached machine without a preferred scale defers discovery',
+        () async {
+          await manager.dispose();
+          probeScanner.dispose();
+          final time = FakeAsync();
+          Future<void> settle() async {
+            for (var i = 0; i < 6; i++) {
+              time.flushMicrotasks();
+              await Future<void>.delayed(Duration.zero);
+            }
+          }
+
+          final machine = bengle ? _FakeBengle() : _FakeDe1();
+          time.run((_) {
+            probeScanner = _ProbeScanner()..supportsWatch = true;
+            realDe1Controller = De1Controller(
+              controller: DeviceController([discovery]),
+            );
+            scaleController = MockScaleController();
+            manager = ConnectionManager(
+              deviceScanner: probeScanner,
+              de1Controller: realDe1Controller,
+              scaleController: scaleController,
+              settingsController: settings,
+              deviceAttachSettleDelay: Duration.zero,
+            );
+            probeScanner.probeResult = AttachProbeConnected(machine);
+            probeScanner.attach();
+          });
+          try {
+            expect(settings.preferredScaleId, isNull);
+            time.elapse(Duration.zero);
+            await settle();
+            expect(probeScanner.probeCallCount, 1);
+            expect(settings.preferredMachineId, machine.deviceId);
+            expect(manager.currentStatus.phase, ConnectionPhase.ready);
+            expect(probeScanner.scanCallCount, 0);
+            expect(probeScanner.startWatchCallCount, 0);
+
+            final delay = manager.deferredScaleScanDelay;
+            time.elapse(delay - const Duration(milliseconds: 1));
+            await settle();
+            expect(probeScanner.scanCallCount, 0);
+            time.elapse(const Duration(milliseconds: 1));
+            await settle();
+            expect(probeScanner.scanCallCount, bengle ? 0 : 1);
+            expect(probeScanner.startWatchCallCount, 0);
+            if (bengle) {
+              expect(
+                scaleController.connectCalls.single,
+                isA<BengleVirtualScale>(),
+              );
+              time.elapse(delay * 2);
+              await settle();
+              expect(probeScanner.scanCallCount, 0);
+              expect(probeScanner.startWatchCallCount, 0);
+            }
+          } finally {
+            final disposal = manager.dispose();
+            await settle();
+            await disposal;
+            await machine.dispose();
+          }
+        },
+      );
     }
 
     test(

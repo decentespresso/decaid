@@ -9,6 +9,7 @@ import 'package:reaprime/src/skin_feature/skin_view.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 import 'package:reaprime/src/widgets/page_action_menu.dart';
+import 'package:reaprime/src/widgets/remote_error_snack_bar.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:reaprime/src/skin_feature/skin_camera_controls.dart';
@@ -41,6 +42,8 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
   final TextEditingController _detailController = TextEditingController();
   final Logger _log = Logger('SkinSelector');
   bool _storagePermissionGranted = false;
+  bool _isInstalling = false;
+  bool _isCheckingUpdates = false;
 
   @override
   void initState() {
@@ -82,6 +85,7 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
         title: const Text('Web Interface'),
         actions: [
           PageActionMenu(
+            enabled: !_isInstalling,
             tooltip: 'Skin actions',
             checkingLabel: 'Checking for skin updates',
             onCheckForUpdates: () => _checkForSkinUpdates(context),
@@ -567,11 +571,12 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
           ),
         );
       }
-    } catch (e) {
+    } catch (e, st) {
+      _log.warning('Failed to install skin', e, st);
       if (context.mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Failed to install skin: $e')));
+        ).showSnackBar(remoteErrorSnackBar(e, action: 'install the skin'));
       }
     }
   }
@@ -635,25 +640,33 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
       ),
     );
 
+    if (!mounted || !context.mounted) return;
     final repo = _repoController.text.trim();
     final detail = _detailController.text.trim();
     if (confirmed != true || repo.isEmpty) return;
     if (!context.mounted) return;
 
-    try {
-      if (release) {
-        await widget.webUIStorage.installFromGitHubRelease(
-          repo,
-          assetName: detail.isEmpty ? null : detail,
-        );
-      } else {
-        await widget.webUIStorage.installFromGitHub(
-          repo,
-          branch: detail.isEmpty ? 'main' : detail,
-        );
-      }
+    await _installSkin(
+      () => release
+          ? widget.webUIStorage.installFromGitHubRelease(
+              repo,
+              assetName: detail.isEmpty ? null : detail,
+            )
+          : widget.webUIStorage.installFromGitHub(
+              repo,
+              branch: detail.isEmpty ? 'main' : detail,
+            ),
+    );
+  }
 
-      if (context.mounted) {
+  Future<void> _installSkin(Future<void> Function() install) async {
+    if (!mounted || _isInstalling) return;
+    setState(() => _isInstalling = true);
+    ScaffoldMessenger.of(context).clearSnackBars();
+    try {
+      await install();
+
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Skin installed from GitHub'),
@@ -661,14 +674,19 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
           ),
         );
       }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to install skin: $e')));
+    } catch (e, st) {
+      _log.warning('Skin installation failed', e, st);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          remoteErrorSnackBar(
+            e,
+            action: 'install the skin',
+            onRetry: () => _installSkin(install),
+          ),
+        );
       }
     } finally {
-      if (mounted) setState(() {});
+      if (mounted) setState(() => _isInstalling = false);
     }
   }
 
@@ -741,6 +759,9 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
   }
 
   Future<void> _checkForSkinUpdates(BuildContext context) async {
+    if (!mounted || !context.mounted || _isCheckingUpdates) return;
+    _isCheckingUpdates = true;
+    ScaffoldMessenger.of(context).clearSnackBars();
     try {
       if (!context.mounted) return;
       await widget.webUIStorage.updateAllSkins();
@@ -756,8 +777,14 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
       _log.severe('Error checking for skin updates', e, stackTrace);
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to check for skin updates: $e')),
+        remoteErrorSnackBar(
+          e,
+          action: 'check for skin updates',
+          onRetry: () => _checkForSkinUpdates(context),
+        ),
       );
+    } finally {
+      _isCheckingUpdates = false;
     }
   }
 }

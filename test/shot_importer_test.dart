@@ -7,6 +7,7 @@ import 'package:reaprime/src/models/data/steam_record.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
 import 'package:reaprime/src/services/storage/storage_service.dart';
 import 'package:reaprime/src/util/shot_importer.dart';
+import 'package:reaprime/src/util/user_facing_exception.dart';
 
 import 'helpers/shot_event_storage.dart';
 
@@ -71,6 +72,7 @@ class MockStorageService implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
     bool ascending = false,
   }) async {
     return storedShots.skip(offset).take(limit).toList();
@@ -86,6 +88,7 @@ class MockStorageService implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
     bool ascending = false,
   }) async {
     return storedShots.length;
@@ -116,6 +119,16 @@ class MockStorageService implements StorageService {
   Future<SteamRecord?> getLatestSteam() async => null;
   @override
   Future<SteamRecord?> getLatestSteamMeta() async => null;
+}
+
+class _FormatFailingStorage extends ShotEventStorage {
+  final failure = const FormatException('Invalid persisted data');
+
+  @override
+  Future<void> storeShot(ShotRecord record) async {
+    if (record.id == 'failed') throw failure;
+    await super.storeShot(record);
+  }
 }
 
 void main() {
@@ -218,6 +231,134 @@ void main() {
     },
   );
 
+  test(
+    'storage FormatException stays unexpected after partial bulk import',
+    () async {
+      final storage = _FormatFailingStorage();
+      final persistence = PersistenceController(storageService: storage);
+      addTearDown(persistence.dispose);
+      final importer = ShotImporter(controller: persistence);
+      var changes = 0;
+      final subscription = persistence.shotsChanged.listen((_) => changes++);
+      addTearDown(subscription.cancel);
+
+      await expectLater(
+        importer.importShotsJson(
+          jsonEncode([
+            eventShot(id: 'ok').toJson(),
+            eventShot(id: 'failed').toJson(),
+            eventShot(id: 'not reached').toJson(),
+          ]),
+        ),
+        throwsA(same(storage.failure)),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(storage.shots.keys, ['ok']);
+      expect(changes, 1);
+
+      await expectLater(
+        importer.importShotJson(jsonEncode(eventShot(id: 'failed').toJson())),
+        throwsA(same(storage.failure)),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(changes, 1);
+    },
+  );
+
+  test(
+    'construction FormatException is user input and retains partial writes',
+    () async {
+      final invalid = eventShot(id: 'invalid').toJson()
+        ..['timestamp'] = 'not a date';
+      var changes = 0;
+      final subscription = controller.shotsChanged.listen((_) => changes++);
+      addTearDown(subscription.cancel);
+      await expectLater(
+        importer.importShotsJson(
+          jsonEncode([eventShot(id: 'ok').toJson(), invalid]),
+        ),
+        throwsA(isA<UserFacingFormatException>()),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(storedEvents, ['ok']);
+      expect(changes, 1);
+      await expectLater(
+        importer.importShotJson(jsonEncode(invalid)),
+        throwsA(isA<UserFacingFormatException>()),
+      );
+    },
+  );
+
+  test(
+    'file entry point dispatches single objects, arrays and empty arrays',
+    () async {
+      expect(
+        await importer.importJson(jsonEncode(eventShot(id: 'single').toJson())),
+        1,
+      );
+      expect(
+        await importer.importJson(
+          jsonEncode([
+            eventShot(id: 'bulk-1').toJson(),
+            eventShot(id: 'bulk-2').toJson(),
+          ]),
+        ),
+        2,
+      );
+      expect(await importer.importJson('[]'), 0);
+      expect(storedEvents, ['single', 'bulk-1', 'bulk-2']);
+    },
+  );
+
+  for (final input in ['null', '42', '"text"', '[null]', '{broken']) {
+    test('file entry point classifies invalid input: $input', () async {
+      await expectLater(
+        importer.importJson(input),
+        throwsA(isA<UserFacingFormatException>()),
+      );
+      expect(mockStorage.storedShots, isEmpty);
+    });
+  }
+
+  for (final field in ['id', 'timestamp', 'measurements', 'workflow']) {
+    test('invalid $field is a user-facing format failure', () async {
+      final invalid = eventShot().toJson()..[field] = false;
+      for (final input in [
+        invalid,
+        [invalid],
+      ]) {
+        await expectLater(
+          importer.importJson(jsonEncode(input)),
+          throwsA(isA<UserFacingFormatException>()),
+        );
+      }
+      expect(mockStorage.storedShots, isEmpty);
+    });
+  }
+
+  test('file entry point leaves storage FormatException unchanged', () async {
+    final storage = _FormatFailingStorage();
+    final persistence = PersistenceController(storageService: storage);
+    addTearDown(persistence.dispose);
+    final importer = ShotImporter(controller: persistence);
+    for (final input in [
+      eventShot(id: 'failed').toJson(),
+      [eventShot(id: 'failed').toJson()],
+    ]) {
+      await expectLater(
+        importer.importJson(jsonEncode(input)),
+        throwsA(same(storage.failure)),
+      );
+    }
+  });
+
+  test('bulk malformed JSON is a user-facing format failure', () async {
+    await expectLater(
+      importer.importShotsJson('[invalid'),
+      throwsA(isA<UserFacingFormatException>()),
+    );
+  });
+
   group('ShotImporter - Single Shot Import', () {
     test('should import a valid single shot JSON object', () async {
       const validShotJson = '''
@@ -290,23 +431,29 @@ void main() {
       expect(mockStorage.storedShots[0].workflow.name, 'Test Workflow');
     });
 
-    test('should throw FormatException when JSON is not an object', () async {
-      const invalidJson = '["not", "an", "object"]';
+    test(
+      'should throw UserFacingFormatException when JSON is not an object',
+      () async {
+        const invalidJson = '["not", "an", "object"]';
 
-      expect(
-        () => importer.importShotJson(invalidJson),
-        throwsA(isA<FormatException>()),
-      );
-    });
+        expect(
+          () => importer.importShotJson(invalidJson),
+          throwsA(isA<UserFacingFormatException>()),
+        );
+      },
+    );
 
-    test('should throw FormatException when JSON is a primitive', () async {
-      const invalidJson = '"just a string"';
+    test(
+      'should throw UserFacingFormatException when JSON is a primitive',
+      () async {
+        const invalidJson = '"just a string"';
 
-      expect(
-        () => importer.importShotJson(invalidJson),
-        throwsA(isA<FormatException>()),
-      );
-    });
+        expect(
+          () => importer.importShotJson(invalidJson),
+          throwsA(isA<UserFacingFormatException>()),
+        );
+      },
+    );
 
     test('should throw error when required fields are missing', () async {
       const invalidJson = '''
@@ -317,7 +464,7 @@ void main() {
 
       expect(
         () => importer.importShotJson(invalidJson),
-        throwsA(isA<FormatException>()),
+        throwsA(isA<UserFacingFormatException>()),
       );
     });
 
@@ -334,7 +481,7 @@ void main() {
         expect(
           () => importer.importShotJson(de1AppHistoryV2Shot),
           throwsA(
-            isA<FormatException>().having(
+            isA<UserFacingFormatException>().having(
               (e) => e.message,
               'message',
               contains('Import from De1App'),
@@ -484,34 +631,37 @@ void main() {
       expect(mockStorage.storedShots.length, 0);
     });
 
-    test('should throw FormatException when JSON is not an array', () async {
-      const invalidJson = '''
+    test(
+      'should throw UserFacingFormatException when JSON is not an array',
+      () async {
+        const invalidJson = '''
       {
         "id": "shot-1",
         "timestamp": "2024-01-15T10:30:00.000Z"
       }
       ''';
 
-      expect(
-        () => importer.importShotsJson(invalidJson),
-        throwsA(isA<FormatException>()),
-      );
-    });
-
-    test(
-      'should throw FormatException when array contains non-objects',
-      () async {
-        const invalidJson = '["string", 123, true]';
-
         expect(
           () => importer.importShotsJson(invalidJson),
-          throwsA(isA<FormatException>()),
+          throwsA(isA<UserFacingFormatException>()),
         );
       },
     );
 
     test(
-      'should throw FormatException when array contains mixed valid and invalid items',
+      'should throw UserFacingFormatException when array contains non-objects',
+      () async {
+        const invalidJson = '["string", 123, true]';
+
+        expect(
+          () => importer.importShotsJson(invalidJson),
+          throwsA(isA<UserFacingFormatException>()),
+        );
+      },
+    );
+
+    test(
+      'should throw UserFacingFormatException when array contains mixed valid and invalid items',
       () async {
         const invalidJson = '''
       [
@@ -577,7 +727,7 @@ void main() {
 
         expect(
           () => importer.importShotsJson(invalidJson),
-          throwsA(isA<FormatException>()),
+          throwsA(isA<UserFacingFormatException>()),
         );
       },
     );
@@ -589,7 +739,7 @@ void main() {
 
       expect(
         () => importer.importShotJson(malformedJson),
-        throwsA(isA<FormatException>()),
+        throwsA(isA<UserFacingFormatException>()),
       );
     });
 

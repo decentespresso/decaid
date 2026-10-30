@@ -45,6 +45,23 @@ class ShotsHandler {
     final coffeeRoaster = params['coffeeRoaster'];
     final profileTitle = params['profileTitle'];
     final search = params['search'];
+    final minEnjoymentRaw = params['minEnjoyment'];
+    double? minEnjoyment;
+    if (minEnjoymentRaw != null) {
+      minEnjoyment = double.tryParse(minEnjoymentRaw);
+      final max = enjoymentMax.toStringAsFixed(0);
+      if (minEnjoyment == null || !minEnjoyment.isFinite) {
+        return jsonBadRequest({
+          "error": "minEnjoyment must be a number between 0 and $max",
+        });
+      }
+      if (minEnjoyment < 0 || minEnjoyment > enjoymentMax) {
+        return jsonBadRequest({
+          "error":
+              "minEnjoyment must be between 0 and $max, got $minEnjoymentRaw",
+        });
+      }
+    }
 
     final rawIds = req.url.queryParametersAll['ids'];
     final ids = rawIds
@@ -59,9 +76,16 @@ class ShotsHandler {
         coffeeName != null ||
         coffeeRoaster != null ||
         profileTitle != null ||
-        search != null;
+        search != null ||
+        minEnjoyment != null;
 
-    if (ids != null && ids.isNotEmpty && !hasFilters) {
+    if (ids != null && ids.isNotEmpty && hasFilters) {
+      return jsonBadRequest({
+        "error": "ids cannot be combined with other filters",
+      });
+    }
+
+    if (ids != null && ids.isNotEmpty) {
       final shots = <ShotRecord>[];
       for (final id in ids) {
         final shot = await _controller.storageService.getShot(id);
@@ -112,6 +136,7 @@ class ShotsHandler {
         coffeeRoaster: coffeeRoaster,
         profileTitle: profileTitle,
         search: search,
+        minEnjoyment: minEnjoyment,
         ascending: ascending,
       );
 
@@ -124,6 +149,7 @@ class ShotsHandler {
         coffeeRoaster: coffeeRoaster,
         profileTitle: profileTitle,
         search: search,
+        minEnjoyment: minEnjoyment,
       );
 
       final items = shots.map((s) => s.toJsonWithoutMeasurements()).toList();
@@ -225,10 +251,9 @@ class ShotsHandler {
         return jsonNotFound({"error": "Shot not found"});
       }
 
-      final merged = _deepMerge(
-        existingShot.toJson(),
-        _normalizeLegacyAnnotationPatch(json),
-      );
+      final normalizedPatch = _normalizeLegacyAnnotationPatch(json);
+      final merged = _deepMerge(existingShot.toJson(), normalizedPatch);
+      _representClearedNoteAsEmpty(normalizedPatch, merged);
       _synchronizeLegacyAnnotationAliases(merged);
       merged['id'] = id;
 
@@ -315,6 +340,27 @@ class ShotsHandler {
     normalized.remove('shotNotes');
     normalized.remove('metadata');
     return normalized;
+  }
+
+  static bool _clearsEspressoNotes(Map<String, dynamic> patch) {
+    if (!patch.containsKey('annotations')) return false;
+    final annotations = patch['annotations'];
+    if (annotations == null) return true;
+    return annotations is Map<String, dynamic> &&
+        annotations.containsKey('espressoNotes') &&
+        annotations['espressoNotes'] == null;
+  }
+
+  static void _representClearedNoteAsEmpty(
+    Map<String, dynamic> patch,
+    Map<String, dynamic> merged,
+  ) {
+    if (!_clearsEspressoNotes(patch)) return;
+    final annotations = merged['annotations'];
+    merged['annotations'] = <String, dynamic>{
+      if (annotations is Map<String, dynamic>) ...annotations,
+      'espressoNotes': '',
+    };
   }
 
   void _synchronizeLegacyAnnotationAliases(Map<String, dynamic> json) {

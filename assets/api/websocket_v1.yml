@@ -512,6 +512,7 @@ components:
         error:
           type: string
           nullable: true
+          description: Plain-language failure guidance; connection, timeout, and secure-connection failures do not expose transport exceptions or internal URLs.
     UpdateCommand:
       type: object
       required: [command]
@@ -845,7 +846,15 @@ components:
           description: UUID of the characteristic (len = 4).
         payload:
           type: string
-          description: The data payload as a hex string.
+          description: >-
+            The data payload as a hex string. A write response echoes the
+            payload the client submitted, as uppercase hex — the same encoding
+            a read response uses, so a client can correlate the payload that
+            completed. It does not identify an individual write: two writes
+            carrying the same payload are indistinguishable, and the stream is
+            machine-level, so another raw client sending the same payload is
+            equally indistinguishable. Clients that ignore payload are
+            unaffected.
     De1RawMessageType:
       type: string
       enum:

@@ -47,6 +47,15 @@ class FakeBleTransport extends BLETransport {
 
   int dropNextMmrResponses = 0;
 
+  final Map<int, List<int>> _wordResponses = {};
+
+  int _mmrResponseHeaderByte(int wordCount) => switch (wordCount) {
+    1 => 0x04,
+    2 => 0x08,
+    3 => 0x0C,
+    _ => 0x0A,
+  };
+
   void queueMmrResponseInt(MmrAddress item, int value) {
     _intResponses[item.address] = value;
   }
@@ -59,6 +68,11 @@ class FakeBleTransport extends BLETransport {
 
   void queueMmrResponseIntSequence(MmrAddress item, List<int> values) {
     _intResponseQueues.putIfAbsent(item.address, Queue.new).addAll(values);
+  }
+
+  void queueMmrResponseWords(MmrAddress startItem, List<int> values) {
+    assert(values.length <= 4, 'MMR frame holds at most 4 words');
+    _wordResponses[startItem.address] = List<int>.of(values);
   }
 
   void queueMmrResponseRaw(MmrAddress item, List<int> payload) {
@@ -254,6 +268,34 @@ class FakeBleTransport extends BLETransport {
       return;
     }
 
+    int? matchedWordsAddr;
+    for (final addr in _wordResponses.keys) {
+      final bytes = ByteData(4)..setInt32(0, addr, Endian.big);
+      if (bytes.getUint8(1) == addrMid1 &&
+          bytes.getUint8(2) == addrMid2 &&
+          bytes.getUint8(3) == addrLow) {
+        matchedWordsAddr = addr;
+        break;
+      }
+    }
+    if (matchedWordsAddr != null) {
+      final values = _wordResponses.remove(matchedWordsAddr)!;
+      final resp = Uint8List(20);
+      final view = ByteData.sublistView(resp);
+      view.setUint8(0, _mmrResponseHeaderByte(values.length));
+      view.setUint8(1, addrMid1);
+      view.setUint8(2, addrMid2);
+      view.setUint8(3, addrLow);
+      for (var i = 0; i < values.length; i++) {
+        view.setInt32(4 + 4 * i, values[i], Endian.little);
+      }
+      final cb = subscribers[Endpoint.readFromMMR.uuid];
+      if (cb != null) {
+        scheduleMicrotask(() => cb(resp));
+      }
+      return;
+    }
+
     for (final addr in _intResponseQueues.keys) {
       final bytes = ByteData(4)..setInt32(0, addr, Endian.big);
       if (bytes.getUint8(1) == addrMid1 &&
@@ -265,7 +307,7 @@ class FakeBleTransport extends BLETransport {
           if (queue.isEmpty) _intResponseQueues.remove(addr);
           final resp = Uint8List(20);
           final view = ByteData.sublistView(resp);
-          view.setUint8(0, data[0]);
+          view.setUint8(0, _mmrResponseHeaderByte(1));
           view.setUint8(1, addrMid1);
           view.setUint8(2, addrMid2);
           view.setUint8(3, addrLow);
@@ -293,7 +335,7 @@ class FakeBleTransport extends BLETransport {
     final value = _intResponses.remove(matchedAddr)!;
     final resp = Uint8List(20);
     final view = ByteData.sublistView(resp);
-    view.setUint8(0, data[0]);
+    view.setUint8(0, _mmrResponseHeaderByte(1));
     view.setUint8(1, addrMid1);
     view.setUint8(2, addrMid2);
     view.setUint8(3, addrLow);

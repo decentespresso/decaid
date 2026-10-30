@@ -26,6 +26,7 @@ import 'package:reaprime/src/skin_feature/skin_exit_instructions.dart';
 import 'package:reaprime/src/skin_feature/skin_user_scripts.dart';
 import 'package:reaprime/src/skin_feature/skin_webview_composition.dart';
 import 'package:reaprime/src/skin_feature/skin_webview_diagnostics.dart';
+import 'package:reaprime/src/skin_feature/skin_webview_startup.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -93,6 +94,7 @@ class SkinView extends StatefulWidget {
     this.cameraTarget,
     this.notificationCenter,
     this.notificationActions,
+    this.checkCompatibility = WebViewCompatibilityChecker.checkCompatibility,
   });
 
   final SettingsController settingsController;
@@ -105,6 +107,7 @@ class SkinView extends StatefulWidget {
   final SkinCameraTarget? Function()? cameraTarget;
   final NotificationCenter? notificationCenter;
   final NotificationActions? notificationActions;
+  final Future<CompatibilityResult> Function() checkCompatibility;
 
   static const routeName = '/skin';
 
@@ -126,8 +129,16 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   bool _rendererCrashed = false;
 
   static bool _globalTimersPaused = false;
+  // Native timers are process-global: an unresolved call must finish before
+  // any generation advances; abandoning it could apply a late global side effect.
+  static Future<void>? _timerOperations;
+  static Object? _timerViewAttempt;
+
+  Object _timerLifecycle = Object();
+  int _pendingTimerPauses = 0;
 
   InAppWebViewController? _webViewController;
+  Object _webViewAttempt = Object();
   final _skinExitCoordinator = SkinExitCoordinator();
   Uri? _mainFrameUri;
   late final _camera = SkinCameraWebViewAccess(
@@ -147,6 +158,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    simulatedWebViewDevice.addListener(_resetWebView);
     if (Platform.isAndroid || Platform.isIOS) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     }
@@ -160,11 +172,9 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
     unawaited(widget.displayController.setBrightness(100));
     _blankPageTimer?.cancel();
     _blankPageTimer = null;
-    final controller = _webViewController;
-    if (_globalTimersPaused && controller != null) {
-      unawaited(_resumeWebViewTimers(controller, 'dispose'));
-    }
+    _balanceWebViewTimers('dispose');
     WidgetsBinding.instance.removeObserver(this);
+    simulatedWebViewDevice.removeListener(_resetWebView);
     if (Platform.isAndroid) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
@@ -176,32 +186,19 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (!(Platform.isAndroid || Platform.isIOS)) {
+    if (defaultTargetPlatform != TargetPlatform.android &&
+        defaultTargetPlatform != TargetPlatform.iOS) {
       return;
     }
 
     if (state == AppLifecycleState.paused) {
       if (_webViewController == null) return;
       _log.info('App backgrounded — pausing WebView and loading blank page');
-      try {
-        if (InAppWebViewController.isMethodSupported(.pause)) {
-          _webViewController?.pause();
-        }
-      } on UnimplementedError catch (e) {
-        _log.warning("Unimplemented: ", e);
-      } catch (e, st) {
-        _log.severe("Unexpected: ", e, st);
-      }
-      try {
-        if (InAppWebViewController.isMethodSupported(.pauseTimers)) {
-          _webViewController?.pauseTimers();
-          _globalTimersPaused = true;
-        }
-      } on UnimplementedError catch (e) {
-        _log.warning("Unimplemented: ", e);
-      } catch (e, st) {
-        _log.severe("Unexpected: ", e, st);
-      }
+      unawaited(_changeWebViewActivity(_webViewController!, pause: true));
+      _timerLifecycle = Object();
+      unawaited(
+        _changeWebViewTimers(_webViewController!, 'pause', pause: true),
+      );
       _didBlank = false;
       _blankPageTimer?.cancel();
       _blankPageTimer = Timer(Duration(minutes: 10), () {
@@ -215,16 +212,9 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
       _blankPageTimer = null;
       if (_webViewController == null) return;
       _log.info('App foregrounded — resuming WebView and reloading skin');
-      unawaited(_resumeWebViewTimers(_webViewController!, 'resume'));
-      try {
-        if (InAppWebViewController.isMethodSupported(.resume)) {
-          _webViewController?.resume();
-        }
-      } on UnimplementedError catch (e) {
-        _log.warning("Unimplemented: ", e);
-      } catch (e, st) {
-        _log.severe("Unexpected: ", e, st);
-      }
+      _timerLifecycle = Object();
+      unawaited(_changeWebViewTimers(_webViewController!, 'resume'));
+      unawaited(_changeWebViewActivity(_webViewController!));
       if (_didBlank) {
         _didBlank = false;
         _webViewController?.loadUrl(
@@ -250,7 +240,8 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
       }
     }
 
-    final result = await WebViewCompatibilityChecker.checkCompatibility();
+    final result = await widget.checkCompatibility();
+    if (!mounted) return;
 
     setState(() {
       _compatibilityResult = result;
@@ -492,13 +483,9 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
     _log.info('Opening WebUI in external browser: $url');
 
     try {
-      final canLaunch = await canLaunchUrl(url);
-      if (canLaunch) {
-        await launchUrl(url, mode: LaunchMode.externalApplication);
-
-        if (mounted) {
-          _exitToDashboard();
-        }
+      if (await canLaunchUrl(url) &&
+          await launchUrl(url, mode: LaunchMode.externalApplication)) {
+        if (mounted) _exitToDashboard();
       } else {
         _log.warning('Cannot launch URL: $url');
         if (mounted) {
@@ -547,31 +534,12 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
     }
 
     if (_errorMessage != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            spacing: 16,
-            children: [
-              const Icon(Icons.error_outline, size: 64, color: Colors.red),
-              Text(
-                'WebView Error',
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              Text(
-                _errorMessage!,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: _exitToDashboard,
-                child: const Text('Go to Dashboard'),
-              ),
-            ],
-          ),
-        ),
+      return SkinWebViewError(
+        message: _errorMessage!,
+        onOpenInBrowser: defaultTargetPlatform == TargetPlatform.windows
+            ? _openInExternalBrowser
+            : null,
+        onDashboard: _exitToDashboard,
       );
     }
 
@@ -602,17 +570,16 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
           ValueListenableBuilder<SimulatedWebViewDevice?>(
             valueListenable: simulatedWebViewDevice,
             builder: (context, simulatedDevice, _) {
-              return Stack(
-                clipBehavior: Platform.isAndroid ? Clip.none : Clip.hardEdge,
-                children: [
-                  Positioned.fill(
-                    right: Platform.isAndroid ? -1 : 0,
-                    bottom: Platform.isAndroid ? -1 : 0,
-                    child: _buildWebView(simulatedDevice, texture),
-                  ),
-                  if (_isLoading)
-                    const Center(child: CircularProgressIndicator()),
-                ],
+              return SkinWebViewStartup(
+                key: ValueKey(simulatedDevice?.id ?? 'native-webview'),
+                platform: defaultTargetPlatform,
+                isLoading: _isLoading,
+                isCreated: _webViewController != null,
+                skinId: widget.settingsController.defaultSkinId,
+                port: widget.port,
+                onOpenInBrowser: _openInExternalBrowser,
+                onDashboard: _exitToDashboard,
+                child: _buildWebView(simulatedDevice, texture),
               );
             },
           ),
@@ -621,6 +588,8 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
 
   Widget _buildWebView(SimulatedWebViewDevice? simulatedDevice, bool texture) {
     if (widget.webView != null) return widget.webView!;
+    final attempt = _webViewAttempt;
+    bool isCurrentView() => mounted && identical(attempt, _webViewAttempt);
     return InAppWebView(
       key: ValueKey(simulatedDevice?.id ?? 'native-webview'),
       initialUrlRequest: URLRequest(url: WebUri(_skinUrl)),
@@ -641,15 +610,18 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
           : null,
       onShowFileChooser: Platform.isAndroid ? _camera.onShowFileChooser : null,
       onWebViewCreated: (controller) {
+        if (!isCurrentView()) return;
         if (supportsSkinCamera) _camera.invalidate();
         _log.info('InAppWebView created');
-        _webViewController = controller;
+        _timerViewAttempt = attempt;
+        setState(() => _webViewController = controller);
         if (Platform.isAndroid) {
           unawaited(_logRenderingDiagnostics(controller, texture));
         }
-        unawaited(_resumeWebViewTimers(controller, 'onWebViewCreated'));
+        unawaited(_changeWebViewTimers(controller, 'onWebViewCreated'));
       },
       onLoadStart: (controller, url) {
+        if (!isCurrentView()) return;
         if (supportsSkinCamera) _camera.invalidate();
         _log.info('Page started loading: $url');
         _mainFrameUri = url;
@@ -661,6 +633,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
         });
       },
       onLoadStop: (controller, url) async {
+        if (!isCurrentView()) return;
         _log.info('Page finished loading: $url');
         setState(() {
           _isLoading = false;
@@ -683,7 +656,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
           'WebView error - Code: ${error.type}, Description: ${error.description}',
         );
         if (!shouldShowSkinLoadError(request.isForMainFrame)) return;
-        if (!mounted) return;
+        if (!isCurrentView()) return;
         setState(() {
           _isLoading = false;
           _errorMessage = 'Failed to load skin: ${error.description}';
@@ -735,6 +708,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
           ? (controller) => _camera.invalidate()
           : null,
       onRenderProcessGone: (controller, detail) {
+        if (!isCurrentView()) return;
         if (supportsSkinCamera) _camera.invalidate();
         if (Platform.isAndroid) {
           widget.webViewLogService.log(
@@ -755,12 +729,13 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
           'didCrash: ${detail.didCrash}, '
           'rendererPriorityAtExit: ${detail.rendererPriorityAtExit}',
         );
+        _balanceWebViewTimers('renderer exit');
         _webViewController = null;
         setState(() {
           _rendererCrashed = true;
         });
         Future.delayed(const Duration(milliseconds: 500), () {
-          if (mounted) {
+          if (isCurrentView()) {
             setState(() {
               _rendererCrashed = false;
             });
@@ -768,6 +743,26 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
         });
       },
     );
+  }
+
+  void _balanceWebViewTimers(String where) {
+    final controller = _webViewController;
+    if (controller != null &&
+        (_globalTimersPaused || _pendingTimerPauses > 0)) {
+      unawaited(_changeWebViewTimers(controller, where));
+    }
+  }
+
+  void _resetWebView() {
+    _balanceWebViewTimers('reset');
+    setState(() {
+      _webViewAttempt = Object();
+      _webViewController = null;
+      _isLoading = true;
+      _errorMessage = null;
+      _mainFrameUri = null;
+      _rendererCrashed = false;
+    });
   }
 
   Future<void> _logRenderingDiagnostics(
@@ -793,23 +788,72 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
     widget.webViewLogService.log(skinId, 'INFO', message);
   }
 
-  Future<void> _resumeWebViewTimers(
-    InAppWebViewController controller,
-    String where,
-  ) async {
-    final wasPaused = _globalTimersPaused;
+  Future<void> _changeWebViewActivity(
+    InAppWebViewController controller, {
+    bool pause = false,
+  }) async {
     try {
-      if (InAppWebViewController.isMethodSupported(.resumeTimers)) {
-        await controller.resumeTimers();
-        _globalTimersPaused = false;
-        if (wasPaused) {
-          _log.warning('Balanced WebView timer pause in $where');
+      if (pause) {
+        if (InAppWebViewController.isMethodSupported(.pause)) {
+          await controller.pause();
         }
+      } else if (InAppWebViewController.isMethodSupported(.resume)) {
+        await controller.resume();
       }
     } on UnimplementedError catch (e) {
       _log.warning("Unimplemented: ", e);
     } catch (e, st) {
       _log.severe("Unexpected: ", e, st);
     }
+  }
+
+  Future<void> _changeWebViewTimers(
+    InAppWebViewController controller,
+    String where, {
+    bool pause = false,
+  }) {
+    final attempt = _webViewAttempt;
+    final lifecycle = _timerLifecycle;
+    bool isCurrentView() =>
+        mounted &&
+        identical(attempt, _webViewAttempt) &&
+        _webViewController == controller &&
+        identical(lifecycle, _timerLifecycle) &&
+        identical(attempt, _timerViewAttempt);
+    if (pause) _pendingTimerPauses++;
+    Future<void> run() async {
+      try {
+        if (pause) {
+          if (!isCurrentView()) return;
+          if (InAppWebViewController.isMethodSupported(.pauseTimers)) {
+            await controller.pauseTimers();
+            _globalTimersPaused = true;
+          }
+        } else if (identical(attempt, _timerViewAttempt) &&
+            InAppWebViewController.isMethodSupported(.resumeTimers)) {
+          final wasPaused = _globalTimersPaused;
+          await controller.resumeTimers();
+          _globalTimersPaused = false;
+          if (wasPaused && identical(attempt, _timerViewAttempt)) {
+            _log.warning('Balanced WebView timer pause in $where');
+          }
+        }
+      } on UnimplementedError catch (e) {
+        _log.warning("Unimplemented: ", e);
+      } catch (e, st) {
+        _log.severe("Unexpected: ", e, st);
+      } finally {
+        if (pause) _pendingTimerPauses--;
+      }
+    }
+
+    final operation = _timerOperations?.then((_) => run()) ?? run();
+    _timerOperations = operation;
+    unawaited(
+      operation.then((_) {
+        if (identical(_timerOperations, operation)) _timerOperations = null;
+      }),
+    );
+    return operation;
   }
 }

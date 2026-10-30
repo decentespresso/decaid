@@ -73,11 +73,6 @@ class De1StateManager with WidgetsBindingObserver {
 
   MachineState? _previousMachineState;
 
-  Timer? _deferredScaleScan;
-
-  @visibleForTesting
-  Duration deferredScaleScanDelay = const Duration(seconds: 3);
-
   final Set<AppLifecycleState> _backgroundStates;
 
   AppLifecycleState _currentAppState = AppLifecycleState.resumed;
@@ -609,50 +604,17 @@ class De1StateManager with WidgetsBindingObserver {
         currentState != MachineState.sleeping) {
       _logger.info('Machine waking up from sleep');
 
-      bool scaleConnected = false;
-      try {
-        _scaleController.connectedScale();
-        scaleConnected = true;
-      } catch (e) {
-        scaleConnected = false;
-      }
-
-      if (scaleConnected && scalePowerMode == ScalePowerMode.displayOff) {
+      if (scalePowerMode == ScalePowerMode.displayOff) {
         try {
           final scale = _scaleController.connectedScale();
           scale.wakeDisplay().catchError((e) {
             _logger.warning('Failed to wake scale display: $e');
           });
         } catch (e) {
-          _logger.warning('Failed to get scale for wake: $e');
+          _logger.finest('Scale not connected, skipping display wake: $e');
         }
       }
-
-      if (!scaleConnected) {
-        _logger.info(
-          'Scale disconnected after sleep, deferring scan 3s '
-          'to avoid BLE radio starvation',
-        );
-        _deferredScaleScan?.cancel();
-        _deferredScaleScan = Timer(deferredScaleScanDelay, () {
-          _deferredScaleScan = null;
-          if (_connectionManager.supportsBackgroundScaleWatch &&
-              _settingsController.preferredScaleId != null) {
-            _logger.fine(
-              'Background scale watch handles reacquisition; '
-              'skipping wake burst',
-            );
-            return;
-          }
-          _triggerScaleScan();
-        });
-      }
     }
-  }
-
-  void _triggerScaleScan() {
-    _logger.info('Delegating scale reconnect to ConnectionManager');
-    _connectionManager.connect(scaleOnly: true);
   }
 
   void _handleEspressoState(MachineSnapshot snapshot, GatewayMode gatewayMode) {
@@ -1037,9 +999,6 @@ class De1StateManager with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
 
     _cleanupShotSequencer();
-
-    _deferredScaleScan?.cancel();
-    _deferredScaleScan = null;
 
     _snapshotSubscription?.cancel();
     _snapshotSubscription = null;

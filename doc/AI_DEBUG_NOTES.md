@@ -4,7 +4,8 @@ Read this when debugging BLE errors, diagnosing platform-specific crashes, inves
 
 ## Source Of Truth
 
-- Error filter: `lib/src/services/crashlytics_error_filter.dart`.
+- Framework error filter: `lib/src/services/telemetry/crashlytics_error_filter.dart`.
+- Log forwarding filter: `lib/src/services/telemetry/telemetry_forwarder_filter.dart`.
 - Logging: `package:logging`, configured in `main.dart`.
 
 ## General Debugging Principles
@@ -15,6 +16,25 @@ Read this when debugging BLE errors, diagnosing platform-specific crashes, inves
 - **Simulate mode:** Reproduce without hardware using `--dart-define=simulate=1`. Mock devices are deterministic — use them to isolate whether an issue is transport or logic.
 - **`simulate=0` (debug-on-real):** `--dart-define=simulate=0` enables debug routes and disables Firebase/telemetry while keeping real BLE/USB hardware. Use for temporary tuning builds where `/api/v1/debug/*` must be reachable against real devices. Must not be shipped to users.
 - **Stream debugging:** Enable `Logger('ShotState')` for structured shot decisions. `Logger('Ble')` for BLE operations.
+
+## Recoverable diagnostics versus exception reports
+
+`shouldForwardToTelemetry` excludes exception-free `StatusPublisher` records:
+`emitError` logs connection-state transitions, not thrown failures. These retain
+their severity and still reach the scrubbed log buffer before the telemetry
+filter runs. Inspect those diagnostics when investigating connection loops;
+the absence of a Crashlytics issue does not mean the state was not logged.
+
+Only `UserFacingFormatException`s from `DataManagement` are excluded as handled
+input failures. `ShotImporter.importJson` decodes legacy-shot files and dispatches
+objects/arrays; decoding, export-shape validation and shot-construction format
+failures use this existing user-facing type. Storage and application callbacks
+run outside that conversion boundary, including after partial batch imports.
+Plain `FormatException`s from `DataManagement` (also used for backups, exports and
+De1App operations), unexpected exceptions, and format errors from other loggers
+remain eligible. Keep the original exception and stack when logging a real
+failure so attribution stays at its source rather than the queue. Revisit these
+rules if either logger gains new responsibilities.
 
 ## Common Error Patterns
 
@@ -106,6 +126,40 @@ during disposal and WebView creation, and clear `_didBlank` before reloading. Do
 not infer renderer health from page DOM shape or deliberately crash the renderer;
 custom skins have no common ready signal and Apple WebViews use a different
 termination callback.
+
+## Windows embedded skin never reaches creation
+
+Windows compatibility checking detects an installed WebView2 version; it does
+not prove environment or composition-controller creation succeeds. The pinned
+Windows plugin awaits `createInAppWebView` before calling `onWebViewCreated`.
+Native creation failures can bypass page-error callbacks, and native HRESULT
+debug logging is compiled out of release builds. Immediate controller-creation
+HRESULT failures are only logged in the pinned plugin and can leave the Dart
+creation call unresolved; asynchronous creation failures lose the HRESULT in
+the generic platform exception.
+
+Issue #953 contains separate GitHub 403s and intermittent scale `Unreachable`
+failures. An embedded page finishes loading after the first 403. Later sessions
+stop before `onWebViewCreated`, but both Decaid and WebView2 versions changed.
+The report does not establish rate limiting, permissions, or a runtime regression
+as the spinner's cause. Upstream flutter_inappwebview #2626 documents a default
+profile-directory permission failure; #2840 describes a process crash after
+creation, not this still-running app. Neither identifies this report's trigger.
+
+`SkinWebViewStartup` bounds Windows initial loading to 30 seconds, logs the
+last reached stage, and offers browser/dashboard recovery without destroying
+the pending view. A late load clears the error. Its `SkinView` logger emits
+JSON records with `event: windowsSkinStartup` for `started`, `created`, `loaded`,
+`timeout`, `recovered`, and `aborted`. Match `attemptId` to follow an attempt;
+`stage`, `elapsedMs`, `skinId`, `port`, `webViewCreated`, and `timedOut` describe
+its progress. A timeout is a warning; other transitions are informational.
+Completion stops startup logging, so subsequent navigation is not a new attempt.
+The records exclude page URLs, query strings, and profile paths; combine them
+with existing app, Windows, and WebView2 version logs. These Dart-side records
+cannot recover native HRESULTs discarded by the plugin.
+
+Do not change profile locations, delete browser data, or disable security checks
+based on this report alone.
 
 # Scale Frame And Feed Failures
 

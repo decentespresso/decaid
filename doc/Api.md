@@ -81,13 +81,13 @@ For browser clients on a different origin, `ETag` is exposed via `Access-Control
 | GET | `/api/v1/machine/state` | Current machine state + substate. The steam substates `pausedSteam` and `puffing` report as themselves; both used to report as `idle` | |
 | PUT | `/api/v1/machine/state/{newState}` | Request state change (`idle`, `sleep`, `espresso`, …) | |
 | GET | `/api/v1/machine/settings` | DE1 machine settings (temps, flows) | |
-| POST | `/api/v1/machine/settings` | Update machine settings (one grouped, serialized device write per request) | |
+| POST | `/api/v1/machine/settings` | Update machine settings (one grouped, serialized device write per request). API fan writes are retained locally per machine across app restarts and reapplied after reconnect; the default is 55 (DE1 clamps it to 50) until a fan value is written. The bounded map keeps 32 machines and evicts the oldest-updated entry. Each connection captures its raw handshake serial, falling back to device ID; account-resolved effective serials are excluded. Raw identity changes across connections do not migrate buckets, while account-only effective identity changes within a connection leave the bucket fixed. If neither is available, defaults are used with no retained entry. | |
 | POST | `/api/v1/machine/shotSettings` | Update shot settings (steam temp, hot water, target volume, group temp) | |
 | GET | `/api/v1/machine/settings/advanced` | Advanced heater/phase settings | |
-| POST | `/api/v1/machine/settings/advanced` | Update advanced settings (heater phase flows/timeouts, idle temp, `heaterVoltage`, `refillKitSetting`). `refillKitSetting` is an override (`0` force off, `1` force on, `2` auto) and is not persisted — Decaid writes auto at connect, so it lasts only for the current connection. It is not detection: `GET /api/v1/machine/info` -> `extra.refillKit` reports what the machine detected | |
-| DELETE | `/api/v1/machine/settings/reset` | Reset machine settings to defaults (fan, heater idle/phase flows + ph2 timeout, refill kit auto, flow multiplier 1.0, steam purge 0) — one grouped, serialized device write | |
+| POST | `/api/v1/machine/settings/advanced` | Update advanced settings (heater phase flows/timeouts, idle temp, `heaterVoltage`, `refillKitSetting`). `refillKitSetting` is an override (`0` force off, `1` force on, `2` auto) retained locally per machine across app restarts and reapplied after reconnect; without a saved override, the firmware's auto handoff is the only refill-kit write on connect. The bounded map keeps 32 machines and evicts the oldest-updated entry. Each connection captures its raw handshake serial, falling back to device ID; account-resolved effective serials are excluded. Raw identity changes across connections do not migrate buckets, while account-only effective identity changes within a connection leave the bucket fixed. If neither is available, defaults are used with no retained entry. It is not detection: `GET /api/v1/machine/info` -> `extra.refillKit` reports what the machine detected | |
+| DELETE | `/api/v1/machine/settings/reset` | Reset the connected machine's settings to defaults (fan, heater idle/phase flows + ph2 timeout, refill kit auto, steam purge 0) and clear its retained fan/refill overrides — flow calibration is left untouched and its saved per-machine override is preserved; no calibration packet is sent and no unit multiplier is written; an acknowledgement is not evidence of factory restoration | |
 | GET | `/api/v1/machine/calibration` | Flow estimation calibration (`flowMultiplier`, calFlowEst MMR) | |
-| POST | `/api/v1/machine/calibration` | Update flow estimation calibration | |
+| POST | `/api/v1/machine/calibration` | Update flow estimation calibration and persist the requested multiplier per machine for the next connection. The key is the raw serial, falling back to device ID; reset preserves the connected machine's override. | |
 | GET | `/api/v1/machine/calibration/{target}` | Read DE1 sensor calibration for `flow`/`pressure`/`temperature`, `?source=current\|factory`. Read responses carry the calibration value in `measuredValue` (`de1ReportedValue` is 1.0 for flow/pressure, 0.0 for temperature) | |
 | PUT | `/api/v1/machine/calibration/{target}` | Write DE1 sensor calibration for `flow`/`pressure`/`temperature`. Writes are corrections, not sets: flow/pressure multiply the stored value by `measuredValue/de1ReportedValue`, temperature adds `measuredValue−de1ReportedValue`. To set an absolute value, read current `C` first, then write `{de1ReportedValue: C, measuredValue: X}` | |
 | POST | `/api/v1/machine/profile` | Upload profile to machine | |
@@ -102,12 +102,22 @@ For browser clients on a different origin, `ETag` is exposed via `Access-Control
 | PUT | `/api/v1/machine/cupWarmer` | Set setpoint (whole °C, 0–80) and/or `enabled`; temperature-only requests also enable manual heating (back-compat), `enabled:false` keeps the setpoint — Bengle only | |
 | GET | `/api/v1/machine/cupWarmer/preheat` | Read scheduled pre-warm `enabled`/`leadMinutes`/`active` (firmware-owned timing) — Bengle only, 404 elsewhere | |
 | PUT | `/api/v1/machine/cupWarmer/preheat` | Set pre-warm `enabled` and/or `leadMinutes` (0–120, persisted in firmware) — Bengle only | |
-| GET | `/api/v1/machine/ledStrip` | Read LED strip palette (3 zones × 2 modes, 16-bit RGB; `frontSwitch` derived, not a hardware control); 503 until firmware hydration succeeds — Bengle only | |
-| PUT | `/api/v1/machine/ledStrip` | Write palette write-through to FW registers (persisted immediately; `frontSwitch` ignored). The 200 body is the canonical stored palette — strips quantized to the firmware's 8 bits per channel, `frontSwitch` derived — replacing the former `{"status":"accepted"}` acknowledgement, which now only appears if the machine reports no stored palette after the write — Bengle only | |
+| GET | `/api/v1/machine/ledStrip` | Read stored LED strip palette only (never live preview state; 3 zones × 2 modes, 16-bit RGB; `frontSwitch` derived, not a hardware control); 503 until firmware hydration succeeds — Bengle only | |
+| PUT | `/api/v1/machine/ledStrip` | Write palette write-through to FW registers (persisted immediately; `frontSwitch` ignored). Every save writes all four stored registers, even if the app cache matches. The 200 body is the canonical stored palette — strips quantized to the firmware's 8 bits per channel, `frontSwitch` derived — replacing the former `{"status":"accepted"}` acknowledgement, which now only appears if the machine reports no stored palette after the write — Bengle only | |
+| POST | `/api/v1/machine/ledStrip/preview` | Show `frontStrip`/`backStrip` as volatile display state on the live registers, never mutating the stored palette; either optional but at least one required. Each supplied colour must be a string of exactly 12 hexadecimal characters (case-insensitive 16-bit RRRRGGGGBBBB); invalid values, including null, return 400 before machine-write queue admission. The stored palette does not move, so an asleep colour can be shown on an awake machine. A frame repeating the colour already shown writes nothing — Bengle only | |
+| POST | `/api/v1/machine/ledStrip/preview/clear` | End a preview: refresh the stored palette and unconditionally restore both live registers for the current awake/sleep phase, repeating restoration if the phase changes during writes, up to five passes. Returns 503 if the palette or machine state is unavailable, or the phase did not settle within those passes — Bengle only | |
 | POST | `/api/v1/machine/ledStrip/commit` | Compatibility no-op (palette writes are already persisted) — Bengle only | |
 | POST | `/api/v1/machine/ledStrip/reset` | Re-read palette from FW and return refreshed state (truthful reload, not a rollback) — Bengle only | |
 | GET | `/api/v1/machine/scaleCalibration` | Read decoded scale-calibration state (step, cell, sub-state, seconds remaining, status) — Bengle only, 404 elsewhere | |
 | PUT | `/api/v1/machine/scaleCalibration` | Start `zero`/`latch`/`abort` calibration step (`weightGrams` 1–10000 required for `latch`); 202 accepted / 409 rejected (busy or shot in progress) — Bengle only | |
+
+LED preview volatility is guaranteed by firmware rheasman/Bengle#114, not
+merely by selecting the live registers. The four stored palette rows remain
+persistent; firmware rewrites the live pair at boot and on every sleep/wake
+transition. Both preview routes are available without a firmware-build gate.
+On pre-#114 firmware, each changed preview frame still flash-writes the live
+registers. `GET /api/v1/machine/ledStrip` always returns only the stored palette;
+preview and clear never change it.
 
 For classic DE1 machines, snapshot `mixTemperature` is not a reliable
 measurement of dispensed hot-water outlet temperature while the machine is in
@@ -234,6 +244,17 @@ reaches `connected`.
 | PUT | `/api/v1/shots/:id` | Update shot annotations | |
 | DELETE | `/api/v1/shots/:id` | Delete shot | |
 
+**Filtering `GET /api/v1/shots`.** `grinderId`, `grinderModel`, `beanId`,
+`beanBatchId`, `coffeeName`, `coffeeRoaster`, `profileTitle`, `search`, and
+`minEnjoyment` all narrow the paginated list and apply to `total` as well as
+`items`. `minEnjoyment` is an inclusive threshold on the same 0-10 scale
+`PUT /api/v1/shots/:id` validates `annotations.enjoyment` against (not de1app's
+or visualizer.coffee's 0-100 scale); shots with no rating are excluded, since
+SQL comparisons against a NULL rating never match. A `minEnjoyment` that is not
+a finite number, or falls outside inclusive `0..10`, is rejected with 400.
+The legacy `ids` parameter is mutually exclusive with every filter above:
+combining them is rejected with 400 rather than silently dropping either side.
+
 Newly recorded shots snapshot `serialNumber`, `model`, `firmwareVersion`, and
 `flowCalibration` under `workflow.machine`. Historical records may omit these
 fields. Consumers must not infer missing capture-time identity from the machine
@@ -252,6 +273,19 @@ differs outside the bookkeeping keys. The bookkeeping keys are
 Writes confined to those keys persist without touching `updatedAt`, so
 consumers can reconcile edits by comparing `updatedAt` against their own sync
 marker without feedback loops.
+
+**Clearing the note.** `annotations.espressoNotes: null` (and `annotations: null`,
+which clears every post-shot annotation) persists the cleared note as an empty
+string, and the response carries `espressoNotes: ""` with its `shotNotes` alias
+mirroring it. `ShotAnnotations.toJson` omits a null field, so an omitted
+`espressoNotes` means a note that was never set; an empty string means a note
+the user cleared. Clients that fall back to a pre-shot note in
+`workflow.context.extras.note` must not apply that fallback to an empty string.
+A clear request always stores the empty string, including on a shot that never had
+a note, so it also suppresses any such fallback.
+Every other cleared annotation is omitted from the response, since nothing falls
+back on those.
+
 An `extras` map emptied by that exclusion compares equal to no `extras`, and
 an `annotations` map emptied by it compares equal to no `annotations`, so the
 first-ever sync marker on a clean shot does not dirty it. All other `extras`
@@ -700,6 +734,20 @@ The **proxy** lets clients *use* the account without ever seeing the credentials
 | GET | `/api/v1/webview/logs` | WebView console log forwarding, newest first (`?order=asc` for original chronological order) | `webview_logs_handler.dart` |
 | POST | `/api/v1/derek/answers/stream` | Relay to the Derek RAG assistant: forwards the JSON body verbatim to `derek.decentespresso.com/api/answers/stream` and pipes the SSE response back unbuffered. No auth (public data). Exists so browser skins avoid Derek's failing CORS preflight. | `derek_handler.dart` |
 
+Online skin/plugin actions, app updates, feedback, and host-side account/Derek
+connection failures return plain-language guidance. Transport/parser details stay
+in logs. Timeouts and secure-connection failures have distinct messages; connection
+errors never assert Wi-Fi is off. JSON fields and upstream passthrough are unchanged.
+Plugin validation and downgrade failures retain HTTP 400 and 409, respectively.
+Missing or incorrectly typed GitHub release, asset, or commit fields are
+validation failures (HTTP 400), including when the response is valid JSON.
+
+Skin/plugin batches attempt all items and retain successes. Any failure returns
+HTTP 500 with an `error` describing complete or partial failure. Background checks
+stay quiet; retries are manual.
+Failure to persist a plugin's diagnostic `lastError` is logged without stopping
+the remaining updates or replacing the original failure in the aggregate.
+
 Feedback verifies the stored Decent credentials before uploading attachments,
 creating an issue, or contacting Support. Missing, rejected, or unverifiable
 credentials return `400` with `success: false`, `error: "Decent account required"`,
@@ -794,6 +842,11 @@ For clients this means:
 - **A gap in frames is not a dead socket.** If a client needs a liveness signal, use `/ws/v1/devices`.
 - `/ws/v1/machine/raw` writes are delivered to the machine the socket is *currently* bound to, not the
   one that was present when the socket was opened.
+- A `write` response echoes the payload the client submitted, as `payload` in uppercase hex — the
+  same encoding a `read` response uses, so a client can correlate **the payload that completed**. It
+  does not identify an individual write: two writes carrying the same payload are indistinguishable,
+  and the stream is machine-level, so another raw client sending the same payload is equally
+  indistinguishable. Clients that ignore `payload` are unaffected.
 - If a raw command is sent while no machine is connected, the server replies with
   `{"error": "No machine connected"}` rather than silently dropping it. The socket stays open and
   resumes normal operation when a machine reconnects. Raw commands are not queued for later delivery.

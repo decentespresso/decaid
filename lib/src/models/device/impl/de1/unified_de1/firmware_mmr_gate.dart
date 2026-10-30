@@ -25,7 +25,9 @@ class _FirmwareMmrGate {
   }
 
   Future<void> _acquireMmr() {
-    if (!_firmwareActive && _firmwareWaiters.isEmpty) {
+    if (!_firmwareActive &&
+        _activeMmrOperations == 0 &&
+        _firmwareWaiters.isEmpty) {
       _activeMmrOperations++;
       return Future<void>.value();
     }
@@ -36,8 +38,10 @@ class _FirmwareMmrGate {
 
   void _releaseMmr() {
     _activeMmrOperations--;
-    if (_activeMmrOperations == 0 && _firmwareWaiters.isNotEmpty) {
+    if (_firmwareWaiters.isNotEmpty) {
       _grantNextFirmware();
+    } else {
+      _grantNextMmr();
     }
   }
 
@@ -59,7 +63,11 @@ class _FirmwareMmrGate {
       _grantNextFirmware();
       return;
     }
-    while (_mmrWaiters.isNotEmpty) {
+    _grantNextMmr();
+  }
+
+  void _grantNextMmr() {
+    if (_mmrWaiters.isNotEmpty) {
       _activeMmrOperations++;
       _mmrWaiters.removeFirst().complete();
     }

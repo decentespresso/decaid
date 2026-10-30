@@ -470,7 +470,10 @@ void main() {
           AppUpdatePhase.error,
         ]),
       );
-      expect(svc.currentState.error, contains('check boom'));
+      expect(
+        svc.currentState.error,
+        "Couldn't check for app updates. Try again.",
+      );
       await sub.cancel();
       svc.dispose();
     });

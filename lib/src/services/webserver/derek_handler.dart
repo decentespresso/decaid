@@ -25,7 +25,13 @@ class DerekHandler {
       ..headers['content-type'] =
           request.headers['content-type'] ?? 'application/json';
 
-    final upstream = await _client.send(upstreamRequest);
+    final http.StreamedResponse upstream;
+    try {
+      upstream = await _client.send(upstreamRequest);
+    } catch (e, st) {
+      log.warning('Derek connection failed', e, st);
+      return jsonError({'error': remoteErrorMessage(e, action: 'reach Derek')});
+    }
 
     return Response(
       upstream.statusCode,

@@ -170,6 +170,127 @@ void main() {
       ]);
     });
 
+    test('GET /api/v1/shots filters by minEnjoyment', () async {
+      await persistence.persistShot(
+        makeShot(
+          id: 'low',
+          timestamp: DateTime.utc(2026, 1, 1, 10),
+          annotations: const ShotAnnotations(enjoyment: 4),
+        ),
+      );
+      await persistence.persistShot(
+        makeShot(
+          id: 'high',
+          timestamp: DateTime.utc(2026, 1, 2, 10),
+          annotations: const ShotAnnotations(enjoyment: 8),
+        ),
+      );
+      await persistence.persistShot(
+        makeShot(id: 'unrated', timestamp: DateTime.utc(2026, 1, 3, 10)),
+      );
+
+      final response = await sendGet('/api/v1/shots?minEnjoyment=6');
+      expect(response.statusCode, 200);
+      final body =
+          jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      expect(body['total'], 1);
+      expect((body['items'] as List).map((item) => item['id']).toList(), [
+        'high',
+      ]);
+    });
+
+    test('GET /api/v1/shots accepts the minEnjoyment range bounds', () async {
+      await persistence.persistShot(
+        makeShot(
+          id: 'zero',
+          timestamp: DateTime.utc(2026, 1, 1, 10),
+          annotations: const ShotAnnotations(enjoyment: 0),
+        ),
+      );
+      await persistence.persistShot(
+        makeShot(
+          id: 'ten',
+          timestamp: DateTime.utc(2026, 1, 2, 10),
+          annotations: const ShotAnnotations(enjoyment: 10),
+        ),
+      );
+
+      final atZero = await decode(
+        await sendGet('/api/v1/shots?minEnjoyment=0'),
+      );
+      expect((atZero['items'] as List).map((item) => item['id']).toList(), [
+        'ten',
+        'zero',
+      ]);
+      expect(atZero['total'], 2);
+
+      final atTen = await decode(
+        await sendGet('/api/v1/shots?minEnjoyment=10'),
+      );
+      expect((atTen['items'] as List).map((item) => item['id']).toList(), [
+        'ten',
+      ]);
+      expect(atTen['total'], 1);
+    });
+
+    test('GET /api/v1/shots rejects an out-of-contract minEnjoyment', () async {
+      for (final value in ['great', '-1', '11', 'NaN', 'Infinity']) {
+        final response = await sendGet('/api/v1/shots?minEnjoyment=$value');
+        expect(response.statusCode, 400, reason: 'minEnjoyment=$value');
+      }
+    });
+
+    test('GET /api/v1/shots rejects ids combined with a filter', () async {
+      await persistence.persistShot(
+        makeShot(
+          id: 'shot-a',
+          annotations: const ShotAnnotations(enjoyment: 2),
+        ),
+      );
+      await persistence.persistShot(
+        makeShot(
+          id: 'shot-b',
+          annotations: const ShotAnnotations(enjoyment: 9),
+        ),
+      );
+
+      final response = await sendGet('/api/v1/shots?ids=shot-a&minEnjoyment=6');
+      expect(response.statusCode, 400);
+
+      final idsOnly = await sendGet('/api/v1/shots?ids=shot-a');
+      expect(idsOnly.statusCode, 200);
+      final body = jsonDecode(await idsOnly.readAsString()) as List;
+      expect(body.map((item) => item['id']).toList(), ['shot-a']);
+    });
+
+    test('GET /api/v1/shots total matches the filtered items', () async {
+      for (var i = 0; i < 5; i++) {
+        await persistence.persistShot(
+          makeShot(
+            id: 'shot-$i',
+            timestamp: DateTime.utc(2026, 1, 1 + i, 10),
+            coffeeName: i.isEven ? 'Match' : 'Other',
+            annotations: ShotAnnotations(enjoyment: i.toDouble() + 5),
+          ),
+        );
+      }
+
+      final page = await decode(
+        await sendGet('/api/v1/shots?search=Match&minEnjoyment=6&limit=1'),
+      );
+      expect(page['total'], 2);
+      expect((page['items'] as List), hasLength(1));
+
+      final all = await decode(
+        await sendGet('/api/v1/shots?search=Match&minEnjoyment=6&limit=100'),
+      );
+      expect((all['items'] as List).map((item) => item['id']).toList(), [
+        'shot-4',
+        'shot-2',
+      ]);
+      expect(all['total'], (all['items'] as List).length);
+    });
+
     test(
       'GET /api/v1/shots with unknown beanId returns an empty page',
       () async {
@@ -276,8 +397,8 @@ void main() {
       });
 
       for (final json in [putJson, getJson]) {
-        expect(json['annotations'].containsKey('espressoNotes'), isFalse);
-        expect(json.containsKey('shotNotes'), isFalse);
+        expect(json['annotations']['espressoNotes'], '');
+        expect(json['shotNotes'], '');
         expect(json['annotations']['extras'], {
           'favorite': false,
           'origin': 'existing',
@@ -307,8 +428,8 @@ void main() {
       });
 
       for (final json in [putJson, getJson]) {
-        expect(json.containsKey('annotations'), isFalse);
-        expect(json.containsKey('shotNotes'), isFalse);
+        expect(json['annotations'], {'espressoNotes': ''});
+        expect(json['shotNotes'], '');
         expect(json.containsKey('metadata'), isFalse);
       }
     });
@@ -323,9 +444,83 @@ void main() {
       });
 
       for (final json in [putJson, getJson]) {
-        expect(json.containsKey('annotations'), isFalse);
-        expect(json.containsKey('shotNotes'), isFalse);
+        expect(json['annotations'], {'espressoNotes': ''});
+        expect(json['shotNotes'], '');
         expect(json.containsKey('metadata'), isFalse);
+      }
+    });
+
+    test(
+      'a cleared note stays cleared over a pre-shot workflow note',
+      () async {
+        await persistence.persistShot(
+          makeShot(
+            id: 'preshot',
+            annotations: const ShotAnnotations(espressoNotes: 'After shot'),
+            contextExtras: const {'note': 'Before shot'},
+          ),
+        );
+
+        final (putJson, getJson) = await putAndGet('preshot', {
+          'annotations': {'espressoNotes': null},
+        });
+
+        for (final json in [putJson, getJson]) {
+          expect(json['annotations']['espressoNotes'], '');
+          expect(json['shotNotes'], '');
+          expect(json['workflow']['context']['extras'], {
+            'note': 'Before shot',
+          });
+        }
+      },
+    );
+
+    test(
+      'clearing a shot that never had a note stores an empty note',
+      () async {
+        await persistence.persistShot(makeShot(id: 'plain'));
+
+        final (putJson, getJson) = await putAndGet('plain', {
+          'annotations': {'espressoNotes': null},
+        });
+
+        for (final json in [putJson, getJson]) {
+          expect(json['annotations']['espressoNotes'], '');
+          expect(json['shotNotes'], '');
+        }
+      },
+    );
+
+    test(
+      'annotations null ignores a legacy shotNotes in the same request',
+      () async {
+        await persistAnnotatedShot();
+
+        final (putJson, getJson) = await putAndGet('annotated', {
+          'annotations': null,
+          'shotNotes': 'ignored',
+        });
+
+        for (final json in [putJson, getJson]) {
+          expect(json['annotations'], {'espressoNotes': ''});
+          expect(json['shotNotes'], '');
+        }
+      },
+    );
+
+    test('an unrelated edit keeps a cleared note empty', () async {
+      await persistAnnotatedShot();
+      await putAndGet('annotated', {
+        'annotations': {'espressoNotes': null},
+      });
+
+      final (putJson, getJson) = await putAndGet('annotated', {
+        'annotations': {'enjoyment': 7},
+      });
+
+      for (final json in [putJson, getJson]) {
+        expect(json['annotations']['espressoNotes'], '');
+        expect(json['annotations']['enjoyment'], 7);
       }
     });
 
@@ -336,8 +531,8 @@ void main() {
         'shotNotes': null,
       });
       for (final json in [notesPut, notesGet]) {
-        expect(json['annotations'].containsKey('espressoNotes'), isFalse);
-        expect(json.containsKey('shotNotes'), isFalse);
+        expect(json['annotations']['espressoNotes'], '');
+        expect(json['shotNotes'], '');
         expect(json['annotations']['extras'], isNotNull);
       }
 
@@ -643,6 +838,7 @@ ShotRecord makeShot({
   String? grinderModel,
   String? grinderBurrs,
   ShotAnnotations? annotations,
+  Map<String, dynamic>? contextExtras,
 }) {
   final workflow = WorkflowController().currentWorkflow.copyWith(
     context: WorkflowContext(
@@ -651,6 +847,7 @@ ShotRecord makeShot({
       coffeeRoaster: coffeeRoaster,
       grinderModel: grinderModel,
       grinderBurrs: grinderBurrs,
+      extras: contextExtras,
     ),
   );
   return ShotRecord(

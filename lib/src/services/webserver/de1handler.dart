@@ -249,6 +249,71 @@ class De1Handler {
       });
     });
 
+    app.post('/api/v1/machine/ledStrip/preview', (Request r) async {
+      final dynamic json;
+      try {
+        json = jsonDecode(
+          await readBoundedRequestBodyString(
+            r,
+            maxBytes: smallRequestBodyBytes,
+            timeout: smallRequestBodyTimeout,
+          ),
+        );
+      } on RequestBodyReadException {
+        rethrow;
+      } catch (e) {
+        return jsonBadRequest({'error': 'Invalid JSON body'});
+      }
+      if (json is! Map) {
+        return jsonBadRequest({'error': 'invalid JSON body'});
+      }
+      final map = json as Map<String, dynamic>;
+      if (!map.containsKey('frontStrip') && !map.containsKey('backStrip')) {
+        return jsonBadRequest({
+          'error': 'name at least one of frontStrip or backStrip',
+        });
+      }
+      for (final field in ['frontStrip', 'backStrip']) {
+        if (!map.containsKey(field)) continue;
+        final value = map[field];
+        if (value is! String ||
+            value.length != 12 ||
+            !RegExp(r'^[0-9a-fA-F]{12}$').hasMatch(value)) {
+          return jsonBadRequest({
+            'error': '$field must be exactly 12 hexadecimal characters',
+          });
+        }
+      }
+      final front = map.containsKey('frontStrip')
+          ? Color16.fromJson(map['frontStrip'])
+          : null;
+      final back = map.containsKey('backStrip')
+          ? Color16.fromJson(map['backStrip'])
+          : null;
+      return withQueuedDe1((de1) async {
+        final gate = _bengleFirmwareGate(de1, 'ledStrip');
+        if (gate != null) return gate;
+        await (de1 as BengleInterface).previewLedStrip(
+          front: front,
+          back: back,
+        );
+        return jsonAccepted();
+      });
+    });
+
+    app.post('/api/v1/machine/ledStrip/preview/clear', (Request _) async {
+      return withQueuedDe1((de1) async {
+        final gate = _bengleFirmwareGate(de1, 'ledStrip');
+        if (gate != null) return gate;
+        try {
+          await (de1 as BengleInterface).clearLedStripPreview();
+        } on LedStripStateUnavailableException catch (e) {
+          return jsonServiceUnavailable({'error': e.message});
+        }
+        return jsonAccepted();
+      });
+    });
+
     app.post('/api/v1/machine/ledStrip/commit', (Request _) async {
       return withQueuedDe1((de1) async {
         final gate = _bengleFirmwareGate(de1, 'ledStrip');
@@ -435,16 +500,19 @@ class De1Handler {
 
     app.get('/api/v1/machine/settings', () async {
       return withDe1((de1) async {
+        final settings = de1 is UnifiedDe1 && de1 is! BengleInterface
+            ? await de1.getCoalescedMachineSettings()
+            : await de1.getMachineSettingsSnapshot();
         var json = <String, dynamic>{};
-        json['fan'] = await de1.getFanThreshhold();
-        json['usb'] = await de1.getUsbChargerMode();
-        json['flushTemp'] = await de1.getFlushTemperature();
-        json['flushTimeout'] = await de1.getFlushTimeout();
-        json['flushFlow'] = await de1.getFlushFlow();
-        json['hotWaterFlow'] = await de1.getHotWaterFlow();
-        json['steamFlow'] = await de1.getSteamFlow();
-        json['tankTemp'] = await de1.getTankTempThreshold();
-        json['steamPurgeMode'] = await de1.getSteamPurgeMode();
+        json['fan'] = settings.fanThreshold;
+        json['usb'] = settings.usbChargerMode;
+        json['flushTemp'] = settings.flushTemperature;
+        json['flushTimeout'] = settings.flushTimeout;
+        json['flushFlow'] = settings.flushFlow;
+        json['hotWaterFlow'] = settings.hotWaterFlow;
+        json['steamFlow'] = settings.steamFlow;
+        json['tankTemp'] = settings.tankTempThreshold;
+        json['steamPurgeMode'] = settings.steamPurgeMode;
         return jsonOk(json);
       });
     });
@@ -497,36 +565,29 @@ class De1Handler {
           ? null
           : De1RefillKitSettings.fromInt(refillKitRaw);
 
-      return withQueuedDe1((de1) async {
-        if (heaterPh1Flow != null) {
-          await de1.setHeaterPhase1Flow(heaterPh1Flow);
-        }
-        if (heaterPh2Flow != null) {
-          await de1.setHeaterPhase2Flow(heaterPh2Flow);
-        }
-        if (heaterIdleTemp != null) {
-          await de1.setHeaterIdleTemp(heaterIdleTemp);
-        }
-        if (heaterPh2Timeout != null) {
-          await de1.setHeaterPhase2Timeout(heaterPh2Timeout);
-        }
-        if (heaterVoltage != null) {
-          await de1.setHeaterVoltage(heaterVoltage);
-        }
-        if (refillKitSetting != null) {
-          await de1.setRefillKitSettings(refillKitSetting);
-        }
+      return _mapDe1WriteErrors(() async {
+        await _controller.updateAdvancedMachineSettings(
+          heaterPh1Flow: heaterPh1Flow,
+          heaterPh2Flow: heaterPh2Flow,
+          heaterIdleTemp: heaterIdleTemp,
+          heaterPh2Timeout: heaterPh2Timeout,
+          heaterVoltage: heaterVoltage,
+          refillKitSetting: refillKitSetting,
+        );
         return jsonAccepted();
       });
     });
 
     app.get('/api/v1/machine/settings/advanced', () async {
       return withDe1((de1) async {
+        final settings = de1 is UnifiedDe1 && de1 is! BengleInterface
+            ? await de1.getCoalescedAdvancedMachineSettings()
+            : await de1.getAdvancedMachineSettingsSnapshot();
         var json = <String, dynamic>{};
-        json['heaterPh1Flow'] = await de1.getHeaterPhase1Flow();
-        json['heaterPh2Flow'] = await de1.getHeaterPhase2Flow();
-        json['heaterIdleTemp'] = await de1.getHeaterIdleTemp();
-        json['heaterPh2Timeout'] = await de1.getHeaterPhase2Timeout();
+        json['heaterPh1Flow'] = settings.heaterPhase1Flow;
+        json['heaterPh2Flow'] = settings.heaterPhase2Flow;
+        json['heaterIdleTemp'] = settings.heaterIdleTemp;
+        json['heaterPh2Timeout'] = settings.heaterPhase2Timeout;
         json['heaterVoltage'] = (await de1.getHeaterVoltage()).voltage;
         json['refillKitSetting'] = (await de1.getRefillKitSettings()).hex;
         return jsonOk(json);
@@ -562,10 +623,8 @@ class De1Handler {
       final flowMultiplier = json['flowMultiplier'] == null
           ? null
           : parseDouble(json['flowMultiplier']);
-      return withQueuedDe1((de1) async {
-        if (flowMultiplier != null) {
-          await de1.setFlowEstimation(flowMultiplier);
-        }
+      return _mapDe1WriteErrors(() async {
+        await _controller.updateMachineCalibration(flowMultiplier);
         return jsonAccepted();
       });
     });

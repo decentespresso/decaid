@@ -1,3 +1,39 @@
+import 'package:pub_semver/pub_semver.dart';
+
+final _strictSemVer = RegExp(
+  r'^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)'
+  r'(?:-((?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)'
+  r'(?:\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*))?'
+  r'(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$',
+);
+
+final _numericIdentifier = RegExp(r'^[0-9]+$');
+
+bool shouldReplaceBundledPlugin(
+  String? bundledVersion,
+  String? installedVersion,
+) {
+  if (bundledVersion == null || installedVersion == null) return false;
+  if (!_strictSemVer.hasMatch(bundledVersion) ||
+      !_strictSemVer.hasMatch(installedVersion)) {
+    return false;
+  }
+  try {
+    final bundled = Version.parse(bundledVersion.split('+').first);
+    final installed = Version.parse(installedVersion.split('+').first);
+    for (final version in [bundled, installed]) {
+      if (version.preRelease.any(
+        (part) => part is String && _numericIdentifier.hasMatch(part),
+      )) {
+        return false;
+      }
+    }
+    return bundled.compareTo(installed) > 0;
+  } on FormatException {
+    return false;
+  }
+}
+
 int comparePluginVersions(String a, String b) {
   final versionA = _PluginVersion.parse(a);
   final versionB = _PluginVersion.parse(b);

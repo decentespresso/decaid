@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:logging/logging.dart';
@@ -13,6 +14,8 @@ import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/security_scoped_file.dart';
 import 'package:reaprime/src/widgets/page_action_menu.dart';
+import 'package:reaprime/src/widgets/remote_error_snack_bar.dart';
+import 'package:reaprime/src/util/user_facing_exception.dart';
 
 const _maxPluginSafDepth = 32;
 const _maxPluginSafEntries = 10000;
@@ -121,6 +124,10 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
   Map<String, PluginSource> _sources = {};
   bool _isLoading = true;
   String? _loadError;
+  bool _isInstalling = false;
+  bool _isCheckingUpdates = false;
+  final _repoController = TextEditingController();
+  final _detailController = TextEditingController();
 
   late final PluginSourceService _sourceService =
       widget.pluginSourceService ??
@@ -132,7 +139,16 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
     _loadPlugins();
   }
 
+  @override
+  void dispose() {
+    _repoController.dispose();
+    _detailController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadPlugins() async {
+    if (!mounted) return;
+
     setState(() {
       _isLoading = true;
       _loadError = null;
@@ -180,7 +196,7 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
           PageActionMenu(
             tooltip: 'Plugin actions',
             checkingLabel: 'Checking for plugin updates',
-            enabled: !_isLoading,
+            enabled: !_isLoading && !_isInstalling,
             onCheckForUpdates: _loadError == null
                 ? () => _checkForPluginUpdates(context)
                 : null,
@@ -585,12 +601,30 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
 
     await _runInstall(
       context,
-      () => _sourceService.approvePendingUpdate(plugin.id),
+      () => _installReviewedUpdate(plugin.id, pending),
       successMessage: 'Plugin updated',
+      action: 'update the plugin',
+      retry: () async {
+        if (!mounted || !context.mounted) return;
+        final current = _sourceService.sourceFor(plugin.id)?.pendingUpdate;
+        final installed = widget.pluginLoaderService.getPluginManifest(
+          plugin.id,
+        );
+        if (!mounted ||
+            !context.mounted ||
+            current == null ||
+            installed == null) {
+          return;
+        }
+        await _approvePendingUpdate(context, installed, current);
+      },
     );
   }
 
   Future<void> _checkForPluginUpdates(BuildContext context) async {
+    if (!mounted || !context.mounted || _isCheckingUpdates) return;
+    _isCheckingUpdates = true;
+    ScaffoldMessenger.of(context).clearSnackBars();
     try {
       await _sourceService.updateAllPlugins();
       if (context.mounted) _showSnackBar(context, 'Plugin update check done');
@@ -599,9 +633,37 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
         'PluginsSettingsView',
       ).warning('Plugin update check failed', e, st);
       if (context.mounted) {
-        _showSnackBar(context, 'Update check failed: $e', isError: true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          remoteErrorSnackBar(
+            e,
+            action: 'check for plugin updates',
+            onRetry: () => _checkForPluginUpdates(context),
+          ),
+        );
       }
+    } finally {
+      _isCheckingUpdates = false;
     }
+  }
+
+  Future<PluginManifest> _installReviewedUpdate(
+    String pluginId,
+    PluginPendingUpdate reviewed,
+  ) {
+    final current = _sourceService.sourceFor(pluginId)?.pendingUpdate;
+    if (current == null ||
+        current.version != reviewed.version ||
+        current.releaseTag != reviewed.releaseTag ||
+        current.commit != reviewed.commit ||
+        !setEquals(
+          current.addedPermissions.toSet(),
+          reviewed.addedPermissions.toSet(),
+        )) {
+      throw PluginApprovalRequiredException(
+        'The update changed. Review its permissions again.',
+      );
+    }
+    return _sourceService.approvePendingUpdate(pluginId);
   }
 
   Future<void> _handleInstallAction(BuildContext context, String action) async {
@@ -621,8 +683,8 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
     BuildContext context, {
     required bool release,
   }) async {
-    final repoController = TextEditingController();
-    final detailController = TextEditingController(text: release ? '' : 'main');
+    _repoController.clear();
+    _detailController.text = release ? '' : 'main';
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -636,7 +698,7 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
-              controller: repoController,
+              controller: _repoController,
               autofocus: true,
               decoration: const InputDecoration(
                 labelText: 'Repository',
@@ -644,7 +706,7 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
               ),
             ),
             TextField(
-              controller: detailController,
+              controller: _detailController,
               decoration: InputDecoration(
                 labelText: release ? 'Asset name (optional)' : 'Branch',
                 hintText: release ? 'plugin.zip' : 'main',
@@ -665,10 +727,9 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
       ),
     );
 
-    final repo = repoController.text.trim();
-    final detail = detailController.text.trim();
-    repoController.dispose();
-    detailController.dispose();
+    if (!mounted || !context.mounted) return;
+    final repo = _repoController.text.trim();
+    final detail = _detailController.text.trim();
     if (confirmed != true || repo.isEmpty) return;
     if (!context.mounted) return;
 
@@ -706,7 +767,12 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
     BuildContext context,
     Future<PluginManifest> Function() install, {
     required String successMessage,
+    String action = 'install the plugin',
+    Future<void> Function()? retry,
   }) async {
+    if (!mounted || !context.mounted || _isInstalling) return;
+    setState(() => _isInstalling = true);
+    ScaffoldMessenger.of(context).clearSnackBars();
     try {
       final manifest = await install();
       if (context.mounted) {
@@ -717,10 +783,33 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
         'PluginsSettingsView',
       ).warning('Plugin installation failed', e, st);
       if (context.mounted) {
-        _showSnackBar(context, 'Installation failed: $e', isError: true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          remoteErrorSnackBar(
+            e is PluginApprovalRequiredException
+                ? UserFacingFormatException(e.message)
+                : e,
+            action: action,
+            onRetry: () {
+              if (!mounted || !context.mounted) return;
+              if (retry != null) {
+                retry();
+              } else {
+                _runInstall(
+                  context,
+                  install,
+                  successMessage: successMessage,
+                  action: action,
+                );
+              }
+            },
+          ),
+        );
       }
     } finally {
-      _refreshPlugins();
+      if (mounted) {
+        setState(() => _isInstalling = false);
+        _refreshPlugins();
+      }
     }
   }
 
@@ -736,22 +825,29 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
         );
         if (selected == null) return;
         if (!selected.name.endsWith('.reaplugin')) {
-          throw Exception('selection is not a .reaplugin');
+          throw const UserFacingFormatException(
+            'Select a folder ending in .reaplugin.',
+          );
         }
         await copyPluginDirectoryFromSaf(selected.uri, tempDir);
       } else {
         final selected = await FilePicker.getDirectoryPath();
         if (selected == null) return;
         if (!selected.endsWith('.reaplugin')) {
-          throw Exception('selection is not a .reaplugin');
+          throw const UserFacingFormatException(
+            'Select a folder ending in .reaplugin.',
+          );
         }
         if (Platform.isIOS) {
           final accessed = await SecurityScopedFileService.startAccessing(
             selected,
           );
           if (!accessed) {
-            throw Exception(
+            logger.warning(
               'iOS denied read access to picked folder: $selected',
+            );
+            throw const UserFacingFormatException(
+              'Access to the selected folder was denied. Select it again and allow file access.',
             );
           }
         }
@@ -773,7 +869,9 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
     } catch (e, st) {
       logger.warning('Failed to install plugin', e, st);
       if (context.mounted) {
-        _showSnackBar(context, 'Failed to install plugin: $e', isError: true);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(remoteErrorSnackBar(e, action: 'install the plugin'));
       }
     } finally {
       try {
@@ -818,7 +916,9 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
       } catch (e, st) {
         Logger('PluginsSettingsView').warning('Failed to remove plugin', e, st);
         if (context.mounted) {
-          _showSnackBar(context, 'Failed to remove plugin: $e', isError: true);
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(remoteErrorSnackBar(e, action: 'remove the plugin'));
         }
       }
     }

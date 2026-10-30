@@ -35,6 +35,7 @@ import 'package:reaprime/src/services/webserver/opaque_path_component.dart';
 import 'package:reaprime/src/services/webserver/bounded_request_body.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
+import 'package:reaprime/src/util/remote_error.dart';
 import 'package:reaprime/src/services/webserver/data_export_handler.dart';
 import 'package:reaprime/src/services/webserver/data_sync_handler.dart';
 import 'package:reaprime/src/services/webserver/firmware_handler.dart';
@@ -75,6 +76,7 @@ import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/led_strip.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
+import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/calibration_codec.dart';
 import 'package:reaprime/src/models/device/transport/ble_timeout_exception.dart';
 import 'package:reaprime/src/services/webserver/port_binding.dart';
@@ -84,6 +86,7 @@ import 'package:stack_trace/stack_trace.dart';
 import 'package:reaprime/src/models/device/de1_rawmessage.dart';
 import 'package:reaprime/src/plugins/plugin_manager.dart';
 import 'package:reaprime/src/services/feedback_service.dart';
+import 'package:reaprime/src/services/installed_components.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/account/decent_proxy_service.dart';
 import 'package:reaprime/src/services/account/proxy_token_service.dart';
@@ -236,6 +239,11 @@ Future<void> startWebServer(
         const String.fromEnvironment('GITHUB_FEEDBACK_TOKEN', defaultValue: ''),
       ),
       currentSerialNumbers: () => de1Controller.seenSerials,
+      installedComponents: () => collectInstalledComponents(
+        webUIService: webUIService,
+        webUIStorage: webUIStorage,
+        pluginService: pluginService,
+      ),
       accountService: decentAccountService,
     ),
   );

@@ -58,6 +58,10 @@ class TestScale implements Scale {
   Future<void> disconnect() async {}
 
   int tareCallCount = 0;
+  int startTimerCallCount = 0;
+  int stopTimerCallCount = 0;
+  int resetTimerCallCount = 0;
+  bool throwOnStopTimer = false;
 
   @override
   Future<void> tare() async {
@@ -71,11 +75,19 @@ class TestScale implements Scale {
   Future<void> wakeDisplay() async {}
 
   @override
-  Future<void> startTimer() async {}
+  Future<void> startTimer() async {
+    startTimerCallCount++;
+  }
 
   @override
-  Future<void> stopTimer() async {}
+  Future<void> stopTimer() {
+    stopTimerCallCount++;
+    if (throwOnStopTimer) throw StateError('synchronous timer stop failure');
+    return Future.value();
+  }
 
   @override
-  Future<void> resetTimer() async {}
+  Future<void> resetTimer() async {
+    resetTimerCallCount++;
+  }
 }

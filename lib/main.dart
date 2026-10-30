@@ -96,6 +96,7 @@ import 'src/app.dart';
 import 'src/launcher/launcher_view.dart';
 import 'src/services/foreground_service.dart';
 import 'src/services/network/multicast_lock_service.dart';
+import 'src/settings/machine_settings_store.dart';
 import 'src/settings/settings_controller.dart';
 import 'src/settings/settings_service.dart';
 import 'src/services/serial/serial_service.dart';
@@ -416,8 +417,11 @@ void main(List<String> args) async {
 
   final deviceController = DeviceController(services);
   deviceController.telemetryService = telemetryService;
-  final de1Controller = De1Controller(controller: deviceController)
-    ..defaultWorkflow = workflowController.currentWorkflow;
+  final machineSettings = SharedPreferencesMachineSettingsStore();
+  final de1Controller = De1Controller(
+    controller: deviceController,
+    machineSettings: machineSettings,
+  )..defaultWorkflow = workflowController.currentWorkflow;
   final scaleController = ScaleController();
   final grinderController = GrinderController();
   final auxiliaryScaleRegistry = AuxiliaryScaleRegistry();

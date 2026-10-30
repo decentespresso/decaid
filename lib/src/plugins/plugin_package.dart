@@ -1,20 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:logging/logging.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'package:reaprime/src/util/safe_path.dart';
+import 'package:reaprime/src/util/user_facing_exception.dart';
 
-class PluginPackageException implements FormatException {
-  @override
-  final String message;
-
-  PluginPackageException(this.message);
-
-  @override
-  int? get offset => null;
-
-  @override
-  dynamic get source => null;
+class PluginPackageException extends UserFacingFormatException {
+  PluginPackageException(super.message);
 
   @override
   String toString() => message;
@@ -37,7 +30,9 @@ const _sourceName = 'plugin.js';
 
 PluginPackage resolvePluginPackage(Directory staged) {
   if (!staged.existsSync()) {
-    throw PluginPackageException('Plugin package not found: ${staged.path}');
+    throw PluginPackageException(
+      'Plugin package not found. Check its location.',
+    );
   }
 
   final root = _resolveRoot(staged);
@@ -47,24 +42,22 @@ PluginPackage resolvePluginPackage(Directory staged) {
   }
 
   final Map<String, dynamic> manifestJson;
+  final PluginManifest manifest;
   try {
     manifestJson =
         jsonDecode(File('${root.path}/$_manifestName').readAsStringSync())
             as Map<String, dynamic>;
-  } catch (e) {
-    throw PluginPackageException('Invalid $_manifestName: $e');
-  }
-
-  final PluginManifest manifest;
-  try {
     manifest = PluginManifest.fromJson(manifestJson);
-  } catch (e) {
-    throw PluginPackageException('Invalid $_manifestName: $e');
+  } catch (e, st) {
+    Logger('PluginPackage').warning('Invalid plugin manifest', e, st);
+    throw PluginPackageException(
+      'The plugin manifest is invalid. Check the package and try again.',
+    );
   }
 
   if (!isSafePathComponent(manifest.id)) {
     throw PluginPackageException(
-      'Unsafe plugin id "${manifest.id}": must be a single safe path component',
+      'Unsafe plugin id: must be a single safe path component',
     );
   }
 

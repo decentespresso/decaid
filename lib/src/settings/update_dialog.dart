@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:logging/logging.dart';
 import 'package:reaprime/src/services/android_updater.dart';
+import 'package:reaprime/src/util/remote_error.dart';
 
 class UpdateDialog extends StatefulWidget {
   final UpdateInfo updateInfo;
@@ -99,21 +101,23 @@ class _UpdateDialogState extends State<UpdateDialog> {
         if (_downloadedPath == null)
           ElevatedButton(
             onPressed: _isDownloading ? null : _handleDownload,
-            child: Text('Download'),
+            child: Text(_error == null ? 'Download' : 'Retry'),
           )
         else
           ElevatedButton(
             onPressed: _isInstalling ? null : _handleInstall,
-            child: Text('Install'),
+            child: Text(_error == null ? 'Install' : 'Retry'),
           ),
       ],
     );
   }
 
   Future<void> _handleDownload() async {
+    if (!mounted || _isDownloading || _isInstalling) return;
     setState(() {
       _isDownloading = true;
       _error = null;
+      _downloadProgress = null;
     });
 
     try {
@@ -125,16 +129,23 @@ class _UpdateDialogState extends State<UpdateDialog> {
         _downloadedPath = path;
         _isDownloading = false;
       });
-    } catch (e) {
+    } catch (e, st) {
+      Logger('UpdateDialog').warning('App update download failed', e, st);
+      if (!mounted) return;
       setState(() {
-        _error = 'Download failed: $e';
+        _error = remoteErrorMessage(e, action: 'download the app update');
         _isDownloading = false;
       });
     }
   }
 
   Future<void> _handleInstall() async {
-    if (_downloadedPath == null) return;
+    if (!mounted ||
+        _downloadedPath == null ||
+        _isDownloading ||
+        _isInstalling) {
+      return;
+    }
 
     setState(() {
       _isInstalling = true;
@@ -143,6 +154,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
 
     try {
       final success = await widget.onInstall(_downloadedPath!);
+      if (!mounted) return;
       if (success) {
         if (mounted) {
           Navigator.of(context).pop();
@@ -161,9 +173,11 @@ class _UpdateDialogState extends State<UpdateDialog> {
           _isInstalling = false;
         });
       }
-    } catch (e) {
+    } catch (e, st) {
+      Logger('UpdateDialog').warning('App update installation failed', e, st);
+      if (!mounted) return;
       setState(() {
-        _error = 'Installation failed: $e';
+        _error = remoteErrorMessage(e, action: 'install the app update');
         _isInstalling = false;
       });
     }
@@ -192,6 +206,8 @@ class _AndroidQuickUpdateDialogState extends State<AndroidQuickUpdateDialog> {
   bool _isInstalling = false;
   String? _error;
   double? _downloadProgress;
+  bool _inProgress = false;
+  String? _downloadedPath;
 
   @override
   void initState() {
@@ -200,15 +216,22 @@ class _AndroidQuickUpdateDialogState extends State<AndroidQuickUpdateDialog> {
   }
 
   Future<void> _startDownload() async {
+    if (!mounted || _inProgress) return;
+    _inProgress = true;
+    var action = 'download the app update';
     try {
-      final path = await widget.onDownload(widget.updateInfo, (progress) {
-        if (mounted) setState(() => _downloadProgress = progress);
-      });
+      final path =
+          _downloadedPath ??
+          await widget.onDownload(widget.updateInfo, (progress) {
+            if (mounted) setState(() => _downloadProgress = progress);
+          });
       if (!mounted) return;
+      _downloadedPath = path;
       setState(() {
         _isDownloading = false;
         _isInstalling = true;
       });
+      action = 'install the app update';
       final success = await widget.onInstall(path);
       if (!mounted) return;
       if (success) {
@@ -227,12 +250,16 @@ class _AndroidQuickUpdateDialogState extends State<AndroidQuickUpdateDialog> {
               'Install permission required. Grant permission and try again.';
         });
       }
-    } catch (e) {
+    } catch (e, st) {
+      Logger('AndroidQuickUpdateDialog').warning('App update failed', e, st);
       if (!mounted) return;
       setState(() {
-        _error = 'Failed: $e';
+        _error = remoteErrorMessage(e, action: action);
         _isDownloading = false;
+        _isInstalling = false;
       });
+    } finally {
+      _inProgress = false;
     }
   }
 

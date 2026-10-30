@@ -13,11 +13,13 @@ import 'package:reaprime/src/models/feedback/feedback_result.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/storage/app_directories.dart';
 import 'package:reaprime/src/services/telemetry/anonymization.dart';
+import 'package:reaprime/src/util/remote_error.dart';
 
 class FeedbackService {
   final String _githubToken;
   final String _repo;
   final List<String> Function() _currentSerialNumbers;
+  final List<String> Function() _installedComponents;
   final DecentAccountService? _accountService;
   final Duration _supportLinkTimeout;
   final Logger _log = Logger('FeedbackService');
@@ -28,11 +30,13 @@ class FeedbackService {
     required String githubToken,
     String repo = 'decentespresso/decaid',
     required List<String> Function() currentSerialNumbers,
+    List<String> Function()? installedComponents,
     DecentAccountService? accountService,
     Duration supportLinkTimeout = const Duration(seconds: 30),
   }) : _githubToken = githubToken,
        _repo = repo,
        _currentSerialNumbers = currentSerialNumbers,
+       _installedComponents = installedComponents ?? _noComponents,
        _accountService = accountService,
        _supportLinkTimeout = supportLinkTimeout;
 
@@ -127,7 +131,9 @@ class FeedbackService {
       );
     } catch (e, st) {
       _log.severe('Failed to submit feedback', e, st);
-      return FeedbackSubmissionResult.failed('Failed to submit feedback: $e');
+      return FeedbackSubmissionResult.failed(
+        remoteErrorMessage(e, action: 'send feedback'),
+      );
     }
   }
 
@@ -142,7 +148,19 @@ class FeedbackService {
     info.writeln('- Platform: ${Platform.operatingSystem}');
     info.writeln('- OS Version: ${Platform.operatingSystemVersion}');
     info.writeln('- Dart Version: ${Platform.version}');
+    for (final component in _readInstalledComponents()) {
+      info.writeln('- $component');
+    }
     return info.toString();
+  }
+
+  List<String> _readInstalledComponents() {
+    try {
+      return _installedComponents();
+    } catch (e, st) {
+      _log.warning('Could not read installed component versions', e, st);
+      return const [];
+    }
   }
 
   Future<String?> _uploadGist({
@@ -358,11 +376,11 @@ class FeedbackService {
         _log.severe(
           'Failed to create issue: ${response.statusCode} - ${response.body}',
         );
-        return null;
+        throw remoteHttpError(response.statusCode);
       }
-    } catch (e) {
-      _log.severe('Failed to create GitHub issue', e);
-      return null;
+    } catch (e, st) {
+      _log.severe('Failed to create GitHub issue', e, st);
+      rethrow;
     }
   }
 
@@ -548,3 +566,5 @@ class FeedbackService {
     'Content-Type': 'application/json',
   };
 }
+
+List<String> _noComponents() => const [];

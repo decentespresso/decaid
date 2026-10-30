@@ -149,7 +149,9 @@ class WebUIHandler {
       rethrow;
     } catch (e, st) {
       log.severe('Failed to install skin from GitHub release', e, st);
-      return jsonError({'error': e.toString()});
+      return jsonError({
+        'error': remoteErrorMessage(e, action: 'install the skin'),
+      });
     }
   }
 
@@ -186,7 +188,9 @@ class WebUIHandler {
       rethrow;
     } catch (e, st) {
       log.severe('Failed to install skin from GitHub branch', e, st);
-      return jsonError({'error': e.toString()});
+      return jsonError({
+        'error': remoteErrorMessage(e, action: 'install the skin'),
+      });
     }
   }
 
@@ -220,7 +224,9 @@ class WebUIHandler {
       rethrow;
     } catch (e, st) {
       log.severe('Failed to install skin from URL', e, st);
-      return jsonError({'error': e.toString()});
+      return jsonError({
+        'error': remoteErrorMessage(e, action: 'install the skin'),
+      });
     }
   }
 
@@ -248,8 +254,11 @@ class WebUIHandler {
     try {
       await _storage.updateAllSkins();
       return jsonOk({'message': 'Skin update check completed'});
-    } catch (e) {
-      return jsonError({'error': 'Failed to check for updates: $e'});
+    } catch (e, st) {
+      log.warning('Skin update check failed', e, st);
+      return jsonError({
+        'error': remoteErrorMessage(e, action: 'check for skin updates'),
+      });
     }
   }
 

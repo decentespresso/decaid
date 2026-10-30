@@ -7,23 +7,54 @@ const _mmrReadRetries = 2;
 const _mmrReadRetrySettle = Duration(milliseconds: 300);
 
 extension UnifiedDe1MMR on UnifiedDe1 {
-  Future<List<int>> _mmrRead(MMRItem item, {int length = 0}) =>
-      _mmrReadRaw(item.address, length: length, label: item.name);
+  Future<List<int>> _mmrRead(
+    MMRItem item, {
+    int length = 0,
+    Duration? timeout,
+    int? retries,
+    Duration? retrySettle,
+  }) => _mmrReadRaw(
+    item.address,
+    length: length,
+    label: item.name,
+    timeout: timeout,
+    retries: retries,
+    retrySettle: retrySettle,
+  );
 
   Future<void> _mmrWrite(MMRItem item, List<int> bufferData) =>
       _mmrWriteRaw(item.address, bufferData, label: item.name);
 
-  Future<List<int>> _mmrReadRaw(int address, {int length = 0, String? label}) =>
-      _firmwareMmrGate.runMmr(
-        () => _mmrReadRawPermitted(address, length: length, label: label),
-      );
+  Future<List<int>> _mmrReadRaw(
+    int address, {
+    int length = 0,
+    String? label,
+    Duration? timeout,
+    int? retries,
+    Duration? retrySettle,
+  }) => _firmwareMmrGate.runMmr(
+    () => _mmrReadRawPermitted(
+      address,
+      length: length,
+      label: label,
+      timeout: timeout,
+      retries: retries,
+      retrySettle: retrySettle,
+    ),
+  );
 
   Future<List<int>> _mmrReadRawPermitted(
     int address, {
     int length = 0,
     String? label,
+    Duration? timeout,
+    int? retries,
+    Duration? retrySettle,
   }) async {
     final logLabel = label ?? '0x${address.toRadixString(16)}';
+    final readTimeout = timeout ?? _mmrReadTimeout;
+    final readRetries = retries ?? _mmrReadRetries;
+    final readRetrySettle = retrySettle ?? _mmrReadRetrySettle;
     ByteData bytes = ByteData(20);
     bytes.setInt32(0, address, Endian.big);
     var buffer = bytes.buffer.asUint8List();
@@ -44,7 +75,7 @@ extension UnifiedDe1MMR on UnifiedDe1 {
                 buffer[3] == element[3],
             orElse: () => <int>[],
           )
-          .timeout(_mmrReadTimeout, onTimeout: () => <int>[]);
+          .timeout(readTimeout, onTimeout: () => <int>[]);
 
       await _transport.writeWithResponse(
         Endpoint.readFromMMR,
@@ -59,14 +90,14 @@ extension UnifiedDe1MMR on UnifiedDe1 {
         return result;
       }
 
-      if (attempt >= _mmrReadRetries) {
-        throw MmrTimeoutException(logLabel, _mmrReadTimeout);
+      if (attempt >= readRetries) {
+        throw MmrTimeoutException(logLabel, readTimeout);
       }
       _log.warning(
         'mmr read $logLabel timed out (attempt ${attempt + 1} of '
-        '${_mmrReadRetries + 1}), retrying',
+        '${readRetries + 1}), retrying',
       );
-      await Future<void>.delayed(_mmrReadRetrySettle);
+      await Future<void>.delayed(readRetrySettle);
     }
   }
 
@@ -117,19 +148,75 @@ extension UnifiedDe1MMR on UnifiedDe1 {
     return bytes.getInt32(4, Endian.little);
   }
 
+  int _unpackMMRIntAt(List<int> buffer, int wordIndex) {
+    final needed = 4 + 4 * (wordIndex + 1);
+    if (buffer.length < needed) {
+      throw StateError(
+        'MMR response buffer too short (got ${buffer.length} bytes, '
+        'expected at least $needed for word $wordIndex)',
+      );
+    }
+    ByteData bytes = ByteData(20);
+    var list = bytes.buffer.asUint8List();
+    final copyable = buffer.length < 20 ? buffer.length : 20;
+    for (var i = 0; i < copyable; i++) {
+      list[i] = buffer[i];
+    }
+    return bytes.getInt32(4 + 4 * wordIndex, Endian.little);
+  }
+
+  Future<List<int>> _mmrReadWords(
+    int startAddress, {
+    required int wordCount,
+    String? label,
+  }) async {
+    if (wordCount < 1 || wordCount > 4) {
+      throw RangeError.range(wordCount, 1, 4, 'wordCount');
+    }
+    final result = await _mmrReadRaw(
+      startAddress,
+      length: wordCount - 1,
+      label: label ?? '0x${startAddress.toRadixString(16)}',
+    );
+    return List<int>.generate(
+      wordCount,
+      (index) => _unpackMMRIntAt(result, index),
+    );
+  }
+
   Uint8List _packMMRInt(int number) {
     var bytes = ByteData(4);
     bytes.setUint32(0, number, Endian.little);
     return bytes.buffer.asUint8List();
   }
 
-  Future<int> _readMMRInt(MMRItem item) async {
-    final result = await _mmrRead(item);
+  Future<int> _readMMRInt(
+    MMRItem item, {
+    Duration? timeout,
+    int? retries,
+    Duration? retrySettle,
+  }) async {
+    final result = await _mmrRead(
+      item,
+      timeout: timeout,
+      retries: retries,
+      retrySettle: retrySettle,
+    );
     return _unpackMMRInt(result);
   }
 
-  Future<double> _readMMRScaled(MMRItem item) async {
-    final rawValue = await _readMMRInt(item);
+  Future<double> _readMMRScaled(
+    MMRItem item, {
+    Duration? timeout,
+    int? retries,
+    Duration? retrySettle,
+  }) async {
+    final rawValue = await _readMMRInt(
+      item,
+      timeout: timeout,
+      retries: retries,
+      retrySettle: retrySettle,
+    );
     return rawValue.toDouble() * item.readScale;
   }
 
@@ -140,8 +227,14 @@ extension UnifiedDe1MMR on UnifiedDe1 {
     await _mmrWrite(item, _packMMRInt(clampedValue));
   }
 
-  Future<void> _writeMMRScaled(MMRItem item, double value) async {
+  int _scaledClampedMMRInt(MMRItem item, double value) {
     final scaledValue = (value * item.writeScale).toInt();
-    await _writeMMRInt(item, scaledValue);
+    return (item.min != null && item.max != null)
+        ? scaledValue.clamp(item.min!, item.max!)
+        : scaledValue;
+  }
+
+  Future<void> _writeMMRScaled(MMRItem item, double value) async {
+    await _writeMMRInt(item, _scaledClampedMMRInt(item, value));
   }
 }

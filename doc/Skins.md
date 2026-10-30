@@ -64,6 +64,25 @@ backgrounded. After ten minutes in the background, it unloads the page and
 reloads the selected skin when the app returns. Skin state that must survive
 this reload should be persisted through the Decaid API or browser storage.
 
+WebView pause/resume and timer bridge failures are awaited and logged without
+terminating the view; unsupported methods are skipped. Timer operations are
+ordered across view replacements; a failed resume remains eligible for retry on
+disposal or when a new WebView is created. Native timers are process-global, so
+an unresolved native timer call must finish before any later timer operation,
+even in a replacement view. A native timer Future that never completes therefore
+blocks the timer queue until process restart. Generation fencing cannot cancel a
+native call or prevent its late global side effect, so bypassing that call would
+violate ordering. WebView pause/resume calls run independently of this queue.
+
+On Windows, an embedded skin that has not finished its initial load within
+30 seconds shows an error with **Open in Browser** and **Go to Dashboard**
+instead of an indefinite spinner. The log distinguishes browser creation from
+page loading. The pending WebView remains mounted and can recover if loading
+finishes later. Replacing the simulated device starts a new loading attempt;
+callbacks from the previous view cannot complete it. A failed browser launch
+keeps the recovery screen available. This does not move or clear browser storage,
+retry downloads, or identify the native cause of a startup failure.
+
 ### Live Camera Access on Android, iOS and macOS
 
 An installed skin in the embedded Android, iOS or macOS WebView can request a
@@ -3609,6 +3628,17 @@ The default skin preference:
 ---
 
 ## Version Management & Updates
+
+Online failures use plain-language guidance; technical details stay in logs.
+**Retry** retains repository, branch, and asset options. Concurrent remote downloads
+share one batch, including Settings Retry. Batches attempt all items and retain
+successes; complete or partial failures show warnings and return HTTP 500.
+In native Settings, skin downloading waits for an available app-update dialog
+to close so a skin failure's Retry action is not hidden behind its modal barrier.
+Startup/periodic failures stay quiet. Installed skins and local ZIP installation
+remain usable offline.
+Local ZIP installation failures use the same guidance, with filesystem and parser
+diagnostics kept in logs.
 
 Decaid tracks skin metadata in `.rea_metadata.json`:
 

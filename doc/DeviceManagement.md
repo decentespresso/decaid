@@ -614,9 +614,22 @@ Watch lifecycle details:
   native `onScanFailed` after a successful start does not update the
   host-side bookkeeping, so that flavor stays bounded by the 25-minute
   refresh — see `doc/AI_BLE_NOTES.md` ("Watch Scan Silent Death").
-- `De1StateManager` skips its post-wake scale-only burst when the watch
-  covers reacquisition (watch supported + preferred scale set); the
-  burst remains for the no-preferred-scale discovery/picker case.
+- `ConnectionManager` owns primary-scale wake recovery. Its existing machine
+  snapshot listener detects sleeping-to-awake and arms the shared three-second
+  deferred scale scan. On expiry it rechecks the current primary slot, machine
+  connection and power mode; a scale connected during settling needs no scan.
+  Wake-owned requests queued behind another connection attempt revalidate these
+  conditions and Bengle slot ownership when executed, completing normally if
+  recovery is no longer needed. Ordinary scale-only callers keep their existing
+  queue semantics, including when coalesced with wake recovery.
+  A supported preferred-scale watch re-arms on wake without a competing burst;
+  watch failure retains the existing backoff fallback. Without a preferred scale,
+  or for serial/WiFi and unsupported-watch platforms, the settled recovery uses
+  the existing scale-only discovery/picker path. `De1StateManager` only handles
+  physical scale power/display operations and sleep/disconnect expectation marks.
+  Rescheduling a pending legacy reconnect timer on wake preserves its already-counted
+  tier; settling does not consume another tier. A genuine scan advances the next
+  fallback once, preserving the 5s -> 10s -> 20s progression (60s cap).
 - Watch-driven connects do **not** emit a `ScanReport` — they bypass
   the scan/report machinery entirely.
 - The watch does not flip `scanningStream`, so no scanning indicator
@@ -729,6 +742,8 @@ Future<void> connectToDe1(De1Interface de1Interface) async {
   _subscriptions.add(_de1.connectionState.listen(_processConnection));
 }
 ```
+
+On connect, the DE1 firmware calibration is read first, then a nullable saved flow override is applied during startup defaults; absent overrides leave firmware calibration untouched. The persisted value is the **requested** multiplier; after the transport acknowledges the write, the cache holds the **effective** value derived from Decaid's own register encoding (requested value clamped to the raw 130–2000 range, converted back through the read scale), with no post-write read-back. Only an explicit `getFlowEstimation()` returns a value actually **reported** by the machine. The override identity is captured from the raw serial, falling back to device ID, and is not recomputed after connection identity resolution.
 
 **Key Streams:**
 - `de1`: Current connected DE1 (or null)
@@ -940,7 +955,7 @@ scale discovery:
 
 - **Preferred scale configured:** `_maybeSchedulePreferredScaleReconnect()`
   (exponential backoff: 5s → 10s → 20s → 40s → 60s cap)
-- **No preferred scale:** `_armPostQuickConnectScaleScan()` (single deferred
+- **No preferred scale:** `_armDeferredScaleScan()` (single deferred
   scale-only scan after ~3s, same delay as the post-wake reconnect)
 
 Quick-connect is reserved for automatic startup and recovery. Android
@@ -997,6 +1012,22 @@ never retain the disconnected instance beside its connected replacement.
 ```
 
 If multiple machines or scales are found without a preferred device set, ConnectionManager emits `pendingAmbiguity: machinePicker` or `scalePicker`, and the UI shows a picker dialog.
+
+### Leaving Initial Discovery
+
+The onboarding scan offers **Continue to Dashboard** immediately while scanning
+or connecting. The 16-second **This is taking a while...** troubleshooting sheet
+remains available when the user keeps waiting.
+
+`ScanFlowView` owns exit cancellation for both onboarding and `LauncherScanPage`.
+Dashboard/Cancel actions and system back finish the flow before calling
+`ConnectionManager.cancelActiveScan()` and `DeviceController.stopScan()`, then
+invoke the caller's navigation callback. Disposal of an unfinished scan also
+cancels it. Late status, discovery, guardian events and the threshold timer
+cannot restart the flow or invoke `onConnected` after exit. Successful `ready`
+auto-navigation does not cancel connected devices or their follow-up work.
+`OnboardingController` also ignores advancement and pending initialization after
+disposal so closed subjects cannot receive late completions.
 
 ### Explicit Retry from Native Device UI
 
@@ -1067,9 +1098,8 @@ The De1StateManager is the central orchestrator for machine state changes and re
 1. Listen to machine state transitions
 2. Manage scale power based on state transitions
 3. Handle gateway mode logic (full/tracking/disabled)
-4. Trigger device scans when needed
-5. Manage shot tracking in tracking mode
-6. Navigate to realtime features in disabled mode
+4. Manage shot tracking in tracking mode
+5. Navigate to realtime features in disabled mode
 
 **Dependencies:**
 ```dart
@@ -1086,8 +1116,7 @@ De1StateManager({
 
 **Key Methods:**
 - `_handleSnapshot(MachineSnapshot)`: Processes all machine state updates
-- `_handleScalePowerManagement(MachineState)`: Manages scale sleep/wake/scan
-- `_triggerScaleScan()`: Initiates device scan with 30s timeout
+- `_handleScalePowerManagement(MachineState)`: Manages physical scale sleep/wake
 
 ### Legacy DE1 identity resolution (post-connect)
 
@@ -1123,7 +1152,7 @@ Preferred device IDs are auto-saved on successful connection and can be managed 
 - Machine selection continues deterministically into the retained scale phase from the same scan.
 - Scale ambiguity pauses preferred-scale reacquisition until the user selects a scale; successful selection updates the preferred ID used by future watches.
 - **Scale failures are non-blocking** — if scale connection fails, machine stays connected and phase stays `ready`
-- **Scale-only reconnect** — `connect(scaleOnly: true)` skips the machine phase and retains automatic preferred-scale recovery behavior (used by De1StateManager for wake-from-sleep)
+- **Scale-only reconnect** — `connect(scaleOnly: true)` skips the machine phase and retains automatic preferred-scale recovery behavior (used by ConnectionManager's settled wake recovery)
 
 ---
 
