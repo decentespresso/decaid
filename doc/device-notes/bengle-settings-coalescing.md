@@ -2,47 +2,38 @@
 
 ## Decision
 
-Enable fan/tank, flush, and heater groups for Bengle firmware regardless of
-transport. Keep the steam-purge/USB pair sequential on firmware 472: its second
-word was zeroed despite single-word reads returning `1`. Normal settings therefore
-use five requests instead of nine; advanced settings use two instead of four.
-These counts are logical settings MMR reads, excluding retries and unrelated
-background traffic. The group decision is firmware-scoped, not transport-scoped;
+Enable fan/tank, flush, and heater groups for Bengle across transports. Firmware
+472 is the measured reference; selection relies on the existing
+single-supported-firmware assumption in
+[Bengle device notes](bengle.md#supported-firmware-surface),
+not a firmware check. Future firmware changes must re-validate the groups before
+trusting the defaults: multi-word responses can silently return wrong settings,
+not an error or crash.
+
+Keep the steam-purge/USB pair sequential: its second word was zeroed despite
+single-word reads returning `1`. Normal settings therefore use five requests
+instead of nine; advanced settings use two instead of four. These counts are
+logical settings MMR reads, excluding retries and unrelated background traffic.
 BLE was not separately physically measured, and no BLE hardware run is claimed.
 Simulated, replay, and interface-only test devices remain sequential.
 
 No retry, timeout, MMR serialization, ownership, or framing rule changes were made.
-The Bengle-only capability gate is unrelated and remains unchanged. This
-firmware-scoped selection decision supersedes the older blanket Bengle exclusion
-in `doc/AI_BLE_NOTES.md`; that architecture summary was not edited because its
-ownership and framing rules did not change. LED,
+The Bengle-only capability gate is unrelated and remains unchanged. LED,
 cup-warmer, identity-read coalescing, firmware changes, and DE1Pro measurements
 are outside this validation.
 
-## Hardware identity and chronology
+## Hardware identity
 
 Measured on 2026-10-30, Samsung SM-X210 tablet `de1tablet.home`, USB serial.
 `GET /api/v1/machine/info` returned Bengle firmware `472`, serial number `11431`,
-GHC true. The transport logs identify `Serial:/dev/bus/usb/001/002`.
-The operator identified host ports `/dev/ttyACM1`, `/dev/ttyACM2`; the app's Android
-USB path, not those host port names, appears in the captured framing evidence.
-
-Initially tablet REST was reachable but wireless adb discovery was empty and the
-USB machine was unavailable. No framing conclusion was drawn then. Once access
-was restored, `adb connect 192.168.12.87:46627` reached the SM-X210. The first
-inventory had `usb-2e8a-a-unknown` connected and
-`usb-2e8a-a-8549628789ABCDEF` disconnected. After installing this lane's debug APK,
-the inventory instead had `usb-2e8a-a-8549628789ABCDEF` connected and `-unknown`
-disconnected. The physical framing and unchanged-state comparison below were
-captured on the explicitly connected **`usb-2e8a-a-8549628789ABCDEF`** link with
-machine-info serial `11431`. Evidence from the earlier `-unknown` snapshot is not
-used to establish that link's identity or group equivalence. No BLE connection or
-measurement was substituted.
+GHC true. The measured link was **`usb-2e8a-a-8549628789ABCDEF`**; transport logs
+identify `Serial:/dev/bus/usb/001/002`. All framing and unchanged-state comparisons
+below were captured on that link. No BLE measurement was substituted.
 
 ## Serial framing first
 
-The first isolated experimental build selected only `fanTank`. At tablet local
-time `11:15:45.704346`, the serial transport wrote:
+With only `fanTank` selected, at tablet local time `11:15:45.704346`, the serial
+transport wrote:
 
 ```text
 <E>0180380800000000000000000000000000000000
@@ -65,7 +56,8 @@ settings. Cross-install comparisons were therefore not used as group evidence.
 
 ## Unchanged-state comparison
 
-One installed debug build selected `fanTank,flush,heater,purgeUsb`. After startup
+The experimental debug build enabled all four model-level groups, including
+`purgeUsb`. That pair can no longer be selected by the handler. After startup
 restoration settled, test values were written once. Ground truth was then read
 one register at a time through the existing persistent `/ws/v1/machine/raw`
 connection, using operation `write` to **A005** (`readFromMMR`, serial `<E>`),
@@ -76,8 +68,6 @@ Raw reads, REST settings requests, and the final raw readback ran sequentially,
 with gaps, never concurrently: the raw endpoint bypasses the MMR gate. Responses
 were correlated to the request's write receipt, address, and single-word response
 header `04`; queued primer notifications were not accepted as ground truth.
-The initial incomplete raw attempt had accepted a queued primer response and then
-lost a tank reply; it was excluded, not counted as a valid comparison.
 
 The completed comparison ran `10:22:52.596095`–`10:23:12.496597` UTC (tablet logs
 `11:22:52`–`11:23:12`). All 13 single-word register values were identical before
@@ -167,47 +157,27 @@ no timeout/retry behavior was changed.
 After that run, original normal and advanced settings were restored again and
 GET JSON matched both original snapshots exactly. The tablet was left running the
 final default-selection debug build with `simulate=0`, not a simulated machine or
-the known-bad all-groups override. The lane-created debug-keystore copy was removed;
-no pre-existing keystore was overwritten or deleted.
+the known-bad all-groups experiment.
 
 ## Reproducing selection
 
 `--dart-define=bengleCoalescedSettings=fanTank,flush,heater` selects the measured
-Bengle firmware groups and is also the production default across transports. An
-explicit empty value (`--dart-define=bengleCoalescedSettings=`) forces original
+Bengle groups and is also the production default across transports. An explicit
+empty value (`--dart-define=bengleCoalescedSettings=`) forces the original 9/4
 sequential composition. A comma-separated subset selects mixed paths
-independently; `purgeUsb` is available only for explicit experiments and is not a
-validated default. Unknown names enable nothing. Normal and advanced routes
-select only their relevant groups. Compile-time defines require a new
-build/launch, not hot reload; do not use cross-restart snapshots as unchanged-state
-evidence. The USB-serial measurements above establish the group decision; BLE was
-not separately physically measured because the decision is a firmware property,
-not a link property.
+independently. Only `fanTank`, `flush`, and `heater` are accepted; unknown names,
+including `purgeUsb`, are ignored even alongside accepted names. The model-level
+`UnifiedDe1.getCoalescedMachineSettings(purgeUsb: true)` parameter exists for
+protocol testing of the failed pair, not production handler selection. Normal and
+advanced routes select only their relevant groups. Compile-time defines require
+a new build/launch, not hot reload; do not use cross-restart snapshots as
+unchanged-state evidence. No request-time selector, endpoint, or public API
+contract was added.
 
-The investigation builds used the following commands. The second command was
-sequential before the measured default was introduced; to reproduce that path on
-the final source, append `--dart-define=bengleCoalescedSettings=`.
-
-```sh
-flutter build apk --debug --dart-define=simulate=0 --dart-define=bengleCoalescedSettings=fanTank
-flutter build apk --debug --dart-define=simulate=0
-flutter build apk --debug --dart-define=simulate=0 --dart-define=bengleCoalescedSettings=fanTank,flush,heater,purgeUsb
-adb -s 192.168.12.87:46627 install -r build/app/outputs/flutter-apk/app-debug.apk
-adb -s 192.168.12.87:46627 shell am start -n net.tadel.reaprime/.MainActivity
-```
-
-`simulate=0` enables debug infrastructure without creating simulated devices.
-Rediscover wireless adb coordinates with `adb mdns services` if they change.
-No request-time selector, endpoint, or public API contract was added.
-
-Capture chronological logs with:
-
-```sh
-curl -sf 'http://de1tablet.home:8080/api/v1/logs?kb=4096&order=asc'
-```
-
-Use current request timestamps and the actual read labels, not historical entries
-or JSON values alone. Earlier sequential builds logged individual getters
+The USB-serial measurements above establish the group decision applied across
+transports under the supported-firmware assumption; BLE was not separately
+physically measured. Use current request timestamps and actual read labels, not
+historical entries or JSON values alone. Sequential builds log individual getters
 (`fanThreshold`, `tankTemp`, `flushFlowRate`, `heaterUp1Flow`, etc.); the unchanged
 single-word controls used explicit A005 length-0 frames. Multi-word labels above
 prove the experimental REST requests actually took the coalesced path.

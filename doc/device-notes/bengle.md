@@ -27,12 +27,17 @@ The original Bengle MMR surface below was verified against
 
 ## Settings MMR coalescing
 
-Bengle settings use the validated fan/tank, flush, and heater groups regardless
-of transport; steam-purge/USB remains sequential on firmware 472 because its
-coalesced second word was zeroed. The group decision is firmware-scoped, not
-transport-scoped. BLE was not separately physically measured, and no BLE hardware
-run is claimed. Firmware, measurements, and the experiment selector are recorded
-in [settings coalescing validation](bengle-settings-coalescing.md).
+Bengle settings use the individually validated fan/tank, flush, and heater groups
+across transports; steam-purge/USB stays sequential. Firmware 472 is the measured
+reference, not a runtime firmware check: selection relies on the existing
+single-supported-firmware assumption below. A future firmware change must
+re-validate the groups before trusting these defaults, because multi-word
+responses can silently return wrong settings rather than an error or crash.
+BLE was not separately physically measured, and no BLE hardware run is claimed.
+The model-level `purgeUsb` parameter exists for protocol testing; the handler
+ignores that selector token and cannot enable the failed pair. Measurements and
+the accepted selector names are recorded in
+[settings coalescing validation](bengle-settings-coalescing.md).
 
 ## Supported firmware surface
 

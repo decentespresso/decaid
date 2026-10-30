@@ -42,7 +42,7 @@ void main() {
 
   Future<void> wireWithUnifiedDe1({
     bool bengle = false,
-    String bengleCoalescedSettings = '',
+    String? bengleCoalescedSettings,
   }) async {
     final deviceController = DeviceController([MockDeviceDiscoveryService()]);
     await deviceController.initialize();
@@ -51,7 +51,10 @@ void main() {
       machineSettings: MemoryMachineSettingsStore(),
     );
     transport = FakeBleTransport();
-    transport.queueOnConnectResponses(v13Model: bengle ? 128 : 1);
+    transport.queueOnConnectResponses(
+      v13Model: bengle ? 128 : 1,
+      cpuFirmwareBuild: bengle ? 472 : 1358,
+    );
     transport.queuePaletteHydrationResponses();
     await controller.connectToDe1(
       bengle ? Bengle(transport: transport) : UnifiedDe1(transport: transport),
@@ -62,13 +65,20 @@ void main() {
 
     final testScale = TestScale();
     final scaleController = TestScaleController(testScale);
-    final de1Handler = De1Handler(
-      controller: controller,
-      settingsController: settingsController,
-      scaleController: scaleController,
-      workflowController: WorkflowController(),
-      bengleCoalescedSettings: bengleCoalescedSettings,
-    );
+    final de1Handler = bengleCoalescedSettings == null
+        ? De1Handler(
+            controller: controller,
+            settingsController: settingsController,
+            scaleController: scaleController,
+            workflowController: WorkflowController(),
+          )
+        : De1Handler(
+            controller: controller,
+            settingsController: settingsController,
+            scaleController: scaleController,
+            workflowController: WorkflowController(),
+            bengleCoalescedSettings: bengleCoalescedSettings,
+          );
     final app = Router().plus;
     de1Handler.addRoutes(app);
     handler = app.call;
@@ -109,7 +119,7 @@ void main() {
       MMRItem.v13Model: 128,
       MMRItem.ghcInfo: 0,
       MMRItem.serialN: 12345,
-      MMRItem.cpuFirmwareBuild: 1358,
+      MMRItem.cpuFirmwareBuild: 472,
       MMRItem.heaterV: 230,
       MMRItem.refillKitPresent: 0,
       MMRItem.calFlowEst: 1000,
@@ -220,11 +230,8 @@ void main() {
       expect(reads.map((w) => w.data[0]).toList(), [1, 0, 3, 0, 0]);
     });
 
-    test('Bengle BLE coalesces the measured groups', () async {
-      await wireWithUnifiedDe1(
-        bengle: true,
-        bengleCoalescedSettings: 'fanTank,flush,heater',
-      );
+    test('Bengle BLE omitted selector defaults to 5 normal reads', () async {
+      await wireWithUnifiedDe1(bengle: true);
       transport.queueMmrResponseWords(MMRItem.fanThreshold, [42, -7]);
       transport.queueMmrResponseInt(MMRItem.tankTemp, -7);
       transport.queueMmrResponseInt(MMRItem.flushTemp, 955);
@@ -385,28 +392,33 @@ void main() {
     },
   );
 
-  test(
-    'serial Bengle fanTank-only selector keeps other groups sequential',
-    () async {
-      await wireWithSerialBengle(bengleCoalescedSettings: 'fanTank');
-      final pending = get('/api/v1/machine/settings');
-      await completeSerialReads([
-        (MMRItem.fanThreshold, 1, [42, -7]),
-        (MMRItem.targetSteamFlow, 0, [150]),
-        (MMRItem.flushFlowRate, 0, [123]),
-        (MMRItem.flushTemp, 0, [955]),
-        (MMRItem.flushTimeout, 0, [100]),
-        (MMRItem.hotWaterFlowRate, 0, [250]),
-        (MMRItem.steamPurgeMode, 0, [2]),
-        (MMRItem.allowUSBCharging, 0, [1]),
-      ]);
-      final res = await pending;
+  for (final selector in [
+    'fanTank',
+    ' fanTank , purgeUsb , unknown, fanTank , ',
+  ]) {
+    test(
+      'serial Bengle $selector selector keeps other groups sequential',
+      () async {
+        await wireWithSerialBengle(bengleCoalescedSettings: selector);
+        final pending = get('/api/v1/machine/settings');
+        await completeSerialReads([
+          (MMRItem.fanThreshold, 1, [42, -7]),
+          (MMRItem.targetSteamFlow, 0, [150]),
+          (MMRItem.flushFlowRate, 0, [123]),
+          (MMRItem.flushTemp, 0, [955]),
+          (MMRItem.flushTimeout, 0, [100]),
+          (MMRItem.hotWaterFlowRate, 0, [250]),
+          (MMRItem.steamPurgeMode, 0, [2]),
+          (MMRItem.allowUSBCharging, 0, [1]),
+        ]);
+        final res = await pending;
 
-      expect(res.statusCode, 200);
-      expect(serialTransport.writes, hasLength(8));
-      expect(jsonDecode(await res.readAsString()), containsPair('usb', true));
-    },
-  );
+        expect(res.statusCode, 200);
+        expect(serialTransport.writes, hasLength(8));
+        expect(jsonDecode(await res.readAsString()), containsPair('usb', true));
+      },
+    );
+  }
 
   test(
     'serial Bengle heater-only selector leaves normal reads sequential',
@@ -443,32 +455,9 @@ void main() {
     },
   );
 
-  test(
-    'serial Bengle purgeUsb override is an explicit pair diagnostic',
-    () async {
-      await wireWithSerialBengle(bengleCoalescedSettings: 'purgeUsb');
-      final pending = get('/api/v1/machine/settings');
-      await completeSerialReads([
-        (MMRItem.fanThreshold, 0, [42]),
-        (MMRItem.tankTemp, 0, [-7]),
-        (MMRItem.targetSteamFlow, 0, [150]),
-        (MMRItem.flushFlowRate, 0, [123]),
-        (MMRItem.flushTemp, 0, [955]),
-        (MMRItem.flushTimeout, 0, [100]),
-        (MMRItem.hotWaterFlowRate, 0, [250]),
-        (MMRItem.steamPurgeMode, 1, [0, 1]),
-      ]);
-      final res = await pending;
-
-      expect(res.statusCode, 200);
-      expect(serialTransport.writes, hasLength(8));
-      expect(jsonDecode(await res.readAsString()), containsPair('usb', true));
-    },
-  );
-
-  for (final selector in ['', 'unknown']) {
+  for (final selector in ['', 'unknown', 'purgeUsb']) {
     test(
-      'serial Bengle keeps normal settings sequential for ${selector.isEmpty ? 'empty' : 'unknown'} selector',
+      'serial Bengle keeps normal settings sequential for ${selector.isEmpty ? 'empty' : selector} selector',
       () async {
         await wireWithSerialBengle(bengleCoalescedSettings: selector);
         final expected = [
@@ -556,11 +545,8 @@ void main() {
       });
     });
 
-    test('Bengle BLE coalesces heater settings', () async {
-      await wireWithUnifiedDe1(
-        bengle: true,
-        bengleCoalescedSettings: 'fanTank,flush,heater',
-      );
+    test('Bengle BLE omitted selector defaults to 2 advanced reads', () async {
+      await wireWithUnifiedDe1(bengle: true);
       transport.queueMmrResponseWords(MMRItem.heaterUp1Flow, [25, 60, 980]);
       transport.queueMmrResponseInt(MMRItem.heaterUp2Flow, 60);
       transport.queueMmrResponseInt(MMRItem.waterHeaterIdleTemp, 980);
