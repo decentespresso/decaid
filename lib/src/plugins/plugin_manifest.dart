@@ -284,6 +284,7 @@ class PluginManifest {
   final List<PluginDriverDeclaration> drivers;
   final Map<String, dynamic> settings;
   final PluginApi? api;
+  final String? credentialScope;
 
   PluginManifest({
     required this.id,
@@ -296,6 +297,7 @@ class PluginManifest {
     this.drivers = const [],
     required this.settings,
     required this.api,
+    this.credentialScope,
   });
 
   factory PluginManifest.fromJson(Map<String, dynamic> json) {
@@ -332,6 +334,7 @@ class PluginManifest {
       drivers: drivers,
       settings: settings,
       api: api,
+      credentialScope: json['credentialScope'] as String?,
     );
   }
 
@@ -346,6 +349,7 @@ class PluginManifest {
       'permissions': permissions.map((e) => e.wireName).toList(),
       'drivers': drivers.map((driver) => driver.toJson()).toList(),
       'settings': settings,
+      if (credentialScope != null) 'credentialScope': credentialScope,
       'api': api?.toJson(),
     };
   }
