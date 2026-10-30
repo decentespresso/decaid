@@ -16,6 +16,8 @@ class GithubRequestException extends RemoteServiceException {
          statusCode,
          rateLimited
              ? _cooldownMessage(resetAt)
+             : statusCode == 304
+             ? 'GitHub returned an unexpected not-modified response. Try again.'
              : remoteHttpError(statusCode).userMessage,
        );
 

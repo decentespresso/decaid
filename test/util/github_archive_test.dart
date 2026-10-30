@@ -352,28 +352,50 @@ void main() {
       expect(requests, 2);
     });
 
-    test('repeated unexpected 304 raises a controlled remote error', () async {
-      var requests = 0;
-      await expectLater(
-        http.runWithClient(
-          () =>
-              fetchGitHubReleaseByTag('acme/repeated-304', 'v1', cache: cache),
-          () => MockClient((request) async {
-            requests++;
-            expect(request.headers['if-none-match'], isNull);
-            return http.Response('', 304);
-          }),
+    for (final (name, fetch) in <(String, Future<GitHubRelease> Function())>[
+      (
+        'latest',
+        () => fetchLatestGitHubRelease('acme/repeated-304', cache: cache),
+      ),
+      (
+        'tagged',
+        () => fetchGitHubReleaseByTag('acme/repeated-304', 'v1', cache: cache),
+      ),
+      (
+        'prerelease',
+        () => fetchLatestGitHubRelease(
+          'acme/repeated-304',
+          includePrerelease: true,
+          cache: cache,
         ),
-        throwsA(
-          isA<RemoteServiceException>().having(
-            (e) => e.statusCode,
-            'statusCode',
-            304,
+      ),
+    ]) {
+      test('repeated unexpected 304 raises a typed error for $name', () async {
+        var requests = 0;
+        await expectLater(
+          http.runWithClient(
+            fetch,
+            () => MockClient((request) async {
+              requests++;
+              expect(request.headers['if-none-match'], isNull);
+              return http.Response('', 304);
+            }),
           ),
-        ),
-      );
-      expect(requests, 2);
-    });
+          throwsA(
+            isA<GithubRequestException>()
+                .having((e) => e.statusCode, 'statusCode', 304)
+                .having((e) => e.rateLimited, 'rateLimited', isFalse)
+                .having((e) => e.resetAt, 'resetAt', isNull)
+                .having(
+                  (e) => e.userMessage,
+                  'userMessage',
+                  'GitHub returned an unexpected not-modified response. Try again.',
+                ),
+          ),
+        );
+        expect(requests, 2);
+      });
+    }
   });
 
   group('shared rate-limit cooldown', () {
