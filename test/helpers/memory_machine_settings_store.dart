@@ -6,7 +6,7 @@ class MemoryMachineSettingsStore implements MachineSettingsStore {
   final List<String> reads = [];
   final List<String> updates = [];
   final List<String> clears = [];
-  final List<String> clearsExceptCalibration = [];
+  final List<String> clearsExceptFlowCalibration = [];
   void Function(String identity)? onRead;
 
   @override
@@ -14,7 +14,13 @@ class MemoryMachineSettingsStore implements MachineSettingsStore {
     reads.add(identity);
     onRead?.call(identity);
     if (identity.isEmpty) return null;
-    return values[identity];
+    final settings = values[identity];
+    if (settings?.fanThreshold == null &&
+        settings?.refillKitSetting == null &&
+        settings?.flowCalibration == null) {
+      return null;
+    }
+    return settings;
   }
 
   @override
@@ -43,7 +49,7 @@ class MemoryMachineSettingsStore implements MachineSettingsStore {
 
   @override
   Future<void> clearExceptFlowCalibration(String identity) async {
-    clearsExceptCalibration.add(identity);
+    clearsExceptFlowCalibration.add(identity);
     if (identity.isEmpty) return;
     final current = values[identity];
     values.remove(identity);

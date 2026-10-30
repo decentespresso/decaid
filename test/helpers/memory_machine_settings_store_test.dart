@@ -47,7 +47,7 @@ void main() {
         flowCalibration: 1.25,
       );
       await store.clearExceptFlowCalibration('');
-      expect(store.clearsExceptCalibration, ['']);
+      expect(store.clearsExceptFlowCalibration, ['']);
       expect(store.values['serial:12345']?.fanThreshold, 42);
       expect(store.values['serial:12345']?.flowCalibration, 1.25);
       expect(store.values['']?.fanThreshold, 7);
@@ -63,6 +63,17 @@ void main() {
       expect(await store.read('serial:12345'), isNull);
     },
   );
+
+  test('update without values stores an entry but reads as absent', () async {
+    final store = MemoryMachineSettingsStore();
+    final observed = <String>[];
+    store.onRead = observed.add;
+    await store.update('serial:12345');
+    expect(store.values, contains('serial:12345'));
+    expect(await store.read('serial:12345'), isNull);
+    expect(store.reads, ['serial:12345']);
+    expect(observed, ['serial:12345']);
+  });
 
   test('null update arguments preserve the existing entry', () async {
     final store = MemoryMachineSettingsStore();
