@@ -69,6 +69,10 @@ assets/bundled_skins/
 .bundle/
 vendor/bundle/
 
+# App Store Connect credentials
+**/AuthKey_*.p8
+**/asc_key*.json
+
 # fastlane generated output (screenshots are captured by hand and stay versioned)
 **/fastlane/report.xml
 **/fastlane/Preview.html

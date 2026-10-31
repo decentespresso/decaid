@@ -82,6 +82,11 @@ def log_filename(submission)
   "#{created}__#{submission.fetch("id")}.crash"
 end
 
+def private_directory(directory)
+  FileUtils.mkdir_p(directory)
+  File.chmod(0o700, directory)
+end
+
 def log_text(token, submission_id)
   log = get(token, "/v1/betaFeedbackCrashSubmissions/#{submission_id}/crashLog")
   log.dig("data", "attributes", "logText") || raise(NotFound, "no logText in the response")
@@ -110,6 +115,7 @@ end
 written = 0
 skipped = 0
 missing = 0
+private_directory(options[:out])
 submissions.each do |submission|
   id = submission.fetch("id")
   path = File.join(options[:out], id, log_filename(submission))
@@ -126,8 +132,8 @@ submissions.each do |submission|
     next
   end
 
-  FileUtils.mkdir_p(File.dirname(path))
-  File.write(path, text)
+  private_directory(File.dirname(path))
+  File.open(path, File::WRONLY | File::CREAT | File::TRUNC, 0o600) { |file| file.write(text) }
   written += 1
 end
 
