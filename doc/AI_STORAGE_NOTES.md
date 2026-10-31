@@ -47,10 +47,51 @@ Gotchas:
 |-------|-------|---------|
 | Drift DB | `AppDatabase` | Shots, workflows, beans, grinders, profiles, settings |
 | `SharedPreferences` | `SharedPreferencesSettingsService` | App settings (telemetry consent, feature flags, preferences) |
+| Private `SharedPreferences` snapshot | `NotificationCenter` | Retained native notices, action descriptors, order and read status |
 | Secure store | `DecentAccountService`, `PluginLoaderService` | Account credentials, API tokens, secure plugin settings |
 | File system | `StorageService` | Data export, log files, skin assets |
 
 Keep these stores independent. A settings reset must not clear account credentials unless explicitly requested.
+
+## Native Notification Snapshot
+
+`NotificationCenter` owns `private.notificationCenter.v1`, a versioned JSON
+snapshot in SharedPreferences. `main()` restores it before constructing the
+plugin loader. It never uses the generic Hive namespace store or exposes its key
+through the skin API. No Drift schema change is involved.
+
+The snapshot includes host/plugin namespace, source identity, local ID, message,
+approved action descriptors, content revision and read status in display order.
+It excludes executable callbacks, contexts, credentials and runtime generations.
+Actions stay disabled after restoration until the current source revalidates
+them. Runtime action bindings survive read-state changes but not generation
+retirement, content replacement or removal.
+The trusted update owner recreates version-bound dismissal handling for retained
+updates before their actions are confirmed. Dismissing an awaiting-confirmation
+update still skips its saved version, without enabling restored actions. The
+binding's confirmation state is runtime-only and is not part of the snapshot.
+The unconfirmed host-update row offers a manual Check for updates action instead
+of its saved View/Download descriptors. It uses the existing update service;
+this control and its checking/error state are not persisted or exposed to plugins.
+
+The center serializes writes and updates visible state only after a successful
+save. Failed writes retain the previous state and expose a storage error. Invalid
+or unknown snapshots block mutations and preserve the raw stored value; there is
+no destructive reset fallback. Limits remain five notices per plugin and twenty
+plugin notices overall, plus one reserved host-update notice.
+
+Shutdown/reload preserves the snapshot. Explicit unload, disable, uninstall,
+notification-permission removal, source resolution and user dismissal remove
+the affected notices through the same serialized write path.
+
+Windows currently has a known mixed-backend persistence limitation: the installed
+`shared_preferences_windows` 2.4.1 implementation maintains separate whole-file
+caches for legacy SharedPreferences and SharedPreferencesAsync. Notification and
+plugin writes use the legacy API while app settings use Async. Interleaved writes
+can overwrite retained notifications, read status or a saved skipped version.
+Model-level snapshot tests do not establish cross-backend Windows durability.
+This requires a separately scoped storage fix before relying on that guarantee;
+the native control changes do not repair the shared platform implementation.
 
 ## Recovery Package Destination Rule
 
