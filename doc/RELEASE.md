@@ -301,6 +301,12 @@ The `build-ios` job in `.github/workflows/release.yml`:
 
 The unsigned IPA is intended for self-signing and sideloading; it cannot be installed directly.
 
+### App Store Listing
+
+Listing text and screenshots live in `fastlane/` and are pushed with a manual
+`fastlane deliver` run; CI only ships builds to TestFlight. See
+`fastlane/README.md` for the commands, screenshot sizes, and API key setup.
+
 Required secrets: `APPLE_DISTRIBUTION_CERTIFICATE_P12`, `APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD`, `IOS_PROVISIONING_PROFILE_B64`, `IOS_PROVISIONING_PROFILE_NAME`, `APP_STORE_CONNECT_API_KEY_ID`, `APP_STORE_CONNECT_API_ISSUER_ID`, `APP_STORE_CONNECT_API_KEY_P8`, `TEAM_ID`.
 
 ### TestFlight Distribution
