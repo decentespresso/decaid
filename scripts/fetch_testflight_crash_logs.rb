@@ -83,7 +83,7 @@ def log_filename(submission)
 end
 
 def private_directory(directory)
-  FileUtils.mkdir_p(directory)
+  FileUtils.mkdir_p(directory, mode: 0o700)
   File.chmod(0o700, directory)
 end
 
