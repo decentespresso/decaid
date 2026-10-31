@@ -68,6 +68,9 @@ App Store Connect requires the 6.9-inch iPhone set and, for iPad apps, the
 - iPhone 6.9-inch: 1320x2868 or 2868x1320
 - iPad 13-inch: 2064x2752 or 2752x2064
 
+fastlane's docs suggest keeping screenshots out of git because `snapshot` can
+regenerate them. These are captured by hand, so they are versioned on purpose.
+
 Both sets are in place: `screenshots/en-US/iphone69_*` and
 `screenshots/en-US/ipad13_*`. 1206x2622 from an iPhone 17 Pro lands in the
 6.1-inch set, which does not satisfy the required slot.

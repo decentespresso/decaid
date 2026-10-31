@@ -68,6 +68,12 @@ assets/bundled_skins/
 # Ruby / fastlane (bundler vendored install)
 .bundle/
 vendor/bundle/
+
+# fastlane generated output (screenshots are captured by hand and stay versioned)
+**/fastlane/report.xml
+**/fastlane/Preview.html
+**/fastlane/test_output
+**/fastlane/screenshots/**/*.html
 pubspec_overrides.yaml
 
 # Local-only agent skill: google-analytics-cli (kept out of the repo)
