@@ -5,8 +5,10 @@ screenshots in `screenshots/<locale>/`. fastlane infers the screenshot display
 type from the image dimensions, so device names in filenames are not required.
 
 Builds are uploaded to TestFlight by CI (`.github/workflows/release.yml`).
-This setup pushes listing text and screenshots, and submits the version for
-review on request, always with a manual release.
+This folder holds listing text and screenshots, which are captured by hand,
+committed here, and pushed by a manual `deliver` run. CI never produces or
+uploads listing assets. Submitting the version for review is a deliberate step,
+always with a manual release.
 
 ## Credentials
 
