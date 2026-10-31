@@ -45,6 +45,21 @@ one outside the repo:
     fastlane deliver --api_key_path /tmp/asc_key.json --skip_binary_upload \
       --submit_for_review true --automatic_release false --build_number <n>
 
+## Crash logs
+
+fastlane has no action for TestFlight crash feedback (`pilot` only lists builds
+and testers), so `scripts/fetch_testflight_crash_logs.rb` reads it from the App
+Store Connect API with the same key JSON:
+
+    # Text only: what testers wrote, and when
+    ruby scripts/fetch_testflight_crash_logs.rb --list-only
+
+    # Write each crash log to /tmp/testflight-crash-logs/<submission id>/
+    ruby scripts/fetch_testflight_crash_logs.rb
+
+Crash logs carry tester device and build details, so they default to a path
+outside the repo. Do not commit them.
+
 ## Screenshot sizes
 
 App Store Connect requires the 6.9-inch iPhone set and, for iPad apps, the
