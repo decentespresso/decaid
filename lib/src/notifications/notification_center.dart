@@ -295,14 +295,4 @@ class NotificationCenter extends ValueNotifier<List<NativeNotification>> {
       ),
     );
   });
-
-  Future<void> dismissByUser(NativeNotification notice) => _serialize(() async {
-    if (!_matches(notice)) return;
-    final binding = _bindings[notice.key];
-    await _commit(value.where((entry) => entry.key != notice.key).toList());
-    _bindings = Map.fromEntries(
-      _bindings.entries.where((entry) => entry.key != notice.key),
-    );
-    if (binding?.isAlive() == true) await binding!.onDismissed?.call(notice);
-  });
 }

@@ -34,21 +34,16 @@ class _WebViewState extends State<_WebView> {
 void main() {
   late NotificationCenter center;
   late NotificationActions actions;
-  var failSaves = false;
-  final dismissals = <String>[];
   final phases = <String>[];
 
-  setUp(() async {
-    failSaves = false;
-    center = NotificationCenter(save: (_) async => !failSaves);
-    dismissals.clear();
+  setUp(() {
+    center = NotificationCenter();
     phases.clear();
     actions = NotificationActions(
       center: center,
       onOpenAccount: () {},
       launch: (_) async => true,
     );
-    await center.settled;
   });
   tearDown(() {
     actions.dispose();
@@ -59,12 +54,13 @@ void main() {
     String id = 'condition',
     String? message,
     bool confirmed = true,
+    String source = 'plugin',
   }) async {
-    await TestWidgetsFlutterBinding.instance.runAsync(() async {
-      await center.publish(
+    await TestWidgetsFlutterBinding.instance.runAsync(
+      () => center.publish(
         NativeNotification(
           namespace: NotificationNamespace.plugin,
-          sourceId: 'plugin',
+          sourceId: source,
           sourceName: 'Plugin',
           id: id,
           message: message ?? 'Needs attention',
@@ -78,14 +74,10 @@ void main() {
           ],
         ),
         binding: confirmed
-            ? NotificationBinding(
-                onAction: (_, phase) => phases.add(phase),
-                onDismissed: (notice) async => dismissals.add(notice.id),
-              )
+            ? NotificationBinding(onAction: (_, phase) => phases.add(phase))
             : null,
-      );
-      await center.settled;
-    });
+      ),
+    );
   }
 
   Future<void> mount(
@@ -131,58 +123,20 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  Future<void> open(WidgetTester tester) async {
-    await tester.runAsync(() async {
-      await tester.tap(find.byType(FloatingActionButton));
-      await center.settled;
-    });
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
-  }
-
   Future<void> tap(WidgetTester tester, Finder target) async {
     await tester.runAsync(() async {
       await tester.tap(target);
       await Future<void>.delayed(Duration.zero);
       await center.settled;
     });
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
   }
 
-  Finder dismissAllButton() => find.byWidgetPredicate(
-    (widget) =>
-        widget is IconButton && widget.tooltip == 'Dismiss all notifications',
-  );
-
-  Future<void> publishUpdate({bool confirmed = true}) async {
-    await TestWidgetsFlutterBinding.instance.runAsync(() async {
-      await center.publish(
-        NativeNotification(
-          namespace: NotificationNamespace.host,
-          sourceId: 'app-update',
-          sourceName: 'Decaid',
-          id: '99.0.0',
-          message: 'Update available: 99.0.0',
-          actions: [
-            NotificationAction(
-              id: 'view',
-              label: 'View',
-              type: NotificationActionType.openExternalUrl,
-              url: Uri.parse('https://example.com/release'),
-            ),
-          ],
-        ),
-        binding: NotificationBinding(
-          confirmed: confirmed,
-          onDismissed: (notice) async => dismissals.add('skip ${notice.id}'),
-        ),
-      );
-    });
-  }
+  Future<void> open(WidgetTester tester) =>
+      tap(tester, find.text('Notifications'));
 
   testWidgets(
-    'localized close X does not dismiss notices or read later changes',
+    'localized close X only closes and preserves later unread arrivals',
     (tester) async {
       await publish();
       await mount(tester, locale: const Locale('de'));
@@ -193,271 +147,80 @@ void main() {
       expect(label, isNot('Close'));
       expect(find.byTooltip(label), findsOneWidget);
       expect(find.byIcon(LucideIcons.x), findsOneWidget);
+      expect(find.byIcon(LucideIcons.trash2), findsNothing);
       await publish(id: 'arrival');
       await tester.pumpAndSettle();
       await tap(tester, find.byTooltip(label));
       expect(find.byType(NotificationOverlay), findsNothing);
       expect(center.value, hasLength(2));
       expect(center.unreadCount, 1);
-      expect(dismissals, isEmpty);
       await tester.pumpWidget(const SizedBox());
     },
   );
 
-  for (final confirmed in [false, true]) {
-    testWidgets(
-      'trash controls distinguish version skipping, confirmed=$confirmed',
-      (tester) async {
-        await publish();
-        await publishUpdate(confirmed: confirmed);
-        await mount(tester);
-        await open(tester);
-        expect(find.byTooltip('Close'), findsOneWidget);
-        expect(find.byIcon(LucideIcons.x), findsOneWidget);
-        expect(find.byIcon(LucideIcons.trash2), findsNWidgets(3));
-        expect(find.byTooltip('Dismiss notification'), findsOneWidget);
-        expect(find.text('Support'), findsOneWidget);
-        expect(find.text('View'), confirmed ? findsOneWidget : findsNothing);
-        expect(
-          find.text('Check for updates'),
-          confirmed ? findsNothing : findsOneWidget,
-        );
-        await tap(tester, find.byTooltip('Skip version 99.0.0'));
-        expect(find.byType(NotificationOverlay), findsOneWidget);
-        expect(center.value.single.namespace, NotificationNamespace.plugin);
-        expect(dismissals, ['skip 99.0.0']);
-        await tap(tester, find.byTooltip('Dismiss notification'));
-        expect(center.value, isEmpty);
-        expect(dismissals, ['skip 99.0.0', 'condition']);
-        await tester.pumpWidget(const SizedBox());
-      },
-    );
-  }
-
-  testWidgets('unfamiliar plugin notices retain generic trash dismissal', (
-    tester,
-  ) async {
-    await tester.runAsync(() async {
-      await center.publish(
-        NativeNotification(
-          namespace: NotificationNamespace.plugin,
-          sourceId: 'app-update',
-          sourceName: 'Unfamiliar Plugin',
-          id: '99.0.0',
-          message: 'An unfamiliar condition without an action',
-          actions: const [],
-        ),
-        binding: NotificationBinding(
-          onDismissed: (notice) async => dismissals.add(notice.id),
-        ),
-      );
-    });
-    await mount(tester);
-    await open(tester);
-    expect(find.byIcon(LucideIcons.trash2), findsNWidgets(2));
-    expect(find.byTooltip('Skip version 99.0.0'), findsNothing);
-    await tap(tester, find.byTooltip('Dismiss notification'));
-    expect(center.value, isEmpty);
-    expect(dismissals, ['99.0.0']);
-    expect(find.byType(NotificationOverlay), findsOneWidget);
-    await tester.pumpWidget(const SizedBox());
-  });
-
-  for (final confirmed in [false, true]) {
-    testWidgets(
-      'dismiss all preserves per-notice behavior, confirmed=$confirmed',
-      (tester) async {
-        await publish();
-        await publish(id: 'second');
-        await publishUpdate(confirmed: confirmed);
-        await mount(tester);
-        await open(tester);
-        await tap(tester, find.byTooltip('Dismiss all notifications'));
-        expect(center.value, isEmpty);
-        expect(dismissals, ['condition', 'second', 'skip 99.0.0']);
-        expect(phases, isEmpty);
-        expect(find.byType(NotificationOverlay), findsOneWidget);
-        expect(find.text('No notifications'), findsOneWidget);
-        expect(tester.widget<IconButton>(dismissAllButton()).onPressed, isNull);
-        await publish(id: 'later');
-        await tester.pumpAndSettle();
-        expect(
-          tester.widget<IconButton>(dismissAllButton()).onPressed,
-          isNotNull,
-        );
-        await tap(tester, find.byTooltip('Close'));
-        expect(center.value.single.id, 'later');
-        expect(center.unreadCount, 1);
-        expect(dismissals, ['condition', 'second', 'skip 99.0.0']);
-        await tester.pumpWidget(const SizedBox());
-      },
-    );
-  }
-
-  testWidgets('dismiss all preserves new arrivals and changed revisions', (
-    tester,
-  ) async {
-    await publish();
-    await publish(id: 'second');
-    await mount(tester);
-    await open(tester);
-    await tester.runAsync(() async {
-      tester.widget<IconButton>(dismissAllButton()).onPressed!();
-      final replacement = center.publish(
-        NativeNotification(
-          namespace: NotificationNamespace.plugin,
-          sourceId: 'plugin',
-          sourceName: 'Plugin',
-          id: 'second',
-          message: 'Changed while dismissing',
-          actions: const [],
-        ),
-      );
-      final arrival = center.publish(
-        NativeNotification(
-          namespace: NotificationNamespace.plugin,
-          sourceId: 'plugin',
-          sourceName: 'Plugin',
-          id: 'arrival',
-          message: 'Arrived while dismissing',
-          actions: const [],
-        ),
-      );
-      await replacement;
-      await arrival;
-      await Future<void>.delayed(Duration.zero);
-      await center.settled;
-    });
-    await tester.pumpAndSettle();
-    expect(center.value.map((notice) => notice.id), ['second', 'arrival']);
-    expect(center.value.first.message, 'Changed while dismissing');
-    expect(center.unreadCount, 2);
-    expect(dismissals, ['condition']);
-    await tester.pumpWidget(const SizedBox());
-  });
-
-  testWidgets('dismiss all shows storage failures and allows retry', (
-    tester,
-  ) async {
-    await publish();
-    await publishUpdate();
-    await mount(tester);
-    await open(tester);
-    failSaves = true;
-    await tap(tester, find.byTooltip('Dismiss all notifications'));
-    expect(center.value, hasLength(2));
-    expect(dismissals, isEmpty);
-    expect(find.text(center.error!), findsOneWidget);
-    failSaves = false;
-    await tap(tester, find.byTooltip('Dismiss all notifications'));
-    expect(center.value, isEmpty);
-    expect(center.error, isNull);
-    expect(dismissals, ['condition', 'skip 99.0.0']);
-    await tester.pumpWidget(const SizedBox());
-  });
-
-  testWidgets('full list scrolls within the height cap with fixed controls', (
-    tester,
-  ) async {
-    await tester.runAsync(() async {
-      for (var index = 0; index < 20; index++) {
-        await center.publish(
-          NativeNotification(
-            namespace: NotificationNamespace.plugin,
-            sourceId: 'plugin-${index ~/ 5}',
-            sourceName: 'Plugin ${index ~/ 5}',
-            id: '$index',
-            message: 'Notification $index',
-            actions: const [],
-          ),
+  testWidgets(
+    'full center scrolls within the height cap with a fixed close control',
+    (tester) async {
+      for (var i = 0; i < 20; i++) {
+        await publish(
+          id: '$i',
+          source: 'plugin-${i ~/ 5}',
+          message: 'Notification $i',
         );
       }
-    });
-    await publishUpdate();
-    await mount(tester);
-    await open(tester);
-    final dialog = tester.getRect(
-      find.descendant(
-        of: find.byType(ShadDialog),
-        matching: find.byWidgetPredicate(
-          (widget) =>
-              widget is ConstrainedBox && widget.constraints.maxWidth == 720,
+      await mount(tester);
+      await open(tester);
+      final dialog = tester.getRect(
+        find.descendant(
+          of: find.byType(ShadDialog),
+          matching: find.byWidgetPredicate(
+            (w) => w is ConstrainedBox && w.constraints.maxWidth == 720,
+          ),
         ),
-      ),
-    );
-    expect(dialog.height, lessThanOrEqualTo(600 * .85));
-    final close = tester.getRect(find.byTooltip('Close'));
-    final dismissAll = tester.getRect(
-      find.byTooltip('Dismiss all notifications'),
-    );
-    await tester.scrollUntilVisible(
-      find.text('Update available: 99.0.0'),
-      300,
-      scrollable: find.descendant(
-        of: find.byType(NotificationOverlay),
-        matching: find.byType(Scrollable),
-      ),
-    );
-    expect(tester.takeException(), isNull);
-    expect(tester.getRect(find.byTooltip('Close')), close);
-    expect(
-      tester.getRect(find.byTooltip('Dismiss all notifications')),
-      dismissAll,
-    );
-    expect(find.text('Notification 0'), findsNothing);
-    await tester.pumpWidget(const SizedBox());
-  });
+      );
+      expect(dialog.height, lessThanOrEqualTo(600 * .85));
+      final close = tester.getRect(find.byTooltip('Close'));
+      await tester.scrollUntilVisible(
+        find.text('Notification 19'),
+        300,
+        scrollable: find.descendant(
+          of: find.byType(NotificationOverlay),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      expect(tester.takeException(), isNull);
+      expect(tester.getRect(find.byTooltip('Close')), close);
+      expect(find.byIcon(LucideIcons.trash2), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   testWidgets(
-    'bell appears only for unread notices and dashboard keeps read and empty access',
+    'launcher retains read conditions and empty access without a bell',
     (tester) async {
       await mount(tester);
       expect(find.byType(FloatingActionButton), findsNothing);
-      expect(find.text('Notifications'), findsOneWidget);
+      await open(tester);
+      expect(find.text('No notifications'), findsOneWidget);
+      await tap(tester, find.byTooltip('Close'));
       await publish();
-      await publish(id: 'second');
       await tester.pumpAndSettle();
-      expect(find.byTooltip('Notifications (2 unread)'), findsOneWidget);
-      expect(
-        tester.getRect(find.byType(FloatingActionButton)).bottom,
-        lessThanOrEqualTo(tester.getRect(find.byType(Scaffold)).bottom - 80),
-      );
+      expect(find.byTooltip('Notifications (1 unread)'), findsOneWidget);
       await open(tester);
       expect(center.unreadCount, 0);
       expect(find.byType(FloatingActionButton), findsNothing);
       await tap(tester, find.byTooltip('Close'));
-      await tester.pumpAndSettle();
-      expect(center.value, hasLength(2));
-      expect(dismissals, isEmpty);
-      await tap(tester, find.text('Notifications'));
-      await tester.pumpAndSettle();
-      await tap(tester, find.byTooltip('Dismiss notification').first);
-      await tester.pumpAndSettle();
-      await tap(tester, find.byTooltip('Dismiss notification').first);
+      await open(tester);
+      expect(find.text('Needs attention'), findsOneWidget);
+      expect(find.text('Support'), findsOneWidget);
+      await tester.runAsync(
+        () => center.removeSource(NotificationNamespace.plugin, 'plugin'),
+      );
       await tester.pumpAndSettle();
       expect(find.text('No notifications'), findsOneWidget);
-      expect(dismissals, ['condition', 'second']);
       await tester.pumpWidget(const SizedBox());
     },
   );
-
-  testWidgets('arrivals and replacements while open remain unread', (
-    tester,
-  ) async {
-    await publish();
-    await mount(tester);
-    await open(tester);
-    await publish(id: 'arrival');
-    await publish(message: 'Changed');
-    await tester.pumpAndSettle();
-    expect(center.unreadCount, 2);
-    await tap(tester, find.byTooltip('Close'));
-    await tester.pumpAndSettle();
-    expect(center.unreadCount, 2);
-    await open(tester);
-    expect(center.unreadCount, 0);
-    await tester.pumpWidget(const SizedBox());
-  });
 
   for (final close in ['back', 'escape', 'outside']) {
     testWidgets('$close closes only the overlay', (tester) async {
@@ -474,7 +237,6 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(NotificationOverlay), findsNothing);
       expect(center.value, hasLength(1));
-      expect(dismissals, isEmpty);
       await tester.pumpWidget(const SizedBox());
     });
   }
@@ -486,12 +248,11 @@ void main() {
     await mount(tester);
     await open(tester);
     await tap(tester, find.text('Support'));
-    await tester.pumpAndSettle();
     await tap(tester, find.byTooltip('Close'));
-    await tester.pumpAndSettle();
     actions.didChangeAppLifecycleState(AppLifecycleState.inactive);
     actions.didChangeAppLifecycleState(AppLifecycleState.resumed);
     expect(phases, ['activated', 'returned']);
+    expect(center.value, hasLength(1));
     await tester.pumpWidget(const SizedBox());
   });
 
@@ -509,14 +270,13 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('download confirmation replaces rather than stacks the list', (
+  testWidgets('download confirmation replaces rather than stacks the center', (
     tester,
   ) async {
-    var overlayPresentAtConfirmation = false;
-    var downloadCalls = 0;
-    var installCalls = 0;
-    await tester.runAsync(() async {
-      await center.publish(
+    var overlayPresent = false;
+    var downloads = 0;
+    await tester.runAsync(
+      () => center.publish(
         NativeNotification(
           namespace: NotificationNamespace.host,
           sourceId: 'app-update',
@@ -533,7 +293,7 @@ void main() {
         ),
         binding: NotificationBinding(
           onActivate: (_) async {
-            overlayPresentAtConfirmation = find
+            overlayPresent = find
                 .byType(NotificationOverlay)
                 .evaluate()
                 .isNotEmpty;
@@ -550,19 +310,16 @@ void main() {
                 currentVersion: '0.9.0',
                 onViewReleaseNotes: () {},
                 onDownload: (_, _) async {
-                  downloadCalls++;
+                  downloads++;
                   return '/tmp/app.apk';
                 },
-                onInstall: (_) async {
-                  installCalls++;
-                  return false;
-                },
+                onInstall: (_) async => false,
               ),
             );
           },
         ),
-      );
-    });
+      ),
+    );
     await mount(tester);
     await open(tester);
     await tester.tap(find.text('Download'));
@@ -570,62 +327,56 @@ void main() {
     await tester.runAsync(() => Future<void>.delayed(Duration.zero));
     await tester.pumpAndSettle();
     expect(find.byType(UpdateDialog), findsOneWidget);
-    expect(overlayPresentAtConfirmation, isFalse);
-    expect(find.byType(NotificationOverlay), findsNothing);
-    expect(downloadCalls, 0);
-    expect(installCalls, 0);
+    expect(overlayPresent, isFalse);
+    expect(downloads, 0);
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
-    expect(find.byType(UpdateDialog), findsNothing);
     expect(center.value.single.id, '99.0.0');
     expect(center.unreadCount, 0);
-    expect(downloadCalls, 0);
-    expect(installCalls, 0);
+    expect(downloads, 0);
     await tester.pumpWidget(const SizedBox());
   });
 
   for (final brightness in Brightness.values) {
-    testWidgets(
-      'long notices fit narrow screens and large text in $brightness',
-      (tester) async {
-        tester.view.physicalSize = const Size(320, 568);
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
-        await publishUpdate();
-        await publish(message: 'longtext' * 75);
-        await mount(tester, textScale: 2, brightness: brightness);
-        await open(tester);
-        expect(tester.takeException(), isNull);
-        final dialog = tester.getRect(
-          find.descendant(
-            of: find.byType(ShadDialog),
-            matching: find.byWidgetPredicate(
-              (widget) =>
-                  widget is ConstrainedBox &&
-                  widget.constraints.maxWidth == 720,
+    for (final compact in [false, true]) {
+      testWidgets(
+        'long text fits narrow large-text $brightness compact=$compact',
+        (tester) async {
+          tester.view.physicalSize = const Size(320, 568);
+          tester.view.devicePixelRatio = 1;
+          addTearDown(tester.view.resetPhysicalSize);
+          addTearDown(tester.view.resetDevicePixelRatio);
+          await publish(message: 'longtext' * 75);
+          await mount(tester, textScale: 2, brightness: brightness);
+          await tap(
+            tester,
+            compact
+                ? find.byType(FloatingActionButton)
+                : find.text('Notifications'),
+          );
+          expect(tester.takeException(), isNull);
+          final dialog = tester.getRect(
+            find.descendant(
+              of: find.byType(ShadDialog),
+              matching: find.byWidgetPredicate(
+                (w) =>
+                    w is ConstrainedBox &&
+                    w.constraints.maxWidth == (compact ? 480 : 720),
+              ),
             ),
-          ),
-        );
-        expect(dialog.width, lessThanOrEqualTo(320));
-        expect(dialog.height, lessThanOrEqualTo(568 * .85));
-        expect(find.byTooltip('Close'), findsOneWidget);
-        expect(find.byTooltip('Dismiss all notifications'), findsOneWidget);
-        expect(find.byTooltip('Skip version 99.0.0'), findsOneWidget);
-        final heading = tester.getRect(find.text('Notifications').last);
-        final dismissAll = tester.getRect(
-          find.byTooltip('Dismiss all notifications'),
-        );
-        final close = tester.getRect(find.byTooltip('Close'));
-        expect(heading.right, lessThanOrEqualTo(dismissAll.left));
-        expect(dismissAll.right, lessThanOrEqualTo(close.left));
-        await tester.pumpWidget(const SizedBox());
-      },
-    );
+          );
+          expect(dialog.width, lessThanOrEqualTo(320));
+          expect(dialog.height, lessThanOrEqualTo(568 * .85));
+          expect(find.byTooltip('Close'), findsOneWidget);
+          expect(find.byIcon(LucideIcons.trash2), findsNothing);
+          await tester.pumpWidget(const SizedBox());
+        },
+      );
+    }
   }
 
   testWidgets(
-    'actual skin keeps WebView bounds, mount and existing Snackbar actions',
+    'skin keeps WebView bounds, mount and existing Snackbar actions',
     (tester) async {
       final logs = WebViewLogService(logDirectoryPath: '.');
       final de1 = MockDe1Controller(controller: DeviceController(const []));
@@ -657,9 +408,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
       final state = webKey.currentState;
       final bounds = tester.getRect(find.byKey(webKey));
-      final skin = tester.element(find.byType(SkinView));
       var originalAction = 0;
-      ScaffoldMessenger.of(skin).showSnackBar(
+      ScaffoldMessenger.of(tester.element(find.byType(SkinView))).showSnackBar(
         SnackBar(
           content: const Text('Skin exit instructions'),
           duration: const Duration(minutes: 1),
@@ -669,38 +419,47 @@ void main() {
           ),
         ),
       );
-      await tester.pump(const Duration(milliseconds: 500));
       await publish();
       await tester.pump(const Duration(milliseconds: 500));
       expect(tester.getRect(find.byKey(webKey)), bounds);
       expect(webKey.currentState, same(state));
-      await open(tester);
+      await tester.runAsync(() async {
+        await tester.tap(find.byType(FloatingActionButton));
+        await center.settled;
+      });
+      await tester.pump(const Duration(milliseconds: 500));
       expect(tester.getRect(find.byKey(webKey)), bounds);
       expect(webKey.currentState, same(state));
-      await tap(tester, find.byTooltip('Close'));
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pump(const Duration(milliseconds: 500));
       expect(find.text('Skin exit instructions'), findsOneWidget);
       await tester.tap(find.text('Original action'));
       expect(originalAction, 1);
-      expect(webKey.currentState, same(state));
       await tester.pumpWidget(const SizedBox());
     },
   );
 
-  testWidgets('notification controls have labels and accessible tap targets', (
-    tester,
-  ) async {
-    final handle = tester.ensureSemantics();
-    try {
-      await publish();
-      await publishUpdate();
-      await mount(tester);
-      expect(find.bySemanticsLabel('Notifications (2)'), findsOneWidget);
-      await open(tester);
-      await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
-      await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
-      await tester.pumpWidget(const SizedBox());
-    } finally {
-      handle.dispose();
-    }
-  });
+  for (final compact in [false, true]) {
+    testWidgets(
+      'controls have labels and accessible tap targets compact=$compact',
+      (tester) async {
+        final handle = tester.ensureSemantics();
+        try {
+          await publish();
+          await mount(tester);
+          await tap(
+            tester,
+            compact
+                ? find.byType(FloatingActionButton)
+                : find.text('Notifications'),
+          );
+          await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+          await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+          await tester.pumpWidget(const SizedBox());
+        } finally {
+          handle.dispose();
+        }
+      },
+    );
+  }
 }

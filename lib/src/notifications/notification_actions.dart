@@ -76,8 +76,11 @@ class NotificationActions extends ChangeNotifier with WidgetsBindingObserver {
       if (action.type == NotificationActionType.openDecentAccount) {
         onOpenAccount();
         center.reportAction(activation, action, 'activated');
-      } else if (action.type == NotificationActionType.downloadUpdate) {
-        await beforeDownload?.call();
+      } else if (action.type == NotificationActionType.downloadUpdate ||
+          action.type == NotificationActionType.skipUpdate) {
+        if (action.type == NotificationActionType.downloadUpdate) {
+          await beforeDownload?.call();
+        }
         if (_disposed || !center.isCurrent(activation)) return;
         await activation.binding?.onActivate?.call(action);
       } else {

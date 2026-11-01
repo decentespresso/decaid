@@ -133,53 +133,49 @@ void main() {
   );
 
   test(
-    'user removal is durable, once-only and programmatic removal is silent',
+    'source resolution is durable and a new occurrence becomes unread',
     () async {
-      final dismissals = <String>[];
-      final binding = NotificationBinding(
-        onDismissed: (entry) async => dismissals.add(entry.id),
-      );
-      await center.publish(notice(), binding: binding);
-      final current = center.value.single;
-      await center.dismissByUser(current);
-      await center.dismissByUser(current);
-      expect(dismissals, ['condition']);
-      await center.publish(notice(), binding: binding);
+      await center.publish(notice());
+      await center.markRead(center.value);
       await center.removeSource(NotificationNamespace.plugin, 'plugin');
-      expect(dismissals, ['condition']);
       final restored = NotificationCenter(preferences: preferences);
       addTearDown(restored.dispose);
       expect(restored.value, isEmpty);
+      await restored.publish(notice());
+      expect(restored.unreadCount, 1);
     },
   );
 
-  test('failed saves preserve publication, read and dismissal state', () async {
-    var fail = false;
-    final failing = NotificationCenter(save: (_) async => !fail);
-    addTearDown(failing.dispose);
-    await failing.publish(notice());
-    final previous = failing.value;
-    fail = true;
-    await expectLater(
-      failing.publish(notice(source: 'second')),
-      throwsA(isA<NotificationStorageException>()),
-    );
-    await expectLater(
-      failing.markRead(previous),
-      throwsA(isA<NotificationStorageException>()),
-    );
-    await expectLater(
-      failing.dismissByUser(previous.single),
-      throwsA(isA<NotificationStorageException>()),
-    );
-    expect(failing.value, same(previous));
-    expect(failing.unreadCount, 1);
-    expect(failing.error, isNotNull);
-    fail = false;
-    await failing.markRead(previous);
-    expect(failing.unreadCount, 0);
-    expect(failing.error, isNull);
-  });
+  test(
+    'failed saves preserve publication, read and resolution state',
+    () async {
+      var fail = false;
+      final failing = NotificationCenter(save: (_) async => !fail);
+      addTearDown(failing.dispose);
+      await failing.publish(notice());
+      final previous = failing.value;
+      fail = true;
+      await expectLater(
+        failing.publish(notice(source: 'second')),
+        throwsA(isA<NotificationStorageException>()),
+      );
+      await expectLater(
+        failing.markRead(previous),
+        throwsA(isA<NotificationStorageException>()),
+      );
+      await expectLater(
+        failing.removeSource(NotificationNamespace.plugin, 'plugin'),
+        throwsA(isA<NotificationStorageException>()),
+      );
+      expect(failing.value, same(previous));
+      expect(failing.unreadCount, 1);
+      expect(failing.error, isNotNull);
+      fail = false;
+      await failing.markRead(previous);
+      expect(failing.unreadCount, 0);
+      expect(failing.error, isNull);
+    },
+  );
 
   test(
     'corrupt or unknown snapshots are preserved and block destructive writes',

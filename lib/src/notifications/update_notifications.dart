@@ -57,7 +57,6 @@ class UpdateNotifications {
           owner: (service, notice.id),
           confirmed: false,
           isAlive: () => !_disposed,
-          onDismissed: (_) => service.skipVersion(notice.id),
         ),
       );
     }
@@ -109,13 +108,19 @@ class UpdateNotifications {
                 : NotificationActionType.openExternalUrl,
             url: service.canInstall ? null : release,
           ),
+          const NotificationAction(
+            id: 'skip',
+            label: 'Skip this version',
+            type: NotificationActionType.skipUpdate,
+          ),
         ],
       ),
       binding: NotificationBinding(
         owner: (service, update.version),
         isAlive: () => !_disposed,
-        onActivate: (_) => onDownload(update),
-        onDismissed: (_) => service.skipVersion(update.version),
+        onActivate: (action) => action.type == NotificationActionType.skipUpdate
+            ? service.skipVersion(update.version)
+            : onDownload(update),
       ),
     );
   }

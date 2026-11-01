@@ -111,6 +111,12 @@ void main() {
                 type: NotificationActionType.openExternalUrl,
                 url: release,
               ),
+            if (namespace == NotificationNamespace.host)
+              const NotificationAction(
+                id: 'skip',
+                label: 'Skip this version',
+                type: NotificationActionType.skipUpdate,
+              ),
           ],
         ),
       );
@@ -243,6 +249,30 @@ void main() {
     );
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets(
+    'explicit update skip is separate from reading and launches nothing',
+    (tester) async {
+      await mount(tester);
+      expect(await settings.skippedVersion(), isNull);
+      expect(find.text('Skip this version'), findsNothing);
+      await clickCheck(tester);
+      await settle(tester);
+      expect(find.text('Skip this version'), findsOneWidget);
+      expect(await settings.skippedVersion(), isNull);
+      await tester.runAsync(() async {
+        await tester.tap(find.text('Skip this version'));
+        await Future<void>.delayed(Duration.zero);
+      });
+      await settle(tester);
+      expect(await settings.skippedVersion(), '99.0.0');
+      expect(center.value, isEmpty);
+      expect(downloads, 0);
+      expect(find.byType(NotificationOverlay), findsOneWidget);
+      expect(find.text('No notifications'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   for (final version in <String?>[null, '100.0.0']) {
     testWidgets('manual check reconciles the saved update with $version', (

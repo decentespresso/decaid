@@ -15,7 +15,11 @@ void main() {
           'message': 'Message',
           'action': {'type': 'execute'},
         },
-        for (final type in ['downloadUpdate', 'openDecentAccount'])
+        for (final type in [
+          'downloadUpdate',
+          'skipUpdate',
+          'openDecentAccount',
+        ])
           {
             'id': 'a',
             'message': 'Message',

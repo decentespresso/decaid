@@ -22,10 +22,11 @@ Action and application-return events target only the originating live plugin
 generation and current notification. Plugins choose what those events mean.
 The executable API and its bounds are documented in `doc/Plugins.md`.
 
-The native close button reports a targeted `notificationDismissed` event after
-removal. Programmatic removals stay silent. The uploader tracks an outstanding
-ownership notice separately from paused serials: closing a notice acknowledges
-it without allowing uploads, and a newly paused serial can then alert the user.
+The native close button closes the view only. Reading leaves the condition
+active, and the originating plugin withdraws it when resolved. There is no
+generic user-dismissal control or event. The uploader tracks pending, accepted
+and rejected delivery separately from paused serials and retries capacity/storage
+rejection without running uploads.
 Additional paused serials must not replace a still-current notice, because that
 would invalidate a pending Support browser-return callback.
 

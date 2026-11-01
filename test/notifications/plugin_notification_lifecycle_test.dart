@@ -117,6 +117,22 @@ void main() {
     },
   );
 
+  for (final available in [false, true]) {
+    test(
+      'startup removes stranded notices from ${available ? 'disabled' : 'missing'} plugins',
+      () async {
+        if (available) await updateSource(permission: true);
+        await loader.dispose();
+        loader = PluginLoaderService(
+          kvStore: FakeKeyValueStoreService(),
+          notifications: center,
+        );
+        await loader.initialize();
+        expect(center.value, isEmpty);
+      },
+    );
+  }
+
   test(
     'permission removal from an unloaded source removes retained notices',
     () async {

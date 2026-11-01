@@ -55,6 +55,7 @@ import 'package:reaprime/src/services/database/mappers/steam_mapper.dart';
 import 'package:reaprime/src/services/database/mappers/bean_mapper.dart';
 import 'package:reaprime/src/services/database/mappers/grinder_mapper.dart';
 import 'package:reaprime/src/services/storage/app_directories.dart';
+import 'package:reaprime/src/services/storage/windows_preferences.dart';
 import 'package:reaprime/src/services/storage/drift_bean_storage.dart';
 import 'package:reaprime/src/services/storage/drift_grinder_storage.dart';
 import 'package:reaprime/src/services/storage/drift_profile_storage.dart';
@@ -244,6 +245,7 @@ Future<void> persistSkinPortAssignments(Map<String, int> assignments) async {
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (Platform.isWindows) await initializeWindowsPreferences();
   final cliArgs = parseCliArgs(args);
   if (cliArgs.printStoragePaths) {
     await _printStoragePaths();

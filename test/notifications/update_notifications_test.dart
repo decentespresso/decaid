@@ -108,6 +108,7 @@ void main() {
       expect(center.value.single.actions.map((action) => action.label), [
         'View',
         'Download',
+        'Skip this version',
       ]);
       await center.markRead(center.value);
       final previous = center.activation(center.value.single);
@@ -115,7 +116,7 @@ void main() {
       await updates.settled;
       expect(center.unreadCount, 0);
       expect(center.isCurrent(previous), isTrue);
-      await previous.binding!.onActivate!(previous.notice.actions.last);
+      await previous.binding!.onActivate!(previous.notice.actions[1]);
       expect(downloads, ['99.0.0']);
     },
   );
@@ -172,7 +173,7 @@ void main() {
   );
 
   test(
-    'dismissing an unconfirmed restored update skips its saved version',
+    'restored update cannot be skipped before source revalidation',
     () async {
       updater.next = update('99.0.0');
       await service.checkForUpdate();
@@ -182,13 +183,17 @@ void main() {
       expect(service.hasCompletedCheck, isFalse);
       expect(center.isConfirmed(notice), isFalse);
       expect(center.isCurrent(center.activation(notice)), isFalse);
-      await center.dismissByUser(notice);
-      expect(await settings.skippedVersion(), '99.0.0');
-      expect(center.value, isEmpty);
+      expect(center.activation(notice).binding?.onActivate, isNull);
+      expect(await settings.skippedVersion(), isNull);
+      expect(center.value, hasLength(1));
       expect(downloads, isEmpty);
       updater.next = update('99.0.0');
       await service.checkForUpdate();
       await updates.settled;
+      final current = center.activation(center.value.single);
+      await current.binding!.onActivate!(current.notice.actions.last);
+      await updates.settled;
+      expect(await settings.skippedVersion(), '99.0.0');
       expect(center.value, isEmpty);
       updater.next = update('100.0.0');
       await service.checkForUpdate();
@@ -214,7 +219,7 @@ void main() {
       expect(center.unreadCount, 0);
       expect(center.isCurrent(unconfirmed), isFalse);
       final confirmed = center.activation(center.value.single);
-      await confirmed.binding!.onActivate!(confirmed.notice.actions.last);
+      await confirmed.binding!.onActivate!(confirmed.notice.actions[1]);
       expect(downloads, ['99.0.0']);
       await service.checkForUpdate();
       await updates.settled;
@@ -222,29 +227,36 @@ void main() {
     },
   );
 
-  test('failed restored-notice removal does not skip the update', () async {
-    updater.next = update('99.0.0');
-    await service.checkForUpdate();
-    await updates.settled;
-    await restart(failSave: true);
-    final notice = center.value.single;
-    await expectLater(
-      center.dismissByUser(notice),
-      throwsA(isA<NotificationStorageException>()),
-    );
-    expect(center.value.single, same(notice));
-    expect(center.isConfirmed(notice), isFalse);
-    expect(await settings.skippedVersion(), isNull);
-  });
+  test(
+    'failed source resolution preserves the notice and does not skip',
+    () async {
+      updater.next = update('99.0.0');
+      await service.checkForUpdate();
+      await updates.settled;
+      await restart(failSave: true);
+      final notice = center.value.single;
+      await expectLater(
+        center.removeSource(
+          NotificationNamespace.host,
+          UpdateNotifications.sourceId,
+          notice.id,
+        ),
+        throwsA(isA<NotificationStorageException>()),
+      );
+      expect(center.value.single, same(notice));
+      expect(center.isConfirmed(notice), isFalse);
+      expect(await settings.skippedVersion(), isNull);
+    },
+  );
 
   test(
-    'dismissal skips the displayed version rather than a newer asynchronous result',
+    'explicit skip targets its displayed version rather than a newer result',
     () async {
       service.debugForceUpdate(version: '99.0.0');
       await updates.settled;
-      final old = center.value.single;
+      final old = center.activation(center.value.single);
       service.debugForceUpdate(version: '100.0.0');
-      await center.dismissByUser(old);
+      await old.binding!.onActivate!(old.notice.actions.last);
       await updates.settled;
       expect(await settings.skippedVersion(), '99.0.0');
       expect(service.availableUpdate!.version, '100.0.0');

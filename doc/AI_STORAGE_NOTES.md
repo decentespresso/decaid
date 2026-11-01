@@ -66,10 +66,9 @@ It excludes executable callbacks, contexts, credentials and runtime generations.
 Actions stay disabled after restoration until the current source revalidates
 them. Runtime action bindings survive read-state changes but not generation
 retirement, content replacement or removal.
-The trusted update owner recreates version-bound dismissal handling for retained
-updates before their actions are confirmed. Dismissing an awaiting-confirmation
-update still skips its saved version, without enabling restored actions. The
-binding's confirmation state is runtime-only and is not part of the snapshot.
+The trusted update owner revalidates retained updates before enabling View,
+Download or the explicit Skip this version action. Reading never skips a version.
+The binding's confirmation state is runtime-only and is not part of the snapshot.
 The unconfirmed host-update row offers a manual Check for updates action instead
 of its saved View/Download descriptors. It uses the existing update service;
 this control and its checking/error state are not persisted or exposed to plugins.
@@ -81,17 +80,24 @@ no destructive reset fallback. Limits remain five notices per plugin and twenty
 plugin notices overall, plus one reserved host-update notice.
 
 Shutdown/reload preserves the snapshot. Explicit unload, disable, uninstall,
-notification-permission removal, source resolution and user dismissal remove
+notification-permission removal and source resolution remove
 the affected notices through the same serialized write path.
 
-Windows currently has a known mixed-backend persistence limitation: the installed
+The installed
 `shared_preferences_windows` 2.4.1 implementation maintains separate whole-file
 caches for legacy SharedPreferences and SharedPreferencesAsync. Notification and
 plugin writes use the legacy API while app settings use Async. Interleaved writes
-can overwrite retained notifications, read status or a saved skipped version.
-Model-level snapshot tests do not establish cross-backend Windows durability.
-This requires a separately scoped storage fix before relying on that guarantee;
-the native control changes do not repair the shared platform implementation.
+previously overwrote retained notifications, read status or a saved skipped
+version. Windows startup now calls `initializeWindowsPreferences` before either
+API is used. The Async platform adapter delegates to the existing legacy backend,
+so both APIs share its one warmed cache and file. Raw prefixed legacy keys and
+unprefixed Async keys retain their existing meanings; no migration is required.
+Failed backend writes/removals throw rather than claiming successful Async saves.
+`windows_preferences_test.dart` uses the actual Windows file backend in a temporary
+directory, interleaves both APIs, reconstructs them from disk and checks retained
+notifications, read state, skipped versions and unrelated settings. This does not
+provide cross-process or multi-isolate synchronization; the app's preferences
+owners run in its main isolate.
 
 ## Recovery Package Destination Rule
 

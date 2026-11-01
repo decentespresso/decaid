@@ -1,11 +1,10 @@
-import 'dart:async';
-
 enum NotificationNamespace { plugin, host }
 
 enum NotificationActionType {
   openDecentAccount,
   openExternalUrl,
   downloadUpdate,
+  skipUpdate,
 }
 
 class NotificationAction {
@@ -121,7 +120,9 @@ class NativeNotification {
     if (namespace == NotificationNamespace.plugin &&
         (actions.length > 1 ||
             actions.any(
-              (action) => action.type == NotificationActionType.downloadUpdate,
+              (action) =>
+                  action.type == NotificationActionType.downloadUpdate ||
+                  action.type == NotificationActionType.skipUpdate,
             ))) {
       throw const FormatException('Invalid plugin actions');
     }
@@ -147,7 +148,6 @@ class NotificationBinding {
     this.confirmed = true,
     this.onAction,
     this.onActivate,
-    this.onDismissed,
     bool Function()? isAlive,
   }) : isAlive = isAlive ?? (() => true);
 
@@ -155,7 +155,6 @@ class NotificationBinding {
   final Future<void> Function(NotificationAction)? onActivate;
   final Object? owner;
   final bool confirmed;
-  final FutureOr<void> Function(NativeNotification)? onDismissed;
   final bool Function() isAlive;
 }
 

@@ -2613,8 +2613,7 @@ class PluginManager {
       'workflowUpdated' => PluginPermissions.eventsWorkflow,
       'decentAccountChanged' => PluginPermissions.proxyDecentApi,
       'notificationAction' ||
-      'notificationResult' ||
-      'notificationDismissed' => PluginPermissions.notifications,
+      'notificationResult' => PluginPermissions.notifications,
       _ => null,
     };
     if (permission != null && !_hasPermission(pluginId, permission)) return;
@@ -2686,10 +2685,6 @@ class PluginManager {
               onAction: (action, phase) => dispatchNotificationEvent(
                 'notificationAction',
                 {'id': notice.id, 'actionId': action.id, 'phase': phase},
-              ),
-              onDismissed: (notice) => dispatchNotificationEvent(
-                'notificationDismissed',
-                {'id': notice.id},
               ),
             ),
           );

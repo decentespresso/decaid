@@ -50,6 +50,7 @@ dependencies:
       # bounded explicit-disconnect fallback. Re-pin once it is released.
       ref: 7c8b6f86937d039bdec1037be6b627c52fa36845
   shared_preferences: ^2.5.3
+  shared_preferences_platform_interface: ^2.4.2
   # share_plus HELD at 12.x — 13.x requires win32 ^6, which conflicts with
   # file_picker 11's win32 ^5.9 pin. 13.x is only SDK-floor bumps, no API gain.
   share_plus: ^12.0.2
@@ -155,6 +156,8 @@ dependency_overrides:
   lucide_icons_flutter: ^3.1.14
 
 dev_dependencies:
+  shared_preferences_windows: ^2.4.1
+  path_provider_windows: ^2.3.0
   flutter_test:
     sdk: flutter
 

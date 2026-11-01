@@ -37,7 +37,6 @@ void main() {
             onLoad() { $onLoad },
             onEvent(event) {
               if (event.name === 'notificationAction') host.emit('action', event.payload);
-              if (event.name === 'notificationDismissed') host.emit('dismissed', event.payload);
               if (event.name === 'notificationResult' && $reportResults) host.emit('result', event.payload);
             }
           };
@@ -106,27 +105,21 @@ void main() {
   });
 
   test(
-    'user dismissal is targeted and retired notices cannot dismiss a replacement',
+    'reading preserves active conditions and source resolution emits no user event',
     () async {
       final events = <Map<String, dynamic>>[];
       final subscription = manager.emitStream.listen(events.add);
       addTearDown(subscription.cancel);
       await load('first', onLoad: 'host.notify($notice);');
       await load('second', onLoad: 'host.notify($notice);');
-      final old = manager.notifications.value.first;
-      await manager.notifications.dismissByUser(old);
-      await manager.notifications.dismissByUser(old);
+      await manager.notifications.markRead(manager.notifications.value);
       await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(events.single, {
-        'pluginId': 'first',
-        'event': 'dismissed',
-        'payload': {'id': 'condition'},
-      });
+      expect(events, isEmpty);
+      expect(manager.notifications.value, hasLength(2));
       await manager.unloadPlugin('first');
       await load('first', onLoad: 'host.notify($notice);');
-      await manager.notifications.dismissByUser(old);
       await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(events.length, 1);
+      expect(events, isEmpty);
       expect(manager.notifications.value.map((notice) => notice.sourceId), [
         'second',
         'first',
@@ -134,14 +127,12 @@ void main() {
     },
   );
 
-  test('dismissal events require notification permission', () async {
+  test('delivery result events require notification permission', () async {
     final events = <Map<String, dynamic>>[];
     final subscription = manager.emitStream.listen(events.add);
     addTearDown(subscription.cancel);
-    await load('denied', allowed: false);
-    manager.dispatchEvent('denied', 'notificationDismissed', {
-      'id': 'condition',
-    });
+    await load('denied', allowed: false, reportResults: true);
+    manager.dispatchEvent('denied', 'notificationResult', {'id': 'condition'});
     await Future<void>.delayed(const Duration(milliseconds: 20));
     expect(events, isEmpty);
   });

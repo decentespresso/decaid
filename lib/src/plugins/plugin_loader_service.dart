@@ -138,6 +138,20 @@ class PluginLoaderService {
 
     await _loadAutoLoadPlugins();
 
+    final retainedSources = pluginManager.notifications.value
+        .where((notice) => notice.namespace == NotificationNamespace.plugin)
+        .map((notice) => notice.sourceId)
+        .toSet();
+    for (final source in retainedSources) {
+      if (!_availablePluginsCache.containsKey(source) ||
+          (!isPluginLoaded(source) && !await shouldAutoLoad(source))) {
+        await pluginManager.notifications.removeSource(
+          NotificationNamespace.plugin,
+          source,
+        );
+      }
+    }
+
     _initialized = true;
   }
 

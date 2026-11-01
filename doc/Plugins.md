@@ -237,13 +237,15 @@ Both require an explicit user tap. Plugins cannot supply native routes, custom
 URL schemes, executable callbacks, automatic actions, or UI priority. The host
 displays the plugin name/ID and external destination hostname alongside the copy.
 
-Notices appear in the native Notifications overlay. The dashboard destination
-remains available for read notices; the skin shows a bell and unread count only
-when unread notices exist. Incoming notices do not open the overlay or change
-the skin's WebView bounds. Existing transient SnackBars remain independent.
-Opening the overlay marks the captured content revisions read. Later arrivals
-and content changes remain unread until another opening. Closing the overlay
-does not dismiss a notice, resolve a condition, or resume plugin work.
+Notifications represent current conditions, not transient feedback or history.
+The launcher Notifications destination shows all current conditions, including
+read ones and their approved actions. The skin bell appears only when unread
+conditions exist and opens a compact unread-at-opening snapshot with a Go to
+notification center control. Marking that snapshot read hides the bell but does
+not empty or close the open list. Later arrivals and revisions remain unread.
+Neither entry point resizes or remounts the skin WebView. Transient SnackBars
+remain independent. Closing either view does not resolve a condition or resume
+plugin work.
 
 The app retains source identity, approved actions, order and read status in one
 private SharedPreferences snapshot, outside skin-accessible Hive namespaces.
@@ -256,7 +258,8 @@ center. The host reserves a separate app-update entry. Capacity rejection does
 not evict existing notices. Omit the ID when dismissing to remove only the calling
 plugin's notices. Shutdown and reload retain messages but retire action bindings;
 explicit unload, disable, uninstall, removal of the notification permission,
-programmatic resolution and user dismissal remove the relevant messages.
+programmatic resolution remove the relevant messages. Startup also removes
+retained notices from missing or disabled plugins.
 Failed saves preserve the previous visible state and report an error. Corrupt or
 unknown saved snapshots remain untouched rather than resetting the center.
 
@@ -270,14 +273,12 @@ The app tracks browser return independently of the overlay. Closing the overlay
 or marking a notice read does not cancel an outstanding return; replacement,
 removal and generation retirement do.
 
-Dismissing a notice with its trash button or the header's Dismiss all control
-delivers `notificationDismissed`
-only to its originating live plugin, with payload `{id}` and the `notifications`
-permission. The notice is removed and pending actions invalidated before this
-event is delivered once. No action is required. Programmatic dismissal,
-replacement, unload, and stale dismiss buttons do not emit this event. Dismissal
-acknowledges the notice, not the underlying condition; recovery policy remains
-with the plugin.
+There is no generic user dismissal, trash control, Dismiss all, or user-dismissal
+event. `host.dismissNotification(id?)` remains the originating plugin's operation
+for withdrawing resolved conditions, isolated to that plugin. Reading retains
+the condition and never runs an action. Only explicit domain actions may change
+application state; the trusted app update has a separate Skip this version
+action. Resolved conditions are removed without a history entry.
 
 Hosts that reject unknown manifest permissions cannot load a plugin declaring
 `notifications` until they support this contract. No new REST or WebSocket route
@@ -405,9 +406,6 @@ Machine broadcasts require `events.machine`. Shot lifecycle broadcasts require
 - **`notificationResult`**: A targeted persistence result for `host.notify`.
   Requires `notifications`; see the request ID, status and rejection reasons
   above. Other plugins cannot receive the result.
-- **`notificationDismissed`**: The user closed a current native notice. Requires
-  `notifications`; payload `{id}` is delivered only to the originating plugin.
-  Programmatic removals and retired notices do not emit dismissal events.
 - **`decentAccountChanged`**: The host account's authentication or registered
   machines changed, or an explicit account refresh was requested. Payload is
   `{}` and requires `proxy.decent_api`. Invalidate account-derived caches and
