@@ -38,7 +38,9 @@ History that exists in both formats must import once, from the better source.
 ## Merge rule
 
 Keyed on shot id (`de1app-<clock>`), which both parsers derive from the same
-`clock` field.
+`clock` field. A shared basename only makes two files candidates for each
+other; nothing is merged until both parse to the same id, so a renamed or
+hand-copied file cannot graft its metadata onto a different shot.
 
 | Available | Result |
 | --- | --- |
@@ -48,6 +50,12 @@ Keyed on shot id (`de1app-<clock>`), which both parsers derive from the same
 | both, v2 unparseable | legacy |
 | neither parses | one `ImportError`, shot skipped |
 | two files of the same format, one shot | merged, gap-filled, stored once |
+| same basename, different ids | two shots, nothing shared |
+
+Discovery order is not allowed to decide anything: `Directory.list()` makes no
+ordering promise, so candidates are sorted by basename first. When two
+same-format records of one id disagree on a field both have filled, the
+lexicographically first basename wins it.
 
 Gap-fill is one-directional: a field already set in the v2 shot is never
 replaced. A field counts as empty when it is `null`, an empty string, or `0`
@@ -62,15 +70,60 @@ barista, drinker).
 Profile, measurements, timestamp and id always come from the winning source and
 are never merged.
 
+## Frame reconstruction
+
+`espresso_state_change` (v2: `state_change`) is a per-sample series whose sign
+de1app flips at every frame change the DE1 reports
+(`gui.tcl`'s `_state_change_chart_value`, flipped where
+`current_framenumber != previous_framenumber`). Counting sign changes therefore
+reproduces the machine's own frame sequence, including exits that fire early on
+a pressure, flow or weight condition. Cumulative step durations remain the
+fallback for records without the series, and that fallback is an approximation:
+it assumes every step runs to its configured maximum.
+
+## Parse cost
+
+The whole import runs on the UI isolate: file reads are async, but Tcl parsing,
+`jsonDecode`, snapshot construction and profile recovery are synchronous. For a
+shot that exists in both formats the legacy sibling is parsed in `metadataOnly`
+mode, which skips the sample lines, the snapshots and the embedded-profile scan,
+since the merge takes none of those from legacy.
+
+Measured by `test/import/de1app_parse_benchmark_test.dart` on a 600-sample shot
+(macOS host, debug VM): legacy full 1.46 ms average / 2.93 ms worst,
+legacy metadata-only 0.09 ms / 0.17 ms, v2 0.48 ms / 0.85 ms. The longest
+uninterrupted block is one shot's parse, and the loop awaits file IO between
+shots.
+
+## Fixtures
+
+`test/fixtures/de1app/canonical_simulated.shot` is
+`de1plus/simulations/simulated_1.shot` from `decentespresso/de1app`, reduced to
+its first 30 samples per series with the `settings` and `machine` blocks pruned
+to the keys the import reads. It keeps the canonical key order the writer
+produces (arrays, `settings`, `machine`, `app_version`, then `profile` last) and
+its profile intact: six steps whose first one, `Fill`, is configured for 25 s
+but exits on `pressure over 1.5` at 3.778 s, which is what makes it the
+regression case for frame reconstruction.
+
+`test/fixtures/de1app/legacy_with_profile.shot` is hand-written and keeps the
+opposite order, with `profile` ahead of `settings`, to hold the generic Tcl pass
+to its brace depth rather than to key order.
+
 ## Known ceilings
 
-- The legacy sibling is parsed whenever it exists, so a bulk import with both
-  directories present pays for both files. Gate it on a metadata-gap check if
-  that becomes slow.
-- `TclShotParser` recovers the embedded profile by counting braces over the raw
-  text. A profile note holding an unbalanced brace makes the recovery return
-  null, and the shot falls back to a step-less profile titled from
-  `settings profile_title`.
+- No benchmark has been run on an Android or iOS target; the figures above are
+  host figures. If a device shows long frames, the parse loop is the thing to
+  batch into a worker isolate, and the metadata-only path has already removed
+  most of the per-shot cost for paired shots.
+- `TclShotParser` recovers the embedded profile with a JSON-string-aware brace
+  scan, so braces and escaped quotes inside string values are safe. `TclParser`
+  itself still counts braces structurally (honouring Tcl's escaped braces). A
+  profile note holding a brace that is unbalanced *as Tcl* would mis-nest the
+  generic pass, which only affects keys written after the `profile` block;
+  de1app's writer emits `profile` last.
+- `targetYield` still prefers `settings target_drink_weight` over the recovered
+  profile's `target_weight`.
 
 ## Out of scope
 

@@ -622,17 +622,25 @@ physical upload.
 ### de1app Legacy `.shot` History Import
 
 de1app dual-writes every finished shot to both `history/*.shot` (legacy) and
-`history_v2/*.json` (`save_this_espresso_to_history`). The import keys both
-directories by basename and merges them per shot id (`de1app-<clock>`):
+`history_v2/*.json` (`save_this_espresso_to_history`). Basenames only pair
+candidate files; **shot id (`de1app-<clock>`) is the sole merge key**, and two
+records are merged only once both parse to the same id:
 
 - v2 only, or legacy only: that file is the source.
-- Both: the v2 shot supplies the profile and measurements, and the legacy shot
-  fills only the metadata fields the v2 shot leaves empty (`null`, empty
-  string, or `0` for dose, yield, tds, ey and enjoyment, which de1app writes as
-  `0` when unset). A value the v2 shot already has is never replaced.
+- Both, same id: the v2 shot supplies the profile and measurements, and the
+  legacy shot fills only the metadata fields the v2 shot leaves empty (`null`,
+  empty string, or `0` for dose, yield, tds, ey and enjoyment, which de1app
+  writes as `0` when unset). A value the v2 shot already has is never replaced.
+- Both, different ids (a renamed or hand-copied file): two separate shots, no
+  metadata crosses between them.
 - Both, with the v2 file unreadable: the legacy shot is used whole.
 - Two files of the same format for one shot id (a renamed copy, say): merged
   the same way and stored once.
+
+Discovery order never decides the outcome: `Directory.list()` makes no ordering
+promise, so candidates are sorted by basename before parsing. For a conflict
+between two same-format records of one id, the lexicographically first basename
+wins each field it has, and the other only fills that record's gaps.
 
 Modification times are deliberately not consulted. `SafFolderCopier` stages the
 import through `safStream.copyToLocalFile`, which stamps every destination with
@@ -640,10 +648,35 @@ the copy time, so the mtime of a staged file says nothing about which of the two
 is fresher.
 
 A legacy `.shot` carries the complete v2 profile as JSON under its top-level
-`profile` key. `TclShotParser` recovers it by brace counting over the raw text
-rather than through `TclParser`, whose line-oriented block handling cannot
-parse embedded JSON, and falls back to a step-less profile titled from
-`settings profile_title` when that JSON is absent or unbalanced.
+`profile` key. `TclShotParser` recovers it with a JSON-string-aware brace scan
+over the raw text rather than through `TclParser`, whose line-oriented block
+handling cannot parse embedded JSON, and falls back to a step-less profile
+titled from `settings profile_title` when that JSON is absent or unparseable.
+Braces, escaped quotes and escaped backslashes inside JSON string values do not
+disturb the scan. `TclParser`'s own brace counting follows the Tcl rule that a
+backslash-escaped brace does not nest, which matters because de1app writes each
+settings value through `[list $v]`.
+
+Only `espresso_elapsed` and the machine series bound the measurement count. The
+canonical writer emits `espresso_weight` and `espresso_flow_weight` inside
+`catch` blocks, so a shot recorded without a scale has neither; those shots keep
+all their machine telemetry and get `ShotSnapshot.scale == null`.
+
+`profileFrame` comes from the recorded `espresso_state_change` series (v2:
+`state_change`), which de1app flips in sign at every frame change the machine
+reports, so conditional early exits land on the right frame. Cumulative step
+durations are only the fallback for records that predate that series or whose
+series is shorter than `elapsed`; that fallback assumes each step runs to its
+configured maximum and is wrong for any profile that exits early on pressure,
+flow or weight.
+
+For a shot present in both formats, the legacy sibling is parsed in
+`metadataOnly` mode: sample lines are skipped, no snapshots are built, and the
+embedded profile is not scanned, because the merge takes neither from legacy.
+That is the parse that runs for most paired shots, and it costs about 1/16th of
+a full legacy parse (`test/import/de1app_parse_benchmark_test.dart` prints both).
+A full legacy parse only happens when there is no v2 sibling, when the v2 file
+is unreadable, or when the ids turn out to differ.
 
 See `doc/plans/archive/de1app-shot-merge-v1-v2/design.md` for the full
 root-cause writeup.

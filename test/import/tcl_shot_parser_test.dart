@@ -253,4 +253,115 @@ void main() {
       );
     });
   });
+
+  group('TclShotParser on a canonical de1app record', () {
+    late String fixtureContent;
+    late ParsedShot result;
+
+    setUpAll(() {
+      final file = File('test/fixtures/de1app/canonical_simulated.shot');
+      fixtureContent = file.readAsStringSync();
+      result = TclShotParser.parse(fixtureContent);
+    });
+
+    test('parses the clock of a record whose profile block comes last', () {
+      expect(result.shot.id, equals('de1app-1650551914'));
+    });
+
+    test('reads settings that precede the profile block', () {
+      expect(result.shot.annotations?.actualYield, equals(35.7));
+      expect(result.shot.workflow.profile.title, equals('Londonium'));
+    });
+
+    test('recovers every embedded profile step', () {
+      expect(result.shot.workflow.profile.steps.length, equals(6));
+      expect(result.shot.workflow.profile.steps.first.name, equals('Fill'));
+    });
+
+    test('produces one snapshot per recorded sample', () {
+      expect(result.shot.measurements.length, equals(30));
+    });
+
+    test('follows the machine-reported frame change, not step duration', () {
+      final frames = result.shot.measurements
+          .map((m) => m.machine.profileFrame)
+          .toList();
+      expect(frames[16], equals(0));
+      expect(frames[17], equals(1));
+      expect(frames.last, equals(1));
+    });
+
+    test('keeps machine samples when the scale arrays are absent', () {
+      final withoutScale = fixtureContent
+          .split('\n')
+          .where(
+            (line) =>
+                !line.startsWith('espresso_weight ') &&
+                !line.startsWith('espresso_flow_weight '),
+          )
+          .join('\n');
+      final parsed = TclShotParser.parse(withoutScale);
+
+      expect(parsed.shot.measurements.length, equals(30));
+      expect(parsed.shot.measurements.first.machine.pressure, equals(0.0));
+      expect(parsed.shot.measurements[5].machine.flow, equals(6.46));
+      expect(parsed.shot.measurements.every((m) => m.scale == null), isTrue);
+    });
+
+    test('recovers a profile whose strings contain unbalanced braces', () {
+      final braced = fixtureContent.replaceFirst(
+        '"author": "Decent",',
+        '"author": "De{cent",',
+      );
+      final parsed = TclShotParser.parse(braced);
+
+      expect(parsed.shot.workflow.profile.steps.length, equals(6));
+      expect(parsed.shot.workflow.profile.title, equals('Londonium'));
+    });
+
+    test('recovers a profile whose strings contain escaped quotes', () {
+      final escaped = fixtureContent.replaceFirst(
+        '"title": "Londonium",',
+        r'"title": "Lon\"doni\\um",',
+      );
+      final parsed = TclShotParser.parse(escaped);
+
+      expect(parsed.shot.workflow.profile.steps.length, equals(6));
+      expect(parsed.shot.workflow.profile.title, equals(r'Lon"doni\um'));
+    });
+  });
+
+  group('TclShotParser metadata-only parsing', () {
+    late String fixtureContent;
+    late ParsedShot result;
+
+    setUpAll(() {
+      final file = File('test/fixtures/de1app/canonical_simulated.shot');
+      fixtureContent = file.readAsStringSync();
+      result = TclShotParser.parse(fixtureContent, metadataOnly: true);
+    });
+
+    test('keeps the shot id', () {
+      expect(result.shot.id, equals('de1app-1650551914'));
+    });
+
+    test('keeps the settings metadata', () {
+      expect(result.shot.annotations?.actualYield, equals(35.7));
+    });
+
+    test('skips measurements and the embedded profile', () {
+      expect(result.shot.measurements, isEmpty);
+      expect(result.shot.workflow.profile.steps, isEmpty);
+    });
+
+    test('still reads metadata when a sample line is absent', () {
+      final trimmed = fixtureContent
+          .split('\n')
+          .where((line) => !line.startsWith('espresso_weight '))
+          .join('\n');
+      final parsed = TclShotParser.parse(trimmed, metadataOnly: true);
+      expect(parsed.shot.id, equals('de1app-1650551914'));
+      expect(parsed.shot.annotations?.actualYield, equals(35.7));
+    });
+  });
 }
