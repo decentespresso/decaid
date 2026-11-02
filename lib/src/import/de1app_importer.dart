@@ -49,7 +49,7 @@ class De1appImporter {
         ShotV2JsonParser.parse,
   }) : _parseV2Shot = parseV2Shot;
 
-  Future<_ParsedCandidate?> _parseShotSource(
+  Future<List<_ParsedCandidate>> _parseShotSource(
     _ShotSource source,
     List<ImportError> errors,
   ) async {
@@ -73,7 +73,7 @@ class De1appImporter {
               details: e.toString(),
             ),
           );
-          return null;
+          return const [];
         }
       }
     }
@@ -81,7 +81,11 @@ class De1appImporter {
     ParsedShot? legacyShot;
     if (legacyFile != null) {
       try {
-        legacyShot = TclShotParser.parse(await legacyFile.readAsString());
+        final content = await legacyFile.readAsString();
+        legacyShot = TclShotParser.parse(content, metadataOnly: v2Shot != null);
+        if (v2Shot != null && legacyShot.shot.id != v2Shot.shot.id) {
+          legacyShot = TclShotParser.parse(content);
+        }
       } catch (e, st) {
         final filename = legacyFile.uri.pathSegments.last;
         _log.warning('Failed to parse shot file $filename', e, st);
@@ -93,18 +97,24 @@ class De1appImporter {
               details: e.toString(),
             ),
           );
-          return null;
+          return const [];
         }
       }
     }
 
     if (v2Shot == null) {
       return legacyShot == null
-          ? null
-          : _ParsedCandidate(legacyShot, fromV2: false);
+          ? const []
+          : [_ParsedCandidate(legacyShot, fromV2: false)];
     }
-    if (legacyShot == null) return _ParsedCandidate(v2Shot, fromV2: true);
-    return _ParsedCandidate(v2Shot.fillGapsFrom(legacyShot), fromV2: true);
+    if (legacyShot == null) return [_ParsedCandidate(v2Shot, fromV2: true)];
+    if (legacyShot.shot.id != v2Shot.shot.id) {
+      return [
+        _ParsedCandidate(v2Shot, fromV2: true),
+        _ParsedCandidate(legacyShot, fromV2: false),
+      ];
+    }
+    return [_ParsedCandidate(v2Shot.fillGapsFrom(legacyShot), fromV2: true)];
   }
 
   Future<ImportResult> import(
@@ -123,14 +133,13 @@ class De1appImporter {
     var settingsApplied = false;
 
     final candidates = <String, _ParsedCandidate>{};
-    final shotSources = (await _shotSources(
+    final shotSources = await _shotSources(
       v2: Directory('${scanResult.sourcePath}/history_v2'),
       legacy: Directory('${scanResult.sourcePath}/history'),
-    )).values.toList();
+    );
 
     for (var i = 0; i < shotSources.length; i++) {
-      final candidate = await _parseShotSource(shotSources[i], errors);
-      if (candidate != null) {
+      for (final candidate in await _parseShotSource(shotSources[i], errors)) {
         final id = candidate.parsed.shot.id;
         final existing = candidates[id];
         candidates[id] = existing == null
@@ -394,7 +403,7 @@ _ParsedCandidate _mergeCandidates(_ParsedCandidate a, _ParsedCandidate b) {
   );
 }
 
-Future<Map<String, _ShotSource>> _shotSources({
+Future<List<_ShotSource>> _shotSources({
   required Directory v2,
   required Directory legacy,
 }) async {
@@ -424,7 +433,8 @@ Future<Map<String, _ShotSource>> _shotSources({
     }
   }
 
-  return result;
+  final basenames = result.keys.toList()..sort();
+  return [for (final basename in basenames) result[basename]!];
 }
 
 Future<Map<String, _MergedFile>> _mergedFiles({

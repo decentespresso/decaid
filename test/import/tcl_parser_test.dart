@@ -300,5 +300,47 @@ void main() {
         expect(settings.containsKey('read_only_backup'), isTrue);
       });
     });
+
+    group('escaped braces', () {
+      const escapedOpenBrace =
+          'settings {\n'
+          '\tespresso_notes {tasted like \\{citrus}\n'
+          '\tprofile_title {Rao Allonge}\n'
+          '}\n'
+          'clock 1699432544\n';
+
+      const escapedCloseBrace =
+          'settings {\n'
+          '\tespresso_notes {ratio 1:2 \\} done}\n'
+          '\tprofile_title {Rao Allonge}\n'
+          '}\n'
+          'clock 1699432544\n';
+
+      test('an escaped open brace does not extend the value', () {
+        final settings = TclParser.parse(escapedOpenBrace)['settings'] as Map;
+        expect(settings['profile_title'], equals('Rao Allonge'));
+      });
+
+      test('an escaped close brace does not end the block early', () {
+        final settings = TclParser.parse(escapedCloseBrace)['settings'] as Map;
+        expect(settings['profile_title'], equals('Rao Allonge'));
+      });
+
+      test('parsing resumes at the top level after escaped braces', () {
+        expect(
+          TclParser.parse(escapedOpenBrace)['clock'],
+          equals('1699432544'),
+        );
+        expect(
+          TclParser.parse(escapedCloseBrace)['clock'],
+          equals('1699432544'),
+        );
+      });
+
+      test('the escaped brace is retained in the value', () {
+        final settings = TclParser.parse(escapedOpenBrace)['settings'] as Map;
+        expect(settings['espresso_notes'].toString(), contains(r'\{citrus'));
+      });
+    });
   });
 }

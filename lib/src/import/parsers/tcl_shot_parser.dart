@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/import/parsers/enjoyment_scale.dart';
 import 'package:reaprime/src/import/parsers/shot_v2_json_parser.dart';
+import 'package:reaprime/src/import/parsers/state_change_frames.dart';
 import 'package:reaprime/src/import/parsers/tcl_parser.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/data/shot_annotations.dart';
@@ -17,8 +18,12 @@ import 'package:uuid/uuid.dart';
 class TclShotParser {
   TclShotParser._();
 
-  static ParsedShot parse(String content) {
-    final map = TclParser.parse(content);
+  static final _sampleLine = RegExp(r'^(espresso|scale)_[a-z_0-9]+ \{');
+
+  static ParsedShot parse(String content, {bool metadataOnly = false}) {
+    final map = TclParser.parse(
+      metadataOnly ? _withoutSamples(content) : content,
+    );
 
     final clock = int.parse(map['clock'] as String);
     final baseTimestamp = DateTime.fromMillisecondsSinceEpoch(
@@ -41,7 +46,7 @@ class TclShotParser {
     final profileTargetWeight = _parseOptDouble(
       settings['final_desired_shot_weight'],
     );
-    final embeddedProfile = _embeddedProfile(content);
+    final embeddedProfile = metadataOnly ? null : _embeddedProfile(content);
     final profile =
         embeddedProfile ??
         Profile(
@@ -99,7 +104,9 @@ class TclShotParser {
       rinseData: RinseData.defaults(),
     );
 
-    final measurements = _parseSnapshots(map, baseTimestamp, profile);
+    final measurements = metadataOnly
+        ? const <ShotSnapshot>[]
+        : _parseSnapshots(map, baseTimestamp, profile);
 
     final shot = ShotRecord(
       id: 'de1app-$clock',
@@ -126,23 +133,52 @@ class TclShotParser {
     if (opening == null) return null;
 
     final start = opening.end - 1;
+    final end = _closingBrace(content, start);
+    if (end < 0) return null;
+
+    try {
+      final json =
+          jsonDecode(content.substring(start, end + 1)) as Map<String, dynamic>;
+      final profile = Profile.fromRecordedJson(json);
+      return profile.steps.isEmpty ? null : profile;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static int _closingBrace(String content, int start) {
     var depth = 0;
+    var inString = false;
+
     for (var i = start; i < content.length; i++) {
-      if (content[i] == '{') depth++;
-      if (content[i] != '}') continue;
-      depth--;
-      if (depth != 0) continue;
-      try {
-        final json =
-            jsonDecode(content.substring(start, i + 1)) as Map<String, dynamic>;
-        final profile = Profile.fromRecordedJson(json);
-        return profile.steps.isEmpty ? null : profile;
-      } catch (_) {
-        return null;
+      final char = content[i];
+
+      if (inString) {
+        if (char == r'\') {
+          i++;
+        } else if (char == '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (char == '"') {
+        inString = true;
+      } else if (char == '{') {
+        depth++;
+      } else if (char == '}') {
+        depth--;
+        if (depth == 0) return i;
       }
     }
-    return null;
+
+    return -1;
   }
+
+  static String _withoutSamples(String content) => content
+      .split('\n')
+      .where((line) => !_sampleLine.hasMatch(line))
+      .join('\n');
 
   static List<ShotSnapshot> _parseSnapshots(
     Map<String, dynamic> map,
@@ -160,6 +196,8 @@ class TclShotParser {
     final pressureGoal = _parseDoubleList(map['espresso_pressure_goal']);
     final flowGoal = _parseDoubleList(map['espresso_flow_goal']);
 
+    if (elapsed.isEmpty) return [];
+
     final count = [
       elapsed,
       pressure,
@@ -171,9 +209,12 @@ class TclShotParser {
       tempGoal,
       pressureGoal,
       flowGoal,
-    ].map((l) => l.length).reduce(min);
+    ].where((l) => l.isNotEmpty).map((l) => l.length).reduce(min);
 
     final boundaries = _stepBoundaries(profile);
+    final recordedFrames = framesFromStateChange(
+      _parseDoubleList(map['espresso_state_change']),
+    );
 
     final snapshots = <ShotSnapshot>[];
     for (var i = 0; i < count; i++) {
@@ -181,7 +222,9 @@ class TclShotParser {
         Duration(milliseconds: (elapsed[i] * 1000).round()),
       );
 
-      final frame = _frameForElapsed(elapsed[i], boundaries);
+      final frame = i < recordedFrames.length
+          ? recordedFrames[i]
+          : _frameForElapsed(elapsed[i], boundaries);
 
       final machineSnap = MachineSnapshot(
         timestamp: ts,
@@ -189,29 +232,34 @@ class TclShotParser {
           state: MachineState.espresso,
           substate: MachineSubstate.pouring,
         ),
-        flow: flow[i],
-        pressure: pressure[i],
-        targetFlow: flowGoal[i],
-        targetPressure: pressureGoal[i],
-        mixTemperature: tempMix[i],
-        groupTemperature: tempBasket[i],
-        targetMixTemperature: tempGoal[i],
-        targetGroupTemperature: tempGoal[i],
+        flow: _at(flow, i),
+        pressure: _at(pressure, i),
+        targetFlow: _at(flowGoal, i),
+        targetPressure: _at(pressureGoal, i),
+        mixTemperature: _at(tempMix, i),
+        groupTemperature: _at(tempBasket, i),
+        targetMixTemperature: _at(tempGoal, i),
+        targetGroupTemperature: _at(tempGoal, i),
         profileFrame: frame,
         steamTemperature: 0,
       );
 
-      final weightSnap = WeightSnapshot(
-        timestamp: ts,
-        weight: weight[i],
-        weightFlow: flowWeight[i],
-      );
+      final weightSnap = i < weight.length
+          ? WeightSnapshot(
+              timestamp: ts,
+              weight: weight[i],
+              weightFlow: _at(flowWeight, i),
+            )
+          : null;
 
       snapshots.add(ShotSnapshot(machine: machineSnap, scale: weightSnap));
     }
 
     return snapshots;
   }
+
+  static double _at(List<double> list, int i) =>
+      i < list.length ? list[i] : 0.0;
 
   static List<double> _stepBoundaries(Profile profile) {
     final boundaries = <double>[];

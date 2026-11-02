@@ -85,6 +85,10 @@ class _Parser {
   int _braceDepth(String s) {
     var depth = 0;
     for (int i = 0; i < s.length; i++) {
+      if (s[i] == r'\') {
+        i++;
+        continue;
+      }
       if (s[i] == '{') depth++;
       if (s[i] == '}') depth--;
     }
@@ -200,6 +204,10 @@ class _Parser {
   int _findClosingBrace(String s, int openIdx) {
     int depth = 0;
     for (int i = openIdx; i < s.length; i++) {
+      if (s[i] == r'\') {
+        i++;
+        continue;
+      }
       if (s[i] == '{') depth++;
       if (s[i] == '}') {
         depth--;

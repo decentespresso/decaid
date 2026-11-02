@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/import/parsers/enjoyment_scale.dart';
+import 'package:reaprime/src/import/parsers/state_change_frames.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/data/shot_annotations.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
@@ -323,6 +324,9 @@ class ShotV2JsonParser {
         .reduce(min);
 
     final boundaries = _stepBoundaries(profile);
+    final recordedFrames = framesFromStateChange(
+      _numList(json['state_change']),
+    );
 
     final snapshots = <ShotSnapshot>[];
     for (var i = 0; i < count; i++) {
@@ -330,7 +334,9 @@ class ShotV2JsonParser {
         Duration(milliseconds: (elapsed[i] * 1000).round()),
       );
 
-      final frame = _frameForElapsed(elapsed[i], boundaries);
+      final frame = i < recordedFrames.length
+          ? recordedFrames[i]
+          : _frameForElapsed(elapsed[i], boundaries);
 
       final machineSnap = MachineSnapshot(
         timestamp: ts,
