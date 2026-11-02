@@ -181,13 +181,32 @@ void main() {
         expect(() => TclShotParser.parse(truncated), returnsNormally);
       });
 
-      test('truncates snapshots to the shortest array length', () {
+      test('keeps every machine sample when the weight array is shorter', () {
         final truncated = fixtureContent.replaceFirst(
           'espresso_weight {0.0 0.1 0.3 0.9 1.8 3.2 4.8 6.6 8.5}',
           'espresso_weight {0.0 0.1 0.3 0.9 1.8}',
         );
         final parsed = TclShotParser.parse(truncated);
-        expect(parsed.shot.measurements.length, equals(5));
+
+        expect(parsed.shot.measurements.length, equals(9));
+        expect(parsed.shot.measurements.last.machine.pressure, equals(8.5));
+        expect(
+          parsed.shot.measurements.take(5).every((m) => m.scale != null),
+          isTrue,
+        );
+        expect(
+          parsed.shot.measurements.skip(5).every((m) => m.scale == null),
+          isTrue,
+        );
+      });
+
+      test('truncates snapshots to the shortest machine array', () {
+        final truncated = fixtureContent.replaceFirst(
+          'espresso_pressure {0.0 1.1 3.2 5.8 8.5 9.0 9.0 8.8 8.5}',
+          'espresso_pressure {0.0 1.1 3.2}',
+        );
+        final parsed = TclShotParser.parse(truncated);
+        expect(parsed.shot.measurements.length, equals(3));
       });
 
       test('does not throw when pressure array is shorter than elapsed', () {
@@ -244,6 +263,26 @@ void main() {
       expect(result.shot.workflow.context?.grinderSetting, equals('21.0'));
       expect(result.shot.annotations?.actualYield, equals(61.6));
       expect(result.shot.annotations?.enjoyment, equals(8.0));
+    });
+
+    test('keeps settings behind a profile note with an unmatched brace', () {
+      final content = File('test/fixtures/de1app/legacy_with_profile.shot')
+          .readAsStringSync()
+          .replaceFirst(
+            '"notes": "An amazing long espresso for light roasts.",',
+            '"notes": "Try a {shorter preinfusion",',
+          );
+      final parsed = TclShotParser.parse(content);
+
+      expect(parsed.shot.workflow.profile.steps.length, equals(2));
+      expect(parsed.shot.workflow.profile.title, equals('Rao Allong\u00e9'));
+      expect(parsed.grinderModel, equals('test02'));
+      expect(parsed.beanBrand, equals('mark'));
+      expect(parsed.shot.annotations?.actualYield, equals(61.6));
+
+      final metadata = TclShotParser.parse(content, metadataOnly: true);
+      expect(metadata.grinderModel, equals('test02'));
+      expect(metadata.shot.annotations?.actualYield, equals(61.6));
     });
 
     test('assigns profile frames from the recovered step boundaries', () {
@@ -317,6 +356,41 @@ void main() {
 
       expect(parsed.shot.workflow.profile.steps.length, equals(6));
       expect(parsed.shot.workflow.profile.title, equals('Londonium'));
+    });
+
+    test('keeps every machine sample when the scale arrays are shorter', () {
+      final shortened = fixtureContent.replaceFirst(
+        RegExp(r'^espresso_weight \{[^}]*\}', multiLine: true),
+        'espresso_weight {0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9}',
+      );
+      final parsed = TclShotParser.parse(shortened);
+
+      expect(parsed.shot.measurements.length, equals(30));
+      expect(parsed.shot.measurements[29].machine.flow, equals(6.05));
+      expect(parsed.shot.measurements[9].scale?.weight, equals(0.9));
+      expect(parsed.shot.measurements[10].scale, isNull);
+    });
+
+    test('falls back to step durations for a truncated frame series', () {
+      final series = RegExp(
+        r'^espresso_state_change \{([^}]*)\}',
+        multiLine: true,
+      ).firstMatch(fixtureContent)!;
+      final truncated = fixtureContent.replaceRange(
+        series.start,
+        series.end,
+        'espresso_state_change '
+        '{${series.group(1)!.split(' ').take(20).join(' ')}}',
+      );
+      final frames = TclShotParser.parse(
+        truncated,
+      ).shot.measurements.map((m) => m.machine.profileFrame).toList();
+
+      expect(frames.length, equals(30));
+      expect(frames.toSet(), equals({0}));
+      for (var i = 1; i < frames.length; i++) {
+        expect(frames[i], greaterThanOrEqualTo(frames[i - 1]));
+      }
     });
 
     test('recovers a profile whose strings contain escaped quotes', () {

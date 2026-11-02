@@ -77,9 +77,32 @@ de1app flips at every frame change the DE1 reports
 (`gui.tcl`'s `_state_change_chart_value`, flipped where
 `current_framenumber != previous_framenumber`). Counting sign changes therefore
 reproduces the machine's own frame sequence, including exits that fire early on
-a pressure, flow or weight condition. Cumulative step durations remain the
-fallback for records without the series, and that fallback is an approximation:
-it assumes every step runs to its configured maximum.
+a pressure, flow or weight condition.
+
+The two schemes are chosen between once per shot, never mixed: the recorded
+series is used only when `length >= count`, otherwise cumulative step durations
+are used for every sample. Mixing them per sample let the frame number jump
+backwards where the series ran out (`[0, 1, 2, 1, 1, 1]`), which no consumer of
+`profileFrame` should have to defend against. The duration fallback is an
+approximation: it assumes every step runs to its configured maximum.
+
+What sign flips cannot express: a flip says the frame number changed, not what
+it changed to. A step the machine skips entirely counts as one advance, so every
+later `profileFrame` is low by the number of skipped frames. Neither file format
+records an absolute frame number per sample, so this is a documented floor on
+accuracy, not a bug to fix later. Frame indices are monotonic and correct in
+count of *transitions*; they are not guaranteed to equal the machine's own frame
+number after a skip.
+
+## Measurement count
+
+Only `elapsed` and the machine series bound the snapshot count. The scale series
+(`espresso_weight`, `espresso_flow_weight`; v2 `totals.weight`,
+`flow.by_weight`) are excluded entirely, because the writer emits them inside
+`catch` blocks and a scale that connects late or drops out mid-shot leaves them
+short rather than absent. Including them cost one machine sample per missing
+scale sample. Scale data is attached per sample where it exists and
+`ShotSnapshot.scale` is null elsewhere.
 
 ## Parse cost
 
@@ -113,15 +136,18 @@ to its brace depth rather than to key order.
 ## Known ceilings
 
 - No benchmark has been run on an Android or iOS target; the figures above are
-  host figures. If a device shows long frames, the parse loop is the thing to
-  batch into a worker isolate, and the metadata-only path has already removed
-  most of the per-shot cost for paired shots.
-- `TclShotParser` recovers the embedded profile with a JSON-string-aware brace
-  scan, so braces and escaped quotes inside string values are safe. `TclParser`
-  itself still counts braces structurally (honouring Tcl's escaped braces). A
-  profile note holding a brace that is unbalanced *as Tcl* would mis-nest the
-  generic pass, which only affects keys written after the `profile` block;
-  de1app's writer emits `profile` last.
+  host figures under the debug VM, and they say nothing about whether a device
+  holds a 16.7 ms frame. The benchmark's assertions are coarse regression guards,
+  not a frame budget. Device responsiveness during a bulk import is recorded as
+  a release-verification item in `doc/RELEASE.md`. If frames drop there, the
+  parse loop is the thing to batch into a worker isolate; the metadata-only path
+  has already removed most of the per-shot cost for paired shots.
+- The `profile` block is cut out of the text before the generic `TclParser` pass
+  runs, so a brace inside a JSON string value can no longer be counted as Tcl
+  structure and the JSON is decoded once rather than parsed twice. This holds
+  whichever order the writer used; a record with `profile` ahead of `settings`
+  keeps its metadata. `TclParser` itself still counts braces structurally,
+  honouring Tcl's escaped braces, for everything outside that block.
 - `targetYield` still prefers `settings target_drink_weight` over the recovered
   profile's `target_weight`.
 

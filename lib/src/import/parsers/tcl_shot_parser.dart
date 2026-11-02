@@ -21,9 +21,13 @@ class TclShotParser {
   static final _sampleLine = RegExp(r'^(espresso|scale)_[a-z_0-9]+ \{');
 
   static ParsedShot parse(String content, {bool metadataOnly = false}) {
-    final map = TclParser.parse(
-      metadataOnly ? _withoutSamples(content) : content,
-    );
+    final profileJson = _profileBlock(content);
+    var tclSource = profileJson == null
+        ? content
+        : content.replaceRange(profileJson.start, profileJson.end, '');
+    if (metadataOnly) tclSource = _withoutSamples(tclSource);
+
+    final map = TclParser.parse(tclSource);
 
     final clock = int.parse(map['clock'] as String);
     final baseTimestamp = DateTime.fromMillisecondsSinceEpoch(
@@ -46,7 +50,9 @@ class TclShotParser {
     final profileTargetWeight = _parseOptDouble(
       settings['final_desired_shot_weight'],
     );
-    final embeddedProfile = metadataOnly ? null : _embeddedProfile(content);
+    final embeddedProfile = metadataOnly || profileJson == null
+        ? null
+        : _profileFrom(profileJson.text);
     final profile =
         embeddedProfile ??
         Profile(
@@ -128,17 +134,24 @@ class TclShotParser {
     );
   }
 
-  static Profile? _embeddedProfile(String content) {
+  static _ProfileBlock? _profileBlock(String content) {
     final opening = RegExp(r'^profile \{', multiLine: true).firstMatch(content);
     if (opening == null) return null;
 
-    final start = opening.end - 1;
-    final end = _closingBrace(content, start);
-    if (end < 0) return null;
+    final jsonStart = opening.end - 1;
+    final closing = _closingBrace(content, jsonStart);
+    if (closing < 0) return null;
 
+    return _ProfileBlock(
+      text: content.substring(jsonStart, closing + 1),
+      start: opening.start,
+      end: closing + 1,
+    );
+  }
+
+  static Profile? _profileFrom(String text) {
     try {
-      final json =
-          jsonDecode(content.substring(start, end + 1)) as Map<String, dynamic>;
+      final json = jsonDecode(text) as Map<String, dynamic>;
       final profile = Profile.fromRecordedJson(json);
       return profile.steps.isEmpty ? null : profile;
     } catch (_) {
@@ -202,8 +215,6 @@ class TclShotParser {
       elapsed,
       pressure,
       flow,
-      flowWeight,
-      weight,
       tempBasket,
       tempMix,
       tempGoal,
@@ -215,6 +226,7 @@ class TclShotParser {
     final recordedFrames = framesFromStateChange(
       _parseDoubleList(map['espresso_state_change']),
     );
+    final useRecordedFrames = recordedFrames.length >= count;
 
     final snapshots = <ShotSnapshot>[];
     for (var i = 0; i < count; i++) {
@@ -222,7 +234,7 @@ class TclShotParser {
         Duration(milliseconds: (elapsed[i] * 1000).round()),
       );
 
-      final frame = i < recordedFrames.length
+      final frame = useRecordedFrames
           ? recordedFrames[i]
           : _frameForElapsed(elapsed[i], boundaries);
 
@@ -299,4 +311,15 @@ class TclShotParser {
     final s = value.toString().trim();
     return s.isEmpty ? null : double.tryParse(s);
   }
+}
+
+class _ProfileBlock {
+  final String text;
+  final int start;
+  final int end;
+  const _ProfileBlock({
+    required this.text,
+    required this.start,
+    required this.end,
+  });
 }

@@ -648,27 +648,42 @@ the copy time, so the mtime of a staged file says nothing about which of the two
 is fresher.
 
 A legacy `.shot` carries the complete v2 profile as JSON under its top-level
-`profile` key. `TclShotParser` recovers it with a JSON-string-aware brace scan
-over the raw text rather than through `TclParser`, whose line-oriented block
-handling cannot parse embedded JSON, and falls back to a step-less profile
-titled from `settings profile_title` when that JSON is absent or unparseable.
+`profile` key. `TclShotParser` locates that block with a JSON-string-aware brace
+scan, decodes it directly, and **cuts it out of the text before the generic
+`TclParser` pass runs**, so the JSON is read once and its braces can never be
+counted as Tcl structure. That matters for a record whose `profile` block
+precedes `settings`: a brace inside a JSON string value is unbalanced as Tcl and
+would otherwise swallow the `settings` block whole. The parser falls back to a
+step-less profile titled from `settings profile_title` when the JSON is absent
+or unparseable.
 Braces, escaped quotes and escaped backslashes inside JSON string values do not
 disturb the scan. `TclParser`'s own brace counting follows the Tcl rule that a
 backslash-escaped brace does not nest, which matters because de1app writes each
 settings value through `[list $v]`.
 
-Only `espresso_elapsed` and the machine series bound the measurement count. The
-canonical writer emits `espresso_weight` and `espresso_flow_weight` inside
-`catch` blocks, so a shot recorded without a scale has neither; those shots keep
-all their machine telemetry and get `ShotSnapshot.scale == null`.
+Only `espresso_elapsed` and the machine series bound the measurement count; the
+scale series never do. The canonical writer emits `espresso_weight` and
+`espresso_flow_weight` inside `catch` blocks, so a shot recorded without a scale
+has neither, and a scale that connected late or dropped out mid-shot leaves them
+shorter than the machine trace. Either way every machine sample survives, and
+`ShotSnapshot.scale` is null for the samples the scale does not cover. The v2
+parser treats `totals.weight` and `flow.by_weight` the same way.
 
 `profileFrame` comes from the recorded `espresso_state_change` series (v2:
 `state_change`), which de1app flips in sign at every frame change the machine
-reports, so conditional early exits land on the right frame. Cumulative step
-durations are only the fallback for records that predate that series or whose
-series is shorter than `elapsed`; that fallback assumes each step runs to its
-configured maximum and is wrong for any profile that exits early on pressure,
-flow or weight.
+reports, so conditional early exits land on the right frame. The choice is made
+once per shot: the recorded series is used only when it covers every sample,
+otherwise cumulative step durations are used for the whole shot. The two are
+never mixed within one shot, which would let the frame number jump backwards
+mid-record. The duration fallback assumes each step runs to its configured
+maximum and is wrong for any profile that exits early on pressure, flow or
+weight.
+
+A sign flip records only that the machine's frame number changed, not its new
+value, so a profile step the machine skips outright (a step-skip, or an exit
+condition that jumps more than one frame) counts as a single advance and every
+later `profileFrame` is that much low. Nothing in either file format records the
+absolute frame number per sample, so that undercount cannot be recovered here.
 
 For a shot present in both formats, the legacy sibling is parsed in
 `metadataOnly` mode: sample lines are skipped, no snapshots are built, and the
