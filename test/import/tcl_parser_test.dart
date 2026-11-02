@@ -265,5 +265,40 @@ void main() {
         );
       });
     });
+
+    group('multi-line braced values', () {
+      const settingsWithBackup =
+          'settings {\n'
+          '\tbean_brand {Banibeans}\n'
+          '\tread_only_backup {advanced_shot {{exit_if 0 flow 4.50}}\n'
+          ' profile_title {Backup Profile}\n'
+          ' read_only 1\n'
+          '}\n'
+          '\tprofile_title {Rao Allonge}\n'
+          '}\n'
+          'clock 1699432544\n';
+
+      test('a value spanning lines does not close its enclosing block', () {
+        final result = TclParser.parse(settingsWithBackup);
+        final settings = result['settings'] as Map;
+        expect(settings['profile_title'], equals('Rao Allonge'));
+      });
+
+      test('keys after a multi-line value stay inside the block', () {
+        final result = TclParser.parse(settingsWithBackup);
+        expect(result.containsKey('profile_title'), isFalse);
+      });
+
+      test('parsing resumes at the top level after the block closes', () {
+        final result = TclParser.parse(settingsWithBackup);
+        expect(result['clock'], equals('1699432544'));
+      });
+
+      test('the multi-line value itself is retained', () {
+        final result = TclParser.parse(settingsWithBackup);
+        final settings = result['settings'] as Map;
+        expect(settings.containsKey('read_only_backup'), isTrue);
+      });
+    });
   });
 }

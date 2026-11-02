@@ -49,6 +49,64 @@ class De1appImporter {
         ShotV2JsonParser.parse,
   }) : _parseV2Shot = parseV2Shot;
 
+  Future<_ParsedCandidate?> _parseShotSource(
+    _ShotSource source,
+    List<ImportError> errors,
+  ) async {
+    final v2File = source.v2;
+    final legacyFile = source.legacy;
+
+    ParsedShot? v2Shot;
+    if (v2File != null) {
+      try {
+        final json =
+            jsonDecode(await v2File.readAsString()) as Map<String, dynamic>;
+        v2Shot = _parseV2Shot(json);
+      } catch (e, st) {
+        final filename = v2File.uri.pathSegments.last;
+        _log.warning('Failed to parse shot file $filename', e, st);
+        if (legacyFile == null) {
+          errors.add(
+            ImportError(
+              filename: filename,
+              reason: 'Parse error',
+              details: e.toString(),
+            ),
+          );
+          return null;
+        }
+      }
+    }
+
+    ParsedShot? legacyShot;
+    if (legacyFile != null) {
+      try {
+        legacyShot = TclShotParser.parse(await legacyFile.readAsString());
+      } catch (e, st) {
+        final filename = legacyFile.uri.pathSegments.last;
+        _log.warning('Failed to parse shot file $filename', e, st);
+        if (v2Shot == null) {
+          errors.add(
+            ImportError(
+              filename: filename,
+              reason: 'Parse error',
+              details: e.toString(),
+            ),
+          );
+          return null;
+        }
+      }
+    }
+
+    if (v2Shot == null) {
+      return legacyShot == null
+          ? null
+          : _ParsedCandidate(legacyShot, fromV2: false);
+    }
+    if (legacyShot == null) return _ParsedCandidate(v2Shot, fromV2: true);
+    return _ParsedCandidate(v2Shot.fillGapsFrom(legacyShot), fromV2: true);
+  }
+
   Future<ImportResult> import(
     ScanResult scanResult, {
     void Function(ImportProgress)? onProgress,
@@ -64,43 +122,34 @@ class De1appImporter {
     );
     var settingsApplied = false;
 
-    final parsedShots = <ParsedShot>[];
-    final shotFiles = (await _mergedFiles(
-      preferred: Directory('${scanResult.sourcePath}/history_v2'),
-      preferredExtension: '.json',
-      fallback: Directory('${scanResult.sourcePath}/history'),
-      fallbackExtension: '.shot',
-      newerFallbackWins: true,
+    final candidates = <String, _ParsedCandidate>{};
+    final shotSources = (await _shotSources(
+      v2: Directory('${scanResult.sourcePath}/history_v2'),
+      legacy: Directory('${scanResult.sourcePath}/history'),
     )).values.toList();
 
-    for (var i = 0; i < shotFiles.length; i++) {
-      final entry = shotFiles[i];
-      final filename = entry.file.uri.pathSegments.last;
-      try {
-        final content = await entry.file.readAsString();
-        ParsedShot parsed;
-        if (entry.isPreferred) {
-          final json = jsonDecode(content) as Map<String, dynamic>;
-          parsed = _parseV2Shot(json);
-        } else {
-          parsed = TclShotParser.parse(content);
-        }
-        parsedShots.add(parsed);
-      } catch (e, st) {
-        _log.warning('Failed to parse shot file $filename', e, st);
-        errors.add(
-          ImportError(
-            filename: filename,
-            reason: 'Parse error',
-            details: e.toString(),
-          ),
-        );
+    for (var i = 0; i < shotSources.length; i++) {
+      final candidate = await _parseShotSource(shotSources[i], errors);
+      if (candidate != null) {
+        final id = candidate.parsed.shot.id;
+        final existing = candidates[id];
+        candidates[id] = existing == null
+            ? candidate
+            : _mergeCandidates(existing, candidate);
       }
 
       onProgress?.call(
-        ImportProgress(current: i + 1, total: shotFiles.length, phase: 'shots'),
+        ImportProgress(
+          current: i + 1,
+          total: shotSources.length,
+          phase: 'shots',
+        ),
       );
     }
+
+    final parsedShots = candidates.values
+        .map((candidate) => candidate.parsed)
+        .toList();
 
     var dyeGrinders = <Grinder>[];
     if (scanResult.hasDyeGrinders) {
@@ -324,12 +373,65 @@ class _MergedFile {
   const _MergedFile(this.file, {required this.isPreferred});
 }
 
+class _ParsedCandidate {
+  final ParsedShot parsed;
+  final bool fromV2;
+  const _ParsedCandidate(this.parsed, {required this.fromV2});
+}
+
+class _ShotSource {
+  final File? v2;
+  final File? legacy;
+  const _ShotSource({this.v2, this.legacy});
+}
+
+_ParsedCandidate _mergeCandidates(_ParsedCandidate a, _ParsedCandidate b) {
+  final primary = b.fromV2 && !a.fromV2 ? b : a;
+  final secondary = primary == a ? b : a;
+  return _ParsedCandidate(
+    primary.parsed.fillGapsFrom(secondary.parsed),
+    fromV2: primary.fromV2,
+  );
+}
+
+Future<Map<String, _ShotSource>> _shotSources({
+  required Directory v2,
+  required Directory legacy,
+}) async {
+  final result = <String, _ShotSource>{};
+
+  if (await legacy.exists()) {
+    await for (final entity in legacy.list()) {
+      if (entity is File && entity.path.endsWith('.shot')) {
+        final basename = _basename(entity, '.shot');
+        result[basename] = _ShotSource(
+          v2: result[basename]?.v2,
+          legacy: entity,
+        );
+      }
+    }
+  }
+
+  if (await v2.exists()) {
+    await for (final entity in v2.list()) {
+      if (entity is File && entity.path.endsWith('.json')) {
+        final basename = _basename(entity, '.json');
+        result[basename] = _ShotSource(
+          v2: entity,
+          legacy: result[basename]?.legacy,
+        );
+      }
+    }
+  }
+
+  return result;
+}
+
 Future<Map<String, _MergedFile>> _mergedFiles({
   required Directory preferred,
   required String preferredExtension,
   required Directory fallback,
   required String fallbackExtension,
-  bool newerFallbackWins = false,
 }) async {
   final result = <String, _MergedFile>{};
 
@@ -347,14 +449,10 @@ Future<Map<String, _MergedFile>> _mergedFiles({
   if (await preferred.exists()) {
     await for (final entity in preferred.list()) {
       if (entity is File && entity.path.endsWith(preferredExtension)) {
-        final basename = _basename(entity, preferredExtension);
-        final existing = result[basename];
-        if (newerFallbackWins && existing != null && !existing.isPreferred) {
-          final preferredModified = (await entity.stat()).modified;
-          final fallbackModified = (await existing.file.stat()).modified;
-          if (preferredModified.isBefore(fallbackModified)) continue;
-        }
-        result[basename] = _MergedFile(entity, isPreferred: true);
+        result[_basename(entity, preferredExtension)] = _MergedFile(
+          entity,
+          isPreferred: true,
+        );
       }
     }
   }
