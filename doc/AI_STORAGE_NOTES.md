@@ -92,10 +92,16 @@ version. Windows startup now calls `initializeWindowsPreferences` before either
 API is used. The Async platform adapter delegates to the existing legacy backend,
 so both APIs share its one warmed cache and file. Raw prefixed legacy keys and
 unprefixed Async keys retain their existing meanings; no migration is required.
-Failed backend writes/removals throw rather than claiming successful Async saves.
+The shared adapter serializes reads and mutations. Failed writes restore the
+affected backend cache entries before another client can read or save them;
+reloading the legacy preferences cache alone does not undo Windows backend
+mutations. Failed backend writes/removals throw rather than claiming successful
+Async saves.
 `windows_preferences_test.dart` uses the actual Windows file backend in a temporary
 directory, interleaves both APIs, reconstructs them from disk and checks retained
-notifications, read state, skipped versions and unrelated settings. This does not
+notifications, read state, skipped versions and unrelated settings. Failure tests
+also cover publication, reading, resolution, Async set/remove/clear and a settings
+write queued during a failed notification save. This does not
 provide cross-process or multi-isolate synchronization; the app's preferences
 owners run in its main isolate.
 
