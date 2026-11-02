@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -19,6 +18,7 @@ import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/settings/backup_import_response.dart';
 import 'package:reaprime/src/settings/backup_import_presentation.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
+import 'package:reaprime/src/services/webserver/data_export/backup_transfer_service.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
 
 enum _ImportPhase { pickSource, copying, scanning, summary, importing, result }
@@ -213,19 +213,15 @@ class _ImportStepViewState extends State<_ImportStepView> {
   }
 
   Future<BackupImportResponse> _uploadZip(String filePath) async {
-    final bytes = await File(filePath).readAsBytes();
-    final client = HttpClient();
+    final transfer = BackupTransferService();
     try {
-      final request = await client.postUrl(
-        Uri.parse('http://localhost:8080/api/v1/data/import?onConflict=skip'),
+      return await transfer.uploadZip(
+        'http://localhost:8080/api/v1/data/import',
+        'skip',
+        filePath: filePath,
       );
-      request.headers.contentType = ContentType('application', 'zip');
-      request.add(bytes);
-      final response = await request.close();
-      final responseBody = await response.transform(utf8.decoder).join();
-      return BackupImportResponse.fromHttp(response.statusCode, responseBody);
     } finally {
-      client.close();
+      transfer.close();
     }
   }
 
