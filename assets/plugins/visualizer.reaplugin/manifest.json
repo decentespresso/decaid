@@ -3,7 +3,8 @@
   "author": "Decent Espresso",
   "name": "Visualizer upload",
   "description": "Uploads shots to Visualizer and syncs your edited shot metadata back",
-  "version": "1.5.11",
+  "version": "1.6.0",
+  "credentialScope": "ServerUrl",
   "apiVersion": 1,
   "permissions": [
     "log",
@@ -24,6 +25,12 @@
       "label": "Visualizer password",
       "secure": true,
       "description": "Visualiser password"
+    },
+    "ServerUrl": {
+      "type": "string",
+      "label": "Visualizer server URL",
+      "description": "Visualizer server to use for uploads, imports and sync. Defaults to https://visualizer.coffee. A reverse-proxy path prefix is supported; query strings and fragments are not.",
+      "default": "https://visualizer.coffee"
     },
     "AutoUpload": {
       "type": "boolean",

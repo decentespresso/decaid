@@ -988,6 +988,7 @@ class PluginManager {
               url: String(input),
               method: init.method || "GET",
               headers: init.headers || {},
+              redirect: init.redirect ?? "follow",
               body: init.body ?? null
             }));
           });
@@ -3271,9 +3272,16 @@ class PluginManager {
     final method = ((msg['method'] as String?) ?? 'GET').toUpperCase();
     final headers = msg['headers'] as Map? ?? {};
     final body = msg['body'];
+    final redirect = msg['redirect'] ?? 'follow';
+    if (redirect != 'follow' && redirect != 'error') {
+      throw ArgumentError(
+        'Unsupported fetch redirect mode: only "follow" and "error" are supported',
+      );
+    }
 
     final request = await _getHttpClient().openUrl(method, uri);
     op.request = request;
+    request.followRedirects = redirect == 'follow';
     headers.forEach((k, v) {
       request.headers.set(k.toString(), v.toString());
     });
@@ -3283,6 +3291,13 @@ class PluginManager {
       );
     }
     final response = await request.close();
+    if (redirect == 'error' &&
+        const {301, 302, 303, 307, 308}.contains(response.statusCode)) {
+      request.abort();
+      throw StateError(
+        'fetch redirect rejected; configure the final server URL',
+      );
+    }
     final bytes = await response.fold<List<int>>([], (acc, chunk) {
       if (acc.length + chunk.length > maxFetchResponseBytes) {
         throw StateError(

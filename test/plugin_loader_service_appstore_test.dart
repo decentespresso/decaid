@@ -121,6 +121,7 @@ void main() {
     late FakeCredentialStore credentialStore;
     late FakeKvStore kvStore;
     var sourceCounter = 0;
+    var failNextCredentialScopeWrite = false;
 
     Future<Object?> waitForStorage(
       String namespace,
@@ -140,6 +141,7 @@ void main() {
       Map<String, Object> settings = const {},
       List<String> permissions = const [],
       String? jsCode,
+      String? credentialScope,
     }) {
       final dir = Directory('${tempDir.path}/source_${sourceCounter++}')
         ..createSync();
@@ -152,6 +154,7 @@ void main() {
           'version': '1.0.0',
           'apiVersion': 1,
           'permissions': permissions,
+          'credentialScope': ?credentialScope,
           'settings': settings,
           'api': <Object>[],
         }),
@@ -177,9 +180,21 @@ function createPlugin() {
           );
       credentialStore = FakeCredentialStore();
       kvStore = FakeKvStore();
+      failNextCredentialScopeWrite = false;
       service = PluginLoaderService(
         kvStore: kvStore,
         credentialStore: credentialStore,
+        credentialScopeWriter: (pluginId, scope) async {
+          if (failNextCredentialScopeWrite) {
+            failNextCredentialScopeWrite = false;
+            return false;
+          }
+          final prefs = await SharedPreferences.getInstance();
+          final key = 'plugin.settings.credential-scope.$pluginId';
+          return scope == null
+              ? prefs.remove(key)
+              : prefs.setString(key, scope);
+        },
       );
       await service.initialize();
     });
@@ -299,6 +314,334 @@ function createPlugin() {
           'Password': {'isSet': false},
         });
         expect(credentialStore.values, isEmpty);
+      },
+    );
+
+    test(
+      'URL credential scope clears username and password on change',
+      () async {
+        const id = 'scoped-credentials.reaplugin';
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            credentialScope: 'ServerUrl',
+            settings: {
+              'ServerUrl': {
+                'type': 'string',
+                'default': 'https://visualizer.coffee/',
+              },
+              'Username': {'type': 'string'},
+              'Password': {'type': 'string', 'secure': true},
+            },
+          ).path,
+        );
+
+        await service.savePluginSettings(id, {
+          'Username': 'first-user',
+          'Password': 'first-secret',
+        });
+        expect(await service.pluginSettings(id), {
+          'Username': 'first-user',
+          'Password': {'isSet': true},
+        });
+
+        await service.savePluginSettings(id, {
+          'ServerUrl': 'HTTPS://HOST.EXAMPLE:443/base///',
+        });
+        expect(await service.pluginSettings(id), {
+          'ServerUrl': 'https://host.example/base',
+          'Password': {'isSet': false},
+        });
+        expect(credentialStore.values, isEmpty);
+        final prefs = await SharedPreferences.getInstance();
+        expect(
+          prefs.getString('plugin.settings.credential-scope.$id'),
+          'https://host.example/base',
+        );
+      },
+    );
+
+    test('normalized URL changes preserve credentials', () async {
+      const id = 'same-scope.reaplugin';
+      await service.addPlugin(
+        makePluginSource(
+          id,
+          credentialScope: 'ServerUrl',
+          settings: {
+            'ServerUrl': {'type': 'string', 'default': 'https://host.example'},
+            'Username': {'type': 'string'},
+            'Password': {'type': 'string', 'secure': true},
+          },
+        ).path,
+      );
+      await service.savePluginSettings(id, {
+        'ServerUrl': 'https://HOST.EXAMPLE:443///',
+        'Username': 'user',
+        'Password': 'secret',
+      });
+      await service.savePluginSettings(id, {
+        'ServerUrl': 'https://host.example/',
+      });
+      expect(await service.pluginSettings(id), {
+        'ServerUrl': 'https://host.example',
+        'Username': 'user',
+        'Password': {'isSet': true},
+      });
+      expect(
+        credentialStore.values.values.single,
+        jsonEncode({'Password': 'secret'}),
+      );
+    });
+
+    test(
+      'invalid scoped URL fails before changing persisted credentials',
+      () async {
+        const id = 'invalid-scope.reaplugin';
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            credentialScope: 'ServerUrl',
+            settings: {
+              'ServerUrl': {
+                'type': 'string',
+                'default': 'https://host.example',
+              },
+              'Username': {'type': 'string'},
+              'Password': {'type': 'string', 'secure': true},
+            },
+          ).path,
+        );
+        await service.savePluginSettings(id, {
+          'Username': 'user',
+          'Password': 'secret',
+        });
+        for (final invalidUrl in [
+          'https://host.example/?token=secret',
+          'https://host.example:0',
+          'https://host.example:65536',
+          'https://host.example/../other',
+          'https://user:password@host.example',
+        ]) {
+          await expectLater(
+            service.savePluginSettings(id, {'ServerUrl': invalidUrl}),
+            throwsA(isA<PluginSettingsValidationException>()),
+          );
+        }
+        expect(await service.pluginSettings(id), {
+          'Username': 'user',
+          'Password': {'isSet': true},
+        });
+        expect(
+          credentialStore.values.values.single,
+          jsonEncode({'Password': 'secret'}),
+        );
+      },
+    );
+
+    test(
+      'masked credentials cannot cross scopes but explicit replacements can',
+      () async {
+        const id = 'scope-replacement.reaplugin';
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            credentialScope: 'ServerUrl',
+            settings: {
+              'ServerUrl': {
+                'type': 'string',
+                'default': 'https://server-a.example',
+              },
+              'Username': {'type': 'string'},
+              'Password': {'type': 'string', 'secure': true},
+            },
+          ).path,
+        );
+        await service.savePluginSettings(id, {
+          'Username': 'user-a',
+          'Password': 'secret-a',
+        });
+        await service.savePluginSettings(id, {
+          'ServerUrl': 'https://server-b.example',
+          'Password': {'isSet': true},
+        });
+        expect(await service.pluginSettings(id), {
+          'ServerUrl': 'https://server-b.example',
+          'Password': {'isSet': false},
+        });
+        expect(credentialStore.values, isEmpty);
+        await service.savePluginSettings(id, {
+          'ServerUrl': 'https://server-c.example',
+          'Username': 'user-c',
+          'Password': 'secret-c',
+        });
+        expect(await service.pluginSettings(id), {
+          'ServerUrl': 'https://server-c.example',
+          'Username': 'user-c',
+          'Password': {'isSet': true},
+        });
+        expect(
+          credentialStore.values.values.single,
+          jsonEncode({'Password': 'secret-c'}),
+        );
+      },
+    );
+
+    test('scope persistence failure leaves rotation fail-closed', () async {
+      const id = 'scope-write-failure.reaplugin';
+      await service.addPlugin(
+        makePluginSource(
+          id,
+          credentialScope: 'ServerUrl',
+          settings: {
+            'ServerUrl': {
+              'type': 'string',
+              'default': 'https://server-a.example',
+            },
+            'Username': {'type': 'string'},
+            'Password': {'type': 'string', 'secure': true},
+          },
+        ).path,
+      );
+      await service.savePluginSettings(id, {
+        'ServerUrl': 'https://server-a.example',
+        'Username': 'user-a',
+        'Password': 'secret-a',
+      });
+      failNextCredentialScopeWrite = true;
+      await expectLater(
+        service.savePluginSettings(id, {
+          'ServerUrl': 'https://server-b.example',
+          'Username': 'user-b',
+          'Password': 'secret-b',
+        }),
+        throwsA(isA<StateError>()),
+      );
+      expect(credentialStore.values, isEmpty);
+      expect(await service.pluginSettings(id), {
+        'ServerUrl': 'https://server-a.example',
+        'Username': 'user-a',
+        'Password': {'isSet': false},
+      });
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getString('plugin.settings.credential-scope.$id'),
+        'https://server-a.example',
+      );
+      final fresh = PluginLoaderService(
+        kvStore: kvStore,
+        credentialStore: credentialStore,
+        credentialScopeWriter: (pluginId, scope) async {
+          final freshPrefs = await SharedPreferences.getInstance();
+          final key = 'plugin.settings.credential-scope.$pluginId';
+          return scope == null
+              ? freshPrefs.remove(key)
+              : freshPrefs.setString(key, scope);
+        },
+      );
+      await fresh.initialize();
+      expect(await fresh.pluginSettings(id), {
+        'ServerUrl': 'https://server-a.example',
+        'Username': 'user-a',
+        'Password': {'isSet': false},
+      });
+      final freshPrefs = await SharedPreferences.getInstance();
+      expect(
+        freshPrefs.getString('plugin.settings.credential-scope.$id'),
+        'https://server-a.example',
+      );
+      await fresh.dispose();
+    });
+
+    for (final hasBinding in [true, false]) {
+      test(
+        'custom scope clears old credentials with binding=$hasBinding',
+        () async {
+          const id = 'scope-mismatch.reaplugin';
+          await service.addPlugin(
+            makePluginSource(
+              id,
+              credentialScope: 'ServerUrl',
+              settings: {
+                'ServerUrl': {
+                  'type': 'string',
+                  'default': 'https://server-a.example',
+                },
+                'Username': {'type': 'string'},
+                'Password': {'type': 'string', 'secure': true},
+              },
+            ).path,
+          );
+          await service.savePluginSettings(id, {
+            'Username': 'user-a',
+            'Password': 'secret-a',
+          });
+          final prefs = await SharedPreferences.getInstance();
+          if (!hasBinding) {
+            await prefs.remove('plugin.settings.credential-scope.$id');
+          }
+          await prefs.setString(
+            'plugin.settings.$id',
+            jsonEncode({
+              'ServerUrl': 'https://server-b.example',
+              'Username': 'user-a',
+              'Password': 'legacy-secret-a',
+            }),
+          );
+          expect(await service.pluginSettings(id), {
+            'ServerUrl': 'https://server-b.example',
+            'Password': {'isSet': false},
+          });
+          expect(jsonDecode(prefs.getString('plugin.settings.$id')!), {
+            'ServerUrl': 'https://server-b.example',
+          });
+          expect(await service.pluginSettings(id), {
+            'ServerUrl': 'https://server-b.example',
+            'Password': {'isSet': false},
+          });
+          expect(credentialStore.values, isEmpty);
+        },
+      );
+    }
+
+    test(
+      'unbound legacy credentials migrate only to the default scope',
+      () async {
+        const id = 'default-legacy-scope.reaplugin';
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            credentialScope: 'ServerUrl',
+            settings: {
+              'ServerUrl': {
+                'type': 'string',
+                'default': 'https://default.example',
+              },
+              'Username': {'type': 'string'},
+              'Password': {'type': 'string', 'secure': true},
+            },
+          ).path,
+        );
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('plugin.settings.credential-scope.$id');
+        await prefs.setString(
+          'plugin.settings.$id',
+          jsonEncode({'Username': 'legacy-user', 'Password': 'legacy-secret'}),
+        );
+        expect(await service.pluginSettings(id), {
+          'Username': 'legacy-user',
+          'Password': {'isSet': true},
+        });
+        expect(
+          credentialStore.values.values.single,
+          jsonEncode({'Password': 'legacy-secret'}),
+        );
+        expect(
+          prefs.getString('plugin.settings.credential-scope.$id'),
+          'https://default.example',
+        );
+        expect(jsonDecode(prefs.getString('plugin.settings.$id')!), {
+          'Username': 'legacy-user',
+        });
       },
     );
 
@@ -1096,6 +1439,54 @@ function createPlugin(host) {
         expect(await service.pluginSettings(id), isEmpty);
         final prefs = await SharedPreferences.getInstance();
         expect(prefs.containsKey('plugin.settings.$id'), isFalse);
+      });
+
+      test('a failed update restores the credential scope and secret', () async {
+        const id = 'scope-rollback.reaplugin';
+        Map<String, Object> settingsFor(String url) => {
+          'ServerUrl': {'type': 'string', 'default': url},
+          'Username': {'type': 'string'},
+          'Password': {'type': 'string', 'secure': true},
+        };
+        await service.addPlugin(
+          makePluginSource(
+            id,
+            credentialScope: 'ServerUrl',
+            settings: settingsFor('https://server-a.example'),
+            jsCode:
+                'function createPlugin() { return { id: "$id", onLoad() {} }; }',
+          ).path,
+        );
+        await service.savePluginSettings(id, {
+          'Username': 'user',
+          'Password': 'secret',
+        });
+        await service.loadPlugin(id);
+        await expectLater(
+          service.addPlugin(
+            makePluginSource(
+              id,
+              credentialScope: 'ServerUrl',
+              settings: settingsFor('https://server-b.example'),
+              jsCode: 'function createPlugin() { throw new Error("boom"); }',
+            ).path,
+          ),
+          throwsA(anything),
+        );
+        expect(service.isPluginLoaded(id), isTrue);
+        expect(await service.pluginSettings(id), {
+          'Username': 'user',
+          'Password': {'isSet': true},
+        });
+        expect(
+          credentialStore.values.values.single,
+          jsonEncode({'Password': 'secret'}),
+        );
+        final prefs = await SharedPreferences.getInstance();
+        expect(
+          prefs.getString('plugin.settings.credential-scope.$id'),
+          'https://server-a.example',
+        );
       });
 
       test('a failed update restores the previous settings', () async {
