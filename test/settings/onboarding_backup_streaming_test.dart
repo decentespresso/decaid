@@ -187,51 +187,103 @@ void main() {
     expect(client.closed, isTrue);
   });
 
-  testWidgets(
-    'onboarding preserves the failed import result on the default path',
-    (tester) async {
-      final file = _FileWithoutReadAsBytes([4, 5]);
-      final client = _Client(
-        expectedUri: Uri.parse(
-          'http://localhost:8080/api/v1/data/import?onConflict=skip',
-        ),
-        statusCode: 400,
-        responseBody: '{"message":"Invalid backup","reason":"invalid_zip"}',
-      );
-      final step = createImportStep(
-        profileStorageService: _Profiles(),
-        beanStorageService: _Beans(),
-        grinderStorageService: _Grinders(),
-        settingsController: SettingsController(MockSettingsService()),
-        persistenceController: PersistenceController(
-          storageService: _Storage(),
-        ),
-      );
-      final onboarding = OnboardingController(steps: [step]);
-      await IOOverrides.runZoned(() async {
-        await HttpOverrides.runZoned(() async {
-          await tester.pumpWidget(
-            ShadApp(home: ScaffoldMessenger(child: step.builder(onboarding))),
-          );
-          await _selectZip(tester, onboarding);
-        }, createHttpClient: (_) => client);
-      }, createFile: (_) => file);
+  for (final reason in ['invalid_zip', 'too_many_entries']) {
+    testWidgets(
+      'onboarding preserves $reason import result on the default path',
+      (tester) async {
+        final file = _FileWithoutReadAsBytes([4, 5]);
+        final client = _Client(
+          expectedUri: Uri.parse(
+            'http://localhost:8080/api/v1/data/import?onConflict=skip',
+          ),
+          statusCode: 400,
+          responseBody: '{"message":"Invalid backup","reason":"$reason"}',
+        );
+        final step = createImportStep(
+          profileStorageService: _Profiles(),
+          beanStorageService: _Beans(),
+          grinderStorageService: _Grinders(),
+          settingsController: SettingsController(MockSettingsService()),
+          persistenceController: PersistenceController(
+            storageService: _Storage(),
+          ),
+        );
+        final onboarding = OnboardingController(steps: [step]);
+        await IOOverrides.runZoned(() async {
+          await HttpOverrides.runZoned(() async {
+            await tester.pumpWidget(
+              ShadApp(home: ScaffoldMessenger(child: step.builder(onboarding))),
+            );
+            await _selectZip(tester, onboarding);
+          }, createHttpClient: (_) => client);
+        }, createFile: (_) => file);
 
-      expect(file.readAsBytesCalls, 0);
-      expect(client.request.body, [4, 5]);
-      final resultView = tester.widget<ImportResultView>(
-        find.byType(ImportResultView),
-      );
-      expect(resultView.result.errors.single.reason, 'ZIP import failed');
-      expect(
-        resultView.result.errors.single.details,
-        contains('Invalid backup'),
-      );
-      await tester.tap(find.text('Show details'));
-      await tester.pump();
-      expect(find.text('ZIP import failed'), findsOneWidget);
-      expect(client.request.closed, isTrue);
-      expect(client.closed, isTrue);
-    },
-  );
+        expect(file.readAsBytesCalls, 0);
+        expect(client.request.body, [4, 5]);
+        expect(client.request.contentLength, 2);
+        expect(
+          client.request.requestHeaders.contentType?.mimeType,
+          'application/zip',
+        );
+        final resultViewFinder = find.byType(ImportResultView);
+        final resultView = tester.widget<ImportResultView>(resultViewFinder);
+        final error = resultView.result.errors.single;
+        if (reason == 'invalid_zip') {
+          expect(error.reason, 'ZIP import failed');
+          expect(error.details, contains('Invalid backup'));
+          expect(find.byType(SnackBar), findsNothing);
+          await tester.tap(
+            find.descendant(
+              of: resultViewFinder,
+              matching: find.text('Show details'),
+            ),
+          );
+          await tester.pump();
+          expect(
+            find.descendant(
+              of: resultViewFinder,
+              matching: find.text('ZIP import failed'),
+            ),
+            findsOneWidget,
+          );
+        } else {
+          expect(error.reason, contains('If it is De1App data'));
+          expect(error.reason, contains('extract the archive'));
+          expect(error.reason, contains('select the de1plus folder'));
+          expect(error.details, isNull);
+          await tester.tap(
+            find.descendant(
+              of: resultViewFinder,
+              matching: find.text('Show details'),
+            ),
+          );
+          await tester.pump();
+          expect(
+            find.descendant(
+              of: resultViewFinder,
+              matching: find.textContaining('If it is De1App data'),
+            ),
+            findsOneWidget,
+          );
+          expect(
+            find.descendant(
+              of: resultViewFinder,
+              matching: find.textContaining('select the de1plus folder'),
+            ),
+            findsOneWidget,
+          );
+          expect(find.byType(SnackBar), findsOneWidget);
+          final snackBar = tester.widget<SnackBar>(find.byType(SnackBar));
+          expect(snackBar.duration, const Duration(seconds: 12));
+          expect(snackBar.content, isA<Text>());
+          final snackBarText = snackBar.content as Text;
+          expect(snackBarText.data, contains('If it is De1App data'));
+          expect(snackBarText.data, contains('extract the archive'));
+          expect(snackBarText.data, contains('select the de1plus folder'));
+        }
+        expect(client.request.closed, isTrue);
+        expect(client.closed, isTrue);
+      },
+    );
+  }
 }
