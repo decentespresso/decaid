@@ -305,20 +305,18 @@ class ShotV2JsonParser {
     final totalWeight = _numList(totals?['weight']);
     final waterDispensed = _numList(totals?['water_dispensed']);
 
-    final allArrays = [
+    final machineArrays = [
       elapsed,
       pressureData,
       pressureGoal,
       flowData,
       flowGoal,
-      flowByWeight,
       tempBasket,
       tempMix,
       tempGoal,
-      totalWeight,
       waterDispensed,
     ];
-    final count = allArrays
+    final count = machineArrays
         .where((l) => l.isNotEmpty)
         .map((l) => l.length)
         .reduce(min);
@@ -327,6 +325,7 @@ class ShotV2JsonParser {
     final recordedFrames = framesFromStateChange(
       _numList(json['state_change']),
     );
+    final useRecordedFrames = recordedFrames.length >= count;
 
     final snapshots = <ShotSnapshot>[];
     for (var i = 0; i < count; i++) {
@@ -334,7 +333,7 @@ class ShotV2JsonParser {
         Duration(milliseconds: (elapsed[i] * 1000).round()),
       );
 
-      final frame = i < recordedFrames.length
+      final frame = useRecordedFrames
           ? recordedFrames[i]
           : _frameForElapsed(elapsed[i], boundaries);
 

@@ -94,6 +94,11 @@ git push origin v1.0.0-alpha.1
 1. Go to https://github.com/decentespresso/decaid/releases
 2. Your new release should appear with all platform artifacts attached
 3. Download and test the relevant artifacts
+4. On an Android or iOS device, run a bulk de1app import (a few hundred shots)
+   and watch for dropped frames. The import parses on the UI isolate; host
+   figures are in `test/import/de1app_parse_benchmark_test.dart`, but no device
+   measurement has been taken. If frames drop, the parse loop is what to move
+   to a worker isolate.
 
 ## Version Numbering
 

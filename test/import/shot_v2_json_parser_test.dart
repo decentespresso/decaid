@@ -276,6 +276,28 @@ void main() {
         expect(parsed.shot.measurements.length, equals(6));
       });
 
+      test('keeps every machine sample when only the scale arrays are '
+          'shorter', () {
+        final truncated = Map<String, dynamic>.from(fixtureJson);
+        final totals = Map<String, dynamic>.from(
+          fixtureJson['totals'] as Map<String, dynamic>,
+        );
+        final flow = Map<String, dynamic>.from(
+          fixtureJson['flow'] as Map<String, dynamic>,
+        );
+        totals['weight'] = [0.0, 0.1, 0.4, 1.0];
+        flow['by_weight'] = [0.0, 0.2, 0.5, 1.2];
+        truncated['totals'] = totals;
+        truncated['flow'] = flow;
+
+        final parsed = ShotV2JsonParser.parse(truncated);
+
+        expect(parsed.shot.measurements.length, equals(9));
+        expect(parsed.shot.measurements.last.machine.pressure, isNotNull);
+        expect(parsed.shot.measurements[3].scale?.weight, closeTo(1.0, 0.001));
+        expect(parsed.shot.measurements[4].scale, isNull);
+      });
+
       test('does not throw when flow array is shorter than elapsed', () {
         final truncated = Map<String, dynamic>.from(fixtureJson);
         final flow = Map<String, dynamic>.from(
@@ -407,6 +429,43 @@ void main() {
             .toList();
 
         expect(frames, equals([0, 0, 1, 1, 1, 2]));
+      });
+
+      test('falls back to step durations for a truncated frame series', () {
+        final shot = Map<String, dynamic>.from(fixtureJson);
+        shot['elapsed'] = [0.0, 5.0, 10.5, 15.0, 30.0, 50.0];
+        shot['state_change'] = [10000000.0, -10000000.0, 10000000.0];
+
+        final frames = ShotV2JsonParser.parse(
+          shot,
+        ).shot.measurements.map((s) => s.machine.profileFrame).toList();
+
+        expect(frames.length, equals(6));
+        for (var i = 1; i < frames.length; i++) {
+          expect(frames[i], greaterThanOrEqualTo(frames[i - 1]));
+        }
+        expect(frames, equals([0, 0, 1, 1, 1, 1]));
+      });
+
+      test('uses the recorded series when it covers every sample', () {
+        final shot = Map<String, dynamic>.from(fixtureJson);
+        shot['state_change'] = [
+          0.0,
+          10000000.0,
+          10000000.0,
+          10000000.0,
+          -10000000.0,
+          -10000000.0,
+          -10000000.0,
+          10000000.0,
+          10000000.0,
+        ];
+
+        final frames = ShotV2JsonParser.parse(
+          shot,
+        ).shot.measurements.map((s) => s.machine.profileFrame).toList();
+
+        expect(frames, equals([0, 0, 0, 0, 1, 1, 1, 2, 2]));
       });
 
       test('profile with no steps returns frame 0 for all snapshots', () {

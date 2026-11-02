@@ -92,7 +92,7 @@ String _v2Shot(int clock) {
 
 void main() {
   group('de1app shot parse cost', () {
-    test('a legacy .shot of $_sampleCount samples parses in one frame', () {
+    test('records the parse cost of a legacy .shot', () {
       final content = _legacyShot(1699432544);
       final full = _measure(() => TclShotParser.parse(content));
       final metadata = _measure(
@@ -108,10 +108,10 @@ void main() {
       );
 
       expect(metadata.average, lessThan(full.average));
-      expect(full.average, lessThan(100));
+      expect(full.average, lessThan(100), reason: 'coarse regression guard');
     });
 
-    test('a v2 .json of $_sampleCount samples parses in one frame', () {
+    test('records the parse cost of a v2 .json', () {
       final content = _v2Shot(1710510622);
       final parsed = _measure(() {
         ShotV2JsonParser.parse(jsonDecode(content) as Map<String, dynamic>);
@@ -123,7 +123,7 @@ void main() {
         'max ${parsed.max.toStringAsFixed(2)} ms',
       );
 
-      expect(parsed.average, lessThan(100));
+      expect(parsed.average, lessThan(100), reason: 'coarse regression guard');
     });
   });
 }
