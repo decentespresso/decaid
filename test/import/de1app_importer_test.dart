@@ -286,28 +286,42 @@ De1appImporter makeImporter({
 
 const _fixturesPath = 'test/fixtures/de1app';
 
-Future<String?> _importShotSources({
-  required bool includeLegacy,
-  required bool includeV2,
+String get _legacyFixture =>
+    File('$_fixturesPath/history/20231108T091544.shot').readAsStringSync();
+
+String get _v2Fixture =>
+    File('$_fixturesPath/history_v2/20240315T143022.json').readAsStringSync();
+
+String _v2FixtureWithoutMetadata() {
+  final json = jsonDecode(_v2Fixture) as Map<String, dynamic>;
+  json.remove('meta');
+  ((json['app'] as Map<String, dynamic>)['data'] as Map<String, dynamic>)
+      .remove('settings');
+  return jsonEncode(json);
+}
+
+Future<FakeStorageService> _importShots({
+  String? legacy,
+  String? v2,
+  String legacyBasename = 'same-basename',
+  String v2Basename = 'same-basename',
   DateTime? legacyModified,
   DateTime? v2Modified,
 }) async {
   final tempDir = await Directory.systemTemp.createTemp('de1app_merge_');
   try {
-    if (includeLegacy) {
+    if (legacy != null) {
       final directory = Directory('${tempDir.path}/history');
       await directory.create();
-      final file = await File(
-        '$_fixturesPath/history/20231108T091544.shot',
-      ).copy('${directory.path}/same-basename.shot');
+      final file = File('${directory.path}/$legacyBasename.shot');
+      await file.writeAsString(legacy);
       if (legacyModified != null) await file.setLastModified(legacyModified);
     }
-    if (includeV2) {
+    if (v2 != null) {
       final directory = Directory('${tempDir.path}/history_v2');
       await directory.create();
-      final file = await File(
-        '$_fixturesPath/history_v2/20240315T143022.json',
-      ).copy('${directory.path}/same-basename.json');
+      final file = File('${directory.path}/$v2Basename.json');
+      await file.writeAsString(v2);
       if (v2Modified != null) await file.setLastModified(v2Modified);
     }
 
@@ -322,7 +336,7 @@ Future<String?> _importShotSources({
         shotSource: 'both',
       ),
     );
-    return storage.shots.values.single.workflow.context?.grinderModel;
+    return storage;
   } finally {
     await tempDir.delete(recursive: true);
   }
@@ -683,53 +697,163 @@ void main() {
       },
     );
 
-    group('selects shots sharing a basename by modification time', () {
+    group('merges shots that exist in both legacy and v2 form', () {
       final older = DateTime.utc(2024, 1, 1);
       final newer = DateTime.utc(2024, 2, 1);
 
-      test('a newer legacy shot wins', () async {
+      test('the v2 shot supplies the profile', () async {
+        final storage = await _importShots(
+          legacy: _legacyFixture,
+          v2: _v2Fixture,
+        );
+        final profile = storage.shots.values.single.workflow.profile;
+        expect(profile.title, equals('Best Practice'));
+        expect(profile.steps.length, equals(2));
+      });
+
+      test('a newer legacy file no longer wins', () async {
+        final storage = await _importShots(
+          legacy: _legacyFixture,
+          v2: _v2Fixture,
+          legacyModified: newer,
+          v2Modified: older,
+        );
         expect(
-          await _importShotSources(
-            includeLegacy: true,
-            includeV2: true,
-            legacyModified: newer,
-            v2Modified: older,
-          ),
-          equals('Eureka Mignon'),
+          storage.shots.values.single.workflow.profile.title,
+          equals('Best Practice'),
         );
       });
 
-      test('a newer v2 shot wins', () async {
+      test('legacy fills metadata the v2 shot lacks', () async {
+        final storage = await _importShots(
+          legacy: _legacyFixture,
+          v2: _v2FixtureWithoutMetadata(),
+        );
+        final shot = storage.shots.values.single;
+        expect(shot.workflow.context?.grinderModel, equals('Eureka Mignon'));
+        expect(shot.workflow.context?.coffeeName, equals('Colombia Huila'));
+        expect(shot.workflow.context?.coffeeRoaster, equals('Banibeans'));
+        expect(shot.annotations?.actualDoseWeight, equals(18.5));
+        expect(shot.annotations?.actualYield, equals(38.0));
+        expect(shot.annotations?.enjoyment, equals(8.0));
         expect(
-          await _importShotSources(
-            includeLegacy: true,
-            includeV2: true,
-            legacyModified: older,
-            v2Modified: newer,
-          ),
-          equals('Niche Zero'),
+          shot.annotations?.espressoNotes,
+          equals('Balanced, good sweetness'),
         );
       });
 
-      test('v2 wins when shot modification times are equal', () async {
-        expect(
-          await _importShotSources(
-            includeLegacy: true,
-            includeV2: true,
-            legacyModified: older,
-            v2Modified: older,
-          ),
-          equals('Niche Zero'),
+      test('a gap-filled shot keeps the v2 profile and id', () async {
+        final storage = await _importShots(
+          legacy: _legacyFixture,
+          v2: _v2FixtureWithoutMetadata(),
         );
+        final shot = storage.shots.values.single;
+        expect(shot.id, equals('de1app-1710510622'));
+        expect(shot.workflow.profile.title, equals('Best Practice'));
+        expect(shot.workflow.profile.steps.length, equals(2));
       });
+
+      test('legacy never overwrites metadata the v2 shot has', () async {
+        final storage = await _importShots(
+          legacy: _legacyFixture,
+          v2: _v2Fixture,
+          legacyModified: newer,
+        );
+        final shot = storage.shots.values.single;
+        expect(shot.workflow.context?.grinderModel, equals('Niche Zero'));
+        expect(
+          shot.workflow.context?.coffeeName,
+          equals('Ethiopia Yirgacheffe'),
+        );
+        expect(shot.annotations?.enjoyment, equals(7.5));
+      });
+
+      test('an unreadable v2 file falls back to its legacy sibling', () async {
+        final storage = await _importShots(
+          legacy: _legacyFixture,
+          v2: '{ not json',
+        );
+        final shot = storage.shots.values.single;
+        expect(shot.id, equals('de1app-1699432544'));
+        expect(shot.workflow.context?.grinderModel, equals('Eureka Mignon'));
+      });
+
+      test(
+        'one shot in two formats under different names stores once',
+        () async {
+          final json = jsonDecode(_v2Fixture) as Map<String, dynamic>;
+          json['clock'] = 1699432544;
+          final storage = await _importShots(
+            legacy: _legacyFixture,
+            legacyBasename: '20231108T091544',
+            v2: jsonEncode(json),
+            v2Basename: '20231108T091544-v2',
+          );
+          expect(storage.shots.keys, equals(['de1app-1699432544']));
+          expect(
+            storage.shots.values.single.workflow.profile.title,
+            equals('Best Practice'),
+          );
+        },
+      );
+
+      test(
+        'two legacy files for one shot merge instead of dropping one',
+        () async {
+          final tempDir = await Directory.systemTemp.createTemp('de1app_dupe_');
+          try {
+            final directory = Directory('${tempDir.path}/history');
+            await directory.create();
+            await File('${directory.path}/20231108T091544.shot').writeAsString(
+              _legacyFixture.replaceAll(
+                'espresso_notes {Balanced, good sweetness}',
+                'espresso_notes {}',
+              ),
+            );
+            await File('${directory.path}/renamed-copy.shot').writeAsString(
+              _legacyFixture.replaceAll(
+                'grinder_model {Eureka Mignon}',
+                'grinder_model {}',
+              ),
+            );
+
+            final storage = FakeStorageService();
+            await makeImporter(storage: storage).import(
+              ScanResult(
+                shotCount: 2,
+                profileCount: 0,
+                hasDyeGrinders: false,
+                hasSettings: false,
+                sourcePath: tempDir.path,
+                shotSource: 'legacy',
+              ),
+            );
+
+            expect(storage.shots.keys, equals(['de1app-1699432544']));
+            final shot = storage.shots.values.single;
+            expect(
+              shot.workflow.context?.grinderModel,
+              equals('Eureka Mignon'),
+            );
+            expect(
+              shot.annotations?.espressoNotes,
+              equals('Balanced, good sweetness'),
+            );
+          } finally {
+            await tempDir.delete(recursive: true);
+          }
+        },
+      );
 
       test('legacy-only and v2-only shots still import', () async {
+        final legacyOnly = await _importShots(legacy: _legacyFixture);
         expect(
-          await _importShotSources(includeLegacy: true, includeV2: false),
+          legacyOnly.shots.values.single.workflow.context?.grinderModel,
           equals('Eureka Mignon'),
         );
+        final v2Only = await _importShots(v2: _v2Fixture);
         expect(
-          await _importShotSources(includeLegacy: false, includeV2: true),
+          v2Only.shots.values.single.workflow.context?.grinderModel,
           equals('Niche Zero'),
         );
       });

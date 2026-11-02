@@ -120,8 +120,7 @@ cannot be brewed is rejected at the boundary.
 through `Workflow.fromRecordedJson`, which `ShotMapper.fromRow` and
 `ShotRecord.fromRecordedJson` use to read the profile embedded in a stored
 shot's workflow. A shot's profile is a
-record of what happened, and shots imported from de1app `.shot` files carry no
-profile steps at all. Missing or empty titles read back as `Unknown profile`;
+record of what happened. Missing or empty titles read back as `Unknown profile`;
 missing numeric fields read back as `0`. Never use it to load a profile the user
 can brew from.
 
@@ -619,6 +618,35 @@ physical upload.
   when a retry lands, the machine disconnects, or the sync is disposed.
 - See `doc/plans/archive/profile-upload-recovery/design.md` for the full
   design rationale.
+
+### de1app Legacy `.shot` History Import
+
+de1app dual-writes every finished shot to both `history/*.shot` (legacy) and
+`history_v2/*.json` (`save_this_espresso_to_history`). The import keys both
+directories by basename and merges them per shot id (`de1app-<clock>`):
+
+- v2 only, or legacy only: that file is the source.
+- Both: the v2 shot supplies the profile and measurements, and the legacy shot
+  fills only the metadata fields the v2 shot leaves empty (`null`, empty
+  string, or `0` for dose, yield, tds, ey and enjoyment, which de1app writes as
+  `0` when unset). A value the v2 shot already has is never replaced.
+- Both, with the v2 file unreadable: the legacy shot is used whole.
+- Two files of the same format for one shot id (a renamed copy, say): merged
+  the same way and stored once.
+
+Modification times are deliberately not consulted. `SafFolderCopier` stages the
+import through `safStream.copyToLocalFile`, which stamps every destination with
+the copy time, so the mtime of a staged file says nothing about which of the two
+is fresher.
+
+A legacy `.shot` carries the complete v2 profile as JSON under its top-level
+`profile` key. `TclShotParser` recovers it by brace counting over the raw text
+rather than through `TclParser`, whose line-oriented block handling cannot
+parse embedded JSON, and falls back to a step-less profile titled from
+`settings profile_title` when that JSON is absent or unbalanced.
+
+See `doc/plans/archive/de1app-shot-merge-v1-v2/design.md` for the full
+root-cause writeup.
 
 ### de1app Legacy `.tcl` Profile Import
 

@@ -207,4 +207,50 @@ void main() {
       });
     });
   });
+
+  group('TclShotParser with an embedded profile block', () {
+    late ParsedShot result;
+
+    setUpAll(() {
+      final file = File('test/fixtures/de1app/legacy_with_profile.shot');
+      result = TclShotParser.parse(file.readAsStringSync());
+    });
+
+    test('recovers the profile title from the embedded JSON', () {
+      expect(result.shot.workflow.profile.title, equals('Rao Allong\u00e9'));
+    });
+
+    test('recovers the profile steps from the embedded JSON', () {
+      expect(result.shot.workflow.profile.steps.length, equals(2));
+    });
+
+    test('recovers the step names from the embedded JSON', () {
+      expect(
+        result.shot.workflow.profile.steps.map((s) => s.name),
+        equals(['hold at 4.5 ml/s', 'extract']),
+      );
+    });
+
+    test('recovers the profile target weight from the embedded JSON', () {
+      expect(result.shot.workflow.profile.targetWeight, equals(61.0));
+    });
+
+    test('names the workflow after the recovered profile', () {
+      expect(result.shot.workflow.name, equals('Rao Allong\u00e9'));
+    });
+
+    test('still reads metadata following a multi-line settings value', () {
+      expect(result.grinderModel, equals('test02'));
+      expect(result.shot.workflow.context?.grinderSetting, equals('21.0'));
+      expect(result.shot.annotations?.actualYield, equals(61.6));
+      expect(result.shot.annotations?.enjoyment, equals(8.0));
+    });
+
+    test('assigns profile frames from the recovered step boundaries', () {
+      expect(
+        result.shot.measurements.map((m) => m.machine.profileFrame).toSet(),
+        equals({0}),
+      );
+    });
+  });
 }

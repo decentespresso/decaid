@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:reaprime/src/controllers/scale_controller.dart';
@@ -40,17 +41,20 @@ class TclShotParser {
     final profileTargetWeight = _parseOptDouble(
       settings['final_desired_shot_weight'],
     );
-    final profile = Profile(
-      version: '2',
-      title: profileTitle,
-      notes: '',
-      author: '',
-      beverageType: BeverageType.espresso,
-      steps: [],
-      targetWeight: profileTargetWeight,
-      targetVolumeCountStart: 0,
-      tankTemperature: 0,
-    );
+    final embeddedProfile = _embeddedProfile(content);
+    final profile =
+        embeddedProfile ??
+        Profile(
+          version: '2',
+          title: profileTitle,
+          notes: '',
+          author: '',
+          beverageType: BeverageType.espresso,
+          steps: [],
+          targetWeight: profileTargetWeight,
+          targetVolumeCountStart: 0,
+          tankTemperature: 0,
+        );
 
     final doseWeight = _parseOptDouble(settings['grinder_dose_weight']);
     final actualYield = _parseOptDouble(settings['drink_weight']);
@@ -87,7 +91,7 @@ class TclShotParser {
 
     final workflow = Workflow(
       id: const Uuid().v4(),
-      name: profileTitle,
+      name: embeddedProfile?.title ?? profileTitle,
       profile: profile,
       context: context,
       steamSettings: SteamSettings.defaults(),
@@ -115,6 +119,29 @@ class TclShotParser {
       grinderModel: grinderModel,
       grinderSetting: grinderSetting,
     );
+  }
+
+  static Profile? _embeddedProfile(String content) {
+    final opening = RegExp(r'^profile \{', multiLine: true).firstMatch(content);
+    if (opening == null) return null;
+
+    final start = opening.end - 1;
+    var depth = 0;
+    for (var i = start; i < content.length; i++) {
+      if (content[i] == '{') depth++;
+      if (content[i] != '}') continue;
+      depth--;
+      if (depth != 0) continue;
+      try {
+        final json =
+            jsonDecode(content.substring(start, i + 1)) as Map<String, dynamic>;
+        final profile = Profile.fromRecordedJson(json);
+        return profile.steps.isEmpty ? null : profile;
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
   }
 
   static List<ShotSnapshot> _parseSnapshots(
