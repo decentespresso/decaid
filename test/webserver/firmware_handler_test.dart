@@ -575,13 +575,15 @@ void main() {
       expect(catalog['updateAvailable'], isTrue);
       expect(catalog['recommendedArtifactId'], 'de1-1358');
       final artifacts = catalog['artifacts'] as List<dynamic>;
-      final target =
-          artifacts.singleWhere((artifact) => artifact['id'] == 'de1-1358')
-              as Map<String, dynamic>;
-      expect(target['eligibility'], {
-        'status': 'applicable',
-        'reasons': <dynamic>[],
-      });
+      for (final id in ['de1-1352', 'de1-1358']) {
+        final artifact =
+            artifacts.singleWhere((artifact) => artifact['id'] == id)
+                as Map<String, dynamic>;
+        expect(artifact['eligibility'], {
+          'status': 'applicable',
+          'reasons': <dynamic>[],
+        }, reason: 'artifact $id should be applicable for $model');
+      }
 
       final response = await _apply(
         handler,
@@ -597,16 +599,42 @@ void main() {
     });
   }
 
-  test('catalog reports false when connected machine is up to date', () async {
-    final response = await handler(
-      Request('GET', Uri.parse('http://localhost/api/v1/machine/firmware')),
-    );
-    final body =
-        jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+  for (final (model, version, notNewer) in [
+    ('DE1Plus', '1358', true),
+    ('DE1Turbo', '1333', false),
+  ]) {
+    test('catalog reports no update for $model at $version without conflating '
+        'eligibility reasons', () async {
+      controller.machine = _FirmwareDe1(version: version, model: model);
 
-    expect(body['updateAvailable'], isFalse);
-    expect(body['recommendedArtifactId'], isNull);
-  });
+      final response = await handler(
+        Request('GET', Uri.parse('http://localhost/api/v1/machine/firmware')),
+      );
+      final body =
+          jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+
+      expect(body['updateAvailable'], isFalse);
+      expect(body['recommendedArtifactId'], isNull);
+      final expected = notNewer ? 'not_newer' : 'model_incompatible';
+      final unexpected = notNewer ? 'model_incompatible' : 'not_newer';
+      for (final artifact in body['artifacts'] as List<dynamic>) {
+        final entry = artifact as Map<String, dynamic>;
+        final eligibility = entry['eligibility'] as Map<String, dynamic>;
+        final reasons = eligibility['reasons'] as List<dynamic>;
+        expect(eligibility['status'], 'notApplicable');
+        expect(
+          reasons,
+          contains(expected),
+          reason: 'artifact ${entry['id']} for $model at $version',
+        );
+        expect(
+          reasons,
+          isNot(contains(unexpected)),
+          reason: 'artifact ${entry['id']} for $model at $version',
+        );
+      }
+    });
+  }
 }
 
 Handler _firmwareHandler(
