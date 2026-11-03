@@ -6,6 +6,41 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Decaid</title>
         <item>
+            <title>0.9.2</title>
+            <pubDate>Tue, 03 Nov 2026 12:52:58 +0000</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>3079</sparkle:version>
+            <sparkle:shortVersionString>0.9.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* feat: name the installed skin and plugin versions in feedback reports by @allofmeng in https://github.com/decentespresso/decaid/pull/1049
+* fix(plugins): stop bundled copies downgrading newer installed plugins by @tadelv in https://github.com/decentespresso/decaid/pull/1050
+* chore(android): drop unused SCHEDULE_EXACT_ALARM declaration by @tadelv in https://github.com/decentespresso/decaid/pull/1023
+* chore(ios): clarify permission purpose strings and drop unused location keys by @tadelv in https://github.com/decentespresso/decaid/pull/1024
+* docs(agents): record worktree and local-verification gotchas by @tadelv in https://github.com/decentespresso/decaid/pull/1041
+* fix(machine): support the raw channel on MockDe1 by @tadelv in https://github.com/decentespresso/decaid/pull/1042
+* fix(machine): keep the machine's flow calibration across resets and reconnects by @tadelv in https://github.com/decentespresso/decaid/pull/1053
+* fix(shot-sequencer): stop the scale timer on zero-yield shot ends by @tadelv in https://github.com/decentespresso/decaid/pull/1056
+* perf(de1): coalesce sequential MMR settings reads into multi-word requests by @tadelv in https://github.com/decentespresso/decaid/pull/1057
+* docs(de1): record serial-path verification on Bengle by @tadelv in https://github.com/decentespresso/decaid/pull/1060
+* test: consolidate the duplicated MachineSettingsStore doubles into one helper by @tadelv in https://github.com/decentespresso/decaid/pull/1061
+* feat(shots): add minEnjoyment filter to GET /api/v1/shots by @allofmeng in https://github.com/decentespresso/decaid/pull/1063
+* ci: auto-label newly opened issues for triage (#1045) by @tadelv in https://github.com/decentespresso/decaid/pull/1064
+* fix(plugins): route release checks through the shared GitHub rate-limit cooldown by @tadelv in https://github.com/decentespresso/decaid/pull/1067
+* perf(bengle): enable the coalesced settings groups that verify over USB serial by @tadelv in https://github.com/decentespresso/decaid/pull/1068
+* Add App Store listing metadata, screenshots, and TestFlight crash log tool by @tadelv in https://github.com/decentespresso/decaid/pull/1072
+* fix(import): merge de1app legacy and v2 shots by shot id by @allofmeng in https://github.com/decentespresso/decaid/pull/1075
+* fix(onboarding): stream backup ZIP imports by @tadelv in https://github.com/decentespresso/decaid/pull/1076
+* fix(plugins): add native notification center and upload recovery by @ODevStudio in https://github.com/decentespresso/decaid/pull/1003
+* fix(firmware): allow managed updates on DE1, DE1Plus and DE1Cafe by @tadelv in https://github.com/decentespresso/decaid/pull/1083
+
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.9.1...v0.9.2-beta.1
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.9.2-beta.1/decaid-macos-0.9.2-beta.1.zip" length="65457868" type="application/octet-stream" sparkle:edSignature="TrV7KTXZ4SBUk/po21eAjFK3Q66c2tGWcCK55if5BA9xHmC1pTohy+3AJmnIYo+RsIaCIvSR6pdKEjtVETQkCw=="/>
+        </item>
+        <item>
             <title>0.9.1</title>
             <pubDate>Wed, 28 Oct 2026 06:34:05 +0000</pubDate>
             <sparkle:version>3027</sparkle:version>
@@ -702,6 +737,6 @@ See `doc/RELEASE.md` for install and verification instructions.
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: BtVhZKMC7BLyP5Inh/XKudT5O+V28Mz1VkizgV0vMjqT+wHN3ug2OxHImDLik0EKec35M6p12GHLRd9cpGJoBA==
-length: 61556
+edSignature: PCo5ib1aIxuOQNOi9cc/haaTKKbiaF8M4BgKYh/xbNjIsfanZSgsUNdq4HY3oo+0i7q0FQOo+vZSdxBsHiyBAA==
+length: 65095
 -->
