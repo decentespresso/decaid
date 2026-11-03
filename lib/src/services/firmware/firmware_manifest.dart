@@ -38,7 +38,15 @@ final class FirmwareManifest {
       throw const FormatException('Firmware manifest has no artifacts');
     }
 
-    const supportedModels = {'DE1Pro', 'DE1XL', 'DE1XXL', 'DE1XXXL'};
+    const supportedModels = {
+      'DE1',
+      'DE1Plus',
+      'DE1Cafe',
+      'DE1Pro',
+      'DE1XL',
+      'DE1XXL',
+      'DE1XXXL',
+    };
     final digestPattern = RegExp(r'^[0-9a-f]{64}$');
     final ids = <String>{};
     for (final entry in entries) {

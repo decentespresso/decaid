@@ -125,7 +125,7 @@ measurement of dispensed hot-water outlet temperature while the machine is in
 
 #### Firmware updates
 
-The catalog endpoint is available offline and without a connected machine. It returns bundled artifact metadata, compatibility and version eligibility, the recommended artifact, tri-state `updateAvailable`, and the shared machine operation state. The bundled Phase 1 artifact is official DE1 firmware build 1352 for `DE1Pro`, `DE1XL`, `DE1XXL`, and `DE1XXXL`.
+The catalog endpoint is available offline and without a connected machine. It returns bundled artifact metadata, compatibility and version eligibility, the recommended artifact, tri-state `updateAvailable`, and the shared machine operation state. Bundled DE1 firmware builds 1352 and 1358 support the canonical models `DE1`, `DE1Plus`, `DE1Cafe`, `DE1Pro`, `DE1XL`, `DE1XXL`, and `DE1XXXL`; Bengle remains excluded. `updateAvailable: false` means that no applicable newer artifact was found, not necessarily that the machine is current. Clients must inspect per-artifact eligibility: `not_newer` is distinct from `model_incompatible`; eligibility status `unknown` is a separate indeterminate result.
 
 Managed apply accepts `{"artifactId":"de1-1352","force":false}` with a 64 KiB body limit and a 10-second body-read timeout. The complete image is checked against its manifest, SHA-256 digest, canonical DE1 header, and connected model before erase. `force` permits reinstall or downgrade, including when the installed build is unknown, but never bypasses integrity or model checks. The raw endpoint retains its developer/recovery role and accepts `application/octet-stream`, capped at 16 MiB with a 60-second body-read timeout.
 

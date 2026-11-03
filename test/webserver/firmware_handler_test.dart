@@ -459,21 +459,28 @@ void main() {
     ]);
   });
 
-  test('force cannot bypass bundled firmware model compatibility', () async {
-    final bengle = _FirmwareDe1(version: '1351', model: 'Bengle');
-    controller.machine = bengle;
+  for (final model in ['Unknown', 'Bengle', 'DE1Turbo']) {
+    test('force rejects bundled firmware model $model', () async {
+      final machine = _FirmwareDe1(version: '1351', model: model);
+      controller.machine = machine;
 
-    final response = await _apply(
-      handler,
-      jsonEncode({'artifactId': 'de1-1352', 'force': true}),
-    );
+      final response = await _apply(
+        handler,
+        jsonEncode({'artifactId': 'de1-1352', 'force': true}),
+      );
 
-    expect(response.statusCode, 422);
-    final body =
-        jsonDecode(await response.readAsString()) as Map<String, dynamic>;
-    expect(body['reasons'], contains('model_incompatible'));
-    expect(bengle.updateCalls, 0);
-  });
+      expect(response.statusCode, 422);
+      final body =
+          jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+      expect(
+        body['reasons'],
+        contains(
+          model == 'Unknown' ? 'machine_model_unknown' : 'model_incompatible',
+        ),
+      );
+      expect(machine.updateCalls, 0);
+    });
+  }
 
   test(
     'managed apply revalidates after the connected machine changes',
@@ -552,6 +559,43 @@ void main() {
       contains('Timed out waiting for firmware verification'),
     );
   });
+
+  for (final model in ['DE1', 'DE1Plus', 'DE1Cafe']) {
+    test('model $model recommends 1358 and managed apply starts', () async {
+      final machine = _FirmwareDe1(version: '1333', model: model);
+      controller.machine = machine;
+
+      final catalogResponse = await handler(
+        Request('GET', Uri.parse('http://localhost/api/v1/machine/firmware')),
+      );
+      final catalog =
+          jsonDecode(await catalogResponse.readAsString())
+              as Map<String, dynamic>;
+
+      expect(catalog['updateAvailable'], isTrue);
+      expect(catalog['recommendedArtifactId'], 'de1-1358');
+      final artifacts = catalog['artifacts'] as List<dynamic>;
+      final target =
+          artifacts.singleWhere((artifact) => artifact['id'] == 'de1-1358')
+              as Map<String, dynamic>;
+      expect(target['eligibility'], {
+        'status': 'applicable',
+        'reasons': <dynamic>[],
+      });
+
+      final response = await _apply(
+        handler,
+        jsonEncode({'artifactId': 'de1-1358'}),
+      );
+      expect(response.statusCode, 200);
+      expect(await _readEvents(response), [
+        {'status': 'erasing', 'progress': 0.0},
+        {'status': 'uploading', 'progress': 1.0},
+        {'status': 'done', 'progress': 1.0},
+      ]);
+      expect(machine.updateCalls, 1);
+    });
+  }
 
   test('catalog reports false when connected machine is up to date', () async {
     final response = await handler(

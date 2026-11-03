@@ -13,7 +13,7 @@ void main() {
             'id': 'de1-1356',
             'source': 'bundled',
             'machineFamily': 'de1',
-            'supportedModels': ['DE1Pro', 'DE1XL'],
+            'supportedModels': ['DE1', 'DE1Plus', 'DE1Cafe', 'DE1Pro', 'DE1XL'],
             'build': 1356,
             'versionLabel': '1356',
             'imageFormat': 'de1',
@@ -93,6 +93,23 @@ void main() {
           throwsA(isA<FormatException>()),
         );
       }
+    });
+
+    test('accepts canonical DE1-family model names', () {
+      final entry = _validEntryJson()
+        ..['supportedModels'] = ['DE1', 'DE1Plus', 'DE1Cafe'];
+      final manifest = FirmwareManifest.parse(
+        jsonEncode({
+          'schemaVersion': 1,
+          'artifacts': [entry],
+        }),
+      );
+
+      expect(manifest.entries.single.artifact.supportedModels, {
+        'DE1',
+        'DE1Plus',
+        'DE1Cafe',
+      });
     });
 
     test('rejects unknown machine families and models', () {
