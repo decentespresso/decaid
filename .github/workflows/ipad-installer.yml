@@ -1,0 +1,31 @@
+name: iPad installer (dist)
+
+on:
+  workflow_dispatch:
+    inputs:
+      wizard_tag:
+        description: 'SideStep Wizard release tag (blank = latest)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build and verify the installer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: scripts/build_ipad_installer.sh dist "${{ github.repository_id }}" "${{ inputs.wizard_tag }}"
+
+      - name: Deploy to dist branch
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          publish_branch: dist
+          force_orphan: true
