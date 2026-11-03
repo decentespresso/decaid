@@ -1113,7 +1113,11 @@ paths:
       description: |
         Returns the bundled firmware catalog with per-artifact eligibility.
         Does not require a machine connection; when offline, machine fields
-        are null and eligibility is unknown.
+        are null and eligibility is unknown. `updateAvailable: false` means
+        that no applicable newer artifact was found; it does not by itself
+        mean the machine is up to date. Inspect each artifact's eligibility
+        reason: `not_newer` is distinct from `model_incompatible`; an
+        eligibility status of `unknown` is a separate indeterminate result.
       tags: [Machine]
       responses:
         "200":
@@ -9022,6 +9026,10 @@ components:
         updateAvailable:
           type: boolean
           nullable: true
+          description: >-
+            False means no applicable newer artifact was found. It is not an
+            assertion that the machine is current; model_incompatible and
+            eligibility status unknown are distinct from not_newer.
         operation:
           $ref: "#/components/schemas/FirmwareOperationState"
 

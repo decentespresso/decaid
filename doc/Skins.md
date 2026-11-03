@@ -386,6 +386,17 @@ Returns machine hardware information.
 }
 ```
 
+#### Firmware Catalog and Eligibility
+```http
+GET /api/v1/machine/firmware
+```
+
+Use `recommendedArtifactId` and each artifact's `eligibility` when presenting
+managed firmware updates. `updateAvailable: false` does not necessarily mean
+"up to date": `not_newer` means the installed build is current or newer,
+while `model_incompatible` and eligibility status `unknown` describe different
+states that should not be presented as current.
+
 #### Get Machine State
 ```http
 GET /api/v1/machine/state

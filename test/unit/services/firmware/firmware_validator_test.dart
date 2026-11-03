@@ -1,9 +1,11 @@
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/firmware_artifact.dart';
 import 'package:reaprime/src/models/errors.dart';
+import 'package:reaprime/src/services/firmware/bundled_firmware_catalog.dart';
 import 'package:reaprime/src/services/firmware/firmware_manifest.dart';
 import 'package:reaprime/src/services/firmware/firmware_validator.dart';
 
@@ -61,6 +63,8 @@ FirmwareManifestEntry _entryForImage(
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('FirmwareValidator.validate', () {
     final validator = const FirmwareValidator();
 
@@ -229,4 +233,26 @@ void main() {
       expect(eligibility.reasons, contains('installed_build_unknown'));
     });
   });
+
+  test(
+    'production bundled artifacts allow canonical models at build 1333',
+    () async {
+      final catalog = BundledFirmwareCatalog(bundle: rootBundle);
+      final manifest = await catalog.loadManifest();
+      final validator = const FirmwareValidator();
+
+      for (final entry in manifest.entries) {
+        expect(entry.artifact.build, anyOf(1352, 1358));
+        for (final model in ['DE1', 'DE1Plus', 'DE1Cafe']) {
+          final eligibility = validator.evaluateEligibility(
+            entry.artifact,
+            connectedModel: model,
+            installedBuild: '1333',
+          );
+          expect(eligibility.status, FirmwareEligibilityStatus.applicable);
+          expect(eligibility.reasons, isEmpty);
+        }
+      }
+    },
+  );
 }
