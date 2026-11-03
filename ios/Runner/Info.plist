@@ -46,6 +46,8 @@
 	<string>Needed to include sound when you choose to record a video using a skin's system camera picker. Live microphone access from skins is not allowed.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Needed to import photos for shot notes and feedback</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Decaid uses a networking library to report its local Wi-Fi address for espresso-machine and scale connections. The library references location services; Decaid does not collect or track your location.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
