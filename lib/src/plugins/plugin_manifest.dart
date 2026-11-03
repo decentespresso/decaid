@@ -355,6 +355,7 @@ enum PluginPermissions {
   log('log'),
   api('api'),
   emit('emit'),
+  notifications('notifications'),
   pluginStorage('pluginStorage'),
   eventsMachine('events.machine'),
   eventsShots('events.shots'),

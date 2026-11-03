@@ -22,7 +22,8 @@ class DestinationCard extends StatelessWidget {
 
     return Semantics(
       button: true,
-      label: label,
+      label: badge == null ? label : '$label ($badge)',
+      onTap: onTap,
       excludeSemantics: true,
       child: ShadCard(
         rowMainAxisAlignment: .center,

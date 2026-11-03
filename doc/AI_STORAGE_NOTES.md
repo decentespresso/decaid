@@ -47,10 +47,63 @@ Gotchas:
 |-------|-------|---------|
 | Drift DB | `AppDatabase` | Shots, workflows, beans, grinders, profiles, settings |
 | `SharedPreferences` | `SharedPreferencesSettingsService` | App settings (telemetry consent, feature flags, preferences) |
+| Private `SharedPreferences` snapshot | `NotificationCenter` | Retained native notices, action descriptors, order and read status |
 | Secure store | `DecentAccountService`, `PluginLoaderService` | Account credentials, API tokens, secure plugin settings |
 | File system | `StorageService` | Data export, log files, skin assets |
 
 Keep these stores independent. A settings reset must not clear account credentials unless explicitly requested.
+
+## Native Notification Snapshot
+
+`NotificationCenter` owns `private.notificationCenter.v1`, a versioned JSON
+snapshot in SharedPreferences. `main()` restores it before constructing the
+plugin loader. It never uses the generic Hive namespace store or exposes its key
+through the skin API. No Drift schema change is involved.
+
+The snapshot includes host/plugin namespace, source identity, local ID, message,
+approved action descriptors, content revision and read status in display order.
+It excludes executable callbacks, contexts, credentials and runtime generations.
+Actions stay disabled after restoration until the current source revalidates
+them. Runtime action bindings survive read-state changes but not generation
+retirement, content replacement or removal.
+The trusted update owner revalidates retained updates before enabling View,
+Download or the explicit Skip this version action. Reading never skips a version.
+The binding's confirmation state is runtime-only and is not part of the snapshot.
+The unconfirmed host-update row offers a manual Check for updates action instead
+of its saved View/Download descriptors. It uses the existing update service;
+this control and its checking/error state are not persisted or exposed to plugins.
+
+The center serializes writes and updates visible state only after a successful
+save. Failed writes retain the previous state and expose a storage error. Invalid
+or unknown snapshots block mutations and preserve the raw stored value; there is
+no destructive reset fallback. Limits remain five notices per plugin and twenty
+plugin notices overall, plus one reserved host-update notice.
+
+Shutdown/reload preserves the snapshot. Explicit unload, disable, uninstall,
+notification-permission removal and source resolution remove
+the affected notices through the same serialized write path.
+
+The installed
+`shared_preferences_windows` 2.4.1 implementation maintains separate whole-file
+caches for legacy SharedPreferences and SharedPreferencesAsync. Notification and
+plugin writes use the legacy API while app settings use Async. Interleaved writes
+previously overwrote retained notifications, read status or a saved skipped
+version. Windows startup now calls `initializeWindowsPreferences` before either
+API is used. The Async platform adapter delegates to the existing legacy backend,
+so both APIs share its one warmed cache and file. Raw prefixed legacy keys and
+unprefixed Async keys retain their existing meanings; no migration is required.
+The shared adapter serializes reads and mutations. Failed writes restore the
+affected backend cache entries before another client can read or save them;
+reloading the legacy preferences cache alone does not undo Windows backend
+mutations. Failed backend writes/removals throw rather than claiming successful
+Async saves.
+`windows_preferences_test.dart` uses the actual Windows file backend in a temporary
+directory, interleaves both APIs, reconstructs them from disk and checks retained
+notifications, read state, skipped versions and unrelated settings. Failure tests
+also cover publication, reading, resolution, Async set/remove/clear and a settings
+write queued during a failed notification save. This does not
+provide cross-process or multi-isolate synchronization; the app's preferences
+owners run in its main isolate.
 
 ## Recovery Package Destination Rule
 

@@ -95,6 +95,17 @@ Add widget test gotchas, mock helper changes, and test infrastructure patterns. 
 
 ## Plugin transport tests (`test/plugins/plugin_manager_transport*_test.dart`)
 
+QuickJS can report an async helper's synchronous fast-path rejection as unhandled
+before its caller attaches an await handler. Verify asynchronous plugin error
+paths in the native runtime as well as Node, including intermediate promises.
+
+Notification widget checks should preserve an existing persistent snackbar and
+its action, isolate unrelated plugin notices, and exercise small viewports.
+Use a URL-launcher platform fake to assert external-browser mode; lifecycle
+callbacks alone do not verify iOS launch behavior. Post-consent proxy checks must
+distinguish completed logins, unfinished credential writes, and generation
+changes during reads. A credential reread failure must leave an upstream 401 intact.
+
 `PluginManager` accepts optional `connectWebSocket` / `connectSocket` /
 `connectSecureSocket` connectors (defaulting to `WebSocket.connect` /
 `Socket.connect` / `SecureSocket.connect`) forwarded to

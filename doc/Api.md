@@ -520,6 +520,10 @@ field sent as its returned `{ "isSet": true|false }` object preserves the
 stored credential. Secure values are never returned by either endpoint,
 including the POST response.
 
+Plugin manifests may declare `notifications` for the generic native notification
+contract documented in `Plugins.md`. It adds no REST or WebSocket route and does
+not grant arbitrary native navigation or execution.
+
 ### Display
 
 | Method | Path | Description | Handler |

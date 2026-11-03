@@ -3516,6 +3516,37 @@ This shows "Back to MySkin" in the settings plugin's nav bar. When clicked, it n
 
 The embedded webview also shows a platform-specific navigation guide when a skin opens. On Windows, choose **Back to Dashboard** from the system menu, available from the window icon or by right-clicking the title bar. Disable or restore the guide in **Settings** under **General** with **Skin navigation guide**.
 
+Unread native notifications show a circular bell with a numeric badge in the
+skin Scaffold's bottom-right floating-button slot, with safe-area spacing. The
+bell leaves 64 logical pixels below it to clear bottom-row skin controls. The
+bell opens a compact snapshot of the notifications unread at opening, capped at
+480 logical pixels wide. Reading hides the bell but keeps the open snapshot
+visible. New arrivals and changed revisions remain unread until the next opening.
+Go to notification center closes the compact list and opens the full center,
+which is also always accessible from the launcher. The full center shows all
+current conditions, read and unread, with approved actions. It is capped at 720
+logical pixels wide. Both views keep their heading and X fixed above scrolling
+rows and are limited to 85% of available height. Neither view resizes, remounts
+or navigates the WebView. Back, Escape, outside taps and X close only the view.
+There are no generic trash, dismissal or Dismiss all controls.
+The heading's close tooltip uses Flutter's localized label; the native app
+currently enables English only, independently of each skin's language support.
+The originating service or plugin withdraws resolved conditions; no history is
+retained. Reading never resolves a condition or resumes uploads. Skins gain
+no notification API, and existing navigation-guide SnackBars keep their actions.
+Opening the list marks only its initial snapshot read; closing it does not mark
+later arrivals or changes read. An explicit Skip this version action skips only
+the displayed, confirmed update. A restored, unconfirmed app update
+replaces View/Download with one "Check for updates" button using the same manual
+app-update service as Settings. Checking disables that button; failure keeps the
+notice and allows retry. Confirmation restores View/Download/Skip, a newer update
+replaces the entry, and a successful obsolete/no-update result removes it.
+Opening the list does not trigger a check or change the background schedule.
+Plugin notices cannot acquire this trusted host control.
+Android's Download action closes the
+list before opening download confirmation. Cancelling that confirmation retains
+the update notice, and installation still requires a separate action.
+
 **Server control endpoints:**
 
 | Method | Path | Description |

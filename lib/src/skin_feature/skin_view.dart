@@ -5,6 +5,9 @@ import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../notifications/notification_actions.dart';
+import '../notifications/notification_center.dart';
+import '../notifications/notification_overlay.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:logging/logging.dart';
@@ -89,6 +92,8 @@ class SkinView extends StatefulWidget {
     this.webView,
     required this.port,
     this.cameraTarget,
+    this.notificationCenter,
+    this.notificationActions,
     this.checkCompatibility = WebViewCompatibilityChecker.checkCompatibility,
   });
 
@@ -100,6 +105,8 @@ class SkinView extends StatefulWidget {
   final Widget? webView;
   final int port;
   final SkinCameraTarget? Function()? cameraTarget;
+  final NotificationCenter? notificationCenter;
+  final NotificationActions? notificationActions;
   final Future<CompatibilityResult> Function() checkCompatibility;
 
   static const routeName = '/skin';
@@ -278,6 +285,14 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final view = Scaffold(
+      floatingActionButton:
+          widget.notificationCenter != null &&
+              widget.notificationActions != null
+          ? NotificationBell(
+              center: widget.notificationCenter!,
+              actions: widget.notificationActions!,
+            )
+          : null,
       body: SafeArea(
         top: false,
         bottom: false,
