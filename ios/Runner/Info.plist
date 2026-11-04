@@ -47,7 +47,7 @@
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Needed to import photos for shot notes and feedback</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Decaid uses a networking library to report its local Wi-Fi address for espresso-machine and scale connections. The library references location services; Decaid does not collect or track your location.</string>
+	<string>Decaid uses a networking library to report its local Wi-Fi address for access to its interface and API on your local network. The library references location services; Decaid does not collect or track your location.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
