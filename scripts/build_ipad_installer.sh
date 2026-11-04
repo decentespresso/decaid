@@ -26,7 +26,8 @@ WIZARD="$WORK/mnt/SideStepWizard.app"
 
 echo "== Gate 2: Wizard signed by team $TEAM_ID =="
 codesign --verify --deep --strict "$WIZARD"
-codesign -dv "$WIZARD" 2>&1 | grep -q "TeamIdentifier=$TEAM_ID" \
+SIGNATURE="$(codesign -dv "$WIZARD" 2>&1)"
+echo "$SIGNATURE" | grep -q "TeamIdentifier=$TEAM_ID" \
   || { echo "FAIL: SideStepWizard.app is not signed by team $TEAM_ID"; exit 1; }
 
 echo "== Gate 3: Gatekeeper accepts it as notarized =="
