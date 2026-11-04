@@ -64,6 +64,9 @@ backgrounded. After ten minutes in the background, it unloads the page and
 reloads the selected skin when the app returns. Skin state that must survive
 this reload should be persisted through the Decaid API or browser storage.
 
+On Android, Decaid disables the WebView's native overscroll effect without
+disabling ordinary page scrolling.
+
 WebView pause/resume and timer bridge failures are awaited and logged without
 terminating the view; unsupported methods are skipped. Timer operations are
 ordered across view replacements; a failed resume remains eligible for retry on
