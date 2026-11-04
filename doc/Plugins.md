@@ -1040,6 +1040,11 @@ commands; the failure is surfaced to the caller.
 object. Handler failures propagate through the existing sensor command API.
 Calls time out after 10 seconds.
 
+### Sensor snapshot values
+
+SensorBasket snapshots preserve all declared channel keys and represent invalid
+channel readings as `null`; valid numbers are unchanged.
+
 Definitions, snapshots, command parameters and command results are limited to
 64 KiB of JSON. A plugin generation can register at most 8 devices. Registration
 is not remembered across app restarts. On plugin unload, Decaid runs each

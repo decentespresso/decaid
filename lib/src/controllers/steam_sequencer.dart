@@ -132,7 +132,8 @@ class SteamSequencer {
     _sensorSub = sensor.data.listen((payload) {
       if (!identical(_temperatureSensor, sensor)) return;
       final raw = payload['temperature'];
-      if (raw is num) _latestSensorTemperature = raw.toDouble();
+      final value = raw is num ? raw.toDouble() : null;
+      _latestSensorTemperature = value != null && value.isFinite ? value : null;
     });
   }
 
@@ -165,7 +166,7 @@ class SteamSequencer {
       return;
     }
     final temp = _latestSensorTemperature;
-    if (temp == null) return;
+    if (temp == null || !temp.isFinite) return;
     if (temp < target) return;
     _appSideStopRequested = true;
     _log.info('App-side stop: probe $temp°C ≥ target $target°C');

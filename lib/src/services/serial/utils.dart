@@ -18,14 +18,9 @@ bool isDecentScale(List<String> messages, List<Uint8List> captures) {
       messages.any((t) => _hdsRegex.hasMatch(t));
 }
 
-// One numeric telemetry field. A sensor that reports an invalid channel honestly
-// sends a non-finite placeholder, which must still identify the device -- discovery
-// ran on the temperature slot only before, so an invalid pressure or weight made the
-// whole SensorBasket invisible. Both spellings occur in the field: Arduino-based
-// firmware prints lowercase "nan", Dart prints "NaN".
 const _sbNumber = r'(?:[+-]?(?:nan|inf(?:inity)?)|[+-]?[0-9]*[.]?[0-9]+)';
 final _sbRegex = RegExp(
-  '^\\d+ $_sbNumber $_sbNumber $_sbNumber $_sbNumber',
+  '^\\d+\\s+$_sbNumber\\s+$_sbNumber\\s+$_sbNumber\\s+$_sbNumber${r'(?=\s|$)'}',
   caseSensitive: false,
 );
 bool isSensorBasket(List<String> messages) {

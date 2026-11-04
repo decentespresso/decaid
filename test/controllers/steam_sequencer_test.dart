@@ -657,6 +657,42 @@ void main() {
       m.dispose();
     });
 
+    test(
+      'ignores non-finite temperatures before a finite stop reading',
+      () async {
+        workflow.updateWorkflow(
+          steamSettings: workflow.currentWorkflow.steamSettings.copyWith(
+            stopAtTemperature: 60.0,
+          ),
+        );
+        final probe = _TestSensor();
+        await sensors.register(probe);
+
+        final m = _TestMachine();
+        de1.emit(m);
+        await settle();
+        m.emit(_snap(state: MachineState.steam));
+        await settle();
+
+        for (final temperature in [
+          double.nan,
+          double.infinity,
+          double.negativeInfinity,
+        ]) {
+          probe.emit(temperature);
+          m.emit(_snap(state: MachineState.steam));
+          await settle();
+          expect(m.requested, isEmpty);
+        }
+
+        probe.emit(65.0);
+        m.emit(_snap(state: MachineState.steam));
+        await settle();
+        expect(m.requested, contains(MachineState.idle));
+        m.dispose();
+      },
+    );
+
     test('Bengle with internal probe lets firmware own the stop', () async {
       workflow.updateWorkflow(
         steamSettings: workflow.currentWorkflow.steamSettings.copyWith(
