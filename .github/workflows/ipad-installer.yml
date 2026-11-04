@@ -17,10 +17,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Test the installer gates
+        run: scripts/test_build_ipad_installer.sh
+
       - name: Build and verify the installer
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: scripts/build_ipad_installer.sh dist "${{ github.repository_id }}" "${{ inputs.wizard_tag }}"
+          REPO_ID: ${{ github.repository_id }}
+          WIZARD_TAG: ${{ inputs.wizard_tag }}
+        run: scripts/build_ipad_installer.sh dist "$REPO_ID" "$WIZARD_TAG"
 
       - name: Deploy to dist branch
         uses: peaceiris/actions-gh-pages@v3

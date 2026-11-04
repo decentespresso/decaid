@@ -7,6 +7,11 @@ WIZARD_TAG="${3:-}"
 WIZARD_REPO="johnbuckman/SideStepWizard"
 TEAM_ID="CDZD6VH5KL"
 
+if [ -n "$WIZARD_TAG" ] && ! [[ "$WIZARD_TAG" =~ ^v?[0-9][A-Za-z0-9._-]*$ ]]; then
+  echo "FAIL: wizard tag '$WIZARD_TAG' is not a release tag like v0.2.72"
+  exit 1
+fi
+
 WORK="$(mktemp -d)"
 trap 'hdiutil detach -quiet "$WORK/mnt" 2>/dev/null || true; rm -rf "$WORK"' EXIT
 
@@ -25,7 +30,8 @@ codesign -dv "$WIZARD" 2>&1 | grep -q "TeamIdentifier=$TEAM_ID" \
   || { echo "FAIL: SideStepWizard.app is not signed by team $TEAM_ID"; exit 1; }
 
 echo "== Gate 3: Gatekeeper accepts it as notarized =="
-ASSESS="$(spctl -a -vv "$WIZARD" 2>&1 || true)"
+ASSESS="$(spctl -a -vv "$WIZARD" 2>&1)" \
+  || { echo "$ASSESS"; echo "FAIL: spctl rejected SideStepWizard.app"; exit 1; }
 echo "$ASSESS"
 echo "$ASSESS" | grep -q "source=Notarized Developer ID" \
   || { echo "FAIL: Gatekeeper does not report Notarized Developer ID"; exit 1; }
