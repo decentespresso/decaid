@@ -45,6 +45,9 @@ InAppWebViewSettings createSkinWebViewSettings({
   browserAcceleratorKeysEnabled: platform != TargetPlatform.windows,
   useHybridComposition:
       platform != TargetPlatform.android || !textureComposition,
+  overScrollMode: platform == TargetPlatform.android
+      ? OverScrollMode.NEVER
+      : OverScrollMode.IF_CONTENT_SCROLLS,
   cacheEnabled: false,
   supportZoom: false,
   builtInZoomControls: false,
