@@ -130,6 +130,10 @@ Discovery services are responsible for scanning and creating device instances. E
   - Notification liveness uses the existing snapshot watchdog and normal
     `ConnectionManager` reconnect lifecycle. Serial has no separate keepalive
     or reconnect loop.
+  - SensorBasket serial discovery accepts finite and non-finite values in all
+    four telemetry slots and firmware whitespace variants. Invalid channel
+    readings remain present as `null` in sensor snapshots; valid values and
+    channel keys are unchanged.
   - A DE1 pushes `K` (shot settings) only when the settings change, and
     hardware verification on a stock DE1 over USB showed it never pushes a
     `[K]` on connect, re-arm or write. The app therefore owns the frame on

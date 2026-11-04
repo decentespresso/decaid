@@ -7,6 +7,7 @@ import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/sensor_controller.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
+import 'package:reaprime/src/models/device/impl/sensor/sensor_basket.dart';
 import 'package:reaprime/src/models/device/sensor.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
@@ -14,6 +15,7 @@ import 'package:shelf/shelf_io.dart' as io;
 import 'package:shelf_plus/shelf_plus.dart';
 import 'package:web_socket_channel/io.dart';
 
+import '../helpers/fake_serial_transport.dart';
 import '../helpers/mock_device_discovery_service.dart';
 
 class _StreamingSensor implements Sensor {
@@ -82,6 +84,8 @@ void main() {
   late MockDeviceDiscoveryService discovery;
   late HttpServer server;
   final sensors = <_StreamingSensor>[];
+  final baskets = <SensorBasket>[];
+  final basketTransports = <FakeSerialTransport>[];
 
   setUp(() async {
     discovery = MockDeviceDiscoveryService();
@@ -98,13 +102,27 @@ void main() {
     await server.close(force: true);
     sensorController.dispose();
     await Future.wait(sensors.map((sensor) => sensor.dispose()));
+    for (final basket in baskets) {
+      await basket.disconnect();
+    }
+    await Future.wait(basketTransports.map((transport) => transport.dispose()));
     sensors.clear();
+    baskets.clear();
+    basketTransports.clear();
   });
 
   _StreamingSensor sensor(String id) {
     final value = _StreamingSensor(id);
     sensors.add(value);
     return value;
+  }
+
+  (SensorBasket, FakeSerialTransport) sensorBasket() {
+    final transport = FakeSerialTransport();
+    final value = SensorBasket(transport: transport);
+    baskets.add(value);
+    basketTransports.add(transport);
+    return (value, transport);
   }
 
   Future<void> settle([int turns = 6]) async {
@@ -264,6 +282,43 @@ void main() {
       await channel.sink.close();
     },
   );
+
+  test('publishes valid JSON for invalid SensorBasket readings', () async {
+    final (basket, transport) = sensorBasket();
+    await sensorController.register(basket);
+    final (channel, received) = connect(basket.deviceId);
+    await settle();
+
+    transport.injectSerial('24 24.69 NaN  0.04 0.00 bat:4.28V ...');
+    await settle();
+    expect(received, hasLength(1));
+    expect(
+      received.single.keys,
+      containsAll(['temperature', 'pressure', 'weight', 'weightFlow']),
+    );
+    expect(received.single, containsPair('temperature', 24.69));
+    expect(received.single, containsPair('pressure', isNull));
+    expect(received.single, containsPair('weight', 0.04));
+    expect(received.single, containsPair('weightFlow', 0.00));
+
+    transport.injectSerial('24 24.69 Infinity  0.04 0.00 bat:4.28V ...');
+    await settle();
+    expect(received, hasLength(2));
+    expect(received.last['pressure'], isNull);
+
+    transport.injectSerial('24 24.69 0.04 0.00 0.00 bat:4.28V ...');
+    await settle();
+    expect(received, hasLength(3));
+    expect(
+      received.last.keys,
+      containsAll(['temperature', 'pressure', 'weight', 'weightFlow']),
+    );
+    expect(received.last, containsPair('temperature', 24.69));
+    expect(received.last, containsPair('pressure', 0.04));
+    expect(received.last, containsPair('weight', 0.00));
+    expect(received.last, containsPair('weightFlow', 0.00));
+    await channel.sink.close();
+  });
 
   test(
     'invalid UTF-8 rejects a WebSocket upgrade before switching protocols',
