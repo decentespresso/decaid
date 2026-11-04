@@ -7,9 +7,7 @@ void main() {
   group('isSensorBasket', () {
     test('detects a telemetry line with four finite fields', () {
       expect(
-        isSensorBasket([
-          '24 24.69 0.04 0.00 0.00 bat:4.28V chg:Y usb:Y 1 ms',
-        ]),
+        isSensorBasket(['24 24.69 0.04 0.00 0.00 bat:4.28V chg:Y usb:Y 1 ms']),
         isTrue,
       );
     });
@@ -52,10 +50,9 @@ void main() {
 
     test('does not claim a telemetry line', () {
       expect(
-        isDecentScale(
-          ['24 24.69 0.04 0.00 0.00 bat:4.28V chg:Y usb:Y 1 ms'],
-          <Uint8List>[],
-        ),
+        isDecentScale([
+          '24 24.69 0.04 0.00 0.00 bat:4.28V chg:Y usb:Y 1 ms',
+        ], <Uint8List>[]),
         isFalse,
       );
     });
