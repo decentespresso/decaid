@@ -241,11 +241,12 @@ Notifications represent current conditions, not transient feedback or history.
 The launcher Notifications destination shows all current conditions, including
 read ones and their approved actions. The skin bell appears only when unread
 conditions exist and opens a compact unread-at-opening snapshot with a Go to
-notification center control. Marking that snapshot read hides the bell but does
+notification center control. That control exits the skin to the dashboard before
+opening the full center. Marking that snapshot read hides the bell but does
 not empty or close the open list. Later arrivals and revisions remain unread.
-Neither entry point resizes or remounts the skin WebView. Transient SnackBars
-remain independent. Closing either view does not resolve a condition or resume
-plugin work.
+Opening or closing the compact list does not resize or remount the skin WebView.
+Transient SnackBars remain independent. Closing either view does not resolve a
+condition or resume plugin work.
 
 The app retains source identity, approved actions, order and read status in one
 private SharedPreferences snapshot, outside skin-accessible Hive namespaces.

@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/display_controller.dart';
+import 'package:reaprime/src/launcher/launcher_view.dart';
 import 'package:reaprime/src/notifications/native_notification.dart';
 import 'package:reaprime/src/notifications/notification_actions.dart';
 import 'package:reaprime/src/notifications/notification_center.dart';
@@ -336,6 +337,172 @@ void main() {
     expect(downloads, 0);
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets(
+    'skin notification center returns to dashboard before update actions',
+    (tester) async {
+      Future<void> pumpTransition() async {
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      }
+
+      final logs = WebViewLogService(logDirectoryPath: '.');
+      final de1 = MockDe1Controller(controller: DeviceController(const []));
+      final settings = SettingsController(MockSettingsService());
+      final display = DisplayController(
+        de1Controller: de1,
+        settingsController: settings,
+      );
+      addTearDown(() {
+        display.dispose();
+        logs.dispose();
+      });
+      final navigator = GlobalKey<NavigatorState>();
+      final webKey = GlobalKey();
+      final releaseUrl = Uri.parse('https://example.com/releases/v99.0.0');
+      Uri? openedUrl;
+      actions.dispose();
+      actions = NotificationActions(
+        center: center,
+        onOpenAccount: () {},
+        launch: (url) async {
+          expect(webKey.currentState, isNull);
+          openedUrl = url;
+          return true;
+        },
+      );
+      await tester.runAsync(
+        () => center.publish(
+          NativeNotification(
+            namespace: NotificationNamespace.host,
+            sourceId: 'app-update',
+            sourceName: 'Decaid',
+            id: '99.0.0',
+            message: 'Update available: 99.0.0',
+            actions: [
+              NotificationAction(
+                id: 'view',
+                label: 'View',
+                type: NotificationActionType.openExternalUrl,
+                url: releaseUrl,
+              ),
+              const NotificationAction(
+                id: 'download',
+                label: 'Download',
+                type: NotificationActionType.downloadUpdate,
+              ),
+            ],
+          ),
+          binding: NotificationBinding(
+            onActivate: (_) async {
+              expect(webKey.currentState, isNull);
+              expect(find.byType(NotificationOverlay), findsNothing);
+              await showDialog<void>(
+                context: navigator.currentContext!,
+                builder: (_) => UpdateDialog(
+                  updateInfo: UpdateInfo(
+                    version: '99.0.0',
+                    downloadUrl: 'https://example.com/app.apk',
+                    releaseNotes: 'Changes',
+                    isPrerelease: false,
+                    tagName: 'v99.0.0',
+                  ),
+                  currentVersion: '0.9.0',
+                  onViewReleaseNotes: () {},
+                  onDownload: (_, _) async => '/tmp/app.apk',
+                  onInstall: (_) async => false,
+                ),
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpWidget(
+        ShadApp(
+          navigatorKey: navigator,
+          initialRoute: LauncherView.routeName,
+          onGenerateRoute: (route) => MaterialPageRoute<void>(
+            settings: route,
+            builder: (context) => route.name == SkinView.routeName
+                ? SkinView(
+                    settingsController: settings,
+                    webViewLogService: logs,
+                    deviceIp: '127.0.0.1',
+                    displayController: display,
+                    port: 43210,
+                    webView: _WebView(key: webKey),
+                    notificationCenter: center,
+                    notificationActions: actions,
+                  )
+                : Scaffold(
+                    body: Column(
+                      children: [
+                        const Text('Dashboard'),
+                        TextButton(
+                          onPressed: () => SkinView.open(Navigator.of(context)),
+                          child: const Text('Open skin'),
+                        ),
+                        SizedBox(
+                          width: 130,
+                          height: 130,
+                          child: NotificationDestination(
+                            center: center,
+                            actions: actions,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Open skin'));
+      await pumpTransition();
+      expect(webKey.currentState, isNotNull);
+      await tester.runAsync(() async {
+        await tester.tap(find.byType(FloatingActionButton));
+        await center.settled;
+      });
+      await pumpTransition();
+      expect(find.text('View'), findsNothing);
+      expect(find.text('Download'), findsNothing);
+      await tester.tap(find.text('Go to notification center'));
+      await pumpTransition();
+      await pumpTransition();
+      await pumpTransition();
+      expect(find.byType(SkinView, skipOffstage: false), findsNothing);
+      expect(webKey.currentState, isNull);
+      expect(find.text('Dashboard'), findsOneWidget);
+      expect(
+        tester
+            .widget<NotificationOverlay>(find.byType(NotificationOverlay))
+            .unreadSnapshot,
+        isNull,
+      );
+      await tester.tap(find.text('View'));
+      await tester.pumpAndSettle();
+      expect(openedUrl, releaseUrl);
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pumpAndSettle();
+      expect(find.text('Dashboard'), findsOneWidget);
+      expect(find.byType(SkinView, skipOffstage: false), findsNothing);
+      await tester.tap(find.text('Notifications'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Download'));
+      await tester.pumpAndSettle();
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.pumpAndSettle();
+      expect(find.byType(UpdateDialog), findsOneWidget);
+      expect(find.byType(NotificationOverlay), findsNothing);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.text('Dashboard'), findsOneWidget);
+      expect(center.value.single.id, '99.0.0');
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   for (final brightness in Brightness.values) {
     for (final compact in [false, true]) {

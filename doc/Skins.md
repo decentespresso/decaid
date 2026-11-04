@@ -3533,12 +3533,14 @@ bell leaves 64 logical pixels below it to clear bottom-row skin controls. The
 bell opens a compact snapshot of the notifications unread at opening, capped at
 480 logical pixels wide. Reading hides the bell but keeps the open snapshot
 visible. New arrivals and changed revisions remain unread until the next opening.
-Go to notification center closes the compact list and opens the full center,
-which is also always accessible from the launcher. The full center shows all
+Go to notification center closes the compact list, exits the skin to the
+dashboard, and opens the full center after the WebView is removed. The center
+is also always accessible from the launcher. The full center shows all
 current conditions, read and unread, with approved actions. It is capped at 720
 logical pixels wide. Both views keep their heading and X fixed above scrolling
-rows and are limited to 85% of available height. Neither view resizes, remounts
-or navigates the WebView. Back, Escape, outside taps and X close only the view.
+rows and are limited to 85% of available height. Opening or closing the compact
+list does not resize, remount or navigate the WebView. Back, Escape, outside
+taps and X close only the notification view.
 There are no generic trash, dismissal or Dismiss all controls.
 The heading's close tooltip uses Flutter's localized label; the native app
 currently enables English only, independently of each skin's language support.

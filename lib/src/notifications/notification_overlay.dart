@@ -15,6 +15,7 @@ Future<void> showNotifications(
   NotificationCenter center,
   NotificationActions actions, {
   bool unreadOnly = false,
+  Future<void> Function()? onOpenCenter,
 }) async {
   final snapshot = center.value
       .where((notice) => !unreadOnly || !notice.read)
@@ -31,7 +32,12 @@ Future<void> showNotifications(
         final route = ModalRoute.of(dialogContext);
         Navigator.of(dialogContext).pop();
         await route?.completed;
-        if (context.mounted) await showNotifications(context, center, actions);
+        if (!context.mounted) return;
+        if (onOpenCenter != null) {
+          await onOpenCenter();
+        } else {
+          await showNotifications(context, center, actions);
+        }
       },
     ),
   );
@@ -257,10 +263,12 @@ class NotificationBell extends StatelessWidget {
     super.key,
     required this.center,
     required this.actions,
+    this.onOpenCenter,
   });
 
   final NotificationCenter center;
   final NotificationActions actions;
+  final Future<void> Function()? onOpenCenter;
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -279,6 +287,7 @@ class NotificationBell extends StatelessWidget {
                   center,
                   actions,
                   unreadOnly: true,
+                  onOpenCenter: onOpenCenter,
                 ),
                 child: const Icon(LucideIcons.bell),
               ),
