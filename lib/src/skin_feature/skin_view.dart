@@ -282,6 +282,18 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
     ).pushNamedAndRemoveUntil(LauncherView.routeName, (_) => false);
   }
 
+  Future<void> _openNotificationCenter() async {
+    final navigator = Navigator.of(context);
+    final route = ModalRoute.of(context);
+    final center = widget.notificationCenter!;
+    final actions = widget.notificationActions!;
+    _exitToDashboard();
+    await route?.completed;
+    if (navigator.mounted) {
+      await showNotifications(navigator.context, center, actions);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final view = Scaffold(
@@ -291,6 +303,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
           ? NotificationBell(
               center: widget.notificationCenter!,
               actions: widget.notificationActions!,
+              onOpenCenter: _openNotificationCenter,
             )
           : null,
       body: SafeArea(
