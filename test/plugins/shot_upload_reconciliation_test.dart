@@ -153,9 +153,38 @@ class _Harness {
 
 Future<bool> _allowConsent(String _) async => true;
 
+String _serialListResponse(Iterable<String> serials) => serials
+    .map((serial) {
+      final value = serial.trim();
+      return RegExp(r'^\d+$').hasMatch(value) ? value : '$value DE-1';
+    })
+    .join('\n');
+
+List<String> _defaultLinkedSerials(
+  List<Map<String, dynamic>> shots,
+  Map<String, dynamic>? connectedMachine,
+) {
+  final serials = <String>{};
+  for (final shot in shots) {
+    final machine = shot['workflow']?['machine'];
+    final serial = machine is Map ? machine['serialNumber'] : null;
+    if (serial is String && serial.isNotEmpty && serial != 'MockDe1') {
+      serials.add(serial);
+    }
+  }
+  final connectedSerial = connectedMachine?['serialNumber'];
+  if (connectedSerial is String &&
+      connectedSerial.isNotEmpty &&
+      connectedSerial != 'MockDe1') {
+    serials.add(connectedSerial);
+  }
+  return serials.toList();
+}
+
 Future<_Harness> _load({
   required List<Map<String, dynamic>> shots,
   required List<int> responseStatuses,
+  List<String>? linkedSerials,
   String? machineState = 'sleeping',
   Map<String, dynamic>? connectedMachine = const {
     'serialNumber': '9999',
@@ -171,6 +200,8 @@ Future<_Harness> _load({
   await credentials.write(key: 'password', value: 'password');
   final requests = <http.Request>[];
   final statuses = List<int>.from(responseStatuses);
+  final accountSerials =
+      linkedSerials ?? _defaultLinkedSerials(shots, connectedMachine);
   late final PluginManager manager;
   manager = PluginManager(
     kvStore: _FakeKeyValueStore(),
@@ -178,6 +209,16 @@ Future<_Harness> _load({
       credentialStore: credentials,
       requireConsent: requireConsent,
       httpClient: http_testing.MockClient((request) async {
+        final isAccountLookup =
+            request.method == 'GET' &&
+            request.url.path.contains('support/api/sn');
+        if (isAccountLookup) {
+          return http.Response(
+            _serialListResponse(accountSerials),
+            200,
+            headers: {'content-type': 'text/plain'},
+          );
+        }
         requests.add(request);
         onRequest?.call(manager);
         final status = statuses.isEmpty ? 200 : statuses.removeAt(0);
@@ -834,24 +875,55 @@ void main() {
   );
 
   test(
-    'authorization failures are retried without rejecting the shot',
+    '403 pauses uploads for an unlinked serial instead of retrying',
     () async {
       final harness = await _load(
         shots: [_shot('eventual')],
-        responseStatuses: [403, 403, 403, 200],
+        responseStatuses: [403],
       );
 
       expect(await harness.runNextTimer(), isTrue);
       await harness.pump();
       for (var i = 0; i < 3; i++) {
-        expect(await harness.runNextTimer(), isTrue);
+        await harness.runNextTimer();
         await harness.pump();
       }
 
-      expect(harness.requests, hasLength(4));
-      final extras = harness.putBodies().single['annotations']['extras'];
-      expect(extras, contains('uploaded_to_decent'));
-      expect(extras['decent_upload_rejected'], isNull);
+      expect(harness.requests, hasLength(1));
+      expect(harness.putBodies(), isEmpty);
+      final result = harness.manager.js.evaluate(
+        'JSON.stringify(globalThis.__shots[0].annotations.extras)',
+      );
+      expect(result.isError, isFalse, reason: result.stringResult);
+      final extras = jsonDecode(result.stringResult) as Map<String, dynamic>;
+      expect(extras, isNot(contains('uploaded_to_decent')));
+      expect(extras, isNot(contains('decent_upload_rejected')));
     },
   );
+
+  test('unlinked serial pauses before any upload request', () async {
+    final harness = await _load(
+      shots: [_shot('unlinked', serialNumber: '7777')],
+      linkedSerials: ['6262', 'machine-b'],
+      responseStatuses: [200],
+    );
+
+    expect(await harness.runNextTimer(), isTrue);
+    await harness.pump();
+
+    expect(harness.requests, isEmpty);
+    expect(harness.putBodies(), isEmpty);
+    final result = harness.manager.js.evaluate(
+      'JSON.stringify(globalThis.__shots[0].annotations.extras)',
+    );
+    expect(result.isError, isFalse, reason: result.stringResult);
+    final extras = jsonDecode(result.stringResult) as Map<String, dynamic>;
+    expect(extras, isNot(contains('decent_upload_rejected')));
+    expect(harness.manager.notifications.value, hasLength(1));
+    expect(harness.manager.notifications.value.single.id, 'ownership');
+    expect(
+      harness.manager.notifications.value.single.message,
+      contains('7777'),
+    );
+  });
 }

@@ -123,6 +123,14 @@ void main() {
         credentialStore: store,
         requireConsent: (_) async => true,
         httpClient: http_testing.MockClient((request) async {
+          if (request.method == 'GET' &&
+              request.url.path.contains('support/api/sn')) {
+            return http.Response(
+              '6262',
+              200,
+              headers: {'content-type': 'text/plain'},
+            );
+          }
           captured.add(request);
           return http.Response(
             jsonEncode({'ok': true, 'profile_ref': 'damian@1'}),

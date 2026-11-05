@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-pinned_version="v0.2.1"
-pinned_sha256="f404eca097c162c0ca17f828badeff1d5c8c831c49d2e38faa72ad2e7b1a1fdd"
+pinned_version="v0.2.4"
+pinned_sha256="390fbc8518db49e12161eb2c323b6d5c4f6871847285ae76920b502033310e4b"
 pinned_api_version="1"
 
 repo="${SHOT_UPLOAD_REPO:-decentespresso/shot-upload}"
