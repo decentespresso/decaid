@@ -1192,9 +1192,12 @@ paths:
       description: |
         Resolves, loads, and validates a bundled firmware artifact before
         starting the upload. Returns an NDJSON progress stream on success.
-        The JSON body is limited to 64 KiB and must arrive within 10 seconds.
-        Accepts optional `force: true` to bypass version-newer policy
-        (never bypasses integrity or compatibility checks).
+        HTTP 200 means that the stream was admitted, not that the update
+        succeeded; clients must read the complete stream and inspect its
+        terminal `done` or `error` event. The JSON body is limited to 64 KiB
+        and must arrive within 10 seconds. Accepts optional `force: true` to
+        bypass version-newer policy (never bypasses integrity or compatibility
+        checks).
       tags: [Machine]
       requestBody:
         required: true
@@ -9147,3 +9150,9 @@ components:
         error:
           type: string
           description: Error message (only present on status=error)
+        stage:
+          type: string
+          description: Diagnostic firmware stage (only present on status=error)
+        cause:
+          type: string
+          description: Original diagnostic cause (only present on status=error)

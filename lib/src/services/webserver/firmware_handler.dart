@@ -337,14 +337,40 @@ class FirmwareHandler {
               }
             },
           )
-          .then((_) {
-            emit({'status': 'done', 'progress': 1.0});
-            progressController.close();
-          })
-          .catchError((Object e) {
-            emit({'status': 'error', 'progress': -1.0, 'error': e.toString()});
-            progressController.close();
-          });
+          .then(
+            (_) {
+              emit({'status': 'done', 'progress': 1.0});
+              progressController.close();
+            },
+            onError: (Object error, StackTrace stackTrace) {
+              final stage = error is FirmwareUpdateStageException
+                  ? error.stage
+                  : 'firmware-upload';
+              final cause = error is FirmwareUpdateStageException
+                  ? error.cause.toString()
+                  : error.toString();
+              final logError = error is FirmwareUpdateStageException
+                  ? error.cause
+                  : error;
+              final logStackTrace = error is FirmwareUpdateStageException
+                  ? error.stackTrace
+                  : stackTrace;
+              _log.warning(
+                'firmware upload failed stage=$stage cause=$cause',
+                logError,
+                logStackTrace,
+              );
+              final event = <String, dynamic>{
+                'status': 'error',
+                'progress': -1.0,
+                'error': error.toString(),
+                'stage': stage,
+                'cause': cause,
+              };
+              emit(event);
+              progressController.close();
+            },
+          );
     } on FirmwareUpdateInProgressException {
       unawaited(progressController.close());
       return Response(
