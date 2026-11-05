@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/mmr_address.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
@@ -105,6 +106,61 @@ void main() {
       expect(transport.writes.last.data.sublist(1, 4), [0x80, 0x38, 0x08]);
       transport.emitMmrResponseInt(MMRItem.fanThreshold, 42);
       expect(await fan, 42);
+    },
+  );
+
+  test(
+    'cancellation while waiting for firmware ownership skips erase',
+    () async {
+      final activeMmrRequest = transport.nextWrite(Endpoint.readFromMMR.uuid);
+      final activeMmr = de1.getSteamFlow();
+      await activeMmrRequest;
+
+      final eraseBarrier = Completer<void>();
+      transport.pauseNextWrite(Endpoint.fwMapRequest.uuid, eraseBarrier);
+      final eraseRequest = transport.nextWrite(Endpoint.fwMapRequest.uuid);
+      final update = de1.updateFirmware(Uint8List(0), onProgress: (_) {});
+      await _flushEventQueue();
+
+      await de1.cancelFirmwareUpload();
+      transport.emitMmrResponseInt(MMRItem.targetSteamFlow, 100);
+      await activeMmr;
+
+      final cancellation = expectLater(
+        update,
+        throwsA(isA<FirmwareUpdateCancelledException>()),
+      );
+      final outcome = await Future.any([
+        cancellation.then((_) => 'cancelled'),
+        eraseRequest.then((_) => 'erase'),
+      ]);
+      if (outcome == 'erase') {
+        eraseBarrier.completeError(StateError('unexpected erase'));
+        await cancellation;
+      }
+
+      expect(outcome, 'cancelled');
+      expect(transport.writeCount(Endpoint.fwMapRequest.uuid), 0);
+    },
+  );
+
+  test(
+    'transport disconnect while waiting for firmware ownership fails without erase',
+    () async {
+      final activeMmrRequest = transport.nextWrite(Endpoint.readFromMMR.uuid);
+      final activeMmr = de1.getSteamFlow();
+      await activeMmrRequest;
+
+      final update = de1.updateFirmware(Uint8List(0), onProgress: (_) {});
+      await _flushEventQueue();
+
+      transport.emitConnectionState(ConnectionState.disconnected);
+      transport.emitMmrResponseInt(MMRItem.targetSteamFlow, 100);
+      await activeMmr;
+
+      await expectLater(update, throwsA(isA<DeviceNotConnectedException>()));
+      expect(transport.writeCount(Endpoint.fwMapRequest.uuid), 0);
+      expect(transport.writeCount(Endpoint.writeToMMR.uuid), 0);
     },
   );
 

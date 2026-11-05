@@ -430,8 +430,13 @@ class De1Controller {
   Future<T> runDeviceWrite<T>(
     Future<T> Function(De1Interface device) write, {
     De1ReplayPolicy replayPolicy = De1ReplayPolicy.never,
+    bool firmwareDiagnostic = false,
   }) {
-    return _enqueueDeviceWrite(write, replayPolicy: replayPolicy);
+    return _enqueueDeviceWrite(
+      write,
+      replayPolicy: replayPolicy,
+      firmwareDiagnostic: firmwareDiagnostic,
+    );
   }
 
   Future<void> runReplaceableDeviceWrite(
@@ -833,7 +838,12 @@ class De1Controller {
     _firmwareUpdatePending = true;
     _firmwareUpdateStarted = false;
     _firmwareCancellationRequested = false;
+    final firmwareStopwatch = Stopwatch()..start();
     final queued = _activeDeviceWrite != null;
+    _log.fine(
+      'firmware stage=admission '
+      'generation=$_connectionGeneration elapsed=0ms queued=$queued',
+    );
     final Future<void> operation;
     try {
       operation = runDeviceWrite((device) {
@@ -842,9 +852,14 @@ class De1Controller {
           throw const FirmwareUpdateCancelledException();
         }
         _firmwareUpdateStarted = true;
+        _log.fine(
+          'firmware stage=onStart '
+          'generation=$_connectionGeneration '
+          'elapsed=${firmwareStopwatch.elapsedMilliseconds}ms',
+        );
         onStart?.call();
         return device.updateFirmware(image, onProgress: onProgress);
-      });
+      }, firmwareDiagnostic: true);
       if (queued) _pendingFirmwareWrite = _pendingDeviceWrites.last;
     } catch (_) {
       _firmwareUpdatePending = false;

@@ -2,6 +2,12 @@ part of 'de1_controller.dart';
 
 enum De1ReplayPolicy { never, sameMachine }
 
+final class _FirmwareDiagnosticContext {
+  _FirmwareDiagnosticContext() : stopwatch = Stopwatch()..start();
+
+  final Stopwatch stopwatch;
+}
+
 final class _PendingDe1Write<T> {
   const _PendingDe1Write({
     required this.call,
@@ -10,6 +16,7 @@ final class _PendingDe1Write<T> {
     required this.connectionGeneration,
     required this.replayPolicy,
     this.coalescingKey,
+    this.firmwareDiagnostic,
   });
 
   final Future<T> Function(De1Interface device) call;
@@ -18,6 +25,7 @@ final class _PendingDe1Write<T> {
   final int connectionGeneration;
   final De1ReplayPolicy replayPolicy;
   final String? coalescingKey;
+  final _FirmwareDiagnosticContext? firmwareDiagnostic;
 }
 
 extension De1Governor on De1Controller {
@@ -40,6 +48,7 @@ extension De1Governor on De1Controller {
     Future<T> Function(De1Interface device) write, {
     required De1ReplayPolicy replayPolicy,
     String? coalescingKey,
+    bool firmwareDiagnostic = false,
   }) {
     connectedDe1();
     final completer = Completer<T>();
@@ -50,6 +59,9 @@ extension De1Governor on De1Controller {
       connectionGeneration: _connectionGeneration,
       replayPolicy: replayPolicy,
       coalescingKey: coalescingKey,
+      firmwareDiagnostic: firmwareDiagnostic
+          ? _FirmwareDiagnosticContext()
+          : null,
     );
 
     if (coalescingKey != null) {
@@ -113,14 +125,75 @@ extension De1Governor on De1Controller {
         ? 2
         : 1;
     for (var attempt = 0; attempt < attempts; attempt++) {
-      final device = await _resolveDeviceFor(operation);
-      final generation = _connectionGeneration;
+      final _FirmwareDiagnosticContext? diagnostic =
+          operation.firmwareDiagnostic;
+      final De1Interface device;
       try {
-        await _waitForInitialization(device, generation);
+        device = await _resolveDeviceFor(operation);
+      } catch (error, stackTrace) {
+        if (diagnostic == null) rethrow;
+        Error.throwWithStackTrace(
+          FirmwareUpdateStageException(
+            stage: 'controller',
+            cause: error,
+            stackTrace: stackTrace,
+          ),
+          stackTrace,
+        );
+      }
+      final generation = _connectionGeneration;
+      if (diagnostic != null) {
+        _log.fine(
+          'firmware stage=initialization start '
+          'generation=$generation '
+          'elapsed=${diagnostic.stopwatch.elapsedMilliseconds}ms',
+        );
+      }
+      try {
+        try {
+          await _waitForInitialization(device, generation);
+        } on TimeoutException catch (error, stackTrace) {
+          if (diagnostic == null) rethrow;
+          _log.warning(
+            'firmware stage=initialization failed '
+            'generation=$generation '
+            'elapsed=${diagnostic.stopwatch.elapsedMilliseconds}ms '
+            'cause=$error',
+            error,
+            stackTrace,
+          );
+          Error.throwWithStackTrace(
+            FirmwareUpdateStageException(
+              stage: 'initialization',
+              cause: error,
+              stackTrace: stackTrace,
+            ),
+            stackTrace,
+          );
+        }
         if (generation != _connectionGeneration ||
             !identical(device, connectedDe1OrNull)) {
           if (attempt + 1 < attempts) continue;
+          final error = StateError('Machine changed during device write');
+          if (diagnostic != null) {
+            final stackTrace = StackTrace.current;
+            Error.throwWithStackTrace(
+              FirmwareUpdateStageException(
+                stage: 'controller',
+                cause: error,
+                stackTrace: stackTrace,
+              ),
+              stackTrace,
+            );
+          }
           break;
+        }
+        if (diagnostic != null) {
+          _log.fine(
+            'firmware stage=initialization settled '
+            'generation=$generation '
+            'elapsed=${diagnostic.stopwatch.elapsedMilliseconds}ms',
+          );
         }
         final result = await operation.call(device);
         if (generation == _connectionGeneration &&
