@@ -22,7 +22,12 @@ dependencies:
   logging_appenders: ^2.0.0
   # Injectable clock (fake_async-aware) for the stop-intent attribution window.
   clock: ^1.1.1
-  flutter_foreground_task: ^9.2.2
+  # Forked for the iOS BGTaskScheduler launch crash (decaid#1073): registration is opt-in only.
+  # Immutable pin: tag fft-fork-11.0.3.2 / commit fba972b2.
+  flutter_foreground_task:
+    git:
+      url: https://github.com/tadelv/flutter_foreground_task.git
+      ref: fba972b2b9e085cc85ded39fd344dfc7570ed1f8
   permission_handler: ^12.0.0+1
   rxdart: ^0.28.0
   shelf: ^1.0.0
