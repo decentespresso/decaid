@@ -1,11 +1,15 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
+import 'package:reaprime/src/models/device/firmware_update_state.dart';
+import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/models/device/machine.dart';
@@ -507,6 +511,90 @@ void main() {
       expect(replacement.updateCalls, 0);
     },
   );
+
+  test('managed apply diagnostic captures injected requested-state '
+      'sleep-write timeout boundary', () async {
+    final previousRootLevel = Logger.root.level;
+    Logger.root.level = Level.ALL;
+    final logs = <LogRecord>[];
+    final logSubscription = Logger.root.onRecord.listen(logs.add);
+    addTearDown(() async {
+      await logSubscription.cancel();
+      Logger.root.level = previousRootLevel;
+    });
+
+    final transport = FakeBleTransport();
+    addTearDown(transport.dispose);
+    transport.queueOnConnectResponses(
+      v13Model: 3,
+      cpuFirmwareBuild: 1333,
+      calFlowEst: 0,
+    );
+    transport.requestedStateSleepWriteTimeout = const Duration(seconds: 2);
+    final de1 = UnifiedDe1(
+      transport: transport,
+      firmwareEraseTimeout: const Duration(seconds: 1),
+      firmwareVerificationTimeout: const Duration(seconds: 1),
+    );
+    await de1.onConnect();
+    final connectTrace = List<String>.of(transport.trace);
+    transport.trace.clear();
+    transport.writes.clear();
+    controller.machine = de1;
+
+    final response = await _apply(
+      handler,
+      jsonEncode({'artifactId': 'de1-1358'}),
+    );
+    final events = await _readEvents(response);
+    final catalogResponse = await handler(
+      Request('GET', Uri.parse('http://localhost/api/v1/machine/firmware')),
+    );
+    final catalog =
+        jsonDecode(await catalogResponse.readAsString())
+            as Map<String, dynamic>;
+    transport.queueMmrResponseInt(MMRItem.calFlowEst, 1000);
+    expect(await de1.getFlowEstimation(), 1.0);
+
+    debugPrint(
+      'managed diagnostic connect trace:\\n${connectTrace.join('\\n')}',
+    );
+    debugPrint('managed diagnostic trace:\\n${transport.trace.join('\\n')}');
+    debugPrint('managed diagnostic NDJSON: $events');
+    expect(response.statusCode, 200);
+    expect(events.map((event) => event['status']), ['erasing', 'error']);
+    expect(events.where((event) => event['status'] == 'error'), hasLength(1));
+    expect(events.last['error'], contains('TimeoutException'));
+    expect(events.last['stage'], 'sleep');
+    expect(events.last['cause'], events.last['error']);
+    final handlerFailureLogs = logs
+        .where(
+          (record) =>
+              record.loggerName == 'FirmwareHandler' &&
+              record.message.contains('firmware upload failed stage=sleep'),
+        )
+        .toList();
+    expect(handlerFailureLogs, hasLength(1));
+    final handlerFailureLog = handlerFailureLogs.first;
+    expect(handlerFailureLog.message, contains('stage=sleep'));
+    expect(handlerFailureLog.message, contains('cause=TimeoutException'));
+    expect(handlerFailureLog.error, isA<TimeoutException>());
+    expect(handlerFailureLog.stackTrace, isNotNull);
+    expect(de1.firmwareUpdateState, FirmwareUpdateState.idle);
+    expect((catalog['operation'] as Map<String, dynamic>)['state'], 'idle');
+    expect(
+      transport.writes.any(
+        (write) => write.characteristicUUID == Endpoint.fwMapRequest.uuid,
+      ),
+      isFalse,
+    );
+    expect(
+      transport.writes.any(
+        (write) => write.characteristicUUID == Endpoint.writeToMMR.uuid,
+      ),
+      isFalse,
+    );
+  });
 
   test('verification failure emits error and closes without done', () async {
     final transport = FakeBleTransport();

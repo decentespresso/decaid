@@ -777,9 +777,11 @@ class UnifiedDe1Transport {
     }
     try {
       _log.fine('about to write to ${endpoint.name}');
-      _log.fine(
-        'payload: ${data.map((el) => el.toRadixString(16).padLeft(2, '0')).join(' ')}',
-      );
+      if (endpoint != Endpoint.writeToMMR) {
+        _log.fine(
+          'payload: ${data.map((el) => el.toRadixString(16).padLeft(2, '0')).join(' ')}',
+        );
+      }
       switch (transportType) {
         case TransportType.ble:
           if (endpoint.uuid == null) {

@@ -9,15 +9,56 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
     _FirmwareCancellationToken cancelToken,
   ) async {
     _throwIfFirmwareCancelled(cancelToken);
-    await requestState(MachineState.sleeping);
+    await _runFirmwareStage('sleep', () => requestState(MachineState.sleeping));
     _throwIfFirmwareCancelled(cancelToken);
-    await beforeFirmwareUpload();
+    await _runFirmwareStage('preflight', beforeFirmwareUpload);
     _throwIfFirmwareCancelled(cancelToken);
 
+    final gateStopwatch = Stopwatch()..start();
+    _log.fine('firmware stage=firmware-gate waiting elapsed=0ms');
     await _firmwareMmrGate.runFirmwareExclusive(() async {
+      _log.fine(
+        'firmware stage=firmware-gate acquired '
+        'elapsed=${gateStopwatch.elapsedMilliseconds}ms',
+      );
       _throwIfFirmwareCancelled(cancelToken);
       await _updateFirmwareExclusive(fwImage, onProgress, cancelToken);
     });
+  }
+
+  Future<void> _runFirmwareStage(
+    String stage,
+    Future<void> Function() operation,
+  ) async {
+    final stopwatch = Stopwatch()..start();
+    _log.fine('firmware stage=$stage start elapsed=0ms');
+    try {
+      final result = await operation();
+      _log.fine(
+        'firmware stage=$stage complete '
+        'elapsed=${stopwatch.elapsedMilliseconds}ms',
+      );
+      return result;
+    } catch (error, stackTrace) {
+      _log.warning(
+        'firmware stage=$stage failed '
+        'elapsed=${stopwatch.elapsedMilliseconds}ms cause=$error',
+        error,
+        stackTrace,
+      );
+      if (error is FirmwareUpdateCancelledException ||
+          error is FirmwareUpdateStageException) {
+        rethrow;
+      }
+      Error.throwWithStackTrace(
+        FirmwareUpdateStageException(
+          stage: stage,
+          cause: error,
+          stackTrace: stackTrace,
+        ),
+        stackTrace,
+      );
+    }
   }
 
   Future<void> _updateFirmwareExclusive(
