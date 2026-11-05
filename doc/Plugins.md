@@ -1683,11 +1683,12 @@ backlog reconciliation follows `AutoUpload`; the removed 0.2.0 `DrainHistory`
 setting no longer gates it. Consent denial or non-decision pauses reconciliation
 without a periodic retry.
 
-The companion ownership update uses `host.notify` for actionable pauses. Its
-messages, support destination, and recovery rules belong in the
+The bundled release is pinned to v0.2.4. In that version, a 403 for an
+unlinked machine serial pauses uploads for that serial instead of retrying and
+uses `host.notify` for an actionable notification. The notification's message,
+Support destination, and recovery rules belong in the
 [plugin repository](https://github.com/decentespresso/shot-upload), not native
-UI. Existing bundled plugin pins remain unchanged until a verified release is
-available.
+UI.
 
 ## Next Steps
 
