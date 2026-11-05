@@ -163,6 +163,7 @@ class _TestDe1Controller extends De1Controller {
   Future<T> runDeviceWrite<T>(
     Future<T> Function(De1Interface device) write, {
     De1ReplayPolicy replayPolicy = De1ReplayPolicy.never,
+    bool firmwareDiagnostic = false,
   }) async {
     deviceWriteCalls++;
     await beforeDeviceWrite?.call();

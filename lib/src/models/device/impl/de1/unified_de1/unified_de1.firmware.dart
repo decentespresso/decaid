@@ -40,16 +40,14 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
       );
       return result;
     } catch (error, stackTrace) {
+      if (error is FirmwareUpdateCancelledException) rethrow;
       _log.warning(
         'firmware stage=$stage failed '
         'elapsed=${stopwatch.elapsedMilliseconds}ms cause=$error',
         error,
         stackTrace,
       );
-      if (error is FirmwareUpdateCancelledException ||
-          error is FirmwareUpdateStageException) {
-        rethrow;
-      }
+      if (error is FirmwareUpdateStageException) rethrow;
       Error.throwWithStackTrace(
         FirmwareUpdateStageException(
           stage: stage,

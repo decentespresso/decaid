@@ -16,6 +16,12 @@ typedef FakeBleWrite = ({
 });
 
 class FakeBleTransport extends BLETransport {
+  FakeBleTransport({this.traceEnabled = false, this.maxTraceEntries = 256})
+    : assert(maxTraceEntries >= 0);
+
+  final bool traceEnabled;
+  final int maxTraceEntries;
+
   final _connState = BehaviorSubject<ConnectionState>.seeded(
     ConnectionState.connected,
   );
@@ -51,6 +57,7 @@ class FakeBleTransport extends BLETransport {
   final List<FakeBleWrite> writes = [];
 
   void recordTrace(String event) {
+    if (!traceEnabled || trace.length >= maxTraceEntries) return;
     trace.add(
       '${traceClock.elapsedMicroseconds}us '
       'generation=$connectionGeneration $event',

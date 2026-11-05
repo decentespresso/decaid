@@ -1,6 +1,6 @@
 import 'dart:async';
+import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/device/device.dart' as device;
@@ -252,7 +252,6 @@ void main() {
       firmwareVerificationTimeout: const Duration(seconds: 1),
     );
     await successDe1.onConnect();
-    final successConnectTrace = List<String>.of(successTransport.trace);
     successTransport.trace.clear();
     successTransport.queueMmrResponseInt(MMRItem.calFlowEst, 1000);
     expect(await successDe1.getFlowEstimation(), 1.0);
@@ -268,13 +267,6 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     successTransport.emitFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xfd]);
     await success;
-    debugPrint(
-      'diagnostic success connect trace:\\n'
-      '${successConnectTrace.join('\\n')}',
-    );
-    debugPrint(
-      'diagnostic success trace:\\n${successTransport.trace.join('\\n')}',
-    );
     final imageWriteLogs = logs
         .where(
           (record) =>
@@ -297,7 +289,7 @@ void main() {
       isFalse,
     );
 
-    final failureTransport = FakeBleTransport();
+    final failureTransport = FakeBleTransport(traceEnabled: true);
     addTearDown(failureTransport.dispose);
     failureTransport.queueOnConnectResponses(v13Model: 3, calFlowEst: 0);
     failureTransport.requestedStateSleepWriteTimeout = const Duration(
@@ -309,28 +301,17 @@ void main() {
       firmwareVerificationTimeout: const Duration(seconds: 1),
     );
     await failureDe1.onConnect();
-    final failureConnectTrace = List<String>.of(failureTransport.trace);
     failureTransport.trace.clear();
     failureTransport.queueMmrResponseInt(MMRItem.calFlowEst, 1000);
     expect(await failureDe1.getFlowEstimation(), 1.0);
     failureTransport.writes.clear();
 
     Object? failure;
-    StackTrace? failureStack;
     try {
       await failureDe1.updateFirmware(Uint8List(16), onProgress: (_) {});
-    } catch (error, stackTrace) {
+    } catch (error) {
       failure = error;
-      failureStack = stackTrace;
     }
-    debugPrint(
-      'diagnostic failure connect trace:\\n'
-      '${failureConnectTrace.join('\\n')}',
-    );
-    debugPrint(
-      'diagnostic failure trace:\\n${failureTransport.trace.join('\\n')}',
-    );
-    debugPrint('diagnostic failure error: $failure\\n$failureStack');
     expect(failure, isA<FirmwareUpdateStageException>());
     final failureStage = failure as FirmwareUpdateStageException;
     expect(failureStage.stage, 'sleep');
@@ -375,9 +356,6 @@ void main() {
       List<int>.generate(16, (index) => index + 1),
     );
     await failureDe1.updateFirmware(subsequentImage, onProgress: (_) {});
-    debugPrint(
-      'diagnostic subsequent trace:\\n${failureTransport.trace.join('\\n')}',
-    );
     expect(failureDe1.firmwareUpdateState, FirmwareUpdateState.idle);
     expect(failureTransport.connectCalls, 1);
     final subsequentMapWrites = failureTransport.writes

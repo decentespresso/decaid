@@ -320,7 +320,13 @@ class FirmwareHandler {
 
     progressController.onCancel = () async {
       _log.warning('firmware upload: client disconnected, cancelling');
-      await _controller.cancelFirmwareUpload();
+      try {
+        await _controller.cancelFirmwareUpload();
+      } on DeviceNotConnectedException {
+        _log.fine(
+          'firmware upload: machine already disconnected during cancellation',
+        );
+      }
     };
 
     var lastProgress = -1.0;
@@ -343,6 +349,15 @@ class FirmwareHandler {
               progressController.close();
             },
             onError: (Object error, StackTrace stackTrace) {
+              if (error is FirmwareUpdateCancelledException) {
+                emit({
+                  'status': 'error',
+                  'progress': -1.0,
+                  'error': error.toString(),
+                });
+                progressController.close();
+                return;
+              }
               final stage = error is FirmwareUpdateStageException
                   ? error.stage
                   : 'firmware-upload';
@@ -364,8 +379,8 @@ class FirmwareHandler {
                 'status': 'error',
                 'progress': -1.0,
                 'error': error.toString(),
-                'stage': stage,
                 'cause': cause,
+                'stage': stage,
               };
               emit(event);
               progressController.close();

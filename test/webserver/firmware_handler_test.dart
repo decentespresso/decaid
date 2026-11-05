@@ -1,19 +1,20 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
+import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/firmware_update_state.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
 import 'package:reaprime/src/models/device/impl/mock_de1/mock_de1.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/errors.dart';
+import 'package:reaprime/src/settings/machine_settings_store.dart';
 import 'package:reaprime/src/services/firmware/bundled_firmware_catalog.dart';
 import 'package:reaprime/src/services/webserver/firmware_handler.dart';
 import 'package:shelf_plus/shelf_plus.dart';
@@ -35,6 +36,7 @@ final class _FixedController extends De1Controller {
   Future<T> runDeviceWrite<T>(
     Future<T> Function(De1Interface device) write, {
     De1ReplayPolicy replayPolicy = De1ReplayPolicy.never,
+    bool firmwareDiagnostic = false,
   }) {
     return write(connectedDe1());
   }
@@ -96,6 +98,35 @@ final class _BlockingFirmwareBundle extends CachingAssetBundle {
   @override
   Future<String> loadString(String key, {bool cache = true}) {
     return rootBundle.loadString(key, cache: cache);
+  }
+}
+
+final class _BlockingMachineSettingsStore implements MachineSettingsStore {
+  final Completer<void> readStarted = Completer<void>();
+  final Completer<MachineSettings?> readRelease = Completer<MachineSettings?>();
+
+  @override
+  Future<MachineSettings?> read(String identity) async {
+    if (!readStarted.isCompleted) readStarted.complete();
+    return readRelease.future;
+  }
+
+  @override
+  Future<void> update(
+    String identity, {
+    int? fanThreshold,
+    De1RefillKitSettings? refillKitSetting,
+    double? flowCalibration,
+  }) async {}
+
+  @override
+  Future<void> clear(String identity) async {}
+
+  @override
+  Future<void> clearExceptFlowCalibration(String identity) async {}
+
+  void release() {
+    if (!readRelease.isCompleted) readRelease.complete();
   }
 }
 
@@ -537,7 +568,6 @@ void main() {
       firmwareVerificationTimeout: const Duration(seconds: 1),
     );
     await de1.onConnect();
-    final connectTrace = List<String>.of(transport.trace);
     transport.trace.clear();
     transport.writes.clear();
     controller.machine = de1;
@@ -556,11 +586,6 @@ void main() {
     transport.queueMmrResponseInt(MMRItem.calFlowEst, 1000);
     expect(await de1.getFlowEstimation(), 1.0);
 
-    debugPrint(
-      'managed diagnostic connect trace:\\n${connectTrace.join('\\n')}',
-    );
-    debugPrint('managed diagnostic trace:\\n${transport.trace.join('\\n')}');
-    debugPrint('managed diagnostic NDJSON: $events');
     expect(response.statusCode, 200);
     expect(events.map((event) => event['status']), ['erasing', 'error']);
     expect(events.where((event) => event['status'] == 'error'), hasLength(1));
@@ -595,6 +620,344 @@ void main() {
       isFalse,
     );
   });
+
+  test(
+    'managed apply waits for real controller initialization before starting firmware',
+    () async {
+      final previousRootLevel = Logger.root.level;
+      Logger.root.level = Level.ALL;
+      final logs = <LogRecord>[];
+      final logSubscription = Logger.root.onRecord.listen(logs.add);
+      addTearDown(() async {
+        await logSubscription.cancel();
+        Logger.root.level = previousRootLevel;
+      });
+
+      final harness = await _blockedInitializationHandler();
+      addTearDown(() async {
+        harness.settings.release();
+        await harness.controller.dispose();
+      });
+
+      harness.transport.queueMmrResponseInt(MMRItem.calFlowEst, 1000);
+      expect(await harness.machine.getFlowEstimation(), 1.0);
+      harness.transport.writes.clear();
+      harness.transport.trace.clear();
+
+      final stopwatch = Stopwatch()..start();
+      final response = await _apply(
+        harness.handler,
+        jsonEncode({'artifactId': 'de1-1358'}),
+      );
+      final events = await _readEvents(response);
+      stopwatch.stop();
+      final catalogResponse = await harness.handler(
+        Request('GET', Uri.parse('http://localhost/api/v1/machine/firmware')),
+      );
+      final catalog =
+          jsonDecode(await catalogResponse.readAsString())
+              as Map<String, dynamic>;
+      final operation = catalog['operation'] as Map<String, dynamic>;
+      final writesBeforePostTimeoutProbe = List.of(harness.transport.writes);
+      harness.transport.queueMmrResponseInt(MMRItem.calFlowEst, 1000);
+      expect(await harness.machine.getFlowEstimation(), 1.0);
+      harness.settings.release();
+      await harness.controller.initSettled.firstWhere(
+        (generation) => generation == harness.controller.connectionGeneration,
+      );
+      expect(harness.machine.firmwareUpdateState, FirmwareUpdateState.idle);
+      harness.transport.queueFirmwareMapResponse([
+        0,
+        0,
+        0,
+        1,
+        0xff,
+        0xff,
+        0xff,
+      ]);
+      harness.transport.queueFirmwareMapResponse([
+        0,
+        0,
+        0,
+        1,
+        0xff,
+        0xff,
+        0xfd,
+      ]);
+      await harness.controller.updateFirmware(
+        Uint8List(16),
+        onProgress: (_) {},
+      );
+      expect(harness.machine.firmwareUpdateState, FirmwareUpdateState.idle);
+      expect(
+        harness.transport.writes.where(
+          (write) => write.characteristicUUID == Endpoint.fwMapRequest.uuid,
+        ),
+        hasLength(2),
+      );
+      expect(
+        harness.transport.writes.where(
+          (write) =>
+              write.characteristicUUID == Endpoint.writeToMMR.uuid &&
+              write.data.length == 20 &&
+              write.data[0] == 16 &&
+              write.data[1] == 0 &&
+              write.data[2] == 0 &&
+              write.data[3] == 0,
+        ),
+        hasLength(1),
+      );
+      final failureLogs = logs
+          .where(
+            (record) =>
+                record.loggerName == 'FirmwareHandler' &&
+                record.message.contains('firmware upload failed'),
+          )
+          .toList();
+      final failureLog = failureLogs.single;
+      final transcript = [
+        'connectionGeneration=${harness.controller.connectionGeneration}',
+        'elapsed=${stopwatch.elapsed}',
+        'events=$events',
+        'transportTrace=${harness.transport.trace}',
+        'failureLog=${failureLog.message}',
+        'initializationTimeoutCallsite=de1_controller.governor.dart',
+        'originalStack=${failureLog.stackTrace}',
+      ].join('\\n');
+
+      expect(response.statusCode, 200);
+      expect(events, hasLength(1));
+      expect(events.single['status'], 'error');
+      expect(
+        events.single['error'],
+        'TimeoutException after 0:00:02.000000: Future not completed',
+      );
+      expect(events.single['cause'], events.single['error']);
+      expect(events.single['stage'], isNot('erasing'));
+      expect(
+        stopwatch.elapsed,
+        greaterThanOrEqualTo(const Duration(seconds: 2)),
+      );
+      expect(operation['state'], 'idle');
+      expect(
+        writesBeforePostTimeoutProbe.any(
+          (write) => write.characteristicUUID == Endpoint.fwMapRequest.uuid,
+        ),
+        isFalse,
+      );
+      expect(
+        writesBeforePostTimeoutProbe.any(
+          (write) => write.characteristicUUID == Endpoint.writeToMMR.uuid,
+        ),
+        isFalse,
+      );
+      expect(
+        failureLog.stackTrace.toString(),
+        allOf(
+          contains('_waitForInitialization'),
+          contains('de1_controller.governor.dart'),
+        ),
+      );
+      expect(events.single['stage'], 'initialization', reason: transcript);
+    },
+  );
+
+  test('managed apply logs the governed successful stage order', () async {
+    final previousRootLevel = Logger.root.level;
+    Logger.root.level = Level.ALL;
+    final logs = <LogRecord>[];
+    final logSubscription = Logger.root.onRecord.listen(logs.add);
+    addTearDown(() async {
+      await logSubscription.cancel();
+      Logger.root.level = previousRootLevel;
+    });
+
+    final harness = await _blockedInitializationHandler();
+    addTearDown(() async {
+      harness.settings.release();
+      await harness.controller.dispose();
+    });
+    harness.settings.release();
+    await harness.controller.initSettled.firstWhere(
+      (generation) => generation == harness.controller.connectionGeneration,
+    );
+    harness.transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
+    harness.transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xfd]);
+
+    final response = await _apply(
+      harness.handler,
+      jsonEncode({'artifactId': 'de1-1358'}),
+    );
+    final events = await _readEvents(response);
+    expect(response.statusCode, 200);
+    expect(events.last['status'], 'done');
+
+    final messages = logs.map((record) => record.message).toList();
+    int messageIndex(String text, [int start = 0]) {
+      return messages.indexWhere((message) => message.contains(text), start);
+    }
+
+    final admission = messageIndex('firmware stage=admission');
+    final initialization = messageIndex('firmware stage=initialization start');
+    final settled = messageIndex('firmware stage=initialization settled');
+    final onStart = messageIndex('firmware stage=onStart');
+    final sleep = messageIndex('firmware stage=sleep start');
+    final preflight = messageIndex('firmware stage=preflight start');
+    final gate = messageIndex('firmware stage=firmware-gate waiting');
+    final map = messageIndex('about to write to fwMapRequest');
+    final image = messageIndex('about to write to writeToMMR', map);
+    final stageOrder = [
+      admission,
+      initialization,
+      settled,
+      onStart,
+      sleep,
+      preflight,
+      gate,
+      map,
+      image,
+    ];
+    expect(stageOrder, everyElement(greaterThanOrEqualTo(0)));
+    for (var index = 1; index < stageOrder.length; index++) {
+      expect(stageOrder[index], greaterThan(stageOrder[index - 1]));
+    }
+  });
+
+  test(
+    'cancellation while initialization is pending settles as cancellation',
+    () async {
+      final harness = await _blockedInitializationHandler();
+      addTearDown(() async {
+        harness.settings.release();
+        await harness.controller.dispose();
+      });
+      harness.transport.writes.clear();
+
+      final response = await _apply(
+        harness.handler,
+        jsonEncode({'artifactId': 'de1-1358'}),
+      );
+      await harness.controller.cancelFirmwareUpload();
+      harness.settings.release();
+      final events = await _readEvents(response);
+      expect(response.statusCode, 200);
+      expect(events, hasLength(1));
+      expect(events.single['status'], 'error');
+      expect(events.single.containsKey('stage'), isFalse);
+      expect(events.single.containsKey('cause'), isFalse);
+      expect(
+        harness.transport.writes.any(
+          (write) => write.characteristicUUID == Endpoint.fwMapRequest.uuid,
+        ),
+        isFalse,
+      );
+      expect(harness.machine.firmwareUpdateState, FirmwareUpdateState.idle);
+      expect(
+        events.single['error'],
+        contains('FirmwareUpdateCancelledException'),
+      );
+    },
+  );
+
+  test(
+    'disconnect while initialization is pending is not an erase failure',
+    () async {
+      final harness = await _blockedInitializationHandler();
+      addTearDown(() async {
+        harness.settings.release();
+        await harness.controller.dispose();
+      });
+      harness.transport.writes.clear();
+
+      final operation = harness.controller.updateFirmware(
+        Uint8List(16),
+        onProgress: (_) {},
+      );
+      harness.transport.emitConnectionState(ConnectionState.disconnected);
+
+      Object? failure;
+      StackTrace? failureStack;
+      try {
+        await operation;
+      } catch (error, stackTrace) {
+        failure = error;
+        failureStack = stackTrace;
+      }
+      expect(failure, isA<FirmwareUpdateStageException>());
+      final stageFailure = failure as FirmwareUpdateStageException;
+      expect(stageFailure.stage, 'controller');
+      expect(stageFailure.cause, isA<StateError>());
+      expect(stageFailure.stackTrace.toString(), contains('_runDeviceWrite'));
+      expect(failureStack, isNotNull);
+      expect(
+        harness.transport.writes.any(
+          (write) => write.characteristicUUID == Endpoint.fwMapRequest.uuid,
+        ),
+        isFalse,
+      );
+      expect(
+        harness.transport.writes.any(
+          (write) => write.characteristicUUID == Endpoint.writeToMMR.uuid,
+        ),
+        isFalse,
+      );
+      expect(harness.machine.firmwareUpdateState, FirmwareUpdateState.idle);
+    },
+  );
+
+  test(
+    'HTTP disconnect during initialization reports controller origin and closes cleanly',
+    () async {
+      final previousRootLevel = Logger.root.level;
+      Logger.root.level = Level.ALL;
+      final logs = <LogRecord>[];
+      final logSubscription = Logger.root.onRecord.listen(logs.add);
+      addTearDown(() async {
+        await logSubscription.cancel();
+        Logger.root.level = previousRootLevel;
+      });
+
+      final harness = await _blockedInitializationHandler();
+      addTearDown(() async {
+        harness.settings.release();
+        await harness.controller.dispose();
+      });
+      harness.transport.writes.clear();
+      final response = await _apply(
+        harness.handler,
+        jsonEncode({'artifactId': 'de1-1358'}),
+      );
+      harness.transport.emitConnectionState(ConnectionState.disconnected);
+      final events = await _readEvents(response);
+      expect(response.statusCode, 200);
+      expect(events, hasLength(1));
+      expect(events.single['status'], 'error');
+      expect(events.single['stage'], 'controller');
+      expect(events.single['cause'], contains('Machine changed'));
+      expect(events.single['error'], contains('Machine changed'));
+      expect(
+        events.single['error'],
+        isNot(contains('FirmwareUpdateCancelledException')),
+      );
+      expect(
+        harness.transport.writes.any(
+          (write) => write.characteristicUUID == Endpoint.fwMapRequest.uuid,
+        ),
+        isFalse,
+      );
+      expect(harness.machine.firmwareUpdateState, FirmwareUpdateState.idle);
+      final handlerFailureLogs = logs
+          .where(
+            (record) =>
+                record.loggerName == 'FirmwareHandler' &&
+                record.message.contains('stage=controller'),
+          )
+          .toList();
+      expect(handlerFailureLogs, hasLength(1));
+      expect(handlerFailureLogs.single.error, isA<StateError>());
+      expect(handlerFailureLogs.single.stackTrace, isNotNull);
+    },
+  );
 
   test('verification failure emits error and closes without done', () async {
     final transport = FakeBleTransport();
@@ -769,6 +1132,46 @@ Future<Response> _apply(Handler handler, String body) async {
 Future<Response> _delete(Handler handler) async {
   return await handler(
     Request('DELETE', Uri.parse('http://localhost/api/v1/machine/firmware')),
+  );
+}
+
+Future<
+  ({
+    Handler handler,
+    De1Controller controller,
+    UnifiedDe1 machine,
+    FakeBleTransport transport,
+    _BlockingMachineSettingsStore settings,
+  })
+>
+_blockedInitializationHandler() async {
+  final devices = DeviceController([MockDeviceDiscoveryService()]);
+  await devices.initialize();
+  final settings = _BlockingMachineSettingsStore();
+  final controller = De1Controller(
+    controller: devices,
+    machineSettings: settings,
+  );
+  final transport = FakeBleTransport(traceEnabled: true);
+  transport.queueOnConnectResponses(
+    v13Model: 3,
+    cpuFirmwareBuild: 1333,
+    calFlowEst: 0,
+  );
+  final machine = UnifiedDe1(transport: transport);
+  await controller.connectToDe1(machine);
+  await settings.readStarted.future;
+  final app = Router().plus;
+  FirmwareHandler(
+    controller: controller,
+    catalog: BundledFirmwareCatalog(bundle: rootBundle),
+  ).addRoutes(app);
+  return (
+    handler: app.call,
+    controller: controller,
+    machine: machine,
+    transport: transport,
+    settings: settings,
   );
 }
 

@@ -67,13 +67,18 @@ priority even over already queued MMR work. Once firmware owners finish or fail,
 queued MMR work resumes one operation at a time in FIFO order. This preserves
 firmware exclusivity without discarding settings requests.
 
-Managed firmware diagnostics log elapsed stage boundaries for sleep, preflight,
-and gate acquisition. Sleep and preflight failures retain the original exception
-string and stack while exposing optional `stage` and `cause` fields on the
-terminal NDJSON error event. HTTP 200 admits the stream; clients must consume
-its terminal `done` or `error` event. Transport-level hex payload logging is
-suppressed for MMR writes because firmware image chunks share that endpoint; the
-MMR layer still logs its own payloads at fine level.
+Managed firmware diagnostics log elapsed stage boundaries from queue admission
+through controller initialization, `onStart`, sleep, preflight and gate
+acquisition. The governor attributes a firmware-only initialization timeout at
+its readiness wait (`stage: initialization`) and pre-start resolution or
+connection-generation failure at the controller boundary (`stage: controller`);
+causes and original stacks are retained. Sleep, preflight, erase, upload and
+verification failures retain their original causes and messages and are not
+labelled as gate-acquisition failures. Typed cancellation is a single terminal
+error without failure-stage logging. HTTP 200 admits the stream;
+clients must consume its terminal `done` or `error` event. Transport-level hex
+payload logging is suppressed for MMR writes because firmware image chunks share
+that endpoint; the MMR layer still logs its own payloads at fine level.
 
 The HTTP handlers select DE1's verified coalesced groups and Bengle's individually
 validated groups; the steam-purge/USB group stays sequential. Dart extension

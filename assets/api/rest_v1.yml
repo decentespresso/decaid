@@ -1136,8 +1136,9 @@ paths:
         503 if no machine is connected or the machine write queue is full.
 
         A successful stream emits `erasing`, zero or more `uploading` events,
-        then `done`. A failed stream emits `erasing`, zero or more `uploading`
-        events, then `error` with `progress: -1.0`.
+        then `done`. A pre-start controller or initialization failure may emit
+        only `error`, without `erasing`. Other failed streams emit `erasing`,
+        zero or more `uploading` events, then `error` with `progress: -1.0`.
 
         Upload progress is emitted in approximately one-percent increments.
         The final `uploading` value may be close to or equal to `1.0`. Only the
@@ -9126,9 +9127,12 @@ components:
         2. Zero or more `{"status":"uploading","progress":0.45}` events
         3. `{"status":"error","progress":-1.0,"error":"..."}`
 
-        An `error` event may terminate the sequence after any previously
-        emitted events. Verification failure or timeout emits `error`, never
-        `done`.
+        A pre-start controller or initialization failure may emit only the
+        terminal `error` event, without `erasing`. An `error` event may
+        terminate the sequence after any previously emitted events. Diagnostic
+        `stage` and `cause` are present when available; typed cancellation
+        intentionally omits failure-stage metadata. Verification failure or
+        timeout emits `error`, never `done`.
 
         Upload progress is emitted in approximately one-percent increments.
         The final `uploading` value may be close to or equal to `1.0`. Only the
@@ -9152,7 +9156,7 @@ components:
           description: Error message (only present on status=error)
         stage:
           type: string
-          description: Diagnostic firmware stage (only present on status=error)
+          description: Diagnostic firmware stage (only present on status=error when available; includes initialization or controller for pre-start failures)
         cause:
           type: string
-          description: Original diagnostic cause (only present on status=error)
+          description: Original diagnostic cause (only present on status=error when available; omitted for typed cancellation)
