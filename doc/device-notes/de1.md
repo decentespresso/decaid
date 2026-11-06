@@ -113,6 +113,27 @@ starting an active-GHC machine. Callers such as scale-button handlers must
 check the machine property before requesting a start, while still allowing
 them to request `idle` to stop an active operation.
 
+## Water-level notifications
+
+Measured on a DE1Pro, firmware 1358, over BLE through Decaid 0.9.1, two minutes
+per state: the machine notifies the water-levels characteristic (`A011`) only
+when the reading changes. Level sensor jitter, 1 to 9 units of 1/256 mm between
+frames, keeps the reading changing, so notifications arrive continuously.
+
+| State | Frames in 2 min | Median gap | Longest gap |
+|---|---|---|---|
+| Asleep | 188 | 0.63 s | 1.9 s |
+| Idle, heating | 519 | 0.21 s | 0.83 s |
+
+None of the 707 frames repeated the previous value. A timer sending the same
+spread of values would have produced about 62 repeats.
+
+`GET /api/v1/machine/waterLevels` waits up to 4 seconds for a first
+notification after connect, which these gaps fit. Unmeasured: a reading that
+holds perfectly steady, such as an empty or removed tank, which on-change
+notification would leave silent; whether the machine notifies as soon as a
+client subscribes; serial `Q` frame cadence; other models and firmware.
+
 ## Serial behavior
 
 Exact USB product name `DE1` creates `UnifiedDe1`. Devices admitted through
