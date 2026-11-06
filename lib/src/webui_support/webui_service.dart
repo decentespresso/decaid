@@ -36,6 +36,7 @@ class _ResolvedHost {
 
 const skinApiScriptPath = '/__decent/skin-api.js';
 const skinExitDashboardPath = '/__decent/exit-dashboard';
+const skinSwitchPath = '/__decent/switch-skin';
 const skinExitDashboardUrl = 'http://localhost:3000$skinExitDashboardPath';
 const _skinProxyTokenMetaName = 'reaprime-proxy-token';
 const _htmlAttributeEscape = HtmlEscape(HtmlEscapeMode.attribute);
@@ -93,6 +94,9 @@ List<int> injectSkinApiScriptTagBytes(
 String skinExitDashboardUrlForPort(int port) =>
     'http://localhost:$port$skinExitDashboardPath';
 
+String skinSwitchUrlForPort(int port) =>
+    'http://localhost:$port$skinSwitchPath';
+
 String buildSkinApiJavaScript({int port = 3000}) {
   return 'var tokenMeta=document.querySelector('
       '${jsonEncode('meta[name="$_skinProxyTokenMetaName"]')});'
@@ -101,6 +105,13 @@ String buildSkinApiJavaScript({int port = 3000}) {
       'window.decentApp.exitToDashboard=function(){'
       'if(window.__DECENT_HOST__)window.location.assign('
       '${jsonEncode(skinExitDashboardUrlForPort(port))});'
+      '};'
+      'window.decentApp.switchSkin=function(skinId){'
+      'if(!window.__DECENT_HOST__)return false;'
+      'if(typeof skinId!=="string"||skinId.length===0)return false;'
+      'window.location.assign(${jsonEncode(skinSwitchUrlForPort(port))}'
+      '+"?id="+encodeURIComponent(skinId));'
+      'return true;'
       '};';
 }
 
@@ -122,6 +133,7 @@ class WebUIService {
   HttpServer? _entryServer;
   Map<String, int>? _skinPortAssignments;
   int port = 3000;
+  final ValueNotifier<int> _serveGeneration = ValueNotifier<int>(0);
   String _path = "";
   String? _localIP;
 
@@ -168,6 +180,8 @@ class WebUIService {
     }
     return 'localhost';
   }
+
+  ValueListenable<int> get serveGeneration => _serveGeneration;
 
   SkinOverride skinOverride = const SkinOverride.registry();
 
@@ -341,6 +355,7 @@ class WebUIService {
       await _serveEntryPoint(port);
       _log.fine("serving $path");
       _path = path;
+      _serveGeneration.value++;
     } catch (e, st) {
       await _server?.close(force: true);
       await _entryServer?.close(force: true);
