@@ -179,7 +179,7 @@ final class DifluidR2Protocol {
       kind: DifluidR2EventKind.reading,
       raw: raw,
       package: 2,
-      tds: _readUint16(data, 1) / 100.0,
+      tds: _readUint16(data, 1).toSigned(16) / 100.0,
       refractiveIndex: data.length >= 7
           ? _readUint32(data, 3) / 100000.0
           : null,

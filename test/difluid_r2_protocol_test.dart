@@ -41,6 +41,24 @@ void main() {
       expect(event.measuring, isFalse);
     });
 
+    test('parses a negative TDS result packet', () {
+      final packet = Uint8List.fromList([
+        0xDF,
+        0xDF,
+        0x03,
+        0x00,
+        0x03,
+        0x02,
+        0xFF,
+        0xF9,
+        0xBE,
+      ]);
+
+      final event = DifluidR2Protocol.parse(packet);
+
+      expect(event.tds, closeTo(-0.07, 0.001));
+    });
+
     test('rejects packets with an invalid checksum', () {
       final packet = Uint8List.fromList([
         0xDF,
