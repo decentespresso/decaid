@@ -1,0 +1,6 @@
+{
+  "id": "switch-test-auto",
+  "name": "Switch test AUTO",
+  "version": "1.0.0",
+  "description": "Manual fixture that drives decentApp.switchSkin without a click."
+}
