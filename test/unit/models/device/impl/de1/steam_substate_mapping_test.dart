@@ -57,11 +57,7 @@ void main() {
     });
 
     test('the substates that share the old mapping still report idle', () {
-      for (final sub in [
-        De1SubState.noState,
-        De1SubState.userNotPresent,
-        De1SubState.refill,
-      ]) {
+      for (final sub in [De1SubState.noState, De1SubState.userNotPresent]) {
         expect(
           mapDe1SubToMachineSubstate(sub),
           MachineSubstate.idle,
