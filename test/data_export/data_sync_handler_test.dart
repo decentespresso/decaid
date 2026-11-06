@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -68,6 +67,50 @@ class SlowImportSection extends MockExportSection {
     return super.importJson(input, strategy);
   }
 }
+
+class ControlledTimer implements Timer {
+  ControlledTimer(this._callback);
+
+  final void Function() _callback;
+  var _active = true;
+  var _tick = 0;
+
+  void fire() {
+    if (!_active) return;
+    _active = false;
+    _tick = 1;
+    _callback();
+  }
+
+  @override
+  void cancel() {
+    _active = false;
+  }
+
+  @override
+  bool get isActive => _active;
+
+  @override
+  int get tick => _tick;
+}
+
+Future<T> runWithControlledTimers<T>(
+  List<ControlledTimer> timers,
+  Duration maximum,
+  Future<T> Function() operation,
+) => runZoned(
+  operation,
+  zoneSpecification: ZoneSpecification(
+    createTimer: (self, parent, zone, duration, callback) {
+      if (duration <= maximum) {
+        final timer = ControlledTimer(callback);
+        timers.add(timer);
+        return timer;
+      }
+      return parent.createTimer(zone, duration, callback);
+    },
+  ),
+);
 
 List<int> buildZip(Map<String, dynamic> files) {
   return ZipEncoderLegacy.encode(files);
@@ -335,13 +378,23 @@ void main() {
       test(
         'push timeout after the upload completed reports an unknown outcome',
         () async {
-          final stopwatch = Stopwatch()..start();
-          final client = http_testing.MockClient((request) async {
-            await Future<void>.delayed(const Duration(milliseconds: 300));
-            return http.Response(
-              '{"profiles":{"imported":1},"shots":{"imported":1}}',
-              200,
+          final uploadComplete = Completer<void>();
+          final responseRelease = Completer<void>();
+          final abortObserved = Completer<void>();
+          final client = http_testing.MockClient.streaming((
+            request,
+            body,
+          ) async {
+            final abortTrigger = (request as http.Abortable).abortTrigger!;
+            unawaited(
+              abortTrigger.then((_) {
+                if (!abortObserved.isCompleted) abortObserved.complete();
+              }),
             );
+            await body.drain();
+            uploadComplete.complete();
+            await responseRelease.future;
+            return http.StreamedResponse(Stream<List<int>>.empty(), 200);
           });
           final handler = buildSyncHandler(
             client,
@@ -349,16 +402,28 @@ void main() {
               syncOverallTimeout: Duration(milliseconds: 50),
             ),
           );
-          final response = await sendSync(handler, requestBody(mode: 'push'));
-          final body = jsonDecode(await response.readAsString());
-          expect(response.statusCode, 502);
-          expect(body['complete'], isFalse);
-          expect(body['push']['reason'], 'timeout_unknown');
-          stopwatch.stop();
-          expect(
-            stopwatch.elapsed,
-            lessThan(const Duration(milliseconds: 250)),
+          final timers = <ControlledTimer>[];
+          final responseFuture = runWithControlledTimers(
+            timers,
+            const Duration(milliseconds: 50),
+            () => sendSync(handler, requestBody(mode: 'push')),
           );
+
+          try {
+            await uploadComplete.future;
+            expect(timers, hasLength(1));
+            timers.single.fire();
+
+            final response = await responseFuture;
+            expect(responseRelease.isCompleted, isFalse);
+            await abortObserved.future;
+            final body = jsonDecode(await response.readAsString());
+            expect(response.statusCode, 502);
+            expect(body['complete'], isFalse);
+            expect(body['push']['reason'], 'timeout_unknown');
+          } finally {
+            if (!responseRelease.isCompleted) responseRelease.complete();
+          }
         },
       );
 
@@ -435,27 +500,31 @@ void main() {
       test(
         'push timeout closes the body stream before temporary cleanup',
         () async {
-          final server = await ServerSocket.bind(
-            InternetAddress.loopbackIPv4,
-            0,
-          );
-          final random = Random(7);
-          const chars =
-              'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-          final bigData = String.fromCharCodes(
-            List.generate(
-              6 * 1024 * 1024,
-              (_) => chars.codeUnitAt(random.nextInt(chars.length)),
-            ),
-          );
-          final client = IOClient(
-            HttpClient()..connectionTimeout = const Duration(seconds: 1),
-          );
+          final bodyHeld = Completer<void>();
+          final abortObserved = Completer<void>();
+          final client = http_testing.MockClient.streaming((
+            request,
+            body,
+          ) async {
+            final abortTrigger = (request as http.Abortable).abortTrigger!;
+            late StreamSubscription<List<int>> subscription;
+            subscription = body.listen((_) {
+              if (!bodyHeld.isCompleted) {
+                subscription.pause();
+                bodyHeld.complete();
+              }
+            });
+            unawaited(
+              abortTrigger.then((_) async {
+                await subscription.cancel();
+                if (!abortObserved.isCompleted) abortObserved.complete();
+              }),
+            );
+            await abortObserved.future;
+            return http.StreamedResponse(Stream<List<int>>.empty(), 200);
+          });
           final handler = buildSyncHandler(
             client,
-            registeredSections: [
-              MockExportSection(filename: 'profiles.json', exportData: bigData),
-            ],
             limits: const DataTransferLimits(
               syncOverallTimeout: Duration(milliseconds: 300),
             ),
@@ -473,13 +542,17 @@ void main() {
               .map((entry) => entry.path)
               .toSet();
           try {
-            final response = await sendSync(
-              handler,
-              requestBody(
-                mode: 'push',
-                target: 'http://127.0.0.1:${server.port}',
-              ),
+            final timers = <ControlledTimer>[];
+            final responseFuture = runWithControlledTimers(
+              timers,
+              const Duration(milliseconds: 300),
+              () => sendSync(handler, requestBody(mode: 'push')),
             );
+            await bodyHeld.future;
+            expect(timers, hasLength(1));
+            timers.single.fire();
+            final response = await responseFuture;
+            await abortObserved.future;
             final body = jsonDecode(await response.readAsString());
             expect(response.statusCode, 502);
             expect(body['push']['reason'], 'timeout');
@@ -497,7 +570,6 @@ void main() {
                 .toSet();
             expect(tempDirsAfter.difference(tempDirsBefore), isEmpty);
           } finally {
-            await server.close();
             client.close();
           }
         },
