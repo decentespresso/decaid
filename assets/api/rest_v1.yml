@@ -7581,7 +7581,11 @@ components:
         flow:
           type: number
           format: double
-          description: Hot water flow rate
+          description: >
+            Hot water flow rate in ml/s. Decaid's model default is 10 ml/s and the
+            consumer skin offers 1–10 ml/s; that range is a client recommendation,
+            not an API validity constraint. No minimum or maximum is declared, so
+            existing finite workflow values round-trip unchanged.
           example: 10.0
 
     RinseData:
