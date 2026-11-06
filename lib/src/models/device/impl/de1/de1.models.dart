@@ -151,7 +151,7 @@ enum De1SubState {
   cleanFillGroup(0x0E, 'Fill the group.'),
   cleanSoak(0x0F, 'Wait for 60 seconds to soak the group head.'),
   cleanGroup(0x10, 'Flush through group.'),
-  refill(0x11, 'Have we given up on a refill?'),
+  refillStopped(0x11, 'Have we given up on a refill?'),
   pausedSteam(0x12, 'Are we paused in steam?'),
   userNotPresent(0x13, 'User is not present.'),
   puffing(0x14, 'Puffing.'),

@@ -100,6 +100,18 @@ Older firmware ignores the request while refilling but keeps it latched, then
 sleeps immediately after refill. The firmware itself suppresses sleep while a
 refill kit is active.
 
+## Refill stopped substate
+
+The DE1 main state value `0x11` is `Refill`, while substate value `0x11` is
+`Have we given up on a refill?`. These are independent firmware values. Decaid
+maps the pair to `needsWater`/`refillStopped`; `Refill` with `NoState` or
+`UserNotPresent` remains `needsWater`/`idle`.
+
+This mapping is not evidence that any historical incident had the stopped
+substate, and no hardware evidence was gathered for this change. Decaid does
+not infer the condition from tank levels or timers, retry automatically, or
+document the needs-water request as a verified refill-kit retry.
+
 ## Group-head controller start restriction
 
 When `MachineInfo.groupHeadControllerPresent` is true, DE1 firmware requires
