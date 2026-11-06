@@ -557,13 +557,31 @@ Set `"usb"` to `"enable"` to turn the charger on, or `"disable"` to turn it off.
 
 The DE1 firmware re-enables the charger on its own, so the app re-applies the desired state periodically.
 
+#### Get Water Levels
+```http
+GET /api/v1/machine/waterLevels
+```
+
+Returns the latest water levels the machine reported, the same payload
+`ws/v1/machine/waterLevels` sends. `refillLevel` is the refill threshold.
+
+```json
+{
+  "currentLevel": 45.2,
+  "refillLevel": 10.0
+}
+```
+
+If the machine has not reported water levels since it connected, the request
+waits up to 4 seconds for the first report and returns `504` if none arrives.
+
 #### Update Water Level Threshold
 ```http
 POST /api/v1/machine/waterLevels
 Content-Type: application/json
 
 {
-  "warningThresholdPercentage": 20
+  "refillLevel": 10
 }
 ```
 
