@@ -113,6 +113,7 @@ void main() {
     service = SerialServiceAndroid(
       listDevices: () async => [listedDevice],
       usbEventStream: () => null,
+      probeDuration: const Duration(milliseconds: 30),
     );
   });
 
