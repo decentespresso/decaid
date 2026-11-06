@@ -36,20 +36,8 @@ void main() {
     de1Controller = De1Controller(controller: deviceController);
     await de1Controller.connectToDe1(de1);
 
-    final settingsController = SettingsController(MockSettingsService());
-    await settingsController.loadSettings();
-
     scaleController = ScaleController();
-    final de1Handler = De1Handler(
-      controller: de1Controller,
-      settingsController: settingsController,
-      scaleController: scaleController,
-      workflowController: WorkflowController(),
-    );
-
-    final app = Router().plus;
-    de1Handler.addRoutes(app);
-    handler = app.call;
+    handler = await buildHandler(de1Controller, scaleController);
   });
 
   tearDown(() async {
@@ -185,23 +173,30 @@ void main() {
     test('answers 500 while no machine is connected', () async {
       await de1Controller.dispose();
       de1Controller = De1Controller(controller: deviceController);
-      final settingsController = SettingsController(MockSettingsService());
-      await settingsController.loadSettings();
-      final de1Handler = De1Handler(
-        controller: de1Controller,
-        settingsController: settingsController,
-        scaleController: scaleController,
-        workflowController: WorkflowController(),
-      );
-      final app = Router().plus;
-      de1Handler.addRoutes(app);
-      handler = app.call;
+      handler = await buildHandler(de1Controller, scaleController);
 
       final response = await getWaterLevels();
 
       expect(response.statusCode, 500);
     });
   });
+}
+
+Future<Handler> buildHandler(
+  De1Controller de1Controller,
+  ScaleController scaleController,
+) async {
+  final settingsController = SettingsController(MockSettingsService());
+  await settingsController.loadSettings();
+  final de1Handler = De1Handler(
+    controller: de1Controller,
+    settingsController: settingsController,
+    scaleController: scaleController,
+    workflowController: WorkflowController(),
+  );
+  final app = Router().plus;
+  de1Handler.addRoutes(app);
+  return app.call;
 }
 
 Future<void> _settle([int turns = 10]) async {

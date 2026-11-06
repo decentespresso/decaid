@@ -152,6 +152,24 @@ The canonicalisation itself lives in one place, `LedStripState.canonical()` in
 starting palette with it too, so a mock cannot hold or store a palette the machine
 could not produce.
 
+## Water Levels GET (issue #1028)
+
+`GET /api/v1/machine/waterLevels` answers the latest `De1WaterLevels` from
+`De1Interface.waterLevels`, the stream `/ws/v1/machine/waterLevels` forwards. It
+is the one machine read that can answer `504`. The BLE connect path subscribes
+to water-level notifications but never reads the characteristic, unlike shot
+settings, so between connect and the machine's first notification there is no
+value to answer with. The request waits up to 4 seconds for one, the same budget
+as the serial latest-frame read, then fails with `EndpointUnavailableException`.
+Keep the timeout: without it a machine that never reports would hang the request.
+
+`UnifiedDe1Transport.waterLevels` returns the subject's `.stream`, not
+`asBroadcastStream()`. Each `asBroadcastStream()` call builds a wrapper that keeps
+its source subscription after its last listener cancels, so every `.first` read
+left a listener on the subject until disconnect, and a polled GET grew that set
+without bound. The other transport getters still use `asBroadcastStream()`; their
+consumers mostly subscribe once per connection.
+
 ## WebSocket Conventions
 
 - WebSocket topics are path-based: `/ws/v1/machine/state`, `/ws/v1/machine/shotState`, `/ws/v1/scale/snapshot`, etc.
