@@ -498,7 +498,7 @@ void main() {
       });
 
       test(
-        'push timeout closes the body stream before temporary cleanup',
+        'push timeout aborts the in-flight upload before temporary cleanup',
         () async {
           final bodyHeld = Completer<void>();
           final abortObserved = Completer<void>();
@@ -550,9 +550,11 @@ void main() {
             );
             await bodyHeld.future;
             expect(timers, hasLength(1));
+            expect(abortObserved.isCompleted, isFalse);
             timers.single.fire();
             final response = await responseFuture;
             await abortObserved.future;
+            expect(abortObserved.isCompleted, isTrue);
             final body = jsonDecode(await response.readAsString());
             expect(response.statusCode, 502);
             expect(body['push']['reason'], 'timeout');
