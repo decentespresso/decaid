@@ -34,7 +34,12 @@ bool isDE1(List<String> data, List<int> bytes) {
 
 bool serialProbeAllowsProductName(String? productName) {
   if (productName == null || productName.contains('Serial')) return true;
-  return const {'DE1', 'Bengle', 'Half Decent Scale'}.contains(productName);
+  return const {
+    'DE1',
+    'Bengle',
+    'Half Decent Scale',
+    'Debug Probe (CMSIS-DAP)',
+  }.contains(productName);
 }
 
 Future<void> drainWithTimeout({
