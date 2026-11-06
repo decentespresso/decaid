@@ -32,15 +32,15 @@ scripts/sb-dev.sh start --connect-machine MockDe1 --connect-scale MockScale
 
    Expected: `{"currentLevel": 50.0, "refillLevel": 5.0}`.
 
-3. With no machine connected, the read fails like the other machine reads:
+3. With no machine connected, the read fails like the other machine reads. Disconnect `MockDe1` through the
+   simulate-only debug route rather than restarting: a restart reconnects the saved preferred machine.
 
    ```bash
-   scripts/sb-dev.sh stop
-   scripts/sb-dev.sh start --connect-scale MockScale
+   curl -sf -X POST http://localhost:8080/api/v1/debug/machine/disconnect | jq .
    curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/api/v1/machine/waterLevels
    ```
 
-   Expected: `500`.
+   Expected: `{"status": "disconnected"}`, then `500`.
 
 ## Postconditions
 

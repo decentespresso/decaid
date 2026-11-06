@@ -8,6 +8,7 @@ import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
+import 'package:reaprime/src/models/device/de1_rawmessage.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
@@ -20,6 +21,7 @@ import '../helpers/mock_settings_service.dart';
 
 void main() {
   late BarrierBleTransport transport;
+  late UnifiedDe1 de1;
   late De1Controller de1Controller;
   late DeviceController deviceController;
   late ScaleController scaleController;
@@ -29,7 +31,7 @@ void main() {
     transport = BarrierBleTransport();
     transport.queueOnConnectResponses();
 
-    final de1 = UnifiedDe1(transport: transport);
+    de1 = UnifiedDe1(transport: transport);
 
     deviceController = DeviceController([MockDeviceDiscoveryService()]);
     await deviceController.initialize();
@@ -168,6 +170,34 @@ void main() {
         async.elapse(const Duration(seconds: 2));
         expect(response?.statusCode, 504);
       });
+    });
+
+    test('releases its listener after timing out', () {
+      fakeAsync((async) {
+        final rawWaterLevels = <De1RawMessage>[];
+        de1.rawOutStream
+            .where((m) => m.characteristicUUID == Endpoint.waterLevels.uuid)
+            .listen(rawWaterLevels.add);
+        Response? response;
+        getWaterLevels().then((r) => response = r);
+        async.elapse(const Duration(seconds: 5));
+        expect(response?.statusCode, 504);
+
+        emitWaterLevels(currentRaw: 20 * 256, refillRaw: 7 * 256);
+        async.elapse(Duration.zero);
+
+        expect(rawWaterLevels, isEmpty);
+      });
+    });
+
+    test('answers 500 when the machine disconnects during the wait', () async {
+      final pending = getWaterLevels();
+      await _settle();
+
+      await de1.disconnect();
+
+      final response = await pending;
+      expect(response.statusCode, 500);
     });
 
     test('answers 500 while no machine is connected', () async {
