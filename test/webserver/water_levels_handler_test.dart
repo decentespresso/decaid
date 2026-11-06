@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
@@ -56,6 +58,26 @@ void main() {
     scaleController.dispose();
   });
 
+  Future<Response> getWaterLevels() async {
+    return await handler(
+      Request('GET', Uri.parse('http://localhost/api/v1/machine/waterLevels')),
+    );
+  }
+
+  Future<Map<String, dynamic>> jsonBody(Response response) async {
+    return jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+  }
+
+  void emitWaterLevels({required int currentRaw, required int refillRaw}) {
+    final frame = ByteData(4)
+      ..setUint16(0, currentRaw, Endian.big)
+      ..setUint16(2, refillRaw, Endian.big);
+    transport.emitNotification(
+      Endpoint.waterLevels,
+      frame.buffer.asUint8List(),
+    );
+  }
+
   Future<Response> postWaterLevels(int refillLevel) async {
     return await handler(
       Request(
@@ -110,6 +132,75 @@ void main() {
     barrier.completeError(StateError('transport boom'));
     final res = await response;
     expect(res.statusCode, 500);
+  });
+
+  group('GET /api/v1/machine/waterLevels', () {
+    test('answers the latest frame the machine sent', () async {
+      emitWaterLevels(currentRaw: 30 * 256, refillRaw: 5 * 256);
+      emitWaterLevels(currentRaw: 42 * 256 + 128, refillRaw: 12 * 256);
+      await _settle();
+
+      final response = await getWaterLevels();
+
+      expect(response.statusCode, 200);
+      expect(response.headers['content-type'], contains('application/json'));
+      expect(await jsonBody(response), {
+        'currentLevel': 42.5,
+        'refillLevel': 12.0,
+      });
+    });
+
+    test('waits for the first frame when none has arrived yet', () async {
+      var answered = false;
+      final pending = getWaterLevels().then((r) {
+        answered = true;
+        return r;
+      });
+      await _settle();
+      expect(answered, isFalse);
+
+      emitWaterLevels(currentRaw: 20 * 256, refillRaw: 7 * 256);
+
+      final response = await pending;
+      expect(response.statusCode, 200);
+      expect(await jsonBody(response), {
+        'currentLevel': 20.0,
+        'refillLevel': 7.0,
+      });
+    });
+
+    test('times out with 504 when the machine sends no frame', () {
+      fakeAsync((async) {
+        Response? response;
+        getWaterLevels().then((r) => response = r);
+
+        async.elapse(const Duration(seconds: 3));
+        expect(response, isNull);
+
+        async.elapse(const Duration(seconds: 2));
+        expect(response?.statusCode, 504);
+      });
+    });
+
+    test('answers 500 while no machine is connected', () async {
+      await de1Controller.dispose();
+      de1Controller = De1Controller(controller: deviceController);
+      final settingsController = SettingsController(MockSettingsService());
+      await settingsController.loadSettings();
+      final de1Handler = De1Handler(
+        controller: de1Controller,
+        settingsController: settingsController,
+        scaleController: scaleController,
+        workflowController: WorkflowController(),
+      );
+      final app = Router().plus;
+      de1Handler.addRoutes(app);
+      handler = app.call;
+
+      final response = await getWaterLevels();
+
+      expect(response.statusCode, 500);
+    });
   });
 }
 

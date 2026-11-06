@@ -423,6 +423,13 @@ class De1Handler {
       });
     });
 
+    app.get('/api/v1/machine/waterLevels', (Request _) async {
+      return withDe1((de1) async {
+        final levels = await _latestWaterLevels(de1);
+        return jsonOk(levels.toJson());
+      });
+    });
+
     app.post('/api/v1/machine/waterLevels', (Request r) async {
       final dynamic json;
       try {
@@ -811,6 +818,22 @@ class De1Handler {
       }
     }
     return de1.getAdvancedMachineSettingsSnapshot();
+  }
+
+  static const _waterLevelsTimeout = Duration(seconds: 4);
+
+  Future<De1WaterLevels> _latestWaterLevels(De1Interface de1) async {
+    try {
+      return await de1.waterLevels.first.timeout(
+        _waterLevelsTimeout,
+        onTimeout: () => throw const EndpointUnavailableException(
+          'waterLevels',
+          _waterLevelsTimeout,
+        ),
+      );
+    } on StateError {
+      throw const DeviceNotConnectedException.machine();
+    }
   }
 
   Response? _bengleFirmwareGate(De1Interface de1, String feature) {

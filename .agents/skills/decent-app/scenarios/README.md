@@ -24,6 +24,7 @@ Pick the scenario that matches the task and run it before calling related work d
 | Read-only Grinder observations | `scenarios/grinder-observations.md` |
 | Firmware endpoints | `scenarios/firmware.md` |
 | Hot-water stop at weight | `scenarios/hot-water-stop-at-weight.md` |
+| Machine water levels read | `scenarios/machine-water-levels.md` |
 | MockDe1 raw machine channel | `scenarios/mock-de1-raw.md` |
 | Onboarding connection phases | `scenarios/onboarding-connection-phases.md` |
 | Preferred-device fast path | `scenarios/onboarding-preferred-device.md` |

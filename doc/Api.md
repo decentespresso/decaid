@@ -96,6 +96,7 @@ For browser clients on a different origin, `ETag` is exposed via `Access-Control
 | DELETE | `/api/v1/machine/firmware` | Cancel in-progress firmware update (idempotent) | `firmware_handler.dart` |
 | POST | `/api/v1/machine/firmware/apply` | Managed firmware apply: resolve, validate, upload; HTTP 200 admits the NDJSON stream, whose terminal `done`/`error` event reports outcome | `firmware_handler.dart` |
 | — | USB charger | Controlled via `POST /api/v1/machine/settings` with `{"usb": "enable"}` or `{"usb": "disable"}` | |
+| GET | `/api/v1/machine/waterLevels` | Latest water levels (`currentLevel`, `refillLevel` threshold), the payload `/ws/v1/machine/waterLevels` sends. Waits up to 4 s for the first report after connect, then 504 | |
 | POST | `/api/v1/machine/waterLevels` | Update water level threshold | |
 | GET | `/api/v1/machine/capabilities` | List capability identifiers supported by the connected machine. Bengle returns the full set: `cupWarmer`, `integratedScale`, `stopAtWeight`, `ledStrip`, `scaleCalibration`, `preheat`, `wakeSchedule`; plain DE1 returns an empty list | |
 | GET | `/api/v1/machine/cupWarmer` | Read cup-warmer state: setpoint (whole °C), manual `enabled`, live `currentTemperature` — Bengle only, 404 elsewhere | |

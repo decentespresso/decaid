@@ -1088,6 +1088,25 @@ paths:
           description: No machine was connected, the machine changed during the write, or the write failed
 
   /api/v1/machine/waterLevels:
+    get:
+      summary: Get water levels and refill threshold
+      description: |
+        Returns the latest water levels the machine reported, the same payload
+        `/ws/v1/machine/waterLevels` sends. `refillLevel` is the threshold set by
+        POST. When the machine has not reported water levels since it connected,
+        the request waits up to 4 seconds for the first report.
+      tags: [Machine]
+      responses:
+        "200":
+          description: Latest water levels
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WaterLevels"
+        "504":
+          description: The machine reported no water levels within 4 seconds
+        "500":
+          description: No machine was connected
     post:
       summary: Set water level refill threshold. Only the refillLevel field is used.
       tags: [Machine]
