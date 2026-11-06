@@ -133,3 +133,27 @@ curl -sf -X PUT "$BASE/api/v1/webui/skins/default" \
 scripts/sb-dev.sh stop
 rm -rf "$SKINS/switch-test-a" "$SKINS/switch-test-b"
 ```
+
+## Headless variant (no clicking)
+
+`switch-test-auto` drives the hook itself: 1.5 s after load it calls
+`switchSkin('switch-test-missing')`, and at 4 s it calls
+`switchSkin('switch-test-b')` twice in one tick.
+
+```bash
+scripts/sb-dev.sh start --platform macos --connect-machine MockDe1 \
+  --app-arg --skin=switch-test-auto
+scripts/sb-dev.sh logs -n 200 --filter 'switch-test\|SkinSwitchCoordinator\|SkinView'
+```
+
+Expect in order: the auto page loading on its own port; `Rejected`/`not
+installed` for the missing id with the previous skin still displayed; one
+`Switched skin to switch-test-b on port <new port>`; one `rejected: another is
+in flight` for the duplicate call; and a `Page started loading:
+http://localhost:<new port>/` from the replacement view — never an external
+browser launch.
+
+This writes to the real app container: it sets `defaultSkinId` and installs the
+fixtures into the live skin directory. Note the previous value first
+(`defaults read net.tadel.reaprime defaultSkinId` on macOS) and restore it in
+the postconditions.
