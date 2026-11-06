@@ -877,10 +877,12 @@ class SerialServiceAndroid
       _log.warning("failed to add $device, port is null");
       return null;
     }
+    final isDebugProbe = device.productName == 'Debug Probe (CMSIS-DAP)';
     late final AndroidSerialPort transport;
     transport = AndroidSerialPort(
       device: device,
       port: port,
+      baudRate: isDebugProbe ? 460800 : 115200,
       physicalInstanceId: device.deviceId,
       canonicalIdentity: () {
         if (!identical(_transportForDeviceId[transport.id], transport)) {
@@ -964,6 +966,10 @@ class SerialServiceAndroid
       } else if (isSensorBasket(strings)) {
         _log.info("Detected: Sensor Basket");
         return SensorBasket(transport: transport);
+      } else if (isDebugProbe) {
+        _log.info("Rejecting unclassified Debug Probe without DE1 writes");
+        await _disposeRejectedTransport(transport);
+        return null;
       } else {
         final List<String> messages = [];
         final sub = transport.readStream.listen((line) {
@@ -1060,6 +1066,7 @@ class AndroidSerialPort implements SerialTransport, CanonicalDeviceIdentity {
   final String? Function()? _canonicalIdentity;
   final bool _dtrOn;
   final bool _decodeUtf8Text;
+  final int _baudRate;
   late Logger _log;
   bool _disposed = false;
   final BehaviorSubject<ConnectionState> _open = BehaviorSubject.seeded(
@@ -1078,6 +1085,7 @@ class AndroidSerialPort implements SerialTransport, CanonicalDeviceIdentity {
     String? Function()? canonicalIdentity,
     bool dtrOn = false,
     bool decodeUtf8Text = true,
+    int baudRate = 115200,
   }) : _device = device,
        _port = port,
        _interfaceNumber = interfaceNumber,
@@ -1085,7 +1093,8 @@ class AndroidSerialPort implements SerialTransport, CanonicalDeviceIdentity {
        _identityOverride = identityOverride,
        _canonicalIdentity = canonicalIdentity,
        _dtrOn = dtrOn,
-       _decodeUtf8Text = decodeUtf8Text {
+       _decodeUtf8Text = decodeUtf8Text,
+       _baudRate = baudRate {
     _log = Logger("Serial:${_device.deviceName}");
   }
   @override
@@ -1182,8 +1191,8 @@ class AndroidSerialPort implements SerialTransport, CanonicalDeviceIdentity {
       throw StateError('Serial connection cancelled');
     }
 
-    _port.setPortParameters(
-      115200,
+    await _port.setPortParameters(
+      _baudRate,
       UsbPort.DATABITS_8,
       UsbPort.STOPBITS_1,
       UsbPort.PARITY_NONE,
