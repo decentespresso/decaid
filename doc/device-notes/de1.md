@@ -117,8 +117,9 @@ them to request `idle` to stop an active operation.
 
 Measured on a DE1Pro, firmware 1358, over BLE through Decaid 0.9.1, two minutes
 per state: the machine notifies the water-levels characteristic (`A011`) only
-when the reading changes. Level sensor jitter, 1 to 9 units of 1/256 mm between
-frames, keeps the reading changing, so notifications arrive continuously.
+when the reading changes. Level sensor jitter, 1 to 11 units of 1/256 mm
+between frames, keeps the reading changing, so notifications arrive
+continuously.
 
 | State | Frames in 2 min | Median gap | Longest gap |
 |---|---|---|---|
@@ -126,7 +127,7 @@ frames, keeps the reading changing, so notifications arrive continuously.
 | Idle, heating | 519 | 0.21 s | 0.83 s |
 
 None of the 707 frames repeated the previous value. A timer sending the same
-spread of values would have produced about 62 repeats.
+spread of values, drawn independently, would have produced about 62 repeats.
 
 `GET /api/v1/machine/waterLevels` waits up to 4 seconds for a first
 notification after connect, which these gaps fit. Unmeasured: a reading that

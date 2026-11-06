@@ -163,9 +163,10 @@ for that notification, the same budget as the serial latest-frame read, then
 answers `504` through `EndpointUnavailableException`. The DE1 notifies whenever
 the reading changes, and sensor jitter keeps it changing: on a DE1Pro the
 longest measured gap was 1.9 seconds (see `device-notes/de1.md`). Keep the
-timeout: without it a machine that never reports would hang the request. The timeout sits on the stream, before
-`.first`, so a timed-out request cancels its subscription; `Future.timeout` after
-`.first` would leave it listening until the next frame.
+timeout: without it a machine that never reports would hang the request. The
+timeout sits on the stream, before `.first`, so a timed-out request cancels its
+subscription; `Future.timeout` after `.first` would leave it listening until the
+next frame.
 
 `UnifiedDe1Transport.waterLevels` returns the subject's `.stream`, not
 `asBroadcastStream()`. Each `asBroadcastStream()` call builds a wrapper that keeps

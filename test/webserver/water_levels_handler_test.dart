@@ -191,18 +191,21 @@ void main() {
       });
     });
 
-    test('answers 500 when the machine disconnects during the wait', () async {
-      final pending = getWaterLevels();
-      await _settle();
+    test(
+      'answers 500 when the app disconnects the machine during the wait',
+      () async {
+        final pending = getWaterLevels();
+        await _settle();
 
-      await de1.disconnect();
+        await de1.disconnect();
 
-      final response = await pending;
-      expect(response.statusCode, 500);
-      expect(await jsonBody(response), {
-        'error': const DeviceNotConnectedException.machine().toString(),
-      });
-    });
+        final response = await pending;
+        expect(response.statusCode, 500);
+        expect(await jsonBody(response), {
+          'error': const DeviceNotConnectedException.machine().toString(),
+        });
+      },
+    );
 
     test('answers 500 while no machine is connected', () async {
       await de1Controller.dispose();
