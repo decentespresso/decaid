@@ -78,21 +78,64 @@ bool isTrustedSkinPageRequest({
       topLevelUri.userInfo.isEmpty;
 }
 
-Widget skinViewForServeGeneration({
-  required ValueListenable<int> serveGeneration,
-  required int Function() port,
-  required Widget Function(int port) builder,
-}) {
-  return ValueListenableBuilder<int>(
-    valueListenable: serveGeneration,
-    builder: (context, generation, _) {
-      final current = port();
-      return KeyedSubtree(
-        key: ValueKey('skin-$generation-$current'),
-        child: builder(current),
-      );
-    },
-  );
+class SkinViewHost extends StatefulWidget {
+  const SkinViewHost({
+    super.key,
+    required this.serveGeneration,
+    required this.port,
+    required this.builder,
+    this.failure,
+    this.onFailureShown,
+  });
+
+  final ValueListenable<int> serveGeneration;
+  final int Function() port;
+  final Widget Function(int port) builder;
+  final ValueListenable<String?>? failure;
+  final VoidCallback? onFailureShown;
+
+  @override
+  State<SkinViewHost> createState() => _SkinViewHostState();
+}
+
+class _SkinViewHostState extends State<SkinViewHost> {
+  @override
+  void initState() {
+    super.initState();
+    widget.failure?.addListener(_reportFailure);
+    if (widget.failure?.value != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _reportFailure());
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.failure?.removeListener(_reportFailure);
+    super.dispose();
+  }
+
+  void _reportFailure() {
+    final message = widget.failure?.value;
+    if (message == null || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 5)),
+    );
+    widget.onFailureShown?.call();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: widget.serveGeneration,
+      builder: (context, generation, _) {
+        final port = widget.port();
+        return KeyedSubtree(
+          key: ValueKey('skin-$generation-$port'),
+          child: widget.builder(port),
+        );
+      },
+    );
+  }
 }
 
 class SkinExitCoordinator {
@@ -168,6 +211,10 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   CompatibilityResult? _compatibilityResult;
   bool _rendererCrashed = false;
 
+  // ponytail: one embedded skin route exists at a time, so a process-wide
+  // count is enough to tell a generation replacement from leaving the skin.
+  static int _activeViews = 0;
+
   static bool _globalTimersPaused = false;
   // Native timers are process-global: an unresolved call must finish before
   // any generation advances; abandoning it could apply a late global side effect.
@@ -197,6 +244,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    _activeViews++;
     WidgetsBinding.instance.addObserver(this);
     simulatedWebViewDevice.addListener(_resetWebView);
     if (Platform.isAndroid || Platform.isIOS) {
@@ -208,14 +256,18 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   @override
   void dispose() {
     _log.fine("disposing");
+    _activeViews--;
+    final isLeavingSkin = _activeViews == 0;
     if (supportsSkinCamera) _camera.dispose();
-    unawaited(widget.displayController.setBrightness(100));
+    if (isLeavingSkin) {
+      unawaited(widget.displayController.setBrightness(100));
+    }
     _blankPageTimer?.cancel();
     _blankPageTimer = null;
     _balanceWebViewTimers('dispose');
     WidgetsBinding.instance.removeObserver(this);
     simulatedWebViewDevice.removeListener(_resetWebView);
-    if (Platform.isAndroid) {
+    if (isLeavingSkin && Platform.isAndroid) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
     super.dispose();
@@ -325,24 +377,6 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
     _log.info('Skin requested switch to $skinId');
     final outcome = await handler(skinId);
     _log.info('Skin switch to $skinId: ${outcome.name}');
-    if (!mounted) return;
-    switch (outcome) {
-      case SkinSwitchOutcome.switched:
-      case SkinSwitchOutcome.unchanged:
-        return;
-      case SkinSwitchOutcome.unknownSkin:
-        _showSkinSwitchFailure('Skin not installed: $skinId');
-      case SkinSwitchOutcome.busy:
-        _showSkinSwitchFailure('A skin switch is already in progress');
-      case SkinSwitchOutcome.failed:
-        _showSkinSwitchFailure('Failed to switch to skin $skinId');
-    }
-  }
-
-  void _showSkinSwitchFailure(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), duration: const Duration(seconds: 5)),
-    );
   }
 
   void _exitToDashboard() {

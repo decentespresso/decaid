@@ -139,6 +139,40 @@ void main() {
       expect(persisted, ['b']);
     });
 
+    test('reports a persistence failure instead of a clean switch', () async {
+      coordinator = SkinSwitchCoordinator(
+        service: service,
+        skinPath: (id) => skins[id],
+        setDefaultSkin: (id) async => throw Exception('prefs unavailable'),
+        entryPort: entryPort,
+      );
+
+      expect(
+        await coordinator.switchTo('b'),
+        SkinSwitchOutcome.switchedWithoutPersisting,
+      );
+      expect(service.serverPath(), skinB.path);
+      expect(coordinator.failure.value, contains('default skin failed'));
+    });
+
+    test('publishes a failure message for each rejected request', () async {
+      expect(await coordinator.switchTo('nope'), SkinSwitchOutcome.unknownSkin);
+      expect(coordinator.failure.value, 'Skin not installed: nope');
+
+      coordinator.clearFailure();
+      expect(coordinator.failure.value, isNull);
+
+      final first = coordinator.switchTo('b');
+      expect(await coordinator.switchTo('a'), SkinSwitchOutcome.busy);
+      expect(coordinator.failure.value, contains('already in progress'));
+      await first;
+    });
+
+    test('keeps a clean switch silent', () async {
+      expect(await coordinator.switchTo('b'), SkinSwitchOutcome.switched);
+      expect(coordinator.failure.value, isNull);
+    });
+
     test('restores the previous skin when the new one fails', () async {
       skins['broken'] = '${skinA.path}/missing';
 
@@ -146,6 +180,7 @@ void main() {
       expect(service.isServing, isTrue);
       expect(service.serverPath(), skinA.path);
       expect(persisted, isEmpty);
+      expect(coordinator.failure.value, contains('kept the previous skin'));
     });
 
     test('allows a later switch after a failed one', () async {
