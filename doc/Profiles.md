@@ -8,6 +8,17 @@ REA supports loading profiles to the espresso machine either directly through th
 
 The REA Profile data object definition lives in `lib/src/models/data/profile.dart`.
 
+## Workflow Numeric Settings
+
+Workflow `SteamSettings`, `HotWaterData`, and `RinseData` numeric fields keep
+finite values as supplied. Editor and skin control ranges are recommendations,
+not REST or hardware validity constraints. In particular, the hot-water flow
+control offers 1–10 ml/s, including the model default of 10 ml/s, and Decaid
+does not rewrite a preserved workflow value outside that range. The REST schemas do
+not declare guessed numeric bounds. The full evidence inventory, including
+unsigned-byte wire capacities and conditional steam semantics, is in
+[workflow-numeric-limits.md](workflow-numeric-limits.md).
+
 ## Workflow Final Targets
 
 `WorkflowContext.targetYield` is beverage output weight in grams and drives scale-based stop-at-weight. `WorkflowContext.targetWaterVolume` is DE1-integrated machine water volume in milliliters and overrides `Profile.targetVolume` only for the existing volumetric fallback when no usable scale stop is available. A null workflow water target inherits the profile target; `0` disables volumetric stopping for that workflow. These quantities are never converted or used as fallbacks for each other.

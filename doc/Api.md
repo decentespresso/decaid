@@ -376,6 +376,15 @@ workflow is not committed. A `stopAtTemperature`-only workflow change never touc
 the DE1 directly — the Bengle bridge applies it
 asynchronously — so it commits even while no machine is connected.
 
+Workflow numeric settings are not constrained by guessed REST `minimum` or
+`maximum` values. The consumer skin offers 1–10 ml/s for `hotWaterData.flow`,
+including the model default of 10 ml/s, but finite values outside that
+recommendation are preserved rather than clamped. The packed DE1
+protocol has separate unsigned-byte capacities and conditional steam semantics;
+those encoding limits are not API validity claims. See
+[workflow-numeric-limits.md](workflow-numeric-limits.md) for the field inventory
+and evidence.
+
 ### Beans
 
 Bean, bean-batch, and grinder updates use tri-state patch semantics: omitted
