@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/skin_feature/skin_view.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
@@ -146,65 +145,4 @@ void main() {
       );
     });
   });
-
-  group('skinViewForServeGeneration', () {
-    testWidgets('adopts the current port and discards the old view', (
-      tester,
-    ) async {
-      final generation = ValueNotifier<int>(0);
-      addTearDown(generation.dispose);
-      var port = 24801;
-      final builtPorts = <int>[];
-      final mountedPorts = <int>[];
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: skinViewForServeGeneration(
-            serveGeneration: generation,
-            port: () => port,
-            builder: (value) {
-              builtPorts.add(value);
-              return _PortProbe(
-                port: value,
-                onMount: () => mountedPorts.add(value),
-              );
-            },
-          ),
-        ),
-      );
-
-      expect(builtPorts, [24801]);
-      expect(mountedPorts, [24801]);
-      expect(find.text('port:24801'), findsOneWidget);
-
-      port = 24802;
-      generation.value = 1;
-      await tester.pump();
-
-      expect(builtPorts, [24801, 24802]);
-      expect(mountedPorts, [24801, 24802]);
-      expect(find.text('port:24802'), findsOneWidget);
-    });
-  });
-}
-
-class _PortProbe extends StatefulWidget {
-  const _PortProbe({required this.port, required this.onMount});
-
-  final int port;
-  final VoidCallback onMount;
-
-  @override
-  State<_PortProbe> createState() => _PortProbeState();
-}
-
-class _PortProbeState extends State<_PortProbe> {
-  @override
-  void initState() {
-    super.initState();
-    widget.onMount();
-  }
-
-  @override
-  Widget build(BuildContext context) => Text('port:${widget.port}');
 }

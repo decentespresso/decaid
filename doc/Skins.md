@@ -115,7 +115,16 @@ before loading it. Switching is single-flight: a second request while one is
 running returns `busy` and changes nothing. Requesting the skin that is already
 being served does nothing. If the new skin fails to serve, Decaid restores the
 previous skin, does not persist the selection, and reports the failure in the
-app instead of opening a system browser.
+app instead of opening a system browser. If the new skin serves but saving it as
+the default fails, it stays active for this session and the app reports that the
+default was not saved, so a restart returns to the previous default. Failure
+messages are shown by the route that owns the embedded view, so they survive the
+view being replaced by a restart.
+
+Two fixture skins and the manual steps for the A -> B -> A round trip, the
+rejection cases and the failure-to-serve rollback live in
+`test/fixtures/skins/` and
+`.agents/skills/decent-app/scenarios/skin-switch-embedded.md`.
 
 In an external browser `switchSkin` is a no-op. Use the REST skin controls
 (`PUT /api/v1/webui/skins/{id}/default` and the WebUI server endpoints) and then

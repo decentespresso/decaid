@@ -579,9 +579,11 @@ class _MyAppState extends State<MyApp> {
                         scanStateGuardian: widget.scanStateGuardian,
                       );
                     case SkinView.routeName:
-                      return skinViewForServeGeneration(
+                      return SkinViewHost(
                         serveGeneration: widget.webUIService.serveGeneration,
                         port: () => widget.webUIService.port,
+                        failure: _skinSwitchCoordinator.failure,
+                        onFailureShown: _skinSwitchCoordinator.clearFailure,
                         builder: (port) => SkinView(
                           notificationCenter: widget
                               .pluginLoaderService
