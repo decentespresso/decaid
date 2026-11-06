@@ -159,9 +159,11 @@ could not produce.
 The BLE connect path subscribes to water-level notifications but never reads the
 characteristic, unlike shot settings, so between connect and the machine's first
 notification there is no value to answer with. The request waits up to 4 seconds
-for one, the same budget as the serial latest-frame read, then answers `504`
-through `EndpointUnavailableException`. Keep the timeout: without it a machine
-that never reports would hang the request. The timeout sits on the stream, before
+for that notification, the same budget as the serial latest-frame read, then
+answers `504` through `EndpointUnavailableException`. The DE1 notifies whenever
+the reading changes, and sensor jitter keeps it changing: on a DE1Pro the
+longest measured gap was 1.9 seconds (see `device-notes/de1.md`). Keep the
+timeout: without it a machine that never reports would hang the request. The timeout sits on the stream, before
 `.first`, so a timed-out request cancels its subscription; `Future.timeout` after
 `.first` would leave it listening until the next frame.
 
@@ -170,10 +172,9 @@ that never reports would hang the request. The timeout sits on the stream, befor
 its source subscription after its last listener cancels, so every `.first` read
 left a listener on the subject until disconnect, and a polled GET grew that set
 without bound. The remaining getters, except `bengleShotSample`, still use
-`asBroadcastStream()`.
-`shotSettings` (`De1Controller._readShotSettings`) and `calibration` (the
-calibration GET) also have per-request `.first` readers and leak the same way;
-they are left for a follow-up.
+`asBroadcastStream()`. `shotSettings` (`De1Controller._readShotSettings`) and
+`calibration` (the calibration GET) also have per-request `.first` readers and
+leak the same way; they are left for a follow-up.
 
 ## WebSocket Conventions
 
