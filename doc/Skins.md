@@ -563,7 +563,7 @@ GET /api/v1/machine/waterLevels
 ```
 
 Returns the latest water levels the machine reported, the same payload
-`ws/v1/machine/waterLevels` sends. `refillLevel` is the refill threshold.
+`/ws/v1/machine/waterLevels` sends. `refillLevel` is the refill threshold.
 
 ```json
 {

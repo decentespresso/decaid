@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/device/device.dart' as device;
 import 'package:reaprime/src/models/device/ble_service_identifier.dart';
@@ -62,7 +63,10 @@ class UnifiedDe1Transport {
   ByteData? get latestStateInfo => _stateSubject.valueOrNull;
   Stream<ByteData> get shotSample => _shotSampleSubject.asBroadcastStream();
   Stream<ByteData> get shotSettings => _shotSettingsSubject.asBroadcastStream();
-  Stream<ByteData> get waterLevels => _waterLevelsSubject.asBroadcastStream();
+  Stream<ByteData> get waterLevels => _waterLevelsSubject.stream;
+
+  @visibleForTesting
+  bool get debugHasWaterLevelsListener => _waterLevelsSubject.hasListener;
   Stream<ByteData> get mmr => _mmrSubject.asBroadcastStream();
   Stream<ByteData> get fwMapRequest => _fwMapRequestSubject.asBroadcastStream();
   Stream<ByteData> get bengleShotSample => _bengleShotSampleSubject.stream;
