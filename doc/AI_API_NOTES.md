@@ -169,7 +169,8 @@ that never reports would hang the request. The timeout sits on the stream, befor
 `asBroadcastStream()`. Each `asBroadcastStream()` call builds a wrapper that keeps
 its source subscription after its last listener cancels, so every `.first` read
 left a listener on the subject until disconnect, and a polled GET grew that set
-without bound. The other transport getters still use `asBroadcastStream()`.
+without bound. The remaining getters, except `bengleShotSample`, still use
+`asBroadcastStream()`.
 `shotSettings` (`De1Controller._readShotSettings`) and `calibration` (the
 calibration GET) also have per-request `.first` readers and leak the same way;
 they are left for a follow-up.

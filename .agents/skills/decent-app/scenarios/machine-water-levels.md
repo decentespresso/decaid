@@ -33,7 +33,8 @@ scripts/sb-dev.sh start --connect-machine MockDe1 --connect-scale MockScale
    Expected: `{"currentLevel": 50.0, "refillLevel": 5.0}`.
 
 3. With no machine connected, the read fails like the other machine reads. Disconnect `MockDe1` through the
-   simulate-only debug route rather than restarting: a restart reconnects the saved preferred machine.
+   simulate-only debug route and send the GET straight away: `ConnectionManager` re-adopts the preferred
+   machine about 5 seconds after an unexpected disconnect.
 
    ```bash
    curl -sf -X POST http://localhost:8080/api/v1/debug/machine/disconnect | jq .

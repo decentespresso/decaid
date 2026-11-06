@@ -1105,9 +1105,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/WaterLevels"
         "504":
-          description: The machine reported no water levels within 4 seconds
+          description: The machine reported no water levels within 4 seconds, including when its BLE connection drops during the wait
         "500":
-          description: No machine was connected, or the machine disconnected while the request waited
+          description: No machine was connected, or the app disconnected the machine while the request waited
     post:
       summary: Set water level refill threshold. Only the refillLevel field is used.
       tags: [Machine]

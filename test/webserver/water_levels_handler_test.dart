@@ -11,6 +11,7 @@ import 'package:reaprime/src/controllers/workflow_controller.dart';
 import 'package:reaprime/src/models/device/de1_rawmessage.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
+import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:shelf_plus/shelf_plus.dart';
@@ -198,6 +199,9 @@ void main() {
 
       final response = await pending;
       expect(response.statusCode, 500);
+      expect(await jsonBody(response), {
+        'error': const DeviceNotConnectedException.machine().toString(),
+      });
     });
 
     test('answers 500 while no machine is connected', () async {
