@@ -824,13 +824,17 @@ class De1Handler {
 
   Future<De1WaterLevels> _latestWaterLevels(De1Interface de1) async {
     try {
-      return await de1.waterLevels.first.timeout(
-        _waterLevelsTimeout,
-        onTimeout: () => throw const EndpointUnavailableException(
-          'waterLevels',
-          _waterLevelsTimeout,
-        ),
-      );
+      return await de1.waterLevels
+          .timeout(
+            _waterLevelsTimeout,
+            onTimeout: (sink) => sink.addError(
+              const EndpointUnavailableException(
+                'waterLevels',
+                _waterLevelsTimeout,
+              ),
+            ),
+          )
+          .first;
     } on StateError {
       throw const DeviceNotConnectedException.machine();
     }

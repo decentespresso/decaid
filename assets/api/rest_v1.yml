@@ -1092,9 +1092,10 @@ paths:
       summary: Get water levels and refill threshold
       description: |
         Returns the latest water levels the machine reported, the same payload
-        `/ws/v1/machine/waterLevels` sends. `refillLevel` is the threshold set by
-        POST. When the machine has not reported water levels since it connected,
-        the request waits up to 4 seconds for the first report.
+        `/ws/v1/machine/waterLevels` sends. `refillLevel` is the refill threshold
+        as the machine last reported it, so it reflects a POST only once the
+        machine reports again. When the machine has not reported water levels
+        since it connected, the request waits up to 4 seconds for the first report.
       tags: [Machine]
       responses:
         "200":
@@ -1106,7 +1107,7 @@ paths:
         "504":
           description: The machine reported no water levels within 4 seconds
         "500":
-          description: No machine was connected
+          description: No machine was connected, or the machine disconnected while the request waited
     post:
       summary: Set water level refill threshold. Only the refillLevel field is used.
       tags: [Machine]

@@ -155,20 +155,24 @@ could not produce.
 ## Water Levels GET (issue #1028)
 
 `GET /api/v1/machine/waterLevels` answers the latest `De1WaterLevels` from
-`De1Interface.waterLevels`, the stream `/ws/v1/machine/waterLevels` forwards. It
-is the one machine read that can answer `504`. The BLE connect path subscribes
-to water-level notifications but never reads the characteristic, unlike shot
-settings, so between connect and the machine's first notification there is no
-value to answer with. The request waits up to 4 seconds for one, the same budget
-as the serial latest-frame read, then fails with `EndpointUnavailableException`.
-Keep the timeout: without it a machine that never reports would hang the request.
+`De1Interface.waterLevels`, the stream `/ws/v1/machine/waterLevels` forwards.
+The BLE connect path subscribes to water-level notifications but never reads the
+characteristic, unlike shot settings, so between connect and the machine's first
+notification there is no value to answer with. The request waits up to 4 seconds
+for one, the same budget as the serial latest-frame read, then answers `504`
+through `EndpointUnavailableException`. Keep the timeout: without it a machine
+that never reports would hang the request. The timeout sits on the stream, before
+`.first`, so a timed-out request cancels its subscription; `Future.timeout` after
+`.first` would leave it listening until the next frame.
 
 `UnifiedDe1Transport.waterLevels` returns the subject's `.stream`, not
 `asBroadcastStream()`. Each `asBroadcastStream()` call builds a wrapper that keeps
 its source subscription after its last listener cancels, so every `.first` read
 left a listener on the subject until disconnect, and a polled GET grew that set
-without bound. The other transport getters still use `asBroadcastStream()`; their
-consumers mostly subscribe once per connection.
+without bound. The other transport getters still use `asBroadcastStream()`.
+`shotSettings` (`De1Controller._readShotSettings`) and `calibration` (the
+calibration GET) also have per-request `.first` readers and leak the same way;
+they are left for a follow-up.
 
 ## WebSocket Conventions
 
