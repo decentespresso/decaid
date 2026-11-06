@@ -44,11 +44,14 @@ class SerialServiceAndroid
     Stream<UsbEvent>? Function()? usbEventStream,
     Future<Device?> Function(UsbDevice device)? detectDevice,
     Future<UsbPort?> Function(UsbDevice device, int iface)? createTapPort,
+    Duration probeDuration = const Duration(seconds: 3),
   }) : _listDevices = listDevices ?? UsbSerial.listDevices,
        _usbEventStream = usbEventStream ?? (() => UsbSerial.usbEventStream),
        _detectOverride = detectDevice,
-       _createTapPort = createTapPort;
+       _createTapPort = createTapPort,
+       _probeDuration = probeDuration;
 
+  final Duration _probeDuration;
   final Map<String, AndroidSerialPort> _transportForDeviceId = {};
 
   /// Logical device ID -> physical `UsbDevice.deviceId` it was created from.
@@ -633,7 +636,7 @@ class SerialServiceAndroid
     }
 
     final List<Uint8List> rawData = [];
-    final duration = const Duration(seconds: 3);
+    final duration = _probeDuration;
 
     try {
       await transport.connect().timeout(Duration(milliseconds: 300));
