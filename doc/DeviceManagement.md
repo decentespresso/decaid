@@ -101,7 +101,8 @@ Discovery services are responsible for scanning and creating device instances. E
   - `lib/src/services/serial/serial_service_android.dart` (Android)
   - `lib/src/services/serial/serial_service.dart` (factory)
 - **Discovery:** Enumerates serial ports, probes for device identification
-- **Android serial name gate:** Android admits the exact case-sensitive product name `Debug Probe (CMSIS-DAP)` alongside the existing serial names, allowing the normal `R `-line probe detection path to classify it as a `DebugPort`. The name is not in the USB machine table, so this admission does not classify the probe as a machine. This is an Android-only policy change; it does not fix Linux/desktop discovery or alter desktop baud settings.
+- **Android serial name gate:** Android admits the exact case-sensitive product name `Debug Probe (CMSIS-DAP)` alongside the existing serial names for probing only; admission does not establish functional `DebugPort` discovery or classify the probe as a machine.
+- **Debug Probe limitations:** Android and desktop/Linux still open serial ports at a fixed 115200, while the reported Debug Probe console uses 460800. Baud/decoding remain unaddressed, tracked in [#1105 (Android)](https://github.com/decentespresso/decaid/issues/1105) and [#1102 (desktop/Linux)](https://github.com/decentespresso/decaid/issues/1102). No functional `DebugPort` discovery is claimed until baud and interface behaviour are verified on real hardware. On Android, if passive classification fails, the existing probe order writes `<+M>`, `<+E>`, a `<E>` MMR read, then `<-M>` and `<-E>` to the 115200-opened port before rejecting it when DE1 detection also fails. Admitting the name therefore permits DE1 probe writes to the Debug Probe UART as a known consequence of the unchanged probe order.
 - **Desktop serial identity:** One canonical id is resolved once per enumerated port: `usb-{vid}-{pid}-{serial}` (plus `-ifNN` for interfaces above 0) when USB descriptors are available, otherwise `serial-<basename>`. Candidates are deduplicated before probing, so a macOS adapter exposed as both `/dev/cu.X` and `/dev/tty.X` appears once and `/dev/cu.X` is the endpoint probed. The resolved id is injected into the transport and is the value used for scan dedup, `Device.deviceId`, remembered devices and API inventory. `serial-<basename>` stays accepted as a legacy quick-connect alias; after a successful alias connect the remembered record and `preferredMachineId` migrate to the canonical id. Android keeps its existing `UsbDevice.deviceId`-suffixed identities.
 - **HDS USB readiness:** `HDSSerial` enables the 10 Hz OpenScale binary stream and remains `connecting` until a checksum-valid weight frame arrives. Its buffered decoder accepts fragmented/coalesced frames mixed with firmware text; only valid weight frames refresh the watchdog.
 
@@ -236,7 +237,10 @@ event with a newly listed USB device (by stable ID when Android supplied one,
 otherwise only devices not already connected), runs the normal serial admission
 and detection, and connects the device only when it is a supported machine
 (`De1Interface`). Scales, sensors, debug ports, keyboards, and other USB
-devices are rejected and their transports disposed. The typed result
+devices are rejected and their transports disposed. This deliberate machine-only
+attach path does not expose a `DebugPort` sensor, even if detection succeeds;
+normal scanning can retain a detected `DebugPort` once baud and interface
+behaviour permit classification. The typed result
 distinguishes a connected machine from "no supported machine attached" from
 "machine detected but connection or identity initialization failed". When
 the originating service only implements the notifier (no probe capability),
