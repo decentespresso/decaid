@@ -3,12 +3,11 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:yaml/yaml.dart';
 
-YamlMap _schema(String name) {
-  final spec =
-      loadYaml(File('assets/api/rest_v1.yml').readAsStringSync()) as YamlMap;
-  return ((spec['components'] as YamlMap)['schemas'] as YamlMap)[name]
-      as YamlMap;
-}
+final YamlMap _spec =
+    loadYaml(File('assets/api/rest_v1.yml').readAsStringSync()) as YamlMap;
+
+YamlMap _schema(String name) =>
+    ((_spec['components'] as YamlMap)['schemas'] as YamlMap)[name] as YamlMap;
 
 YamlMap _properties(String name) => _schema(name)['properties'] as YamlMap;
 
