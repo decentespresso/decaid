@@ -599,7 +599,12 @@ class SerialServiceAndroid
       _log.warning("failed to add $device, port is null");
       return null;
     }
-    final transport = AndroidSerialPort(device: device, port: port);
+    final isDebugProbe = device.productName == 'Debug Probe (CMSIS-DAP)';
+    final transport = AndroidSerialPort(
+      device: device,
+      port: port,
+      baudRate: isDebugProbe ? 460800 : 115200,
+    );
     _transportForDeviceId[transport.id] = transport;
 
     if (device.productName == "DE1") {
@@ -662,6 +667,10 @@ class SerialServiceAndroid
       } else if (isSensorBasket(strings)) {
         _log.info("Detected: Sensor Basket");
         return SensorBasket(transport: transport);
+      } else if (isDebugProbe) {
+        _log.info("Rejecting unclassified Debug Probe without DE1 writes");
+        await _disposeRejectedTransport(transport);
+        return null;
       } else {
         final List<String> messages = [];
         final sub = transport.readStream.listen((line) {
@@ -749,6 +758,7 @@ class AndroidSerialPort implements SerialTransport {
   final int? _physicalInstanceId;
   final bool _dtrOn;
   final bool _decodeUtf8Text;
+  final int _baudRate;
   late Logger _log;
   bool _disposed = false;
   final BehaviorSubject<ConnectionState> _open = BehaviorSubject.seeded(
@@ -765,12 +775,14 @@ class AndroidSerialPort implements SerialTransport {
     int? physicalInstanceId,
     bool dtrOn = false,
     bool decodeUtf8Text = true,
+    int baudRate = 115200,
   }) : _device = device,
        _port = port,
        _interfaceNumber = interfaceNumber,
        _physicalInstanceId = physicalInstanceId,
        _dtrOn = dtrOn,
-       _decodeUtf8Text = decodeUtf8Text {
+       _decodeUtf8Text = decodeUtf8Text,
+       _baudRate = baudRate {
     _log = Logger("Serial:${_device.deviceName}");
   }
   @override
@@ -815,8 +827,8 @@ class AndroidSerialPort implements SerialTransport {
     await _port.setDTR(_dtrOn);
     await _port.setRTS(false);
 
-    _port.setPortParameters(
-      115200,
+    await _port.setPortParameters(
+      _baudRate,
       UsbPort.DATABITS_8,
       UsbPort.STOPBITS_1,
       UsbPort.PARITY_NONE,
