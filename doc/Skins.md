@@ -86,6 +86,42 @@ callbacks from the previous view cannot complete it. A failed browser launch
 keeps the recovery screen available. This does not move or clear browser storage,
 retry downloads, or identify the native cause of a startup failure.
 
+### Switching Skins from an Embedded Skin
+
+An embedded skin switches the app to another installed skin with:
+
+```javascript
+window.decentApp.switchSkin('streamline.js');
+```
+
+The call returns immediately and returns `false` without doing anything when it
+is not running in the embedded WebView or when `skinId` is not a non-empty
+string. There is no completion callback: the switch normally destroys the
+calling page, and the new skin appearing is the indication that it finished. A
+skin must not wait for a promise before letting the page unload.
+
+The hook is a native request, not a page navigation. The script navigates the
+top frame to `/__decent/switch-skin?id=<skinId>` on its own origin; Decaid
+cancels that navigation and performs the switch itself. Decaid accepts the
+request only from the active embedded `SkinView`'s top-level page on the port it
+is currently serving: subframes, a page left over from an earlier port, other
+origins and external browsers are rejected, and `window.__DECENT_HOST__` alone
+does not authorise it. Only an installed skin ID is accepted; URLs, paths and
+remote hosts are not.
+
+Decaid selects the skin, restarts the WebUI server on that skin's own port,
+persists it as the default skin, and recreates the embedded view on the new port
+before loading it. Switching is single-flight: a second request while one is
+running returns `busy` and changes nothing. Requesting the skin that is already
+being served does nothing. If the new skin fails to serve, Decaid restores the
+previous skin, does not persist the selection, and reports the failure in the
+app instead of opening a system browser.
+
+In an external browser `switchSkin` is a no-op. Use the REST skin controls
+(`PUT /api/v1/webui/skins/{id}/default` and the WebUI server endpoints) and then
+open the stable entry point on port 3000, which redirects to the selected skin's
+origin.
+
 ### Live Camera Access on Android, iOS and macOS
 
 An installed skin in the embedded Android, iOS or macOS WebView can request a
@@ -3547,7 +3583,7 @@ This shows "Back to MySkin" in the settings plugin's nav bar. When clicked, it n
 
 **External links:** When a skin runs inside the embedded webview (mobile/desktop app), navigations to the active skin origin, `localhost:3000`, and the settings plugin load in place; any other `http`/`https` link opens in the **system browser** while the skin stays loaded. A plain `<a href="https://…">` works, but the in-app webview blocks `target="_blank"` popups (`javaScriptCanOpenWindowsAutomatically: false`). For JS-driven links, use a delegated click handler with `window.open(url, '_blank')` and a `location.href` fallback so the navigation reaches `shouldOverrideUrlLoading` and is handed off to the OS.
 
-**Return to the dashboard:** Port 3000 is a stable no-store entry point that redirects to the selected skin's origin, normally retained across restarts as described in [Skin Origins and Browser Storage](#skin-origins-and-browser-storage). The active origin loads the tokenless `/__decent/skin-api.js` from an absolute same-origin URL, which exposes `window.decentApp.exitToDashboard()`. ReaPrime stores a newly rotated, skin-bound account-proxy token in escaped page metadata that only the same-origin script reads; switching or stopping the server revokes it. Separate skin origins prevent a stale tab from reading another skin's token. Token injection accepts loopback and IP addresses currently assigned to the device, including Ethernet and secondary adapters; arbitrary hostnames and stale addresses are rejected. If local interface enumeration is unavailable, the WiFi address cached for the server link is used as a fallback. A hostname that resolves to one of those addresses — a router DNS record, an mDNS name, a hosts file entry — reaches the entry redirect and receives the script tag, but never the token, which stays restricted to loopback and literal device addresses so the DNS-rebinding boundary holds. A skin that needs the account-proxy token must therefore be opened by loopback or device IP; a skin that only needs `window.decentApp` also works when opened by name. The script response also uses `Cross-Origin-Resource-Policy: same-origin`. In the embedded webview the callback closes the skin and reveals the Decent dashboard. In an external browser it is a no-op. The script works with `script-src 'self'`; policies that reject all same-origin scripts, such as `script-src 'none'` or nonce-only policies without `'self'`, also reject this API.
+**Return to the dashboard:** Port 3000 is a stable no-store entry point that redirects to the selected skin's origin, normally retained across restarts as described in [Skin Origins and Browser Storage](#skin-origins-and-browser-storage). The active origin loads the tokenless `/__decent/skin-api.js` from an absolute same-origin URL, which exposes `window.decentApp.exitToDashboard()` and `window.decentApp.switchSkin(skinId)`, described in [Switching Skins from an Embedded Skin](#switching-skins-from-an-embedded-skin). ReaPrime stores a newly rotated, skin-bound account-proxy token in escaped page metadata that only the same-origin script reads; switching or stopping the server revokes it. Separate skin origins prevent a stale tab from reading another skin's token. Token injection accepts loopback and IP addresses currently assigned to the device, including Ethernet and secondary adapters; arbitrary hostnames and stale addresses are rejected. If local interface enumeration is unavailable, the WiFi address cached for the server link is used as a fallback. A hostname that resolves to one of those addresses — a router DNS record, an mDNS name, a hosts file entry — reaches the entry redirect and receives the script tag, but never the token, which stays restricted to loopback and literal device addresses so the DNS-rebinding boundary holds. A skin that needs the account-proxy token must therefore be opened by loopback or device IP; a skin that only needs `window.decentApp` also works when opened by name. The script response also uses `Cross-Origin-Resource-Policy: same-origin`. In the embedded webview the callback closes the skin and reveals the Decent dashboard. In an external browser it is a no-op. The script works with `script-src 'self'`; policies that reject all same-origin scripts, such as `script-src 'none'` or nonce-only policies without `'self'`, also reject this API.
 
 The embedded webview also shows a platform-specific navigation guide when a skin opens. On Windows, choose **Back to Dashboard** from the system menu, available from the window icon or by right-clicking the title bar. Disable or restore the guide in **Settings** under **General** with **Skin navigation guide**.
 

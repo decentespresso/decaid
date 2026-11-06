@@ -30,6 +30,7 @@ import 'package:reaprime/src/onboarding_feature/steps/welcome_step.dart';
 import 'package:reaprime/src/onboarding_feature/steps/login_step.dart';
 import 'package:reaprime/src/realtime_shot_feature/realtime_shot_feature.dart';
 import 'package:reaprime/src/realtime_steam_feature/realtime_steam_feature.dart';
+import 'package:reaprime/src/skin_feature/skin_switch_coordinator.dart';
 import 'package:reaprime/src/skin_feature/skin_view.dart';
 import 'package:reaprime/src/skin_feature/skin_camera_permission.dart';
 import 'package:reaprime/src/theme/theme.dart';
@@ -289,6 +290,12 @@ class _MyAppState extends State<MyApp> {
       navigatorKey: NavigationService.navigatorKey,
     );
   }
+
+  late final _skinSwitchCoordinator = SkinSwitchCoordinator(
+    service: widget.webUIService,
+    skinPath: (skinId) => widget.webUIStorage.getSkin(skinId)?.path,
+    setDefaultSkin: widget.webUIStorage.setDefaultSkin,
+  );
 
   Future<void> _navigateAfterOnboarding() async {
     final navigator = NavigationService.navigatorKey.currentState;
@@ -572,33 +579,38 @@ class _MyAppState extends State<MyApp> {
                         scanStateGuardian: widget.scanStateGuardian,
                       );
                     case SkinView.routeName:
-                      return SkinView(
-                        notificationCenter: widget
-                            .pluginLoaderService
-                            .pluginManager
-                            .notifications,
-                        notificationActions: _notificationActions,
-                        settingsController: widget.settingsController,
-                        webViewLogService: widget.webViewLogService,
-                        deviceIp: widget.webUIService.deviceIp(),
-                        displayController: widget.displayController,
-                        port: widget.webUIService.port,
-                        cameraTarget: () {
-                          final service = widget.webUIService;
-                          if (!service.isServing) return null;
-                          final skin = widget.webUIStorage.installedSkins
-                              .where(
-                                (skin) => skin.path == service.serverPath(),
-                              )
-                              .firstOrNull;
-                          return skin == null
-                              ? null
-                              : SkinCameraTarget(
-                                  id: skin.id,
-                                  name: skin.name,
-                                  port: service.port,
-                                );
-                        },
+                      return skinViewForServeGeneration(
+                        serveGeneration: widget.webUIService.serveGeneration,
+                        port: () => widget.webUIService.port,
+                        builder: (port) => SkinView(
+                          notificationCenter: widget
+                              .pluginLoaderService
+                              .pluginManager
+                              .notifications,
+                          notificationActions: _notificationActions,
+                          settingsController: widget.settingsController,
+                          webViewLogService: widget.webViewLogService,
+                          deviceIp: widget.webUIService.deviceIp(),
+                          displayController: widget.displayController,
+                          port: port,
+                          onSwitchSkin: _skinSwitchCoordinator.switchTo,
+                          cameraTarget: () {
+                            final service = widget.webUIService;
+                            if (!service.isServing) return null;
+                            final skin = widget.webUIStorage.installedSkins
+                                .where(
+                                  (skin) => skin.path == service.serverPath(),
+                                )
+                                .firstOrNull;
+                            return skin == null
+                                ? null
+                                : SkinCameraTarget(
+                                    id: skin.id,
+                                    name: skin.name,
+                                    port: service.port,
+                                  );
+                          },
+                        ),
                       );
                     default:
                       return OnboardingView(
