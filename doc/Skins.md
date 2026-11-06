@@ -456,6 +456,7 @@ Returns current machine state snapshot.
 - `cleaningSteam` - Steam cleaning
 - `pausedSteam` - Steam paused between pours
 - `puffing` - Steam purge after steam stops
+- `refillStopped` - Refill kit has given up; reports with the `needsWater` state
 
 #### Request State Change
 ```http
