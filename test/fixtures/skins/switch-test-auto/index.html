@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Switch test AUTO</title>
+<style>
+  body { font: 16px/1.4 system-ui, sans-serif; margin: 0; padding: 24px;
+         background: #d7ffd9; color: #111; }
+  h1 { font-size: 12vw; margin: 0 0 8px; }
+</style>
+</head>
+<body>
+<h1>SKIN AUTO</h1>
+<p id="origin"></p>
+<script>
+  var api = window.decentApp || {};
+  function say(line) {
+    console.log('[switch-test-auto] ' + line);
+  }
+  document.getElementById('origin').textContent = location.origin;
+  say('loaded on ' + location.origin +
+      ', hook ' + (typeof api.switchSkin === 'function' ? 'present' : 'missing') +
+      ', host flag ' + (window.__DECENT_HOST__ ? 'set' : 'absent'));
+  function call(skinId) {
+    if (typeof api.switchSkin !== 'function') {
+      say('switchSkin is not available on this page');
+      return;
+    }
+    say('switchSkin(' + JSON.stringify(skinId) + ') returned ' + api.switchSkin(skinId));
+  }
+  setTimeout(function () { call('switch-test-missing'); }, 1500);
+  setTimeout(function () { call('switch-test-b'); call('switch-test-b'); }, 4000);
+</script>
+</body>
+</html>

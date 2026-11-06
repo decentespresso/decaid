@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Switch test A</title>
+<style>
+  body { font: 16px/1.4 system-ui, sans-serif; margin: 0; padding: 24px;
+         background: #ffe9b3; color: #111; }
+  h1 { font-size: 15vw; margin: 0 0 8px; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; }
+  dt { font-weight: 600; }
+  button { font-size: 18px; padding: 12px 16px; margin: 4px 4px 0 0; }
+  #log { white-space: pre-wrap; font-family: ui-monospace, monospace;
+         background: #fff; border: 1px solid #0003; padding: 8px;
+         margin-top: 12px; max-height: 40vh; overflow: auto; }
+</style>
+</head>
+<body>
+<h1>SKIN A</h1>
+<dl>
+  <dt>skin id</dt><dd id="id">switch-test-a</dd>
+  <dt>origin</dt><dd id="origin"></dd>
+  <dt>host</dt><dd id="host"></dd>
+  <dt>switchSkin</dt><dd id="hook"></dd>
+</dl>
+<div>
+  <button id="other">Switch to B</button>
+  <button id="same">Switch to A (same skin)</button>
+  <button id="missing">Switch to missing id</button>
+  <button id="rapid">Rapid double switch</button>
+  <button id="exit">Exit to dashboard</button>
+</div>
+<div id="log"></div>
+<script>
+  var log = document.getElementById('log');
+  function say(line) {
+    log.textContent += new Date().toISOString().slice(11, 23) + '  ' + line + '\n';
+    log.scrollTop = log.scrollHeight;
+  }
+  document.getElementById('origin').textContent = location.origin;
+  document.getElementById('host').textContent = location.host;
+  var api = window.decentApp || {};
+  var embedded = !!window.__DECENT_HOST__;
+  document.getElementById('hook').textContent =
+    (typeof api.switchSkin === 'function' ? 'present' : 'missing') +
+    ', host flag ' + (embedded ? 'set (embedded)' : 'absent (external browser)');
+  say('loaded switch-test-a on ' + location.origin);
+  function call(skinId) {
+    if (typeof api.switchSkin !== 'function') {
+      say('switchSkin is not available on this page');
+      return;
+    }
+    var result = api.switchSkin(skinId);
+    say('switchSkin(' + JSON.stringify(skinId) + ') returned ' + result);
+  }
+  document.getElementById('other').onclick = function () { call('switch-test-b'); };
+  document.getElementById('same').onclick = function () { call('switch-test-a'); };
+  document.getElementById('missing').onclick = function () { call('switch-test-missing'); };
+  document.getElementById('rapid').onclick = function () {
+    call('switch-test-b');
+    call('switch-test-a');
+  };
+  document.getElementById('exit').onclick = function () {
+    if (typeof api.exitToDashboard === 'function') api.exitToDashboard();
+    else say('exitToDashboard is not available on this page');
+  };
+</script>
+</body>
+</html>
