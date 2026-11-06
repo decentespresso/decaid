@@ -21,6 +21,7 @@ Pick the scenario that matches the task and run it before calling related work d
 | Device scan and connection policy | `scenarios/device-scan-connection-policy.md` |
 | Display brightness and low-battery toggle | `scenarios/display-brightness.md` |
 | ETag conditional GETs | `scenarios/etag-conditional-gets.md` |
+| Embedded skin switching (`decentApp.switchSkin`) | `scenarios/skin-switch-embedded.md` |
 | Read-only Grinder observations | `scenarios/grinder-observations.md` |
 | Firmware endpoints | `scenarios/firmware.md` |
 | Hot-water stop at weight | `scenarios/hot-water-stop-at-weight.md` |
