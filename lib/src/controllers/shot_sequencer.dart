@@ -149,7 +149,7 @@ class ShotSequencer {
       if (_sensorSubs.containsKey(entry.key)) continue;
       final id = entry.key;
       _sensorSubs[id] = entry.value.data.listen(
-        (frame) => _latestSensorFrames[id] = frame,
+        (frame) => _latestSensorFrames[id] = _finiteChannels(frame),
         onError: (Object e) =>
             _log.warning('sensor $id data error, dropping its channel: $e'),
       );
@@ -163,6 +163,19 @@ class ShotSequencer {
       // vanish from the ones already taken.
     }
   }
+
+  static Map<String, dynamic> _finiteChannels(Map<String, dynamic> frame) => {
+    for (final entry in frame.entries) entry.key: _finiteValue(entry.value),
+  };
+
+  static Object? _finiteValue(Object? value) => switch (value) {
+    double number when !number.isFinite => null,
+    Map map => {
+      for (final entry in map.entries) entry.key: _finiteValue(entry.value),
+    },
+    List list => [for (final item in list) _finiteValue(item)],
+    _ => value,
+  };
 
   Map<String, Map<String, dynamic>>? _sensorFrames() {
     if (_latestSensorFrames.isEmpty) return null;
