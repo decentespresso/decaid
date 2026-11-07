@@ -37,6 +37,7 @@ class ShotSequencer {
     ({Sensor sensor, StreamSubscription<Map<String, dynamic>> subscription})
   >
   _sensorBindings = {};
+  final Map<String, Stream<Map<String, dynamic>>> _endedSensorStreams = {};
 
   final Logger _log = Logger("ShotSequencer");
 
@@ -157,18 +158,28 @@ class ShotSequencer {
 
     for (final entry in current.entries) {
       if (_sensorBindings.containsKey(entry.key)) continue;
-      _bindSensor(entry.key, entry.value);
+      final stream = entry.value.data;
+      if (stream == _endedSensorStreams[entry.key]) continue;
+      _bindSensor(entry.key, entry.value, stream);
     }
   }
 
-  void _bindSensor(String id, Sensor sensor) {
-    final subscription = sensor.data.listen(
+  void _bindSensor(
+    String id,
+    Sensor sensor,
+    Stream<Map<String, dynamic>> stream,
+  ) {
+    _endedSensorStreams.remove(id);
+    final subscription = stream.listen(
       (frame) => _latestSensorFrames[id] = _finiteChannels(frame),
       onError: (Object e) {
         _log.warning('sensor $id data error, clearing its last frame: $e');
         _latestSensorFrames.remove(id);
       },
-      onDone: () => _unbindSensor(id),
+      onDone: () {
+        _unbindSensor(id);
+        _endedSensorStreams[id] = stream;
+      },
     );
     _sensorBindings[id] = (sensor: sensor, subscription: subscription);
   }
@@ -205,6 +216,7 @@ class ShotSequencer {
       binding.subscription.cancel();
     }
     _sensorBindings.clear();
+    _endedSensorStreams.clear();
     _snapshotSubscription?.cancel();
     _scaleConnectionSubscription?.cancel();
     _scaleWeightSubscription?.cancel();

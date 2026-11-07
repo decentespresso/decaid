@@ -67,6 +67,17 @@ class _StreamSensor extends TestSensor {
   }
 }
 
+class _SubjectSensor extends TestSensor {
+  BehaviorSubject<Map<String, dynamic>> subject;
+
+  _SubjectSensor(Map<String, dynamic> seed)
+    : subject = BehaviorSubject.seeded(seed),
+      super(deviceId: _sensorId);
+
+  @override
+  Stream<Map<String, dynamic>> get data => subject.stream;
+}
+
 Profile _profile() => Profile(
   version: '2',
   title: 'Test Profile',
@@ -149,6 +160,17 @@ void main() {
     );
     await pumpEventQueue();
     return samples.last;
+  }
+
+  Future<List<ShotSnapshot>> takeSamplesWithoutDrain(int count) async {
+    final first = samples.length;
+    for (var i = 0; i < count; i++) {
+      testDe1.emitSnapshot(
+        testDe1.snapshotSubject.value.copyWith(timestamp: _sampleTime),
+      );
+    }
+    await pumpEventQueue();
+    return samples.sublist(first);
   }
 
   Future<void> emit(_StreamSensor sensor, Map<String, dynamic> frame) async {
@@ -315,6 +337,60 @@ void main() {
       expect(after.sensors?[_sensorId], isNull);
       expect(before.sensors![_sensorId]!['r1'], 4.5);
     });
+
+    test(
+      'a closed replaying stream does not put its last frame back',
+      () async {
+        final sensor = _SubjectSensor({'r1': 4.5});
+        await sensorController.register(sensor);
+        await takeSample();
+        expect((await takeSample()).sensors![_sensorId]!['r1'], 4.5);
+
+        await sensor.subject.close();
+        await pumpEventQueue();
+        final after = await takeSamplesWithoutDrain(6);
+
+        expect(after, hasLength(6));
+        for (final sample in after) {
+          expect(sample.sensors?[_sensorId], isNull);
+        }
+      },
+    );
+
+    test('a closed replaying sensor registered again is not bound', () async {
+      final sensor = _SubjectSensor({'r1': 4.5});
+      await sensorController.register(sensor);
+      await takeSample();
+      await sensor.subject.close();
+      await pumpEventQueue();
+      await takeSample();
+
+      await sensorController.unregister(_sensorId);
+      await takeSample();
+      await sensorController.register(sensor);
+      final after = await takeSamplesWithoutDrain(6);
+
+      for (final sample in after) {
+        expect(sample.sensors?[_sensorId], isNull);
+      }
+    });
+
+    test(
+      'a replaying sensor that opens a new stream is recorded again',
+      () async {
+        final sensor = _SubjectSensor({'r1': 4.5});
+        await sensorController.register(sensor);
+        await takeSample();
+        await sensor.subject.close();
+        await pumpEventQueue();
+        await takeSamplesWithoutDrain(3);
+
+        sensor.subject = BehaviorSubject.seeded({'r1': 7.0});
+        await takeSample();
+
+        expect((await takeSample()).sensors![_sensorId]!['r1'], 7.0);
+      },
+    );
 
     test(
       'a sensor that opens a new stream after closing is recorded again',
