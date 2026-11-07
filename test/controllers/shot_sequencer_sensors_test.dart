@@ -53,16 +53,18 @@ class _TestDe1Controller extends De1Controller {
 }
 
 class _StreamSensor extends TestSensor {
-  final StreamController<Map<String, dynamic>> frames =
-      StreamController.broadcast();
+  StreamController<Map<String, dynamic>> frames = StreamController.broadcast();
+  final bool closeOnDisconnect;
 
-  _StreamSensor() : super(deviceId: _sensorId);
+  _StreamSensor({this.closeOnDisconnect = true}) : super(deviceId: _sensorId);
 
   @override
   Stream<Map<String, dynamic>> get data => frames.stream;
 
   @override
-  Future<void> disconnect() => frames.close();
+  Future<void> disconnect() async {
+    if (closeOnDisconnect) await frames.close();
+  }
 }
 
 Profile _profile() => Profile(
@@ -154,8 +156,8 @@ void main() {
     await pumpEventQueue();
   }
 
-  Future<_StreamSensor> registerSensor() async {
-    final sensor = _StreamSensor();
+  Future<_StreamSensor> registerSensor({bool closeOnDisconnect = true}) async {
+    final sensor = _StreamSensor(closeOnDisconnect: closeOnDisconnect);
     await sensorController.register(sensor);
     return sensor;
   }
@@ -204,5 +206,131 @@ void main() {
         expect(channels['fit'], {'r2': null, 'n': 3});
       });
     }
+  });
+
+  group('replaced sensor', () {
+    test('a sensor replaced under the same id is followed', () async {
+      final first = await registerSensor();
+      await takeSample();
+      await emit(first, {'r1': 10.0});
+      expect((await takeSample()).sensors![_sensorId]!['r1'], 10.0);
+
+      final second = await registerSensor();
+      await takeSample();
+      await emit(second, {'r1': 20.0});
+
+      expect((await takeSample()).sensors![_sensorId]!['r1'], 20.0);
+      expect(first.frames.hasListener, isFalse);
+    });
+
+    test('a replaced sensor that keeps its stream open is released', () async {
+      final first = await registerSensor(closeOnDisconnect: false);
+      await takeSample();
+      await emit(first, {'r1': 10.0});
+      await takeSample();
+
+      final second = await registerSensor(closeOnDisconnect: false);
+      final afterReplace = await takeSample();
+      await emit(first, {'r1': 11.0});
+      await emit(second, {'r1': 20.0});
+
+      expect(afterReplace.sensors?[_sensorId], isNull);
+      expect(first.frames.hasListener, isFalse);
+      expect((await takeSample()).sensors![_sensorId]!['r1'], 20.0);
+    });
+  });
+
+  group('removed or failed sensor', () {
+    Future<ShotSnapshot> recordOneFrame(_StreamSensor sensor) async {
+      await takeSample();
+      await emit(sensor, {'r1': 4.5});
+      final before = await takeSample();
+      expect(before.sensors![_sensorId]!['r1'], 4.5);
+      return before;
+    }
+
+    test('an unregistered sensor stops adding frames', () async {
+      final sensor = await registerSensor();
+      final before = await recordOneFrame(sensor);
+
+      await sensorController.unregister(_sensorId);
+      final after = await takeSample();
+
+      expect(after.sensors?[_sensorId], isNull);
+      expect(before.sensors![_sensorId]!['r1'], 4.5);
+    });
+
+    test(
+      'an unregistered sensor that keeps its stream open is released',
+      () async {
+        final sensor = await registerSensor(closeOnDisconnect: false);
+        final before = await recordOneFrame(sensor);
+
+        await sensorController.unregister(_sensorId);
+        final after = await takeSample();
+        await emit(sensor, {'r1': 5.0});
+
+        expect(after.sensors?[_sensorId], isNull);
+        expect(sensor.frames.hasListener, isFalse);
+        expect((await takeSample()).sensors?[_sensorId], isNull);
+        expect(before.sensors![_sensorId]!['r1'], 4.5);
+      },
+    );
+
+    test('a sensor whose stream errors stops adding frames', () async {
+      final sensor = await registerSensor();
+      final before = await recordOneFrame(sensor);
+
+      sensor.frames.addError(StateError('link lost'));
+      await pumpEventQueue();
+      final after = await takeSample();
+
+      expect(after.sensors?[_sensorId], isNull);
+      expect(before.sensors![_sensorId]!['r1'], 4.5);
+    });
+
+    test(
+      'a sensor that sends a frame after an error is recorded again',
+      () async {
+        final sensor = await registerSensor();
+        await recordOneFrame(sensor);
+        sensor.frames.addError(StateError('link lost'));
+        await pumpEventQueue();
+        await takeSample();
+
+        await emit(sensor, {'r1': 5.0});
+
+        expect((await takeSample()).sensors![_sensorId]!['r1'], 5.0);
+      },
+    );
+
+    test('a sensor whose stream closes stops adding frames', () async {
+      final sensor = await registerSensor();
+      final before = await recordOneFrame(sensor);
+
+      await sensor.frames.close();
+      await pumpEventQueue();
+      final after = await takeSample();
+
+      expect(after.sensors?[_sensorId], isNull);
+      expect(before.sensors![_sensorId]!['r1'], 4.5);
+    });
+
+    test(
+      'a sensor that opens a new stream after closing is recorded again',
+      () async {
+        final sensor = await registerSensor();
+        await recordOneFrame(sensor);
+        await sensor.frames.close();
+        await pumpEventQueue();
+        await takeSample();
+
+        sensor.frames = StreamController.broadcast();
+        await takeSample();
+        await emit(sensor, {'r1': 6.0});
+
+        expect((await takeSample()).sensors![_sensorId]!['r1'], 6.0);
+      },
+    );
   });
 }

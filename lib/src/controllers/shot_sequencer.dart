@@ -12,6 +12,7 @@ import 'package:reaprime/src/models/data/shot_state_event.dart';
 import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/scale.dart';
+import 'package:reaprime/src/models/device/sensor.dart';
 import 'package:reaprime/src/models/device/device.dart' as device;
 import 'package:rxdart/rxdart.dart';
 
@@ -31,7 +32,11 @@ class ShotSequencer {
   /// deviceId -> that sensor's latest frame, refreshed as frames arrive and
   /// copied into each ShotSnapshot.
   final Map<String, Map<String, dynamic>> _latestSensorFrames = {};
-  final Map<String, StreamSubscription<Map<String, dynamic>>> _sensorSubs = {};
+  final Map<
+    String,
+    ({Sensor sensor, StreamSubscription<Map<String, dynamic>> subscription})
+  >
+  _sensorBindings = {};
 
   final Logger _log = Logger("ShotSequencer");
 
@@ -145,23 +150,32 @@ class ShotSequencer {
     if (controller == null) return;
     final current = controller.sensors;
 
-    for (final entry in current.entries) {
-      if (_sensorSubs.containsKey(entry.key)) continue;
-      final id = entry.key;
-      _sensorSubs[id] = entry.value.data.listen(
-        (frame) => _latestSensorFrames[id] = _finiteChannels(frame),
-        onError: (Object e) =>
-            _log.warning('sensor $id data error, dropping its channel: $e'),
-      );
+    for (final entry in _sensorBindings.entries.toList()) {
+      if (identical(current[entry.key], entry.value.sensor)) continue;
+      _unbindSensor(entry.key);
     }
 
-    for (final id in _sensorSubs.keys.toList()) {
-      if (current.containsKey(id)) continue;
-      _sensorSubs.remove(id)?.cancel();
-      // Keep the last frame rather than deleting it: a sensor that drops out
-      // mid-shot should leave its samples in the record, not retroactively
-      // vanish from the ones already taken.
+    for (final entry in current.entries) {
+      if (_sensorBindings.containsKey(entry.key)) continue;
+      _bindSensor(entry.key, entry.value);
     }
+  }
+
+  void _bindSensor(String id, Sensor sensor) {
+    final subscription = sensor.data.listen(
+      (frame) => _latestSensorFrames[id] = _finiteChannels(frame),
+      onError: (Object e) {
+        _log.warning('sensor $id data error, clearing its last frame: $e');
+        _latestSensorFrames.remove(id);
+      },
+      onDone: () => _unbindSensor(id),
+    );
+    _sensorBindings[id] = (sensor: sensor, subscription: subscription);
+  }
+
+  void _unbindSensor(String id) {
+    _sensorBindings.remove(id)?.subscription.cancel();
+    _latestSensorFrames.remove(id);
   }
 
   static Map<String, dynamic> _finiteChannels(Map<String, dynamic> frame) => {
@@ -187,10 +201,10 @@ class ShotSequencer {
 
   void dispose() {
     _log.fine("dispose");
-    for (final sub in _sensorSubs.values) {
-      sub.cancel();
+    for (final binding in _sensorBindings.values) {
+      binding.subscription.cancel();
     }
-    _sensorSubs.clear();
+    _sensorBindings.clear();
     _snapshotSubscription?.cancel();
     _scaleConnectionSubscription?.cancel();
     _scaleWeightSubscription?.cancel();
