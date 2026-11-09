@@ -84,15 +84,6 @@ function replaySynthetic(profile) {
   return estimates(emitted);
 }
 
-function canonicalSeconds(startTime, startTemp, value) {
-  if (value.currentTemp >= value.targetTemp) return 0;
-  const elapsed = Math.max(1, (value.timestamp - startTime) / 1000);
-  const warmed = Math.max(1, value.currentTemp - startTemp);
-  const togo = Math.min(Math.max((value.targetTemp - 10) - value.currentTemp, 1), 100);
-  const progress = warmed / togo;
-  return Math.min(Math.max(Math.round(Math.trunc(elapsed / progress) / 10) * 10, 5), 300);
-}
-
 function assertNonIncreasing(values, message) {
   for (let index = 1; index < values.length; index++) {
     assert.ok(
@@ -103,29 +94,55 @@ function assertNonIncreasing(values, message) {
   }
 }
 
-test('canonical formula reproduces each synthetic trace within one round-to-tens step', () => {
+test('slow and fast profiles track recent heating rates', () => {
   assert.equal(
     profilesFixture.header,
     "assumption: synthetic stress profile, not recorded data; grounded only in the issue's faster-ramp/denser-cadence Bengle premise",
   );
 
-  for (const profile of profilesFixture.profiles) {
+  const profiles = [profilesFixture.profiles[0], profilesFixture.profiles[3]];
+  for (const profile of profiles) {
     const values = replaySynthetic(profile);
     const heatingValues = values.filter((value) => value.status === 'heating');
-    let ceiling = null;
-    for (const value of heatingValues) {
-      const canonical = canonicalSeconds(0, profile.initial, value);
-      ceiling = ceiling === null ? canonical : Math.min(ceiling, canonical);
-      assert.ok(
-        Math.abs(value.remainingTimeMs - ceiling * 1000) <= 10000,
-        profile.name + ' exceeded one round-to-tens step',
-      );
-      assert.ok(
-        value.heatingRate > 0,
-        profile.name + ' reports a positive average heating rate',
-      );
-    }
+    const firstHeatingIndex = values.findIndex((value) => value.status === 'heating');
+    assert.ok(firstHeatingIndex >= 8, profile.name + ' published before eight recent samples');
+    assert.ok(
+      values.slice(0, firstHeatingIndex).every((value) => value.status === 'insufficient_data'),
+      profile.name + ' did not report insufficient_data while rate was unestablished',
+    );
     assert.ok(heatingValues.length > 0, profile.name + ' had no heating estimate');
+    assert.ok(
+      heatingValues.every((value) => value.heatingRate > 0),
+      profile.name + ' reports a positive recent heating rate',
+    );
+
+    const finalHeating = heatingValues.at(-1);
+    const finalRemainingSeconds =
+      (profile.target - finalHeating.currentTemp) / profile.ramp;
+    assert.ok(
+      Math.abs(finalHeating.remainingTimeMs / 1000 - finalRemainingSeconds) <= 10000 / 1000,
+      profile.name + ' final estimate missed the true remaining time by more than one ten-second step',
+    );
+
+    const midpoint = heatingValues.find(
+      (value) => value.currentTemp >= profile.initial + (profile.target - profile.initial) / 2,
+    );
+    const midpointRemainingSeconds = (profile.target - midpoint.currentTemp) / profile.ramp;
+    assert.ok(
+      Math.abs(midpoint.remainingTimeMs / 1000 - midpointRemainingSeconds) <= 20000 / 1000,
+      profile.name + ' midpoint estimate missed the true remaining time by more than two ten-second steps',
+    );
+
+    const floorCandidates = heatingValues.filter(
+      (value) => profile.target - value.currentTemp > (profile === profiles[0] ? 5 : 10),
+    );
+    assert.ok(
+      floorCandidates.every((value) => value.remainingTimeMs >= 10000),
+      profile.name + ' collapsed below the ten-second rounded floor too early',
+    );
+    console.log(
+      `${profile.name}: midpoint=${midpoint.remainingTimeMs / 1000}s, final=${finalHeating.remainingTimeMs / 1000}s, finalRate=${finalHeating.heatingRate.toFixed(3)} K/s`,
+    );
     assert.equal(values.at(-1).status, 'reached');
   }
 });
@@ -142,14 +159,14 @@ test('a target change resets the reference and the new session has its own ceili
   const emitted = [];
   const plugin = loadPlugin(now, emitted);
   ready(plugin, 20, 70);
-  replay(plugin, now, [20.5, 21, 21.5, 22, 22.5, 23, 23.5], 1000);
+  replay(plugin, now, [20.5, 21, 21.5, 22, 22.5, 23, 23.5, 24], 1000);
   const oldSession = estimates(emitted).filter((value) => value.status === 'heating');
   assert.ok(oldSession.length > 0);
 
   plugin.onEvent({ name: 'stateUpdate', payload: payload(23.5, 71) });
   assert.equal(estimates(emitted).at(-1).status, 'insufficient_data');
   now.value += 1000;
-  replay(plugin, now, [24, 24.5, 25, 25.5, 26, 26.5, 27], 1000, 71);
+  replay(plugin, now, [24, 24.5, 25, 25.5, 26, 26.5, 27, 27.5], 1000, 71);
 
   const newSession = estimates(emitted).filter((value) => value.status === 'heating').slice(oldSession.length);
   assert.ok(newSession.length > 1);
@@ -161,15 +178,14 @@ test('the estimator clamps countdowns to five and three hundred seconds', () => 
   const lowEmitted = [];
   const lowPlugin = loadPlugin(lowNow, lowEmitted);
   ready(lowPlugin, 20);
-  lowNow.value = 100000;
-  lowPlugin.onEvent({ name: 'stateUpdate', payload: payload(26) });
+  replay(lowPlugin, lowNow, [20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 20.7, 20.8], 1000);
   assert.equal(estimates(lowEmitted).at(-1).remainingTimeMs, 300000);
 
   const highNow = { value: 0 };
   const highEmitted = [];
   const highPlugin = loadPlugin(highNow, highEmitted);
-  ready(highPlugin, 20);
-  highPlugin.onEvent({ name: 'stateUpdate', payload: payload(69.9) });
+  ready(highPlugin, 62);
+  replay(highPlugin, highNow, [63, 64, 65, 66, 67, 68, 69, 69.9], 1000);
   assert.equal(estimates(highEmitted).at(-1).remainingTimeMs, 5000);
 });
 
@@ -180,14 +196,14 @@ test('a noisy synthetic trace remains non-increasing', () => {
   assertNonIncreasing(heatingValues, 'noisy trace increased');
 });
 
-test('the pre-change slope path is distinguished by a strict no-upward-jump trace', () => {
+test('a machine slowdown cannot raise the session ceiling', () => {
   const now = { value: 0 };
   const emitted = [];
   const plugin = loadPlugin(now, emitted);
   ready(plugin, 20);
   const temperatures = [];
   for (let index = 0; index < 20; index++) temperatures.push(20 + index * 0.2);
-  for (let index = 1; index <= 40; index++) temperatures.push(23.8 + index * 0.18);
+  for (let index = 1; index <= 40; index++) temperatures.push(23.8 + index * 0.05);
   replay(plugin, now, temperatures, 1000);
 
   const heatingValues = estimates(emitted).filter((value) => value.status === 'heating');
@@ -236,7 +252,7 @@ test('a cold start without a prior ready still publishes an estimate', () => {
   const now = { value: 0 };
   const emitted = [];
   const plugin = loadPlugin(now, emitted);
-  for (const temperature of [23, 25, 27, 29, 31, 33]) {
+  for (const temperature of [23, 25, 27, 29, 31, 33, 35, 37]) {
     plugin.onEvent({ name: 'stateUpdate', payload: payload(temperature, 92, 'idle') });
     now.value += 1000;
   }

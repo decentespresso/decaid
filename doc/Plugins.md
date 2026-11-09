@@ -463,12 +463,22 @@ When Decaid matches an external request to an endpoint that is defined in the
 plugins manifest,
 it will send over events emitted by the plugin.
 
-The bundled `time-to-ready.reaplugin` estimates the remaining time the way the
-de1app Streamline skin does: it records the group temperature when the machine
-last reported `ready`, then publishes `elapsed / progress` where progress is
-the temperature gained towards `targetGroupTemperature - 10` (capped at 100 K of
-remaining climb), rounded to ten seconds and clamped to 5-300 s. The reference is
-reset on a target temperature change or a sleep transition.
+The bundled `time-to-ready.reaplugin` records the group temperature when the
+machine first reports below-target operation, with the reference reset on `ready`,
+sleep, a target temperature change, or cooling 2 K below the session start. It
+estimates the remaining time from the recent heating rate rather than the whole
+climb: it keeps an 18-second trailing temperature window, requires at least eight
+samples, and uses the median of adjacent-interval slopes. The estimate is
+`max(targetGroupTemperature - currentTemperature, 0) / heatingRate`, rounded to
+ten seconds and clamped to 5-300 s.
+
+This deliberately departs from the de1app Streamline formula, which divides
+elapsed time by progress toward `targetGroupTemperature - 10`. That `-10` offset
+absorbed a slow tail for the original machine but collapses the denominator near
+target: it makes a slow machine reach the floor too early and makes a fast machine
+compress most of its countdown into the last few steps. A recent rate adapts to
+machines with very different heating speeds. `heatingRate` reports that recent
+rate in degrees per second.
 
 The first published countdown of a heating session becomes its ceiling, and later
 publications may only decrease. That ceiling is stricter than de1app, whose own
@@ -476,10 +486,9 @@ monotonic guard is unreachable: its `force_update` flag is set to `1` immediatel
 before the comparison, so the guard never runs. The cost of the ceiling is that a
 genuine slowdown is under-reported until the machine reaches `ready`.
 
-`status: "insufficient_data"` with `remainingTimeMs: null` is published while the
-machine is not heating or no `ready` reference has been observed yet. The heating
-skin renders that state as "Heating" without a countdown. `heatingRate` carries the
-average rate since the reference, in degrees per second.
+`status: "insufficient_data"` with `remainingTimeMs: null` is published until the
+recent rate is established, or while the machine is not heating. The heating skin
+renders that state as "Heating" without a countdown.
 
 Example:
 

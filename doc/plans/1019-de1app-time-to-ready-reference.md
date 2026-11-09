@@ -37,7 +37,7 @@ The not-ready calculation at `skin.tcl:968-1000` is:
 
 > `set x [expr {round($in / 10.0)*10}]`
 
-The JavaScript port uses milliseconds for event timestamps, converts elapsed time to seconds, retains the existing event fields, and reports `heatingRate: null` because this formulation does not calculate a slope.
+The historical JavaScript port used milliseconds for event timestamps, converted elapsed time to seconds, retained the existing event fields, and reported `heatingRate: null` because this formulation did not calculate a slope.
 
 ## Dead guard finding
 
@@ -49,8 +49,18 @@ The publication guard at `skin.tcl:1005-1012` is not effective:
 
 Because `force_update` is assigned `1` immediately before the comparison at `skin.tcl:1005`, the never-increase branch cannot be selected. The plugin intentionally does not port this dead guard as written.
 
+## Current estimator: recent rate
+
+The plugin preserves session bookkeeping but no longer ports the whole-climb ETA. It seeds the session reference on the first below-target observation and resets it on `ready`, sleep, a target temperature change, or cooling 2 K below the session start. It records a trailing 18-second temperature series, requires at least eight samples, and uses the median of adjacent-interval slopes as the recent `heatingRate`. The published ETA is:
+
+> `remaining = max(target_temperature - current_temperature, 0)`
+>
+> `ETA = clamp(round_to_tens(remaining / heatingRate), 5, 300)`
+
+The `target_temperature - 10` offset is intentionally deleted. It was de1app's way of absorbing a slow tail, but it collapses the denominator near target. On a slow machine that reaches the countdown floor while several kelvin remain; on a fast machine it compresses the useful countdown into the last few round-to-tens steps. A trailing rate adapts to both heating speeds, and the payload's `heatingRate` now reports that rate in K/s. Until eight recent samples produce a positive median rate, the plugin publishes `insufficient_data`; `reached` remains unchanged.
+
 ## Deliberate deviation: active non-increasing ceiling
 
-The plugin keeps an active ceiling for each heating session. The first published countdown after a heat-start reference is the ceiling; later estimates can only decrease or stay equal. The ceiling resets when the target changes or the machine sleeps, along with the ready reference.
+The plugin keeps an active ceiling for each heating session. The first published countdown after a heat-start reference is the ceiling; later estimates can only decrease or stay equal. The ceiling resets with the session reference on `ready`, sleep, target change, or the cooling reset.
 
-This is stricter than de1app's live behavior and directly prevents the observed countdown jump from 30 seconds to 60 seconds. The cost is that a real slowdown cannot increase the displayed countdown, so the number can under-report remaining time until the next reset. `insufficient_data` remains reserved for missing references and non-heating machine states.
+This is stricter than de1app's live behavior and directly prevents the observed countdown jump from 30 seconds to 60 seconds. The cost is that a real slowdown cannot increase the displayed countdown, so the number can under-report remaining time until the next reset.

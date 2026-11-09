@@ -10,7 +10,8 @@
 function createPlugin(host) {
   "use strict";
 
-  const MIN_WARMED_CELSIUS = 2;
+  const RATE_WINDOW_SECONDS = 18;
+  const MIN_RATE_SAMPLES = 8;
 
   function createState() {
     return {
@@ -22,6 +23,7 @@ function createPlugin(host) {
       lastEstimation: null,
       lastMachineState: null,
       lastTargetTemp: null,
+      temperatureSamples: [],
     };
   }
 
@@ -35,6 +37,27 @@ function createPlugin(host) {
     state.heatStartTime = null;
     state.heatStartTemp = null;
     state.maximumRemainingTimeSeconds = null;
+    state.temperatureSamples = [];
+  }
+
+  function startHeatSession(now, temperature) {
+    state.heatStartTime = now;
+    state.heatStartTemp = temperature;
+    state.maximumRemainingTimeSeconds = null;
+    state.temperatureSamples = [];
+  }
+
+  function recordTemperature(now, temperature) {
+    const cutoff = now - RATE_WINDOW_SECONDS * 1000;
+    state.temperatureSamples = state.temperatureSamples.filter(
+      (sample) => sample.timestamp >= cutoff,
+    );
+    const lastSample = state.temperatureSamples.at(-1);
+    if (lastSample && lastSample.timestamp === now) {
+      lastSample.temperature = temperature;
+    } else {
+      state.temperatureSamples.push({ timestamp: now, temperature });
+    }
   }
 
   function handleStateUpdate(payload) {
@@ -63,20 +86,17 @@ function createPlugin(host) {
     } else if (currentTemp >= targetTemp) {
       resetHeatStart();
     } else if (machineState === 'ready') {
-      state.heatStartTime = now;
-      state.heatStartTemp = currentTemp;
-      state.maximumRemainingTimeSeconds = null;
+      startHeatSession(now, currentTemp);
     } else if (state.heatStartTime !== null &&
       currentTemp < state.heatStartTemp - 2) {
       resetHeatStart();
     }
-    state.lastTemp = currentTemp;
-
     if (state.heatStartTime === null && machineState !== 'sleeping' &&
       currentTemp < targetTemp) {
-      state.heatStartTime = now;
-      state.heatStartTemp = currentTemp;
-      state.maximumRemainingTimeSeconds = null;
+      startHeatSession(now, currentTemp);
+    }
+    if (state.heatStartTime !== null && currentTemp < targetTemp) {
+      recordTemperature(now, currentTemp);
     }
 
     const estimation = estimateRemainingTime(currentTemp, targetTemp, now);
@@ -120,8 +140,8 @@ function createPlugin(host) {
       };
     }
 
-    if (state.heatStartTime === null || state.heatStartTemp === null ||
-      currentTemp - state.heatStartTemp < MIN_WARMED_CELSIUS) {
+    const heatingRate = calculateRecentRate(now);
+    if (heatingRate === null) {
       return {
         remainingTimeMs: null,
         heatingRate: null,
@@ -130,12 +150,9 @@ function createPlugin(host) {
       };
     }
 
-    const elapsed = Math.max(1, (now - state.heatStartTime) / 1000);
-    const warmed = Math.max(1, currentTemp - state.heatStartTemp);
-    const togo = clamp((targetTemp - 10) - currentTemp, 1, 100);
-    const progress = warmed / togo;
-    const rawSeconds = roundToTens(Math.trunc(elapsed / progress));
-    const estimatedSeconds = clamp(rawSeconds, 5, 300);
+    const remaining = Math.max(targetTemp - currentTemp, 0);
+    const rawSeconds = remaining / heatingRate;
+    const estimatedSeconds = clamp(roundToTens(rawSeconds), 5, 300);
 
     if (state.maximumRemainingTimeSeconds === null) {
       state.maximumRemainingTimeSeconds = estimatedSeconds;
@@ -150,11 +167,37 @@ function createPlugin(host) {
     const remainingTimeMs = remainingTimeSeconds * 1000;
     return {
       remainingTimeMs,
-      heatingRate: warmed / elapsed,
+      heatingRate,
       status: 'heating',
       message: `Estimated ${formatTime(remainingTimeMs)} remaining`,
       formattedTime: formatTime(remainingTimeMs),
     };
+  }
+
+  function calculateRecentRate(now) {
+    const cutoff = now - RATE_WINDOW_SECONDS * 1000;
+    state.temperatureSamples = state.temperatureSamples.filter(
+      (sample) => sample.timestamp >= cutoff,
+    );
+    if (state.temperatureSamples.length < MIN_RATE_SAMPLES) return null;
+
+    const slopes = [];
+    for (let index = 1; index < state.temperatureSamples.length; index++) {
+      const previous = state.temperatureSamples[index - 1];
+      const current = state.temperatureSamples[index];
+      const elapsedSeconds = (current.timestamp - previous.timestamp) / 1000;
+      if (elapsedSeconds > 0) {
+        slopes.push((current.temperature - previous.temperature) / elapsedSeconds);
+      }
+    }
+    if (slopes.length === 0) return null;
+
+    slopes.sort((left, right) => left - right);
+    const middle = Math.floor(slopes.length / 2);
+    const median = slopes.length % 2 === 0
+      ? (slopes[middle - 1] + slopes[middle]) / 2
+      : slopes[middle];
+    return median > 0 ? median : null;
   }
 
   function clamp(value, minimum, maximum) {

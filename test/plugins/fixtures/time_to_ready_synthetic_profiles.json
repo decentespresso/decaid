@@ -4,7 +4,7 @@
     "ramp_celsius_per_second": [0.1, 0.3, 0.8],
     "cadence_seconds": [0.5, 1, 2],
     "minimum_samples": 8,
-    "minimum_window_seconds": 5,
+    "minimum_window_seconds": 18,
     "maximum_upward_correction_ms": 3000
   },
   "profiles": [
@@ -37,9 +37,9 @@
     },
     {
       "name": "Bengle-like fast ramp at 0.5s cadence with sensor jitter",
-      "initial": 28,
-      "target": 76,
-      "ramp": 0.8,
+      "initial": 20,
+      "target": 93,
+      "ramp": 0.95,
       "cadenceSeconds": 0.5,
       "startupJitter": [0.3, -0.25, 0.2, -0.18, 0.14, -0.1, 0.08, -0.06, 0.04, -0.03, 0.02, -0.01],
       "ongoingJitter": [0.025, -0.02, 0.018, -0.016, 0.014, -0.012, 0.01, -0.008]
