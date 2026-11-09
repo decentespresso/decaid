@@ -1446,6 +1446,27 @@ function createPlugin() {
       });
 
       test(
+        'the app repository is a trusted source for a bundled plugin',
+        () async {
+          await http.runWithClient(
+            () =>
+                provenanceService.installFromGitHubRelease(appPluginRepository),
+            () => gitHubClient(
+              releaseArchive: pluginArchive(
+                pluginId: bundledId,
+                permissions: const ['log'],
+              ),
+            ),
+          );
+
+          await updateTo(const ['log', 'api']);
+
+          expect(loader.getPluginManifest(bundledId)!.version, '1.1.0');
+          expect(provenanceService.sourceFor(bundledId)!.pendingUpdate, isNull);
+        },
+      );
+
+      test(
         'unrelated repository addition waits even for a bundled id',
         () async {
           await installFrom('acme/settings');

@@ -29,6 +29,11 @@ final _releaseTagPattern = RegExp(r'^v?\d+\.\d+\.\d+$');
 /// GitHub repositories the bundled plugins are published from. A bundled copy
 /// is the app-owned floor; this table lets an installed copy keep receiving
 /// releases from its canonical repo.
+/// Plugins that live inside this repository rather than a repository of their
+/// own. A bundled plugin cannot be upgraded by id alone, so the app repository
+/// is the trusted release source for those.
+const appPluginRepository = 'decentespresso/decaid';
+
 const bundledPluginRepos = <String, String>{
   'dye2.reaplugin': 'decentespresso/dye2',
   'shot-upload.reaplugin': 'decentespresso/shot-upload',
@@ -570,12 +575,12 @@ class PluginSourceService {
     String pluginId,
     PluginSource source,
   ) {
-    final canonical = _canonicalBundledRepos[pluginId];
-    if (canonical == null) return false;
     if (source.kind != PluginSourceKind.githubRelease) return false;
-    final repo = source.repo;
+    final repo = source.repo?.toLowerCase();
     if (repo == null) return false;
-    return repo.toLowerCase() == canonical.toLowerCase();
+    final canonical = _canonicalBundledRepos[pluginId];
+    if (canonical != null && repo == canonical.toLowerCase()) return true;
+    return repo == appPluginRepository;
   }
 
   Future<Set<String>?> _bundledPermissions(String pluginId) async {
