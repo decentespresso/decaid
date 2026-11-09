@@ -499,7 +499,11 @@ error from -47 s to +5 s. If machine info is unavailable the plugin stays on the
 conservative ceiling with no allowance.
 
 Stall detection keeps its own 60 second history, separate from the 18 second rate
-window, so it judges a real minute of observations. An established session whose
+window, so it judges a real minute of observations; the history retains the sample
+just before the cutoff, so ordinary sampling jitter cannot make the window look
+incomplete and suppress a stall indefinitely. The continued-heating threshold is
+derived from the same numbers - a rise of `0.5 K * 18 / 60` over the rate window -
+so there is no band of slow-but-real heating that neither publishes nor stalls. An established session whose
 temperature stops climbing reports `status: "not_heating"` - not
 `insufficient_data` - once that minute gained less than 0.5 K, and the display cap
 is released so a later resume starts clean. Short pauses stay in the countdown.

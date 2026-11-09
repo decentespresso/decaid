@@ -136,6 +136,22 @@ function replaySynthetic(profile) {
   return estimates(emitted);
 }
 
+function assertNonIncreasingWithinRuns(values, message) {
+  let run = [];
+  const flush = () => {
+    if (run.length > 1) assertNonIncreasing(run, message);
+    run = [];
+  };
+  for (const value of values) {
+    if (value.status === 'heating') {
+      run.push(value);
+    } else {
+      flush();
+    }
+  }
+  flush();
+}
+
 function assertNonIncreasing(values, message) {
   for (let index = 1; index < values.length; index++) {
     assert.ok(
@@ -428,7 +444,7 @@ test('recorded device ramps replay without an upward countdown', async () => {
     const { values } = await replayRecorded(fixture.data);
     const heating = values.filter((value) => value.status === 'heating');
     assert.ok(heating.length > 0, fixture.name + ' published no countdown');
-    assertNonIncreasing(heating, fixture.name);
+    assertNonIncreasingWithinRuns(values, fixture.name);
     assert.equal(values.at(-1).status, 'reached', fixture.name + ' never reported reached');
   }
 });
@@ -515,7 +531,7 @@ test('without machine info the estimator stays on the conservative path', async 
   const { values } = await replayRecorded(fixture.data, { fetchAvailable: false });
   const heating = values.filter((value) => value.status === 'heating');
   assert.ok(heating.length > 0, 'no estimate without machine info');
-  assertNonIncreasing(heating, 'unknown model received an upward correction');
+  assertNonIncreasingWithinRuns(values, 'unknown model received an upward correction');
 });
 
 test('a stalled machine reports not_heating after a valid countdown', () => {
@@ -682,13 +698,13 @@ test('a twenty second pause mid-session is not reported as a stall', () => {
   const now = { value: 0 };
   const emitted = [];
   const plugin = loadPlugin(now, emitted);
-  for (const temperature of temperatures(20, 0.5, 180)) {
+  for (const temperature of temperatures(20, 0.2, 180)) {
     plugin.onEvent({ name: 'stateUpdate', payload: payload(temperature, 90, 'idle') });
     now.value += 1000;
   }
   const pausedAt = now.value;
   for (let index = 0; index < 20; index++) {
-    plugin.onEvent({ name: 'stateUpdate', payload: payload(109.5, 90, 'idle') });
+    plugin.onEvent({ name: 'stateUpdate', payload: payload(55.8, 90, 'idle') });
     now.value += 1000;
   }
   const during = estimates(emitted).filter(
@@ -699,8 +715,8 @@ test('a twenty second pause mid-session is not reported as a stall', () => {
     'a 20 s pause inside a 60 s rising history was reported as a stall',
   );
 
-  for (const temperature of temperatures(110, 0.5, 40)) {
-    plugin.onEvent({ name: 'stateUpdate', payload: payload(temperature, 140, 'idle') });
+  for (const temperature of temperatures(56, 0.2, 40)) {
+    plugin.onEvent({ name: 'stateUpdate', payload: payload(temperature, 90, 'idle') });
     now.value += 1000;
   }
   assert.ok(
@@ -753,6 +769,65 @@ test('a slow but rising machine keeps a countdown', () => {
   assert.ok(
     late.every((value) => value.status !== 'not_heating'),
     'a slow positive ramp was reported as stalled',
+  );
+});
+
+test('a stationary machine at a 67 ms cadence becomes not_heating', () => {
+  const now = { value: 0 };
+  const emitted = [];
+  const plugin = loadPlugin(now, emitted);
+  for (let index = 0; index < 900; index++) {
+    plugin.onEvent({ name: 'stateUpdate', payload: payload(40, 90, 'idle') });
+    now.value += 67;
+  }
+  for (let index = 0; index < 1800; index++) {
+    plugin.onEvent({ name: 'stateUpdate', payload: payload(40, 90, 'idle') });
+    now.value += 67;
+  }
+  const last = estimates(emitted).at(-1);
+  assert.equal(last.status, 'not_heating', 'a stationary machine never stalled at 67 ms');
+});
+
+test('a stationary machine with irregular sampling becomes not_heating', () => {
+  const now = { value: 0 };
+  const emitted = [];
+  const plugin = loadPlugin(now, emitted);
+  const gaps = [67, 130, 71, 99, 66, 250, 68, 84];
+  for (let index = 0; index < 1600; index++) {
+    plugin.onEvent({ name: 'stateUpdate', payload: payload(38, 92, 'idle') });
+    now.value += gaps[index % gaps.length];
+  }
+  const last = estimates(emitted).at(-1);
+  assert.equal(last.status, 'not_heating', 'irregular sampling prevented the stall');
+});
+
+test('a 0.01 K/s ramp keeps its countdown and is not treated as stalled', () => {
+  const now = { value: 0 };
+  const emitted = [];
+  const plugin = loadPlugin(now, emitted);
+  for (const temperature of temperatures(20, 0.5, 60)) {
+    plugin.onEvent({ name: 'stateUpdate', payload: payload(temperature, 120, 'idle') });
+    now.value += 1000;
+  }
+  assert.ok(
+    estimates(emitted).some((value) => value.status === 'heating'),
+    'no countdown during the fast warm-up',
+  );
+
+  let temperature = 49.5;
+  for (let index = 0; index < 400; index++) {
+    temperature += 0.01;
+    plugin.onEvent({ name: 'stateUpdate', payload: payload(temperature, 120, 'idle') });
+    now.value += 1000;
+  }
+  const late = estimates(emitted).slice(-60);
+  assert.ok(
+    late.some((value) => value.status === 'heating'),
+    'a 0.01 K/s ramp lost its countdown',
+  );
+  assert.ok(
+    late.every((value) => value.status !== 'not_heating'),
+    'a 0.01 K/s ramp was reported as stalled',
   );
 });
 

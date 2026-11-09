@@ -24,7 +24,9 @@ function createPlugin(host) {
   const MACHINE_INFO_REFRESH_MS = 60000;
   const STALL_WINDOW_SECONDS = 60;
   const STALL_GAIN_CELSIUS = 0.5;
-  const MIN_CONTINUING_WARMED_CELSIUS = 0.2;
+  const STALL_COVERAGE_TOLERANCE = 0.95;
+  const MIN_CONTINUING_WARMED_CELSIUS =
+    (STALL_GAIN_CELSIUS * RATE_WINDOW_SECONDS) / STALL_WINDOW_SECONDS;
   const DECELERATION_TRIGGER = 0.8;
   const MAX_DECELERATION_FACTOR = 1.4;
 
@@ -160,7 +162,11 @@ function createPlugin(host) {
 
   function recordSample(history, now, temperature, windowSeconds) {
     const cutoff = now - windowSeconds * 1000;
-    const trimmed = history.filter((sample) => sample.timestamp >= cutoff);
+    let trimmed = history.filter((sample) => sample.timestamp >= cutoff);
+    if (trimmed.length !== history.length && trimmed.length > 0) {
+      const firstKept = history.indexOf(trimmed[0]);
+      if (firstKept > 0) trimmed = [history[firstKept - 1], ...trimmed];
+    }
     const lastSample = trimmed.at(-1);
     if (lastSample && lastSample.timestamp === now) {
       lastSample.temperature = temperature;
@@ -379,7 +385,7 @@ function createPlugin(host) {
     );
     if (window.length < 2) return true;
     const coveredSeconds = (window.at(-1).timestamp - window[0].timestamp) / 1000;
-    if (coveredSeconds < spanSeconds) return true;
+    if (coveredSeconds < spanSeconds * STALL_COVERAGE_TOLERANCE) return true;
     const gain = window.at(-1).temperature - window[0].temperature;
     return gain >= STALL_GAIN_CELSIUS;
   }
