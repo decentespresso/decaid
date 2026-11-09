@@ -37,6 +37,48 @@ servers:
         default: localhost
 
 paths:
+  /api/v1/manifest:
+    get:
+      summary: Discover API documentation
+      description: >
+        Returns the static API documentation locations. The paths under `docs`
+        are relative to the same host as the API request, using the advertised
+        documentation port (4001) rather than port 8080. The documentation
+        listener may be unavailable even when this endpoint responds.
+      tags: [Documentation]
+      responses:
+        "200":
+          description: API documentation discovery manifest
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              example: public, max-age=300
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [api, docs]
+                properties:
+                  api:
+                    type: string
+                    example: v1
+                  docs:
+                    type: object
+                    required: [port, viewer, openapi, asyncapi]
+                    properties:
+                      port:
+                        type: integer
+                        example: 4001
+                      viewer:
+                        type: string
+                        example: /
+                      openapi:
+                        type: string
+                        example: /rest_v1.yml
+                      asyncapi:
+                        type: string
+                        example: /websocket_v1.yml
   /api/v1/devices:
     get:
       summary: Get Available Devices
