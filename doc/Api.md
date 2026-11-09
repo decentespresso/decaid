@@ -7,6 +7,14 @@ The four tare/timer 500 responses share the OpenAPI `ScaleCommandError` schema.
 
 Decaid exposes REST and WebSocket APIs on port 8080. Full OpenAPI specs are in [`assets/api/rest_v1.yml`](../assets/api/rest_v1.yml) and [`assets/api/websocket_v1.yml`](../assets/api/websocket_v1.yml). Interactive docs are available at port 4001 when the app is running.
 
+`GET /api/v1/manifest` returns this compact documentation discovery manifest:
+
+```json
+{"api":"v1","docs":{"port":4001,"viewer":"/","openapi":"/rest_v1.yml","asyncapi":"/websocket_v1.yml"}}
+```
+
+The `viewer`, `openapi`, and `asyncapi` paths use the same host as the API request with the manifest's `docs.port` (4001), not port 8080; the manifest does not guarantee that the separate docs listener is available. For example, reconstruct `http://decaid.local:4001/rest_v1.yml` or `http://decaid.local:4001/websocket_v1.yml` from the manifest. An unmatched API route returns JSON with `error: "Route not found"` and a `hint` naming the same-host docs port and the viewer/OpenAPI/AsyncAPI paths.
+
 For skin development, see [`doc/Skins.md`](Skins.md). For plugin development, see [`doc/Plugins.md`](Plugins.md).
 
 External sensor IDs in REST and WebSocket paths are opaque URI path

@@ -449,7 +449,7 @@ Handler _init(
   UpdateHandler? updateHandler,
 ) {
   log.info("called _init");
-  var app = Router().plus;
+  var app = createApiRouter();
 
   deviceHandler.addRoutes(app);
   wifiScaleHandler?.addRoutes(app);
@@ -505,6 +505,54 @@ Handler _init(
 }
 
 Set<String> _noAccountProxyOrigins() => const {};
+
+class ApiDocsConfiguration {
+  const ApiDocsConfiguration();
+
+  int get port => 4001;
+  String get manifestPath => '/api/v1/manifest';
+  String get viewerPath => '/';
+  String get openApiPath => '/rest_v1.yml';
+  String get asyncApiPath => '/websocket_v1.yml';
+  List<String> get assetPaths => [
+    'assets/api/index.html',
+    'assets/api$openApiPath',
+    'assets/api$asyncApiPath',
+  ];
+
+  Map<String, Object> get manifest => {
+    'api': 'v1',
+    'docs': {
+      'port': port,
+      'viewer': viewerPath,
+      'openapi': openApiPath,
+      'asyncapi': asyncApiPath,
+    },
+  };
+
+  String get notFoundHint =>
+      'API docs: same host, port $port; viewer $viewerPath; '
+      'OpenAPI $openApiPath; AsyncAPI $asyncApiPath';
+}
+
+const apiDocsConfiguration = ApiDocsConfiguration();
+
+RouterPlus createApiRouter() {
+  final app = Router(
+    notFoundHandler: (request) {
+      return jsonNotFound({
+        'error': 'Route not found',
+        'hint': apiDocsConfiguration.notFoundHint,
+      });
+    },
+  ).plus;
+  app.get(apiDocsConfiguration.manifestPath, (request) {
+    return jsonOk(
+      apiDocsConfiguration.manifest,
+    ).change(headers: {'Cache-Control': 'public, max-age=300'});
+  });
+  return app;
+}
 
 Handler buildWebServerHandler(
   Handler routes, {
@@ -663,6 +711,12 @@ String _appendVary(String? value, String headerName) {
   return '$value, $headerName';
 }
 
+Handler createApiDocsHandler(String apiDirectory) => createStaticHandler(
+  apiDirectory,
+  defaultDocument: 'index.html',
+  listDirectories: true,
+);
+
 Future<HttpServer?> startApiDocsServer() async {
   final tempDir = await getTemporaryDirectory();
   final apiDir = Directory('${tempDir.path}/api');
@@ -670,13 +724,7 @@ Future<HttpServer?> startApiDocsServer() async {
     apiDir.createSync(recursive: true);
   }
 
-  final assetFiles = [
-    'assets/api/index.html',
-    'assets/api/rest_v1.yml',
-    'assets/api/websocket_v1.yml',
-  ];
-
-  for (final assetPath in assetFiles) {
+  for (final assetPath in apiDocsConfiguration.assetPaths) {
     final data = await rootBundle.load(assetPath);
     final bytes = data.buffer.asUint8List();
     final filename = assetPath.split('/').last;
@@ -684,15 +732,15 @@ Future<HttpServer?> startApiDocsServer() async {
     await file.writeAsBytes(bytes, flush: true);
   }
 
-  final apiHandler = createStaticHandler(
-    apiDir.path,
-    defaultDocument: 'index.html',
-    listDirectories: true,
-  );
+  final apiHandler = createApiDocsHandler(apiDir.path);
 
   final HttpServer apiServer;
   try {
-    apiServer = await serveOrReportPortInUse(apiHandler, '0.0.0.0', 4001);
+    apiServer = await serveOrReportPortInUse(
+      apiHandler,
+      '0.0.0.0',
+      apiDocsConfiguration.port,
+    );
   } on WebServerPortInUse catch (e) {
     log.warning(
       'API docs server not started: port ${e.port} is already in use',
