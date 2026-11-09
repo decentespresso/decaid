@@ -463,14 +463,23 @@ When Decaid matches an external request to an endpoint that is defined in the
 plugins manifest,
 it will send over events emitted by the plugin.
 
-The bundled `time-to-ready.reaplugin` emits `status: "insufficient_data"` with
-`remainingTimeMs: null` until a positive, sufficiently confident temperature
-trend has at least eight samples spanning five seconds, with a countdown
-uncertainty of at most three seconds. The heating skin renders this state as
-"Heating" without a countdown. Flat, cooling, stale, or reset
-histories return to this indeterminate state rather than publishing a stale
-number. Published countdowns retain the existing five-minute display cap and
-become accurate below that cap.
+The bundled `time-to-ready.reaplugin` estimates the remaining time the way the
+de1app Streamline skin does: it records the group temperature when the machine
+last reported `ready`, then publishes `elapsed / progress` where progress is
+the temperature gained towards `targetGroupTemperature - 10` (capped at 100 K of
+remaining climb), rounded to ten seconds and clamped to 5-300 s. The reference is
+reset on a target temperature change or a sleep transition.
+
+The first published countdown of a heating session becomes its ceiling, and later
+publications may only decrease. That ceiling is stricter than de1app, whose own
+monotonic guard is unreachable: its `force_update` flag is set to `1` immediately
+before the comparison, so the guard never runs. The cost of the ceiling is that a
+genuine slowdown is under-reported until the machine reaches `ready`.
+
+`status: "insufficient_data"` with `remainingTimeMs: null` is published while the
+machine is not heating or no `ready` reference has been observed yet. The heating
+skin renders that state as "Heating" without a countdown. `heatingRate` carries the
+average rate since the reference, in degrees per second.
 
 Example:
 
