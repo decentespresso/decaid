@@ -24,6 +24,7 @@ function createPlugin(host) {
   const MACHINE_INFO_REFRESH_MS = 60000;
   const STALL_WINDOW_SECONDS = 60;
   const STALL_GAIN_CELSIUS = 0.5;
+  const MIN_CONTINUING_WARMED_CELSIUS = 0.2;
   const DECELERATION_TRIGGER = 0.8;
   const MAX_DECELERATION_FACTOR = 1.4;
 
@@ -39,6 +40,8 @@ function createPlugin(host) {
       lastMachineState: null,
       lastTargetTemp: null,
       temperatureSamples: [],
+      stallSamples: [],
+      published: false,
     };
   }
 
@@ -140,7 +143,9 @@ function createPlugin(host) {
     state.heatStartTemp = null;
     state.maximumRemainingTimeSeconds = null;
     state.peakRate = null;
+    state.published = false;
     state.temperatureSamples = [];
+    state.stallSamples = [];
   }
 
   function startHeatSession(now, temperature) {
@@ -148,20 +153,36 @@ function createPlugin(host) {
     state.heatStartTemp = temperature;
     state.maximumRemainingTimeSeconds = null;
     state.peakRate = null;
+    state.published = false;
     state.temperatureSamples = [];
+    state.stallSamples = [];
   }
 
-  function recordTemperature(now, temperature) {
-    const cutoff = now - RATE_WINDOW_SECONDS * 1000;
-    state.temperatureSamples = state.temperatureSamples.filter(
-      (sample) => sample.timestamp >= cutoff,
-    );
-    const lastSample = state.temperatureSamples.at(-1);
+  function recordSample(history, now, temperature, windowSeconds) {
+    const cutoff = now - windowSeconds * 1000;
+    const trimmed = history.filter((sample) => sample.timestamp >= cutoff);
+    const lastSample = trimmed.at(-1);
     if (lastSample && lastSample.timestamp === now) {
       lastSample.temperature = temperature;
     } else {
-      state.temperatureSamples.push({ timestamp: now, temperature });
+      trimmed.push({ timestamp: now, temperature });
     }
+    return trimmed;
+  }
+
+  function recordTemperature(now, temperature) {
+    state.temperatureSamples = recordSample(
+      state.temperatureSamples,
+      now,
+      temperature,
+      RATE_WINDOW_SECONDS,
+    );
+    state.stallSamples = recordSample(
+      state.stallSamples,
+      now,
+      temperature,
+      STALL_WINDOW_SECONDS,
+    );
   }
 
   function handleStateUpdate(payload) {
@@ -251,6 +272,10 @@ function createPlugin(host) {
       const stalled = state.heatStartTime !== null &&
         now - state.heatStartTime >= STALL_WINDOW_SECONDS * 1000 &&
         !isHeating(now, STALL_WINDOW_SECONDS);
+      if (stalled) {
+        state.published = false;
+        state.maximumRemainingTimeSeconds = null;
+      }
       return {
         remainingTimeMs: null,
         heatingRate: stalled ? 0 : null,
@@ -290,6 +315,7 @@ function createPlugin(host) {
       );
     }
 
+    state.published = true;
     const remainingTimeSeconds = state.maximumRemainingTimeSeconds;
     const remainingTimeMs = remainingTimeSeconds * 1000;
     return {
@@ -315,7 +341,8 @@ function createPlugin(host) {
     const established = warmed >= MIN_WARMED_CELSIUS ||
       (sessionSeconds >= SESSION_AGE_FALLBACK_SECONDS &&
         warmed >= MIN_FALLBACK_WARMED_CELSIUS);
-    if (!established) return null;
+    const continuing = state.published && warmed > MIN_CONTINUING_WARMED_CELSIUS;
+    if (!established && !continuing) return null;
 
     let fallbackRate = null;
     for (let spanSeconds = RATE_SPAN_STEP_SECONDS;
@@ -347,10 +374,12 @@ function createPlugin(host) {
 
   function isHeating(now, spanSeconds) {
     const cutoff = now - spanSeconds * 1000;
-    const window = state.temperatureSamples.filter(
+    const window = state.stallSamples.filter(
       (sample) => sample.timestamp >= cutoff,
     );
     if (window.length < 2) return true;
+    const coveredSeconds = (window.at(-1).timestamp - window[0].timestamp) / 1000;
+    if (coveredSeconds < spanSeconds) return true;
     const gain = window.at(-1).temperature - window[0].temperature;
     return gain >= STALL_GAIN_CELSIUS;
   }

@@ -678,6 +678,84 @@ test('discovery resolving after unload does not touch state', async () => {
   );
 });
 
+test('a twenty second pause mid-session is not reported as a stall', () => {
+  const now = { value: 0 };
+  const emitted = [];
+  const plugin = loadPlugin(now, emitted);
+  for (const temperature of temperatures(20, 0.5, 180)) {
+    plugin.onEvent({ name: 'stateUpdate', payload: payload(temperature, 90, 'idle') });
+    now.value += 1000;
+  }
+  const pausedAt = now.value;
+  for (let index = 0; index < 20; index++) {
+    plugin.onEvent({ name: 'stateUpdate', payload: payload(109.5, 90, 'idle') });
+    now.value += 1000;
+  }
+  const during = estimates(emitted).filter(
+    (value) => value.timestamp >= pausedAt && value.timestamp < now.value,
+  );
+  assert.ok(
+    during.every((value) => value.status !== 'not_heating'),
+    'a 20 s pause inside a 60 s rising history was reported as a stall',
+  );
+
+  for (const temperature of temperatures(110, 0.5, 40)) {
+    plugin.onEvent({ name: 'stateUpdate', payload: payload(temperature, 140, 'idle') });
+    now.value += 1000;
+  }
+  assert.ok(
+    estimates(emitted).some((value) => value.status === 'heating'),
+    'heating did not resume after the pause',
+  );
+});
+
+test('a stationary machine below target becomes not_heating', () => {
+  const now = { value: 0 };
+  const emitted = [];
+  const plugin = loadPlugin(now, emitted);
+  for (const temperature of temperatures(20, 0.5, 60)) {
+    plugin.onEvent({ name: 'stateUpdate', payload: payload(temperature, 90, 'idle') });
+    now.value += 1000;
+  }
+  for (let index = 0; index < 90; index++) {
+    plugin.onEvent({ name: 'stateUpdate', payload: payload(49.5, 90, 'idle') });
+    now.value += 1000;
+  }
+  const last = estimates(emitted).at(-1);
+  assert.equal(last.status, 'not_heating');
+  assert.equal(last.heatingRate, 0);
+});
+
+test('a slow but rising machine keeps a countdown', () => {
+  const now = { value: 0 };
+  const emitted = [];
+  const plugin = loadPlugin(now, emitted);
+  for (const temperature of temperatures(20, 0.5, 60)) {
+    plugin.onEvent({ name: 'stateUpdate', payload: payload(temperature, 90, 'idle') });
+    now.value += 1000;
+  }
+  assert.ok(
+    estimates(emitted).some((value) => value.status === 'heating'),
+    'no countdown during the fast warm-up',
+  );
+
+  let temperature = 49.5;
+  for (let index = 0; index < 120; index++) {
+    temperature += 0.03;
+    plugin.onEvent({ name: 'stateUpdate', payload: payload(temperature, 90, 'idle') });
+    now.value += 1000;
+  }
+  const late = estimates(emitted).slice(-30);
+  assert.ok(
+    late.some((value) => value.status === 'heating'),
+    'a slow positive ramp lost its countdown',
+  );
+  assert.ok(
+    late.every((value) => value.status !== 'not_heating'),
+    'a slow positive ramp was reported as stalled',
+  );
+});
+
 test('reached state publishes zero remaining time', () => {
   const now = { value: 0 };
   const emitted = [];

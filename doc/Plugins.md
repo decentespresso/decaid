@@ -498,10 +498,16 @@ is not under-reported. On the recorded DE1 cold start that moved the mid-ramp
 error from -47 s to +5 s. If machine info is unavailable the plugin stays on the
 conservative ceiling with no allowance.
 
-An established session whose temperature stops climbing reports
-`status: "not_heating"` - not `insufficient_data` - once the last 60 s gained less
-than 0.5 K, so a machine that stalls below target is distinguishable from one whose
-rate is still being measured. Short pauses stay in the countdown.
+Stall detection keeps its own 60 second history, separate from the 18 second rate
+window, so it judges a real minute of observations. An established session whose
+temperature stops climbing reports `status: "not_heating"` - not
+`insufficient_data` - once that minute gained less than 0.5 K, and the display cap
+is released so a later resume starts clean. Short pauses stay in the countdown.
+
+Once a session has published, the five-kelvin start gate is no longer required:
+a slow positive ramp keeps its countdown as long as the window gained more than
+0.2 K, which is what a decelerating DE1 approaches near target. Below that, the
+stall detector decides between `not_heating` and continued measurement.
 
 That ceiling is stricter than de1app, whose own monotonic guard is unreachable: its
 `force_update` flag is set to `1` immediately before the comparison, so the guard
