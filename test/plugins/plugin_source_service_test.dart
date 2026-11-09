@@ -461,6 +461,35 @@ function createPlugin() {
       expect(pending.addedPermissions, ['proxy.decent_api']);
     });
 
+    test('an added branch permission blocks the automatic update', () async {
+      await http.runWithClient(
+        () => service.installFromGitHubBranch('acme/plugin'),
+        () => gitHubClient(
+          commit: 'first',
+          branchArchive: pluginArchive(permissions: ['log']),
+        ),
+      );
+
+      await http.runWithClient(
+        () => service.updateAllPlugins(),
+        () => gitHubClient(
+          commit: 'second',
+          branchArchive: pluginArchive(
+            version: '1.1.0',
+            permissions: ['log', 'proxy.decent_api'],
+          ),
+        ),
+      );
+
+      expect(loader.getPluginManifest(id)?.version, '1.0.0');
+      final source = service.sourceFor(id)!;
+      expect(source.commit, 'first');
+      final pending = source.pendingUpdate!;
+      expect(pending.version, '1.1.0');
+      expect(pending.commit, 'second');
+      expect(pending.addedPermissions, ['proxy.decent_api']);
+    });
+
     test('approving a pending update installs it', () async {
       await http.runWithClient(
         () => service.installFromGitHubRelease('acme/plugin'),
@@ -933,6 +962,24 @@ function createPlugin() {
         await loader.installPluginPackage(staging);
       }
 
+      void writeHistoricalPendingUpdate(String version) {
+        final source = service.sourceFor(dye2Id)!;
+        sourceFile(dye2Id).writeAsStringSync(
+          jsonEncode(
+            source
+                .copyWith(
+                  pendingUpdate: PluginPendingUpdate(
+                    version: version,
+                    releaseTag: 'v$version',
+                    addedPermissions: ['log'],
+                    detectedAt: DateTime.utc(2024, 1, 1),
+                  ),
+                )
+                .toJson(),
+          ),
+        );
+      }
+
       test('a freshly installed bundled DYE2 gets its repo', () async {
         await installBundledCopy();
         expect(sourceFile(dye2Id).existsSync(), isFalse);
@@ -1038,19 +1085,7 @@ function createPlugin() {
         () async {
           await installBundledCopy();
           service.seedBundledSources();
-
-          await http.runWithClient(
-            () => service.updateAllPlugins(),
-            () => gitHubClient(
-              tag: 'v0.2.0',
-              releaseArchive: pluginArchive(
-                pluginId: dye2Id,
-                version: '0.2.0',
-                permissions: ['log'],
-              ),
-            ),
-          );
-          expect(service.sourceFor(dye2Id)!.pendingUpdate!.version, '0.2.0');
+          writeHistoricalPendingUpdate('0.2.0');
 
           await bundledUpgrade('0.2.0');
           service.seedBundledSources();
@@ -1066,19 +1101,7 @@ function createPlugin() {
         () async {
           await installBundledCopy();
           service.seedBundledSources();
-
-          await http.runWithClient(
-            () => service.updateAllPlugins(),
-            () => gitHubClient(
-              tag: 'v0.3.0',
-              releaseArchive: pluginArchive(
-                pluginId: dye2Id,
-                version: '0.3.0',
-                permissions: ['log'],
-              ),
-            ),
-          );
-          expect(service.sourceFor(dye2Id)!.pendingUpdate!.version, '0.3.0');
+          writeHistoricalPendingUpdate('0.3.0');
 
           await bundledUpgrade('0.2.0');
           service.seedBundledSources();
@@ -1105,6 +1128,230 @@ function createPlugin() {
         expect(source.repo, 'someone/dye2-fork');
         expect(source.commit, 'fork-commit');
       });
+    });
+
+    group('bundled plugin permission updates', () {
+      const bundledId = 'settings.reaplugin';
+
+      Set<String> loaderPermissions() => loader
+          .getPluginManifest(bundledId)!
+          .permissions
+          .map((permission) => permission.wireName)
+          .toSet();
+
+      Set<String> diskPermissions() =>
+          (jsonDecode(
+                    File(
+                      '${tempDir.path}/plugins/$bundledId/manifest.json',
+                    ).readAsStringSync(),
+                  )
+                  as Map<String, dynamic>)['permissions']
+              .cast<String>()
+              .toSet();
+
+      test(
+        'bundled release additions apply without pending approval',
+        () async {
+          await http.runWithClient(
+            () => service.installFromGitHubRelease('acme/settings'),
+            () => gitHubClient(
+              releaseArchive: pluginArchive(
+                pluginId: bundledId,
+                permissions: ['log'],
+              ),
+            ),
+          );
+
+          await http.runWithClient(
+            () => service.updateAllPlugins(),
+            () => gitHubClient(
+              tag: 'v1.1.0',
+              releaseArchive: pluginArchive(
+                pluginId: bundledId,
+                version: '1.1.0',
+                permissions: ['log', 'proxy.decent_api'],
+              ),
+            ),
+          );
+
+          expect(loader.getPluginManifest(bundledId)!.version, '1.1.0');
+          expect(loaderPermissions(), {'log', 'proxy.decent_api'});
+          expect(diskPermissions(), {'log', 'proxy.decent_api'});
+          final source = service.sourceFor(bundledId)!;
+          expect(source.releaseTag, 'v1.1.0');
+          expect(source.pendingUpdate, isNull);
+        },
+      );
+
+      test(
+        'bundled release equal permissions apply without pending approval',
+        () async {
+          await http.runWithClient(
+            () => service.installFromGitHubRelease('acme/settings'),
+            () => gitHubClient(
+              releaseArchive: pluginArchive(
+                pluginId: bundledId,
+                permissions: ['log'],
+              ),
+            ),
+          );
+
+          await http.runWithClient(
+            () => service.updateAllPlugins(),
+            () => gitHubClient(
+              tag: 'v1.1.0',
+              releaseArchive: pluginArchive(
+                pluginId: bundledId,
+                version: '1.1.0',
+                permissions: ['log'],
+              ),
+            ),
+          );
+
+          expect(loader.getPluginManifest(bundledId)!.version, '1.1.0');
+          expect(loaderPermissions(), {'log'});
+          expect(diskPermissions(), {'log'});
+          final source = service.sourceFor(bundledId)!;
+          expect(source.releaseTag, 'v1.1.0');
+          expect(source.pendingUpdate, isNull);
+        },
+      );
+
+      test(
+        'bundled release reduced permissions apply without pending approval',
+        () async {
+          await http.runWithClient(
+            () => service.installFromGitHubRelease('acme/settings'),
+            () => gitHubClient(
+              releaseArchive: pluginArchive(
+                pluginId: bundledId,
+                permissions: ['log', 'proxy.decent_api'],
+              ),
+            ),
+          );
+
+          await http.runWithClient(
+            () => service.updateAllPlugins(),
+            () => gitHubClient(
+              tag: 'v1.1.0',
+              releaseArchive: pluginArchive(
+                pluginId: bundledId,
+                version: '1.1.0',
+                permissions: ['log'],
+              ),
+            ),
+          );
+
+          expect(loader.getPluginManifest(bundledId)!.version, '1.1.0');
+          expect(loaderPermissions(), {'log'});
+          expect(diskPermissions(), {'log'});
+          final source = service.sourceFor(bundledId)!;
+          expect(source.releaseTag, 'v1.1.0');
+          expect(source.pendingUpdate, isNull);
+        },
+      );
+
+      test('bundled branch additions apply without pending approval', () async {
+        await http.runWithClient(
+          () => service.installFromGitHubBranch('acme/settings'),
+          () => gitHubClient(
+            commit: 'first',
+            branchArchive: pluginArchive(
+              pluginId: bundledId,
+              permissions: ['log'],
+            ),
+          ),
+        );
+
+        await http.runWithClient(
+          () => service.updateAllPlugins(),
+          () => gitHubClient(
+            commit: 'second',
+            branchArchive: pluginArchive(
+              pluginId: bundledId,
+              version: '1.1.0',
+              permissions: ['log', 'proxy.decent_api'],
+            ),
+          ),
+        );
+
+        expect(loader.getPluginManifest(bundledId)!.version, '1.1.0');
+        expect(loaderPermissions(), {'log', 'proxy.decent_api'});
+        expect(diskPermissions(), {'log', 'proxy.decent_api'});
+        final source = service.sourceFor(bundledId)!;
+        expect(source.commit, 'second');
+        expect(source.pendingUpdate, isNull);
+      });
+
+      test(
+        'bundled branch equal permissions apply without pending approval',
+        () async {
+          await http.runWithClient(
+            () => service.installFromGitHubBranch('acme/settings'),
+            () => gitHubClient(
+              commit: 'first',
+              branchArchive: pluginArchive(
+                pluginId: bundledId,
+                permissions: ['log'],
+              ),
+            ),
+          );
+
+          await http.runWithClient(
+            () => service.updateAllPlugins(),
+            () => gitHubClient(
+              commit: 'second',
+              branchArchive: pluginArchive(
+                pluginId: bundledId,
+                version: '1.1.0',
+                permissions: ['log'],
+              ),
+            ),
+          );
+
+          expect(loader.getPluginManifest(bundledId)!.version, '1.1.0');
+          expect(loaderPermissions(), {'log'});
+          expect(diskPermissions(), {'log'});
+          final source = service.sourceFor(bundledId)!;
+          expect(source.commit, 'second');
+          expect(source.pendingUpdate, isNull);
+        },
+      );
+
+      test(
+        'bundled branch reduced permissions apply without pending approval',
+        () async {
+          await http.runWithClient(
+            () => service.installFromGitHubBranch('acme/settings'),
+            () => gitHubClient(
+              commit: 'first',
+              branchArchive: pluginArchive(
+                pluginId: bundledId,
+                permissions: ['log', 'proxy.decent_api'],
+              ),
+            ),
+          );
+
+          await http.runWithClient(
+            () => service.updateAllPlugins(),
+            () => gitHubClient(
+              commit: 'second',
+              branchArchive: pluginArchive(
+                pluginId: bundledId,
+                version: '1.1.0',
+                permissions: ['log'],
+              ),
+            ),
+          );
+
+          expect(loader.getPluginManifest(bundledId)!.version, '1.1.0');
+          expect(loaderPermissions(), {'log'});
+          expect(diskPermissions(), {'log'});
+          final source = service.sourceFor(bundledId)!;
+          expect(source.commit, 'second');
+          expect(source.pendingUpdate, isNull);
+        },
+      );
     });
 
     test('a failed install leaves the previous version running', () async {
