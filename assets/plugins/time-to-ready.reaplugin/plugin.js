@@ -18,6 +18,11 @@ function createPlugin(host) {
   const RATE_SPAN_STEP_SECONDS = 6;
   const MIN_INTERVAL_RISE_CELSIUS = 0.1;
   const CONFIDENT_SPAN_RISE_CELSIUS = 3;
+  const MACHINE_INFO_URL = "http://127.0.0.1:8080/api/v1/machine/info";
+  const MACHINE_INFO_RETRY_MS = 30000;
+  const MACHINE_INFO_ATTEMPTS = 5;
+  const DECELERATION_TRIGGER = 0.8;
+  const MAX_DECELERATION_FACTOR = 1.4;
 
   function createState() {
     return {
@@ -26,6 +31,7 @@ function createPlugin(host) {
       heatStartTime: null,
       heatStartTemp: null,
       maximumRemainingTimeSeconds: null,
+      peakRate: null,
       lastEstimation: null,
       lastMachineState: null,
       lastTargetTemp: null,
@@ -34,6 +40,43 @@ function createPlugin(host) {
   }
 
   let state = createState();
+  let machineModel = null;
+  let machineInfoAttempts = 0;
+
+  function detectMachineModel() {
+    machineInfoAttempts++;
+    const done = (model) => {
+      machineModel = typeof model === "string" ? model : null;
+      if (machineModel) log(`Machine model: ${machineModel}`);
+    };
+    if (typeof fetch !== "function") {
+      log("fetch unavailable; estimating without a machine model");
+      return;
+    }
+    try {
+      Promise.resolve(fetch(MACHINE_INFO_URL))
+        .then((response) => (response && response.json ? response.json() : null))
+        .then((info) => done(info && info.model))
+        .catch((error) => {
+          log(`Machine info fetch failed: ${error}`);
+          retryMachineModel();
+        });
+    } catch (error) {
+      log(`Machine info fetch threw: ${error}`);
+      retryMachineModel();
+    }
+  }
+
+  function retryMachineModel() {
+    if (machineInfoAttempts >= MACHINE_INFO_ATTEMPTS) return;
+    const schedule = typeof setTimeout === "function" ? setTimeout : null;
+    if (schedule) schedule(detectMachineModel, MACHINE_INFO_RETRY_MS);
+  }
+
+  function deceleratingMachine() {
+    if (machineModel == null) return false;
+    return !/bengle/i.test(machineModel);
+  }
 
   function log(msg) {
     host.log(`[time-to-ready] ${msg}`);
@@ -43,6 +86,7 @@ function createPlugin(host) {
     state.heatStartTime = null;
     state.heatStartTemp = null;
     state.maximumRemainingTimeSeconds = null;
+    state.peakRate = null;
     state.temperatureSamples = [];
   }
 
@@ -50,6 +94,7 @@ function createPlugin(host) {
     state.heatStartTime = now;
     state.heatStartTemp = temperature;
     state.maximumRemainingTimeSeconds = null;
+    state.peakRate = null;
     state.temperatureSamples = [];
   }
 
@@ -156,11 +201,27 @@ function createPlugin(host) {
       };
     }
 
+    state.peakRate = state.peakRate === null
+      ? heatingRate
+      : Math.max(state.peakRate, heatingRate);
+
     const remaining = Math.max(targetTemp - currentTemp, 0);
-    const rawSeconds = remaining / heatingRate;
+    let effectiveRate = heatingRate;
+    let decelerating = false;
+    if (deceleratingMachine() && state.peakRate > 0 &&
+      heatingRate < state.peakRate * DECELERATION_TRIGGER) {
+      const factor = clamp(
+        state.peakRate / heatingRate,
+        1,
+        MAX_DECELERATION_FACTOR,
+      );
+      effectiveRate = heatingRate / factor;
+      decelerating = factor > 1;
+    }
+    const rawSeconds = remaining / effectiveRate;
     const estimatedSeconds = clamp(roundToTens(rawSeconds), 5, 300);
 
-    if (state.maximumRemainingTimeSeconds === null) {
+    if (state.maximumRemainingTimeSeconds === null || decelerating) {
       state.maximumRemainingTimeSeconds = estimatedSeconds;
     } else {
       state.maximumRemainingTimeSeconds = Math.min(
@@ -249,6 +310,7 @@ function createPlugin(host) {
 
     onLoad(settings) {
       state.loadedAt = Date.now();
+      detectMachineModel();
 
       log(`Loaded with settings: ${JSON.stringify(settings)}`);
 

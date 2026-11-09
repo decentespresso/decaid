@@ -14,7 +14,7 @@ const edgeCasesFixture = JSON.parse(fs.readFileSync(
   'utf8',
 ));
 
-function loadPlugin(now, emitted) {
+function loadPlugin(now, emitted, options = {}) {
   const source = fs.readFileSync(
     path.join(__dirname, '../../assets/plugins/time-to-ready.reaplugin/plugin.js'),
     'utf8',
@@ -23,6 +23,12 @@ function loadPlugin(now, emitted) {
     Date: { now: () => now.value },
     console,
     createPlugin: undefined,
+    setTimeout: () => 0,
+    fetch: options.fetchAvailable === false
+      ? undefined
+      : () => Promise.resolve({
+        json: () => Promise.resolve({ model: options.model ?? null }),
+      }),
   };
   vm.createContext(context);
   vm.runInContext(source, context);
@@ -336,10 +342,16 @@ const recordedFixtures = ['bengle_cold_start.json', 'de1_cold_start.json', 'de1_
     data: JSON.parse(fs.readFileSync(path.join(recordedDirectory, name), 'utf8')),
   }));
 
-function replayRecorded(series) {
+async function replayRecorded(series, options = {}) {
   const now = { value: series.series[0].t * 1000 };
   const emitted = [];
-  const plugin = loadPlugin(now, emitted);
+  const plugin = loadPlugin(now, emitted, {
+    model: options.model,
+    fetchAvailable: options.fetchAvailable ?? true,
+  });
+  plugin.onLoad({});
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   for (const sample of series.series) {
     now.value = sample.t * 1000;
     plugin.onEvent({
@@ -368,10 +380,10 @@ function replayRecorded(series) {
   };
 }
 
-test('recorded device ramps replay without an upward countdown', () => {
+test('recorded device ramps replay without an upward countdown', async () => {
   for (const fixture of recordedFixtures) {
     assert.equal(fixture.data.recorded, true, fixture.name + ' is not marked as recorded');
-    const { values } = replayRecorded(fixture.data);
+    const { values } = await replayRecorded(fixture.data);
     const heating = values.filter((value) => value.status === 'heating');
     assert.ok(heating.length > 0, fixture.name + ' published no countdown');
     assertNonIncreasing(heating, fixture.name);
@@ -379,9 +391,9 @@ test('recorded device ramps replay without an upward countdown', () => {
   }
 });
 
-test('a recorded Bengle ramp tracks the real remaining time', () => {
+test('a recorded Bengle ramp tracks the real remaining time', async () => {
   const fixture = recordedFixtures.find((entry) => entry.name === 'bengle_cold_start.json');
-  const { values, endTime } = replayRecorded(fixture.data);
+  const { values, endTime } = await replayRecorded(fixture.data, { model: 'Bengle' });
   const heating = values.filter((value) => value.status === 'heating');
 
   const first = heating[0];
@@ -416,37 +428,52 @@ test('a recorded Bengle ramp tracks the real remaining time', () => {
   );
 });
 
-test('a recorded slow DE1 cold start stays optimistic and is documented as such', () => {
+test('a recorded DE1 ramp uses the deceleration allowance', async () => {
   const fixture = recordedFixtures.find((entry) => entry.name === 'de1_cold_start.json');
-  const { values, endTime } = replayRecorded(fixture.data);
+  const series = fixture.data.series;
+  const target = fixture.data.target;
+  const reached = series.find((sample) => sample.temp >= target - 0.5);
+  const reachedAt = (reached ? reached.t : series.at(-1).t) * 1000;
+
+  const { values } = await replayRecorded(fixture.data, { model: 'DE1Pro' });
+  const heating = values.filter(
+    (value) => value.status === 'heating' && value.timestamp <= reachedAt,
+  );
+  assert.ok(heating.length > 0, 'the DE1 recording published no countdown');
+
+  for (const fraction of [0.25, 0.5, 0.75]) {
+    const estimate = heating[Math.floor((heating.length - 1) * fraction)];
+    const trueRemaining = Math.max(0, (reachedAt - estimate.timestamp) / 1000);
+    const error = estimate.remainingTimeMs / 1000 - trueRemaining;
+    assert.ok(
+      Math.abs(error) <= 20,
+      'DE1 estimate at ' + fraction * 100 + '% was ' + error.toFixed(0) + ' s off',
+    );
+  }
+
+  const rises = heating.filter(
+    (value, index) => index > 0 &&
+      value.remainingTimeMs > heating[index - 1].remainingTimeMs,
+  );
+  assert.ok(
+    rises.length < heating.length * 0.05,
+    'the deceleration allowance raised the countdown too often: ' + rises.length,
+  );
+});
+
+test('a Bengle never receives the deceleration allowance', async () => {
+  const fixture = recordedFixtures.find((entry) => entry.name === 'bengle_cold_start.json');
+  const { values } = await replayRecorded(fixture.data, { model: 'Bengle' });
   const heating = values.filter((value) => value.status === 'heating');
+  assertNonIncreasing(heating, 'Bengle received an upward correction');
+});
 
-  const first = heating[0];
-  const trueFirst = (endTime - first.timestamp) / 1000;
-  assert.ok(
-    first.remainingTimeMs <= trueFirst * 1000,
-    'the slow ramp should not over-report its remaining time',
-  );
-
-  const nearEnd = heating[heating.length - 5];
-  assert.ok(
-    nearEnd.remainingTimeMs <= 20000,
-    'the last estimates should close on the target',
-  );
-
-  const tailUnderReport = heating.filter((value) => {
-    const trueRemaining = (endTime - value.timestamp) / 1000;
-    return trueRemaining > 30 && value.remainingTimeMs <= 10000;
-  });
-  console.log(
-    'de1_cold_start.json: heating=' + heating.length +
-      ' first=' + first.remainingTimeMs / 1000 + 's of ' + trueFirst.toFixed(0) + 's true' +
-      ' frames under 10s with more than 30s left=' + tailUnderReport.length,
-  );
-  assert.ok(
-    tailUnderReport.length < heating.length,
-    'the slow ramp never published a usable estimate',
-  );
+test('without machine info the estimator stays on the conservative path', async () => {
+  const fixture = recordedFixtures.find((entry) => entry.name === 'de1_cold_start.json');
+  const { values } = await replayRecorded(fixture.data, { fetchAvailable: false });
+  const heating = values.filter((value) => value.status === 'heating');
+  assert.ok(heating.length > 0, 'no estimate without machine info');
+  assertNonIncreasing(heating, 'unknown model received an upward correction');
 });
 
 test('reached state publishes zero remaining time', () => {
