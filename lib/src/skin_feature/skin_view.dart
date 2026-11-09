@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
@@ -64,6 +65,26 @@ SkinNavDecision classifySkinNavigation(Uri? url, {int skinPort = 3000}) {
 }
 
 bool shouldShowSkinLoadError(bool? isForMainFrame) => isForMainFrame != false;
+
+/// Trust for the switch hook. The nonce is injected into the main frame only
+/// (`buildSkinUserScripts`), so a cross-origin subframe that navigates the top
+/// frame to the switch URL cannot supply it, and a retired generation's URL
+/// carries the wrong one.
+bool isTrustedSkinSwitchRequest({
+  required Uri? target,
+  required bool isForMainFrame,
+  required Uri? topLevelUri,
+  required int skinPort,
+  required String expectedNonce,
+}) {
+  return expectedNonce.isNotEmpty &&
+      (target?.queryParameters['nonce'] ?? '') == expectedNonce &&
+      isTrustedSkinPageRequest(
+        isForMainFrame: isForMainFrame,
+        topLevelUri: topLevelUri,
+        skinPort: skinPort,
+      );
+}
 
 bool isTrustedSkinPageRequest({
   required bool isForMainFrame,
@@ -163,6 +184,11 @@ class SkinExitCoordinator {
   }
 }
 
+String _generateSwitchNonce() {
+  final random = Random.secure();
+  return base64Url.encode(List<int>.generate(24, (_) => random.nextInt(256)));
+}
+
 class SkinView extends StatefulWidget {
   const SkinView({
     super.key,
@@ -226,6 +252,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
 
   InAppWebViewController? _webViewController;
   Object _webViewAttempt = Object();
+  final String _switchNonce = _generateSwitchNonce();
   final _skinExitCoordinator = SkinExitCoordinator();
   Uri? _mainFrameUri;
   late final _camera = SkinCameraWebViewAccess(
@@ -704,6 +731,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
         simulatedDevice,
         enableSimulatedWebViews:
             widget.settingsController.enableSimulatedWebViews,
+        switchNonce: _switchNonce,
       ),
       onPermissionRequest: supportsSkinCamera
           ? _camera.onPermissionRequest
@@ -769,6 +797,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
         _log.warning('HTTP error - Status: ${errorResponse.statusCode}');
       },
       shouldOverrideUrlLoading: (controller, navigationAction) async {
+        if (!isCurrentView()) return NavigationActionPolicy.CANCEL;
         final uri = navigationAction.request.url;
         switch (classifySkinNavigation(uri, skinPort: widget.port)) {
           case SkinNavDecision.exitDashboard:
@@ -785,10 +814,12 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
             }
             return NavigationActionPolicy.CANCEL;
           case SkinNavDecision.switchSkin:
-            if (isTrustedSkinPageRequest(
+            if (isTrustedSkinSwitchRequest(
+              target: uri,
               isForMainFrame: navigationAction.isForMainFrame,
               topLevelUri: _mainFrameUri,
               skinPort: widget.port,
+              expectedNonce: _switchNonce,
             )) {
               unawaited(_requestSkinSwitch(uri!.queryParameters['id'] ?? ''));
             } else {

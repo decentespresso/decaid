@@ -5,18 +5,20 @@ import 'dart:io';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/skin_feature/simulated_webview_device.dart';
+import 'package:reaprime/src/webui_support/webui_service.dart';
 
 UnmodifiableListView<UserScript> buildSkinUserScripts(
   SimulatedWebViewDevice? simulatedDevice, {
   required bool enableSimulatedWebViews,
+  String switchNonce = '',
 }) {
   return UnmodifiableListView<UserScript>([
-    _hostIdentityScript(),
+    _hostIdentityScript(switchNonce),
     ...?_simulatedDeviceScripts(simulatedDevice, enableSimulatedWebViews),
   ]);
 }
 
-UserScript _hostIdentityScript() {
+UserScript _hostIdentityScript(String switchNonce) {
   final payload = jsonEncode({
     'app': 'decent.app',
     'platform': Platform.operatingSystem,
@@ -35,10 +37,17 @@ try {
     writable: false,
     enumerable: false
   });
+  Object.defineProperty(window, '$skinSwitchNonceGlobal', {
+    value: ${jsonEncode(switchNonce)},
+    configurable: false,
+    writable: false,
+    enumerable: false
+  });
 } catch (_) {}
 })();
 ''',
     injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+    forMainFrameOnly: true,
     contentWorld: ContentWorld.PAGE,
   );
 }

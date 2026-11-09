@@ -54,6 +54,8 @@ void main() {
     expect(script, contains('http://localhost:24801$skinSwitchPath'));
     expect(script, contains('__DECENT_HOST__'));
     expect(script, contains('encodeURIComponent'));
+    expect(script, contains('window.$skinSwitchNonceGlobal'));
+    expect(script, contains('"&nonce="'));
   });
 
   test('serveGeneration advances once per successful serve', () async {

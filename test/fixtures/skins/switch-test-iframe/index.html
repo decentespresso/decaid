@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Switch test iframe</title>
+<style>
+  body { font: 16px/1.4 system-ui, sans-serif; margin: 0; padding: 16px;
+         background: #cfe8ff; color: #111; }
+  h1 { font-size: 8vw; margin: 0 0 8px; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; }
+  dt { font-weight: 600; }
+  button { font-size: 18px; padding: 12px 16px; margin: 4px 4px 0 0; }
+  iframe { width: 100%; height: 240px; border: 2px solid #c00; margin-top: 12px; }
+  #log { white-space: pre-wrap; font-family: ui-monospace, monospace;
+         background: #fff; border: 1px solid #0003; padding: 8px;
+         margin-top: 12px; max-height: 30vh; overflow: auto; }
+</style>
+</head>
+<body>
+<h1>SKIN IFRAME</h1>
+<dl>
+  <dt>skin id</dt><dd>switch-test-iframe</dd>
+  <dt>origin</dt><dd id="origin"></dd>
+  <dt>switchSkin</dt><dd id="hook"></dd>
+  <dt>attacker origin</dt><dd id="attacker"></dd>
+</dl>
+<div>
+  <button id="control">Control: switch to B from the main frame</button>
+</div>
+<iframe id="frame" title="cross-origin subframe"></iframe>
+<div id="log"></div>
+<script>
+  var attackerPort = 8765;
+  var log = document.getElementById('log');
+  function say(line) {
+    log.textContent += new Date().toISOString().slice(11, 23) + '  ' + line + '\n';
+    log.scrollTop = log.scrollHeight;
+  }
+  document.getElementById('origin').textContent = location.origin;
+  var api = window.decentApp || {};
+  document.getElementById('hook').textContent =
+    (typeof api.switchSkin === 'function' ? 'present' : 'missing') +
+    ', host flag ' + (window.__DECENT_HOST__ ? 'set (embedded)' : 'absent (external browser)');
+  var attackerOrigin = 'http://' + location.hostname + ':' + attackerPort;
+  document.getElementById('attacker').textContent = attackerOrigin;
+  document.getElementById('frame').src =
+    attackerOrigin + '/attack.html?skinPort=' + location.port;
+  say('nonce visible to this frame: ' +
+    (typeof window.__DECENT_SWITCH_NONCE__ === 'string' ? 'yes' : 'no'));
+  document.getElementById('control').onclick = function () {
+    if (typeof api.switchSkin !== 'function') {
+      say('switchSkin is not available on this page');
+      return;
+    }
+    say('switchSkin("switch-test-b") returned ' + api.switchSkin('switch-test-b'));
+  };
+</script>
+</body>
+</html>
