@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'dart:ui' show AppExitResponse, AppExitType;
 
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
@@ -34,7 +35,14 @@ import 'package:url_launcher/url_launcher.dart';
 
 export 'package:reaprime/src/skin_feature/skin_exit_instructions.dart';
 
-enum SkinNavDecision { exitDashboard, switchSkin, allow, openExternal, block }
+enum SkinNavDecision {
+  exitDashboard,
+  exitApp,
+  switchSkin,
+  allow,
+  openExternal,
+  block,
+}
 
 SkinNavDecision classifySkinNavigation(Uri? url, {int skinPort = 3000}) {
   if (url == null) return SkinNavDecision.block;
@@ -47,9 +55,14 @@ SkinNavDecision classifySkinNavigation(Uri? url, {int skinPort = 3000}) {
         (url.queryParameters['id'] ?? '').isNotEmpty) {
       return SkinNavDecision.switchSkin;
     }
-    return url.toString() == skinExitDashboardUrlForPort(skinPort)
-        ? SkinNavDecision.exitDashboard
-        : SkinNavDecision.block;
+    final target = url.toString();
+    if (target == skinExitDashboardUrlForPort(skinPort)) {
+      return SkinNavDecision.exitDashboard;
+    }
+    if (target == skinExitAppUrlForPort(skinPort)) {
+      return SkinNavDecision.exitApp;
+    }
+    return SkinNavDecision.block;
   }
   if (url.scheme == 'http' &&
       url.host == 'localhost' &&
@@ -160,6 +173,10 @@ class _SkinViewHostState extends State<SkinViewHost> {
 }
 
 class SkinExitCoordinator {
+  SkinExitCoordinator({this.exitUrlForPort = skinExitDashboardUrlForPort});
+
+  final String Function(int port) exitUrlForPort;
+
   bool _inProgress = false;
 
   bool get inProgress => _inProgress;
@@ -171,7 +188,7 @@ class SkinExitCoordinator {
     int skinPort = 3000,
   }) {
     if (_inProgress ||
-        target?.toString() != skinExitDashboardUrlForPort(skinPort) ||
+        target?.toString() != exitUrlForPort(skinPort) ||
         !isTrustedSkinPageRequest(
           isForMainFrame: isForMainFrame,
           topLevelUri: topLevelUri,
@@ -182,6 +199,30 @@ class SkinExitCoordinator {
     _inProgress = true;
     return true;
   }
+
+  /// Allows another request after an exit that leaves the skin mounted, such
+  /// as sending the app to the background.
+  void finish() => _inProgress = false;
+}
+
+const _appLifecycleChannel = MethodChannel('app/lifecycle');
+
+/// Leaves the app without stopping it where the platform allows: Android
+/// moves the task to the background, so machine connections and wake
+/// schedules keep running. Desktop platforms quit. iOS does not permit apps
+/// to close themselves, so it returns false.
+Future<bool> exitAppFromSkin() async {
+  if (Platform.isAndroid) {
+    return await _appLifecycleChannel.invokeMethod<bool>('moveTaskToBack') ??
+        false;
+  }
+  if (Platform.isMacOS || Platform.isWindows || Platform.isLinux) {
+    final response = await ServicesBinding.instance.exitApplication(
+      AppExitType.cancelable,
+    );
+    return response == AppExitResponse.exit;
+  }
+  return false;
 }
 
 String _generateSwitchNonce() {
@@ -254,6 +295,9 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   Object _webViewAttempt = Object();
   final String _switchNonce = _generateSwitchNonce();
   final _skinExitCoordinator = SkinExitCoordinator();
+  final _skinAppExitCoordinator = SkinExitCoordinator(
+    exitUrlForPort: skinExitAppUrlForPort,
+  );
   Uri? _mainFrameUri;
   late final _camera = SkinCameraWebViewAccess(
     context: () => mounted ? context : null,
@@ -404,6 +448,18 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
     _log.info('Skin requested switch to $skinId');
     final outcome = await handler(skinId);
     _log.info('Skin switch to $skinId: ${outcome.name}');
+  }
+
+  Future<void> _exitApp() async {
+    try {
+      if (!await exitAppFromSkin()) {
+        _log.info('Platform did not leave the app for skin exit request');
+      }
+    } catch (e, st) {
+      _log.warning('Skin app exit failed', e, st);
+    } finally {
+      _skinAppExitCoordinator.finish();
+    }
   }
 
   void _exitToDashboard() {
@@ -791,6 +847,9 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
         }
       },
       onReceivedError: (controller, request, error) {
+        if (request.url.toString() == skinExitAppUrlForPort(widget.port)) {
+          return;
+        }
         if (_skinExitCoordinator.inProgress &&
             request.url.toString() ==
                 skinExitDashboardUrlForPort(widget.port)) {
@@ -824,6 +883,19 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
               if (mounted) _exitToDashboard();
             } else {
               _log.warning('Rejected skin dashboard request');
+            }
+            return NavigationActionPolicy.CANCEL;
+          case SkinNavDecision.exitApp:
+            if (_skinAppExitCoordinator.tryStart(
+              target: uri,
+              isForMainFrame: navigationAction.isForMainFrame,
+              topLevelUri: _mainFrameUri,
+              skinPort: widget.port,
+            )) {
+              _log.info('Skin requested app exit');
+              unawaited(_exitApp());
+            } else {
+              _log.warning('Rejected skin app exit request');
             }
             return NavigationActionPolicy.CANCEL;
           case SkinNavDecision.switchSkin:

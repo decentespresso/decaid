@@ -134,6 +134,9 @@ class MainActivity: FlutterFragmentActivity() {
                             recreateSafely()
                             result.success(null)
                         }
+                        "moveTaskToBack" -> {
+                            result.success(moveTaskToBack(true))
+                        }
                         else -> result.notImplemented()
                     }
                 }
