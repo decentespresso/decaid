@@ -1,0 +1,48 @@
+{
+  "header": "assumption: synthetic stress profile, not recorded data; grounded only in the issue's faster-ramp/denser-cadence Bengle premise",
+  "assumed_ranges": {
+    "ramp_celsius_per_second": [0.1, 0.3, 0.8],
+    "cadence_seconds": [0.5, 1, 2],
+    "minimum_samples": 8,
+    "minimum_window_seconds": 5,
+    "maximum_upward_correction_ms": 3000
+  },
+  "profiles": [
+    {
+      "name": "DE1-like slow ramp at 2s cadence with noisy cold start",
+      "initial": 25,
+      "target": 70,
+      "ramp": 0.1,
+      "cadenceSeconds": 2,
+      "startupJitter": [0.8, -0.7, 0.5, -0.4, 0.3, -0.2, 0.15, -0.1, 0.1, -0.08, 0.05, -0.04],
+      "ongoingJitter": [0.02, -0.015, 0.01, -0.008, 0.006, -0.004, 0.003, -0.002]
+    },
+    {
+      "name": "DE1-like fast ramp at 0.5s cadence with sensor jitter",
+      "initial": 30,
+      "target": 74,
+      "ramp": 0.3,
+      "cadenceSeconds": 0.5,
+      "startupJitter": [0.25, -0.2, 0.18, -0.16, 0.12, -0.1, 0.08, -0.06, 0.05, -0.04, 0.03, -0.02],
+      "ongoingJitter": [0.025, -0.02, 0.018, -0.016, 0.014, -0.012, 0.01, -0.008]
+    },
+    {
+      "name": "Bengle-like ramp at 1s cadence with cold-start noise",
+      "initial": 20,
+      "target": 72,
+      "ramp": 0.3,
+      "cadenceSeconds": 1,
+      "startupJitter": [1.2, -1, 0.7, -0.6, 0.4, -0.3, 0.2, -0.15, 0.1, -0.08, 0.06, -0.04],
+      "ongoingJitter": [0.02, -0.015, 0.01, -0.008, 0.006, -0.004, 0.003, -0.002]
+    },
+    {
+      "name": "Bengle-like fast ramp at 0.5s cadence with sensor jitter",
+      "initial": 28,
+      "target": 76,
+      "ramp": 0.8,
+      "cadenceSeconds": 0.5,
+      "startupJitter": [0.3, -0.25, 0.2, -0.18, 0.14, -0.1, 0.08, -0.06, 0.04, -0.03, 0.02, -0.01],
+      "ongoingJitter": [0.025, -0.02, 0.018, -0.016, 0.014, -0.012, 0.01, -0.008]
+    }
+  ]
+}

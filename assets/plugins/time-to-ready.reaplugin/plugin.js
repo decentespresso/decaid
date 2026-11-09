@@ -10,73 +10,98 @@
 function createPlugin(host) {
   "use strict";
 
-  // Internal state (private to this plugin instance)
-  let state = {
-    ticksSeen: 0,
-    loadedAt: null,
-    tempHistory: [], // Array of {timestamp, temperature}
-    maxHistorySize: 20, // Keep last 20 readings for rate calculation
-    lastEstimation: null,
-  };
+  const MIN_SAMPLE_COUNT = 8;
+  const MIN_WINDOW_MS = 5000;
+  const HISTORY_WINDOW_MS = 30000;
+  const MAX_OBSERVATION_GAP_MS = 10000;
+  const MAX_ESTIMATE_UNCERTAINTY_MS = 3000;
+  const CONFIDENCE_MULTIPLIER = 2;
+
+  function createState() {
+    return {
+      ticksSeen: 0,
+      loadedAt: null,
+      tempHistory: [],
+      lastEstimation: null,
+      lastMachineState: null,
+      lastTargetTemp: null,
+    };
+  }
+
+  let state = createState();
 
   function log(msg) {
     host.log(`[time-to-ready] ${msg}`);
   }
 
+  function resetTrend() {
+    state.tempHistory = [];
+    state.lastEstimation = null;
+    state.lastTargetTemp = null;
+  }
+
   function handleStateUpdate(payload) {
     state.ticksSeen++;
 
-    if (payload['state']['state'] == 'sleeping') {
-      // machine is sleeping, exit early
-      try {
-        state.lastEstimation = null
-      } catch {
-
-      }
-      return
+    const machineState = payload && payload.state && payload.state.state;
+    if (machineState === 'sleeping') {
+      resetTrend();
+      state.lastMachineState = machineState;
+      return;
     }
 
     if (payload['groupTemperature'] == undefined || payload['targetGroupTemperature'] == undefined) {
-      log(`missing fields in ${JSON.stringify(payload)}`)
-      return
+      log(`missing fields in ${JSON.stringify(payload)}`);
+      return;
     }
 
     const currentTemp = payload['groupTemperature'];
     const targetTemp = payload['targetGroupTemperature'];
     const now = Date.now();
 
-    // Add current reading to history
-    state.tempHistory.push({
-      timestamp: now,
-      temperature: currentTemp
-    });
-
-    // Keep history size limited
-    if (state.tempHistory.length > state.maxHistorySize) {
-      state.tempHistory.shift(); // Remove oldest entry
+    if (state.lastMachineState !== null &&
+      machineState === 'heating' &&
+      state.lastMachineState !== 'heating') {
+      resetTrend();
+    }
+    if (state.lastTargetTemp !== null && state.lastTargetTemp !== targetTemp) {
+      resetTrend();
     }
 
-    // Calculate remaining time estimation
+    const lastReading = state.tempHistory[state.tempHistory.length - 1];
+    if (lastReading && (now < lastReading.timestamp ||
+      now - lastReading.timestamp > MAX_OBSERVATION_GAP_MS)) {
+      resetTrend();
+    }
+
+    if (lastReading && now === lastReading.timestamp) {
+      lastReading.temperature = currentTemp;
+    } else {
+      state.tempHistory.push({
+        timestamp: now,
+        temperature: currentTemp
+      });
+    }
+
+    while (state.tempHistory.length > 0 &&
+      now - state.tempHistory[0].timestamp > HISTORY_WINDOW_MS) {
+      state.tempHistory.shift();
+    }
+
     const estimation = estimateRemainingTime(
       currentTemp,
       targetTemp,
       state.tempHistory
     );
 
-    // Store last estimation for debugging/monitoring
-    if (state.lastEstimation != null &&
-      state.lastEstimation.remainingTimeMs != null &&
-      estimation.remainingTimeMs != null &&
-      state.lastEstimation.remainingTimeMs < estimation.remainingTimeMs) {
-      // keep previous estimation
-    } else {
-      state.lastEstimation = estimation;
-    }
-    // Emit the estimation along with other data
+    state.lastEstimation = estimation;
+    state.lastTargetTemp = targetTemp;
+    state.lastMachineState = machineState;
+
     host.emit(
       "timeToReady",
       {
-        ...state.lastEstimation,
+        ...estimation,
         currentTemp: currentTemp,
         targetTemp: targetTemp,
         timestamp: now
@@ -120,85 +145,86 @@ function createPlugin(host) {
       };
     }
 
-    // Need at least 2 data points to calculate rate
-    if (history.length < 2) {
+    const regression = calculateHeatingRate(history);
+    const tempDifference = targetTemp - currentTemp;
+    const estimateUncertaintyMs = regression === null
+      ? Infinity
+      : calculateEstimateUncertaintyMs(tempDifference, regression);
+    if (regression === null ||
+      history.length < MIN_SAMPLE_COUNT ||
+      history[history.length - 1].timestamp - history[0].timestamp < MIN_WINDOW_MS ||
+      regression.rate <= 0 ||
+      regression.rate - (CONFIDENCE_MULTIPLIER * regression.standardError) <= 0 ||
+      !Number.isFinite(estimateUncertaintyMs) ||
+      estimateUncertaintyMs > MAX_ESTIMATE_UNCERTAINTY_MS) {
       return {
         remainingTimeMs: null,
-        heatingRate: null,
+        heatingRate: regression ? regression.rate : null,
         status: 'insufficient_data',
         message: 'Collecting temperature data...'
       };
     }
 
-    // Calculate heating rate using linear regression on recent data
-    const heatingRate = calculateHeatingRate(history);
-
-    if (heatingRate <= 0) {
-      return {
-        remainingTimeMs: null,
-        heatingRate: heatingRate,
-        status: 'not_heating',
-        message: 'Temperature is stable or decreasing'
-      };
-    }
-
-    // Calculate remaining time in milliseconds
-    const tempDifference = targetTemp - currentTemp;
-    const remainingTimeMs = (tempDifference / heatingRate) * 1000; // Convert to ms
-    const adjustedRemainingTimeMs = Math.min(remainingTimeMs, 300000); // Clamp to 5 minutes
+    const remainingTimeMs = (tempDifference / regression.rate) * 1000;
+    const displayedRemainingTimeMs = Math.min(remainingTimeMs, 300000);
 
     return {
-      remainingTimeMs: Math.round(adjustedRemainingTimeMs),
-      heatingRate: heatingRate,
+      remainingTimeMs: Math.round(displayedRemainingTimeMs),
+      heatingRate: regression.rate,
       status: 'heating',
-      message: `Estimated ${formatTime(adjustedRemainingTimeMs)} remaining`,
-      formattedTime: formatTime(adjustedRemainingTimeMs)
+      message: `Estimated ${formatTime(displayedRemainingTimeMs)} remaining`,
+      formattedTime: formatTime(displayedRemainingTimeMs)
     };
   }
 
   /**
    * Calculate current heating rate (temperature change per second)
-   * Uses difference between current and recent past temperature over a fixed time window
+   * Fits a least-squares slope over the retained history
    * @param {Array} history - Array of {timestamp, temperature} objects
-   * @returns {number} Heating rate in °C per second
+   * @returns {{rate: number, standardError: number, residualStandardDeviation: number}|null} Regression details
    */
   function calculateHeatingRate(history) {
-    if (history.length < 2) return 0;
+    if (history.length < 2) return null;
 
-    // Look back 2-3 seconds worth of data
-    const currentTime = history[history.length - 1].timestamp;
-    const lookbackTime = 2000; // 2 seconds in milliseconds
+    const origin = history[0].timestamp;
+    const points = history.map((point) => ({
+      time: (point.timestamp - origin) / 1000,
+      temperature: point.temperature
+    }));
+    const meanTime = points.reduce((sum, point) => sum + point.time, 0) / points.length;
+    const meanTemperature = points.reduce((sum, point) => sum + point.temperature, 0) / points.length;
+    let covariance = 0;
+    let variance = 0;
 
-    // Find a point approximately 2 seconds ago
-    let pastIndex = history.length - 2;
-    while (pastIndex >= 0 &&
-      currentTime - history[pastIndex].timestamp < lookbackTime) {
-      pastIndex--;
+    for (const point of points) {
+      covariance += (point.time - meanTime) * (point.temperature - meanTemperature);
+      variance += (point.time - meanTime) ** 2;
+    }
+    if (variance === 0) return null;
+
+    const rate = covariance / variance;
+    let residualSum = 0;
+    for (const point of points) {
+      const predicted = meanTemperature + rate * (point.time - meanTime);
+      residualSum += (point.temperature - predicted) ** 2;
     }
 
-    // If we found a suitable past point
-    if (pastIndex >= 0) {
-      const pastPoint = history[pastIndex];
-      const currentPoint = history[history.length - 1];
+    const residualStandardDeviation = points.length > 2
+      ? Math.sqrt(residualSum / (points.length - 2))
+      : Infinity;
+    const standardError = points.length > 2
+      ? residualStandardDeviation / Math.sqrt(variance)
+      : Infinity;
+    return { rate, standardError, residualStandardDeviation };
+  }
 
-      const timeDiffSec = (currentPoint.timestamp - pastPoint.timestamp) / 1000;
-
-      // Ensure reasonable time difference (at least 0.5 seconds)
-      if (timeDiffSec >= 0.5) {
-        return (currentPoint.temperature - pastPoint.temperature) / timeDiffSec;
-      }
-    }
-
-    // Fallback: use last two points
-    const lastTwo = history.slice(-2);
-    if (lastTwo.length === 2) {
-      const timeDiffSec = (lastTwo[1].timestamp - lastTwo[0].timestamp) / 1000;
-      if (timeDiffSec > 0) {
-        return (lastTwo[1].temperature - lastTwo[0].temperature) / timeDiffSec;
-      }
-    }
-
-    return 0;
+  function calculateEstimateUncertaintyMs(tempDifference, regression) {
+    const slopeUncertainty = tempDifference *
+      (CONFIDENCE_MULTIPLIER * regression.standardError) /
+      (regression.rate ** 2);
+    const temperatureUncertainty = CONFIDENCE_MULTIPLIER *
+      regression.residualStandardDeviation / regression.rate;
+    return (slopeUncertainty + temperatureUncertainty) * 1000;
   }
 
   /**
@@ -253,10 +279,7 @@ function createPlugin(host) {
         });
       }
 
-      state = {
-        ticksSeen: 0,
-        loadedAt: null,
-      };
+      state = createState();
     },
 
     onEvent(event) {

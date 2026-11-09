@@ -463,6 +463,15 @@ When Decaid matches an external request to an endpoint that is defined in the
 plugins manifest,
 it will send over events emitted by the plugin.
 
+The bundled `time-to-ready.reaplugin` emits `status: "insufficient_data"` with
+`remainingTimeMs: null` until a positive, sufficiently confident temperature
+trend has at least eight samples spanning five seconds, with a countdown
+uncertainty of at most three seconds. The heating skin renders this state as
+"Heating" without a countdown. Flat, cooling, stale, or reset
+histories return to this indeterminate state rather than publishing a stale
+number. Published countdowns retain the existing five-minute display cap and
+become accurate below that cap.
+
 Example:
 
 ```bash
