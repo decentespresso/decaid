@@ -1596,6 +1596,15 @@ A genuinely newer pending update is kept.
 Trusting a repository is not the same as trusting a new permission, so this
 holds regardless of where the plugin came from.
 
+One exception applies, and it is narrow. A bundled plugin updating from its
+canonical app-owned repository may install an added permission without approval
+when that permission is already declared by the copy the app ships. Both halves
+are required: the update source must match the entry in `bundledPluginRepos`,
+and every added permission must already be in the bundled manifest. A fork that
+reuses a bundled plugin id is an ordinary third-party source, a branch source
+never qualifies, and a permission the bundle does not declare always waits for
+approval. If the bundled manifest cannot be read, the gate applies as usual.
+
 ## Plugin Lifecycle Management (REST API)
 
 Plugins can be managed via REST API:

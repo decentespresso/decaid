@@ -39,6 +39,8 @@ class PluginSourceService {
   static const metadataFileName = '.rea_source.json';
 
   final PluginLoaderService _loader;
+  final Map<String, String> _canonicalBundledRepos;
+
   final GithubRateLimit _rateLimit;
   final GitHubReleaseCache _releaseCache;
   final _log = Logger('PluginSourceService');
@@ -48,8 +50,10 @@ class PluginSourceService {
     this._loader, {
     GithubRateLimit? rateLimit,
     GitHubReleaseCache? releaseCache,
+    Map<String, String>? canonicalBundledRepos,
   }) : _rateLimit = rateLimit ?? GithubRateLimit(),
-       _releaseCache = releaseCache ?? GitHubReleaseCache();
+       _releaseCache = releaseCache ?? GitHubReleaseCache(),
+       _canonicalBundledRepos = canonicalBundledRepos ?? bundledPluginRepos;
 
   ValueListenable<Future<void>?> get updateCheck => _updateCheck;
 
@@ -305,7 +309,11 @@ class PluginSourceService {
         _requireTagMatchesManifest(release.tag, package.manifest.version);
 
         final added = _addedPermissions(installed, package.manifest);
-        if (added.isNotEmpty && !await _isBundledPlugin(installed.id)) {
+        if (!await _mayAutoApproveAddedPermissions(
+          installed.id,
+          source,
+          added,
+        )) {
           _log.info(
             'Update of ${installed.id} to ${release.tag} needs approval for: '
             '${added.join(', ')}',
@@ -365,7 +373,7 @@ class PluginSourceService {
       _requireSamePlugin(installed, package);
 
       final added = _addedPermissions(installed, package.manifest);
-      if (added.isNotEmpty && !await _isBundledPlugin(installed.id)) {
+      if (!await _mayAutoApproveAddedPermissions(installed.id, source, added)) {
         _log.info(
           'Update of ${installed.id} to $commit needs approval for: '
           '${added.join(', ')}',
@@ -546,13 +554,37 @@ class PluginSourceService {
     return added.map((p) => p.wireName).toList()..sort();
   }
 
-  Future<bool> _isBundledPlugin(String pluginId) async {
+  Future<bool> _mayAutoApproveAddedPermissions(
+    String pluginId,
+    PluginSource source,
+    List<String> added,
+  ) async {
+    if (added.isEmpty) return true;
+    if (!_comesFromCanonicalBundledRepository(pluginId, source)) return false;
+    final bundledPermissions = await _bundledPermissions(pluginId);
+    if (bundledPermissions == null) return false;
+    return added.every(bundledPermissions.contains);
+  }
+
+  bool _comesFromCanonicalBundledRepository(
+    String pluginId,
+    PluginSource source,
+  ) {
+    final canonical = _canonicalBundledRepos[pluginId];
+    if (canonical == null) return false;
+    if (source.kind != PluginSourceKind.githubRelease) return false;
+    final repo = source.repo;
+    if (repo == null) return false;
+    return repo.toLowerCase() == canonical.toLowerCase();
+  }
+
+  Future<Set<String>?> _bundledPermissions(String pluginId) async {
     final AssetManifest assetManifest;
     try {
       assetManifest = await AssetManifest.loadFromAssetBundle(rootBundle);
     } catch (e) {
       _log.fine('Unable to read bundled plugin asset manifest: $e');
-      return false;
+      return null;
     }
 
     for (final asset in assetManifest.listAssets()) {
@@ -562,12 +594,15 @@ class PluginSourceService {
       }
       try {
         final manifest = jsonDecode(await rootBundle.loadString(asset));
-        if (manifest is Map && manifest['id'] == pluginId) return true;
+        if (manifest is! Map || manifest['id'] != pluginId) continue;
+        final permissions = manifest['permissions'];
+        if (permissions is! List) continue;
+        return permissions.whereType<String>().toSet();
       } catch (e) {
         _log.fine('Unable to read bundled plugin manifest $asset: $e');
       }
     }
-    return false;
+    return null;
   }
 
   GitHubAsset _selectReleaseAsset(GitHubRelease release, String? assetName) {
