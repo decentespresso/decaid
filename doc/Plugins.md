@@ -481,15 +481,27 @@ compress most of its countdown into the last few steps. A recent rate adapts to
 machines with very different heating speeds. `heatingRate` reports that recent
 rate in degrees per second.
 
-The plugin holds the `api` permission to read `GET /api/v1/machine/info` once on
-load and cache `model`. On a Bengle the first published countdown of a heating
-session becomes its ceiling, and later publications may only decrease. Other
-machines - the DE1 family heats exponentially, decelerating hard near target - get
-a bounded allowance: when the measured rate falls below 80% of the session peak,
-the estimate is lengthened by up to 1.4x and the ceiling is released for that
-update, so a decelerating ramp is not under-reported. On the recorded DE1 cold
-start that moved the mid-ramp error from -47 s to +5 s. If machine info is
-unavailable the plugin stays on the conservative ceiling with no allowance.
+The plugin holds the `api` permission to read `GET /api/v1/machine/info` and
+cache `model`. Discovery treats a non-2xx response, an unparseable body or an
+empty model as a failure, retries five times at 30 s intervals, and re-runs at most
+once a minute from the state stream, so a machine that connects after startup is
+classified without a restart and a machine swap resets the heating session instead
+of inheriting the previous classification. Pending retries are cancelled on unload
+and a response that arrives after unload is discarded.
+
+On a Bengle the first published countdown of a heating session becomes its
+ceiling, and later publications may only decrease. Other machines - the DE1 family
+heats exponentially, decelerating hard near target - get a bounded allowance: when
+the measured rate falls below 80% of the session peak, the estimate is lengthened
+by up to 1.4x and the ceiling is released for that update, so a decelerating ramp
+is not under-reported. On the recorded DE1 cold start that moved the mid-ramp
+error from -47 s to +5 s. If machine info is unavailable the plugin stays on the
+conservative ceiling with no allowance.
+
+An established session whose temperature stops climbing reports
+`status: "not_heating"` - not `insufficient_data` - once the last 60 s gained less
+than 0.5 K, so a machine that stalls below target is distinguishable from one whose
+rate is still being measured. Short pauses stay in the countdown.
 
 That ceiling is stricter than de1app, whose own monotonic guard is unreachable: its
 `force_update` flag is set to `1` immediately before the comparison, so the guard

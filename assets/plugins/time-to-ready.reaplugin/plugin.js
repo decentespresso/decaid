@@ -21,6 +21,9 @@ function createPlugin(host) {
   const MACHINE_INFO_URL = "http://127.0.0.1:8080/api/v1/machine/info";
   const MACHINE_INFO_RETRY_MS = 30000;
   const MACHINE_INFO_ATTEMPTS = 5;
+  const MACHINE_INFO_REFRESH_MS = 60000;
+  const STALL_WINDOW_SECONDS = 60;
+  const STALL_GAIN_CELSIUS = 0.5;
   const DECELERATION_TRIGGER = 0.8;
   const MAX_DECELERATION_FACTOR = 1.4;
 
@@ -40,37 +43,87 @@ function createPlugin(host) {
   }
 
   let state = createState();
+  let pluginLoaded = false;
   let machineModel = null;
-  let machineInfoAttempts = 0;
+  let modelAttempts = 0;
+  let modelRequestedAt = 0;
+  let modelGeneration = 0;
+  let modelRetry = null;
+
+  function cancelModelRetry() {
+    if (modelRetry != null && typeof clearTimeout === "function") {
+      clearTimeout(modelRetry);
+    }
+    modelRetry = null;
+  }
+
+  function scheduleModelRetry() {
+    if (!pluginLoaded || modelAttempts >= MACHINE_INFO_ATTEMPTS) return;
+    if (typeof setTimeout !== "function") return;
+    cancelModelRetry();
+    modelRetry = setTimeout(() => {
+      modelRetry = null;
+      detectMachineModel();
+    }, MACHINE_INFO_RETRY_MS);
+  }
+
+  function applyMachineModel(model) {
+    if (model === machineModel) return;
+    machineModel = model;
+    resetHeatStart();
+    if (model) log(`Machine model: ${model}`);
+  }
 
   function detectMachineModel() {
-    machineInfoAttempts++;
-    const done = (model) => {
-      machineModel = typeof model === "string" ? model : null;
-      if (machineModel) log(`Machine model: ${machineModel}`);
-    };
+    if (!pluginLoaded) return;
     if (typeof fetch !== "function") {
       log("fetch unavailable; estimating without a machine model");
       return;
     }
+    modelAttempts++;
+    modelRequestedAt = Date.now();
+    const generation = modelGeneration;
+    const stale = () => !pluginLoaded || generation !== modelGeneration;
     try {
       Promise.resolve(fetch(MACHINE_INFO_URL))
-        .then((response) => (response && response.json ? response.json() : null))
-        .then((info) => done(info && info.model))
+        .then((response) => {
+          if (!response || response.ok !== true) {
+            throw new Error(`machine info status ${response && response.status}`);
+          }
+          return response.json();
+        })
+        .then((info) => {
+          if (stale()) return;
+          const model = info && typeof info.model === "string"
+            ? info.model.trim()
+            : "";
+          if (model === "") {
+            applyMachineModel(null);
+            scheduleModelRetry();
+            return;
+          }
+          modelAttempts = 0;
+          cancelModelRetry();
+          applyMachineModel(model);
+        })
         .catch((error) => {
+          if (stale()) return;
           log(`Machine info fetch failed: ${error}`);
-          retryMachineModel();
+          applyMachineModel(null);
+          scheduleModelRetry();
         });
     } catch (error) {
+      if (stale()) return;
       log(`Machine info fetch threw: ${error}`);
-      retryMachineModel();
+      applyMachineModel(null);
+      scheduleModelRetry();
     }
   }
 
-  function retryMachineModel() {
-    if (machineInfoAttempts >= MACHINE_INFO_ATTEMPTS) return;
-    const schedule = typeof setTimeout === "function" ? setTimeout : null;
-    if (schedule) schedule(detectMachineModel, MACHINE_INFO_RETRY_MS);
+  function refreshMachineModel(now) {
+    if (!pluginLoaded) return;
+    if (now - modelRequestedAt < MACHINE_INFO_REFRESH_MS) return;
+    detectMachineModel();
   }
 
   function deceleratingMachine() {
@@ -126,6 +179,8 @@ function createPlugin(host) {
     const currentTemp = payload.groupTemperature;
     const targetTemp = payload.targetGroupTemperature;
     const now = Date.now();
+
+    refreshMachineModel(now);
 
     if (state.lastTargetTemp !== null && state.lastTargetTemp !== targetTemp) {
       resetHeatStart();
@@ -193,11 +248,16 @@ function createPlugin(host) {
 
     const heatingRate = calculateRecentRate(now);
     if (heatingRate === null) {
+      const stalled = state.heatStartTime !== null &&
+        now - state.heatStartTime >= STALL_WINDOW_SECONDS * 1000 &&
+        !isHeating(now, STALL_WINDOW_SECONDS);
       return {
         remainingTimeMs: null,
-        heatingRate: null,
-        status: 'insufficient_data',
-        message: 'Collecting temperature data...',
+        heatingRate: stalled ? 0 : null,
+        status: stalled ? 'not_heating' : 'insufficient_data',
+        message: stalled
+          ? 'Temperature is stable or decreasing'
+          : 'Collecting temperature data...',
       };
     }
 
@@ -285,6 +345,16 @@ function createPlugin(host) {
     return fallbackRate;
   }
 
+  function isHeating(now, spanSeconds) {
+    const cutoff = now - spanSeconds * 1000;
+    const window = state.temperatureSamples.filter(
+      (sample) => sample.timestamp >= cutoff,
+    );
+    if (window.length < 2) return true;
+    const gain = window.at(-1).temperature - window[0].temperature;
+    return gain >= STALL_GAIN_CELSIUS;
+  }
+
   function clamp(value, minimum, maximum) {
     return Math.min(Math.max(value, minimum), maximum);
   }
@@ -310,6 +380,8 @@ function createPlugin(host) {
 
     onLoad(settings) {
       state.loadedAt = Date.now();
+      pluginLoaded = true;
+      modelAttempts = 0;
       detectMachineModel();
 
       log(`Loaded with settings: ${JSON.stringify(settings)}`);
@@ -329,6 +401,9 @@ function createPlugin(host) {
     },
 
     onUnload() {
+      pluginLoaded = false;
+      modelGeneration++;
+      cancelModelRetry();
       log(`Unloaded after ${state.ticksSeen} ticks`);
 
       // Save last estimation to storage

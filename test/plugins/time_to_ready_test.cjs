@@ -20,25 +20,67 @@ function loadPlugin(now, emitted, options = {}) {
     'utf8',
   );
   const context = {
+    pendingTimeouts: [],
+    fetchLog: [],
     Date: { now: () => now.value },
     console,
     createPlugin: undefined,
-    setTimeout: () => 0,
+    setTimeout: (callback) => {
+      context.pendingTimeouts.push(callback);
+      return context.pendingTimeouts.length;
+    },
+    clearTimeout: (handle) => {
+      context.pendingTimeouts[handle - 1] = null;
+    },
     fetch: options.fetchAvailable === false
       ? undefined
-      : () => Promise.resolve({
-        json: () => Promise.resolve({ model: options.model ?? null }),
-      }),
+      : () => {
+        const script = options.fetchScript;
+        if (script && script.length > 0) {
+          const step = script.length === 1 ? script[0] : script.shift();
+          context.fetchLog.push(step);
+          if (step.deferred) {
+            step.deferred = null;
+            return new Promise((resolve) => {
+              step.release = () => resolve({
+                ok: step.ok !== false,
+                status: step.status ?? 200,
+                json: () => Promise.resolve({ model: step.model }),
+              });
+            });
+          }
+          if (step.ok === false) {
+            return Promise.resolve({
+              ok: false,
+              status: step.status ?? 500,
+              json: () => Promise.resolve(step.body ?? { error: 'unavailable' }),
+            });
+          }
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve({ model: step.model }),
+          });
+        }
+        context.fetchLog.push({ model: options.model ?? null });
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve({ model: options.model ?? null }),
+        });
+      },
   };
   vm.createContext(context);
   vm.runInContext(source, context);
-  return context.createPlugin({
+  const plugin = context.createPlugin({
     log() {},
     emit(name, payload) {
       emitted.push({ name, payload });
     },
     storage() {},
   });
+  plugin.__context = context;
+  return plugin;
 }
 
 function temperatures(start, step, count) {
@@ -474,6 +516,166 @@ test('without machine info the estimator stays on the conservative path', async 
   const heating = values.filter((value) => value.status === 'heating');
   assert.ok(heating.length > 0, 'no estimate without machine info');
   assertNonIncreasing(heating, 'unknown model received an upward correction');
+});
+
+test('a stalled machine reports not_heating after a valid countdown', () => {
+  const now = { value: 0 };
+  const emitted = [];
+  const plugin = loadPlugin(now, emitted);
+  for (const temperature of temperatures(20, 0.5, 40)) {
+    plugin.onEvent({ name: 'stateUpdate', payload: payload(temperature, 70, 'idle') });
+    now.value += 1000;
+  }
+  assert.ok(
+    estimates(emitted).some((value) => value.status === 'heating'),
+    'no countdown before the stall',
+  );
+
+  for (let index = 0; index < 120; index++) {
+    plugin.onEvent({ name: 'stateUpdate', payload: payload(40, 70, 'idle') });
+    now.value += 1000;
+  }
+  const last = estimates(emitted).at(-1);
+  assert.equal(last.status, 'not_heating');
+  assert.equal(last.heatingRate, 0);
+  assert.equal(last.remainingTimeMs, null);
+});
+
+test('a short pause is not mistaken for a stall', () => {
+  const now = { value: 0 };
+  const emitted = [];
+  const plugin = loadPlugin(now, emitted);
+  for (const temperature of temperatures(20, 0.5, 40)) {
+    plugin.onEvent({ name: 'stateUpdate', payload: payload(temperature, 70, 'idle') });
+    now.value += 1000;
+  }
+  for (let index = 0; index < 20; index++) {
+    plugin.onEvent({ name: 'stateUpdate', payload: payload(39.5, 70, 'idle') });
+    now.value += 1000;
+  }
+  const last = estimates(emitted).at(-1);
+  assert.notEqual(last.status, 'not_heating', 'a 20 s pause was reported as a stall');
+});
+
+function driveRamp(plugin, now, temperatures, cadenceMs, target) {
+  for (const temperature of temperatures) {
+    plugin.onEvent({
+      name: 'stateUpdate',
+      payload: payload(temperature, target, 'idle'),
+    });
+    now.value += cadenceMs;
+  }
+}
+
+async function settle() {
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+}
+
+test('machine discovery retries after an HTTP error and then applies the model', async () => {
+  const now = { value: 0 };
+  const emitted = [];
+  const plugin = loadPlugin(now, emitted, {
+    fetchScript: [{ ok: false, status: 500 }, { ok: true, model: 'DE1Pro' }],
+  });
+  const harness = { context: plugin.__context };
+  plugin.onLoad({});
+  await settle();
+  assert.equal(harness.context.fetchLog.length, 1, 'no retry queued after HTTP 500');
+  assert.equal(harness.context.pendingTimeouts.filter(Boolean).length, 1);
+
+  harness.context.pendingTimeouts.filter(Boolean)[0]();
+  await settle();
+  assert.equal(harness.context.fetchLog.length, 2, 'retry did not run');
+
+  const fixture = recordedFixtures.find((entry) => entry.name === 'de1_cold_start.json');
+  driveRamp(plugin, now, fixture.data.series.map((sample) => sample.temp), 500, fixture.data.target);
+  assert.ok(
+    estimates(emitted).some((value) => value.status === 'heating'),
+    'no estimate after recovering the model',
+  );
+});
+
+test('machine discovery treats a response without a model as a failure', async () => {
+  const now = { value: 0 };
+  const emitted = [];
+  const plugin = loadPlugin(now, emitted, {
+    fetchScript: [{ ok: true, model: undefined }],
+  });
+  const harness = { context: plugin.__context };
+  plugin.onLoad({});
+  await settle();
+  assert.ok(
+    harness.context.pendingTimeouts.filter(Boolean).length > 0,
+    'an empty model did not schedule a retry',
+  );
+});
+
+test('a machine connecting after the retry window is discovered on the next update', async () => {
+  const now = { value: 0 };
+  const emitted = [];
+  const plugin = loadPlugin(now, emitted, {
+    fetchScript: [{ ok: false, status: 503 }, { ok: true, model: 'DE1Pro' }],
+  });
+  const harness = { context: plugin.__context };
+  plugin.onLoad({});
+  await settle();
+  harness.context.pendingTimeouts.fill(null);
+  const attemptsBefore = harness.context.fetchLog.length;
+
+  now.value += 61000;
+  plugin.onEvent({ name: 'stateUpdate', payload: payload(30, 92, 'idle') });
+  await settle();
+
+  assert.ok(
+    harness.context.fetchLog.length > attemptsBefore,
+    'no discovery attempt after the machine connected',
+  );
+});
+
+test('switching machines refreshes the model classification', async () => {
+  const now = { value: 0 };
+  const emitted = [];
+  const plugin = loadPlugin(now, emitted, {
+    fetchScript: [{ ok: true, model: 'DE1Pro' }, { ok: true, model: 'Bengle' }],
+  });
+  plugin.onLoad({});
+  await settle();
+
+  now.value += 61000;
+  plugin.onEvent({ name: 'stateUpdate', payload: payload(30, 93, 'idle') });
+  await settle();
+
+  driveRamp(plugin, now, temperatures(32, 0.5, 40), 1000, 93);
+  const heating = estimates(emitted).filter((value) => value.status === 'heating');
+  assert.ok(heating.length > 0, 'no estimate after the machine changed');
+  assertNonIncreasing(heating, 'a Bengle inherited the DE1 deceleration allowance');
+});
+
+test('discovery resolving after unload does not touch state', async () => {
+  const now = { value: 0 };
+  const emitted = [];
+  const pending = { deferred: true, model: 'DE1Pro' };
+  const plugin = loadPlugin(now, emitted, { fetchScript: [pending] });
+  const harness = { context: plugin.__context };
+  plugin.onLoad({});
+  await settle();
+
+  plugin.onUnload();
+  const emittedBefore = emitted.length;
+  pending.release();
+  await settle();
+
+  assert.equal(
+    emitted.length,
+    emittedBefore,
+    'a discovery resolving after unload touched plugin state',
+  );
+  assert.equal(
+    harness.context.pendingTimeouts.filter(Boolean).length,
+    0,
+    'a retry survived unload',
+  );
 });
 
 test('reached state publishes zero remaining time', () => {
