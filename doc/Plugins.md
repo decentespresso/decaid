@@ -468,7 +468,8 @@ machine first reports below-target operation, with the reference reset on `ready
 sleep, a target temperature change, or cooling 2 K below the session start. It
 estimates the remaining time from the recent heating rate rather than the whole
 climb: it keeps an 18-second trailing temperature window, requires at least eight
-samples, and uses the median of adjacent-interval slopes. The estimate is
+samples, and measures the rate over the shortest span that shows a clear rise
+(six, twelve, then eighteen seconds, trimming any leading plateau). The estimate is
 `max(targetGroupTemperature - currentTemperature, 0) / heatingRate`, rounded to
 ten seconds and clamped to 5-300 s.
 

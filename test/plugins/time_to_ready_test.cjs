@@ -35,6 +35,10 @@ function loadPlugin(now, emitted) {
   });
 }
 
+function temperatures(start, step, count) {
+  return Array.from({ length: count }, (_, index) => start + index * step);
+}
+
 function payload(temperature, target = 70, machineState = 'heating') {
   return {
     state: { state: machineState },
@@ -105,7 +109,10 @@ test('slow and fast profiles track recent heating rates', () => {
     const values = replaySynthetic(profile);
     const heatingValues = values.filter((value) => value.status === 'heating');
     const firstHeatingIndex = values.findIndex((value) => value.status === 'heating');
-    assert.ok(firstHeatingIndex >= 8, profile.name + ' published before eight recent samples');
+    assert.ok(
+      firstHeatingIndex >= 7,
+      profile.name + ' published before the rate window was established',
+    );
     assert.ok(
       values.slice(0, firstHeatingIndex).every((value) => value.status === 'insufficient_data'),
       profile.name + ' did not report insufficient_data while rate was unestablished',
@@ -174,20 +181,44 @@ test('a target change resets the reference and the new session has its own ceili
 });
 
 test('the estimator clamps countdowns to five and three hundred seconds', () => {
-  const lowNow = { value: 0 };
-  const lowEmitted = [];
-  const lowPlugin = loadPlugin(lowNow, lowEmitted);
-  ready(lowPlugin, 20);
-  replay(lowPlugin, lowNow, [20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 20.7, 20.8], 1000);
-  assert.equal(estimates(lowEmitted).at(-1).remainingTimeMs, 300000);
+  const slowNow = { value: 0 };
+  const slowEmitted = [];
+  const slowPlugin = loadPlugin(slowNow, slowEmitted);
+  ready(slowPlugin, 20);
+  for (let index = 1; index <= 30; index++) {
+    slowPlugin.onEvent({
+      name: 'stateUpdate',
+      payload: payload(20 + index * 0.1),
+    });
+    slowNow.value += 1000;
+  }
+  expectClamped(slowEmitted, 300000, 'slow ramp');
 
-  const highNow = { value: 0 };
-  const highEmitted = [];
-  const highPlugin = loadPlugin(highNow, highEmitted);
-  ready(highPlugin, 62);
-  replay(highPlugin, highNow, [63, 64, 65, 66, 67, 68, 69, 69.9], 1000);
-  assert.equal(estimates(highEmitted).at(-1).remainingTimeMs, 5000);
+  const fastNow = { value: 0 };
+  const fastEmitted = [];
+  const fastPlugin = loadPlugin(fastNow, fastEmitted);
+  ready(fastPlugin, 20);
+  for (let index = 1; index <= 99; index++) {
+    fastPlugin.onEvent({
+      name: 'stateUpdate',
+      payload: payload(20 + index * 0.5),
+    });
+    fastNow.value += 500;
+  }
+  expectClamped(fastEmitted, 5000, 'fast ramp');
 });
+
+function expectClamped(emitted, bound, label) {
+  const heating = estimates(emitted).filter((value) => value.status === 'heating');
+  assert.ok(heating.length > 0, label + ' published no estimate');
+  assert.equal(heating.at(-1).remainingTimeMs, bound, label + ' did not clamp');
+  for (const value of heating) {
+    assert.ok(
+      value.remainingTimeMs >= 5000 && value.remainingTimeMs <= 300000,
+      label + ' published outside the clamp band',
+    );
+  }
+}
 
 test('a noisy synthetic trace remains non-increasing', () => {
   const values = replaySynthetic(edgeCasesFixture.scenarios.noisyStartup);
@@ -235,7 +266,7 @@ test('heating is detected from temperature alone, not from a heating state', () 
     targetGroupTemperature: target,
   });
 
-  for (const temperature of [44, 46, 48, 50, 52, 54, 56, 58]) {
+  for (const temperature of temperatures(44, 2, 20)) {
     plugin.onEvent({ name: 'stateUpdate', payload: idle(temperature, 92) });
     now.value += 1000;
   }

@@ -51,7 +51,7 @@ Because `force_update` is assigned `1` immediately before the comparison at `ski
 
 ## Current estimator: recent rate
 
-The plugin preserves session bookkeeping but no longer ports the whole-climb ETA. It seeds the session reference on the first below-target observation and resets it on `ready`, sleep, a target temperature change, or cooling 2 K below the session start. It records a trailing 18-second temperature series, requires at least eight samples, and uses the median of adjacent-interval slopes as the recent `heatingRate`. The published ETA is:
+The plugin preserves session bookkeeping but no longer ports the whole-climb ETA. It seeds the session reference on the first below-target observation and resets it on `ready`, sleep, a target temperature change, or cooling 2 K below the session start. It records a trailing 18-second temperature series, requires at least eight samples, and measures `heatingRate` over the shortest span that shows a clear rise - six, twelve, then eighteen seconds - after trimming leading samples that are flat within 0.1 K, so a cold-start plateau cannot dilute the rate. A median of adjacent slopes was tried first and overestimated slow ramps, because per-interval noise inflates individual deltas. The published ETA is:
 
 > `remaining = max(target_temperature - current_temperature, 0)`
 >

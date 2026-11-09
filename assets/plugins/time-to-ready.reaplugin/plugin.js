@@ -12,6 +12,10 @@ function createPlugin(host) {
 
   const RATE_WINDOW_SECONDS = 18;
   const MIN_RATE_SAMPLES = 8;
+  const MIN_WARMED_CELSIUS = 1;
+  const RATE_SPAN_STEP_SECONDS = 6;
+  const MIN_INTERVAL_RISE_CELSIUS = 0.1;
+  const CONFIDENT_SPAN_RISE_CELSIUS = 3;
 
   function createState() {
     return {
@@ -181,23 +185,35 @@ function createPlugin(host) {
     );
     if (state.temperatureSamples.length < MIN_RATE_SAMPLES) return null;
 
-    const slopes = [];
-    for (let index = 1; index < state.temperatureSamples.length; index++) {
-      const previous = state.temperatureSamples[index - 1];
-      const current = state.temperatureSamples[index];
-      const elapsedSeconds = (current.timestamp - previous.timestamp) / 1000;
-      if (elapsedSeconds > 0) {
-        slopes.push((current.temperature - previous.temperature) / elapsedSeconds);
-      }
-    }
-    if (slopes.length === 0) return null;
+    const last = state.temperatureSamples.at(-1);
+    const warmed = last.temperature - state.temperatureSamples[0].temperature;
+    if (warmed < MIN_WARMED_CELSIUS) return null;
 
-    slopes.sort((left, right) => left - right);
-    const middle = Math.floor(slopes.length / 2);
-    const median = slopes.length % 2 === 0
-      ? (slopes[middle - 1] + slopes[middle]) / 2
-      : slopes[middle];
-    return median > 0 ? median : null;
+    let fallbackRate = null;
+    for (let spanSeconds = RATE_SPAN_STEP_SECONDS;
+      spanSeconds <= RATE_WINDOW_SECONDS;
+      spanSeconds += RATE_SPAN_STEP_SECONDS) {
+      let anchorIndex = state.temperatureSamples.findIndex(
+        (sample) => sample.timestamp >= last.timestamp - spanSeconds * 1000,
+      );
+      if (anchorIndex < 0) continue;
+      while (anchorIndex + 1 < state.temperatureSamples.length &&
+        state.temperatureSamples[anchorIndex + 1].temperature -
+          state.temperatureSamples[anchorIndex].temperature <
+            MIN_INTERVAL_RISE_CELSIUS) {
+        anchorIndex++;
+      }
+      const anchor = state.temperatureSamples[anchorIndex];
+      if (anchor === last) continue;
+      const elapsedSeconds = (last.timestamp - anchor.timestamp) / 1000;
+      if (elapsedSeconds <= 0) continue;
+      const rise = last.temperature - anchor.temperature;
+      const rate = rise / elapsedSeconds;
+      if (rate <= 0) continue;
+      if (rise >= CONFIDENT_SPAN_RISE_CELSIUS) return rate;
+      fallbackRate = rate;
+    }
+    return fallbackRate;
   }
 
   function clamp(value, minimum, maximum) {
