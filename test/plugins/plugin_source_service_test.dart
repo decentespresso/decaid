@@ -1427,7 +1427,7 @@ function createPlugin() {
           final diskManifest =
               jsonDecode(
                     File(
-                      loader.getPluginDirectory(bundledId) + '/manifest.json',
+                      '${loader.getPluginDirectory(bundledId)}/manifest.json',
                     ).readAsStringSync(),
                   )
                   as Map<String, dynamic>;
