@@ -87,6 +87,8 @@ const bodyExample = "</body>";
     expect(script, contains('tokenMeta.content'));
     expect(script, isNot(contains(token)));
     expect(script, contains(skinExitDashboardUrl));
+    expect(script, contains('window.decentApp.exitApp'));
+    expect(script, contains(skinExitAppUrlForPort(3000)));
   });
 
   test('injects the token as escaped non-executable metadata', () {
