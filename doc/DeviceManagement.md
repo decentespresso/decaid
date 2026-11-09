@@ -623,9 +623,13 @@ Watch lifecycle details:
   recovery is no longer needed. Ordinary scale-only callers keep their existing
   queue semantics, including when coalesced with wake recovery.
   A supported preferred-scale watch re-arms on wake without a competing burst;
-  watch failure retains the existing backoff fallback. Without a preferred scale,
-  or for serial/WiFi and unsupported-watch platforms, the settled recovery uses
-  the existing scale-only discovery/picker path. `De1StateManager` only handles
+  watch failure retains the existing backoff fallback. Serial/WiFi and
+  unsupported-watch platforms use settled scale-only discovery. With a preferred
+  scale configured, recovery attempts only that scale: alternatives remain in
+  inventory but do not create a picker or cancel retries when the preferred scale
+  is absent or fails to connect. Without a preference, scale-only discovery keeps
+  its normal selection policy. Explicit scans retain their picker behavior, and
+  recovery never supersedes a pending user selection. `De1StateManager` only handles
   physical scale power/display operations and sleep/disconnect expectation marks.
   Rescheduling a pending legacy reconnect timer on wake preserves its already-counted
   tier; settling does not consume another tier. A genuine scan advances the next

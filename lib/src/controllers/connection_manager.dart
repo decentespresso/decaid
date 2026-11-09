@@ -1722,7 +1722,11 @@ class ConnectionManager {
       _publishStatus(currentStatus.copyWith(foundScales: scales));
       await _runScalePhase(
         _disconnectSupervisor.latestMachine,
-        scales,
+        preferredScaleId == null
+            ? scales
+            : scales
+                  .where((scale) => scale.deviceId == preferredScaleId)
+                  .toList(),
         preferredScaleId,
         scanReport,
       );
