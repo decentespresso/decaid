@@ -1733,6 +1733,7 @@ class ConnectionManager {
             ? scales
             : scales
                   .where((scale) => scale.deviceId == preferredScaleId)
+                  .take(1)
                   .toList(),
         preferredScaleId,
         scanReport,
