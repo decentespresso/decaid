@@ -373,6 +373,43 @@ void main() {
     });
   });
 
+  test('failed preferred recovery retains backoff despite alternatives', () {
+    run((h) {
+      final scales = h.scales as _WakeScaleController;
+      h.start(preferred: 'preferred', powerMode: ScalePowerMode.displayOff);
+      h.scanner.addDevice(h.scale('preferred'));
+      h.scanner.addDevice(h.scale('alternative'));
+      scales.shouldFailConnect = true;
+      h.elapse(const Duration(seconds: 5));
+      expect(h.manager.currentStatus.pendingAmbiguity, isNull);
+      expect(h.manager.currentStatus.foundScales, hasLength(2));
+      expect(h.manager.scaleReconnectScheduled, isTrue);
+      expect(h.manager.scaleReconnectFailures, 2);
+      expect(h.settings.preferredScaleId, 'preferred');
+
+      h.elapse(const Duration(milliseconds: 9999));
+      expect(h.scanner.scanCallCount, 1);
+      h.elapse(const Duration(milliseconds: 1));
+      expect(h.scanner.scanCallCount, 2);
+      expect(h.manager.scaleReconnectFailures, 3);
+      expect(h.manager.currentStatus.pendingAmbiguity, isNull);
+
+      scales.shouldFailConnect = false;
+      h.elapse(const Duration(seconds: 20));
+      expect(h.scanner.scanCallCount, 3);
+      expect(scales.connectedScale().deviceId, 'preferred');
+      expect(
+        scales.connectCalls.every((s) => s.deviceId == 'preferred'),
+        isTrue,
+      );
+      expect(h.manager.scaleReconnectScheduled, isFalse);
+      expect(h.manager.scaleReconnectFailures, 0);
+      expect(h.settings.preferredScaleId, 'preferred');
+      h.elapse(const Duration(seconds: 60));
+      expect(h.scanner.scanCallCount, 3);
+    });
+  });
+
   test('wake recovery 7: unavailable watch keeps the backoff fallback', () {
     run((h) {
       h.start(preferred: 'preferred', watch: true);

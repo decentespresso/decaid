@@ -207,6 +207,14 @@ the user's choice. Scales powered off while the machine is sleeping are
 skipped to respect the radio-disconnect power mode. On Android, uses a
 filtered scan to bypass background throttling.
 
+With a preferred scale configured, scale-only recovery passes only the matching
+candidate to scale policy, while preserving the full inventory and scan report.
+An absent or failed preferred scale therefore retains the existing bounded
+retries instead of opening a picker for an alternative. In the #1078 controlled
+USB-loss test, that automatic picker cancelled retries and later blocked wake
+recovery even after the USB HDS returned. This rule also covers adapter recovery's
+scale-only path; explicit scans and no-preference selection are unchanged.
+
 ### Phase lifecycle
 
 `StatusPublisher` drives the `ConnectionStatus` stream with phases:

@@ -149,6 +149,8 @@ void main() {
               fixture.devices.devices.whereType<Scale>().single.implementation,
               DeviceImplementation.bookooScale,
             );
+            expect(fixture.connections.currentStatus.pendingAmbiguity, isNull);
+            await fixture.connections.scanAndConnect();
             expect(fixture.settings.preferredScaleId, preferred);
             expect(
               fixture.scales.currentConnectionState,
@@ -160,7 +162,7 @@ void main() {
             );
             expect(
               fixture.connections.currentStatus.pendingAmbiguity,
-              isNotNull,
+              AmbiguityReason.scalePicker,
             );
           }
         } finally {

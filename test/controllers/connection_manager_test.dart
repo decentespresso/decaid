@@ -2320,6 +2320,15 @@ void main() {
               connectionManager.currentStatus.pendingAmbiguity,
               AmbiguityReason.scalePicker,
             );
+            final scanCount = mockScanner.scanCallCount;
+            await connectionManager.connect(scaleOnly: true);
+            expect(mockScanner.scanCallCount, scanCount);
+            expect(mockScaleController.connectCalls, isEmpty);
+            expect(settingsController.preferredScaleId, 'missing-scale');
+            expect(
+              connectionManager.currentStatus.pendingAmbiguity,
+              AmbiguityReason.scalePicker,
+            );
           },
         );
 
@@ -4636,6 +4645,8 @@ void main() {
           await connectionManager.connect(scaleOnly: true);
           expect(settingsController.preferredScaleId, scaleId);
           expect(mockScaleController.connectCalls, isEmpty);
+          expect(connectionManager.currentStatus.pendingAmbiguity, isNull);
+          expect(connectionManager.scaleReconnectScheduled, isTrue);
         },
       );
 
