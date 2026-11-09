@@ -1599,13 +1599,20 @@ holds regardless of where the plugin came from.
 One exception applies, and it is narrow. A bundled plugin updating from its
 canonical app-owned repository may install an added permission without approval
 when that permission is already declared by the copy the app ships. Both halves
-are required: the update source must match the entry in `bundledPluginRepos`, or
-be the app repository itself (`decentespresso/decaid`) for a plugin that lives
-inside it, such as `time-to-ready.reaplugin`; and every added permission must
-already be in the bundled manifest. A fork that reuses a bundled plugin id is an
-ordinary third-party source, a branch source never qualifies, and a permission
-the bundle does not declare always waits for approval. If the bundled manifest
-cannot be read, the gate applies as usual.
+are required: the update source must match the entry in `bundledPluginRepos`, and
+every added permission must already be in the bundled manifest. A fork that reuses
+a bundled plugin id is an ordinary third-party source, a branch source never
+qualifies, and a permission the bundle does not declare always waits for approval.
+If the bundled manifest cannot be read, the gate applies as usual.
+
+Plugins that live inside this repository rather than a repository of their own,
+such as `time-to-ready.reaplugin`, do not use this path at all and need no
+exception. `PluginLoaderService._copyBundledPlugins()` replaces an installed
+bundled copy - manifest, permissions and script - whenever the copy shipped with
+the app is newer, before any update check runs. An app upgrade that adds a
+permission to an in-tree bundled plugin therefore lands without an approval step
+and without update provenance, and the permission-approval gate above applies only
+to plugins hosted in their own repository.
 
 ## Plugin Lifecycle Management (REST API)
 

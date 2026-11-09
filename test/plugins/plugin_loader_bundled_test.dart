@@ -27,14 +27,18 @@ void main() {
   const otherManifestAsset = 'assets/plugins/$otherId/manifest.json';
   const otherScriptAsset = 'assets/plugins/$otherId/plugin.js';
 
-  String manifest(String? version, String name) => jsonEncode({
+  String manifest(
+    String? version,
+    String name, {
+    List<String> permissions = const [],
+  }) => jsonEncode({
     'id': id,
     'author': 'Test',
     'name': name,
     'description': 'Bundled copy regression fixture',
     'version': ?version,
     'apiVersion': 1,
-    'permissions': <String>[],
+    'permissions': permissions,
     'settings': <String, dynamic>{},
     'api': <Object>[],
   });
@@ -155,6 +159,54 @@ void main() {
       });
     }
   });
+
+  test(
+    'an app upgrade adds a bundled permission without an approval step',
+    () async {
+      assets[manifestAsset] = manifest(
+        '1.0.4',
+        'Bundled',
+        permissions: const [
+          'log',
+          'emit',
+          'api',
+          'pluginStorage',
+          'events.machine',
+        ],
+      );
+      assets[scriptAsset] = '// bundled script with machine info\n';
+      final directory = Directory('${tempDir.path}/plugins/$id')
+        ..createSync(recursive: true);
+      File('${directory.path}/manifest.json').writeAsStringSync(
+        manifest(
+          '1.0.3',
+          'Installed',
+          permissions: const ['log', 'emit', 'pluginStorage', 'events.machine'],
+        ),
+      );
+      File(
+        '${directory.path}/plugin.js',
+      ).writeAsStringSync('// installed script\n');
+
+      await service.initialize();
+
+      final installed = service.getPluginManifest(id)!;
+      expect(installed.version, '1.0.4');
+      expect(
+        installed.permissions.map((permission) => permission.wireName).toSet(),
+        {'log', 'emit', 'api', 'pluginStorage', 'events.machine'},
+      );
+      expect(
+        File('${directory.path}/plugin.js').readAsStringSync(),
+        '// bundled script with machine info\n',
+      );
+      expect(
+        File('${directory.path}/.rea_source.json').existsSync(),
+        isFalse,
+        reason: 'a bundled copy upgrade must not create update provenance',
+      );
+    },
+  );
 
   for (final damage in [
     'missing manifest',
