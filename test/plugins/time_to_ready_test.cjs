@@ -329,6 +329,126 @@ test('a fast machine ticking at 15 Hz publishes through a cold-start plateau', (
   assertNonIncreasing(heating, '15 Hz ramp increased');
 });
 
+const recordedDirectory = path.join(fixtureDirectory, 'recorded');
+const recordedFixtures = ['bengle_cold_start.json', 'de1_cold_start.json', 'de1_reheat_tail.json']
+  .map((name) => ({
+    name,
+    data: JSON.parse(fs.readFileSync(path.join(recordedDirectory, name), 'utf8')),
+  }));
+
+function replayRecorded(series) {
+  const now = { value: series.series[0].t * 1000 };
+  const emitted = [];
+  const plugin = loadPlugin(now, emitted);
+  for (const sample of series.series) {
+    now.value = sample.t * 1000;
+    plugin.onEvent({
+      name: 'stateUpdate',
+      payload: {
+        state: { state: 'idle' },
+        groupTemperature: sample.temp,
+        targetGroupTemperature: sample.target,
+      },
+    });
+  }
+  const last = series.series.at(-1);
+  now.value = (last.t + 0.5) * 1000;
+  plugin.onEvent({
+    name: 'stateUpdate',
+    payload: {
+      state: { state: 'idle' },
+      groupTemperature: series.target,
+      targetGroupTemperature: series.target,
+    },
+  });
+  return {
+    values: estimates(emitted),
+    endTime: last.t * 1000,
+    target: series.target,
+  };
+}
+
+test('recorded device ramps replay without an upward countdown', () => {
+  for (const fixture of recordedFixtures) {
+    assert.equal(fixture.data.recorded, true, fixture.name + ' is not marked as recorded');
+    const { values } = replayRecorded(fixture.data);
+    const heating = values.filter((value) => value.status === 'heating');
+    assert.ok(heating.length > 0, fixture.name + ' published no countdown');
+    assertNonIncreasing(heating, fixture.name);
+    assert.equal(values.at(-1).status, 'reached', fixture.name + ' never reported reached');
+  }
+});
+
+test('a recorded Bengle ramp tracks the real remaining time', () => {
+  const fixture = recordedFixtures.find((entry) => entry.name === 'bengle_cold_start.json');
+  const { values, endTime } = replayRecorded(fixture.data);
+  const heating = values.filter((value) => value.status === 'heating');
+
+  const first = heating[0];
+  const firstError = first.remainingTimeMs / 1000 - (endTime - first.timestamp) / 1000;
+  assert.ok(
+    Math.abs(firstError) <= 30,
+    'first estimate was ' + firstError.toFixed(0) + ' s off the recorded ramp',
+  );
+
+  const mid = heating[Math.floor(heating.length * 0.5)];
+  const midError = mid.remainingTimeMs / 1000 - (endTime - mid.timestamp) / 1000;
+  assert.ok(
+    Math.abs(midError) <= 15,
+    'midpoint estimate was ' + midError.toFixed(0) + ' s off',
+  );
+
+  const floorWithWorkLeft = heating.filter(
+    (value) => fixture.data.target - value.currentTemp > 20 &&
+      value.remainingTimeMs <= 10000,
+  );
+  assert.equal(
+    floorWithWorkLeft.length,
+    0,
+    'the countdown sat on the ten second floor with more than 20 K remaining',
+  );
+
+  console.log(
+    'bengle_cold_start.json: samples=' + fixture.data.series.length +
+      ' heating=' + heating.length +
+      ' first=' + first.remainingTimeMs / 1000 +
+      's mid=' + mid.remainingTimeMs / 1000 + 's',
+  );
+});
+
+test('a recorded slow DE1 cold start stays optimistic and is documented as such', () => {
+  const fixture = recordedFixtures.find((entry) => entry.name === 'de1_cold_start.json');
+  const { values, endTime } = replayRecorded(fixture.data);
+  const heating = values.filter((value) => value.status === 'heating');
+
+  const first = heating[0];
+  const trueFirst = (endTime - first.timestamp) / 1000;
+  assert.ok(
+    first.remainingTimeMs <= trueFirst * 1000,
+    'the slow ramp should not over-report its remaining time',
+  );
+
+  const nearEnd = heating[heating.length - 5];
+  assert.ok(
+    nearEnd.remainingTimeMs <= 20000,
+    'the last estimates should close on the target',
+  );
+
+  const tailUnderReport = heating.filter((value) => {
+    const trueRemaining = (endTime - value.timestamp) / 1000;
+    return trueRemaining > 30 && value.remainingTimeMs <= 10000;
+  });
+  console.log(
+    'de1_cold_start.json: heating=' + heating.length +
+      ' first=' + first.remainingTimeMs / 1000 + 's of ' + trueFirst.toFixed(0) + 's true' +
+      ' frames under 10s with more than 30s left=' + tailUnderReport.length,
+  );
+  assert.ok(
+    tailUnderReport.length < heating.length,
+    'the slow ramp never published a usable estimate',
+  );
+});
+
 test('reached state publishes zero remaining time', () => {
   const now = { value: 0 };
   const emitted = [];
