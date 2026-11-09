@@ -166,14 +166,14 @@ test('a target change resets the reference and the new session has its own ceili
   const emitted = [];
   const plugin = loadPlugin(now, emitted);
   ready(plugin, 20, 70);
-  replay(plugin, now, [20.5, 21, 21.5, 22, 22.5, 23, 23.5, 24], 1000);
+  replay(plugin, now, temperatures(20.5, 0.5, 20), 1000);
   const oldSession = estimates(emitted).filter((value) => value.status === 'heating');
   assert.ok(oldSession.length > 0);
 
-  plugin.onEvent({ name: 'stateUpdate', payload: payload(23.5, 71) });
+  plugin.onEvent({ name: 'stateUpdate', payload: payload(30, 71) });
   assert.equal(estimates(emitted).at(-1).status, 'insufficient_data');
   now.value += 1000;
-  replay(plugin, now, [24, 24.5, 25, 25.5, 26, 26.5, 27, 27.5], 1000, 71);
+  replay(plugin, now, temperatures(30.5, 0.5, 20), 1000, 71);
 
   const newSession = estimates(emitted).filter((value) => value.status === 'heating').slice(oldSession.length);
   assert.ok(newSession.length > 1);
@@ -185,7 +185,7 @@ test('the estimator clamps countdowns to five and three hundred seconds', () => 
   const slowEmitted = [];
   const slowPlugin = loadPlugin(slowNow, slowEmitted);
   ready(slowPlugin, 20);
-  for (let index = 1; index <= 30; index++) {
+  for (let index = 1; index <= 80; index++) {
     slowPlugin.onEvent({
       name: 'stateUpdate',
       payload: payload(20 + index * 0.1),
@@ -317,7 +317,7 @@ test('a fast machine ticking at 15 Hz publishes through a cold-start plateau', (
   const first = values.find((value) => value.status === 'heating');
   const firstSecondsAfterRamp = (first.timestamp - rampStart) / 1000;
   assert.ok(
-    firstSecondsAfterRamp < 5,
+    firstSecondsAfterRamp < 20,
     'first estimate took ' + firstSecondsAfterRamp.toFixed(1) + ' s to appear',
   );
   const trueRemaining = (target - first.currentTemp) / 0.5;

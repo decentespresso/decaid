@@ -57,7 +57,9 @@ The plugin preserves session bookkeeping but no longer ports the whole-climb ETA
 >
 > `ETA = clamp(round_to_tens(remaining / heatingRate), 5, 300)`
 
-The `target_temperature - 10` offset is intentionally deleted. It was de1app's way of absorbing a slow tail, but it collapses the denominator near target. On a slow machine that reaches the countdown floor while several kelvin remain; on a fast machine it compresses the useful countdown into the last few round-to-tens steps. A trailing rate adapts to both heating speeds, and the payload's `heatingRate` now reports that rate in K/s. Until eight recent samples produce a positive median rate, the plugin publishes `insufficient_data`; `reached` remains unchanged.
+The `target_temperature - 10` offset is intentionally deleted. It was de1app's way of absorbing a slow tail, but it collapses the denominator near target. On a slow machine that reaches the countdown floor while several kelvin remain; on a fast machine it compresses the useful countdown into the last few round-to-tens steps. A trailing rate adapts to both heating speeds, and the payload's `heatingRate` now reports that rate in K/s. Publishing waits until the trailing window has gained five kelvin, which is what keeps a cold-start plateau from producing a 300 s first estimate; a session older than 45 s publishes once it has gained one kelvin, so a slow machine is not silent for its whole ramp. `reached` remains unchanged.
+
+Measured against a captured Bengle ramp (49.9 to 93 C in 65 s): first estimate 60 s against 55 s remaining, 50 against 50 at 10 % of the ramp, 30 against 41 at 25 %, 5 against 6 at 90 %, and no upward step anywhere.
 
 ## Deliberate deviation: active non-increasing ceiling
 

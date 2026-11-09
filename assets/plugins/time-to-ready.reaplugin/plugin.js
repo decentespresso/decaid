@@ -12,7 +12,9 @@ function createPlugin(host) {
 
   const RATE_WINDOW_SECONDS = 18;
   const MIN_RATE_SAMPLES = 8;
-  const MIN_WARMED_CELSIUS = 1;
+  const MIN_WARMED_CELSIUS = 5;
+  const SESSION_AGE_FALLBACK_SECONDS = 45;
+  const MIN_FALLBACK_WARMED_CELSIUS = 1;
   const RATE_SPAN_STEP_SECONDS = 6;
   const MIN_INTERVAL_RISE_CELSIUS = 0.1;
   const CONFIDENT_SPAN_RISE_CELSIUS = 3;
@@ -187,7 +189,12 @@ function createPlugin(host) {
 
     const last = state.temperatureSamples.at(-1);
     const warmed = last.temperature - state.temperatureSamples[0].temperature;
-    if (warmed < MIN_WARMED_CELSIUS) return null;
+    const sessionSeconds =
+      (last.timestamp - state.heatStartTime) / 1000;
+    const established = warmed >= MIN_WARMED_CELSIUS ||
+      (sessionSeconds >= SESSION_AGE_FALLBACK_SECONDS &&
+        warmed >= MIN_FALLBACK_WARMED_CELSIUS);
+    if (!established) return null;
 
     let fallbackRate = null;
     for (let spanSeconds = RATE_SPAN_STEP_SECONDS;
