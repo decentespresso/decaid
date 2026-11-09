@@ -410,6 +410,35 @@ void main() {
     });
   });
 
+  test('duplicate preferred IDs cannot interrupt recovery backoff', () {
+    run((h) {
+      final scales = h.scales as _WakeScaleController;
+      h.start(preferred: 'preferred', powerMode: ScalePowerMode.displayOff);
+      final first = h.scale('preferred');
+      final duplicate = h.scale('preferred');
+      h.scanner.addDevice(first);
+      h.scanner.addDevice(duplicate);
+      scales.shouldFailConnect = true;
+      h.elapse(const Duration(seconds: 5));
+      expect(h.manager.currentStatus.pendingAmbiguity, isNull);
+      expect(h.manager.currentStatus.foundScales, [first, duplicate]);
+      expect(h.manager.scaleReconnectScheduled, isTrue);
+      expect(h.manager.scaleReconnectFailures, 2);
+      expect(h.settings.preferredScaleId, 'preferred');
+
+      scales.shouldFailConnect = false;
+      h.elapse(const Duration(milliseconds: 9999));
+      expect(h.scanner.scanCallCount, 1);
+      h.elapse(const Duration(milliseconds: 1));
+      expect(h.scanner.scanCallCount, 2);
+      expect(scales.connectedScale(), same(first));
+      expect(scales.connectCalls, everyElement(same(first)));
+      expect(h.manager.scaleReconnectScheduled, isFalse);
+      expect(h.manager.scaleReconnectFailures, 0);
+      expect(h.settings.preferredScaleId, 'preferred');
+    });
+  });
+
   test('wake recovery 7: unavailable watch keeps the backoff fallback', () {
     run((h) {
       h.start(preferred: 'preferred', watch: true);

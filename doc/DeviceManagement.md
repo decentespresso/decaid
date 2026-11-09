@@ -631,6 +631,10 @@ Watch lifecycle details:
   its normal selection policy. Explicit scans retain their picker behavior, and
   recovery never supersedes a pending user selection. `De1StateManager` only handles
   physical scale power/display operations and sleep/disconnect expectation marks.
+  This preferred-only rule is limited to scale-only recovery: full automatic
+  startup/machine-recovery scans retain their existing picker policy and may still
+  pause preferred-scale retries when the preferred scale is missing. Broadening
+  that policy is separate from the controlled USB-loss recovery fix.
   Rescheduling a pending legacy reconnect timer on wake preserves its already-counted
   tier; settling does not consume another tier. A genuine scan advances the next
   fallback once, preserving the 5s -> 10s -> 20s progression (60s cap).

@@ -196,11 +196,19 @@ filtered scan to bypass background throttling.
 
 With a preferred scale configured, scale-only recovery passes only the matching
 candidate to scale policy, while preserving the full inventory and scan report.
+Only the first matching candidate is passed; duplicate objects with the same
+preferred ID must not become fallback picker alternatives after a failed connect.
 An absent or failed preferred scale therefore retains the existing bounded
 retries instead of opening a picker for an alternative. In the #1078 controlled
 USB-loss test, that automatic picker cancelled retries and later blocked wake
 recovery even after the USB HDS returned. This rule also covers adapter recovery's
 scale-only path; explicit scans and no-preference selection are unchanged.
+
+This is intentionally scoped to scale-only recovery. Full automatic startup and
+machine-recovery scans retain their existing scale-picker policy, which can still
+pause preferred-scale retries when only an alternative is discovered. Changing
+that policy needs a separate decision and combined machine/scale recovery tests;
+the #1078 controlled USB-loss fix does not establish that broader path as fixed.
 
 ### Phase lifecycle
 
