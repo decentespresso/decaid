@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:archive/archive_io.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
@@ -304,7 +305,7 @@ class PluginSourceService {
         _requireTagMatchesManifest(release.tag, package.manifest.version);
 
         final added = _addedPermissions(installed, package.manifest);
-        if (added.isNotEmpty) {
+        if (added.isNotEmpty && !await _isBundledPlugin(installed.id)) {
           _log.info(
             'Update of ${installed.id} to ${release.tag} needs approval for: '
             '${added.join(', ')}',
@@ -364,7 +365,7 @@ class PluginSourceService {
       _requireSamePlugin(installed, package);
 
       final added = _addedPermissions(installed, package.manifest);
-      if (added.isNotEmpty) {
+      if (added.isNotEmpty && !await _isBundledPlugin(installed.id)) {
         _log.info(
           'Update of ${installed.id} to $commit needs approval for: '
           '${added.join(', ')}',
@@ -543,6 +544,30 @@ class PluginSourceService {
   ) {
     final added = candidate.permissions.difference(installed.permissions);
     return added.map((p) => p.wireName).toList()..sort();
+  }
+
+  Future<bool> _isBundledPlugin(String pluginId) async {
+    final AssetManifest assetManifest;
+    try {
+      assetManifest = await AssetManifest.loadFromAssetBundle(rootBundle);
+    } catch (e) {
+      _log.fine('Unable to read bundled plugin asset manifest: $e');
+      return false;
+    }
+
+    for (final asset in assetManifest.listAssets()) {
+      if (!asset.startsWith('assets/plugins/') ||
+          !asset.endsWith('/manifest.json')) {
+        continue;
+      }
+      try {
+        final manifest = jsonDecode(await rootBundle.loadString(asset));
+        if (manifest is Map && manifest['id'] == pluginId) return true;
+      } catch (e) {
+        _log.fine('Unable to read bundled plugin manifest $asset: $e');
+      }
+    }
+    return false;
   }
 
   GitHubAsset _selectReleaseAsset(GitHubRelease release, String? assetName) {
