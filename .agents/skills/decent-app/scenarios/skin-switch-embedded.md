@@ -85,7 +85,7 @@ replaced.
 |---|---|
 | **Switch to missing id** | Page stays on the current skin, snackbar `Skin not installed: switch-test-missing`, server status port unchanged, default skin unchanged |
 | **Switch to <current> (same skin)** | Nothing happens: no reload, no snackbar, port unchanged |
-| **Rapid double switch** | Exactly one switch takes effect (the first id), snackbar `A skin switch is already in progress`, no duplicate restart in the log, server status port matches the skin that is displayed |
+| **Rapid double switch** | Exactly one switch takes effect (the first id), snackbar `A skin switch is already in progress`, no duplicate restart in the log, server status port matches the skin that is displayed. Only reproducible on Android: see the Android section |
 
 ## External browser is a no-op
 
@@ -120,10 +120,51 @@ Press **Switch to B** again; it must succeed.
 
 ## Android
 
-Run the same steps on an Android target (`scripts/sb-dev.sh start --platform
-<device-id> --adb-forward`), installing the fixtures over REST. The embedded
-WebView path differs from desktop, so desktop results do not stand in for it.
-Report the Android run separately.
+The embedded WebView path differs from desktop, so desktop results do not
+stand in for it. Report the Android run separately.
+
+`install/url` makes the device fetch the zip, which needs a reachable HTTP
+server. On a debug build it is simpler to write into the app's own data
+directory, which is where the skin registry scans:
+
+```bash
+export PATH="$HOME/Library/Android/sdk/platform-tools:$PATH"
+for s in a b auto; do adb push test/fixtures/skins/switch-test-$s /data/local/tmp/; done
+adb shell 'chmod -R 755 /data/local/tmp/switch-test-*'
+adb shell 'run-as net.tadel.reaprime cp -r /data/local/tmp/switch-test-a \
+  /data/local/tmp/switch-test-b /data/local/tmp/switch-test-auto app_flutter/web-ui/'
+```
+
+The registry is scanned at startup, so restart after copying:
+
+```bash
+scripts/sb-dev.sh restart --platform <device-id> --adb-forward \
+  --connect-machine MockDe1 --app-arg --skin=switch-test-auto
+curl -sf "$BASE/api/v1/webui/skins" | jq '[.[] | select(.id | startswith("switch-test")) | .id]'
+```
+
+`--adb-forward` is what makes `$BASE` reach the device. The default skin only
+takes effect on the next serve, so stop and start the web server if the status
+call still reports the previous skin.
+
+Android is the platform that reproduces single-flight: its WebView delivers
+both navigations of a same-tick double call, where WKWebView on macOS
+coalesces them into one and the `busy` branch never runs.
+
+Postconditions for the device:
+
+```bash
+curl -sf -X PUT "$BASE/api/v1/webui/skins/default" \
+  -H 'content-type: application/json' -d '{"skinId": "streamline.js"}' | jq .
+adb shell 'run-as net.tadel.reaprime rm -rf app_flutter/web-ui/switch-test-a \
+  app_flutter/web-ui/switch-test-b app_flutter/web-ui/switch-test-auto'
+adb shell 'rm -rf /data/local/tmp/switch-test-*'
+```
+
+A debug build also needs `android/app/debug.keystore` (gitignored); the
+standard `~/.android/debug.keystore` has the alias and password that
+`android/app/build.gradle.kts` expects. Delete the copy afterwards if you
+created it.
 
 ## Postconditions
 
@@ -138,7 +179,9 @@ rm -rf "$SKINS/switch-test-a" "$SKINS/switch-test-b"
 
 `switch-test-auto` drives the hook itself: 1.5 s after load it calls
 `switchSkin('switch-test-missing')`, and at 4 s it calls
-`switchSkin('switch-test-b')` twice in one tick.
+`switchSkin('switch-test-b')` twice in one tick. No launch flag opens the
+embedded view, so one click on the dashboard is still needed to enter the
+skin; everything after that click runs on its own.
 
 ```bash
 scripts/sb-dev.sh start --platform macos --connect-machine MockDe1 \
