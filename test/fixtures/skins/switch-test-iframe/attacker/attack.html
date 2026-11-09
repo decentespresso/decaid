@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Cross-origin subframe</title>
+<style>
+  body { font: 14px/1.4 system-ui, sans-serif; margin: 0; padding: 12px;
+         background: #ffd6d6; color: #111; }
+  button { font-size: 16px; padding: 10px 12px; margin: 4px 4px 0 0; }
+  #log { white-space: pre-wrap; font-family: ui-monospace, monospace;
+         background: #fff; border: 1px solid #0003; padding: 6px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<strong>Cross-origin subframe</strong> (stands in for a plugin iframe)
+<div id="info"></div>
+<div>
+  <button id="top">Navigate _top to switch-skin (needs this click as the gesture)</button>
+  <button id="peek">Read the host nonce from the top frame</button>
+</div>
+<div id="log"></div>
+<script>
+  var params = new URLSearchParams(location.search);
+  var skinPort = params.get('skinPort') || '';
+  var switchUrl = 'http://' + location.hostname + ':' + skinPort +
+    '/__decent/switch-skin?id=switch-test-b';
+  var log = document.getElementById('log');
+  function say(line) { log.textContent += line + '\n'; }
+  document.getElementById('info').textContent =
+    'my origin ' + location.origin + ', target ' + switchUrl;
+  say('host flag here: ' + (window.__DECENT_HOST__ ? 'set' : 'absent'));
+  say('switchSkin here: ' + typeof (window.decentApp || {}).switchSkin);
+  document.getElementById('top').onclick = function () {
+    try {
+      window.top.location.assign(switchUrl);
+      say('top navigation requested');
+    } catch (e) {
+      say('top navigation threw: ' + e);
+    }
+  };
+  document.getElementById('peek').onclick = function () {
+    try {
+      say('top nonce: ' + window.top.__DECENT_SWITCH_NONCE__);
+    } catch (e) {
+      say('reading the top nonce threw: ' + e);
+    }
+  };
+</script>
+</body>
+</html>

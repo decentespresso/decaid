@@ -1,0 +1,6 @@
+{
+  "id": "switch-test-iframe",
+  "name": "Switch test iframe",
+  "version": "1.0.0",
+  "description": "Manual fixture: cross-origin subframe attempting a top-level skin switch."
+}

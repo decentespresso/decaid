@@ -101,13 +101,22 @@ calling page, and the new skin appearing is the indication that it finished. A
 skin must not wait for a promise before letting the page unload.
 
 The hook is a native request, not a page navigation. The script navigates the
-top frame to `/__decent/switch-skin?id=<skinId>` on its own origin; Decaid
-cancels that navigation and performs the switch itself. Decaid accepts the
-request only from the active embedded `SkinView`'s top-level page on the port it
-is currently serving: subframes, a page left over from an earlier port, other
-origins and external browsers are rejected, and `window.__DECENT_HOST__` alone
-does not authorise it. Only an installed skin ID is accepted; URLs, paths and
-remote hosts are not.
+top frame to `/__decent/switch-skin?id=<skinId>&nonce=<nonce>` on its own
+origin; Decaid cancels that navigation and performs the switch itself. Decaid
+accepts the request only from the active embedded `SkinView`'s top-level page on
+the port it is currently serving: subframes, a page left over from an earlier
+port, other origins and external browsers are rejected, and
+`window.__DECENT_HOST__` alone does not authorise it. Only an installed skin ID
+is accepted; URLs, paths and remote hosts are not.
+
+The nonce closes the one gap `isForMainFrame` leaves: that flag describes the
+navigation's target frame, so a cross-origin subframe — a plugin iframe, for
+instance — that navigates `_top` after a user gesture would otherwise look like
+a main-frame request from the skin's own origin. `window.__DECENT_SWITCH_NONCE__`
+is injected per `SkinView` into the main frame only, so a cross-origin subframe
+can neither read it nor forge it, and a request carrying no nonce or a retired
+view's nonce is rejected. Skin pages never handle the nonce themselves;
+`switchSkin` reads it.
 
 Decaid selects the skin, restarts the WebUI server on that skin's own port,
 persists it as the default skin, and recreates the embedded view on the new port
@@ -121,8 +130,9 @@ default was not saved, so a restart returns to the previous default. Failure
 messages are shown by the route that owns the embedded view, so they survive the
 view being replaced by a restart.
 
-Two fixture skins and the manual steps for the A -> B -> A round trip, the
-rejection cases and the failure-to-serve rollback live in
+Fixture skins and the manual steps for the A -> B -> A round trip, the
+rejection cases, the cross-origin subframe attempt and the failure-to-serve
+rollback live in
 `test/fixtures/skins/` and
 `.agents/skills/decent-app/scenarios/skin-switch-embedded.md`.
 

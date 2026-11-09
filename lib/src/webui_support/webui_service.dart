@@ -37,6 +37,7 @@ class _ResolvedHost {
 const skinApiScriptPath = '/__decent/skin-api.js';
 const skinExitDashboardPath = '/__decent/exit-dashboard';
 const skinSwitchPath = '/__decent/switch-skin';
+const skinSwitchNonceGlobal = '__DECENT_SWITCH_NONCE__';
 const skinExitDashboardUrl = 'http://localhost:3000$skinExitDashboardPath';
 const _skinProxyTokenMetaName = 'reaprime-proxy-token';
 const _htmlAttributeEscape = HtmlEscape(HtmlEscapeMode.attribute);
@@ -109,8 +110,11 @@ String buildSkinApiJavaScript({int port = 3000}) {
       'window.decentApp.switchSkin=function(skinId){'
       'if(!window.__DECENT_HOST__)return false;'
       'if(typeof skinId!=="string"||skinId.length===0)return false;'
+      'var nonce=window.$skinSwitchNonceGlobal;'
+      'if(typeof nonce!=="string"||nonce.length===0)return false;'
       'window.location.assign(${jsonEncode(skinSwitchUrlForPort(port))}'
-      '+"?id="+encodeURIComponent(skinId));'
+      '+"?id="+encodeURIComponent(skinId)'
+      '+"&nonce="+encodeURIComponent(nonce));'
       'return true;'
       '};';
 }

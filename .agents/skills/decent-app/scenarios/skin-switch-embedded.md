@@ -60,7 +60,7 @@ curl -sf -X PUT "$BASE/api/v1/webui/skins/default" \
   -H 'content-type: application/json' -d '{"skinId": "switch-test-a"}' | jq .
 curl -sf -X POST "$BASE/api/v1/webui/server/stop" | jq .
 curl -sf -X POST "$BASE/api/v1/webui/server/start" | jq .
-curl -sf "$BASE/api/v1/webui/server/status" | jq '{isServing, port}'
+curl -sf "$BASE/api/v1/webui/server/status" | jq '{serving, port}'
 ```
 
 In the app, open the skin from the dashboard. The page must show `SKIN A`, the
@@ -98,6 +98,38 @@ The same page in a normal browser must show
 B** logs `switchSkin("switch-test-b") returned false`, the page does not change,
 and the embedded view and server stay on the current skin. Use the REST calls in
 the previous section to switch skins from a browser.
+
+## Cross-origin subframe cannot switch skins
+
+`switch-test-iframe` embeds a cross-origin page (the stand-in for a plugin
+iframe) and tries to drive the switch from it. Serve the attacker page from
+another origin and install the skin:
+
+```bash
+cp -R test/fixtures/skins/switch-test-iframe "$SKINS/"
+(cd test/fixtures/skins/switch-test-iframe/attacker && python3 -m http.server 8765) &
+# Android only, so the device's localhost:8765 reaches this machine:
+# adb reverse tcp:8765 tcp:8765
+```
+
+Make `switch-test-iframe` the default skin, restart the server, and open it.
+The red subframe must report `host flag here: absent` and
+`switchSkin here: undefined`, because the host identity and the switch nonce
+are injected into the main frame only.
+
+- Press **Read the host nonce from the top frame** in the subframe: it must
+  throw a cross-origin `SecurityError`, never print a nonce.
+- Press **Navigate _top to switch-skin**. That click is the user gesture a
+  cross-origin frame needs for top-level navigation, so the navigation does
+  reach `shouldOverrideUrlLoading` with `isForMainFrame: true` and the skin's
+  own origin as the top-level URI. Expect `WARNING SkinView - Rejected skin
+  switch request: http://localhost:<port>/__decent/switch-skin?id=switch-test-b`
+  (no `nonce` parameter), the page unchanged, no serve, and no snackbar.
+- Press **Control: switch to B from the main frame** to confirm the same build
+  still switches when the main frame asks: `Switched skin to switch-test-b`.
+
+Postconditions: stop the `http.server` job, `adb reverse --remove tcp:8765` if
+used, and `rm -rf "$SKINS/switch-test-iframe"`.
 
 ## Failure to serve and rollback
 
@@ -172,7 +204,8 @@ created it.
 curl -sf -X PUT "$BASE/api/v1/webui/skins/default" \
   -H 'content-type: application/json' -d '{"skinId": "streamline.js"}' | jq .
 scripts/sb-dev.sh stop
-rm -rf "$SKINS/switch-test-a" "$SKINS/switch-test-b"
+rm -rf "$SKINS/switch-test-a" "$SKINS/switch-test-b" \
+  "$SKINS/switch-test-iframe"
 ```
 
 ## Headless variant (no clicking)
@@ -191,10 +224,14 @@ scripts/sb-dev.sh logs -n 200 --filter 'switch-test\|SkinSwitchCoordinator\|Skin
 
 Expect in order: the auto page loading on its own port; `Rejected`/`not
 installed` for the missing id with the previous skin still displayed; one
-`Switched skin to switch-test-b on port <new port>`; one `rejected: another is
-in flight` for the duplicate call; and a `Page started loading:
-http://localhost:<new port>/` from the replacement view — never an external
-browser launch.
+`Switched skin to switch-test-b on port <new port>`; and a `Page started
+loading: http://localhost:<new port>/` from the replacement view — never an
+external browser launch.
+
+The duplicate call does **not** produce `rejected: another is in flight` on
+macOS: WKWebView coalesces a same-tick `location.assign` to the same URL, so
+only one navigation reaches the native side and the single-flight branch never
+runs. Expect that line on Android only, where both navigations are delivered.
 
 This writes to the real app container: it sets `defaultSkinId` and installs the
 fixtures into the live skin directory. Note the previous value first

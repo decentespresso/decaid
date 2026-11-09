@@ -9,6 +9,11 @@ flag are present, and buttons for: switch to the other skin, switch to itself,
 switch to a missing id, two switch calls in one tick, and exit to dashboard.
 Every call logs the value `switchSkin` returned.
 
+`switch-test-iframe` embeds a cross-origin page (served separately, the
+stand-in for a plugin iframe) that tries to drive the switch by navigating the
+top frame. It is the manual check that the main-frame-only switch nonce keeps
+subframe-originated requests out.
+
 Steps, including install, the A -> B -> A round trip, the rejection cases and
 the failure-to-serve rollback, are in
 `.agents/skills/decent-app/scenarios/skin-switch-embedded.md`.

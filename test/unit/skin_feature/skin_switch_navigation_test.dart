@@ -90,6 +90,99 @@ void main() {
     });
   });
 
+  group('isTrustedSkinSwitchRequest', () {
+    const nonce = 'cafebabe-main-frame-nonce';
+    Uri target(String id, {String? withNonce}) => Uri.parse(
+      'http://localhost:$skinPort$skinSwitchPath?id=$id'
+      '${withNonce == null ? '' : '&nonce=$withNonce'}',
+    );
+
+    test('accepts a request carrying the main-frame nonce', () {
+      expect(
+        isTrustedSkinSwitchRequest(
+          target: target('streamline.js', withNonce: nonce),
+          isForMainFrame: true,
+          topLevelUri: Uri.parse('http://localhost:$skinPort/'),
+          skinPort: skinPort,
+          expectedNonce: nonce,
+        ),
+        isTrue,
+      );
+    });
+
+    test('rejects a top-level navigation without the nonce', () {
+      expect(
+        isTrustedSkinSwitchRequest(
+          target: target('streamline.js'),
+          isForMainFrame: true,
+          topLevelUri: Uri.parse('http://localhost:$skinPort/'),
+          skinPort: skinPort,
+          expectedNonce: nonce,
+        ),
+        isFalse,
+      );
+    });
+
+    test('rejects a wrong or retired-generation nonce', () {
+      expect(
+        isTrustedSkinSwitchRequest(
+          target: target('streamline.js', withNonce: 'guessed'),
+          isForMainFrame: true,
+          topLevelUri: Uri.parse('http://localhost:$skinPort/'),
+          skinPort: skinPort,
+          expectedNonce: nonce,
+        ),
+        isFalse,
+      );
+      expect(
+        isTrustedSkinSwitchRequest(
+          target: target('streamline.js', withNonce: nonce),
+          isForMainFrame: true,
+          topLevelUri: Uri.parse('http://localhost:$skinPort/'),
+          skinPort: skinPort,
+          expectedNonce: 'a-newer-generation-nonce',
+        ),
+        isFalse,
+      );
+    });
+
+    test('never accepts an empty expected nonce', () {
+      expect(
+        isTrustedSkinSwitchRequest(
+          target: target('streamline.js', withNonce: ''),
+          isForMainFrame: true,
+          topLevelUri: Uri.parse('http://localhost:$skinPort/'),
+          skinPort: skinPort,
+          expectedNonce: '',
+        ),
+        isFalse,
+      );
+    });
+
+    test('still enforces the page trust rules', () {
+      expect(
+        isTrustedSkinSwitchRequest(
+          target: target('streamline.js', withNonce: nonce),
+          isForMainFrame: false,
+          topLevelUri: Uri.parse('http://localhost:$skinPort/'),
+          skinPort: skinPort,
+          expectedNonce: nonce,
+        ),
+        isFalse,
+      );
+      expect(
+        isTrustedSkinSwitchRequest(
+          target: target('streamline.js', withNonce: nonce),
+          isForMainFrame: true,
+          topLevelUri: Uri.parse('http://localhost:24802/'),
+          skinPort: skinPort,
+          expectedNonce: nonce,
+        ),
+        isFalse,
+      );
+    });
+  });
+
   group('isTrustedSkinPageRequest', () {
     test('accepts the active top-level skin page', () {
       expect(
