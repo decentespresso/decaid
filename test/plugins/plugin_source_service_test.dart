@@ -1150,7 +1150,7 @@ function createPlugin() {
               .toSet();
 
       test(
-        'bundled release additions apply without pending approval',
+        'bundled release additions from an unrelated repository wait',
         () async {
           await http.runWithClient(
             () => service.installFromGitHubRelease('acme/settings'),
@@ -1174,12 +1174,12 @@ function createPlugin() {
             ),
           );
 
-          expect(loader.getPluginManifest(bundledId)!.version, '1.1.0');
-          expect(loaderPermissions(), {'log', 'proxy.decent_api'});
-          expect(diskPermissions(), {'log', 'proxy.decent_api'});
+          expect(loader.getPluginManifest(bundledId)!.version, '1.0.0');
+          expect(loaderPermissions(), {'log'});
+          expect(diskPermissions(), {'log'});
           final source = service.sourceFor(bundledId)!;
-          expect(source.releaseTag, 'v1.1.0');
-          expect(source.pendingUpdate, isNull);
+          expect(source.releaseTag, 'v1.0.0');
+          expect(source.pendingUpdate?.addedPermissions, ['proxy.decent_api']);
         },
       );
 
@@ -1251,7 +1251,7 @@ function createPlugin() {
         },
       );
 
-      test('bundled branch additions apply without pending approval', () async {
+      test('bundled branch additions always wait for approval', () async {
         await http.runWithClient(
           () => service.installFromGitHubBranch('acme/settings'),
           () => gitHubClient(
@@ -1275,12 +1275,12 @@ function createPlugin() {
           ),
         );
 
-        expect(loader.getPluginManifest(bundledId)!.version, '1.1.0');
-        expect(loaderPermissions(), {'log', 'proxy.decent_api'});
-        expect(diskPermissions(), {'log', 'proxy.decent_api'});
+        expect(loader.getPluginManifest(bundledId)!.version, '1.0.0');
+        expect(loaderPermissions(), {'log'});
+        expect(diskPermissions(), {'log'});
         final source = service.sourceFor(bundledId)!;
-        expect(source.commit, 'second');
-        expect(source.pendingUpdate, isNull);
+        expect(source.commit, 'first');
+        expect(source.pendingUpdate?.addedPermissions, ['proxy.decent_api']);
       });
 
       test(
@@ -1380,6 +1380,115 @@ function createPlugin() {
       expect(loader.getPluginManifest(id)?.version, '1.0.0');
       expect(service.sourceFor(id)!.releaseTag, 'v1.0.0');
       expect(service.sourceFor(id)!.lastError, isNotNull);
+    });
+
+    group('bundled permission provenance', () {
+      const bundledId = 'settings.reaplugin';
+      const canonicalRepo = 'decentespresso/settings';
+      late PluginSourceService provenanceService;
+
+      setUp(() {
+        provenanceService = PluginSourceService(
+          loader,
+          canonicalBundledRepos: const {bundledId: canonicalRepo},
+        );
+      });
+
+      Future<void> installFrom(String repo) => http.runWithClient(
+        () => provenanceService.installFromGitHubRelease(repo),
+        () => gitHubClient(
+          releaseArchive: pluginArchive(
+            pluginId: bundledId,
+            permissions: const ['log'],
+          ),
+        ),
+      );
+
+      Future<void> updateTo(List<String> permissions) => http.runWithClient(
+        () => provenanceService.updateAllPlugins(),
+        () => gitHubClient(
+          tag: 'v1.1.0',
+          releaseArchive: pluginArchive(
+            pluginId: bundledId,
+            version: '1.1.0',
+            permissions: permissions,
+          ),
+        ),
+      );
+
+      test(
+        'canonical repository addition within the bundle is approved',
+        () async {
+          await installFrom(canonicalRepo);
+          await updateTo(const ['log', 'api']);
+
+          expect(loader.getPluginManifest(bundledId)!.version, '1.1.0');
+          expect(provenanceService.sourceFor(bundledId)!.pendingUpdate, isNull);
+          final diskManifest =
+              jsonDecode(
+                    File(
+                      loader.getPluginDirectory(bundledId) + '/manifest.json',
+                    ).readAsStringSync(),
+                  )
+                  as Map<String, dynamic>;
+          expect(diskManifest['permissions'], unorderedEquals(['log', 'api']));
+        },
+      );
+
+      test('canonical repository addition beyond the bundle waits', () async {
+        await installFrom(canonicalRepo);
+        await updateTo(const ['log', 'network.tcp']);
+
+        expect(loader.getPluginManifest(bundledId)!.version, '1.0.0');
+        final pending = provenanceService.sourceFor(bundledId)!.pendingUpdate;
+        expect(pending, isNotNull);
+        expect(pending!.addedPermissions, ['network.tcp']);
+      });
+
+      test(
+        'unrelated repository addition waits even for a bundled id',
+        () async {
+          await installFrom('acme/settings');
+          await updateTo(const ['log', 'api']);
+
+          expect(loader.getPluginManifest(bundledId)!.version, '1.0.0');
+          final pending = provenanceService.sourceFor(bundledId)!.pendingUpdate;
+          expect(pending, isNotNull);
+          expect(pending!.addedPermissions, ['api']);
+        },
+      );
+
+      test(
+        'branch source addition waits even on the canonical repository',
+        () async {
+          await http.runWithClient(
+            () => provenanceService.installFromGitHubBranch(canonicalRepo),
+            () => gitHubClient(
+              branchArchive: pluginArchive(
+                pluginId: bundledId,
+                permissions: const ['log'],
+              ),
+            ),
+          );
+
+          await http.runWithClient(
+            () => provenanceService.updateAllPlugins(),
+            () => gitHubClient(
+              commit: 'commit-2',
+              branchArchive: pluginArchive(
+                pluginId: bundledId,
+                version: '1.1.0',
+                permissions: const ['log', 'api'],
+              ),
+            ),
+          );
+
+          expect(loader.getPluginManifest(bundledId)!.version, '1.0.0');
+          final pending = provenanceService.sourceFor(bundledId)!.pendingUpdate;
+          expect(pending, isNotNull);
+          expect(pending!.addedPermissions, ['api']);
+        },
+      );
     });
   });
 }
