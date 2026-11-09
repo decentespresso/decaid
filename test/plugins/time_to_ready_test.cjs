@@ -142,15 +142,14 @@ test('a target change resets the reference and the new session has its own ceili
   const emitted = [];
   const plugin = loadPlugin(now, emitted);
   ready(plugin, 20, 70);
-  replay(plugin, now, [20.2, 20.4, 20.6, 20.8, 21, 21.2, 21.4], 1000);
+  replay(plugin, now, [20.5, 21, 21.5, 22, 22.5, 23, 23.5], 1000);
   const oldSession = estimates(emitted).filter((value) => value.status === 'heating');
   assert.ok(oldSession.length > 0);
 
-  plugin.onEvent({ name: 'stateUpdate', payload: payload(21.4, 71) });
+  plugin.onEvent({ name: 'stateUpdate', payload: payload(23.5, 71) });
   assert.equal(estimates(emitted).at(-1).status, 'insufficient_data');
-  ready(plugin, 21.4, 71);
   now.value += 1000;
-  replay(plugin, now, [21.6, 21.8, 22, 22.2, 22.4, 22.6, 22.8], 1000, 71);
+  replay(plugin, now, [24, 24.5, 25, 25.5, 26, 26.5, 27], 1000, 71);
 
   const newSession = estimates(emitted).filter((value) => value.status === 'heating').slice(oldSession.length);
   assert.ok(newSession.length > 1);
@@ -162,8 +161,8 @@ test('the estimator clamps countdowns to five and three hundred seconds', () => 
   const lowEmitted = [];
   const lowPlugin = loadPlugin(lowNow, lowEmitted);
   ready(lowPlugin, 20);
-  lowNow.value = 10000;
-  lowPlugin.onEvent({ name: 'stateUpdate', payload: payload(20.1) });
+  lowNow.value = 100000;
+  lowPlugin.onEvent({ name: 'stateUpdate', payload: payload(26) });
   assert.equal(estimates(lowEmitted).at(-1).remainingTimeMs, 300000);
 
   const highNow = { value: 0 };
@@ -208,6 +207,42 @@ test('cooling, sleeping, and missing state remain insufficient and sleeping rese
   now.value = 2000;
   plugin.onEvent({ name: 'stateUpdate', payload: payload(20.4) });
   assert.equal(estimates(emitted).at(-1).status, 'insufficient_data');
+});
+
+test('heating is detected from temperature alone, not from a heating state', () => {
+  const now = { value: 0 };
+  const emitted = [];
+  const plugin = loadPlugin(now, emitted);
+  const idle = (temperature, target) => ({
+    state: { state: 'idle', substate: 'preparingForShot' },
+    groupTemperature: temperature,
+    targetGroupTemperature: target,
+  });
+
+  for (const temperature of [44, 46, 48, 50, 52, 54, 56, 58]) {
+    plugin.onEvent({ name: 'stateUpdate', payload: idle(temperature, 92) });
+    now.value += 1000;
+  }
+
+  const heating = estimates(emitted).filter((value) => value.status === 'heating');
+  assert.ok(
+    heating.length > 0,
+    'a machine reporting idle/preparingForShot while heating must still publish a countdown',
+  );
+  assertNonIncreasing(heating, 'idle-state heating increased');
+});
+
+test('a cold start without a prior ready still publishes an estimate', () => {
+  const now = { value: 0 };
+  const emitted = [];
+  const plugin = loadPlugin(now, emitted);
+  for (const temperature of [23, 25, 27, 29, 31, 33]) {
+    plugin.onEvent({ name: 'stateUpdate', payload: payload(temperature, 92, 'idle') });
+    now.value += 1000;
+  }
+  const value = estimates(emitted).at(-1);
+  assert.equal(value.status, 'heating');
+  assert.ok(value.remainingTimeMs > 0);
 });
 
 test('reached state publishes zero remaining time', () => {

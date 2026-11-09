@@ -10,6 +10,8 @@
 function createPlugin(host) {
   "use strict";
 
+  const MIN_WARMED_CELSIUS = 2;
+
   function createState() {
     return {
       ticksSeen: 0,
@@ -58,18 +60,26 @@ function createPlugin(host) {
 
     if (machineState === 'sleeping') {
       resetHeatStart();
+    } else if (currentTemp >= targetTemp) {
+      resetHeatStart();
     } else if (machineState === 'ready') {
+      state.heatStartTime = now;
+      state.heatStartTemp = currentTemp;
+      state.maximumRemainingTimeSeconds = null;
+    } else if (state.heatStartTime !== null &&
+      currentTemp < state.heatStartTemp - 2) {
+      resetHeatStart();
+    }
+    state.lastTemp = currentTemp;
+
+    if (state.heatStartTime === null && machineState !== 'sleeping' &&
+      currentTemp < targetTemp) {
       state.heatStartTime = now;
       state.heatStartTemp = currentTemp;
       state.maximumRemainingTimeSeconds = null;
     }
 
-    const estimation = estimateRemainingTime(
-      currentTemp,
-      targetTemp,
-      machineState,
-      now,
-    );
+    const estimation = estimateRemainingTime(currentTemp, targetTemp, now);
 
     state.lastEstimation = estimation;
     state.lastMachineState = machineState || null;
@@ -100,7 +110,7 @@ function createPlugin(host) {
     log("Shutdown requested");
   }
 
-  function estimateRemainingTime(currentTemp, targetTemp, machineState, now) {
+  function estimateRemainingTime(currentTemp, targetTemp, now) {
     if (currentTemp >= targetTemp) {
       return {
         remainingTimeMs: 0,
@@ -110,8 +120,8 @@ function createPlugin(host) {
       };
     }
 
-    if (machineState !== 'heating' || state.heatStartTime === null ||
-      state.heatStartTemp === null) {
+    if (state.heatStartTime === null || state.heatStartTemp === null ||
+      currentTemp - state.heatStartTemp < MIN_WARMED_CELSIUS) {
       return {
         remainingTimeMs: null,
         heatingRate: null,
