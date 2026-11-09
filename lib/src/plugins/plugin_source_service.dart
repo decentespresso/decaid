@@ -593,11 +593,11 @@ class PluginSourceService {
         continue;
       }
       try {
-        final manifest = jsonDecode(await rootBundle.loadString(asset));
-        if (manifest is! Map || manifest['id'] != pluginId) continue;
-        final permissions = manifest['permissions'];
-        if (permissions is! List) continue;
-        return permissions.whereType<String>().toSet();
+        final decoded = jsonDecode(await rootBundle.loadString(asset));
+        if (decoded is! Map<String, dynamic>) continue;
+        if (decoded['id'] != pluginId) continue;
+        final manifest = PluginManifest.fromJson(decoded);
+        return manifest.permissions.map((p) => p.wireName).toSet();
       } catch (e) {
         _log.fine('Unable to read bundled plugin manifest $asset: $e');
       }
