@@ -292,6 +292,43 @@ test('a cold start without a prior ready still publishes an estimate', () => {
   assert.ok(value.remainingTimeMs > 0);
 });
 
+test('a fast machine ticking at 15 Hz publishes through a cold-start plateau', () => {
+  const now = { value: 0 };
+  const emitted = [];
+  const plugin = loadPlugin(now, emitted);
+  const target = 93;
+  const tick = 67;
+  let temperature = 54.7;
+
+  for (let index = 0; index < 300; index++) {
+    plugin.onEvent({ name: 'stateUpdate', payload: payload(temperature, target, 'idle') });
+    now.value += tick;
+  }
+  const rampStart = now.value;
+  for (let index = 0; index < 4000 && temperature < target; index++) {
+    temperature = Math.min(target, temperature + 0.5 * (tick / 1000));
+    plugin.onEvent({ name: 'stateUpdate', payload: payload(temperature, target, 'idle') });
+    now.value += tick;
+  }
+
+  const values = estimates(emitted);
+  const heating = values.filter((value) => value.status === 'heating');
+  assert.ok(heating.length > 0, 'a 15 Hz ramp published no estimate');
+  const first = values.find((value) => value.status === 'heating');
+  const firstSecondsAfterRamp = (first.timestamp - rampStart) / 1000;
+  assert.ok(
+    firstSecondsAfterRamp < 5,
+    'first estimate took ' + firstSecondsAfterRamp.toFixed(1) + ' s to appear',
+  );
+  const trueRemaining = (target - first.currentTemp) / 0.5;
+  assert.ok(
+    Math.abs(first.remainingTimeMs / 1000 - trueRemaining) <= 20,
+    'first estimate ' + first.remainingTimeMs / 1000 +
+      ' s missed the true ' + trueRemaining.toFixed(0) + ' s by more than two steps',
+  );
+  assertNonIncreasing(heating, '15 Hz ramp increased');
+});
+
 test('reached state publishes zero remaining time', () => {
   const now = { value: 0 };
   const emitted = [];

@@ -197,9 +197,10 @@ function createPlugin(host) {
         (sample) => sample.timestamp >= last.timestamp - spanSeconds * 1000,
       );
       if (anchorIndex < 0) continue;
+      const spanStart = anchorIndex;
       while (anchorIndex + 1 < state.temperatureSamples.length &&
         state.temperatureSamples[anchorIndex + 1].temperature -
-          state.temperatureSamples[anchorIndex].temperature <
+          state.temperatureSamples[spanStart].temperature <
             MIN_INTERVAL_RISE_CELSIUS) {
         anchorIndex++;
       }
