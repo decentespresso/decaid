@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/device_identity.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/remembered_device.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
@@ -41,6 +42,10 @@ class RememberedDevicesController {
     _initialized = true;
     final raw = await _settings.rememberedDevices();
     final loaded = RememberedDevice.decodeList(raw);
+    final persisted = loaded
+        .where((device) => !isEphemeralDeviceIdentity(device.id))
+        .toList();
+    final hasEphemeralRecords = persisted.length != loaded.length;
 
     final stored = RememberedDevice.storedCount(raw);
     final recordsDropped = stored > loaded.length;
@@ -52,7 +57,7 @@ class RememberedDevicesController {
     }
 
     var migrated = 0;
-    for (final d in loaded) {
+    for (final d in persisted) {
       if (d.implementation == null || d.transportType == null) {
         _registry[d.id] = d.migrate(DeviceMatcher.implementationForName);
         migrated++;
@@ -64,7 +69,7 @@ class RememberedDevicesController {
       'loaded ${_registry.length} remembered device(s)'
       '${migrated > 0 ? ", migrated $migrated old record(s)" : ""}',
     );
-    if (migrated > 0 && !hasOpaqueRecords) {
+    if ((migrated > 0 || hasEphemeralRecords) && !hasOpaqueRecords) {
       try {
         await _persist();
       } catch (_) {
@@ -101,6 +106,7 @@ class RememberedDevicesController {
   }
 
   Future<void> _remember(RememberedDevice device) async {
+    if (isEphemeralDeviceIdentity(device.id)) return;
     final existing = _registry[device.id];
     if (existing != null && existing.sameMetadata(device)) {
       if (_migrationPersistPending) {

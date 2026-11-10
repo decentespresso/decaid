@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/services.dart';
@@ -439,6 +440,55 @@ void main() {
 
     await service.dispose();
   });
+
+  test(
+    'connected tap retains ownership across missing and readable descriptors',
+    () async {
+      listed = [_composite(serial: null)];
+      service = build(detect: (_) async => null);
+      await service.scanForDevices();
+      final tap = (await service.devices.first).single;
+      expect(tap.deviceId, 'usb-2e8a-a-unknown-if02-1002');
+      await tap.onConnect();
+      listed = [_composite()];
+      await service.scanForDevices();
+      listed = [_composite(serial: null)];
+      await service.scanForDevices();
+      expect(await service.devices.first, [same(tap)]);
+      channelCalls.clear();
+      await service.handleUsbEvent(
+        UsbEvent()..event = UsbEvent.ACTION_USB_DETACHED,
+      );
+      expect(await service.devices.first, isEmpty);
+      expect(channelCalls, contains('close'));
+    },
+  );
+
+  test(
+    'tap creation finishing after detach closes rather than publishing',
+    () async {
+      listed = [_composite()];
+      final created = Completer<UsbPort?>();
+      service = SerialServiceAndroid(
+        listDevices: () async => listed,
+        usbEventStream: () => null,
+        detectDevice: (_) async => null,
+        createTapPort: (_, _) => created.future,
+      );
+      final scanning = service.scanForDevices();
+      await Future<void>.delayed(Duration.zero);
+      final detached = service.handleUsbEvent(
+        UsbEvent()
+          ..event = UsbEvent.ACTION_USB_DETACHED
+          ..device = _composite(serial: null),
+      );
+      created.complete(UsbPort('test-tap-port'));
+      await scanning;
+      await detached;
+      expect(await service.devices.first, isEmpty);
+      expect(channelCalls, contains('close'));
+    },
+  );
 
   test('stable ID helper matches the emitted tap ID', () {
     expect(

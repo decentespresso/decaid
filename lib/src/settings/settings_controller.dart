@@ -1,3 +1,4 @@
+import 'package:reaprime/src/models/device/device_identity.dart';
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
@@ -309,6 +310,7 @@ class SettingsController with ChangeNotifier {
   }
 
   Future<void> setPreferredMachineId(String? machineId) async {
+    if (machineId != null && isEphemeralDeviceIdentity(machineId)) return;
     if (machineId == _preferredMachineId) {
       return;
     }

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:logging/logging.dart';
+import 'package:reaprime/src/models/device/device_identity.dart';
 import 'package:reaprime/src/controllers/connection/scan_report_builder.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart';
@@ -58,7 +59,7 @@ class EarlyConnectWatcher {
         !_machineStarted) {
       final match = devices
           .whereType<De1Interface>()
-          .where((m) => m.deviceId == _preferredMachineId)
+          .where((m) => matchesDeviceIdentity(m, _preferredMachineId))
           .firstOrNull;
       if (match != null) {
         _log.fine('Preferred machine found during scan, connecting early');

@@ -66,6 +66,31 @@ String? computeUsbStableId({
   return '$id-if${interfaceNumber.toRadixString(16).padLeft(2, '0')}';
 }
 
+String? computeUsbAttachmentId({
+  int? vid,
+  int? pid,
+  String? serial,
+  int? physicalId,
+  int? interfaceNumber,
+}) {
+  final normalizedSerial = serial?.trim();
+  final stable = computeUsbStableId(
+    vid: vid,
+    pid: pid,
+    serial: normalizedSerial?.isNotEmpty == true ? normalizedSerial : null,
+    interfaceNumber: interfaceNumber,
+  );
+  if (stable == null) {
+    if (physicalId == null) return null;
+    final base = 'usb-session-$physicalId';
+    return interfaceNumber == null || interfaceNumber <= 0
+        ? base
+        : '$base-if${interfaceNumber.toRadixString(16).padLeft(2, '0')}';
+  }
+  if (normalizedSerial?.isNotEmpty == true || physicalId == null) return stable;
+  return '$stable-$physicalId';
+}
+
 /// Strips a trailing `-ifNN` (optionally followed by a physical-instance
 /// `-<deviceId>`) suffix from a USB stable ID, so a composite device's
 /// machine and tap logical IDs map back to one physical device. IDs without

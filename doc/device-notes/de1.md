@@ -136,8 +136,18 @@ descriptors are available, otherwise `serial-<basename>`. Candidates are
 deduplicated before probing, and the identity is reused for scan dedup,
 `Device.deviceId`, remembered devices, and API inventory. The legacy
 `serial-<basename>` alias remains accepted for quick connect and migrates to
-the canonical id after a successful connection. Android keeps its existing
-`UsbDevice.deviceId`-suffixed identities.
+the canonical id after a successful connection. On Android, a readable USB
+descriptor serial is canonical. If it is unavailable, the session uses
+`usb-{vid}-{pid}-unknown-{physicalId}` so distinct same-VID/PID attachments do
+not collide. This fallback is not remembered, preferred, or used for the
+`device:` machine-settings fallback; a later serial is adopted only after safe
+disconnect and redetection. Physical ownership also prevents descriptor timing
+from creating duplicate machines or Bengle tap transports during one
+attachment. Learned descriptor identity resolves remembered inventory and preferred
+selection without relabeling a live transport. If neither a physical attachment ID
+nor a descriptor serial is available, detection waits rather than aliasing
+independent devices by VID/PID. Android keeps the descriptor serial canonical
+after it is readable.
 
 - `<F>` MMR write frames are exactly 20 bytes. Short payloads are zero-padded
   without changing their length byte; oversized payloads fail.

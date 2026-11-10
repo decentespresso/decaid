@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/device_identity.dart';
 import 'package:reaprime/src/models/device/remembered_device.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
@@ -34,7 +35,55 @@ class _FakeDevice implements Device {
   Future<void> disconnect() async {}
 }
 
+class _CanonicalDevice extends _FakeDevice implements CanonicalDeviceIdentity {
+  _CanonicalDevice() : super('usb-2e8a-a-unknown-7', 'DE1', DeviceType.machine);
+  @override
+  String? canonicalDeviceId;
+}
+
 void main() {
+  test(
+    'attachment-proven canonical identity coalesces remembered inventory only after discovery',
+    () async {
+      final live = _CanonicalDevice();
+      const remembered = [
+        RememberedDevice(
+          id: 'usb-2e8a-a-KNOWN',
+          name: 'DE1',
+          type: DeviceType.machine,
+        ),
+        RememberedDevice(
+          id: 'usb-2e8a-a-OTHER',
+          name: 'DE1',
+          type: DeviceType.machine,
+        ),
+        RememberedDevice(
+          id: 'AA:BB:CC:DD:EE:FF',
+          name: 'DE1',
+          type: DeviceType.machine,
+        ),
+      ];
+      expect(
+        await buildAvailabilityDeviceList([live], remembered),
+        hasLength(4),
+      );
+      live.canonicalDeviceId = 'usb-2e8a-a-KNOWN';
+      final inventory = await buildAvailabilityDeviceList([live], remembered);
+      expect(inventory, hasLength(3));
+      expect(inventory.map((entry) => entry['id']).toSet(), {
+        'usb-2e8a-a-unknown-7',
+        'usb-2e8a-a-OTHER',
+        'AA:BB:CC:DD:EE:FF',
+      });
+      expect(
+        inventory.singleWhere((entry) => entry['id'] == live.deviceId)['state'],
+        'connected',
+      );
+      expect(matchesDeviceIdentity(live, 'usb-2e8a-a-KNOWN'), isTrue);
+      expect(matchesDeviceIdentity(live, 'usb-2e8a-a-OTHER'), isFalse);
+    },
+  );
+
   group('buildAvailabilityDeviceList', () {
     test('a present device is available:true with its real state', () async {
       final list = await buildAvailabilityDeviceList([

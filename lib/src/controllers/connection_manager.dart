@@ -27,6 +27,7 @@ import 'package:reaprime/src/models/device/impl/bengle/bengle_virtual_scale.dart
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/adapter_state.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/device_identity.dart';
 import 'package:reaprime/src/models/device/device_attach_notifier.dart';
 import 'package:reaprime/src/models/device/device_scanner.dart';
 import 'package:reaprime/src/models/device/grinder_device.dart';
@@ -901,7 +902,9 @@ class ConnectionManager {
       (connected) => connected == machine,
       orElse: () => machine,
     );
-    await settingsController.setPreferredMachineId(machine.deviceId);
+    if (!isEphemeralDeviceIdentity(machine.deviceId)) {
+      await settingsController.setPreferredMachineId(machine.deviceId);
+    }
     _log.info('Attach probe: machine adopted (${machine.deviceId})');
     if (machine is BengleInterface) {
       await _attachBengleVirtualScale(machine);
@@ -1504,7 +1507,11 @@ class ConnectionManager {
     String rememberedId,
     String canonicalId,
   ) async {
-    if (rememberedId == canonicalId) return;
+    if (rememberedId == canonicalId ||
+        isEphemeralDeviceIdentity(rememberedId) ||
+        isEphemeralDeviceIdentity(canonicalId)) {
+      return;
+    }
     final registry = rememberedDevices;
     if (registry == null) return;
     final movesPreferred =
@@ -1762,7 +1769,10 @@ class ConnectionManager {
     final policyMachines =
         policy.connectPreferredDuringScan && preferredMachineId != null
         ? machines
-              .where((machine) => machine.deviceId != preferredMachineId)
+              .where(
+                (machine) =>
+                    !matchesDeviceIdentity(machine, preferredMachineId),
+              )
               .toList()
         : machines;
     final machineAction = resolveMachinePolicy(
@@ -2354,7 +2364,9 @@ class ConnectionManager {
         );
         return const ConnectionResult.conflict();
       }
-      await settingsController.setPreferredMachineId(machine.deviceId);
+      if (!isEphemeralDeviceIdentity(machine.deviceId)) {
+        await settingsController.setPreferredMachineId(machine.deviceId);
+      }
       if (!identical(_machineAttempt, attempt)) {
         return const ConnectionResult.conflict();
       }

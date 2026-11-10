@@ -11,6 +11,7 @@ import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/de1_rawmessage.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/device_identity.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/firmware_update_state.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
@@ -56,10 +57,11 @@ final class _FirmwareCancellationToken {
   }
 }
 
-class UnifiedDe1 implements De1Interface {
+class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
   static final BleServiceIdentifier advertisingIdentifier =
       BleServiceIdentifier.short('ffff');
   final UnifiedDe1Transport _transport;
+  final CanonicalDeviceIdentity? _transportIdentity;
   final _firmwareMmrGate = _FirmwareMmrGate();
   final Duration firmwareEraseTimeout;
   final Duration firmwareVerificationTimeout;
@@ -76,7 +78,10 @@ class UnifiedDe1 implements De1Interface {
     this.firmwareEraseTimeout = const Duration(seconds: 60),
     this.firmwareVerificationTimeout = const Duration(seconds: 120),
     this.calibrationTimeout = const Duration(seconds: 4),
-  }) : _transport = UnifiedDe1Transport(transport: transport);
+  }) : _transport = UnifiedDe1Transport(transport: transport),
+       _transportIdentity = transport is CanonicalDeviceIdentity
+           ? transport as CanonicalDeviceIdentity
+           : null;
 
   @override
   Stream<ConnectionState> get connectionState => _transport.connectionState;
@@ -133,6 +138,9 @@ class UnifiedDe1 implements De1Interface {
 
   @override
   String get deviceId => _transport.id;
+
+  @override
+  String? get canonicalDeviceId => _transportIdentity?.canonicalDeviceId;
 
   @override
   DeviceImplementation get implementation => DeviceImplementation.unifiedDe1;

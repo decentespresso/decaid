@@ -12,6 +12,7 @@ import 'package:reaprime/src/models/data/shot_state_event.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/device_identity.dart';
 import 'package:reaprime/src/models/device/firmware_update_state.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
@@ -744,7 +745,8 @@ class De1Controller {
       if (serial.isNotEmpty && serial != '0') return 'serial:$serial';
     } catch (_) {}
     final deviceId = device.deviceId.trim();
-    return deviceId.isEmpty ? '' : 'device:$deviceId';
+    if (deviceId.isEmpty || isEphemeralDeviceIdentity(deviceId)) return '';
+    return 'device:$deviceId';
   }
 
   void _publishSteamFlow(double newFlow) {

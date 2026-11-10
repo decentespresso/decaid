@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
+import 'package:reaprime/src/models/device/device_identity.dart';
 import 'package:reaprime/src/controllers/connection_error.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
@@ -318,7 +319,9 @@ class ScanFlowViewState extends State<ScanFlowView> {
     if (_discoveredMachines.isEmpty && _discoveredScales.isEmpty) return false;
     final preferredMachineId = widget.settingsController.preferredMachineId;
     if (preferredMachineId == null) return false;
-    return !_discoveredMachines.any((m) => m.deviceId == preferredMachineId);
+    return !_discoveredMachines.any(
+      (m) => matchesDeviceIdentity(m, preferredMachineId),
+    );
   }
 
   int get _totalDiscovered =>
@@ -467,7 +470,9 @@ class ScanFlowViewState extends State<ScanFlowView> {
       final preferredMachineNotFound =
           preferredMachineId != null &&
           _status.foundMachines.isNotEmpty &&
-          !_status.foundMachines.any((m) => m.deviceId == preferredMachineId);
+          !_status.foundMachines.any(
+            (m) => matchesDeviceIdentity(m, preferredMachineId),
+          );
       return _singlePickerView(
         context: context,
         label: preferredMachineNotFound
@@ -518,7 +523,9 @@ class ScanFlowViewState extends State<ScanFlowView> {
     final preferredMachineNotFound =
         preferredMachineId != null &&
         _status.foundMachines.isNotEmpty &&
-        !_status.foundMachines.any((m) => m.deviceId == preferredMachineId);
+        !_status.foundMachines.any(
+          (m) => matchesDeviceIdentity(m, preferredMachineId),
+        );
 
     final preferredScaleNotFound =
         preferredScaleId != null &&
@@ -528,9 +535,12 @@ class ScanFlowViewState extends State<ScanFlowView> {
     De1Interface? connectTarget;
     if (_status.foundMachines.length == 1) {
       connectTarget = _status.foundMachines.first;
-    } else if (preferredMachineId != null) {
+    } else if (_selectedMachineId != null || preferredMachineId != null) {
       for (final machine in _status.foundMachines) {
-        if (machine.deviceId == preferredMachineId) {
+        if (matchesDeviceIdentity(
+          machine,
+          _selectedMachineId ?? preferredMachineId,
+        )) {
           connectTarget = machine;
           break;
         }
@@ -568,13 +578,13 @@ class ScanFlowViewState extends State<ScanFlowView> {
                                 : null)
                           : null,
                       errorMessage: _operationErrorMessage,
-                      selectedDeviceId: null,
+                      selectedDeviceId: _selectedMachineId,
                       preferredDeviceId:
                           widget.settingsController.preferredMachineId,
                       onPreferredChanged: (id) =>
                           widget.settingsController.setPreferredMachineId(id),
                       onDeviceTapped: (device) {
-                        setState(() {});
+                        setState(() => _selectedMachineId = device.deviceId);
                         widget.settingsController.setPreferredMachineId(
                           device.deviceId,
                         );

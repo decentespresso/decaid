@@ -231,11 +231,25 @@ earlier attach broadcast.
 
 `UsbAttachProbe` is a second optional capability for the originating serial
 service. `SerialServiceAndroid.connectAttachedMachine` correlates the attach
-event with a newly listed USB device (by stable ID when Android supplied one,
-otherwise only devices not already connected), runs the normal serial admission
+event with a newly listed USB device (by physical attachment when Android
+supplies its ID, otherwise by stable ID or an unclaimed enumeration candidate), runs the normal serial admission
 and detection, and connects the device only when it is a supported machine
-(`De1Interface`). Scales, sensors, debug ports, keyboards, and other USB
-devices are rejected and their transports disposed. The typed result
+(`De1Interface`). Android USB IDs use the readable descriptor serial as the
+canonical identity. While that serial is unavailable, an attachment-scoped
+`usb-<vid>-<pid>-unknown-<physicalId>` identity keeps same-VID/PID devices
+separate for the current session; it is never written as a remembered device,
+preferred machine, or device-ID machine-settings fallback. Missing VID/PID
+descriptors use the same session-only policy (`usb-session-<physicalId>`). Repeated enumeration
+for the same physical attachment is reconciled through physical ownership, so a
+later descriptor change does not add a competing inventory item or replace a
+healthy transport. Once an attachment supplies its descriptor serial, inventory and
+preferred resolution recognize that canonical ID without adding its remembered
+record beside the live session. Explicit UI and API preference writes also ignore
+session-only IDs; UI selection remains local and can still connect the device.
+Canonical rebind is deferred until a safe disconnected
+redetection rather than forcing a healthy session to reconnect. Scales, sensors,
+debug ports, keyboards, and other USB devices are rejected and their transports
+disposed. The typed result
 distinguishes a connected machine from "no supported machine attached" from
 "machine detected but connection or identity initialization failed". When
 the originating service only implements the notifier (no probe capability),
