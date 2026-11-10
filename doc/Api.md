@@ -366,7 +366,7 @@ current value, or send `0` to turn stop-at-weight off deliberately; a value that
 number returns `400` rather than clearing the target. The `context` object itself is
 non-nullable too — `{"context": null}` returns `400`, because dropping the whole context
 would clear `targetYield` with it, so clearing is per field. A stored or returned workflow
-keeps a nullable `targetYield`.
+keeps a nullable `targetYield`. `context.grinderRpm` is an optional non-negative integer recorded by the workflow; it is never inferred from a connected grinder observation or catalog UI increment. When a shot is stored, its workflow context (including RPM and namespaced `extras`) is detached as historical data, while `grinderId` remains only a catalog reference and linked burrs are resolved for that new shot.
 Requests may wait behind machine I/O; the server does not debounce high-frequency
 input, so clients should throttle controls themselves. Bodies larger than 1 MiB return `413`,
 requests beyond the eight-entry active/queued limit return `429`, and requests waiting more

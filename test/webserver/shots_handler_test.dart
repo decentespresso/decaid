@@ -313,6 +313,65 @@ void main() {
     );
 
     test(
+      'GET and PUT preserve RPM and nested grinder workflow extras',
+      () async {
+        await persistence.persistShot(
+          makeShot(
+            id: 'workflow-values',
+            grinderId: 'grinder-1',
+            grinderModel: 'EG1',
+            grinderSetting: '12.5',
+            grinderRpm: 1200,
+            contextExtras: const {
+              'plugin.grinder': {
+                'feedingRate': 4.5,
+                'rpmProfile': [900, 1200],
+              },
+            },
+          ),
+        );
+
+        final before = await decode(
+          await sendGet('/api/v1/shots/workflow-values'),
+        );
+        expect(before['workflow']['context']['grinderId'], 'grinder-1');
+        expect(before['workflow']['context']['grinderSetting'], '12.5');
+        expect(before['workflow']['context']['grinderRpm'], 1200);
+        expect(before['workflow']['context']['extras'], {
+          'plugin.grinder': {
+            'feedingRate': 4.5,
+            'rpmProfile': [900, 1200],
+          },
+        });
+
+        final (putJson, getJson) = await putAndGet('workflow-values', {
+          'workflow': {
+            'context': {
+              'grinderSetting': '13.0',
+              'grinderRpm': 1300,
+              'extras': {
+                'plugin.grinder': {
+                  'feedingRate': 5.5,
+                  'rpmProfile': [1000, 1300],
+                },
+              },
+            },
+          },
+        });
+        for (final json in [putJson, getJson]) {
+          expect(json['workflow']['context']['grinderSetting'], '13.0');
+          expect(json['workflow']['context']['grinderRpm'], 1300);
+          expect(json['workflow']['context']['extras'], {
+            'plugin.grinder': {
+              'feedingRate': 5.5,
+              'rpmProfile': [1000, 1300],
+            },
+          });
+        }
+      },
+    );
+
+    test(
       'PUT clears the grinder burrs snapshot with an explicit null',
       () async {
         await persistence.persistShot(
@@ -835,8 +894,11 @@ ShotRecord makeShot({
   String? beanBatchId,
   String? coffeeName,
   String? coffeeRoaster,
+  String? grinderId,
   String? grinderModel,
   String? grinderBurrs,
+  String? grinderSetting,
+  int? grinderRpm,
   ShotAnnotations? annotations,
   Map<String, dynamic>? contextExtras,
 }) {
@@ -845,8 +907,11 @@ ShotRecord makeShot({
       beanBatchId: beanBatchId,
       coffeeName: coffeeName,
       coffeeRoaster: coffeeRoaster,
+      grinderId: grinderId,
       grinderModel: grinderModel,
       grinderBurrs: grinderBurrs,
+      grinderSetting: grinderSetting,
+      grinderRpm: grinderRpm,
       extras: contextExtras,
     ),
   );

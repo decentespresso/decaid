@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
 import 'package:reaprime/src/models/data/steam_record.dart';
@@ -52,12 +54,16 @@ class PersistenceController {
   }
 
   Future<ShotRecord> _withGrinderBurrsSnapshot(ShotRecord record) async {
-    final context = record.workflow.context;
+    final detachedWorkflow = Workflow.fromRecordedJson(
+      jsonDecode(jsonEncode(record.workflow.toJson())) as Map<String, dynamic>,
+    );
+    final snapshot = record.copyWith(workflow: detachedWorkflow);
+    final context = snapshot.workflow.context;
     final grinderId = context?.grinderId;
-    if (grinderId == null) return record;
+    if (grinderId == null) return snapshot;
 
     final grinders = grinderStorageService;
-    if (grinders == null) return record;
+    if (grinders == null) return snapshot;
 
     String? burrs;
     try {
@@ -67,11 +73,11 @@ class PersistenceController {
       burrs = null;
     }
     if (burrs != null && burrs.trim().isEmpty) burrs = null;
-    if (burrs == context!.grinderBurrs) return record;
+    if (burrs == context!.grinderBurrs) return snapshot;
 
-    return record.copyWith(
-      workflow: record.workflow.copyWith(
-        id: record.workflow.id,
+    return snapshot.copyWith(
+      workflow: snapshot.workflow.copyWith(
+        id: snapshot.workflow.id,
         context: context.copyWith(
           grinderBurrs: burrs,
           clearGrinderBurrs: burrs == null,
