@@ -489,6 +489,22 @@ class SerialServiceAndroid
 
     var devices = await _listDevices();
     if (!_isCurrent(revision)) return;
+    final detachedInEnumeration = devices
+        .where(
+          (device) =>
+              device.deviceId != null &&
+              _detachedPhysicalIds.contains(device.deviceId),
+        )
+        .toSet();
+    if (detachedInEnumeration.isNotEmpty) {
+      _log.fine(
+        "Ignoring ${detachedInEnumeration.length} detached USB attachment(s) "
+        "still present in enumeration",
+      );
+      devices = devices
+          .where((d) => !detachedInEnumeration.contains(d))
+          .toList();
+    }
     for (final device in devices) {
       _canonicalSerialOf(device);
     }

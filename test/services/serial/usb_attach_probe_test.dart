@@ -467,6 +467,50 @@ void main() {
     },
   );
 
+  test(
+    'a scan ignores a detached attachment still present in enumeration',
+    () async {
+      final device = _device();
+      final machine = _FakeMachine();
+      var detections = 0;
+      listed = [device];
+      detection = (_) async {
+        detections++;
+        return machine;
+      };
+      service = build();
+
+      await service.scanForDevices();
+      expect(await service.devices.first, contains(machine));
+      expect(detections, 1);
+
+      await service.handleUsbEvent(
+        UsbEvent()
+          ..event = UsbEvent.ACTION_USB_DETACHED
+          ..device = device,
+      );
+      expect(await service.devices.first, isEmpty);
+
+      await service.scanForDevices();
+
+      expect(
+        await service.devices.first,
+        isEmpty,
+        reason:
+            'a stale enumeration entry must not republish a detached machine',
+      );
+      expect(detections, 1, reason: 'a tombstoned attachment is not probed');
+
+      await service.handleUsbEvent(
+        UsbEvent()
+          ..event = UsbEvent.ACTION_USB_ATTACHED
+          ..device = device,
+      );
+      await service.scanForDevices();
+      expect(await service.devices.first, contains(machine));
+    },
+  );
+
   test('concurrent attach and scan share detection and connect once', () async {
     final device = _device(serial: null);
     final detectionResult = Completer<Device?>();
