@@ -48,6 +48,7 @@ temporary real-hardware tuning builds where debug endpoints must be reachable.
 - `flutter_with_commit.sh` injects the git commit hash as a compile-time constant via `--dart-define`.
 - CI uses pinned Flutter version. Linux build smoke runs via Docker.
 - Android uses `ForegroundTaskService` for background BLE. Auto-stops 5min after disconnect; auto-restarts on reconnect.
+- Skin `exitApp()` backgrounds Android with `moveTaskToBack(true)` on the `app/lifecycle` channel rather than finishing the activity, so the BLE connection and wake schedules keep running. Desktop quits through `exitApplication(AppExitType.cancelable)`; iOS cannot close itself, so the call does nothing there.
 - `Makefile` targets: `build-arm`, `build-amd`, `dual-build` (Linux only, requires Docker/Colima).
 
 ## Skin Camera Permissions on Apple Platforms

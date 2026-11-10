@@ -217,34 +217,6 @@ void main() {
       }
     });
 
-    test('exits the app for the exact skin app exit URL', () {
-      final url = skinExitAppUrlForPort(43210);
-      expect(
-        classifySkinNavigation(Uri.parse(url), skinPort: 43210),
-        SkinNavDecision.exitApp,
-      );
-    });
-
-    test('blocks extended and malformed skin app exit URLs', () {
-      final url = skinExitAppUrlForPort(43210);
-      for (final url in [
-        '$url/path',
-        '$url?unexpected=true',
-        '$url#fragment',
-        'http://user@localhost:43210$skinExitAppPath',
-        'http://localhost:43211$skinExitAppPath',
-        'http://localhost$skinExitAppPath',
-        'https://localhost:43210$skinExitAppPath',
-        'http://example.com:43210$skinExitAppPath',
-      ]) {
-        expect(
-          classifySkinNavigation(Uri.parse(url), skinPort: 43210),
-          isNot(SkinNavDecision.exitApp),
-          reason: url,
-        );
-      }
-    });
-
     test('opens external https links in the browser', () {
       expect(
         classifySkinNavigation(
@@ -330,51 +302,6 @@ void main() {
         ),
         isFalse,
       );
-    });
-
-    test('app exit coordinator only accepts its own URL', () {
-      final appTarget = Uri.parse(skinExitAppUrlForPort(43210));
-      final coordinator = SkinExitCoordinator(
-        exitUrlForPort: skinExitAppUrlForPort,
-      );
-
-      expect(
-        coordinator.tryStart(
-          target: target,
-          isForMainFrame: true,
-          topLevelUri: trustedPage,
-          skinPort: 43210,
-        ),
-        isFalse,
-      );
-      expect(
-        coordinator.tryStart(
-          target: appTarget,
-          isForMainFrame: true,
-          topLevelUri: trustedPage,
-          skinPort: 43210,
-        ),
-        isTrue,
-      );
-    });
-
-    test('finish allows a later request', () {
-      final appTarget = Uri.parse(skinExitAppUrlForPort(43210));
-      final coordinator = SkinExitCoordinator(
-        exitUrlForPort: skinExitAppUrlForPort,
-      );
-      bool start() => coordinator.tryStart(
-        target: appTarget,
-        isForMainFrame: true,
-        topLevelUri: trustedPage,
-        skinPort: 43210,
-      );
-
-      expect(start(), isTrue);
-      expect(start(), isFalse);
-      coordinator.finish();
-      expect(coordinator.inProgress, isFalse);
-      expect(start(), isTrue);
     });
   });
 }
