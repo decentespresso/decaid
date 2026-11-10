@@ -103,13 +103,11 @@ void main() {
           'de1app_scanner_disjoint_',
         );
         await Directory('${tempDir.path}/history_v2').create();
-        await File(
-          '${tempDir.path}/history_v2/20240315T143022.json',
-        ).writeAsString('{}');
+        await File('${tempDir.path}/history_v2/20240315T143022.json')
+            .writeAsString('{}');
         await Directory('${tempDir.path}/history').create();
-        await File(
-          '${tempDir.path}/history/20200101T000000.shot',
-        ).writeAsString('');
+        await File('${tempDir.path}/history/20200101T000000.shot')
+            .writeAsString('');
 
         result = await De1appScanner.scan(tempDir.path);
       });
@@ -139,13 +137,11 @@ void main() {
           'de1app_scanner_same_basename_',
         );
         await Directory('${tempDir.path}/history_v2').create();
-        await File(
-          '${tempDir.path}/history_v2/20240315T143022.json',
-        ).writeAsString('{}');
+        await File('${tempDir.path}/history_v2/20240315T143022.json')
+            .writeAsString('{}');
         await Directory('${tempDir.path}/history').create();
-        await File(
-          '${tempDir.path}/history/20240315T143022.shot',
-        ).writeAsString('');
+        await File('${tempDir.path}/history/20240315T143022.shot')
+            .writeAsString('');
 
         result = await De1appScanner.scan(tempDir.path);
       });

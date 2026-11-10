@@ -65,17 +65,12 @@ class ShotSequencer {
     required this.targetProfile,
     required this.targetYield,
     double? targetWaterVolume,
-    required bool bypassSAW,
-    required bool blockOnNoScale,
-    required double weightFlowMultiplier,
-    required double volumeFlowMultiplier,
-    required bool stepExitArbiterEnabled,
+    required this._bypassSAW,
+    required this._blockOnNoScale,
+    required this._weightFlowMultiplier,
+    required this._volumeFlowMultiplier,
+    required this._stepExitArbiterEnabled,
   }) : targetWaterVolume = targetWaterVolume ?? targetProfile.targetVolume,
-       _bypassSAW = bypassSAW,
-       _blockOnNoScale = blockOnNoScale,
-       _weightFlowMultiplier = weightFlowMultiplier,
-       _volumeFlowMultiplier = volumeFlowMultiplier,
-       _stepExitArbiterEnabled = stepExitArbiterEnabled,
        _machineHasAutonomousSAW =
            de1controller.connectedDe1() is BengleInterface {
     _log.info(

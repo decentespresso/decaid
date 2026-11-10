@@ -104,28 +104,25 @@ void main() {
     expect(events, isEmpty);
   });
 
-  test(
-    'reading preserves active conditions and source resolution emits no user event',
-    () async {
-      final events = <Map<String, dynamic>>[];
-      final subscription = manager.emitStream.listen(events.add);
-      addTearDown(subscription.cancel);
-      await load('first', onLoad: 'host.notify($notice);');
-      await load('second', onLoad: 'host.notify($notice);');
-      await manager.notifications.markRead(manager.notifications.value);
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(events, isEmpty);
-      expect(manager.notifications.value, hasLength(2));
-      await manager.unloadPlugin('first');
-      await load('first', onLoad: 'host.notify($notice);');
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(events, isEmpty);
-      expect(manager.notifications.value.map((notice) => notice.sourceId), [
-        'second',
-        'first',
-      ]);
-    },
-  );
+  test('reading preserves active conditions and source resolution emits no user event', () async {
+    final events = <Map<String, dynamic>>[];
+    final subscription = manager.emitStream.listen(events.add);
+    addTearDown(subscription.cancel);
+    await load('first', onLoad: 'host.notify($notice);');
+    await load('second', onLoad: 'host.notify($notice);');
+    await manager.notifications.markRead(manager.notifications.value);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(events, isEmpty);
+    expect(manager.notifications.value, hasLength(2));
+    await manager.unloadPlugin('first');
+    await load('first', onLoad: 'host.notify($notice);');
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(events, isEmpty);
+    expect(manager.notifications.value.map((notice) => notice.sourceId), [
+      'second',
+      'first',
+    ]);
+  });
 
   test('delivery result events require notification permission', () async {
     final events = <Map<String, dynamic>>[];
@@ -232,33 +229,30 @@ void main() {
     expect(center.value, isEmpty);
   });
 
-  test(
-    'runtime shutdown and reload retain notices while explicit unload removes them',
-    () async {
-      await load('first', onLoad: 'host.notify($notice);');
-      await manager.notifications.markRead(manager.notifications.value);
-      final old = manager.notifications.activation(
-        manager.notifications.value.single,
-      );
-      await load('first');
-      expect(manager.notifications.value, hasLength(1));
-      expect(
-        manager.notifications.isConfirmed(manager.notifications.value.single),
-        isFalse,
-      );
-      expect(manager.notifications.isCurrent(old), isFalse);
-      await load('first', onLoad: 'host.notify($notice);');
-      expect(manager.notifications.unreadCount, 0);
-      expect(
-        manager.notifications.isConfirmed(manager.notifications.value.single),
-        isTrue,
-      );
-      await manager.dispose();
-      expect(manager.notifications.value, hasLength(1));
-      expect(
-        manager.notifications.isConfirmed(manager.notifications.value.single),
-        isFalse,
-      );
-    },
-  );
+  test('runtime shutdown and reload retain notices while explicit unload removes them', () async {
+    await load('first', onLoad: 'host.notify($notice);');
+    await manager.notifications.markRead(manager.notifications.value);
+    final old = manager.notifications.activation(
+      manager.notifications.value.single,
+    );
+    await load('first');
+    expect(manager.notifications.value, hasLength(1));
+    expect(
+      manager.notifications.isConfirmed(manager.notifications.value.single),
+      isFalse,
+    );
+    expect(manager.notifications.isCurrent(old), isFalse);
+    await load('first', onLoad: 'host.notify($notice);');
+    expect(manager.notifications.unreadCount, 0);
+    expect(
+      manager.notifications.isConfirmed(manager.notifications.value.single),
+      isTrue,
+    );
+    await manager.dispose();
+    expect(manager.notifications.value, hasLength(1));
+    expect(
+      manager.notifications.isConfirmed(manager.notifications.value.single),
+      isFalse,
+    );
+  });
 }

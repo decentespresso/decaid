@@ -9,9 +9,9 @@ class AccountConsentPrompter {
   final Duration timeout;
 
   AccountConsentPrompter({
-    required GlobalKey<NavigatorState> navigatorKey,
+    required this._navigatorKey,
     this.timeout = const Duration(seconds: 30),
-  }) : _navigatorKey = navigatorKey;
+  });
 
   Future<AccountConsentDecision?> prompt(String callerLabel) {
     final context = _navigatorKey.currentContext;

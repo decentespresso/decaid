@@ -450,79 +450,73 @@ void main() {
   });
 
   group('disconnect tracking keys (comms-harden #20)', () {
-    test(
-      'two devices with same name but different IDs do not collide on disconnect',
-      () async {
-        final service = _ManualDiscoveryService();
-        final telemetry = _RecordingTelemetry();
-        final controller = DeviceController([service])
-          ..telemetryService = telemetry;
-        await controller.initialize();
+    test('two devices with same name but different IDs do not collide on disconnect', () async {
+      final service = _ManualDiscoveryService();
+      final telemetry = _RecordingTelemetry();
+      final controller = DeviceController([service])
+        ..telemetryService = telemetry;
+      await controller.initialize();
 
-        final a = _FakeDevice(
-          deviceId: 'AA:11:11:11:11:11',
-          name: 'DE1',
-          type: DeviceType.machine,
-        );
-        final b = _FakeDevice(
-          deviceId: 'BB:22:22:22:22:22',
-          name: 'DE1',
-          type: DeviceType.machine,
-        );
+      final a = _FakeDevice(
+        deviceId: 'AA:11:11:11:11:11',
+        name: 'DE1',
+        type: DeviceType.machine,
+      );
+      final b = _FakeDevice(
+        deviceId: 'BB:22:22:22:22:22',
+        name: 'DE1',
+        type: DeviceType.machine,
+      );
 
-        service.emit([a, b]);
-        await Future<void>.delayed(Duration.zero);
+      service.emit([a, b]);
+      await Future<void>.delayed(Duration.zero);
 
-        service.emit([a]);
-        await Future<void>.delayed(Duration.zero);
+      service.emit([a]);
+      await Future<void>.delayed(Duration.zero);
 
-        service.emit([a, b]);
-        await Future<void>.delayed(Duration.zero);
+      service.emit([a, b]);
+      await Future<void>.delayed(Duration.zero);
 
-        expect(
-          telemetry.customKeys,
-          contains('reconnection_duration_${b.deviceId}'),
-        );
-        expect(
-          telemetry.customKeys,
-          isNot(contains('reconnection_duration_${a.deviceId}')),
-        );
-      },
-    );
+      expect(
+        telemetry.customKeys,
+        contains('reconnection_duration_${b.deviceId}'),
+      );
+      expect(
+        telemetry.customKeys,
+        isNot(contains('reconnection_duration_${a.deviceId}')),
+      );
+    });
 
-    test(
-      'device returning with a different advertised name is still matched by id',
-      () async {
-        final service = _ManualDiscoveryService();
-        final telemetry = _RecordingTelemetry();
-        final controller = DeviceController([service])
-          ..telemetryService = telemetry;
-        await controller.initialize();
+    test('device returning with a different advertised name is still matched by id', () async {
+      final service = _ManualDiscoveryService();
+      final telemetry = _RecordingTelemetry();
+      final controller = DeviceController([service])
+        ..telemetryService = telemetry;
+      await controller.initialize();
 
-        final before = _FakeDevice(
-          deviceId: 'CC:33:33:33:33:33',
-          name: 'DE1',
-          type: DeviceType.machine,
-        );
-        final afterFirmware = _FakeDevice(
-          deviceId: 'CC:33:33:33:33:33',
-          name: 'DE1Pro',
-          type: DeviceType.machine,
-        );
+      final before = _FakeDevice(
+        deviceId: 'CC:33:33:33:33:33',
+        name: 'DE1',
+        type: DeviceType.machine,
+      );
+      final afterFirmware = _FakeDevice(
+        deviceId: 'CC:33:33:33:33:33',
+        name: 'DE1Pro',
+        type: DeviceType.machine,
+      );
 
-        service.emit([before]);
-        await Future<void>.delayed(Duration.zero);
-        service.emit(const []);
-        await Future<void>.delayed(Duration.zero);
-        service.emit([afterFirmware]);
-        await Future<void>.delayed(Duration.zero);
+      service.emit([before]);
+      await Future<void>.delayed(Duration.zero);
+      service.emit(const []);
+      await Future<void>.delayed(Duration.zero);
+      service.emit([afterFirmware]);
+      await Future<void>.delayed(Duration.zero);
 
-        expect(
-          telemetry.customKeys,
-          contains('reconnection_duration_${before.deviceId}'),
-        );
-      },
-    );
+      expect(
+        telemetry.customKeys,
+        contains('reconnection_duration_${before.deviceId}'),
+      );
+    });
 
     test('telemetry device_<id>_type key uses deviceId, not name', () async {
       final service = _ManualDiscoveryService();

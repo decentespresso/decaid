@@ -857,8 +857,7 @@ void main() {
         expect(
           testDe1.requestedStates.where((s) => s == MachineState.sleeping),
           isEmpty,
-          reason:
-              'FW < 1357 latches the request; must not send sleep from needsWater',
+          reason: 'FW < 1357 latches the request; must not send sleep from needsWater',
         );
 
         controller.heartbeat();
@@ -1055,8 +1054,7 @@ void main() {
         expect(
           testDe1.requestedStates.where((s) => s == MachineState.schedIdle),
           isEmpty,
-          reason:
-              'Schedule should not wake a machine that is not in sleeping state',
+          reason: 'Schedule should not wake a machine that is not in sleeping state',
         );
 
         controller.dispose();

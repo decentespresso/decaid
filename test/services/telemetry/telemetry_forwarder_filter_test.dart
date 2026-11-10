@@ -268,18 +268,15 @@ void main() {
     });
 
     group('handled input failures', () {
-      test(
-        'DataManagement UserFacingFormatException is dropped without message matching',
-        () {
-          final record = _record(
-            Level.SEVERE,
-            'DataManagement',
-            'any handled input diagnostic',
-            const UserFacingFormatException('invalid export shape'),
-          );
-          expect(shouldForwardToTelemetry(record), isFalse);
-        },
-      );
+      test('DataManagement UserFacingFormatException is dropped without message matching', () {
+        final record = _record(
+          Level.SEVERE,
+          'DataManagement',
+          'any handled input diagnostic',
+          const UserFacingFormatException('invalid export shape'),
+        );
+        expect(shouldForwardToTelemetry(record), isFalse);
+      });
 
       for (final logger in [
         'DataManagement',

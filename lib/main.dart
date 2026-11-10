@@ -283,9 +283,8 @@ void main(List<String> args) async {
   final logDir = await AppDirectories.logs;
   await Directory(logDir).create(recursive: true);
 
-  RotatingFileAppender(
-    baseFilePath: '$logDir/log.txt',
-  ).attachToLogger(Logger.root);
+  RotatingFileAppender(baseFilePath: '$logDir/log.txt')
+      .attachToLogger(Logger.root);
 
   final webViewLogService = WebViewLogService(logDirectoryPath: logDir);
   await webViewLogService.initialize();

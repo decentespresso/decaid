@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
+
 import 'package:logging/logging.dart';
 import 'package:collection/collection.dart';
 import 'package:reaprime/src/models/device/ble_service_identifier.dart';
@@ -11,6 +12,7 @@ import 'package:rxdart/subjects.dart';
 import 'package:reaprime/src/models/device/device.dart';
 
 import 'package:reaprime/src/models/errors.dart';
+
 import '../../scale.dart';
 
 class FelicitaArc implements Scale {

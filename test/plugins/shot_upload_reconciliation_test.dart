@@ -105,11 +105,9 @@ Map<String, dynamic> _shot(
 
 PluginManifest _manifest() => PluginManifest.fromJson(
   jsonDecode(
-        File(
-          'assets/plugins/shot-upload.reaplugin/manifest.json',
-        ).readAsStringSync(),
-      )
-      as Map<String, dynamic>,
+    File('assets/plugins/shot-upload.reaplugin/manifest.json')
+        .readAsStringSync(),
+  ) as Map<String, dynamic>,
 );
 
 String _pluginSource() =>

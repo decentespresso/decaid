@@ -48,9 +48,8 @@ void main() {
 
     expect(controller.remembered.map((d) => d.id), ['de1-1']);
     expect(
-      RememberedDevice.decodeList(
-        await settings.rememberedDevices(),
-      ).map((d) => d.id),
+      RememberedDevice.decodeList(await settings.rememberedDevices())
+          .map((d) => d.id),
       ['de1-1'],
     );
   });
@@ -92,9 +91,8 @@ void main() {
 
     expect(controller.remembered.map((d) => d.id), ['wifi:hds.local']);
     expect(
-      RememberedDevice.decodeList(
-        await settings.rememberedDevices(),
-      ).map((d) => d.id),
+      RememberedDevice.decodeList(await settings.rememberedDevices())
+          .map((d) => d.id),
       ['wifi:hds.local'],
     );
   });

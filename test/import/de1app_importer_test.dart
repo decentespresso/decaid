@@ -31,9 +31,8 @@ class FakeStorageService implements StorageService {
   final List<String> _existingIds;
   Workflow? _currentWorkflow;
 
-  FakeStorageService({List<String>? existingIds, Workflow? currentWorkflow})
-    : _existingIds = existingIds ?? [],
-      _currentWorkflow = currentWorkflow;
+  FakeStorageService({List<String>? existingIds, this._currentWorkflow})
+    : _existingIds = existingIds ?? [];
 
   @override
   Future<void> storeShot(ShotRecord record) async {
@@ -399,13 +398,10 @@ Future<ImportResult> importEntityShots({
   final directory = await Directory.systemTemp.createTemp('de1app_entities_');
   try {
     await Directory('${directory.path}/history_v2').create();
-    final fixture =
-        jsonDecode(
-              await File(
-                '$_fixturesPath/history_v2/20240315T143022.json',
-              ).readAsString(),
-            )
-            as Map<String, dynamic>;
+    final fixture = jsonDecode(
+      await File('$_fixturesPath/history_v2/20240315T143022.json')
+          .readAsString(),
+    ) as Map<String, dynamic>;
     for (var i = 0; i < identities.length; i++) {
       final identity = identities[i];
       final meta = fixture['meta'] as Map<String, dynamic>;
@@ -422,15 +418,13 @@ Future<ImportResult> importEntityShots({
           },
         },
       };
-      await File(
-        '${directory.path}/history_v2/$i.json',
-      ).writeAsString(jsonEncode(shot));
+      await File('${directory.path}/history_v2/$i.json')
+          .writeAsString(jsonEncode(shot));
     }
     if (dye != null) {
       await Directory('${directory.path}/plugins/DYE').create(recursive: true);
-      await File(
-        '${directory.path}/plugins/DYE/grinders.tdb',
-      ).writeAsString(dye);
+      await File('${directory.path}/plugins/DYE/grinders.tdb')
+          .writeAsString(dye);
     }
     return await makeImporter(
       storage: storage,
@@ -683,9 +677,8 @@ void main() {
             storage: storage,
             beans: beans,
             grinders: grinders,
-            dye: await File(
-              '$_fixturesPath/plugins/DYE/grinders.tdb',
-            ).readAsString(),
+            dye: await File('$_fixturesPath/plugins/DYE/grinders.tdb')
+                .readAsString(),
           );
           expect(result.errors, isEmpty);
           final linked = await grinders.getGrinderById(
@@ -710,38 +703,34 @@ void main() {
       );
     });
 
-    test(
-      'DYE preset merge matches case variants and keeps unmatched shot grinders',
-      () async {
-        final storage = FakeStorageService();
-        final beans = FakeBeanStorageService();
-        final grinders = FakeGrinderStorageService();
-        final result = await importEntityShots(
-          storage: storage,
-          beans: beans,
-          grinders: grinders,
-          identities: [
-            {'model': 'baratza encore'},
-            {'model': 'Unknown Grinder'},
-          ],
-          dye:
-              'Baratza\\ Encore {is_numeric 0 default Medium big_step 5 values {Coarse Fine Medium}}',
-        );
-        expect(result.errors, isEmpty);
-        expect(grinders.grinders, hasLength(2));
-        final context = storage.shots['de1app-1710510622']!.workflow.context!;
-        final preset = await grinders.getGrinderById(context.grinderId!);
-        expect(preset!.model, 'baratza encore');
-        expect(preset.settingType, GrinderSettingType.preset);
-        expect(preset.settingValues, ['Coarse', 'Fine', 'Medium']);
-        expect(preset.settingBigStep, 5);
-        expect(
-          grinders.grinders.values.any((g) => g.model == 'Unknown Grinder'),
-          isTrue,
-        );
-        await expectResolvedReferences(storage, beans, grinders);
-      },
-    );
+    test('DYE preset merge matches case variants and keeps unmatched shot grinders', () async {
+      final storage = FakeStorageService();
+      final beans = FakeBeanStorageService();
+      final grinders = FakeGrinderStorageService();
+      final result = await importEntityShots(
+        storage: storage,
+        beans: beans,
+        grinders: grinders,
+        identities: [
+          {'model': 'baratza encore'},
+          {'model': 'Unknown Grinder'},
+        ],
+        dye: 'Baratza\\ Encore {is_numeric 0 default Medium big_step 5 values {Coarse Fine Medium}}',
+      );
+      expect(result.errors, isEmpty);
+      expect(grinders.grinders, hasLength(2));
+      final context = storage.shots['de1app-1710510622']!.workflow.context!;
+      final preset = await grinders.getGrinderById(context.grinderId!);
+      expect(preset!.model, 'baratza encore');
+      expect(preset.settingType, GrinderSettingType.preset);
+      expect(preset.settingValues, ['Coarse', 'Fine', 'Medium']);
+      expect(preset.settingBigStep, 5);
+      expect(
+        grinders.grinders.values.any((g) => g.model == 'Unknown Grinder'),
+        isTrue,
+      );
+      await expectResolvedReferences(storage, beans, grinders);
+    });
 
     group('merges shots that exist in both legacy and v2 form', () {
       final older = DateTime.utc(2024, 1, 1);
@@ -967,12 +956,10 @@ void main() {
         final v2Directory = Directory('${tempDir.path}/profiles_v2');
         await legacyDirectory.create();
         await v2Directory.create();
-        final legacy = await File(
-          '$_fixturesPath/profiles/legacy_lever.tcl',
-        ).copy('${legacyDirectory.path}/same-basename.tcl');
-        final v2 = await File(
-          '$_fixturesPath/profiles_v2/best_practice.json',
-        ).copy('${v2Directory.path}/same-basename.json');
+        final legacy = await File('$_fixturesPath/profiles/legacy_lever.tcl')
+            .copy('${legacyDirectory.path}/same-basename.tcl');
+        final v2 = await File('$_fixturesPath/profiles_v2/best_practice.json')
+            .copy('${v2Directory.path}/same-basename.json');
         await legacy.setLastModified(DateTime.utc(2024, 2, 1));
         await v2.setLastModified(DateTime.utc(2024, 1, 1));
 
@@ -1041,9 +1028,8 @@ void main() {
           sourcePath: _fixturesPath,
           shotSource: null,
         );
-        result = await makeImporter(
-          profileStorage: profileStorage,
-        ).import(scanResult);
+        result = await makeImporter(profileStorage: profileStorage)
+            .import(scanResult);
       });
 
       test('imports both the legacy and v2 profile', () {
@@ -1150,9 +1136,8 @@ void main() {
         await historyV2.create();
         await validFile.copy('${tempDir.path}/history_v2/valid.json');
 
-        await File(
-          '${tempDir.path}/history_v2/bad.json',
-        ).writeAsString('THIS IS NOT JSON {{{');
+        await File('${tempDir.path}/history_v2/bad.json')
+            .writeAsString('THIS IS NOT JSON {{{');
 
         final scanResult = ScanResult(
           shotCount: 2,
@@ -1236,9 +1221,8 @@ void main() {
           sourcePath: _fixturesPath,
           shotSource: 'history_v2',
         );
-        result = await makeImporter(
-          grinderStorage: grinderStorage,
-        ).import(scanResult);
+        result = await makeImporter(grinderStorage: grinderStorage)
+            .import(scanResult);
       });
 
       test('stores grinders after DYE merge', () {
@@ -1393,9 +1377,8 @@ void main() {
         tempDir = await Directory.systemTemp.createTemp(
           'de1app_importer_nosettings_',
         );
-        await File(
-          '${tempDir.path}/settings.tdb',
-        ).writeAsString('keep_scale_on 1\n');
+        await File('${tempDir.path}/settings.tdb')
+            .writeAsString('keep_scale_on 1\n');
 
         final scanResult = ScanResult(
           shotCount: 0,
@@ -1480,9 +1463,8 @@ void main() {
           'de1app_importer_events_',
         );
         await Directory('${tempDir.path}/history_v2').create();
-        await File(
-          '$_fixturesPath/history_v2/20240315T143022.json',
-        ).copy('${tempDir.path}/history_v2/20240315T143022.json');
+        await File('$_fixturesPath/history_v2/20240315T143022.json')
+            .copy('${tempDir.path}/history_v2/20240315T143022.json');
         scanResult = ScanResult(
           shotCount: 1,
           profileCount: 0,
@@ -1503,13 +1485,10 @@ void main() {
           final bulkDir = await Directory.systemTemp.createTemp('de1app_bulk_');
           addTearDown(() => bulkDir.delete(recursive: true));
           await Directory('${bulkDir.path}/history_v2').create();
-          final fixture =
-              jsonDecode(
-                    await File(
-                      '$_fixturesPath/history_v2/20240315T143022.json',
-                    ).readAsString(),
-                  )
-                  as Map<String, dynamic>;
+          final fixture = jsonDecode(
+            await File('$_fixturesPath/history_v2/20240315T143022.json')
+                .readAsString(),
+          ) as Map<String, dynamic>;
           for (var i = 0; i < 3; i++) {
             await File(
               '${bulkDir.path}/history_v2/shot-$i.json',
@@ -1556,9 +1535,8 @@ void main() {
         final subscription = controller.shotsChanged.listen((_) => changes++);
         addTearDown(subscription.cancel);
 
-        final result = await makeImporter(
-          controller: controller,
-        ).import(scanResult);
+        final result = await makeImporter(controller: controller)
+            .import(scanResult);
 
         expect(result.shotsImported, equals(1));
         expect(received, equals(['de1app-1710510622']));
@@ -1579,9 +1557,8 @@ void main() {
         final subscription = controller.shotsChanged.listen((_) => changes++);
         addTearDown(subscription.cancel);
 
-        final result = await makeImporter(
-          controller: controller,
-        ).import(scanResult);
+        final result = await makeImporter(controller: controller)
+            .import(scanResult);
 
         expect(result.shotsSkipped, equals(1));
         expect(received, isEmpty);
@@ -1601,9 +1578,8 @@ void main() {
         final subscription = controller.shotsChanged.listen((_) => changes++);
         addTearDown(subscription.cancel);
 
-        final result = await makeImporter(
-          controller: controller,
-        ).import(scanResult);
+        final result = await makeImporter(controller: controller)
+            .import(scanResult);
 
         expect(result.shotsImported, equals(0));
         expect(result.errors, hasLength(1));

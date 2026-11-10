@@ -60,8 +60,7 @@ class SharedPreferencesMachineSettingsStore implements MachineSettingsStore {
 
   final SharedPreferences? _preferences;
 
-  SharedPreferencesMachineSettingsStore({SharedPreferences? preferences})
-    : _preferences = preferences;
+  SharedPreferencesMachineSettingsStore({this._preferences});
 
   @override
   Future<MachineSettings?> read(String identity) async {

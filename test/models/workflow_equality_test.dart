@@ -165,17 +165,14 @@ void main() {
       expect(original, equals(roundTrip));
     });
 
-    test(
-      'default workflow fields equal to a freshly-constructed workflow with the same settings',
-      () {
-        final controller = WorkflowController();
-        final wf = controller.currentWorkflow;
-        final roundTrip = Workflow.fromJson(wf.toJson());
-        expect(wf.steamSettings, equals(roundTrip.steamSettings));
-        expect(wf.hotWaterData, equals(roundTrip.hotWaterData));
-        expect(wf.rinseData, equals(roundTrip.rinseData));
-      },
-    );
+    test('default workflow fields equal to a freshly-constructed workflow with the same settings', () {
+      final controller = WorkflowController();
+      final wf = controller.currentWorkflow;
+      final roundTrip = Workflow.fromJson(wf.toJson());
+      expect(wf.steamSettings, equals(roundTrip.steamSettings));
+      expect(wf.hotWaterData, equals(roundTrip.hotWaterData));
+      expect(wf.rinseData, equals(roundTrip.rinseData));
+    });
   });
 
   group('Profile equality + JSON round-trip', () {
@@ -226,13 +223,11 @@ void main() {
         targetWaterVolume: 55.0,
         grinderId: 'g1',
         grinderRpm: 1200,
-        extras:
-            jsonDecode(
-                  jsonEncode({
-                    'plugin.grinder': {'feedingRate': 4.5},
-                  }),
-                )
-                as Map<String, dynamic>,
+        extras: jsonDecode(
+          jsonEncode({
+            'plugin.grinder': {'feedingRate': 4.5},
+          }),
+        ) as Map<String, dynamic>,
         coffeeName: 'Illy',
       );
       final b = WorkflowContext(
@@ -241,13 +236,11 @@ void main() {
         targetWaterVolume: 55.0,
         grinderId: 'g1',
         grinderRpm: 1200,
-        extras:
-            jsonDecode(
-                  jsonEncode({
-                    'plugin.grinder': {'feedingRate': 4.5},
-                  }),
-                )
-                as Map<String, dynamic>,
+        extras: jsonDecode(
+          jsonEncode({
+            'plugin.grinder': {'feedingRate': 4.5},
+          }),
+        ) as Map<String, dynamic>,
         coffeeName: 'Illy',
       );
       expect(a, equals(b));
@@ -263,36 +256,30 @@ void main() {
     });
 
     test('compares nested extras lists and maps by value', () {
-      final firstExtras =
-          jsonDecode(
-                jsonEncode({
-                  'plugin.grinder': {
-                    'feedingRate': 4.5,
-                    'rpmProfile': [900, 1200],
-                  },
-                }),
-              )
-              as Map<String, dynamic>;
-      final equalExtras =
-          jsonDecode(
-                jsonEncode({
-                  'plugin.grinder': {
-                    'feedingRate': 4.5,
-                    'rpmProfile': [900, 1200],
-                  },
-                }),
-              )
-              as Map<String, dynamic>;
-      final changedExtras =
-          jsonDecode(
-                jsonEncode({
-                  'plugin.grinder': {
-                    'feedingRate': 4.5,
-                    'rpmProfile': [900, 1300],
-                  },
-                }),
-              )
-              as Map<String, dynamic>;
+      final firstExtras = jsonDecode(
+        jsonEncode({
+          'plugin.grinder': {
+            'feedingRate': 4.5,
+            'rpmProfile': [900, 1200],
+          },
+        }),
+      ) as Map<String, dynamic>;
+      final equalExtras = jsonDecode(
+        jsonEncode({
+          'plugin.grinder': {
+            'feedingRate': 4.5,
+            'rpmProfile': [900, 1200],
+          },
+        }),
+      ) as Map<String, dynamic>;
+      final changedExtras = jsonDecode(
+        jsonEncode({
+          'plugin.grinder': {
+            'feedingRate': 4.5,
+            'rpmProfile': [900, 1300],
+          },
+        }),
+      ) as Map<String, dynamic>;
       final first = WorkflowContext(extras: firstExtras);
       final equal = WorkflowContext(extras: equalExtras);
       final changed = WorkflowContext(extras: changedExtras);

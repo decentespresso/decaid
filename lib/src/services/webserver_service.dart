@@ -548,9 +548,8 @@ RouterPlus createApiRouter() {
     },
   ).plus;
   app.get(apiDocsConfiguration.manifestPath, (request) {
-    return jsonOk(
-      apiDocsConfiguration.manifest,
-    ).change(headers: {'Cache-Control': 'public, max-age=300'});
+    return jsonOk(apiDocsConfiguration.manifest)
+        .change(headers: {'Cache-Control': 'public, max-age=300'});
   });
   return app;
 }
@@ -570,8 +569,7 @@ Handler buildWebServerHandler(
             'Access-Control-Expose-Headers': _corsExposedResponseHeaders.join(
               ', ',
             ),
-            'Access-Control-Allow-Headers':
-                'Accept, Accept-Encoding, Authorization, Content-Type, DNT, Origin, User-Agent, If-None-Match',
+            'Access-Control-Allow-Headers': 'Accept, Accept-Encoding, Authorization, Content-Type, DNT, Origin, User-Agent, If-None-Match',
           },
         ),
       )

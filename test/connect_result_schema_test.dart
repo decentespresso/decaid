@@ -7,9 +7,9 @@ void main() {
   test(
     'OpenAPI connect results explicitly allow a null connection error',
     () async {
-      final spec =
-          loadYaml(await File('assets/api/rest_v1.yml').readAsString())
-              as YamlMap;
+      final spec = loadYaml(
+        await File('assets/api/rest_v1.yml').readAsString(),
+      ) as YamlMap;
       final schemas = (spec['components'] as YamlMap)['schemas'] as YamlMap;
       final schema = schemas['DeviceConnectResult'] as YamlMap;
 

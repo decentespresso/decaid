@@ -17,6 +17,7 @@ import 'package:reaprime/src/models/device/impl/sensor/sensor_basket.dart';
 import 'package:reaprime/src/models/device/transport/serial_port.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/models/device/remembered_device.dart';
+
 import 'mmr_codec.dart';
 import 'serial_reconcile.dart';
 import 'usb_ids.dart';
@@ -56,9 +57,7 @@ class SerialServiceDesktop implements DeviceDiscoveryService {
   final Duration _reconcileInterval;
   Timer? _reconcileTimer;
 
-  SerialServiceDesktop({
-    Duration reconcileInterval = const Duration(seconds: 8),
-  }) : _reconcileInterval = reconcileInterval;
+  SerialServiceDesktop({this._reconcileInterval = const Duration(seconds: 8)});
 
   final BehaviorSubject<List<Device>> _machineSubject = BehaviorSubject.seeded(
     <Device>[],
@@ -620,14 +619,11 @@ class _DesktopSerialPort implements SerialTransport {
   late final String _cachedName = _safePortName() ?? "Unknown port";
 
   _DesktopSerialPort({
-    required SerialPort port,
+    required this._port,
     required String canonicalId,
-    bool dtrOn = false,
-    bool decodeUtf8Text = true,
-  }) : _port = port,
-       _id = canonicalId,
-       _dtrOn = dtrOn,
-       _decodeUtf8Text = decodeUtf8Text {
+    this._dtrOn = false,
+    this._decodeUtf8Text = true,
+  }) : _id = canonicalId {
     _log = Logger("SerialPort:${_safePortName() ?? 'unknown'}");
     _cachedName;
   }

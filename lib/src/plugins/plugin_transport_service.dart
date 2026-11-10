@@ -24,19 +24,22 @@ class TransportOpenResult {
   final String? protocol;
 }
 
-typedef PluginTransportEventSink =
-    void Function(
-      String pluginId,
-      int generation,
-      String handle,
-      Map<String, dynamic> event,
-    );
+typedef PluginTransportEventSink = void Function(
+  String pluginId,
+  int generation,
+  String handle,
+  Map<String, dynamic> event,
+);
 
-typedef WebSocketConnector =
-    Future<WebSocket> Function(String url, {Iterable<String>? protocols});
+typedef WebSocketConnector = Future<WebSocket> Function(
+  String url, {
+  Iterable<String>? protocols,
+});
 typedef SocketConnector = Future<Socket> Function(String host, int port);
-typedef SecureSocketConnector =
-    Future<SecureSocket> Function(String host, int port);
+typedef SecureSocketConnector = Future<SecureSocket> Function(
+  String host,
+  int port,
+);
 
 class PluginTransportService {
   PluginTransportService({

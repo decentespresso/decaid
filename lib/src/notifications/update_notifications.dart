@@ -22,9 +22,8 @@ class UpdateNotifications {
         Object error,
         StackTrace stackTrace,
       ) {
-        Logger(
-          'UpdateNotifications',
-        ).warning('Could not update saved notification', error, stackTrace);
+        Logger('UpdateNotifications')
+            .warning('Could not update saved notification', error, stackTrace);
       });
     });
   }

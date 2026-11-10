@@ -26,9 +26,9 @@ void main() {
       contains('preferredGrinderDeviceId'),
     );
 
-    final websocket =
-        loadYaml(File('assets/api/websocket_v1.yml').readAsStringSync())
-            as YamlMap;
+    final websocket = loadYaml(
+      File('assets/api/websocket_v1.yml').readAsStringSync(),
+    ) as YamlMap;
     final channels = websocket['channels'] as YamlMap;
     expect(
       (channels['GrinderSnapshot'] as YamlMap)['address'],

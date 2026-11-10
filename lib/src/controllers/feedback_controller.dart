@@ -14,7 +14,7 @@ class FeedbackController extends ChangeNotifier {
   FeedbackSubmissionResult? _lastResult;
   bool _disposed = false;
 
-  FeedbackController({required FeedbackService service}) : _service = service;
+  FeedbackController({required this._service});
 
   FeedbackState get state => _state;
 

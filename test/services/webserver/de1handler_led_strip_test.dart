@@ -444,32 +444,29 @@ void main() {
       expect(await after.readAsString(), stored);
     });
 
-    test(
-      'clear returns 503 when palette hydration remains unavailable',
-      () async {
-        transport = FakeBleTransport();
-        transport.queueOnConnectResponses(v13Model: 128);
-        transport.failMmrReadsForAddresses.addAll([
-          BengleMmr.frontLedAwake.address,
-          BengleMmr.frontLedSleep.address,
-          BengleMmr.rearLedAwake.address,
-          BengleMmr.rearLedSleep.address,
-        ]);
-        await wireWith(Bengle(transport: transport));
-        addTearDown(() async {
-          await controller.dispose();
-          await transport.dispose();
-        });
+    test('clear returns 503 when palette hydration remains unavailable', () async {
+      transport = FakeBleTransport();
+      transport.queueOnConnectResponses(v13Model: 128);
+      transport.failMmrReadsForAddresses.addAll([
+        BengleMmr.frontLedAwake.address,
+        BengleMmr.frontLedSleep.address,
+        BengleMmr.rearLedAwake.address,
+        BengleMmr.rearLedSleep.address,
+      ]);
+      await wireWith(Bengle(transport: transport));
+      addTearDown(() async {
+        await controller.dispose();
+        await transport.dispose();
+      });
 
-        final res = await post('$previewPath/clear');
+      final res = await post('$previewPath/clear');
 
-        expect(res.statusCode, 503);
-        expect(jsonDecode(await res.readAsString()), {
-          'error':
-              'ledStrip state unavailable (hydration failed or not yet complete)',
-        });
-      },
-    );
+      expect(res.statusCode, 503);
+      expect(jsonDecode(await res.readAsString()), {
+        'error':
+            'ledStrip state unavailable (hydration failed or not yet complete)',
+      });
+    });
 
     test(
       'clear uses the latest stateInfo after sleep without a shot',

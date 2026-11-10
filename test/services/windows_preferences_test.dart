@@ -55,90 +55,86 @@ class _PausedFailure extends SharedPreferencesWindows {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test(
-    'interleaved legacy notifications and Async settings survive disk reconstruction',
-    () async {
-      final directory = await Directory.systemTemp.createTemp(
-        'decaid-preferences-',
-      );
-      addTearDown(() => directory.delete(recursive: true));
-      final originalLegacy = SharedPreferencesStorePlatform.instance;
-      final originalAsync = SharedPreferencesAsyncPlatform.instance;
-      addTearDown(() {
-        SharedPreferences.resetStatic();
-        SharedPreferencesStorePlatform.instance = originalLegacy;
-        SharedPreferencesAsyncPlatform.instance = originalAsync;
-      });
-      final file = File('${directory.path}/shared_preferences.json');
-      await file.writeAsString(
-        jsonEncode({
-          'themeMode': 'dark',
-          'flutter.plugin.settings.test': 'existing',
-        }),
-      );
-      Future<void> restart() async {
-        SharedPreferences.resetStatic();
-        SharedPreferencesStorePlatform.instance = SharedPreferencesWindows()
-          ..pathProvider = _Paths(directory.path);
-        SharedPreferencesAsyncPlatform.instance =
-            SharedPreferencesAsyncWindows()
-              ..pathProvider = _Paths(directory.path);
-        await initializeWindowsPreferences();
-      }
+  test('interleaved legacy notifications and Async settings survive disk reconstruction', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'decaid-preferences-',
+    );
+    addTearDown(() => directory.delete(recursive: true));
+    final originalLegacy = SharedPreferencesStorePlatform.instance;
+    final originalAsync = SharedPreferencesAsyncPlatform.instance;
+    addTearDown(() {
+      SharedPreferences.resetStatic();
+      SharedPreferencesStorePlatform.instance = originalLegacy;
+      SharedPreferencesAsyncPlatform.instance = originalAsync;
+    });
+    final file = File('${directory.path}/shared_preferences.json');
+    await file.writeAsString(
+      jsonEncode({
+        'themeMode': 'dark',
+        'flutter.plugin.settings.test': 'existing',
+      }),
+    );
+    Future<void> restart() async {
+      SharedPreferences.resetStatic();
+      SharedPreferencesStorePlatform.instance = SharedPreferencesWindows()
+        ..pathProvider = _Paths(directory.path);
+      SharedPreferencesAsyncPlatform.instance = SharedPreferencesAsyncWindows()
+        ..pathProvider = _Paths(directory.path);
+      await initializeWindowsPreferences();
+    }
 
-      await restart();
-      final settings = SharedPreferencesAsync();
-      final legacy = await SharedPreferences.getInstance();
-      final center = NotificationCenter(preferences: legacy);
-      addTearDown(center.dispose);
-      expect(await settings.getString('themeMode'), 'dark');
-      expect(legacy.getString('plugin.settings.test'), 'existing');
-      await center.publish(
-        NativeNotification(
-          namespace: NotificationNamespace.plugin,
-          sourceId: 'test',
-          sourceName: 'Test',
-          id: 'pause',
-          message: 'Paused',
-        ),
-      );
-      await settings.setString('skippedVersion', '99.0.0');
-      await center.markRead(center.value);
-      await legacy.setBool('plugin.enabled.test', true);
-      await settings.setString('themeMode', 'light');
-      await settings.setBool('enabled', true);
-      await settings.setDouble('ratio', 1.25);
-      await settings.setStringList('list', ['one', 'two']);
-      await Future.wait([
-        settings.setInt('counter', 7),
-        legacy.setString('plugin.settings.test', 'changed'),
-      ]);
-      await restart();
-      final restoredSettings = SharedPreferencesAsync();
-      final restoredLegacy = await SharedPreferences.getInstance();
-      final restored = NotificationCenter(preferences: restoredLegacy);
-      addTearDown(restored.dispose);
-      expect(restored.value.single.message, 'Paused');
-      expect(restored.unreadCount, 0);
-      expect(await restoredSettings.getString('skippedVersion'), '99.0.0');
-      expect(await restoredSettings.getString('themeMode'), 'light');
-      expect(await restoredSettings.getInt('counter'), 7);
-      expect(await restoredSettings.getBool('enabled'), isTrue);
-      expect(await restoredSettings.getDouble('ratio'), 1.25);
-      expect(await restoredSettings.getStringList('list'), ['one', 'two']);
-      expect(await restoredSettings.getKeys(allowList: {'ratio', 'missing'}), {
-        'ratio',
-      });
-      expect(restoredLegacy.getString('plugin.settings.test'), 'changed');
-      expect(restoredLegacy.getBool('plugin.enabled.test'), isTrue);
-      await restoredSettings.remove('skippedVersion');
-      await restoredLegacy.setString('anotherPluginSetting', 'kept');
-      final disk = jsonDecode(await file.readAsString()) as Map;
-      expect(disk.containsKey('skippedVersion'), isFalse);
-      expect(disk['flutter.${NotificationCenter.storageKey}'], isNotNull);
-      expect(disk['flutter.anotherPluginSetting'], 'kept');
-    },
-  );
+    await restart();
+    final settings = SharedPreferencesAsync();
+    final legacy = await SharedPreferences.getInstance();
+    final center = NotificationCenter(preferences: legacy);
+    addTearDown(center.dispose);
+    expect(await settings.getString('themeMode'), 'dark');
+    expect(legacy.getString('plugin.settings.test'), 'existing');
+    await center.publish(
+      NativeNotification(
+        namespace: NotificationNamespace.plugin,
+        sourceId: 'test',
+        sourceName: 'Test',
+        id: 'pause',
+        message: 'Paused',
+      ),
+    );
+    await settings.setString('skippedVersion', '99.0.0');
+    await center.markRead(center.value);
+    await legacy.setBool('plugin.enabled.test', true);
+    await settings.setString('themeMode', 'light');
+    await settings.setBool('enabled', true);
+    await settings.setDouble('ratio', 1.25);
+    await settings.setStringList('list', ['one', 'two']);
+    await Future.wait([
+      settings.setInt('counter', 7),
+      legacy.setString('plugin.settings.test', 'changed'),
+    ]);
+    await restart();
+    final restoredSettings = SharedPreferencesAsync();
+    final restoredLegacy = await SharedPreferences.getInstance();
+    final restored = NotificationCenter(preferences: restoredLegacy);
+    addTearDown(restored.dispose);
+    expect(restored.value.single.message, 'Paused');
+    expect(restored.unreadCount, 0);
+    expect(await restoredSettings.getString('skippedVersion'), '99.0.0');
+    expect(await restoredSettings.getString('themeMode'), 'light');
+    expect(await restoredSettings.getInt('counter'), 7);
+    expect(await restoredSettings.getBool('enabled'), isTrue);
+    expect(await restoredSettings.getDouble('ratio'), 1.25);
+    expect(await restoredSettings.getStringList('list'), ['one', 'two']);
+    expect(await restoredSettings.getKeys(allowList: {'ratio', 'missing'}), {
+      'ratio',
+    });
+    expect(restoredLegacy.getString('plugin.settings.test'), 'changed');
+    expect(restoredLegacy.getBool('plugin.enabled.test'), isTrue);
+    await restoredSettings.remove('skippedVersion');
+    await restoredLegacy.setString('anotherPluginSetting', 'kept');
+    final disk = jsonDecode(await file.readAsString()) as Map;
+    expect(disk.containsKey('skippedVersion'), isFalse);
+    expect(disk['flutter.${NotificationCenter.storageKey}'], isNotNull);
+    expect(disk['flutter.anotherPluginSetting'], 'kept');
+  });
 
   for (final operation in ['publication', 'read', 'resolution']) {
     test(
@@ -251,13 +247,9 @@ void main() {
       await failedSave;
       await settingsWrite;
       expect(remainedQueued, isTrue);
-      final disk =
-          jsonDecode(
-                await File(
-                  '${directory.path}/shared_preferences.json',
-                ).readAsString(),
-              )
-              as Map;
+      final disk = jsonDecode(
+        await File('${directory.path}/shared_preferences.json').readAsString(),
+      ) as Map;
       expect(disk['flutter.${NotificationCenter.storageKey}'], isNull);
       expect(disk['themeMode'], 'dark');
       expect(legacy.getString(NotificationCenter.storageKey), isNull);

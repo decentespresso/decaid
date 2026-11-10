@@ -339,32 +339,29 @@ void main() {
     },
   );
 
-  test(
-    'persistShot takes the burrs of a newly selected grinder, not the inherited one',
-    () async {
-      final grinders = _FakeGrinderStorage([
-        _grinder(id: 'grinder-1', burrs: 'Core'),
-        _grinder(id: 'grinder-2', burrs: 'MP'),
-      ]);
-      final controller = PersistenceController(
-        storageService: storage,
-        grinderStorageService: grinders,
-      );
-      addTearDown(controller.dispose);
+  test('persistShot takes the burrs of a newly selected grinder, not the inherited one', () async {
+    final grinders = _FakeGrinderStorage([
+      _grinder(id: 'grinder-1', burrs: 'Core'),
+      _grinder(id: 'grinder-2', burrs: 'MP'),
+    ]);
+    final controller = PersistenceController(
+      storageService: storage,
+      grinderStorageService: grinders,
+    );
+    addTearDown(controller.dispose);
 
-      await controller.persistShot(
-        _shot(
-          const WorkflowContext(
-            grinderId: 'grinder-2',
-            grinderModel: 'P64',
-            grinderBurrs: 'Core',
-          ),
+    await controller.persistShot(
+      _shot(
+        const WorkflowContext(
+          grinderId: 'grinder-2',
+          grinderModel: 'P64',
+          grinderBurrs: 'Core',
         ),
-      );
+      ),
+    );
 
-      expect(storedContext()?.grinderBurrs, 'MP');
-    },
-  );
+    expect(storedContext()?.grinderBurrs, 'MP');
+  });
 
   test('persistShot clears an inherited snapshot it cannot verify', () async {
     final grinders = _FakeGrinderStorage([

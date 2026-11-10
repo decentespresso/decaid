@@ -15,14 +15,11 @@ typedef SkinPathLookup = String? Function(String skinId);
 
 class SkinSwitchCoordinator {
   SkinSwitchCoordinator({
-    required WebUIService service,
-    required SkinPathLookup skinPath,
-    required Future<void> Function(String skinId) setDefaultSkin,
-    int entryPort = 3000,
-  }) : _service = service,
-       _skinPath = skinPath,
-       _setDefaultSkin = setDefaultSkin,
-       _entryPort = entryPort;
+    required this._service,
+    required this._skinPath,
+    required this._setDefaultSkin,
+    this._entryPort = 3000,
+  });
 
   final _log = Logger('SkinSwitchCoordinator');
   final WebUIService _service;

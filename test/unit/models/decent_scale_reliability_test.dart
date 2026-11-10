@@ -436,25 +436,22 @@ void main() {
     await transport.dispose();
   });
 
-  test(
-    'notification starvation retries subscription then disconnects without power off',
-    () {
-      fakeAsync((async) {
-        final transport = _ReliabilityBleTransport();
-        final scale = DecentScale(transport: transport);
-        _settleConnection(async, scale, transport);
-        final initialSubscriptions = transport.subscribeCalls;
+  test('notification starvation retries subscription then disconnects without power off', () {
+    fakeAsync((async) {
+      final transport = _ReliabilityBleTransport();
+      final scale = DecentScale(transport: transport);
+      _settleConnection(async, scale, transport);
+      final initialSubscriptions = transport.subscribeCalls;
 
-        _elapse(async, const Duration(seconds: 12));
-        expect(transport.subscribeCalls, greaterThan(initialSubscriptions));
-        expect(transport.disconnectCalls, 0);
+      _elapse(async, const Duration(seconds: 12));
+      expect(transport.subscribeCalls, greaterThan(initialSubscriptions));
+      expect(transport.disconnectCalls, 0);
 
-        _elapse(async, const Duration(seconds: 9));
-        expect(transport.disconnectCalls, 1);
-        expect(transport.nativeState, ConnectionState.disconnected);
-        expect(_commandWrites(transport, 0x0A, 0x02), isEmpty);
-        _close(async, scale, transport);
-      });
-    },
-  );
+      _elapse(async, const Duration(seconds: 9));
+      expect(transport.disconnectCalls, 1);
+      expect(transport.nativeState, ConnectionState.disconnected);
+      expect(_commandWrites(transport, 0x0A, 0x02), isEmpty);
+      _close(async, scale, transport);
+    });
+  });
 }

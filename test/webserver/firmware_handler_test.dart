@@ -580,9 +580,9 @@ void main() {
     final catalogResponse = await handler(
       Request('GET', Uri.parse('http://localhost/api/v1/machine/firmware')),
     );
-    final catalog =
-        jsonDecode(await catalogResponse.readAsString())
-            as Map<String, dynamic>;
+    final catalog = jsonDecode(
+      await catalogResponse.readAsString(),
+    ) as Map<String, dynamic>;
     transport.queueMmrResponseInt(MMRItem.calFlowEst, 1000);
     expect(await de1.getFlowEstimation(), 1.0);
 
@@ -621,146 +621,121 @@ void main() {
     );
   });
 
-  test(
-    'managed apply waits for real controller initialization before starting firmware',
-    () async {
-      final previousRootLevel = Logger.root.level;
-      Logger.root.level = Level.ALL;
-      final logs = <LogRecord>[];
-      final logSubscription = Logger.root.onRecord.listen(logs.add);
-      addTearDown(() async {
-        await logSubscription.cancel();
-        Logger.root.level = previousRootLevel;
-      });
+  test('managed apply waits for real controller initialization before starting firmware', () async {
+    final previousRootLevel = Logger.root.level;
+    Logger.root.level = Level.ALL;
+    final logs = <LogRecord>[];
+    final logSubscription = Logger.root.onRecord.listen(logs.add);
+    addTearDown(() async {
+      await logSubscription.cancel();
+      Logger.root.level = previousRootLevel;
+    });
 
-      final harness = await _blockedInitializationHandler();
-      addTearDown(() async {
-        harness.settings.release();
-        await harness.controller.dispose();
-      });
-
-      harness.transport.queueMmrResponseInt(MMRItem.calFlowEst, 1000);
-      expect(await harness.machine.getFlowEstimation(), 1.0);
-      harness.transport.writes.clear();
-      harness.transport.trace.clear();
-
-      final stopwatch = Stopwatch()..start();
-      final response = await _apply(
-        harness.handler,
-        jsonEncode({'artifactId': 'de1-1358'}),
-      );
-      final events = await _readEvents(response);
-      stopwatch.stop();
-      final catalogResponse = await harness.handler(
-        Request('GET', Uri.parse('http://localhost/api/v1/machine/firmware')),
-      );
-      final catalog =
-          jsonDecode(await catalogResponse.readAsString())
-              as Map<String, dynamic>;
-      final operation = catalog['operation'] as Map<String, dynamic>;
-      final writesBeforePostTimeoutProbe = List.of(harness.transport.writes);
-      harness.transport.queueMmrResponseInt(MMRItem.calFlowEst, 1000);
-      expect(await harness.machine.getFlowEstimation(), 1.0);
+    final harness = await _blockedInitializationHandler();
+    addTearDown(() async {
       harness.settings.release();
-      await harness.controller.initSettled.firstWhere(
-        (generation) => generation == harness.controller.connectionGeneration,
-      );
-      expect(harness.machine.firmwareUpdateState, FirmwareUpdateState.idle);
-      harness.transport.queueFirmwareMapResponse([
-        0,
-        0,
-        0,
-        1,
-        0xff,
-        0xff,
-        0xff,
-      ]);
-      harness.transport.queueFirmwareMapResponse([
-        0,
-        0,
-        0,
-        1,
-        0xff,
-        0xff,
-        0xfd,
-      ]);
-      await harness.controller.updateFirmware(
-        Uint8List(16),
-        onProgress: (_) {},
-      );
-      expect(harness.machine.firmwareUpdateState, FirmwareUpdateState.idle);
-      expect(
-        harness.transport.writes.where(
-          (write) => write.characteristicUUID == Endpoint.fwMapRequest.uuid,
-        ),
-        hasLength(2),
-      );
-      expect(
-        harness.transport.writes.where(
-          (write) =>
-              write.characteristicUUID == Endpoint.writeToMMR.uuid &&
-              write.data.length == 20 &&
-              write.data[0] == 16 &&
-              write.data[1] == 0 &&
-              write.data[2] == 0 &&
-              write.data[3] == 0,
-        ),
-        hasLength(1),
-      );
-      final failureLogs = logs
-          .where(
-            (record) =>
-                record.loggerName == 'FirmwareHandler' &&
-                record.message.contains('firmware upload failed'),
-          )
-          .toList();
-      final failureLog = failureLogs.single;
-      final transcript = [
-        'connectionGeneration=${harness.controller.connectionGeneration}',
-        'elapsed=${stopwatch.elapsed}',
-        'events=$events',
-        'transportTrace=${harness.transport.trace}',
-        'failureLog=${failureLog.message}',
-        'initializationTimeoutCallsite=de1_controller.governor.dart',
-        'originalStack=${failureLog.stackTrace}',
-      ].join('\\n');
+      await harness.controller.dispose();
+    });
 
-      expect(response.statusCode, 200);
-      expect(events, hasLength(1));
-      expect(events.single['status'], 'error');
-      expect(
-        events.single['error'],
-        'TimeoutException after 0:00:02.000000: Future not completed',
-      );
-      expect(events.single['cause'], events.single['error']);
-      expect(events.single['stage'], isNot('erasing'));
-      expect(
-        stopwatch.elapsed,
-        greaterThanOrEqualTo(const Duration(seconds: 2)),
-      );
-      expect(operation['state'], 'idle');
-      expect(
-        writesBeforePostTimeoutProbe.any(
-          (write) => write.characteristicUUID == Endpoint.fwMapRequest.uuid,
-        ),
-        isFalse,
-      );
-      expect(
-        writesBeforePostTimeoutProbe.any(
-          (write) => write.characteristicUUID == Endpoint.writeToMMR.uuid,
-        ),
-        isFalse,
-      );
-      expect(
-        failureLog.stackTrace.toString(),
-        allOf(
-          contains('_waitForInitialization'),
-          contains('de1_controller.governor.dart'),
-        ),
-      );
-      expect(events.single['stage'], 'initialization', reason: transcript);
-    },
-  );
+    harness.transport.queueMmrResponseInt(MMRItem.calFlowEst, 1000);
+    expect(await harness.machine.getFlowEstimation(), 1.0);
+    harness.transport.writes.clear();
+    harness.transport.trace.clear();
+
+    final stopwatch = Stopwatch()..start();
+    final response = await _apply(
+      harness.handler,
+      jsonEncode({'artifactId': 'de1-1358'}),
+    );
+    final events = await _readEvents(response);
+    stopwatch.stop();
+    final catalogResponse = await harness.handler(
+      Request('GET', Uri.parse('http://localhost/api/v1/machine/firmware')),
+    );
+    final catalog = jsonDecode(
+      await catalogResponse.readAsString(),
+    ) as Map<String, dynamic>;
+    final operation = catalog['operation'] as Map<String, dynamic>;
+    final writesBeforePostTimeoutProbe = List.of(harness.transport.writes);
+    harness.transport.queueMmrResponseInt(MMRItem.calFlowEst, 1000);
+    expect(await harness.machine.getFlowEstimation(), 1.0);
+    harness.settings.release();
+    await harness.controller.initSettled.firstWhere(
+      (generation) => generation == harness.controller.connectionGeneration,
+    );
+    expect(harness.machine.firmwareUpdateState, FirmwareUpdateState.idle);
+    harness.transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
+    harness.transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xfd]);
+    await harness.controller.updateFirmware(Uint8List(16), onProgress: (_) {});
+    expect(harness.machine.firmwareUpdateState, FirmwareUpdateState.idle);
+    expect(
+      harness.transport.writes.where(
+        (write) => write.characteristicUUID == Endpoint.fwMapRequest.uuid,
+      ),
+      hasLength(2),
+    );
+    expect(
+      harness.transport.writes.where(
+        (write) =>
+            write.characteristicUUID == Endpoint.writeToMMR.uuid &&
+            write.data.length == 20 &&
+            write.data[0] == 16 &&
+            write.data[1] == 0 &&
+            write.data[2] == 0 &&
+            write.data[3] == 0,
+      ),
+      hasLength(1),
+    );
+    final failureLogs = logs
+        .where(
+          (record) =>
+              record.loggerName == 'FirmwareHandler' &&
+              record.message.contains('firmware upload failed'),
+        )
+        .toList();
+    final failureLog = failureLogs.single;
+    final transcript = [
+      'connectionGeneration=${harness.controller.connectionGeneration}',
+      'elapsed=${stopwatch.elapsed}',
+      'events=$events',
+      'transportTrace=${harness.transport.trace}',
+      'failureLog=${failureLog.message}',
+      'initializationTimeoutCallsite=de1_controller.governor.dart',
+      'originalStack=${failureLog.stackTrace}',
+    ].join('\\n');
+
+    expect(response.statusCode, 200);
+    expect(events, hasLength(1));
+    expect(events.single['status'], 'error');
+    expect(
+      events.single['error'],
+      'TimeoutException after 0:00:02.000000: Future not completed',
+    );
+    expect(events.single['cause'], events.single['error']);
+    expect(events.single['stage'], isNot('erasing'));
+    expect(stopwatch.elapsed, greaterThanOrEqualTo(const Duration(seconds: 2)));
+    expect(operation['state'], 'idle');
+    expect(
+      writesBeforePostTimeoutProbe.any(
+        (write) => write.characteristicUUID == Endpoint.fwMapRequest.uuid,
+      ),
+      isFalse,
+    );
+    expect(
+      writesBeforePostTimeoutProbe.any(
+        (write) => write.characteristicUUID == Endpoint.writeToMMR.uuid,
+      ),
+      isFalse,
+    );
+    expect(
+      failureLog.stackTrace.toString(),
+      allOf(
+        contains('_waitForInitialization'),
+        contains('de1_controller.governor.dart'),
+      ),
+    );
+    expect(events.single['stage'], 'initialization', reason: transcript);
+  });
 
   test('managed apply logs the governed successful stage order', () async {
     final previousRootLevel = Logger.root.level;
@@ -905,59 +880,56 @@ void main() {
     },
   );
 
-  test(
-    'HTTP disconnect during initialization reports controller origin and closes cleanly',
-    () async {
-      final previousRootLevel = Logger.root.level;
-      Logger.root.level = Level.ALL;
-      final logs = <LogRecord>[];
-      final logSubscription = Logger.root.onRecord.listen(logs.add);
-      addTearDown(() async {
-        await logSubscription.cancel();
-        Logger.root.level = previousRootLevel;
-      });
+  test('HTTP disconnect during initialization reports controller origin and closes cleanly', () async {
+    final previousRootLevel = Logger.root.level;
+    Logger.root.level = Level.ALL;
+    final logs = <LogRecord>[];
+    final logSubscription = Logger.root.onRecord.listen(logs.add);
+    addTearDown(() async {
+      await logSubscription.cancel();
+      Logger.root.level = previousRootLevel;
+    });
 
-      final harness = await _blockedInitializationHandler();
-      addTearDown(() async {
-        harness.settings.release();
-        await harness.controller.dispose();
-      });
-      harness.transport.writes.clear();
-      final response = await _apply(
-        harness.handler,
-        jsonEncode({'artifactId': 'de1-1358'}),
-      );
-      harness.transport.emitConnectionState(ConnectionState.disconnected);
-      final events = await _readEvents(response);
-      expect(response.statusCode, 200);
-      expect(events, hasLength(1));
-      expect(events.single['status'], 'error');
-      expect(events.single['stage'], 'controller');
-      expect(events.single['cause'], contains('Machine changed'));
-      expect(events.single['error'], contains('Machine changed'));
-      expect(
-        events.single['error'],
-        isNot(contains('FirmwareUpdateCancelledException')),
-      );
-      expect(
-        harness.transport.writes.any(
-          (write) => write.characteristicUUID == Endpoint.fwMapRequest.uuid,
-        ),
-        isFalse,
-      );
-      expect(harness.machine.firmwareUpdateState, FirmwareUpdateState.idle);
-      final handlerFailureLogs = logs
-          .where(
-            (record) =>
-                record.loggerName == 'FirmwareHandler' &&
-                record.message.contains('stage=controller'),
-          )
-          .toList();
-      expect(handlerFailureLogs, hasLength(1));
-      expect(handlerFailureLogs.single.error, isA<StateError>());
-      expect(handlerFailureLogs.single.stackTrace, isNotNull);
-    },
-  );
+    final harness = await _blockedInitializationHandler();
+    addTearDown(() async {
+      harness.settings.release();
+      await harness.controller.dispose();
+    });
+    harness.transport.writes.clear();
+    final response = await _apply(
+      harness.handler,
+      jsonEncode({'artifactId': 'de1-1358'}),
+    );
+    harness.transport.emitConnectionState(ConnectionState.disconnected);
+    final events = await _readEvents(response);
+    expect(response.statusCode, 200);
+    expect(events, hasLength(1));
+    expect(events.single['status'], 'error');
+    expect(events.single['stage'], 'controller');
+    expect(events.single['cause'], contains('Machine changed'));
+    expect(events.single['error'], contains('Machine changed'));
+    expect(
+      events.single['error'],
+      isNot(contains('FirmwareUpdateCancelledException')),
+    );
+    expect(
+      harness.transport.writes.any(
+        (write) => write.characteristicUUID == Endpoint.fwMapRequest.uuid,
+      ),
+      isFalse,
+    );
+    expect(harness.machine.firmwareUpdateState, FirmwareUpdateState.idle);
+    final handlerFailureLogs = logs
+        .where(
+          (record) =>
+              record.loggerName == 'FirmwareHandler' &&
+              record.message.contains('stage=controller'),
+        )
+        .toList();
+    expect(handlerFailureLogs, hasLength(1));
+    expect(handlerFailureLogs.single.error, isA<StateError>());
+    expect(handlerFailureLogs.single.stackTrace, isNotNull);
+  });
 
   test('verification failure emits error and closes without done', () async {
     final transport = FakeBleTransport();
@@ -1019,17 +991,17 @@ void main() {
       final catalogResponse = await handler(
         Request('GET', Uri.parse('http://localhost/api/v1/machine/firmware')),
       );
-      final catalog =
-          jsonDecode(await catalogResponse.readAsString())
-              as Map<String, dynamic>;
+      final catalog = jsonDecode(
+        await catalogResponse.readAsString(),
+      ) as Map<String, dynamic>;
 
       expect(catalog['updateAvailable'], isTrue);
       expect(catalog['recommendedArtifactId'], 'de1-1358');
       final artifacts = catalog['artifacts'] as List<dynamic>;
       for (final id in ['de1-1352', 'de1-1358']) {
-        final artifact =
-            artifacts.singleWhere((artifact) => artifact['id'] == id)
-                as Map<String, dynamic>;
+        final artifact = artifacts.singleWhere(
+          (artifact) => artifact['id'] == id,
+        ) as Map<String, dynamic>;
         expect(artifact['eligibility'], {
           'status': 'applicable',
           'reasons': <dynamic>[],

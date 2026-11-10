@@ -3,8 +3,7 @@ part of '../webserver_service.dart';
 class ProfileHandler {
   final ProfileController _controller;
 
-  ProfileHandler({required ProfileController controller})
-    : _controller = controller;
+  ProfileHandler({required this._controller});
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/profiles', _handleGetAll);

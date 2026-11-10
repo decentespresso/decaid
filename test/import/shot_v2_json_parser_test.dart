@@ -436,9 +436,9 @@ void main() {
         shot['elapsed'] = [0.0, 5.0, 10.5, 15.0, 30.0, 50.0];
         shot['state_change'] = [10000000.0, -10000000.0, 10000000.0];
 
-        final frames = ShotV2JsonParser.parse(
-          shot,
-        ).shot.measurements.map((s) => s.machine.profileFrame).toList();
+        final frames = ShotV2JsonParser.parse(shot).shot.measurements
+            .map((s) => s.machine.profileFrame)
+            .toList();
 
         expect(frames.length, equals(6));
         for (var i = 1; i < frames.length; i++) {
@@ -461,9 +461,9 @@ void main() {
           10000000.0,
         ];
 
-        final frames = ShotV2JsonParser.parse(
-          shot,
-        ).shot.measurements.map((s) => s.machine.profileFrame).toList();
+        final frames = ShotV2JsonParser.parse(shot).shot.measurements
+            .map((s) => s.machine.profileFrame)
+            .toList();
 
         expect(frames, equals([0, 0, 0, 0, 1, 1, 1, 2, 2]));
       });

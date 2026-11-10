@@ -10,9 +10,8 @@ void main() {
       late String content;
 
       setUpAll(() async {
-        content = await File(
-          'test/fixtures/de1app/profiles/legacy_lever.tcl',
-        ).readAsString();
+        content = await File('test/fixtures/de1app/profiles/legacy_lever.tcl')
+            .readAsString();
       });
 
       test('title, author, notes come from the flat fields', () {

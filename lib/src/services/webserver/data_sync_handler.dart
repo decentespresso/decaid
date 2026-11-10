@@ -40,11 +40,7 @@ class DataSyncHandler {
   final http.Client _httpClient;
   final Logger _log = Logger('DataSyncHandler');
 
-  DataSyncHandler({
-    required DataExportHandler exportHandler,
-    required http.Client httpClient,
-  }) : _exportHandler = exportHandler,
-       _httpClient = httpClient;
+  DataSyncHandler({required this._exportHandler, required this._httpClient});
 
   void addRoutes(RouterPlus app) {
     app.post('/api/v1/data/sync', _handleSync);

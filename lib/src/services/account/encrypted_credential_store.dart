@@ -19,11 +19,8 @@ class EncryptedCredentialStore implements CredentialStore {
 
   Future<void> _lock = Future<void>.value();
 
-  EncryptedCredentialStore({
-    required List<int> keyBytes,
-    required SecretBlobStore blob,
-  }) : _key = SecretKey(keyBytes),
-       _blob = blob;
+  EncryptedCredentialStore({required List<int> keyBytes, required this._blob})
+    : _key = SecretKey(keyBytes);
 
   @override
   Future<String?> read({required String key}) =>

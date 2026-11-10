@@ -74,17 +74,15 @@ class DecentProxyService {
   };
 
   DecentProxyService({
-    required http.Client httpClient,
+    required this._httpClient,
     required CredentialStore credentialStore,
-    required RequireAccountConsent requireConsent,
+    required this._requireConsent,
     this.baseUrl = 'https://decentespresso.com',
     this.allowedPrefixes = const {'support/api/'},
     this.onAuthFailure,
     this.isAuthKnownInvalid,
     this.authenticationGeneration,
-  }) : _httpClient = httpClient,
-       _store = credentialStore,
-       _requireConsent = requireConsent;
+  }) : _store = credentialStore;
 
   Future<DecentProxyResponse> proxy({
     required String callerId,

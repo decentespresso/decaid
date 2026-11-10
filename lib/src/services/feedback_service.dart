@@ -27,18 +27,13 @@ class FeedbackService {
   static const String _githubApiBase = 'https://api.github.com';
 
   FeedbackService({
-    required String githubToken,
-    String repo = 'decentespresso/decaid',
-    required List<String> Function() currentSerialNumbers,
+    required this._githubToken,
+    this._repo = 'decentespresso/decaid',
+    required this._currentSerialNumbers,
     List<String> Function()? installedComponents,
-    DecentAccountService? accountService,
-    Duration supportLinkTimeout = const Duration(seconds: 30),
-  }) : _githubToken = githubToken,
-       _repo = repo,
-       _currentSerialNumbers = currentSerialNumbers,
-       _installedComponents = installedComponents ?? _noComponents,
-       _accountService = accountService,
-       _supportLinkTimeout = supportLinkTimeout;
+    this._accountService,
+    this._supportLinkTimeout = const Duration(seconds: 30),
+  }) : _installedComponents = installedComponents ?? _noComponents;
 
   bool get isConfigured => _githubToken.isNotEmpty;
 

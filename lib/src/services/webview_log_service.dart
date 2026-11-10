@@ -17,8 +17,7 @@ class WebViewLogService {
   final StreamController<String> _streamController =
       StreamController<String>.broadcast();
 
-  WebViewLogService({required String logDirectoryPath})
-    : _logDirectoryPath = logDirectoryPath;
+  WebViewLogService({required this._logDirectoryPath});
 
   Stream<String> get stream => _streamController.stream;
 

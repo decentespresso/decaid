@@ -30,30 +30,27 @@ List<int> _mmrWriteValues(FakeBleTransport transport, MmrAddress address) {
 }
 
 void main() {
-  test(
-    'settings defaults send no calibration packet and keep reported calibration',
-    () async {
-      final transport = FakeBleTransport()
-        ..queueOnConnectResponses(calFlowEst: 1200);
-      final de1 = UnifiedDe1(transport: transport);
-      addTearDown(de1.dispose);
-      await de1.onConnect();
-      transport.writes.clear();
-      expect(de1.cachedFlowEstimation, 1.2);
+  test('settings defaults send no calibration packet and keep reported calibration', () async {
+    final transport = FakeBleTransport()
+      ..queueOnConnectResponses(calFlowEst: 1200);
+    final de1 = UnifiedDe1(transport: transport);
+    addTearDown(de1.dispose);
+    await de1.onConnect();
+    transport.writes.clear();
+    expect(de1.cachedFlowEstimation, 1.2);
 
-      final controller = De1Controller(controller: DeviceController(const []));
-      await controller.applySettingsDefaults(de1);
+    final controller = De1Controller(controller: DeviceController(const []));
+    await controller.applySettingsDefaults(de1);
 
-      expect(
-        transport.writes.where(
-          (write) => write.characteristicUUID == Endpoint.calibration.uuid,
-        ),
-        isEmpty,
-      );
-      expect(_mmrWriteValues(transport, MMRItem.calFlowEst), isEmpty);
-      expect(de1.cachedFlowEstimation, 1.2);
-    },
-  );
+    expect(
+      transport.writes.where(
+        (write) => write.characteristicUUID == Endpoint.calibration.uuid,
+      ),
+      isEmpty,
+    );
+    expect(_mmrWriteValues(transport, MMRItem.calFlowEst), isEmpty);
+    expect(de1.cachedFlowEstimation, 1.2);
+  });
 
   test(
     'calibration changes do not alter flow or weight telemetry consumers',

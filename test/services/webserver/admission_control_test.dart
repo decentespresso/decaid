@@ -154,9 +154,8 @@ void main() {
       );
       expect((await handler(_request('10.0.0.1', path: '/'))).statusCode, 200);
       expect(
-        (await handler(
-          _request('10.0.0.1', path: '/ws/v1/devices'),
-        )).statusCode,
+        (await handler(_request('10.0.0.1', path: '/ws/v1/devices')))
+            .statusCode,
         200,
       );
       expect((await handler(_request('10.0.0.1'))).statusCode, 200);

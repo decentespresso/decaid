@@ -1067,9 +1067,8 @@ void main() {
             ConnectionErrorKind.machineConnectFailed,
           );
           expect(
-            (await manager.connectMachine(
-              _FakeDe1(deviceId: 'replacement'),
-            )).success,
+            (await manager.connectMachine(_FakeDe1(deviceId: 'replacement')))
+                .success,
             isTrue,
           );
 
@@ -1451,168 +1450,151 @@ void main() {
         remembered.dispose();
       });
 
-      test(
-        'quick-connect through a legacy serial alias migrates remembered and preferred ids',
-        () async {
-          await connectionManager.dispose();
-          mockDe1Controller = MockDe1Controller(
-            controller: DeviceController([dummyDiscoveryService]),
-          );
-          mockSettingsService.setRememberedDevices(
-            RememberedDevice.encodeList([
-              const RememberedDevice(
-                id: 'serial-cu.X',
-                name: 'DE1',
-                type: DeviceType.machine,
-              ),
-            ]),
-          );
-          final remembered = RememberedDevicesController(
-            machineConnections: const Stream.empty(),
-            scaleConnections: const Stream.empty(),
-            settings: mockSettingsService,
-          );
-          await remembered.initialize();
-          await settingsController.setPreferredMachineId('serial-cu.X');
-          final device = _FakeDe1(deviceId: 'usb-1a86-55d3-535A');
-          mockScanner.quickConnectResult = device;
-          connectionManager = ConnectionManager(
-            deviceScanner: mockScanner,
-            de1Controller: mockDe1Controller,
-            scaleController: mockScaleController,
-            settingsController: settingsController,
-            rememberedDevices: remembered,
-          );
-
-          final connect = connectionManager.connect();
-          await Future<void>.delayed(Duration.zero);
-          mockDe1Controller.de1Subject.add(device);
-          await connect;
-
-          expect(mockScanner.quickConnectCallCount, 1);
-          expect(settingsController.preferredMachineId, 'usb-1a86-55d3-535A');
-          expect(remembered.remembered.map((d) => d.id), [
-            'usb-1a86-55d3-535A',
-          ]);
-          expect(
-            mockDe1Controller.de1Subject.value?.deviceId,
-            'usb-1a86-55d3-535A',
-          );
-          expect(connectionManager.currentStatus.phase, ConnectionPhase.ready);
-          await remembered.dispose();
-        },
-      );
-
-      test(
-        'quick-connect alias migration failure keeps the connection and the legacy id',
-        () async {
-          await connectionManager.dispose();
-          mockDe1Controller = MockDe1Controller(
-            controller: DeviceController([dummyDiscoveryService]),
-          );
-          mockSettingsService.setRememberedDevices(
-            RememberedDevice.encodeList([
-              const RememberedDevice(
-                id: 'serial-cu.X',
-                name: 'DE1',
-                type: DeviceType.machine,
-              ),
-            ]),
-          );
-          final remembered = RememberedDevicesController(
-            machineConnections: const Stream.empty(),
-            scaleConnections: const Stream.empty(),
-            settings: mockSettingsService,
-          );
-          await remembered.initialize();
-          await settingsController.setPreferredMachineId('serial-cu.X');
-          mockSettingsService.failRememberedDevicesWrite = true;
-          final device = _FakeDe1(deviceId: 'usb-1a86-55d3-535A');
-          mockScanner.quickConnectResult = device;
-          connectionManager = ConnectionManager(
-            deviceScanner: mockScanner,
-            de1Controller: mockDe1Controller,
-            scaleController: mockScaleController,
-            settingsController: settingsController,
-            rememberedDevices: remembered,
-          );
-
-          final connect = connectionManager.connect();
-          await Future<void>.delayed(Duration.zero);
-          mockDe1Controller.de1Subject.add(device);
-          await connect;
-
-          expect(
-            mockDe1Controller.de1Subject.value?.deviceId,
-            'usb-1a86-55d3-535A',
-          );
-          expect(connectionManager.currentStatus.phase, ConnectionPhase.ready);
-          expect(settingsController.preferredMachineId, 'serial-cu.X');
-          expect(
-            remembered.remembered.map((d) => d.id),
-            allOf(
-              contains('serial-cu.X'),
-              isNot(contains('usb-1a86-55d3-535A')),
+      test('quick-connect through a legacy serial alias migrates remembered and preferred ids', () async {
+        await connectionManager.dispose();
+        mockDe1Controller = MockDe1Controller(
+          controller: DeviceController([dummyDiscoveryService]),
+        );
+        mockSettingsService.setRememberedDevices(
+          RememberedDevice.encodeList([
+            const RememberedDevice(
+              id: 'serial-cu.X',
+              name: 'DE1',
+              type: DeviceType.machine,
             ),
-          );
-          mockSettingsService.failRememberedDevicesWrite = false;
-          await remembered.dispose();
-        },
-      );
+          ]),
+        );
+        final remembered = RememberedDevicesController(
+          machineConnections: const Stream.empty(),
+          scaleConnections: const Stream.empty(),
+          settings: mockSettingsService,
+        );
+        await remembered.initialize();
+        await settingsController.setPreferredMachineId('serial-cu.X');
+        final device = _FakeDe1(deviceId: 'usb-1a86-55d3-535A');
+        mockScanner.quickConnectResult = device;
+        connectionManager = ConnectionManager(
+          deviceScanner: mockScanner,
+          de1Controller: mockDe1Controller,
+          scaleController: mockScaleController,
+          settingsController: settingsController,
+          rememberedDevices: remembered,
+        );
 
-      test(
-        'quick-connect preferred-id failure keeps the connection and the legacy id',
-        () async {
-          await connectionManager.dispose();
-          mockDe1Controller = MockDe1Controller(
-            controller: DeviceController([dummyDiscoveryService]),
-          );
-          mockSettingsService.setRememberedDevices(
-            RememberedDevice.encodeList([
-              const RememberedDevice(
-                id: 'serial-cu.X',
-                name: 'DE1',
-                type: DeviceType.machine,
-              ),
-            ]),
-          );
-          final remembered = RememberedDevicesController(
-            machineConnections: const Stream.empty(),
-            scaleConnections: const Stream.empty(),
-            settings: mockSettingsService,
-          );
-          await remembered.initialize();
-          await settingsController.setPreferredMachineId('serial-cu.X');
-          mockSettingsService.failSetPreferredMachineId = true;
-          final device = _FakeDe1(deviceId: 'usb-1a86-55d3-535A');
-          mockScanner.quickConnectResult = device;
-          connectionManager = ConnectionManager(
-            deviceScanner: mockScanner,
-            de1Controller: mockDe1Controller,
-            scaleController: mockScaleController,
-            settingsController: settingsController,
-            rememberedDevices: remembered,
-          );
+        final connect = connectionManager.connect();
+        await Future<void>.delayed(Duration.zero);
+        mockDe1Controller.de1Subject.add(device);
+        await connect;
 
-          final connect = connectionManager.connect();
-          await Future<void>.delayed(Duration.zero);
-          mockDe1Controller.de1Subject.add(device);
-          await connect;
+        expect(mockScanner.quickConnectCallCount, 1);
+        expect(settingsController.preferredMachineId, 'usb-1a86-55d3-535A');
+        expect(remembered.remembered.map((d) => d.id), ['usb-1a86-55d3-535A']);
+        expect(
+          mockDe1Controller.de1Subject.value?.deviceId,
+          'usb-1a86-55d3-535A',
+        );
+        expect(connectionManager.currentStatus.phase, ConnectionPhase.ready);
+        await remembered.dispose();
+      });
 
-          expect(
-            mockDe1Controller.de1Subject.value?.deviceId,
-            'usb-1a86-55d3-535A',
-          );
-          expect(connectionManager.currentStatus.phase, ConnectionPhase.ready);
-          expect(settingsController.preferredMachineId, 'serial-cu.X');
-          expect(
-            remembered.remembered.map((d) => d.id),
-            contains('serial-cu.X'),
-          );
-          mockSettingsService.failSetPreferredMachineId = false;
-          await remembered.dispose();
-        },
-      );
+      test('quick-connect alias migration failure keeps the connection and the legacy id', () async {
+        await connectionManager.dispose();
+        mockDe1Controller = MockDe1Controller(
+          controller: DeviceController([dummyDiscoveryService]),
+        );
+        mockSettingsService.setRememberedDevices(
+          RememberedDevice.encodeList([
+            const RememberedDevice(
+              id: 'serial-cu.X',
+              name: 'DE1',
+              type: DeviceType.machine,
+            ),
+          ]),
+        );
+        final remembered = RememberedDevicesController(
+          machineConnections: const Stream.empty(),
+          scaleConnections: const Stream.empty(),
+          settings: mockSettingsService,
+        );
+        await remembered.initialize();
+        await settingsController.setPreferredMachineId('serial-cu.X');
+        mockSettingsService.failRememberedDevicesWrite = true;
+        final device = _FakeDe1(deviceId: 'usb-1a86-55d3-535A');
+        mockScanner.quickConnectResult = device;
+        connectionManager = ConnectionManager(
+          deviceScanner: mockScanner,
+          de1Controller: mockDe1Controller,
+          scaleController: mockScaleController,
+          settingsController: settingsController,
+          rememberedDevices: remembered,
+        );
+
+        final connect = connectionManager.connect();
+        await Future<void>.delayed(Duration.zero);
+        mockDe1Controller.de1Subject.add(device);
+        await connect;
+
+        expect(
+          mockDe1Controller.de1Subject.value?.deviceId,
+          'usb-1a86-55d3-535A',
+        );
+        expect(connectionManager.currentStatus.phase, ConnectionPhase.ready);
+        expect(settingsController.preferredMachineId, 'serial-cu.X');
+        expect(
+          remembered.remembered.map((d) => d.id),
+          allOf(contains('serial-cu.X'), isNot(contains('usb-1a86-55d3-535A'))),
+        );
+        mockSettingsService.failRememberedDevicesWrite = false;
+        await remembered.dispose();
+      });
+
+      test('quick-connect preferred-id failure keeps the connection and the legacy id', () async {
+        await connectionManager.dispose();
+        mockDe1Controller = MockDe1Controller(
+          controller: DeviceController([dummyDiscoveryService]),
+        );
+        mockSettingsService.setRememberedDevices(
+          RememberedDevice.encodeList([
+            const RememberedDevice(
+              id: 'serial-cu.X',
+              name: 'DE1',
+              type: DeviceType.machine,
+            ),
+          ]),
+        );
+        final remembered = RememberedDevicesController(
+          machineConnections: const Stream.empty(),
+          scaleConnections: const Stream.empty(),
+          settings: mockSettingsService,
+        );
+        await remembered.initialize();
+        await settingsController.setPreferredMachineId('serial-cu.X');
+        mockSettingsService.failSetPreferredMachineId = true;
+        final device = _FakeDe1(deviceId: 'usb-1a86-55d3-535A');
+        mockScanner.quickConnectResult = device;
+        connectionManager = ConnectionManager(
+          deviceScanner: mockScanner,
+          de1Controller: mockDe1Controller,
+          scaleController: mockScaleController,
+          settingsController: settingsController,
+          rememberedDevices: remembered,
+        );
+
+        final connect = connectionManager.connect();
+        await Future<void>.delayed(Duration.zero);
+        mockDe1Controller.de1Subject.add(device);
+        await connect;
+
+        expect(
+          mockDe1Controller.de1Subject.value?.deviceId,
+          'usb-1a86-55d3-535A',
+        );
+        expect(connectionManager.currentStatus.phase, ConnectionPhase.ready);
+        expect(settingsController.preferredMachineId, 'serial-cu.X');
+        expect(remembered.remembered.map((d) => d.id), contains('serial-cu.X'));
+        mockSettingsService.failSetPreferredMachineId = false;
+        await remembered.dispose();
+      });
 
       test('explicit scan bypasses machine quick-connect', () async {
         await connectionManager.dispose();
@@ -1826,71 +1808,65 @@ void main() {
           },
         );
 
-        test(
-          'failed early stop connects via legacy policy after natural completion',
-          () async {
-            mockScanner.supportsWatch = true;
-            await prepare();
-            mockScanner.failStopScanWith = StateError('stop denied');
-            final scale = TestScale(deviceId: 'preferred-scale');
-            final scan = connectionManager.requestExternalScan(
-              connect: true,
-              connectPreferredScaleEarly: true,
-            );
-            await Future<void>.delayed(Duration.zero);
-            mockScanner.addDevice(scale);
-            await Future<void>.delayed(Duration.zero);
-            expect(mockScanner.stopScanCallCount, 1);
-            expect(mockScanner.isScanning, isTrue);
-            expect(mockScaleController.connectCalls, isEmpty);
+        test('failed early stop connects via legacy policy after natural completion', () async {
+          mockScanner.supportsWatch = true;
+          await prepare();
+          mockScanner.failStopScanWith = StateError('stop denied');
+          final scale = TestScale(deviceId: 'preferred-scale');
+          final scan = connectionManager.requestExternalScan(
+            connect: true,
+            connectPreferredScaleEarly: true,
+          );
+          await Future<void>.delayed(Duration.zero);
+          mockScanner.addDevice(scale);
+          await Future<void>.delayed(Duration.zero);
+          expect(mockScanner.stopScanCallCount, 1);
+          expect(mockScanner.isScanning, isTrue);
+          expect(mockScaleController.connectCalls, isEmpty);
 
-            mockDe1Controller.de1Subject.add(
-              _FakeDe1(deviceId: 'replacement-machine'),
-            );
-            await Future<void>.delayed(Duration.zero);
-            expect(mockScaleController.connectCalls, isEmpty);
-            mockScanner.completeScan();
-            await scan;
-            expect(mockScaleController.connectCalls, [same(scale)]);
-            expect(mockScanner.scanCallCount, 1);
-            expect(connectionManager.lastScanReport, isNotNull);
-            mockScaleController.mockEmitConnectionState(
-              ConnectionState.disconnected,
-            );
-            await Future<void>.delayed(Duration.zero);
-            expect(mockScaleController.connectCalls, hasLength(2));
-          },
-        );
+          mockDe1Controller.de1Subject.add(
+            _FakeDe1(deviceId: 'replacement-machine'),
+          );
+          await Future<void>.delayed(Duration.zero);
+          expect(mockScaleController.connectCalls, isEmpty);
+          mockScanner.completeScan();
+          await scan;
+          expect(mockScaleController.connectCalls, [same(scale)]);
+          expect(mockScanner.scanCallCount, 1);
+          expect(connectionManager.lastScanReport, isNotNull);
+          mockScaleController.mockEmitConnectionState(
+            ConnectionState.disconnected,
+          );
+          await Future<void>.delayed(Duration.zero);
+          expect(mockScaleController.connectCalls, hasLength(2));
+        });
 
-        test(
-          'unrelated service failure after shortcut still connects after BLE teardown',
-          () async {
-            await prepare();
-            mockScanner.scanFailures = [
-              ServiceScanFailure(
-                serviceName: 'unrelated service',
-                error: StateError('unrelated scan failed'),
-                stackTrace: StackTrace.current,
-              ),
-            ];
-            final scale = TestScale(deviceId: 'preferred-scale');
-            final scan = connectionManager.requestExternalScan(
-              connect: true,
-              connectPreferredScaleEarly: true,
-            );
-            await Future<void>.delayed(Duration.zero);
-            mockScanner.addDevice(scale);
-            await Future<void>.delayed(Duration.zero);
-            expect(mockScanner.stopScanCallCount, 1);
-            expect(mockScanner.isScanning, isTrue);
-            expect(mockScaleController.connectCalls, isEmpty);
+        test('unrelated service failure after shortcut still connects after BLE teardown', () async {
+          await prepare();
+          mockScanner.scanFailures = [
+            ServiceScanFailure(
+              serviceName: 'unrelated service',
+              error: StateError('unrelated scan failed'),
+              stackTrace: StackTrace.current,
+            ),
+          ];
+          final scale = TestScale(deviceId: 'preferred-scale');
+          final scan = connectionManager.requestExternalScan(
+            connect: true,
+            connectPreferredScaleEarly: true,
+          );
+          await Future<void>.delayed(Duration.zero);
+          mockScanner.addDevice(scale);
+          await Future<void>.delayed(Duration.zero);
+          expect(mockScanner.stopScanCallCount, 1);
+          expect(mockScanner.isScanning, isTrue);
+          expect(mockScaleController.connectCalls, isEmpty);
 
-            mockScanner.completeScan();
-            await scan;
-            expect(mockScaleController.connectCalls, [same(scale)]);
-            expect(mockScanner.scanCallCount, 1);
-          },
-        );
+          mockScanner.completeScan();
+          await scan;
+          expect(mockScaleController.connectCalls, [same(scale)]);
+          expect(mockScanner.scanCallCount, 1);
+        });
 
         test('BLE service failure never starts GATT', () async {
           mockScanner.supportsWatch = true;
@@ -2133,26 +2109,23 @@ void main() {
         expect(connectionManager.currentStatus.phase, ConnectionPhase.ready);
       });
 
-      test(
-        'preferred machine not found, others available → emits machinePicker ambiguity',
-        () async {
-          await settingsController.setPreferredMachineId('missing-de1');
+      test('preferred machine not found, others available → emits machinePicker ambiguity', () async {
+        await settingsController.setPreferredMachineId('missing-de1');
 
-          final otherDe1 = _FakeDe1(deviceId: 'other-de1');
-          mockScanner.addDevice(otherDe1);
-          await Future.delayed(Duration.zero);
+        final otherDe1 = _FakeDe1(deviceId: 'other-de1');
+        mockScanner.addDevice(otherDe1);
+        await Future.delayed(Duration.zero);
 
-          await connectionManager.connect();
-          await Future.delayed(Duration.zero);
+        await connectionManager.connect();
+        await Future.delayed(Duration.zero);
 
-          expect(connectionManager.currentStatus.phase, ConnectionPhase.idle);
-          expect(
-            connectionManager.currentStatus.pendingAmbiguity,
-            AmbiguityReason.machinePicker,
-          );
-          expect(mockDe1Controller.connectCalls, isEmpty);
-        },
-      );
+        expect(connectionManager.currentStatus.phase, ConnectionPhase.idle);
+        expect(
+          connectionManager.currentStatus.pendingAmbiguity,
+          AmbiguityReason.machinePicker,
+        );
+        expect(mockDe1Controller.connectCalls, isEmpty);
+      });
 
       test(
         'failed preferred machine emits ambiguity for alternatives',
@@ -2455,35 +2428,32 @@ void main() {
       });
 
       group('scale failure recovery (comms-harden #4)', () {
-        test(
-          'after scaleOnly connect fails, next connect retries scale',
-          () async {
-            mockScaleController.shouldFailConnect = true;
+        test('after scaleOnly connect fails, next connect retries scale', () async {
+          mockScaleController.shouldFailConnect = true;
 
-            final scale = TestScale(deviceId: 'scale-1');
-            mockScanner.addDevice(scale);
-            await Future.delayed(Duration.zero);
+          final scale = TestScale(deviceId: 'scale-1');
+          mockScanner.addDevice(scale);
+          await Future.delayed(Duration.zero);
 
-            await connectionManager.connect(scaleOnly: true);
-            await Future.delayed(Duration.zero);
-            expect(
-              mockScaleController.connectCalls,
-              hasLength(1),
-              reason: 'first scaleOnly attempt should call connectToScale',
-            );
+          await connectionManager.connect(scaleOnly: true);
+          await Future.delayed(Duration.zero);
+          expect(
+            mockScaleController.connectCalls,
+            hasLength(1),
+            reason: 'first scaleOnly attempt should call connectToScale',
+          );
 
-            mockScaleController.shouldFailConnect = false;
-            await connectionManager.connect(scaleOnly: true);
-            await Future.delayed(Duration.zero);
+          mockScaleController.shouldFailConnect = false;
+          await connectionManager.connect(scaleOnly: true);
+          await Future.delayed(Duration.zero);
 
-            expect(
-              mockScaleController.connectCalls,
-              hasLength(2),
-              reason:
-                  'scale must be retried after a prior failed scaleOnly connect',
-            );
-          },
-        );
+          expect(
+            mockScaleController.connectCalls,
+            hasLength(2),
+            reason:
+                'scale must be retried after a prior failed scaleOnly connect',
+          );
+        });
 
         test(
           'after full connect fails on scale phase, next scaleOnly retries',
@@ -2854,29 +2824,26 @@ void main() {
         expect(mockScanner.stopScanCallCount, 0);
       });
 
-      test(
-        'auto-scans for preferred scale when machine is ready and scale is missing',
-        () async {
-          await settingsController.setPreferredScaleId('pref-scale');
-          connectionManager.scaleReconnectBaseDelay = Duration.zero;
-          mockScanner.scanCompleter = Completer<void>();
+      test('auto-scans for preferred scale when machine is ready and scale is missing', () async {
+        await settingsController.setPreferredScaleId('pref-scale');
+        connectionManager.scaleReconnectBaseDelay = Duration.zero;
+        mockScanner.scanCompleter = Completer<void>();
 
-          mockDe1Controller.de1Subject.add(_FakeDe1(deviceId: 'connected-de1'));
-          await mockScanner.scanningStream.firstWhere((s) => s);
+        mockDe1Controller.de1Subject.add(_FakeDe1(deviceId: 'connected-de1'));
+        await mockScanner.scanningStream.firstWhere((s) => s);
 
-          final testScale = TestScale(deviceId: 'pref-scale');
-          mockScanner.addDevice(testScale);
-          await Future.delayed(Duration.zero);
-          await Future.delayed(Duration.zero);
+        final testScale = TestScale(deviceId: 'pref-scale');
+        mockScanner.addDevice(testScale);
+        await Future.delayed(Duration.zero);
+        await Future.delayed(Duration.zero);
 
-          expect(mockScaleController.connectCalls, hasLength(1));
-          expect(mockScaleController.connectCalls.first.deviceId, 'pref-scale');
-          expect(mockScanner.stopScanCallCount, 0);
+        expect(mockScaleController.connectCalls, hasLength(1));
+        expect(mockScaleController.connectCalls.first.deviceId, 'pref-scale');
+        expect(mockScanner.stopScanCallCount, 0);
 
-          mockScanner.completeScan();
-          await Future.delayed(Duration.zero);
-        },
-      );
+        mockScanner.completeScan();
+        await Future.delayed(Duration.zero);
+      });
 
       test('concurrent scaleOnly during another connect is queued and '
           'drained after the in-flight call (comms-harden #9)', () async {
@@ -3361,77 +3328,74 @@ void main() {
         },
       );
 
-      test(
-        'connects session-only USB scales without changing preference or memory',
-        () async {
-          final scaleConnections = StreamController<RememberedDevice?>();
-          final remembered = RememberedDevicesController(
-            machineConnections: const Stream.empty(),
-            scaleConnections: scaleConnections.stream,
-            settings: mockSettingsService,
-          );
-          await remembered.initialize();
-          final manager = ConnectionManager(
-            deviceScanner: mockScanner,
-            de1Controller: mockDe1Controller,
-            scaleController: MockScaleController(),
-            settingsController: settingsController,
-            rememberedDevices: remembered,
-          );
-          addTearDown(() async {
-            await manager.dispose();
-            await remembered.dispose();
-            await scaleConnections.close();
-          });
-          await settingsController.setPreferredScaleId('usb-2e8a-a-KNOWN');
+      test('connects session-only USB scales without changing preference or memory', () async {
+        final scaleConnections = StreamController<RememberedDevice?>();
+        final remembered = RememberedDevicesController(
+          machineConnections: const Stream.empty(),
+          scaleConnections: scaleConnections.stream,
+          settings: mockSettingsService,
+        );
+        await remembered.initialize();
+        final manager = ConnectionManager(
+          deviceScanner: mockScanner,
+          de1Controller: mockDe1Controller,
+          scaleController: MockScaleController(),
+          settingsController: settingsController,
+          rememberedDevices: remembered,
+        );
+        addTearDown(() async {
+          await manager.dispose();
+          await remembered.dispose();
+          await scaleConnections.close();
+        });
+        await settingsController.setPreferredScaleId('usb-2e8a-a-KNOWN');
 
-          final fallback = _TransportScale(
-            deviceId: 'usb-2e8a-a-unknown-7',
+        final fallback = _TransportScale(
+          deviceId: 'usb-2e8a-a-unknown-7',
+          transportType: TransportType.serial,
+        );
+        expect((await manager.connectScale(fallback)).success, isTrue);
+        scaleConnections.add(
+          const RememberedDevice(
+            id: 'usb-2e8a-a-unknown-7',
+            name: 'Half Decent Scale',
+            type: DeviceType.scale,
+            implementation: DeviceImplementation.hdsSerial,
             transportType: TransportType.serial,
-          );
-          expect((await manager.connectScale(fallback)).success, isTrue);
-          scaleConnections.add(
-            const RememberedDevice(
-              id: 'usb-2e8a-a-unknown-7',
-              name: 'Half Decent Scale',
-              type: DeviceType.scale,
-              implementation: DeviceImplementation.hdsSerial,
-              transportType: TransportType.serial,
-            ),
-          );
-          await Future<void>.delayed(Duration.zero);
-          expect(settingsController.preferredScaleId, 'usb-2e8a-a-KNOWN');
-          expect(
-            remembered.remembered.map((device) => device.id),
-            isNot(contains('usb-2e8a-a-unknown-7')),
-          );
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(settingsController.preferredScaleId, 'usb-2e8a-a-KNOWN');
+        expect(
+          remembered.remembered.map((device) => device.id),
+          isNot(contains('usb-2e8a-a-unknown-7')),
+        );
 
-          final canonical = _TransportScale(
-            deviceId: 'usb-2e8a-a-KNOWN',
+        final canonical = _TransportScale(
+          deviceId: 'usb-2e8a-a-KNOWN',
+          transportType: TransportType.serial,
+        );
+        await manager.disconnectScale();
+        expect((await manager.connectScale(canonical)).success, isTrue);
+        expect(settingsController.preferredScaleId, 'usb-2e8a-a-KNOWN');
+        scaleConnections.add(
+          const RememberedDevice(
+            id: 'usb-2e8a-a-KNOWN',
+            name: 'Half Decent Scale',
+            type: DeviceType.scale,
+            implementation: DeviceImplementation.hdsSerial,
             transportType: TransportType.serial,
-          );
-          await manager.disconnectScale();
-          expect((await manager.connectScale(canonical)).success, isTrue);
-          expect(settingsController.preferredScaleId, 'usb-2e8a-a-KNOWN');
-          scaleConnections.add(
-            const RememberedDevice(
-              id: 'usb-2e8a-a-KNOWN',
-              name: 'Half Decent Scale',
-              type: DeviceType.scale,
-              implementation: DeviceImplementation.hdsSerial,
-              transportType: TransportType.serial,
-            ),
-          );
-          await Future<void>.delayed(Duration.zero);
-          expect(
-            remembered.remembered.map((device) => device.id),
-            contains('usb-2e8a-a-KNOWN'),
-          );
-          await settingsController.setPreferredScaleId(null);
-          expect(settingsController.preferredScaleId, isNull);
-          expect(await mockSettingsService.preferredScaleId(), isNull);
-        },
-      );
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          remembered.remembered.map((device) => device.id),
+          contains('usb-2e8a-a-KNOWN'),
+        );
+        await settingsController.setPreferredScaleId(null);
+        expect(settingsController.preferredScaleId, isNull);
+        expect(await mockSettingsService.preferredScaleId(), isNull);
+      });
 
       test('does not save preference on failure', () async {
         mockScaleController.shouldFailConnect = true;
@@ -3589,28 +3553,25 @@ void main() {
         await sub.cancel();
       });
 
-      test(
-        'emits scaleConnectFailed even when fallback phase is ready (machine connected)',
-        () async {
-          final fakeMachine = _FakeDe1(deviceId: 'D9:11:0B:E6:9F:86');
-          await connectionManager.connectMachine(fakeMachine);
-          expect(connectionManager.currentStatus.phase, ConnectionPhase.ready);
+      test('emits scaleConnectFailed even when fallback phase is ready (machine connected)', () async {
+        final fakeMachine = _FakeDe1(deviceId: 'D9:11:0B:E6:9F:86');
+        await connectionManager.connectMachine(fakeMachine);
+        expect(connectionManager.currentStatus.phase, ConnectionPhase.ready);
 
-          mockScaleController.shouldFailConnect = true;
-          final fakeScale = TestScale(
-            deviceId: '50:78:7D:1F:AE:E1',
-            name: 'Decent Scale',
-          );
-          await connectionManager.connectScale(fakeScale);
+        mockScaleController.shouldFailConnect = true;
+        final fakeScale = TestScale(
+          deviceId: '50:78:7D:1F:AE:E1',
+          name: 'Decent Scale',
+        );
+        await connectionManager.connectScale(fakeScale);
 
-          expect(connectionManager.currentStatus.phase, ConnectionPhase.ready);
-          expect(connectionManager.currentStatus.error, isNotNull);
-          expect(
-            connectionManager.currentStatus.error!.kind,
-            ConnectionErrorKind.scaleConnectFailed,
-          );
-        },
-      );
+        expect(connectionManager.currentStatus.phase, ConnectionPhase.ready);
+        expect(connectionManager.currentStatus.error, isNotNull);
+        expect(
+          connectionManager.currentStatus.error!.kind,
+          ConnectionErrorKind.scaleConnectFailed,
+        );
+      });
 
       test('sleep during scale connect reports conflict', () async {
         await connectionManager.dispose();
@@ -4013,38 +3974,35 @@ void main() {
         );
       });
 
-      test(
-        'adapter recovery clears stale BLE condition without clearing replacement error',
-        () async {
-          mockScanner.mockAdapterState(AdapterState.poweredOff);
-          await Future<void>.delayed(Duration.zero);
-          expect(
-            connectionManager.currentStatus.conditions.any(
-              (condition) => condition.transportType == TransportType.ble,
-            ),
-            isTrue,
-          );
+      test('adapter recovery clears stale BLE condition without clearing replacement error', () async {
+        mockScanner.mockAdapterState(AdapterState.poweredOff);
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          connectionManager.currentStatus.conditions.any(
+            (condition) => condition.transportType == TransportType.ble,
+          ),
+          isTrue,
+        );
 
-          connectionManager.debugEmitError(
-            kind: ConnectionErrorKind.scaleConnectFailed,
-            severity: ConnectionErrorSeverity.error,
-            message: 'scale failed',
-          );
-          mockScanner.mockAdapterState(AdapterState.poweredOn);
-          await Future<void>.delayed(Duration.zero);
+        connectionManager.debugEmitError(
+          kind: ConnectionErrorKind.scaleConnectFailed,
+          severity: ConnectionErrorSeverity.error,
+          message: 'scale failed',
+        );
+        mockScanner.mockAdapterState(AdapterState.poweredOn);
+        await Future<void>.delayed(Duration.zero);
 
-          expect(
-            connectionManager.currentStatus.conditions.any(
-              (condition) => condition.transportType == TransportType.ble,
-            ),
-            isFalse,
-          );
-          expect(
-            connectionManager.currentStatus.error?.kind,
-            ConnectionErrorKind.scaleConnectFailed,
-          );
-        },
-      );
+        expect(
+          connectionManager.currentStatus.conditions.any(
+            (condition) => condition.transportType == TransportType.ble,
+          ),
+          isFalse,
+        );
+        expect(
+          connectionManager.currentStatus.error?.kind,
+          ConnectionErrorKind.scaleConnectFailed,
+        );
+      });
     });
 
     group('scan failures', () {

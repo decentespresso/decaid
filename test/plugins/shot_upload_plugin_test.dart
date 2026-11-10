@@ -86,11 +86,9 @@ Map<String, dynamic> _shot(String id) => {
 
 PluginManifest _manifest() => PluginManifest.fromJson(
   jsonDecode(
-        File(
-          'assets/plugins/shot-upload.reaplugin/manifest.json',
-        ).readAsStringSync(),
-      )
-      as Map<String, dynamic>,
+    File('assets/plugins/shot-upload.reaplugin/manifest.json')
+        .readAsStringSync(),
+  ) as Map<String, dynamic>,
 );
 
 String _pluginSource() =>
@@ -205,25 +203,19 @@ void main() {
       expect(body['machine']['firmwareVersion'], '1293');
       expect(body['machine'].containsKey('bleId'), isFalse);
       expect(body['app']['version'], '9.9.9');
-      final fetches =
-          jsonDecode(
-                manager.js
-                    .evaluate('JSON.stringify(globalThis.__fetches)')
-                    .stringResult,
-              )
-              as List;
+      final fetches = jsonDecode(
+        manager.js
+            .evaluate('JSON.stringify(globalThis.__fetches)')
+            .stringResult,
+      ) as List;
       expect(
         fetches.where((url) => url.toString().endsWith('/machine/info')),
         isEmpty,
       );
 
-      final puts =
-          jsonDecode(
-                manager.js
-                    .evaluate('JSON.stringify(globalThis.__puts)')
-                    .stringResult,
-              )
-              as List;
+      final puts = jsonDecode(
+        manager.js.evaluate('JSON.stringify(globalThis.__puts)').stringResult,
+      ) as List;
       expect(puts, hasLength(1));
       expect(puts.single['url'], endsWith('/api/v1/shots/shot-1'));
       final putBody =

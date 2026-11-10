@@ -322,8 +322,12 @@ void main() {
           });
           final section = ShotExportSection(
             controller: controller,
-            pageShots:
-                (limit, {afterTimestamp, afterCreatedAt, afterId}) async => [],
+            pageShots: (
+              limit, {
+              afterTimestamp,
+              afterCreatedAt,
+              afterId,
+            }) async => [],
           );
           final imported = existing.toJson();
           if (scenario != 'unchanged') {
@@ -539,9 +543,8 @@ void main() {
         expect(stored['annotations']['espressoNotes'], 'new');
         expect(stored['updatedAt'], endsWith('Z'));
         expect(
-          DateTime.parse(
-            stored['updatedAt'] as String,
-          ).isAfter(DateTime.utc(2024, 1, 1, 8, 30)),
+          DateTime.parse(stored['updatedAt'] as String)
+              .isAfter(DateTime.utc(2024, 1, 1, 8, 30)),
           isTrue,
         );
       },
@@ -652,9 +655,8 @@ void main() {
         expect((stored['measurements'] as List).single['volume'], 42);
         expect(stored['updatedAt'], endsWith('Z'));
         expect(
-          DateTime.parse(
-            stored['updatedAt'] as String,
-          ).isAfter(DateTime.utc(2024, 1, 1, 8, 30)),
+          DateTime.parse(stored['updatedAt'] as String)
+              .isAfter(DateTime.utc(2024, 1, 1, 8, 30)),
           isTrue,
         );
       },
