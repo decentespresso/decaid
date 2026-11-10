@@ -396,6 +396,28 @@ void main() {
       },
     );
 
+    test(
+      'PUT rejects an invalid grinder RPM without touching the shot',
+      () async {
+        await persistence.persistShot(
+          makeShot(id: 'rpm-guard', grinderModel: 'EG1', grinderRpm: 1200),
+        );
+
+        for (final invalid in <Object>[-1, 12.5, 'fast']) {
+          final response = await sendPut('rpm-guard', {
+            'workflow': {
+              'context': {'grinderRpm': invalid},
+            },
+          });
+
+          expect(response.statusCode, 400, reason: 'grinderRpm=$invalid');
+        }
+
+        final after = await decode(await sendGet('/api/v1/shots/rpm-guard'));
+        expect(after['workflow']['context']['grinderRpm'], 1200);
+      },
+    );
+
     test('legacy shotNotes updates canonical notes and persists', () async {
       await persistAnnotatedShot();
 

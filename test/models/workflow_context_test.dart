@@ -114,6 +114,19 @@ void main() {
       expect(updated.coffeeName, 'Ethiopian');
     });
 
+    test('copyWith can clear the grinder RPM', () {
+      final ctx = WorkflowContext(grinderRpm: 1200);
+
+      final changed = ctx.copyWith(grinderRpm: 1400);
+      final preserved = changed.copyWith(grinderSetting: '14');
+      final cleared = preserved.copyWith(clearGrinderRpm: true);
+
+      expect(changed.grinderRpm, 1400);
+      expect(preserved.grinderRpm, 1400);
+      expect(cleared.grinderRpm, isNull);
+      expect(cleared.toJson().containsKey('grinderRpm'), isFalse);
+    });
+
     test('copyWith changes and clears the water-volume override', () {
       final ctx = WorkflowContext(targetWaterVolume: 55.0);
 
