@@ -274,6 +274,8 @@ class ShotsHandler {
       return jsonOk(updatedShot.toJson());
     } on RequestBodyReadException {
       rethrow;
+    } on FormatException catch (e) {
+      return jsonBadRequest({"error": e.message});
     } catch (e, st) {
       _log.severe("Error updating shot $id", e, st);
       return jsonError({"error": e.toString()});

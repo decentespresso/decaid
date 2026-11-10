@@ -134,6 +134,7 @@ class WorkflowContext {
     bool clearGrinderBurrs = false,
     String? grinderSetting,
     int? grinderRpm,
+    bool clearGrinderRpm = false,
     String? beanBatchId,
     bool clearBeanBatchId = false,
     String? coffeeName,
@@ -155,7 +156,7 @@ class WorkflowContext {
           ? null
           : grinderBurrs ?? this.grinderBurrs,
       grinderSetting: grinderSetting ?? this.grinderSetting,
-      grinderRpm: grinderRpm ?? this.grinderRpm,
+      grinderRpm: clearGrinderRpm ? null : grinderRpm ?? this.grinderRpm,
       beanBatchId: clearBeanBatchId ? null : beanBatchId ?? this.beanBatchId,
       coffeeName: coffeeName ?? this.coffeeName,
       coffeeRoaster: coffeeRoaster ?? this.coffeeRoaster,
