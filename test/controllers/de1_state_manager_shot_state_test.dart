@@ -13,6 +13,7 @@ import 'package:reaprime/src/models/data/shot_record.dart';
 import 'package:reaprime/src/models/data/shot_state_event.dart';
 import 'package:reaprime/src/models/data/steam_record.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
+import 'package:reaprime/src/models/data/workflow_context.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/services/storage/storage_service.dart';
@@ -252,6 +253,75 @@ void main() {
           'clients can correlate the stream to the saved shot',
     );
   });
+
+  test(
+    'shot completion stores each complete grinder workflow snapshot',
+    () async {
+      workflowController.setWorkflow(
+        workflowController.currentWorkflow.copyWith(
+          id: workflowController.currentWorkflow.id,
+          context: const WorkflowContext(
+            grinderId: 'grinder-1',
+            grinderModel: 'EG1',
+            grinderBurrs: 'Core',
+            grinderSetting: '12.5',
+            grinderRpm: 1200,
+            extras: {
+              'plugin.grinder': {
+                'feedingRate': 4.5,
+                'rpmProfile': [900, 1200],
+              },
+            },
+          ),
+        ),
+      );
+
+      await driveShot();
+      final first = storage.storedShots.single;
+
+      workflowController.setWorkflow(
+        workflowController.currentWorkflow.copyWith(
+          id: workflowController.currentWorkflow.id,
+          context: const WorkflowContext(
+            grinderId: 'grinder-1',
+            grinderModel: 'EG1',
+            grinderBurrs: 'Core',
+            grinderSetting: '13.0',
+            grinderRpm: 1300,
+            extras: {
+              'plugin.grinder': {
+                'feedingRate': 5.5,
+                'rpmProfile': [1000, 1300],
+              },
+            },
+          ),
+        ),
+      );
+      testDe1.emitStateAndSubstate(MachineState.idle, MachineSubstate.idle);
+      await pump();
+      events.clear();
+      await driveShot();
+
+      expect(storage.storedShots, hasLength(2));
+      expect(first.workflow.context?.grinderSetting, '12.5');
+      expect(first.workflow.context?.grinderRpm, 1200);
+      expect(first.workflow.context?.extras, {
+        'plugin.grinder': {
+          'feedingRate': 4.5,
+          'rpmProfile': [900, 1200],
+        },
+      });
+      final second = storage.storedShots[1];
+      expect(second.workflow.context?.grinderSetting, '13.0');
+      expect(second.workflow.context?.grinderRpm, 1300);
+      expect(second.workflow.context?.extras, {
+        'plugin.grinder': {
+          'feedingRate': 5.5,
+          'rpmProfile': [1000, 1300],
+        },
+      });
+    },
+  );
 
   test(
     'failed machine capture persists unavailable instead of stale identity',

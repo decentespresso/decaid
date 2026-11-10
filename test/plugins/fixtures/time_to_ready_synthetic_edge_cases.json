@@ -1,0 +1,23 @@
+{
+  "header": "assumption: synthetic stress profile, not recorded data; grounded only in the issue's faster-ramp/denser-cadence Bengle premise",
+  "scenarios": {
+    "noisyStartup": {
+      "name": "positive ramp with noisy startup",
+      "initial": 20,
+      "target": 70,
+      "ramp": 0.2,
+      "cadenceSeconds": 1,
+      "startupJitter": [3, -3, 2.5, -2.5, 2, -2, 1.5, -1.5, 1, -1, 0.8, -0.8, 0.6, -0.6],
+      "ongoingJitter": [0.02, -0.015, 0.01, -0.008]
+    },
+    "alternatingNoise": {
+      "name": "positive ramp with persistent alternating noise",
+      "initial": 20,
+      "target": 70,
+      "ramp": 0.2,
+      "cadenceSeconds": 1,
+      "startupJitter": [2, -2, 2, -2, 2, -2, 2, -2, 2, -2, 2, -2, 2, -2, 2, -2, 2, -2, 2, -2, 2, -2, 2, -2, 2, -2, 2, -2, 2, -2, 2, -2, 2, -2, 2, -2, 2, -2, 2, -2],
+      "ongoingJitter": [2, -2]
+    }
+  }
+}

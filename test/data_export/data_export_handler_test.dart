@@ -4,12 +4,16 @@ import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/src/controllers/persistence_controller.dart';
+import 'package:reaprime/src/models/data/workflow_context.dart';
 import 'package:reaprime/src/services/webserver/data_export/data_export_section.dart';
+import 'package:reaprime/src/services/webserver/data_export/shot_export_section.dart';
 import 'package:reaprime/src/services/webserver/data_export/data_transfer_limits.dart';
 import 'package:reaprime/src/services/webserver/data_export_handler.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
 import 'streaming_test_helpers.dart';
+import '../helpers/shot_event_storage.dart';
 
 void corruptCentralDirectoryCrc(List<int> zipBytes, String filename) {
   final nameBytes = utf8.encode(filename);
@@ -193,6 +197,82 @@ void main() {
 
   group('DataExportHandler', () {
     group('GET /api/v1/data/export', () {
+      test(
+        'actual ZIP backup round-trips complete grinder workflow values',
+        () async {
+          final sourceStorage = ShotEventStorage();
+          final sourceController = PersistenceController(
+            storageService: sourceStorage,
+          );
+          final original = eventShot().copyWith(
+            workflow: eventShot().workflow.copyWith(
+              id: eventShot().workflow.id,
+              context: const WorkflowContext(
+                grinderId: 'grinder-1',
+                grinderModel: 'EG1',
+                grinderBurrs: 'Core',
+                grinderSetting: '12.5',
+                grinderRpm: 1200,
+                extras: {
+                  'plugin.grinder': {
+                    'feedingRate': 4.5,
+                    'rpmProfile': [900, 1200],
+                  },
+                },
+              ),
+            ),
+          );
+          sourceStorage.shots[original.id] = original;
+          final sourceSection = ShotExportSection(
+            controller: sourceController,
+            pageShots:
+                (limit, {afterTimestamp, afterCreatedAt, afterId}) async =>
+                    afterTimestamp == null ? [original] : [],
+          );
+
+          final destinationStorage = ShotEventStorage();
+          final destinationController = PersistenceController(
+            storageService: destinationStorage,
+          );
+          final destinationSection = ShotExportSection(
+            controller: destinationController,
+            pageShots:
+                (limit, {afterTimestamp, afterCreatedAt, afterId}) async => [],
+          );
+          final exporter = DataExportHandler(sections: [sourceSection]);
+          final importer = DataExportHandler(sections: [destinationSection]);
+          final tempDir = await Directory.systemTemp.createTemp(
+            'grinder-backup-',
+          );
+          addTearDown(() async {
+            sourceController.dispose();
+            destinationController.dispose();
+            await tempDir.delete(recursive: true);
+          });
+
+          final zipFile = await exporter.exportToZipFile(tempDir);
+          final outcome = await importer.importFromZipFile(
+            zipFile,
+            ConflictStrategy.overwrite,
+          );
+
+          expect(outcome.phase.complete, isTrue);
+          final restored = destinationStorage.shots[original.id]!;
+          final context = restored.workflow.context!;
+          expect(context.grinderId, 'grinder-1');
+          expect(context.grinderModel, 'EG1');
+          expect(context.grinderBurrs, 'Core');
+          expect(context.grinderSetting, '12.5');
+          expect(context.grinderRpm, 1200);
+          expect(context.extras, {
+            'plugin.grinder': {
+              'feedingRate': 4.5,
+              'rpmProfile': [900, 1200],
+            },
+          });
+        },
+      );
+
       test(
         'returns ZIP with correct content-type and Content-Disposition',
         () async {

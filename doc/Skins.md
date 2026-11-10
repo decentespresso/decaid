@@ -838,13 +838,21 @@ Update just the profile:
   linked grinder each time a shot is stored, so a stored shot records the burrs that were
   fitted when it was pulled and later grinder edits leave that history alone
 - `grinderSetting` (string): Current grinder setting
+- `grinderRpm` (integer): Recorded grinder RPM for the recipe. Optional and non-negative;
+  absence stays absent. It is workflow configuration, not an observed grinder speed — a
+  connected grinder's telemetry is never written here, and the catalog's RPM step sizes are
+  UI increments, not this value. A PUT rejects negative, fractional, string and boolean
+  values with `400`, and an explicit `null` clears it without touching the rest of the context
 - `beanBatchId` (string): ID of a managed BeanBatch entity (see Beans API)
 - `coffeeName` (string): Coffee bean name (display string)
 - `coffeeRoaster` (string): Coffee roaster name (display string)
 - `finalBeverageType` (string): Beverage classification (e.g., "espresso", "filter")
 - `baristaName` (string): Person pulling the shot
 - `drinkerName` (string): Person drinking
-- `extras` (object): Arbitrary key-value pairs for custom data
+- `extras` (object): Arbitrary key-value pairs for custom data. Plugin-owned grinder preparation
+  values (feeding rate, feed RPM, slow-feeding modes) live here under a namespaced key such as
+  `plugin.grinder`, and are preserved unchanged through a shot snapshot, REST responses, edits,
+  JSON export and backup/restore
 
 > **Backward compatibility:** Legacy fields `doseData`, `grinderData`, and `coffeeData` are still accepted for writes. When `context` is not provided, the system backfills it from legacy fields automatically.
 

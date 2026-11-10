@@ -463,6 +463,64 @@ When Decaid matches an external request to an endpoint that is defined in the
 plugins manifest,
 it will send over events emitted by the plugin.
 
+The bundled `time-to-ready.reaplugin` records the group temperature when the
+machine first reports below-target operation, with the reference reset on `ready`,
+sleep, a target temperature change, or cooling 2 K below the session start. It
+estimates the remaining time from the recent heating rate rather than the whole
+climb: it keeps an 18-second trailing temperature window, requires at least eight
+samples, and measures the rate over the shortest span that shows a clear rise
+(six, twelve, then eighteen seconds, trimming any leading plateau). The estimate is
+`max(targetGroupTemperature - currentTemperature, 0) / heatingRate`, rounded to
+ten seconds and clamped to 5-300 s.
+
+This deliberately departs from the de1app Streamline formula, which divides
+elapsed time by progress toward `targetGroupTemperature - 10`. That `-10` offset
+absorbed a slow tail for the original machine but collapses the denominator near
+target: it makes a slow machine reach the floor too early and makes a fast machine
+compress most of its countdown into the last few steps. A recent rate adapts to
+machines with very different heating speeds. `heatingRate` reports that recent
+rate in degrees per second.
+
+The plugin holds the `api` permission to read `GET /api/v1/machine/info` and
+cache `model`. Discovery treats a non-2xx response, an unparseable body or an
+empty model as a failure, retries five times at 30 s intervals, and re-runs at most
+once a minute from the state stream, so a machine that connects after startup is
+classified without a restart and a machine swap resets the heating session instead
+of inheriting the previous classification. Pending retries are cancelled on unload
+and a response that arrives after unload is discarded.
+
+On a Bengle the first published countdown of a heating session becomes its
+ceiling, and later publications may only decrease. Other machines - the DE1 family
+heats exponentially, decelerating hard near target - get a bounded allowance: when
+the measured rate falls below 80% of the session peak, the estimate is lengthened
+by up to 1.4x and the ceiling is released for that update, so a decelerating ramp
+is not under-reported. On the recorded DE1 cold start that moved the mid-ramp
+error from -47 s to +5 s. If machine info is unavailable the plugin stays on the
+conservative ceiling with no allowance.
+
+Stall detection keeps its own 60 second history, separate from the 18 second rate
+window, so it judges a real minute of observations; the history retains the sample
+just before the cutoff, so ordinary sampling jitter cannot make the window look
+incomplete and suppress a stall indefinitely. The continued-heating threshold is
+derived from the same numbers - a rise of `0.5 K * 18 / 60` over the rate window -
+so there is no band of slow-but-real heating that neither publishes nor stalls. An established session whose
+temperature stops climbing reports `status: "not_heating"` - not
+`insufficient_data` - once that minute gained less than 0.5 K, and the display cap
+is released so a later resume starts clean. Short pauses stay in the countdown.
+
+Once a session has published, the five-kelvin start gate is no longer required:
+a slow positive ramp keeps its countdown as long as the window gained more than
+0.2 K, which is what a decelerating DE1 approaches near target. Below that, the
+stall detector decides between `not_heating` and continued measurement.
+
+That ceiling is stricter than de1app, whose own monotonic guard is unreachable: its
+`force_update` flag is set to `1` immediately before the comparison, so the guard
+never runs.
+
+`status: "insufficient_data"` with `remainingTimeMs: null` is published until the
+recent rate is established, or while the machine is not heating. The heating skin
+renders that state as "Heating" without a countdown.
+
 Example:
 
 ```bash
