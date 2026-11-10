@@ -176,8 +176,8 @@ In-depth guides and API references are available in the [`doc/`](doc/) directory
 
 ### Prerequisites
 
-- **Flutter SDK**: 3.44.2 (project/CI development version)
-- **Dart SDK**: `^3.10.0` (from `pubspec.yaml`)
+- **Flutter SDK**: 3.47.9 (project/CI development version)
+- **Dart SDK**: `^3.13.0` (from `pubspec.yaml`)
 - **Platform-specific tools**:
   - Android: Android Studio / SDK
   - macOS: Xcode
