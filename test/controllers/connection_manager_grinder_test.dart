@@ -157,32 +157,29 @@ void main() {
     expect(machineController.connectCalls, isEmpty);
   });
 
-  test(
-    'occupied machine settles before grinder and scale recovery stays independent',
-    () async {
-      machineController.proceed.complete();
-      expect((await manager.connectMachine(machine)).success, isTrue);
-      scanner.addDevice(machine);
-      scanner.addDevice(grinder);
+  test('occupied machine settles before grinder and scale recovery stays independent', () async {
+    machineController.proceed.complete();
+    expect((await manager.connectMachine(machine)).success, isTrue);
+    scanner.addDevice(machine);
+    scanner.addDevice(grinder);
 
-      await manager.scanAndConnect().timeout(const Duration(milliseconds: 500));
-      await Future<void>.delayed(Duration.zero);
-      expect(manager.currentStatus.phase, ConnectionPhase.ready);
-      expect(grinder.onConnectCalls, 1);
-      expect(grinderGate.isCompleted, isFalse);
+    await manager.scanAndConnect().timeout(const Duration(milliseconds: 500));
+    await Future<void>.delayed(Duration.zero);
+    expect(manager.currentStatus.phase, ConnectionPhase.ready);
+    expect(grinder.onConnectCalls, 1);
+    expect(grinderGate.isCompleted, isFalse);
 
-      scanner.addDevice(scale);
-      scaleController.proceed.complete();
-      await manager
-          .connect(scaleOnly: true)
-          .timeout(const Duration(milliseconds: 500));
+    scanner.addDevice(scale);
+    scaleController.proceed.complete();
+    await manager
+        .connect(scaleOnly: true)
+        .timeout(const Duration(milliseconds: 500));
 
-      expect(scaleController.connectCalls, [same(scale)]);
-      expect(machineController.connectCalls, [same(machine)]);
-      expect(grinder.onConnectCalls, 1);
-      expect(manager.currentStatus.phase, ConnectionPhase.ready);
-    },
-  );
+    expect(scaleController.connectCalls, [same(scale)]);
+    expect(machineController.connectCalls, [same(machine)]);
+    expect(grinder.onConnectCalls, 1);
+    expect(manager.currentStatus.phase, ConnectionPhase.ready);
+  });
 
   test(
     'machine picker defers grinder until machine and scale settle',

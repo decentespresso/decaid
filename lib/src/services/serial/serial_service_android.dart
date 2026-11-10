@@ -21,9 +21,11 @@ import 'package:reaprime/src/models/device/transport/serial_port.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/models/device/remembered_device.dart';
 import 'package:reaprime/src/models/device/usb_attach_probe.dart';
+
 import 'mmr_codec.dart';
 import 'usb_ids.dart';
 import 'utils.dart';
+
 import 'package:rxdart/subjects.dart';
 
 // ignore: depend_on_referenced_packages
@@ -45,11 +47,10 @@ class SerialServiceAndroid
     Future<List<UsbDevice>> Function()? listDevices,
     Stream<UsbEvent>? Function()? usbEventStream,
     Future<Device?> Function(UsbDevice device)? detectDevice,
-    Future<UsbPort?> Function(UsbDevice device, int iface)? createTapPort,
+    this._createTapPort,
   }) : _listDevices = listDevices ?? UsbSerial.listDevices,
        _usbEventStream = usbEventStream ?? (() => UsbSerial.usbEventStream),
-       _detectOverride = detectDevice,
-       _createTapPort = createTapPort;
+       _detectOverride = detectDevice;
 
   final Map<String, AndroidSerialPort> _transportForDeviceId = {};
   final Map<int, String> _canonicalSerialByPhysicalId = {};
@@ -1070,22 +1071,15 @@ class AndroidSerialPort implements SerialTransport, CanonicalDeviceIdentity {
   Stream<ConnectionState> get connectionState => _open.asBroadcastStream();
 
   AndroidSerialPort({
-    required UsbDevice device,
-    required UsbPort port,
-    int? interfaceNumber,
-    int? physicalInstanceId,
-    String? identityOverride,
-    String? Function()? canonicalIdentity,
-    bool dtrOn = false,
-    bool decodeUtf8Text = true,
-  }) : _device = device,
-       _port = port,
-       _interfaceNumber = interfaceNumber,
-       _physicalInstanceId = physicalInstanceId,
-       _identityOverride = identityOverride,
-       _canonicalIdentity = canonicalIdentity,
-       _dtrOn = dtrOn,
-       _decodeUtf8Text = decodeUtf8Text {
+    required this._device,
+    required this._port,
+    this._interfaceNumber,
+    this._physicalInstanceId,
+    this._identityOverride,
+    this._canonicalIdentity,
+    this._dtrOn = false,
+    this._decodeUtf8Text = true,
+  }) {
     _log = Logger("Serial:${_device.deviceName}");
   }
   @override
@@ -1148,9 +1142,8 @@ class AndroidSerialPort implements SerialTransport, CanonicalDeviceIdentity {
     if (_open.value == ConnectionState.connected) return Future.value();
     final revision = _connectionRevision;
     _open.add(ConnectionState.connecting);
-    final connection = _connectPort(
-      revision,
-    ).whenComplete(() => _connecting = null);
+    final connection = _connectPort(revision)
+        .whenComplete(() => _connecting = null);
     _connecting = connection;
     return connection;
   }

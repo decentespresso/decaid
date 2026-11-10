@@ -44,9 +44,9 @@ PluginPackage resolvePluginPackage(Directory staged) {
   final Map<String, dynamic> manifestJson;
   final PluginManifest manifest;
   try {
-    manifestJson =
-        jsonDecode(File('${root.path}/$_manifestName').readAsStringSync())
-            as Map<String, dynamic>;
+    manifestJson = jsonDecode(
+      File('${root.path}/$_manifestName').readAsStringSync(),
+    ) as Map<String, dynamic>;
     manifest = PluginManifest.fromJson(manifestJson);
   } catch (e, st) {
     Logger('PluginPackage').warning('Invalid plugin manifest', e, st);

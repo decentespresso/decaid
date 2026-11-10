@@ -26,9 +26,8 @@ void main() {
     bool withSource = true,
   }) {
     final dir = Directory(path)..createSync(recursive: true);
-    File(
-      '${dir.path}/manifest.json',
-    ).writeAsStringSync(jsonEncode(manifest ?? manifestJson(id)));
+    File('${dir.path}/manifest.json')
+        .writeAsStringSync(jsonEncode(manifest ?? manifestJson(id)));
     if (withSource) {
       File('${dir.path}/plugin.js').writeAsStringSync('function f() {}');
     }
@@ -104,9 +103,8 @@ void main() {
   test('rejects a malformed manifest', () {
     final dir = Directory('${tempDir.path}/staged')
       ..createSync(recursive: true);
-    File(
-      '${dir.path}/manifest.json',
-    ).writeAsStringSync('{ not json https://private.example/internal');
+    File('${dir.path}/manifest.json')
+        .writeAsStringSync('{ not json https://private.example/internal');
     File('${dir.path}/plugin.js').writeAsStringSync('function f() {}');
 
     expect(

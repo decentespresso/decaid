@@ -11,6 +11,7 @@ import 'package:reaprime/src/settings/settings_service.dart';
 import 'package:reaprime/src/debug_feature/debug_item_list_view.dart';
 import 'package:reaprime/src/services/foreground_service.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
+
 import 'dart:io';
 
 import 'package:reaprime/src/settings/gateway_mode.dart';

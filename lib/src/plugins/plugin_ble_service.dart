@@ -12,13 +12,12 @@ import 'plugin_ble_session.dart';
 import 'plugin_device_contract.dart';
 import 'plugin_manifest.dart';
 
-typedef PluginBleInvoker =
-    Future<Map<String, dynamic>> Function(
-      PluginBleDriver driver,
-      String handle,
-      PluginDeviceOperation operation,
-      Map<String, dynamic> payload,
-    );
+typedef PluginBleInvoker = Future<Map<String, dynamic>> Function(
+  PluginBleDriver driver,
+  String handle,
+  PluginDeviceOperation operation,
+  Map<String, dynamic> payload,
+);
 
 class PluginBleService {
   final PluginBleRegistry registry;

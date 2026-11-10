@@ -14,10 +14,9 @@ class AccountConsentStore {
   Future<void> _writeTail = Future<void>.value();
 
   AccountConsentStore({
-    required CredentialStore credentialStore,
-    String storageKey = 'account_proxy_consent',
-  }) : _credentialStore = credentialStore,
-       _storageKey = storageKey;
+    required this._credentialStore,
+    this._storageKey = 'account_proxy_consent',
+  });
 
   Future<AccountConsentDecision?> read(String key) async {
     await _ensureLoaded();

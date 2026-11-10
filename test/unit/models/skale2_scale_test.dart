@@ -177,36 +177,33 @@ void main() {
       },
     );
 
-    test(
-      'LCD ON (0xEC display weight) is sent before subscribing to weight notifications',
-      () async {
-        await scale.onConnect();
+    test('LCD ON (0xEC display weight) is sent before subscribing to weight notifications', () async {
+      await scale.onConnect();
 
-        final displayWeightIndex = transport.operations.indexWhere(
-          (op) => op.contains('write:ef80:[0xEC]'),
-        );
-        final weightSubIndex = transport.operations.indexWhere(
-          (op) => op == 'subscribe:ef81',
-        );
+      final displayWeightIndex = transport.operations.indexWhere(
+        (op) => op.contains('write:ef80:[0xEC]'),
+      );
+      final weightSubIndex = transport.operations.indexWhere(
+        (op) => op == 'subscribe:ef81',
+      );
 
-        expect(
-          displayWeightIndex,
-          isNot(equals(-1)),
-          reason: 'Display weight should be sent',
-        );
-        expect(
-          weightSubIndex,
-          isNot(equals(-1)),
-          reason: 'weight should be subscribed',
-        );
-        expect(
-          displayWeightIndex,
-          lessThan(weightSubIndex),
-          reason:
-              'Display weight command must be sent before subscribing to weight',
-        );
-      },
-    );
+      expect(
+        displayWeightIndex,
+        isNot(equals(-1)),
+        reason: 'Display weight should be sent',
+      );
+      expect(
+        weightSubIndex,
+        isNot(equals(-1)),
+        reason: 'weight should be subscribed',
+      );
+      expect(
+        displayWeightIndex,
+        lessThan(weightSubIndex),
+        reason:
+            'Display weight command must be sent before subscribing to weight',
+      );
+    });
 
     test(
       'button notifications are subscribed after weight notifications',
@@ -230,23 +227,20 @@ void main() {
       },
     );
 
-    test(
-      'LCD ON is sent a second time after all subscriptions (double-send)',
-      () async {
-        await scale.onConnect();
+    test('LCD ON is sent a second time after all subscriptions (double-send)', () async {
+      await scale.onConnect();
 
-        final lcdOnCount = transport.operations
-            .where((op) => op.contains('write:ef80:[0xED]'))
-            .length;
+      final lcdOnCount = transport.operations
+          .where((op) => op.contains('write:ef80:[0xED]'))
+          .length;
 
-        expect(
-          lcdOnCount,
-          greaterThanOrEqualTo(2),
-          reason:
-              'LCD ON should be sent at least twice (de1app double-send pattern)',
-        );
-      },
-    );
+      expect(
+        lcdOnCount,
+        greaterThanOrEqualTo(2),
+        reason:
+            'LCD ON should be sent at least twice (de1app double-send pattern)',
+      );
+    });
 
     test('grams command (0x03) is sent after the second LCD ON', () async {
       await scale.onConnect();

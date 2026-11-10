@@ -61,9 +61,8 @@ mixin IntegratedScaleCapability on UnifiedDe1 {
       _sawTarget = BehaviorSubject.seeded(0);
     }
     await _bengleWeightSub?.cancel();
-    _bengleWeightSub = notificationsFor(
-      Endpoint.bengleShotSample,
-    ).listen(_handleBengleShotSample);
+    _bengleWeightSub = notificationsFor(Endpoint.bengleShotSample)
+        .listen(_handleBengleShotSample);
   }
 
   Future<void> disposeIntegratedScale() async {

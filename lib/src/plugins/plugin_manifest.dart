@@ -1,6 +1,7 @@
 import 'package:collection/collection.dart';
 import 'package:reaprime/src/models/device/grinder_device.dart';
 import 'package:reaprime/src/util/safe_path.dart';
+
 import 'plugin_ble_matcher.dart';
 
 List<String> parsePluginEnumValues(String key, dynamic schema) {

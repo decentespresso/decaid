@@ -73,9 +73,8 @@ class PluginSourceService {
   }
 
   void _writeSource(String pluginId, PluginSource source) {
-    File(
-      '${_loader.getPluginDirectory(pluginId)}/$metadataFileName',
-    ).writeAsStringSync(jsonEncode(source.toJson()));
+    File('${_loader.getPluginDirectory(pluginId)}/$metadataFileName')
+        .writeAsStringSync(jsonEncode(source.toJson()));
   }
 
   Future<PluginManifest> installFromGitHubRelease(

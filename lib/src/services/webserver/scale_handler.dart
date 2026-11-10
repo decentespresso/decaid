@@ -9,14 +9,11 @@ class ScaleHandler {
   final Logger _log = Logger("Scale handler");
 
   ScaleHandler({
-    required ScaleController controller,
-    required De1Controller de1Controller,
-    required SettingsController settingsController,
-    required AuxiliaryScaleRegistry auxiliaryScaleRegistry,
-  }) : _controller = controller,
-       _de1Controller = de1Controller,
-       _settingsController = settingsController,
-       _auxiliaryScaleRegistry = auxiliaryScaleRegistry;
+    required this._controller,
+    required this._de1Controller,
+    required this._settingsController,
+    required this._auxiliaryScaleRegistry,
+  });
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/scale/<command>', (Request request, String command) async {

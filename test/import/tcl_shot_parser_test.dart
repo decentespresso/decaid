@@ -382,9 +382,9 @@ void main() {
         'espresso_state_change '
         '{${series.group(1)!.split(' ').take(20).join(' ')}}',
       );
-      final frames = TclShotParser.parse(
-        truncated,
-      ).shot.measurements.map((m) => m.machine.profileFrame).toList();
+      final frames = TclShotParser.parse(truncated).shot.measurements
+          .map((m) => m.machine.profileFrame)
+          .toList();
 
       expect(frames.length, equals(30));
       expect(frames.toSet(), equals({0}));

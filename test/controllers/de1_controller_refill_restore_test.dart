@@ -124,25 +124,22 @@ void main() {
     },
   );
 
-  test(
-    'missing serial and transport identity preserve calibration without a write',
-    () async {
-      final settings = MemoryMachineSettingsStore();
-      await settings.update('serial:12345', flowCalibration: 1.25);
-      await settings.update('', flowCalibration: 1.5);
-      expect(await settings.read(''), isNull);
-      final harness = await _connect(
-        settings: settings,
-        transport: _EmptyTransport(),
-        serialN: 0,
-        calFlowEst: 1700,
-      );
-      addTearDown(harness.controller.dispose);
+  test('missing serial and transport identity preserve calibration without a write', () async {
+    final settings = MemoryMachineSettingsStore();
+    await settings.update('serial:12345', flowCalibration: 1.25);
+    await settings.update('', flowCalibration: 1.5);
+    expect(await settings.read(''), isNull);
+    final harness = await _connect(
+      settings: settings,
+      transport: _EmptyTransport(),
+      serialN: 0,
+      calFlowEst: 1700,
+    );
+    addTearDown(harness.controller.dispose);
 
-      expect(_flowRegisterWrites(harness.transport), isEmpty);
-      expect(harness.controller.connectedDe1OrNull?.cachedFlowEstimation, 1.7);
-    },
-  );
+    expect(_flowRegisterWrites(harness.transport), isEmpty);
+    expect(harness.controller.connectedDe1OrNull?.cachedFlowEstimation, 1.7);
+  });
 
   for (final serial in [0, 12345]) {
     test(

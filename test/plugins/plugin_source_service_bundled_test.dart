@@ -344,15 +344,10 @@ function createPlugin() {
           .map((permission) => permission.wireName)
           .toSet();
 
-      Set<String> diskPermissions() =>
-          (jsonDecode(
-                    File(
-                      '${tempDir.path}/plugins/$bundledId/manifest.json',
-                    ).readAsStringSync(),
-                  )
-                  as Map<String, dynamic>)['permissions']
-              .cast<String>()
-              .toSet();
+      Set<String> diskPermissions() => (jsonDecode(
+        File('${tempDir.path}/plugins/$bundledId/manifest.json')
+            .readAsStringSync(),
+      ) as Map<String, dynamic>)['permissions'].cast<String>().toSet();
 
       test(
         'bundled release additions from an unrelated repository wait',
@@ -629,13 +624,10 @@ function createPlugin() {
 
           expect(loader.getPluginManifest(bundledId)!.version, '1.1.0');
           expect(provenanceService.sourceFor(bundledId)!.pendingUpdate, isNull);
-          final diskManifest =
-              jsonDecode(
-                    File(
-                      '${loader.getPluginDirectory(bundledId)}/manifest.json',
-                    ).readAsStringSync(),
-                  )
-                  as Map<String, dynamic>;
+          final diskManifest = jsonDecode(
+            File('${loader.getPluginDirectory(bundledId)}/manifest.json')
+                .readAsStringSync(),
+          ) as Map<String, dynamic>;
           expect(diskManifest['permissions'], unorderedEquals(['log', 'api']));
         },
       );

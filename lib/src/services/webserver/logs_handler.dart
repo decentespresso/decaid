@@ -10,11 +10,10 @@ class LogsHandler {
   static const int maxTailKb = 4096;
 
   LogsHandler({
-    required String logFilePath,
+    required this._logFilePath,
     int defaultTailKb = LogsHandler.defaultTailKb,
     int maxTailKb = LogsHandler.maxTailKb,
-  }) : _logFilePath = logFilePath,
-       _defaultTailBytes = defaultTailKb * 1024,
+  }) : _defaultTailBytes = defaultTailKb * 1024,
        _maxTailBytes = maxTailKb * 1024;
 
   void addRoutes(RouterPlus app) {

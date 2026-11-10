@@ -5534,48 +5534,46 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       const DriftDatabaseOptions(storeDateTimeAsText: true);
 }
 
-typedef $$BeansTableCreateCompanionBuilder =
-    BeansCompanion Function({
-      required String id,
-      required String roaster,
-      required String name,
-      Value<String?> species,
-      Value<bool> decaf,
-      Value<String?> decafProcess,
-      Value<String?> country,
-      Value<String?> region,
-      Value<String?> producer,
-      Value<List<String>?> variety,
-      Value<List<int>?> altitude,
-      Value<String?> processing,
-      Value<String?> notes,
-      Value<bool> archived,
-      required DateTime createdAt,
-      required DateTime updatedAt,
-      Value<Map<String, dynamic>?> extras,
-      Value<int> rowid,
-    });
-typedef $$BeansTableUpdateCompanionBuilder =
-    BeansCompanion Function({
-      Value<String> id,
-      Value<String> roaster,
-      Value<String> name,
-      Value<String?> species,
-      Value<bool> decaf,
-      Value<String?> decafProcess,
-      Value<String?> country,
-      Value<String?> region,
-      Value<String?> producer,
-      Value<List<String>?> variety,
-      Value<List<int>?> altitude,
-      Value<String?> processing,
-      Value<String?> notes,
-      Value<bool> archived,
-      Value<DateTime> createdAt,
-      Value<DateTime> updatedAt,
-      Value<Map<String, dynamic>?> extras,
-      Value<int> rowid,
-    });
+typedef $$BeansTableCreateCompanionBuilder = BeansCompanion Function({
+  required String id,
+  required String roaster,
+  required String name,
+  Value<String?> species,
+  Value<bool> decaf,
+  Value<String?> decafProcess,
+  Value<String?> country,
+  Value<String?> region,
+  Value<String?> producer,
+  Value<List<String>?> variety,
+  Value<List<int>?> altitude,
+  Value<String?> processing,
+  Value<String?> notes,
+  Value<bool> archived,
+  required DateTime createdAt,
+  required DateTime updatedAt,
+  Value<Map<String, dynamic>?> extras,
+  Value<int> rowid,
+});
+typedef $$BeansTableUpdateCompanionBuilder = BeansCompanion Function({
+  Value<String> id,
+  Value<String> roaster,
+  Value<String> name,
+  Value<String?> species,
+  Value<bool> decaf,
+  Value<String?> decafProcess,
+  Value<String?> country,
+  Value<String?> region,
+  Value<String?> producer,
+  Value<List<String>?> variety,
+  Value<List<int>?> altitude,
+  Value<String?> processing,
+  Value<String?> notes,
+  Value<bool> archived,
+  Value<DateTime> createdAt,
+  Value<DateTime> updatedAt,
+  Value<Map<String, dynamic>?> extras,
+  Value<int> rowid,
+});
 
 final class $$BeansTableReferences
     extends BaseReferences<_$AppDatabase, $BeansTable, Bean> {
@@ -6665,17 +6663,15 @@ class $$BeanBatchesTableTableManager
                     >
                   >(state) {
                     if (beanId) {
-                      state =
-                          state.withJoin(
-                                currentTable: table,
-                                currentColumn: table.beanId,
-                                referencedTable: $$BeanBatchesTableReferences
-                                    ._beanIdTable(db),
-                                referencedColumn: $$BeanBatchesTableReferences
-                                    ._beanIdTable(db)
-                                    .id,
-                              )
-                              as T;
+                      state = state.withJoin(
+                        currentTable: table,
+                        currentColumn: table.beanId,
+                        referencedTable: $$BeanBatchesTableReferences
+                            ._beanIdTable(db),
+                        referencedColumn: $$BeanBatchesTableReferences
+                            ._beanIdTable(db)
+                            .id,
+                      ) as T;
                     }
 
                     return state;
@@ -6703,46 +6699,44 @@ typedef $$BeanBatchesTableProcessedTableManager =
       BeanBatche,
       PrefetchHooks Function({bool beanId})
     >;
-typedef $$GrindersTableCreateCompanionBuilder =
-    GrindersCompanion Function({
-      required String id,
-      required String model,
-      Value<String?> burrs,
-      Value<double?> burrSize,
-      Value<String?> burrType,
-      Value<String?> notes,
-      Value<bool> archived,
-      Value<String> settingType,
-      Value<List<String>?> settingValues,
-      Value<double?> settingSmallStep,
-      Value<double?> settingBigStep,
-      Value<double?> rpmSmallStep,
-      Value<double?> rpmBigStep,
-      required DateTime createdAt,
-      required DateTime updatedAt,
-      Value<Map<String, dynamic>?> extras,
-      Value<int> rowid,
-    });
-typedef $$GrindersTableUpdateCompanionBuilder =
-    GrindersCompanion Function({
-      Value<String> id,
-      Value<String> model,
-      Value<String?> burrs,
-      Value<double?> burrSize,
-      Value<String?> burrType,
-      Value<String?> notes,
-      Value<bool> archived,
-      Value<String> settingType,
-      Value<List<String>?> settingValues,
-      Value<double?> settingSmallStep,
-      Value<double?> settingBigStep,
-      Value<double?> rpmSmallStep,
-      Value<double?> rpmBigStep,
-      Value<DateTime> createdAt,
-      Value<DateTime> updatedAt,
-      Value<Map<String, dynamic>?> extras,
-      Value<int> rowid,
-    });
+typedef $$GrindersTableCreateCompanionBuilder = GrindersCompanion Function({
+  required String id,
+  required String model,
+  Value<String?> burrs,
+  Value<double?> burrSize,
+  Value<String?> burrType,
+  Value<String?> notes,
+  Value<bool> archived,
+  Value<String> settingType,
+  Value<List<String>?> settingValues,
+  Value<double?> settingSmallStep,
+  Value<double?> settingBigStep,
+  Value<double?> rpmSmallStep,
+  Value<double?> rpmBigStep,
+  required DateTime createdAt,
+  required DateTime updatedAt,
+  Value<Map<String, dynamic>?> extras,
+  Value<int> rowid,
+});
+typedef $$GrindersTableUpdateCompanionBuilder = GrindersCompanion Function({
+  Value<String> id,
+  Value<String> model,
+  Value<String?> burrs,
+  Value<double?> burrSize,
+  Value<String?> burrType,
+  Value<String?> notes,
+  Value<bool> archived,
+  Value<String> settingType,
+  Value<List<String>?> settingValues,
+  Value<double?> settingSmallStep,
+  Value<double?> settingBigStep,
+  Value<double?> rpmSmallStep,
+  Value<double?> rpmBigStep,
+  Value<DateTime> createdAt,
+  Value<DateTime> updatedAt,
+  Value<Map<String, dynamic>?> extras,
+  Value<int> rowid,
+});
 
 class $$GrindersTableFilterComposer
     extends Composer<_$AppDatabase, $GrindersTable> {
@@ -7851,20 +7845,18 @@ typedef $$SteamRecordsTableProcessedTableManager =
       SteamRecord,
       PrefetchHooks Function()
     >;
-typedef $$WorkflowsTableCreateCompanionBuilder =
-    WorkflowsCompanion Function({
-      required String id,
-      required Map<String, dynamic> workflowJson,
-      required DateTime updatedAt,
-      Value<int> rowid,
-    });
-typedef $$WorkflowsTableUpdateCompanionBuilder =
-    WorkflowsCompanion Function({
-      Value<String> id,
-      Value<Map<String, dynamic>> workflowJson,
-      Value<DateTime> updatedAt,
-      Value<int> rowid,
-    });
+typedef $$WorkflowsTableCreateCompanionBuilder = WorkflowsCompanion Function({
+  required String id,
+  required Map<String, dynamic> workflowJson,
+  required DateTime updatedAt,
+  Value<int> rowid,
+});
+typedef $$WorkflowsTableUpdateCompanionBuilder = WorkflowsCompanion Function({
+  Value<String> id,
+  Value<Map<String, dynamic>> workflowJson,
+  Value<DateTime> updatedAt,
+  Value<int> rowid,
+});
 
 class $$WorkflowsTableFilterComposer
     extends Composer<_$AppDatabase, $WorkflowsTable> {

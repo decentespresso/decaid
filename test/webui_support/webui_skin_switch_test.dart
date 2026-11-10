@@ -15,9 +15,8 @@ void main() {
 
   Future<Directory> createSkin(String prefix) async {
     final dir = await Directory.systemTemp.createTemp(prefix);
-    await File(
-      '${dir.path}/index.html',
-    ).writeAsString('<html><body>$prefix</body></html>');
+    await File('${dir.path}/index.html')
+        .writeAsString('<html><body>$prefix</body></html>');
     return dir;
   }
 

@@ -66,15 +66,13 @@ class AndroidUpdater {
   final GithubRateLimit _rateLimit;
 
   AndroidUpdater({
-    required String owner,
-    required String repo,
+    required this._owner,
+    required this._repo,
     http.Client? httpClient,
     ApkInstaller? apkInstaller,
     DateTime Function()? now,
     GithubRateLimit? rateLimit,
-  }) : _owner = owner,
-       _rateLimit = rateLimit ?? GithubRateLimit(now: now),
-       _repo = repo,
+  }) : _rateLimit = rateLimit ?? GithubRateLimit(now: now),
        _httpClient = httpClient ?? http.Client(),
        _apkInstaller = apkInstaller ?? ApkInstaller();
 
@@ -236,9 +234,8 @@ class AndroidUpdater {
 
   bool _isNewerVersion(String newVersion, String currentVersion) {
     try {
-      return Version.parse(
-            newVersion,
-          ).compareTo(Version.parse(currentVersion)) >
+      return Version.parse(newVersion)
+              .compareTo(Version.parse(currentVersion)) >
           0;
     } catch (e) {
       _log.warning('Error comparing versions: $e');

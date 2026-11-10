@@ -4,8 +4,7 @@ import 'package:reaprime/src/controllers/presence_controller.dart';
 class PresenceNavigatorObserver extends NavigatorObserver {
   final PresenceController _presenceController;
 
-  PresenceNavigatorObserver({required PresenceController presenceController})
-    : _presenceController = presenceController;
+  PresenceNavigatorObserver({required this._presenceController});
 
   @override
   void didPush(Route route, Route? previousRoute) {

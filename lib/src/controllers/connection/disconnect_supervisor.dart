@@ -46,32 +46,20 @@ class DisconnectSupervisor {
   StreamSubscription<device.ConnectionState>? _scaleSub;
 
   DisconnectSupervisor({
-    required Stream<De1Interface?> machineStream,
-    required Stream<device.ConnectionState> scaleStream,
-    required StatusPublisher statusPublisher,
-    required DisconnectExpectations expectations,
-    required bool Function() isConnectingMachine,
-    required bool Function() isConnectingScale,
-    required String? Function() scaleLastConnectedId,
-    required String? Function() preferredScaleId,
-    void Function()? onMachineConnected,
-    void Function()? onMachineDisconnected,
-    void Function()? onUnexpectedMachineDisconnect,
-    void Function()? onScaleConnected,
-    void Function()? onScaleDisconnected,
-  }) : _machineStream = machineStream,
-       _scaleStream = scaleStream,
-       _statusPublisher = statusPublisher,
-       _expectations = expectations,
-       _isConnectingMachine = isConnectingMachine,
-       _isConnectingScale = isConnectingScale,
-       _scaleLastConnectedId = scaleLastConnectedId,
-       _preferredScaleId = preferredScaleId,
-       _onMachineConnected = onMachineConnected,
-       _onMachineDisconnected = onMachineDisconnected,
-       _onUnexpectedMachineDisconnect = onUnexpectedMachineDisconnect,
-       _onScaleConnected = onScaleConnected,
-       _onScaleDisconnected = onScaleDisconnected {
+    required this._machineStream,
+    required this._scaleStream,
+    required this._statusPublisher,
+    required this._expectations,
+    required this._isConnectingMachine,
+    required this._isConnectingScale,
+    required this._scaleLastConnectedId,
+    required this._preferredScaleId,
+    this._onMachineConnected,
+    this._onMachineDisconnected,
+    this._onUnexpectedMachineDisconnect,
+    this._onScaleConnected,
+    this._onScaleDisconnected,
+  }) {
     _start();
   }
 

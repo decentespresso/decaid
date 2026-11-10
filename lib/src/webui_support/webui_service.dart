@@ -179,13 +179,10 @@ class WebUIService {
 
   WebUIService({
     Future<List<String>> Function()? listLocalAddresses,
-    Future<Map<String, int>> Function()? loadSkinPortAssignments,
-    Future<void> Function(Map<String, int>)? saveSkinPortAssignments,
-    Duration wifiIpResolutionTimeout = const Duration(seconds: 2),
-  }) : _listLocalAddresses = listLocalAddresses ?? _listDeviceAddresses,
-       _loadSkinPortAssignments = loadSkinPortAssignments,
-       _saveSkinPortAssignments = saveSkinPortAssignments,
-       _wifiIpResolutionTimeout = wifiIpResolutionTimeout;
+    this._loadSkinPortAssignments,
+    this._saveSkinPortAssignments,
+    this._wifiIpResolutionTimeout = const Duration(seconds: 2),
+  }) : _listLocalAddresses = listLocalAddresses ?? _listDeviceAddresses;
 
   Future<String> _resolveLocalIP() async {
     try {

@@ -18,9 +18,7 @@ class ResetReport {
 }
 
 class DatabaseReset {
-  DatabaseReset({required String driftFile, required String? hiveDir})
-    : _driftFile = driftFile,
-      _hiveDir = hiveDir;
+  DatabaseReset({required this._driftFile, required this._hiveDir});
 
   static const String quarantineSuffix = '.reset-';
 

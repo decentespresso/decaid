@@ -84,31 +84,28 @@ void main() {
 
   for (final option in [null, false, true]) {
     for (final quick in [false, true]) {
-      test(
-        'REST option=$option quick=$quick selects only the opted-in shortcut',
-        () async {
-          final client = HttpClient();
-          addTearDown(() => client.close(force: true));
-          final query =
-              '?connect=true&quick=$quick${option == null ? '' : '&connectPreferredScaleEarly=$option'}';
-          final request = await client.getUrl(
-            Uri.parse(
-              'http://127.0.0.1:${server.port}/api/v1/devices/scan$query',
-            ),
-          );
-          final response = request.close();
-          await waitFor(() => scanner.scanCallCount == 1);
-          final scale = TestScale(deviceId: 'preferred-scale');
-          scanner.addDevice(scale);
-          await Future<void>.delayed(const Duration(milliseconds: 20));
-          expect(scanner.stopScanCallCount, option == true ? 1 : 0);
-          expect(scales.connectCalls, isEmpty);
-          scanner.completeScan();
-          expect((await response).statusCode, 200);
-          await waitFor(() => scales.connectCalls.isNotEmpty);
-          expect(scales.connectCalls, [same(scale)]);
-        },
-      );
+      test('REST option=$option quick=$quick selects only the opted-in shortcut', () async {
+        final client = HttpClient();
+        addTearDown(() => client.close(force: true));
+        final query =
+            '?connect=true&quick=$quick${option == null ? '' : '&connectPreferredScaleEarly=$option'}';
+        final request = await client.getUrl(
+          Uri.parse(
+            'http://127.0.0.1:${server.port}/api/v1/devices/scan$query',
+          ),
+        );
+        final response = request.close();
+        await waitFor(() => scanner.scanCallCount == 1);
+        final scale = TestScale(deviceId: 'preferred-scale');
+        scanner.addDevice(scale);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(scanner.stopScanCallCount, option == true ? 1 : 0);
+        expect(scales.connectCalls, isEmpty);
+        scanner.completeScan();
+        expect((await response).statusCode, 200);
+        await waitFor(() => scales.connectCalls.isNotEmpty);
+        expect(scales.connectCalls, [same(scale)]);
+      });
     }
 
     test(

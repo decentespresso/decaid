@@ -50,22 +50,17 @@ void main() {
       platform.connectionStates[deviceId] = BleConnectionState.connected;
       final evidence = BleAdvertisementEvidence(serviceUuids: ['180f']);
       late UniversalBleTransport transport;
-      final sensor =
-          await manager.bleService.createCandidate(
-                driver: manager.bleService.registry
-                    .decide(evidence)
-                    .drivers
-                    .single,
-                physicalId: deviceId,
-                evidence: evidence,
-                admit: () => true,
-                createTransport: () => transport = UniversalBleTransport(
-                  device: BleDevice(deviceId: deviceId, name: 'Fixture'),
-                  isAndroidOverride: false,
-                  isLinuxOverride: false,
-                ),
-              )
-              as Sensor;
+      final sensor = await manager.bleService.createCandidate(
+        driver: manager.bleService.registry.decide(evidence).drivers.single,
+        physicalId: deviceId,
+        evidence: evidence,
+        admit: () => true,
+        createTransport: () => transport = UniversalBleTransport(
+          device: BleDevice(deviceId: deviceId, name: 'Fixture'),
+          isAndroidOverride: false,
+          isLinuxOverride: false,
+        ),
+      ) as Sensor;
       final states = <ConnectionState>[];
       final stateSubscription = sensor.connectionState.listen(states.add);
       addTearDown(stateSubscription.cancel);
@@ -141,25 +136,20 @@ void main() {
     final evidence = BleAdvertisementEvidence(name: 'Felicita Arc');
     final transports = <FelicitaPluginTransport>[];
 
-    Future<Scale> candidate() async =>
-        await manager.bleService.createCandidate(
-              driver: manager.bleService.registry
-                  .decide(evidence)
-                  .drivers
-                  .single,
-              physicalId: 'AA:BB',
-              evidence: evidence,
-              admit: () => true,
-              createTransport: () {
-                final transport = FelicitaPluginTransport(
-                  'AA:BB',
-                  firstPacket: felicitaPacket(transports.length + 1),
-                );
-                transports.add(transport);
-                return transport;
-              },
-            )
-            as Scale;
+    Future<Scale> candidate() async => await manager.bleService.createCandidate(
+      driver: manager.bleService.registry.decide(evidence).drivers.single,
+      physicalId: 'AA:BB',
+      evidence: evidence,
+      admit: () => true,
+      createTransport: () {
+        final transport = FelicitaPluginTransport(
+          'AA:BB',
+          firstPacket: felicitaPacket(transports.length + 1),
+        );
+        transports.add(transport);
+        return transport;
+      },
+    ) as Scale;
 
     final first = await candidate();
     final firstSamples = <ScaleSnapshot>[];

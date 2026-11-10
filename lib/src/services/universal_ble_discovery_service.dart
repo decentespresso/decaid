@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io' show Platform;
+
 import 'package:reaprime/src/models/adapter_state.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/remembered_device.dart';
@@ -21,18 +22,19 @@ import 'package:reaprime/src/models/device/ble_scan_state.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:universal_ble/universal_ble.dart';
+
 import '../models/device/device.dart';
 import '../models/device/machine.dart';
 import '../models/device/impl/de1/de1.models.dart';
+
 import 'package:logging/logging.dart' as logging;
 
-typedef BleTransportFactory =
-    BLETransport Function({
-      required BleDevice device,
-      required Future<void> Function() stopScan,
-      required bool requestLargeMtuNonAndroid,
-      required BleLifecycleGate lifecycleGate,
-    });
+typedef BleTransportFactory = BLETransport Function({
+  required BleDevice device,
+  required Future<void> Function() stopScan,
+  required bool requestLargeMtuNonAndroid,
+  required BleLifecycleGate lifecycleGate,
+});
 
 class _AdvertisementStats {
   int count = 0;
@@ -47,14 +49,13 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     bool Function()? requiresSystemDevice,
     bool Function()? requestLargeMtuNonAndroid,
     BleTransportFactory? transportFactory,
-    PluginBleService Function()? pluginBleService,
+    this._pluginBleService,
     this.scanDuration = const Duration(seconds: 15),
   }) : _watchSupportGate = watchSupportGate ?? (() => Platform.isAndroid),
        _requiresSystemDevice =
            requiresSystemDevice ?? (() => Platform.isIOS || Platform.isMacOS),
        requestLargeMtuNonAndroid = requestLargeMtuNonAndroid ?? (() => false),
-       _transportFactory = transportFactory ?? _defaultTransportFactory,
-       _pluginBleService = pluginBleService;
+       _transportFactory = transportFactory ?? _defaultTransportFactory;
 
   static BLETransport _defaultTransportFactory({
     required BleDevice device,

@@ -160,9 +160,8 @@ void main() {
     await store.write('api:station', AccountConsentDecision.denied);
 
     expect(
-      await gate(
-        trustedConsentKeys: {'api:station'},
-      ).requireConsent('api:station'),
+      await gate(trustedConsentKeys: {'api:station'})
+          .requireConsent('api:station'),
       isTrue,
     );
     expect(prompts, isEmpty);

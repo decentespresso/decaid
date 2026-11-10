@@ -47,23 +47,20 @@ void main() {
     );
   });
 
-  test(
-    'partial results preserve counts and per-section errors for import UI',
-    () {
-      final response = BackupImportResponse.fromHttp(
-        207,
-        '{"profiles":{"imported":1,"skipped":2},"shots":{"errors":["bad row"]}}',
-      );
-      final result = response.toImportResult();
+  test('partial results preserve counts and per-section errors for import UI', () {
+    final response = BackupImportResponse.fromHttp(
+      207,
+      '{"profiles":{"imported":1,"skipped":2},"shots":{"errors":["bad row"]}}',
+    );
+    final result = response.toImportResult();
 
-      expect(response.status, BackupImportStatus.partial);
-      expect(response.shouldNotifyShotsChanged, isTrue);
-      expect(result.profilesImported, 1);
-      expect(result.profilesSkipped, 2);
-      expect(result.errors.single.filename, 'shots');
-      expect(result.errors.single.reason, 'bad row');
-    },
-  );
+    expect(response.status, BackupImportStatus.partial);
+    expect(response.shouldNotifyShotsChanged, isTrue);
+    expect(result.profilesImported, 1);
+    expect(result.profilesSkipped, 2);
+    expect(result.errors.single.filename, 'shots');
+    expect(result.errors.single.reason, 'bad row');
+  });
 
   test('400 preserves the server message and string rejection reason', () {
     try {
@@ -99,38 +96,35 @@ void main() {
     expect(const BackupImportException('original').userMessage, 'original');
   });
 
-  test(
-    'non-string and missing reasons are ignored and message fallback is unchanged',
-    () {
-      for (final body in [
-        '{"message":"specific message","reason":42}',
-        '{"message":"specific message"}',
-      ]) {
-        try {
-          BackupImportResponse.fromHttp(400, body);
-          fail('Expected BackupImportException');
-        } on BackupImportException catch (error) {
-          expect(error.reason, isNull);
-          expect(error.userMessage, 'specific message');
-        }
+  test('non-string and missing reasons are ignored and message fallback is unchanged', () {
+    for (final body in [
+      '{"message":"specific message","reason":42}',
+      '{"message":"specific message"}',
+    ]) {
+      try {
+        BackupImportResponse.fromHttp(400, body);
+        fail('Expected BackupImportException');
+      } on BackupImportException catch (error) {
+        expect(error.reason, isNull);
+        expect(error.userMessage, 'specific message');
       }
+    }
 
-      for (final body in ['not json', '[]', 'null']) {
-        expect(
-          () => BackupImportResponse.fromHttp(400, body),
-          throwsA(
-            isA<BackupImportException>().having(
-              (error) => error.message,
-              'message',
-              body == 'not json'
-                  ? 'The server returned an invalid response.'
-                  : 'The server returned status 400.',
-            ),
+    for (final body in ['not json', '[]', 'null']) {
+      expect(
+        () => BackupImportResponse.fromHttp(400, body),
+        throwsA(
+          isA<BackupImportException>().having(
+            (error) => error.message,
+            'message',
+            body == 'not json'
+                ? 'The server returned an invalid response.'
+                : 'The server returned status 400.',
           ),
-        );
-      }
-    },
-  );
+        ),
+      );
+    }
+  });
 
   test('archive-level failure has no refresh response', () {
     var refreshed = false;

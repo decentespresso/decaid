@@ -7,16 +7,13 @@ import 'package:reaprime/src/plugins/plugin_manifest.dart';
 
 import 'plugin_test_helpers.dart';
 
-final _pluginSource = File(
-  'assets/plugins/visualizer.reaplugin/plugin.js',
-).readAsStringSync();
+final _pluginSource = File('assets/plugins/visualizer.reaplugin/plugin.js')
+    .readAsStringSync();
 final _manifest = PluginManifest.fromJson(
   jsonDecode(
-        File(
-          'assets/plugins/visualizer.reaplugin/manifest.json',
-        ).readAsStringSync(),
-      )
-      as Map<String, dynamic>,
+    File('assets/plugins/visualizer.reaplugin/manifest.json')
+        .readAsStringSync(),
+  ) as Map<String, dynamic>,
 );
 
 Map<String, dynamic> _shot({
@@ -431,9 +428,10 @@ void main() {
     ''');
 
     _startAutoUpload(manager);
-    final upload =
-        await _waitForJs(manager, 'globalThis.__upload')
-            as Map<String, dynamic>;
+    final upload = await _waitForJs(
+      manager,
+      'globalThis.__upload',
+    ) as Map<String, dynamic>;
 
     expect(upload['state_change'], [1, 1, 2, 3]);
   });
@@ -479,8 +477,7 @@ void main() {
       expect(
         await _uploadedGrinderModel(manager),
         'EG1',
-        reason:
-            'a shot recorded before burrs were snapshotted must keep its own history',
+        reason: 'a shot recorded before burrs were snapshotted must keep its own history',
       );
       expect(_jsBool(manager, 'globalThis.__grinderFetched'), isFalse);
     },
@@ -533,25 +530,22 @@ void main() {
     },
   );
 
-  test(
-    'upload does not mistake a burr that is only a substring for one already named',
-    () async {
-      // A plain substring check treats "EK43" as already containing burr "4" (and
-      // "Kinu M47" as already containing burr "M"), silently dropping the real burr.
-      final shot = _shot(
-        context: {
-          'grinderId': 'grinder-3',
-          'grinderModel': 'EK43',
-          'grinderBurrs': '4',
-        },
-      );
-      final manager = await _loadPlugin(_uploadFetchSource(shot));
+  test('upload does not mistake a burr that is only a substring for one already named', () async {
+    // A plain substring check treats "EK43" as already containing burr "4" (and
+    // "Kinu M47" as already containing burr "M"), silently dropping the real burr.
+    final shot = _shot(
+      context: {
+        'grinderId': 'grinder-3',
+        'grinderModel': 'EK43',
+        'grinderBurrs': '4',
+      },
+    );
+    final manager = await _loadPlugin(_uploadFetchSource(shot));
 
-      _startAutoUpload(manager);
+    _startAutoUpload(manager);
 
-      expect(await _uploadedGrinderModel(manager), 'EK43 (4)');
-    },
-  );
+    expect(await _uploadedGrinderModel(manager), 'EK43 (4)');
+  });
 
   test('upload merges deduped local tags with current remote tags', () async {
     final shot = _shot(
@@ -675,12 +669,10 @@ void main() {
       globalThis.__finishUpload();
     ''');
       expect(finishUpload.isError, isFalse, reason: finishUpload.stringResult);
-      final firstPatch =
-          await _waitForJs(
-                manager,
-                'globalThis.__patches.length === 1 ? globalThis.__patches[0] : null',
-              )
-              as Map<String, dynamic>;
+      final firstPatch = await _waitForJs(
+        manager,
+        'globalThis.__patches.length === 1 ? globalThis.__patches[0] : null',
+      ) as Map<String, dynamic>;
       expect((firstPatch['shot'] as Map<String, dynamic>)['tag_list'], [
         'during-upload',
       ]);
@@ -697,12 +689,10 @@ void main() {
           },
         },
       });
-      final secondPatch =
-          await _waitForJs(
-                manager,
-                'globalThis.__patches.length === 2 ? globalThis.__patches[1] : null',
-              )
-              as Map<String, dynamic>;
+      final secondPatch = await _waitForJs(
+        manager,
+        'globalThis.__patches.length === 2 ? globalThis.__patches[1] : null',
+      ) as Map<String, dynamic>;
       expect((secondPatch['shot'] as Map<String, dynamic>)['tag_list'], [
         'after-mapping',
       ]);
@@ -797,8 +787,10 @@ void main() {
     );
   });
 
-  test('forward sync preserves remote-only tags and removes local tags', () async {
-    final manager = await _loadPlugin('''
+  test(
+    'forward sync preserves remote-only tags and removes local tags',
+    () async {
+      final manager = await _loadPlugin('''
       globalThis.__remoteTags = ['remote'];
       globalThis.__patches = [];
       globalThis.fetch = async (url, init = {}) => {
@@ -815,58 +807,55 @@ void main() {
       };
     ''');
 
-    _dispatchShotUpdate(
-      manager,
-      _shot(
-        annotations: {
-          'extras': {
-            'visualizerId': 'visualizer-9',
-            'tags': ['local'],
+      _dispatchShotUpdate(
+        manager,
+        _shot(
+          annotations: {
+            'extras': {
+              'visualizerId': 'visualizer-9',
+              'tags': ['local'],
+            },
+          },
+        ),
+        {
+          'annotations': {
+            'extras': {
+              'tags': ['local'],
+            },
           },
         },
-      ),
-      {
-        'annotations': {
-          'extras': {
-            'tags': ['local'],
-          },
-        },
-      },
-    );
-    final firstPatch =
-        await _waitForJs(
-              manager,
-              'globalThis.__patches.length === 1 ? globalThis.__patches[0] : null',
-            )
-            as Map<String, dynamic>;
-    expect((firstPatch['shot'] as Map<String, dynamic>)['tag_list'], [
-      'local',
-      'remote',
-    ]);
+      );
+      final firstPatch = await _waitForJs(
+        manager,
+        'globalThis.__patches.length === 1 ? globalThis.__patches[0] : null',
+      ) as Map<String, dynamic>;
+      expect((firstPatch['shot'] as Map<String, dynamic>)['tag_list'], [
+        'local',
+        'remote',
+      ]);
 
-    _dispatchShotUpdate(
-      manager,
-      _shot(
-        annotations: {
-          'extras': {'visualizerId': 'visualizer-9'},
+      _dispatchShotUpdate(
+        manager,
+        _shot(
+          annotations: {
+            'extras': {'visualizerId': 'visualizer-9'},
+          },
+        ),
+        {
+          'annotations': {
+            'extras': {'tags': <String>[]},
+          },
         },
-      ),
-      {
-        'annotations': {
-          'extras': {'tags': <String>[]},
-        },
-      },
-    );
-    final secondPatch =
-        await _waitForJs(
-              manager,
-              'globalThis.__patches.length === 2 ? globalThis.__patches[1] : null',
-            )
-            as Map<String, dynamic>;
-    expect((secondPatch['shot'] as Map<String, dynamic>)['tag_list'], [
-      'remote',
-    ]);
-  });
+      );
+      final secondPatch = await _waitForJs(
+        manager,
+        'globalThis.__patches.length === 2 ? globalThis.__patches[1] : null',
+      ) as Map<String, dynamic>;
+      expect((secondPatch['shot'] as Map<String, dynamic>)['tag_list'], [
+        'remote',
+      ]);
+    },
+  );
 
   test('tag ownership follows Visualizer canonicalization', () async {
     final manager = await _loadPlugin('''
@@ -906,12 +895,10 @@ void main() {
         },
       },
     );
-    final firstPatch =
-        await _waitForJs(
-              manager,
-              'globalThis.__patches.length === 1 ? globalThis.__patches[0] : null',
-            )
-            as Map<String, dynamic>;
+    final firstPatch = await _waitForJs(
+      manager,
+      'globalThis.__patches.length === 1 ? globalThis.__patches[0] : null',
+    ) as Map<String, dynamic>;
     expect((firstPatch['shot'] as Map<String, dynamic>)['tag_list'], [
       'High@-Speed',
     ]);
@@ -929,12 +916,10 @@ void main() {
         },
       },
     );
-    final secondPatch =
-        await _waitForJs(
-              manager,
-              'globalThis.__patches.length === 2 ? globalThis.__patches[1] : null',
-            )
-            as Map<String, dynamic>;
+    final secondPatch = await _waitForJs(
+      manager,
+      'globalThis.__patches.length === 2 ? globalThis.__patches[1] : null',
+    ) as Map<String, dynamic>;
     expect((secondPatch['shot'] as Map<String, dynamic>)['tag_list'], isEmpty);
   });
 
@@ -1010,17 +995,17 @@ void main() {
         },
       },
     );
-    final removalPatch =
-        await _waitForJs(
-              manager,
-              'globalThis.__patches.length === 2 ? globalThis.__patches[1] : null',
-            )
-            as Map<String, dynamic>;
+    final removalPatch = await _waitForJs(
+      manager,
+      'globalThis.__patches.length === 2 ? globalThis.__patches[1] : null',
+    ) as Map<String, dynamic>;
     expect((removalPatch['shot'] as Map<String, dynamic>)['tag_list'], isEmpty);
   });
 
-  test('legacy metadata and shotNotes patches use canonical shot values', () async {
-    final manager = await _loadPlugin('''
+  test(
+    'legacy metadata and shotNotes patches use canonical shot values',
+    () async {
+      final manager = await _loadPlugin('''
       globalThis.__remoteTags = [];
       globalThis.__patches = [];
       globalThis.fetch = async (url, init = {}) => {
@@ -1037,70 +1022,68 @@ void main() {
       };
     ''');
 
-    _dispatchShotUpdate(
-      manager,
-      _shot(
-        annotations: {
-          'extras': {
-            'visualizerId': 'visualizer-9',
+      _dispatchShotUpdate(
+        manager,
+        _shot(
+          annotations: {
+            'extras': {
+              'visualizerId': 'visualizer-9',
+              'tags': ['washed'],
+            },
+          },
+        ),
+        {
+          'metadata': {
             'tags': ['washed'],
           },
         },
-      ),
-      {
-        'metadata': {
-          'tags': ['washed'],
-        },
-      },
-    );
-    final firstPatch =
-        await _waitForJs(
-              manager,
-              'globalThis.__patches.length === 1 ? globalThis.__patches[0] : null',
-            )
-            as Map<String, dynamic>;
-    expect((firstPatch['shot'] as Map<String, dynamic>)['tag_list'], [
-      'washed',
-    ]);
+      );
+      final firstPatch = await _waitForJs(
+        manager,
+        'globalThis.__patches.length === 1 ? globalThis.__patches[0] : null',
+      ) as Map<String, dynamic>;
+      expect((firstPatch['shot'] as Map<String, dynamic>)['tag_list'], [
+        'washed',
+      ]);
 
-    _dispatchShotUpdate(
-      manager,
-      _shot(
-        annotations: {
-          'extras': {'visualizerId': 'visualizer-9'},
-        },
-      ),
-      {'metadata': null},
-    );
-    final secondPatch =
-        await _waitForJs(
-              manager,
-              'globalThis.__patches.length === 2 ? globalThis.__patches[1] : null',
-            )
-            as Map<String, dynamic>;
-    expect((secondPatch['shot'] as Map<String, dynamic>)['tag_list'], isEmpty);
+      _dispatchShotUpdate(
+        manager,
+        _shot(
+          annotations: {
+            'extras': {'visualizerId': 'visualizer-9'},
+          },
+        ),
+        {'metadata': null},
+      );
+      final secondPatch = await _waitForJs(
+        manager,
+        'globalThis.__patches.length === 2 ? globalThis.__patches[1] : null',
+      ) as Map<String, dynamic>;
+      expect(
+        (secondPatch['shot'] as Map<String, dynamic>)['tag_list'],
+        isEmpty,
+      );
 
-    _dispatchShotUpdate(
-      manager,
-      _shot(
-        annotations: {
-          'espressoNotes': 'legacy note',
-          'extras': {'visualizerId': 'visualizer-9'},
-        },
-      ),
-      {'shotNotes': 'legacy note'},
-    );
-    final thirdPatch =
-        await _waitForJs(
-              manager,
-              'globalThis.__patches.length === 3 ? globalThis.__patches[2] : null',
-            )
-            as Map<String, dynamic>;
-    expect(
-      (thirdPatch['shot'] as Map<String, dynamic>)['espresso_notes'],
-      'legacy note',
-    );
-  });
+      _dispatchShotUpdate(
+        manager,
+        _shot(
+          annotations: {
+            'espressoNotes': 'legacy note',
+            'extras': {'visualizerId': 'visualizer-9'},
+          },
+        ),
+        {'shotNotes': 'legacy note'},
+      );
+      final thirdPatch = await _waitForJs(
+        manager,
+        'globalThis.__patches.length === 3 ? globalThis.__patches[2] : null',
+      ) as Map<String, dynamic>;
+      expect(
+        (thirdPatch['shot'] as Map<String, dynamic>)['espresso_notes'],
+        'legacy note',
+      );
+    },
+  );
 
   test('forward sync leaves the global back-sync cursor unchanged', () async {
     final manager = await _loadPlugin(
@@ -1155,9 +1138,10 @@ void main() {
     );
     await _waitForJs(manager, 'globalThis.__forwardPatch');
     manager.js.evaluate('globalThis.__runTimers(30000)');
-    final localUpdate =
-        await _waitForJs(manager, 'globalThis.__localUpdate')
-            as Map<String, dynamic>;
+    final localUpdate = await _waitForJs(
+      manager,
+      'globalThis.__localUpdate',
+    ) as Map<String, dynamic>;
     final changedUrl =
         await _waitForJs(manager, 'globalThis.__changedUrl') as String;
 
@@ -1230,12 +1214,10 @@ void main() {
       globalThis.__firstResolver({ ok: true, json: async () => ({ id: 'visualizer-9', updated_at: 1 }) });
     ''');
     expect(resolve.isError, isFalse, reason: resolve.stringResult);
-    final patches =
-        await _waitForJs(
-              manager,
-              'globalThis.__patches.length === 2 ? globalThis.__patches : null',
-            )
-            as List<dynamic>;
+    final patches = await _waitForJs(
+      manager,
+      'globalThis.__patches.length === 2 ? globalThis.__patches : null',
+    ) as List<dynamic>;
     final latest = (patches.last as Map<String, dynamic>)['shot'] as Map;
 
     expect(latest['tag_list'], ['latest', 'remote']);
@@ -1295,9 +1277,10 @@ void main() {
       expect(response['status'], 202);
       expect(body, {'visualizer_id': 'visualizer-1', 'tag_sync_pending': true});
 
-      final tagPatch =
-          await _waitForJs(manager, 'globalThis.__tagPatch')
-              as Map<String, dynamic>;
+      final tagPatch = await _waitForJs(
+        manager,
+        'globalThis.__tagPatch',
+      ) as Map<String, dynamic>;
       expect((tagPatch['shot'] as Map<String, dynamic>)['tag_list'], [
         'bright',
       ]);
@@ -1346,9 +1329,10 @@ void main() {
     ''');
 
       _startAutoUpload(manager);
-      final upload =
-          await _waitForJs(manager, 'globalThis.__upload')
-              as Map<String, dynamic>;
+      final upload = await _waitForJs(
+        manager,
+        'globalThis.__upload',
+      ) as Map<String, dynamic>;
 
       expect(
         ((upload['app'] as Map)['data']
@@ -1388,12 +1372,10 @@ void main() {
           'annotations': {'enjoyment': 8},
         },
       );
-      final patch =
-          await _waitForJs(
-                manager,
-                'globalThis.__patches.length === 1 ? globalThis.__patches[0] : null',
-              )
-              as Map<String, dynamic>;
+      final patch = await _waitForJs(
+        manager,
+        'globalThis.__patches.length === 1 ? globalThis.__patches[0] : null',
+      ) as Map<String, dynamic>;
 
       expect((patch['shot'] as Map<String, dynamic>)['espresso_enjoyment'], 80);
     },
@@ -1431,9 +1413,10 @@ void main() {
     ''');
 
       _startAutoUpload(manager);
-      final upload =
-          await _waitForJs(manager, 'globalThis.__upload')
-              as Map<String, dynamic>;
+      final upload = await _waitForJs(
+        manager,
+        'globalThis.__upload',
+      ) as Map<String, dynamic>;
 
       expect(
         ((upload['app'] as Map)['data']
@@ -1473,12 +1456,10 @@ void main() {
           'annotations': {'enjoyment': 80},
         },
       );
-      final patch =
-          await _waitForJs(
-                manager,
-                'globalThis.__patches.length === 1 ? globalThis.__patches[0] : null',
-              )
-              as Map<String, dynamic>;
+      final patch = await _waitForJs(
+        manager,
+        'globalThis.__patches.length === 1 ? globalThis.__patches[0] : null',
+      ) as Map<String, dynamic>;
 
       expect(
         (patch['shot'] as Map<String, dynamic>)['espresso_enjoyment'],
@@ -1487,11 +1468,9 @@ void main() {
     },
   );
 
-  test(
-    'back sync scales Visualizer espresso_enjoyment to the annotations.enjoyment range',
-    () async {
-      final manager = await _loadPlugin(
-        '''
+  test('back sync scales Visualizer espresso_enjoyment to the annotations.enjoyment range', () async {
+    final manager = await _loadPlugin(
+      '''
       globalThis.fetch = async (url, init = {}) => {
         if (url.endsWith('/me')) {
           return { ok: true, json: async () => ({ id: 'user-1' }) };
@@ -1509,30 +1488,28 @@ void main() {
         throw new Error('Unexpected URL: ' + url + ' ' + (init.method || 'GET'));
       };
     ''',
-        settings: const {'BackSync': true},
-      );
-      manager.dispatchEvent(_manifest.id, 'storageRead', {
-        'key': 'shotMap',
-        'value': jsonEncode({'visualizer-a': 'local-a'}),
-      });
-      manager.dispatchEvent(_manifest.id, 'storageRead', {
-        'key': 'backSyncCursor',
-        'value': '100',
-      });
-      manager.js.evaluate('globalThis.__runTimers(30000)');
+      settings: const {'BackSync': true},
+    );
+    manager.dispatchEvent(_manifest.id, 'storageRead', {
+      'key': 'shotMap',
+      'value': jsonEncode({'visualizer-a': 'local-a'}),
+    });
+    manager.dispatchEvent(_manifest.id, 'storageRead', {
+      'key': 'backSyncCursor',
+      'value': '100',
+    });
+    manager.js.evaluate('globalThis.__runTimers(30000)');
 
-      final localUpdate =
-          await _waitForJs(manager, 'globalThis.__localUpdate')
-              as Map<String, dynamic>;
+    final localUpdate = await _waitForJs(
+      manager,
+      'globalThis.__localUpdate',
+    ) as Map<String, dynamic>;
 
-      expect((localUpdate['annotations'] as Map)['enjoyment'], 8);
-    },
-  );
-  test(
-    'back sync omits the note when the Visualizer response has no espresso_notes',
-    () async {
-      final manager = await _loadPlugin(
-        '''
+    expect((localUpdate['annotations'] as Map)['enjoyment'], 8);
+  });
+  test('back sync omits the note when the Visualizer response has no espresso_notes', () async {
+    final manager = await _loadPlugin(
+      '''
       globalThis.fetch = async (url, init = {}) => {
         if (url.endsWith('/me')) {
           return { ok: true, json: async () => ({ id: 'user-1' }) };
@@ -1550,35 +1527,33 @@ void main() {
         throw new Error('Unexpected URL: ' + url + ' ' + (init.method || 'GET'));
       };
     ''',
-        settings: const {'BackSync': true},
-      );
-      manager.dispatchEvent(_manifest.id, 'storageRead', {
-        'key': 'shotMap',
-        'value': jsonEncode({'visualizer-a': 'local-a'}),
-      });
-      manager.dispatchEvent(_manifest.id, 'storageRead', {
-        'key': 'backSyncCursor',
-        'value': '100',
-      });
-      manager.js.evaluate('globalThis.__runTimers(30000)');
+      settings: const {'BackSync': true},
+    );
+    manager.dispatchEvent(_manifest.id, 'storageRead', {
+      'key': 'shotMap',
+      'value': jsonEncode({'visualizer-a': 'local-a'}),
+    });
+    manager.dispatchEvent(_manifest.id, 'storageRead', {
+      'key': 'backSyncCursor',
+      'value': '100',
+    });
+    manager.js.evaluate('globalThis.__runTimers(30000)');
 
-      final localUpdate =
-          await _waitForJs(manager, 'globalThis.__localUpdate')
-              as Map<String, dynamic>;
+    final localUpdate = await _waitForJs(
+      manager,
+      'globalThis.__localUpdate',
+    ) as Map<String, dynamic>;
 
-      expect((localUpdate['annotations'] as Map)['enjoyment'], 8);
-      expect(
-        (localUpdate['annotations'] as Map).containsKey('espressoNotes'),
-        isFalse,
-      );
-    },
-  );
+    expect((localUpdate['annotations'] as Map)['enjoyment'], 8);
+    expect(
+      (localUpdate['annotations'] as Map).containsKey('espressoNotes'),
+      isFalse,
+    );
+  });
 
-  test(
-    'back sync clears the note when Visualizer sends an explicit empty espresso_notes',
-    () async {
-      final manager = await _loadPlugin(
-        '''
+  test('back sync clears the note when Visualizer sends an explicit empty espresso_notes', () async {
+    final manager = await _loadPlugin(
+      '''
       globalThis.fetch = async (url, init = {}) => {
         if (url.endsWith('/me')) {
           return { ok: true, json: async () => ({ id: 'user-1' }) };
@@ -1596,29 +1571,29 @@ void main() {
         throw new Error('Unexpected URL: ' + url + ' ' + (init.method || 'GET'));
       };
     ''',
-        settings: const {'BackSync': true},
-      );
-      manager.dispatchEvent(_manifest.id, 'storageRead', {
-        'key': 'shotMap',
-        'value': jsonEncode({'visualizer-a': 'local-a'}),
-      });
-      manager.dispatchEvent(_manifest.id, 'storageRead', {
-        'key': 'backSyncCursor',
-        'value': '100',
-      });
-      manager.js.evaluate('globalThis.__runTimers(30000)');
+      settings: const {'BackSync': true},
+    );
+    manager.dispatchEvent(_manifest.id, 'storageRead', {
+      'key': 'shotMap',
+      'value': jsonEncode({'visualizer-a': 'local-a'}),
+    });
+    manager.dispatchEvent(_manifest.id, 'storageRead', {
+      'key': 'backSyncCursor',
+      'value': '100',
+    });
+    manager.js.evaluate('globalThis.__runTimers(30000)');
 
-      final localUpdate =
-          await _waitForJs(manager, 'globalThis.__localUpdate')
-              as Map<String, dynamic>;
+    final localUpdate = await _waitForJs(
+      manager,
+      'globalThis.__localUpdate',
+    ) as Map<String, dynamic>;
 
-      expect((localUpdate['annotations'] as Map)['espressoNotes'], isNull);
-      expect(
-        (localUpdate['annotations'] as Map).containsKey('espressoNotes'),
-        isTrue,
-      );
-    },
-  );
+    expect((localUpdate['annotations'] as Map)['espressoNotes'], isNull);
+    expect(
+      (localUpdate['annotations'] as Map).containsKey('espressoNotes'),
+      isTrue,
+    );
+  });
 
   test(
     'back sync clamps an out-of-range Visualizer enjoyment before local PUT',
@@ -1654,9 +1629,10 @@ void main() {
       });
       manager.js.evaluate('globalThis.__runTimers(30000)');
 
-      final localUpdate =
-          await _waitForJs(manager, 'globalThis.__localUpdate')
-              as Map<String, dynamic>;
+      final localUpdate = await _waitForJs(
+        manager,
+        'globalThis.__localUpdate',
+      ) as Map<String, dynamic>;
 
       expect((localUpdate['annotations'] as Map)['enjoyment'], 10);
     },
@@ -1685,9 +1661,10 @@ void main() {
       await _waitForJs(manager, 'globalThis.__uploadStamp');
       manager.js.evaluate('globalThis.__runTimers(30000)');
 
-      final update =
-          await _waitForJs(manager, 'globalThis.__backSyncUpdate')
-              as Map<String, dynamic>;
+      final update = await _waitForJs(
+        manager,
+        'globalThis.__backSyncUpdate',
+      ) as Map<String, dynamic>;
       final context = (update['workflow'] as Map?)?['context'] as Map?;
 
       expect(context?.containsKey('grinderModel') ?? false, isFalse);
@@ -1720,9 +1697,10 @@ void main() {
       await _waitForJs(manager, 'globalThis.__uploadStamp');
       manager.js.evaluate('globalThis.__runTimers(30000)');
 
-      final update =
-          await _waitForJs(manager, 'globalThis.__backSyncUpdate')
-              as Map<String, dynamic>;
+      final update = await _waitForJs(
+        manager,
+        'globalThis.__backSyncUpdate',
+      ) as Map<String, dynamic>;
       final context = (update['workflow'] as Map)['context'] as Map;
 
       expect(context['grinderModel'], 'EG1 (Lab Sweet)');
@@ -1739,106 +1717,100 @@ void main() {
       _primeBackSyncMapping(manager);
       manager.js.evaluate('globalThis.__runTimers(30000)');
 
-      final update =
-          await _waitForJs(manager, 'globalThis.__backSyncUpdate')
-              as Map<String, dynamic>;
+      final update = await _waitForJs(
+        manager,
+        'globalThis.__backSyncUpdate',
+      ) as Map<String, dynamic>;
       final context = (update['workflow'] as Map?)?['context'] as Map?;
 
       expect(
         context?.containsKey('grinderModel') ?? false,
         isFalse,
-        reason:
-            'the value is recomputed from the shot\'s own recorded model and burrs',
+        reason: 'the value is recomputed from the shot\'s own recorded model and burrs',
       );
       expect(_jsBool(manager, 'globalThis.__grinderFetched'), isFalse);
     },
   );
 
-  test(
-    'back sync applies a remote edit for a mapping uploaded before this session',
-    () async {
-      final manager = await _loadPlugin(
-        _backSyncFetchSource(remoteGrinderModel: 'EG1 (Lab Sweet)'),
-        settings: const {'BackSync': true},
-      );
-      _primeBackSyncMapping(manager);
-      manager.js.evaluate('globalThis.__runTimers(30000)');
+  test('back sync applies a remote edit for a mapping uploaded before this session', () async {
+    final manager = await _loadPlugin(
+      _backSyncFetchSource(remoteGrinderModel: 'EG1 (Lab Sweet)'),
+      settings: const {'BackSync': true},
+    );
+    _primeBackSyncMapping(manager);
+    manager.js.evaluate('globalThis.__runTimers(30000)');
 
-      final update =
-          await _waitForJs(manager, 'globalThis.__backSyncUpdate')
-              as Map<String, dynamic>;
-      final context = (update['workflow'] as Map)['context'] as Map;
+    final update = await _waitForJs(
+      manager,
+      'globalThis.__backSyncUpdate',
+    ) as Map<String, dynamic>;
+    final context = (update['workflow'] as Map)['context'] as Map;
 
-      expect(context['grinderModel'], 'EG1 (Lab Sweet)');
-      expect(_jsBool(manager, 'globalThis.__grinderFetched'), isFalse);
-    },
-  );
+    expect(context['grinderModel'], 'EG1 (Lab Sweet)');
+    expect(_jsBool(manager, 'globalThis.__grinderFetched'), isFalse);
+  });
 
-  test(
-    'a back-synced model edit owns the field and is not re-decorated on re-upload',
-    () async {
-      final manager = await _loadPlugin(
-        _roundTripFetchSource(_snapshotShot()),
-        settings: const {'BackSync': true},
-      );
+  test('a back-synced model edit owns the field and is not re-decorated on re-upload', () async {
+    final manager = await _loadPlugin(
+      _roundTripFetchSource(_snapshotShot()),
+      settings: const {'BackSync': true},
+    );
 
-      _startAutoUpload(manager);
-      final first =
-          await _waitForJs(manager, 'globalThis.__uploads[0]')
-              as Map<String, dynamic>;
-      expect(_uploadedModelAt(first), 'EG1 (Core)');
+    _startAutoUpload(manager);
+    final first = await _waitForJs(
+      manager,
+      'globalThis.__uploads[0]',
+    ) as Map<String, dynamic>;
+    expect(_uploadedModelAt(first), 'EG1 (Core)');
 
-      _setRemoteGrinderModel(manager, 'EG1 (Lab Sweet)');
-      await _callApi(manager, 'backSyncNow', const {});
+    _setRemoteGrinderModel(manager, 'EG1 (Lab Sweet)');
+    await _callApi(manager, 'backSyncNow', const {});
 
-      final context = _lastContextPut(manager);
-      expect(context['grinderModel'], 'EG1 (Lab Sweet)');
-      expect(
-        context.containsKey('grinderBurrs'),
-        isTrue,
-        reason: 'the edited text owns the field, so the snapshot is cleared',
-      );
-      expect(context['grinderBurrs'], isNull);
+    final context = _lastContextPut(manager);
+    expect(context['grinderModel'], 'EG1 (Lab Sweet)');
+    expect(
+      context.containsKey('grinderBurrs'),
+      isTrue,
+      reason: 'the edited text owns the field, so the snapshot is cleared',
+    );
+    expect(context['grinderBurrs'], isNull);
 
-      await _callApi(manager, 'upload', const {'shotId': 'shot-1'});
-      final second =
-          await _waitForJs(manager, 'globalThis.__uploads[1]')
-              as Map<String, dynamic>;
+    await _callApi(manager, 'upload', const {'shotId': 'shot-1'});
+    final second = await _waitForJs(
+      manager,
+      'globalThis.__uploads[1]',
+    ) as Map<String, dynamic>;
 
-      expect(
-        _uploadedModelAt(second),
-        'EG1 (Lab Sweet)',
-        reason: 'the burrs must not be appended to the edited model again',
-      );
-    },
-  );
+    expect(
+      _uploadedModelAt(second),
+      'EG1 (Lab Sweet)',
+      reason: 'the burrs must not be appended to the edited model again',
+    );
+  });
 
-  test(
-    'back sync applies a remote revert to the value we originally uploaded',
-    () async {
-      final manager = await _loadPlugin(
-        _roundTripFetchSource(_snapshotShot()),
-        settings: const {'BackSync': true},
-      );
+  test('back sync applies a remote revert to the value we originally uploaded', () async {
+    final manager = await _loadPlugin(
+      _roundTripFetchSource(_snapshotShot()),
+      settings: const {'BackSync': true},
+    );
 
-      _startAutoUpload(manager);
-      await _waitForJs(manager, 'globalThis.__uploads[0]');
+    _startAutoUpload(manager);
+    await _waitForJs(manager, 'globalThis.__uploads[0]');
 
-      _setRemoteGrinderModel(manager, 'EG1 (Lab Sweet)');
-      await _callApi(manager, 'backSyncNow', const {});
-      expect(_lastContextPut(manager)['grinderModel'], 'EG1 (Lab Sweet)');
+    _setRemoteGrinderModel(manager, 'EG1 (Lab Sweet)');
+    await _callApi(manager, 'backSyncNow', const {});
+    expect(_lastContextPut(manager)['grinderModel'], 'EG1 (Lab Sweet)');
 
-      _setRemoteGrinderModel(manager, 'EG1 (Core)');
-      await _callApi(manager, 'backSyncNow', const {});
+    _setRemoteGrinderModel(manager, 'EG1 (Core)');
+    await _callApi(manager, 'backSyncNow', const {});
 
-      expect(
-        _lastContextPut(manager)['grinderModel'],
-        'EG1 (Core)',
-        reason:
-            'reverting to our uploaded value is a genuine edit, not our own echo',
-      );
-    },
-  );
+    expect(
+      _lastContextPut(manager)['grinderModel'],
+      'EG1 (Core)',
+      reason:
+          'reverting to our uploaded value is a genuine edit, not our own echo',
+    );
+  });
 
   test(
     'an upload string recorded before the storage read survives it',
@@ -1873,9 +1845,9 @@ void main() {
   );
 
   test('plugin source and manifest versions match', () {
-    final sourceVersion = RegExp(
-      r'version:\s*"([^"]+)"',
-    ).firstMatch(_pluginSource)?.group(1);
+    final sourceVersion = RegExp(r'version:\s*"([^"]+)"')
+        .firstMatch(_pluginSource)
+        ?.group(1);
 
     expect(sourceVersion, _manifest.version);
   });

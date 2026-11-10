@@ -12,11 +12,10 @@ class ShotExportSection implements DataExportSection {
   final int pageSize;
 
   ShotExportSection({
-    required PersistenceController controller,
-    required PageCursor<ShotRecord> pageShots,
+    required this._controller,
+    required this._pageShots,
     this.pageSize = DataTransferLimits.defaultExportPageSize,
-  }) : _controller = controller,
-       _pageShots = pageShots;
+  });
 
   @override
   String get filename => 'shots.json';

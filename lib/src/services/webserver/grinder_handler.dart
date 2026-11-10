@@ -1,8 +1,7 @@
 part of '../webserver_service.dart';
 
 class GrinderHandler {
-  GrinderHandler({required GrinderController controller})
-    : _controller = controller;
+  GrinderHandler({required this._controller});
 
   final GrinderController _controller;
 

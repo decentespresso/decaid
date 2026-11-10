@@ -225,9 +225,12 @@ void main() {
           sourceStorage.shots[original.id] = original;
           final sourceSection = ShotExportSection(
             controller: sourceController,
-            pageShots:
-                (limit, {afterTimestamp, afterCreatedAt, afterId}) async =>
-                    afterTimestamp == null ? [original] : [],
+            pageShots: (
+              limit, {
+              afterTimestamp,
+              afterCreatedAt,
+              afterId,
+            }) async => afterTimestamp == null ? [original] : [],
           );
 
           final destinationStorage = ShotEventStorage();
@@ -236,8 +239,12 @@ void main() {
           );
           final destinationSection = ShotExportSection(
             controller: destinationController,
-            pageShots:
-                (limit, {afterTimestamp, afterCreatedAt, afterId}) async => [],
+            pageShots: (
+              limit, {
+              afterTimestamp,
+              afterCreatedAt,
+              afterId,
+            }) async => [],
           );
           final exporter = DataExportHandler(sections: [sourceSection]);
           final importer = DataExportHandler(sections: [destinationSection]);
@@ -295,9 +302,9 @@ void main() {
 
         final metadataFile = archive.findFile('metadata.json');
         expect(metadataFile, isNotNull);
-        final metadata =
-            jsonDecode(utf8.decode(metadataFile!.content))
-                as Map<String, dynamic>;
+        final metadata = jsonDecode(
+          utf8.decode(metadataFile!.content),
+        ) as Map<String, dynamic>;
         expect(metadata['formatVersion'], 1);
         expect(metadata.containsKey('appVersion'), isTrue);
         expect(metadata.containsKey('commitSha'), isTrue);

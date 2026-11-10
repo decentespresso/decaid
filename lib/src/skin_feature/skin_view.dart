@@ -7,9 +7,11 @@ import 'dart:ui' show AppExitResponse, AppExitType;
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
 import '../notifications/notification_actions.dart';
 import '../notifications/notification_center.dart';
 import '../notifications/notification_overlay.dart';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:logging/logging.dart';
@@ -455,9 +457,8 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   }
 
   void _exitToDashboard() {
-    Navigator.of(
-      context,
-    ).pushNamedAndRemoveUntil(LauncherView.routeName, (_) => false);
+    Navigator.of(context)
+        .pushNamedAndRemoveUntil(LauncherView.routeName, (_) => false);
   }
 
   Future<void> _openNotificationCenter() async {
@@ -576,9 +577,8 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
             const Divider(),
             Text(
               'You can use an external browser instead:',
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+              style: Theme.of(context).textTheme.bodyMedium
+                  ?.copyWith(fontWeight: FontWeight.w500),
             ),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,

@@ -59,8 +59,7 @@ void main() {
       expect(
         pub.current.error,
         isNull,
-        reason:
-            're-published transient error should be stripped on clearing-phase transition',
+        reason: 're-published transient error should be stripped on clearing-phase transition',
       );
     });
 

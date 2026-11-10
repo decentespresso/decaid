@@ -632,99 +632,90 @@ void main() {
     },
   );
 
-  test(
-    'a serial-less scale re-enumerated with a readable serial is not re-admitted',
-    () async {
-      final scale = _FakeScale(id: 'usb-2e8a-a-unknown-7');
-      var detections = 0;
-      listed = [_device(serial: null, physicalId: 7)];
-      detection = (_) async {
-        detections++;
-        return scale;
-      };
-      service = build();
+  test('a serial-less scale re-enumerated with a readable serial is not re-admitted', () async {
+    final scale = _FakeScale(id: 'usb-2e8a-a-unknown-7');
+    var detections = 0;
+    listed = [_device(serial: null, physicalId: 7)];
+    detection = (_) async {
+      detections++;
+      return scale;
+    };
+    service = build();
 
-      await service.scanForDevices();
-      expect(await service.devices.first, [same(scale)]);
-      expect(detections, 1);
+    await service.scanForDevices();
+    expect(await service.devices.first, [same(scale)]);
+    expect(detections, 1);
 
-      listed = [_device(serial: 'SCALE123', physicalId: 7)];
-      await service.scanForDevices();
+    listed = [_device(serial: 'SCALE123', physicalId: 7)];
+    await service.scanForDevices();
 
-      expect(
-        detections,
-        1,
-        reason: 'the scale still owns this physical attachment',
-      );
-      expect(await service.devices.first, [same(scale)]);
-      expect(scale.disconnectCalls, 0);
-    },
-  );
+    expect(
+      detections,
+      1,
+      reason: 'the scale still owns this physical attachment',
+    );
+    expect(await service.devices.first, [same(scale)]);
+    expect(scale.disconnectCalls, 0);
+  });
 
-  test(
-    'quick-connect reuses a connected serial-less scale instead of opening a port',
-    () async {
-      final scale = _FakeScale(id: 'usb-2e8a-a-unknown-7');
-      var detections = 0;
-      listed = [_device(serial: null, physicalId: 7)];
-      detection = (_) async {
-        detections++;
-        return scale;
-      };
-      service = build();
-      await service.scanForDevices();
+  test('quick-connect reuses a connected serial-less scale instead of opening a port', () async {
+    final scale = _FakeScale(id: 'usb-2e8a-a-unknown-7');
+    var detections = 0;
+    listed = [_device(serial: null, physicalId: 7)];
+    detection = (_) async {
+      detections++;
+      return scale;
+    };
+    service = build();
+    await service.scanForDevices();
 
-      listed = [_device(serial: 'SCALE123', physicalId: 7)];
-      final reused = await service.tryQuickConnect(
-        const RememberedDevice(
-          id: 'usb-2e8a-a-SCALE123',
-          name: 'Half Decent Scale',
-          type: DeviceType.scale,
-          implementation: DeviceImplementation.hdsSerial,
-          transportType: TransportType.serial,
-        ),
-      );
+    listed = [_device(serial: 'SCALE123', physicalId: 7)];
+    final reused = await service.tryQuickConnect(
+      const RememberedDevice(
+        id: 'usb-2e8a-a-SCALE123',
+        name: 'Half Decent Scale',
+        type: DeviceType.scale,
+        implementation: DeviceImplementation.hdsSerial,
+        transportType: TransportType.serial,
+      ),
+    );
 
-      expect(reused, same(scale));
-      expect(detections, 1);
-      expect(await service.devices.first, [same(scale)]);
-      expect(scale.disconnectCalls, 0);
-    },
-  );
+    expect(reused, same(scale));
+    expect(detections, 1);
+    expect(await service.devices.first, [same(scale)]);
+    expect(scale.disconnectCalls, 0);
+  });
 
-  test(
-    'a disconnected serial-less scale adopts its canonical serial on redetection',
-    () async {
-      final session = _FakeScale(id: 'usb-2e8a-a-unknown-7');
-      final canonical = _FakeScale(id: 'usb-2e8a-a-SCALE123');
-      Device? detected = session;
-      listed = [_device(serial: null, physicalId: 7)];
-      detection = (_) async => detected;
-      service = build();
-      await service.scanForDevices();
-      expect(await service.devices.first, [same(session)]);
+  test('a disconnected serial-less scale adopts its canonical serial on redetection', () async {
+    final session = _FakeScale(id: 'usb-2e8a-a-unknown-7');
+    final canonical = _FakeScale(id: 'usb-2e8a-a-SCALE123');
+    Device? detected = session;
+    listed = [_device(serial: null, physicalId: 7)];
+    detection = (_) async => detected;
+    service = build();
+    await service.scanForDevices();
+    expect(await service.devices.first, [same(session)]);
 
-      await service.handleUsbEvent(
-        UsbEvent()
-          ..event = UsbEvent.ACTION_USB_DETACHED
-          ..device = _device(serial: null, physicalId: 7),
-      );
-      expect(await service.devices.first, isEmpty);
-      expect(session.disconnectCalls, 1);
+    await service.handleUsbEvent(
+      UsbEvent()
+        ..event = UsbEvent.ACTION_USB_DETACHED
+        ..device = _device(serial: null, physicalId: 7),
+    );
+    expect(await service.devices.first, isEmpty);
+    expect(session.disconnectCalls, 1);
 
-      final replugged = _device(serial: 'SCALE123', physicalId: 7);
-      listed = [replugged];
-      detected = canonical;
-      await service.handleUsbEvent(
-        UsbEvent()
-          ..event = UsbEvent.ACTION_USB_ATTACHED
-          ..device = replugged,
-      );
-      await service.scanForDevices();
+    final replugged = _device(serial: 'SCALE123', physicalId: 7);
+    listed = [replugged];
+    detected = canonical;
+    await service.handleUsbEvent(
+      UsbEvent()
+        ..event = UsbEvent.ACTION_USB_ATTACHED
+        ..device = replugged,
+    );
+    await service.scanForDevices();
 
-      expect(await service.devices.first, [same(canonical)]);
-    },
-  );
+    expect(await service.devices.first, [same(canonical)]);
+  });
 
   test(
     'a scan ignores a detached attachment still present in enumeration',
@@ -997,49 +988,45 @@ void main() {
     },
   );
 
-  test(
-    'canonical connected inventory survives absent descriptors and preferred reconnect',
-    () async {
-      final canonical = _FakeMachine();
-      var detections = 0;
-      listed = [_device()];
-      detection = (_) async {
-        detections++;
-        return canonical;
-      };
-      service = build();
-      const remembered = RememberedDevice(
-        id: 'usb-2e8a-a-8549628789ABCDEF',
-        name: 'DE1',
-        type: DeviceType.machine,
-        implementation: DeviceImplementation.unifiedDe1,
-        transportType: TransportType.serial,
-      );
-      await service.tryQuickConnect(remembered);
-      listed = [_device(serial: null)];
-      for (var i = 0; i < 3; i++) {
-        await service.scanForDevices();
-      }
-      final api = await buildAvailabilityDeviceList(
-        await service.devices.first,
-        [remembered],
-      );
-      expect(api, [containsPair('state', 'connected')]);
-      expect(canonical.disconnectCalls, 0);
-      expect(await service.tryQuickConnect(remembered), same(canonical));
-      expect(detections, 1);
-      canonical.setConnectionState(ConnectionState.disconnected);
-      await Future<void>.delayed(Duration.zero);
-      expect(await service.tryQuickConnect(remembered), same(canonical));
-      expect(detections, 2);
-      await service.handleUsbEvent(
-        UsbEvent()
-          ..event = UsbEvent.ACTION_USB_DETACHED
-          ..device = _device(serial: null),
-      );
-      expect(await service.devices.first, isEmpty);
-    },
-  );
+  test('canonical connected inventory survives absent descriptors and preferred reconnect', () async {
+    final canonical = _FakeMachine();
+    var detections = 0;
+    listed = [_device()];
+    detection = (_) async {
+      detections++;
+      return canonical;
+    };
+    service = build();
+    const remembered = RememberedDevice(
+      id: 'usb-2e8a-a-8549628789ABCDEF',
+      name: 'DE1',
+      type: DeviceType.machine,
+      implementation: DeviceImplementation.unifiedDe1,
+      transportType: TransportType.serial,
+    );
+    await service.tryQuickConnect(remembered);
+    listed = [_device(serial: null)];
+    for (var i = 0; i < 3; i++) {
+      await service.scanForDevices();
+    }
+    final api = await buildAvailabilityDeviceList(await service.devices.first, [
+      remembered,
+    ]);
+    expect(api, [containsPair('state', 'connected')]);
+    expect(canonical.disconnectCalls, 0);
+    expect(await service.tryQuickConnect(remembered), same(canonical));
+    expect(detections, 1);
+    canonical.setConnectionState(ConnectionState.disconnected);
+    await Future<void>.delayed(Duration.zero);
+    expect(await service.tryQuickConnect(remembered), same(canonical));
+    expect(detections, 2);
+    await service.handleUsbEvent(
+      UsbEvent()
+        ..event = UsbEvent.ACTION_USB_DETACHED
+        ..device = _device(serial: null),
+    );
+    expect(await service.devices.first, isEmpty);
+  });
 
   test(
     'two known serials on independent physical devices stay separate',
@@ -1109,27 +1096,24 @@ void main() {
     },
   );
 
-  test(
-    'attach rebinds an unconnected fallback before choosing a known canonical ID',
-    () async {
-      final fallback = _FakeMachine(id: 'usb-2e8a-a-unknown-1002')
-        ..setConnectionState(ConnectionState.discovered);
-      final canonical = _FakeMachine();
-      var detections = 0;
-      listed = [_device(serial: null)];
-      detection = (_) async => ++detections == 1 ? fallback : canonical;
-      service = build();
-      await service.scanForDevices();
-      listed = [_device()];
-      final result = await service.connectAttachedMachine(
-        const DeviceAttachedEvent(physicalDeviceId: 1002),
-      );
-      expect((result as AttachProbeConnected).machine, same(canonical));
-      expect(fallback.onConnectCalls, 0);
-      expect(canonical.onConnectCalls, 1);
-      expect(await service.devices.first, [same(canonical)]);
-    },
-  );
+  test('attach rebinds an unconnected fallback before choosing a known canonical ID', () async {
+    final fallback = _FakeMachine(id: 'usb-2e8a-a-unknown-1002')
+      ..setConnectionState(ConnectionState.discovered);
+    final canonical = _FakeMachine();
+    var detections = 0;
+    listed = [_device(serial: null)];
+    detection = (_) async => ++detections == 1 ? fallback : canonical;
+    service = build();
+    await service.scanForDevices();
+    listed = [_device()];
+    final result = await service.connectAttachedMachine(
+      const DeviceAttachedEvent(physicalDeviceId: 1002),
+    );
+    expect((result as AttachProbeConnected).machine, same(canonical));
+    expect(fallback.onConnectCalls, 0);
+    expect(canonical.onConnectCalls, 1);
+    expect(await service.devices.first, [same(canonical)]);
+  });
 
   test('healthy quick-connect reuses the existing physical machine', () async {
     final machine = _FakeMachine();

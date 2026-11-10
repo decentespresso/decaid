@@ -28,23 +28,19 @@ void main() {
 
     Future<Scale> createCandidate() async =>
         await manager.bleService.createCandidate(
-              driver: manager.bleService.registry
-                  .decide(evidence)
-                  .drivers
-                  .single,
-              physicalId: 'AA:BB',
-              evidence: evidence,
-              admit: () => true,
-              createTransport: () {
-                final transport = FelicitaPluginTransport(
-                  'AA:BB',
-                  firstPacket: felicitaPacket(1),
-                );
-                transports.add(transport);
-                return transport;
-              },
-            )
-            as Scale;
+          driver: manager.bleService.registry.decide(evidence).drivers.single,
+          physicalId: 'AA:BB',
+          evidence: evidence,
+          admit: () => true,
+          createTransport: () {
+            final transport = FelicitaPluginTransport(
+              'AA:BB',
+              firstPacket: felicitaPacket(1),
+            );
+            transports.add(transport);
+            return transport;
+          },
+        ) as Scale;
 
     final first = await createCandidate();
     expect(manager.bleService.registry.activeBindingCount, 0);
@@ -74,65 +70,54 @@ void main() {
     expect(manager.bleService.registry.activeBindingCount, 0);
   });
 
-  test(
-    'failed transport connect preserves its native error and releases ownership',
-    () async {
-      final manager = PluginManager(kvStore: FakeKeyValueStoreService());
-      addTearDown(manager.dispose);
-      await loadFelicitaPlugin(manager);
-      final evidence = BleAdvertisementEvidence(name: 'Felicita Arc');
-      final transports = <FelicitaPluginTransport>[];
+  test('failed transport connect preserves its native error and releases ownership', () async {
+    final manager = PluginManager(kvStore: FakeKeyValueStoreService());
+    addTearDown(manager.dispose);
+    await loadFelicitaPlugin(manager);
+    final evidence = BleAdvertisementEvidence(name: 'Felicita Arc');
+    final transports = <FelicitaPluginTransport>[];
 
-      Future<Scale> createCandidate() async =>
-          await manager.bleService.createCandidate(
-                driver: manager.bleService.registry
-                    .decide(evidence)
-                    .drivers
-                    .single,
-                physicalId: 'AA:BB',
-                evidence: evidence,
-                admit: () => true,
-                createTransport: () {
-                  final transport = FelicitaPluginTransport(
-                    'AA:BB',
-                    firstPacket: felicitaPacket(1),
-                    connectFailure: transports.isEmpty
-                        ? BleConnectException(code: '133')
-                        : null,
-                  );
-                  transports.add(transport);
-                  return transport;
-                },
-              )
-              as Scale;
+    Future<Scale> createCandidate() async =>
+        await manager.bleService.createCandidate(
+          driver: manager.bleService.registry.decide(evidence).drivers.single,
+          physicalId: 'AA:BB',
+          evidence: evidence,
+          admit: () => true,
+          createTransport: () {
+            final transport = FelicitaPluginTransport(
+              'AA:BB',
+              firstPacket: felicitaPacket(1),
+              connectFailure: transports.isEmpty
+                  ? BleConnectException(code: '133')
+                  : null,
+            );
+            transports.add(transport);
+            return transport;
+          },
+        ) as Scale;
 
-      final first = await createCandidate();
-      await expectLater(
-        first.onConnect(),
-        throwsA(
-          isA<BleConnectException>().having(
-            (error) => error.code,
-            'code',
-            '133',
-          ),
-        ),
-      );
-      await Future<void>.delayed(Duration.zero);
-      expect(manager.bleService.registry.activeBindingCount, 0);
+    final first = await createCandidate();
+    await expectLater(
+      first.onConnect(),
+      throwsA(
+        isA<BleConnectException>().having((error) => error.code, 'code', '133'),
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(manager.bleService.registry.activeBindingCount, 0);
 
-      await first.onConnect();
-      expect(first.connectionState, emits(ConnectionState.connected));
-      expect(transports, hasLength(2));
-      await first.disconnect();
+    await first.onConnect();
+    expect(first.connectionState, emits(ConnectionState.connected));
+    expect(transports, hasLength(2));
+    await first.disconnect();
 
-      final second = await createCandidate();
-      expect(identical(second, first), isFalse);
-      await second.onConnect();
-      expect(second.connectionState, emits(ConnectionState.connected));
-      expect(transports, hasLength(3));
-      await second.disconnect();
-    },
-  );
+    final second = await createCandidate();
+    expect(identical(second, first), isFalse);
+    await second.onConnect();
+    expect(second.connectionState, emits(ConnectionState.connected));
+    expect(transports, hasLength(3));
+    await second.disconnect();
+  });
 
   test(
     'stale callbacks from the retired binding cannot publish or reconnect',
@@ -145,23 +130,19 @@ void main() {
 
       Future<Scale> createCandidate() async =>
           await manager.bleService.createCandidate(
-                driver: manager.bleService.registry
-                    .decide(evidence)
-                    .drivers
-                    .single,
-                physicalId: 'AA:BB',
-                evidence: evidence,
-                admit: () => true,
-                createTransport: () {
-                  final transport = FelicitaPluginTransport(
-                    'AA:BB',
-                    firstPacket: felicitaPacket(transports.isEmpty ? 1 : 2),
-                  );
-                  transports.add(transport);
-                  return transport;
-                },
-              )
-              as Scale;
+            driver: manager.bleService.registry.decide(evidence).drivers.single,
+            physicalId: 'AA:BB',
+            evidence: evidence,
+            admit: () => true,
+            createTransport: () {
+              final transport = FelicitaPluginTransport(
+                'AA:BB',
+                firstPacket: felicitaPacket(transports.isEmpty ? 1 : 2),
+              );
+              transports.add(transport);
+              return transport;
+            },
+          ) as Scale;
 
       final first = await createCandidate();
       final firstSamples = <ScaleSnapshot>[];

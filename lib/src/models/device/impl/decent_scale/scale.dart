@@ -183,16 +183,14 @@ class DecentScale implements Scale, TransportHandoffScale {
             if (!identical(subscription, transportListener)) return;
             _log.info("Transport disconnected");
             unawaited(
-              _disconnect(powerOff: false).catchError((
-                Object error,
-                StackTrace stackTrace,
-              ) {
-                _log.severe(
-                  'Failed to tear down disconnected scale transport',
-                  error,
-                  stackTrace,
-                );
-              }),
+              _disconnect(powerOff: false)
+                  .catchError((Object error, StackTrace stackTrace) {
+                    _log.severe(
+                      'Failed to tear down disconnected scale transport',
+                      error,
+                      stackTrace,
+                    );
+                  }),
             );
           });
       subscription = transportListener;
@@ -223,16 +221,14 @@ class DecentScale implements Scale, TransportHandoffScale {
       } else {
         await _confirmDataChannel(attempt);
         unawaited(
-          _negotiateProfile(attempt).catchError((
-            Object error,
-            StackTrace stackTrace,
-          ) {
-            _log.warning(
-              'Decent scale: profile negotiation failed',
-              error,
-              stackTrace,
-            );
-          }),
+          _negotiateProfile(attempt)
+              .catchError((Object error, StackTrace stackTrace) {
+                _log.warning(
+                  'Decent scale: profile negotiation failed',
+                  error,
+                  stackTrace,
+                );
+              }),
         );
       }
       if (connectionAttempt != _connectionAttempt) return;
@@ -682,16 +678,14 @@ class DecentScale implements Scale, TransportHandoffScale {
               continue;
             }
             unawaited(
-              _negotiateProfile(attempt).catchError((
-                Object error,
-                StackTrace stackTrace,
-              ) {
-                _log.warning(
-                  'Decent scale: profile negotiation failed',
-                  error,
-                  stackTrace,
-                );
-              }),
+              _negotiateProfile(attempt)
+                  .catchError((Object error, StackTrace stackTrace) {
+                    _log.warning(
+                      'Decent scale: profile negotiation failed',
+                      error,
+                      stackTrace,
+                    );
+                  }),
             );
           } else {
             if (mustExitSoftSleep) {

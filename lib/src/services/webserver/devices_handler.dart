@@ -23,18 +23,13 @@ class DevicesStateAggregator {
   int get activeDeviceSubscriptionCount => _deviceStateSubs.length;
 
   DevicesStateAggregator({
-    required DeviceController controller,
-    BatteryController? batteryController,
-    required ConnectionManager connectionManager,
-    RememberedDevicesController? rememberedController,
-    String? Function()? preferredScaleId,
-    String? Function()? preferredGrinderDeviceId,
-  }) : _controller = controller,
-       _batteryController = batteryController,
-       _connectionManager = connectionManager,
-       _rememberedController = rememberedController,
-       _preferredScaleId = preferredScaleId,
-       _preferredGrinderDeviceId = preferredGrinderDeviceId {
+    required this._controller,
+    this._batteryController,
+    required this._connectionManager,
+    this._rememberedController,
+    this._preferredScaleId,
+    this._preferredGrinderDeviceId,
+  }) {
     _start();
   }
 

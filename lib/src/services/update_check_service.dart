@@ -36,24 +36,21 @@ class UpdateCheckService {
       : Duration(hours: 12);
 
   UpdateCheckService({
-    required SettingsService settingsService,
+    required this._settingsService,
     AndroidUpdater? updater,
-    required WebUIStorage webUIStorage,
-    PluginSourceService? pluginSourceService,
+    required this._webUIStorage,
+    this._pluginSourceService,
     bool? platformIsAndroid,
     bool? platformIsMacOS,
     GithubRateLimit? rateLimit,
     this.externallyManaged = BuildInfo.appStore,
-  }) : _settingsService = settingsService,
-       _updater =
+  }) : _updater =
            updater ??
            AndroidUpdater(
              owner: 'tadelv',
              repo: 'reaprime',
              rateLimit: rateLimit,
            ),
-       _webUIStorage = webUIStorage,
-       _pluginSourceService = pluginSourceService,
        _isAndroid = platformIsAndroid ?? Platform.isAndroid,
        _isMacOS = platformIsMacOS ?? Platform.isMacOS {
     _state = BehaviorSubject.seeded(_snapshot(AppUpdatePhase.idle));
@@ -314,9 +311,7 @@ class UpdateCheckService {
     _hasCompletedCheck = true;
     _availableUpdate = UpdateInfo(
       version: version,
-      downloadUrl:
-          downloadUrl ??
-          'https://github.com/decentespresso/decaid/releases/download/v0.7.7/decent-android-0.7.7.apk',
+      downloadUrl: downloadUrl ?? 'https://github.com/decentespresso/decaid/releases/download/v0.7.7/decent-android-0.7.7.apk',
       releaseNotes: 'Forced update for testing the update API.',
       isPrerelease: false,
       tagName: 'v$version',

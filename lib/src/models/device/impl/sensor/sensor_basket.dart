@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:rxdart/subjects.dart';
 
 import 'package:reaprime/src/models/device/device.dart';
@@ -13,7 +14,7 @@ class SensorBasket implements Sensor {
   late Logger _log;
   final SerialTransport _transport;
 
-  SensorBasket({required SerialTransport transport}) : _transport = transport {
+  SensorBasket({required this._transport}) {
     _log = Logger("SensorBasket");
   }
 

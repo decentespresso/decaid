@@ -15,9 +15,8 @@ Future<bool> requestSkinCameraPermission() async =>
       TargetPlatform.android || TargetPlatform.iOS =>
         (await permissions.Permission.camera.request()).isGranted,
       TargetPlatform.macOS =>
-        await const MethodChannel(
-              'com.reaprime/skin_camera',
-            ).invokeMethod<bool>('requestCamera') ??
+        await const MethodChannel('com.reaprime/skin_camera')
+                .invokeMethod<bool>('requestCamera') ??
             false,
       _ => false,
     };

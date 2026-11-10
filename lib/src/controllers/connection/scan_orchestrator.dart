@@ -47,20 +47,13 @@ class ScanOrchestrator {
   final bool Function() _isScaleConnected;
 
   ScanOrchestrator({
-    required DeviceScanner scanner,
-    required StatusPublisher statusPublisher,
-    required Future<void> Function(De1Interface, ScanReportBuilder)
-    connectMachineTracked,
-    required Future<void> Function(Scale, ScanReportBuilder)
-    connectScaleTracked,
-    required bool Function() isMachineConnected,
-    required bool Function() isScaleConnected,
-  }) : _scanner = scanner,
-       _statusPublisher = statusPublisher,
-       _connectMachineTracked = connectMachineTracked,
-       _connectScaleTracked = connectScaleTracked,
-       _isMachineConnected = isMachineConnected,
-       _isScaleConnected = isScaleConnected;
+    required this._scanner,
+    required this._statusPublisher,
+    required this._connectMachineTracked,
+    required this._connectScaleTracked,
+    required this._isMachineConnected,
+    required this._isScaleConnected,
+  });
 
   Future<ScanRunResult?> runScan({
     required String? preferredMachineId,

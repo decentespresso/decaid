@@ -119,19 +119,16 @@ void main() {
           final PluginDeviceAdapter device;
           if (ble) {
             final evidence = BleAdvertisementEvidence(serviceUuids: ['180f']);
-            device =
-                await manager.bleService.createCandidate(
-                      driver: manager.bleService.registry
-                          .decide(evidence)
-                          .drivers
-                          .single,
-                      physicalId: 'opaque:% +?&/',
-                      evidence: evidence,
-                      createTransport: () =>
-                          PluginBleFixtureTransport('opaque:% +?&/'),
-                      admit: () => true,
-                    )
-                    as PluginDeviceAdapter;
+            device = await manager.bleService.createCandidate(
+              driver: manager.bleService.registry
+                  .decide(evidence)
+                  .drivers
+                  .single,
+              physicalId: 'opaque:% +?&/',
+              evidence: evidence,
+              createTransport: () => PluginBleFixtureTransport('opaque:% +?&/'),
+              admit: () => true,
+            ) as PluginDeviceAdapter;
           } else {
             device =
                 (await manager.deviceService.devices.firstWhere(
@@ -158,9 +155,8 @@ void main() {
             'deviceId': 'not-the-owner:% +?&/',
           });
           expect(
-            Uri.parse(
-              authority.resolve(device.deviceId).single['href']!,
-            ).queryParameters['deviceId'],
+            Uri.parse(authority.resolve(device.deviceId).single['href']!)
+                .queryParameters['deviceId'],
             device.deviceId,
           );
           expect(

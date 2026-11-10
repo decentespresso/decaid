@@ -21,9 +21,8 @@ String _legacyShot(int clock) {
     _sampleCount,
     (i) => i < _sampleCount ~/ 3 ? '10000000.0' : '-10000000.0',
   ).join(' ');
-  final profile = File(
-    'test/fixtures/de1app/legacy_with_profile.shot',
-  ).readAsStringSync();
+  final profile = File('test/fixtures/de1app/legacy_with_profile.shot')
+      .readAsStringSync();
   final profileBlock = profile.substring(
     profile.indexOf('profile {'),
     profile.indexOf('settings {'),
@@ -54,13 +53,10 @@ String _legacyShot(int clock) {
 }
 
 String _v2Shot(int clock) {
-  final json =
-      jsonDecode(
-            File(
-              'test/fixtures/de1app/history_v2/20240315T143022.json',
-            ).readAsStringSync(),
-          )
-          as Map<String, dynamic>;
+  final json = jsonDecode(
+    File('test/fixtures/de1app/history_v2/20240315T143022.json')
+        .readAsStringSync(),
+  ) as Map<String, dynamic>;
   final series = List.generate(_sampleCount, (i) => i * 0.137);
   json['clock'] = clock;
   json['elapsed'] = List.generate(_sampleCount, (i) => i * 0.1);

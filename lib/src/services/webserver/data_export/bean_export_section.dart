@@ -11,11 +11,10 @@ class BeanExportSection implements DataExportSection {
   final int pageSize;
 
   BeanExportSection({
-    required BeanStorageService storage,
-    required PageCursor<Bean> pageBeans,
+    required this._storage,
+    required this._pageBeans,
     this.pageSize = DataTransferLimits.defaultExportPageSize,
-  }) : _storage = storage,
-       _pageBeans = pageBeans;
+  });
 
   @override
   String get filename => 'beans.json';

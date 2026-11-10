@@ -30,17 +30,15 @@ class FirmwareHandler {
   final Duration managedBodyReadTimeout;
 
   FirmwareHandler({
-    required De1Controller controller,
-    required BundledFirmwareCatalog catalog,
+    required this._controller,
+    required this._catalog,
     FirmwareValidator? validator,
     Logger? logger,
     this.maxRawBodyBytes = _maxRawFirmwareBodyBytes,
     this.rawBodyReadTimeout = _rawFirmwareBodyReadTimeout,
     this.maxManagedBodyBytes = _maxManagedFirmwareBodyBytes,
     this.managedBodyReadTimeout = _managedFirmwareBodyReadTimeout,
-  }) : _controller = controller,
-       _catalog = catalog,
-       _validator = validator ?? const FirmwareValidator(),
+  }) : _validator = validator ?? const FirmwareValidator(),
        _log = logger ?? Logger('FirmwareHandler');
 
   void addRoutes(RouterPlus app) {

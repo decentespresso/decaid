@@ -104,9 +104,8 @@ class NotificationActions extends ChangeNotifier with WidgetsBindingObserver {
       if (!_disposed) {
         center.reportAction(activation, action, 'failed');
         _failed = activation;
-        Logger(
-          'NotificationActions',
-        ).warning('Could not open notification action', error, stackTrace);
+        Logger('NotificationActions')
+            .warning('Could not open notification action', error, stackTrace);
       }
     } finally {
       if (!_disposed) {

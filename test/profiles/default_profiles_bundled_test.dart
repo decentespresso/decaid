@@ -13,18 +13,14 @@ void main() {
   final profiles = <String, Profile>{};
 
   setUpAll(() async {
-    final manifest =
-        jsonDecode(
-              await rootBundle.loadString(
-                'assets/defaultProfiles/manifest.json',
-              ),
-            )
-            as Map<String, dynamic>;
+    final manifest = jsonDecode(
+      await rootBundle.loadString('assets/defaultProfiles/manifest.json'),
+    ) as Map<String, dynamic>;
     files = (manifest['profiles'] as List).cast<String>();
     for (final f in files) {
-      final json =
-          jsonDecode(await rootBundle.loadString('assets/defaultProfiles/$f'))
-              as Map<String, dynamic>;
+      final json = jsonDecode(
+        await rootBundle.loadString('assets/defaultProfiles/$f'),
+      ) as Map<String, dynamic>;
       profiles[f] = Profile.fromJson(json);
     }
   });

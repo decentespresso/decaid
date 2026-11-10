@@ -4,7 +4,7 @@ class UpdateHandler {
   final UpdateCheckService _service;
   final log = Logger("UpdateHandler");
 
-  UpdateHandler({required UpdateCheckService service}) : _service = service;
+  UpdateHandler({required this._service});
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/update', _getUpdate);

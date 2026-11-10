@@ -20,11 +20,10 @@ enum PluginDeviceOperation {
   setRpm,
 }
 
-typedef PluginDeviceInvoker =
-    Future<Map<String, dynamic>> Function(
-      PluginDeviceOperation operation,
-      Map<String, dynamic> payload,
-    );
+typedef PluginDeviceInvoker = Future<Map<String, dynamic>> Function(
+  PluginDeviceOperation operation,
+  Map<String, dynamic> payload,
+);
 
 class PluginDeviceException implements Exception {
   final String message;

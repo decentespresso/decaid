@@ -69,12 +69,10 @@ class PresenceController {
   DateTime? get keepAwakeUntil => _activeKeepAwakeOccurrence?.end;
 
   PresenceController({
-    required De1Controller de1Controller,
-    required SettingsController settingsController,
+    required this._de1Controller,
+    required this._settingsController,
     DateTime Function()? clock,
-  }) : _de1Controller = de1Controller,
-       _settingsController = settingsController,
-       _clock = clock ?? (() => DateTime.now());
+  }) : _clock = clock ?? (() => DateTime.now());
 
   void initialize() {
     _de1Subscription = _de1Controller.de1.listen(_onDe1Changed);

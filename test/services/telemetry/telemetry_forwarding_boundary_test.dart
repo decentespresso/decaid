@@ -107,9 +107,8 @@ void main() {
       await importer.importJson('{invalid shot JSON');
       fail('Invalid input must throw');
     } on FormatException catch (error, stack) {
-      Logger(
-        'DataManagement',
-      ).severe('Legacy shot import failed', error, stack);
+      Logger('DataManagement')
+          .severe('Legacy shot import failed', error, stack);
     }
     await pumpEventQueue();
 

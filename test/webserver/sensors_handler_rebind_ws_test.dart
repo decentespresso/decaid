@@ -202,68 +202,65 @@ void main() {
     }
   }
 
-  test(
-    'REST routes decode opaque IDs once and preserve raw percent forms',
-    () async {
-      final ids = <String>[
-        'plugin:opaque:raw-colon',
-        'plugin:opaque:raw%literal',
-        'plugin:opaque:literal%ZZ',
-        'plugin:opaque:trailing%',
-        'plugin:opaque:literal%2F',
-        'plugin:opaque:unicode☕/slash',
-        'plugin:opaque:plus+',
-      ];
-      for (final id in ids) {
-        await sensorController.register(sensor(id));
-      }
+  test('REST routes decode opaque IDs once and preserve raw percent forms', () async {
+    final ids = <String>[
+      'plugin:opaque:raw-colon',
+      'plugin:opaque:raw%literal',
+      'plugin:opaque:literal%ZZ',
+      'plugin:opaque:trailing%',
+      'plugin:opaque:literal%2F',
+      'plugin:opaque:unicode☕/slash',
+      'plugin:opaque:plus+',
+    ];
+    for (final id in ids) {
+      await sensorController.register(sensor(id));
+    }
 
-      final client = HttpClient();
-      addTearDown(client.close);
-      for (final id in ids) {
-        final request = await client.getUrl(
-          Uri.parse(
-            'http://127.0.0.1:${server.port}/api/v1/sensors/${Uri.encodeComponent(id)}',
-          ),
-        );
-        final response = await request.close();
-        expect(response.statusCode, HttpStatus.ok, reason: id);
-        await response.drain<void>();
-      }
-
-      final execute = await client.postUrl(
+    final client = HttpClient();
+    addTearDown(client.close);
+    for (final id in ids) {
+      final request = await client.getUrl(
         Uri.parse(
-          'http://127.0.0.1:${server.port}/api/v1/sensors/${Uri.encodeComponent(ids.last)}/execute',
+          'http://127.0.0.1:${server.port}/api/v1/sensors/${Uri.encodeComponent(id)}',
         ),
       );
-      execute.headers.contentType = ContentType.json;
-      execute.write(jsonEncode({'commandId': 'readState'}));
-      final executeResponse = await execute.close();
-      expect(executeResponse.statusCode, HttpStatus.ok);
-      await executeResponse.drain<void>();
+      final response = await request.close();
+      expect(response.statusCode, HttpStatus.ok, reason: id);
+      await response.drain<void>();
+    }
 
-      for (final id in ids.sublist(1, 4)) {
-        final canonical = await rawHttpGet(
-          '/api/v1/sensors/${Uri.encodeComponent(id)}',
-        );
-        final raw = await rawHttpGet('/api/v1/sensors/$id');
-        expect(canonical, contains('200'));
-        expect(raw, contains('200'));
-        expect(raw.split('\r\n\r\n').last, canonical.split('\r\n\r\n').last);
-      }
+    final execute = await client.postUrl(
+      Uri.parse(
+        'http://127.0.0.1:${server.port}/api/v1/sensors/${Uri.encodeComponent(ids.last)}/execute',
+      ),
+    );
+    execute.headers.contentType = ContentType.json;
+    execute.write(jsonEncode({'commandId': 'readState'}));
+    final executeResponse = await execute.close();
+    expect(executeResponse.statusCode, HttpStatus.ok);
+    await executeResponse.drain<void>();
 
-      final doubleEncoded = await rawHttpGet(
-        '/api/v1/sensors/${Uri.encodeComponent('plugin:opaque:literal%2F')}',
+    for (final id in ids.sublist(1, 4)) {
+      final canonical = await rawHttpGet(
+        '/api/v1/sensors/${Uri.encodeComponent(id)}',
       );
-      expect(doubleEncoded, contains('200 OK'));
-      expect(doubleEncoded, contains('Streaming Sensor'));
+      final raw = await rawHttpGet('/api/v1/sensors/$id');
+      expect(canonical, contains('200'));
+      expect(raw, contains('200'));
+      expect(raw.split('\r\n\r\n').last, canonical.split('\r\n\r\n').last);
+    }
 
-      final invalidUtf8 = await rawHttpGet(
-        '/api/v1/sensors/plugin%3Aopaque%3Abad%FF',
-      );
-      expect(invalidUtf8, contains('400'));
-    },
-  );
+    final doubleEncoded = await rawHttpGet(
+      '/api/v1/sensors/${Uri.encodeComponent('plugin:opaque:literal%2F')}',
+    );
+    expect(doubleEncoded, contains('200 OK'));
+    expect(doubleEncoded, contains('Streaming Sensor'));
+
+    final invalidUtf8 = await rawHttpGet(
+      '/api/v1/sensors/plugin%3Aopaque%3Abad%FF',
+    );
+    expect(invalidUtf8, contains('400'));
+  });
 
   test(
     'raw colon sensor IDs remain compatible with WebSocket routes',

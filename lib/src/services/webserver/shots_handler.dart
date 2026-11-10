@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/import/parsers/enjoyment_scale.dart';
@@ -14,11 +15,7 @@ class ShotsHandler {
 
   final Logger _log = Logger("ShotsHandler");
 
-  ShotsHandler({
-    required PersistenceController controller,
-    BeanStorageService? beanStorage,
-  }) : _controller = controller,
-       _beanStorage = beanStorage;
+  ShotsHandler({required this._controller, this._beanStorage});
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/shots', _getShots);
@@ -264,9 +261,8 @@ class ShotsHandler {
         _synchronizeLegacyAnnotationAliases(merged);
         merged['id'] = id;
 
-        final contentChanged = !ShotRecord.fromRecordedJson(
-          merged,
-        ).sameContent(existingShot);
+        final contentChanged = !ShotRecord.fromRecordedJson(merged)
+            .sameContent(existingShot);
         merged['updatedAt'] =
             (contentChanged
                     ? DateTime.now().toUtc()

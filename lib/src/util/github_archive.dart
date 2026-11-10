@@ -117,18 +117,18 @@ Future<GitHubRelease> fetchGitHubReleaseByTag(
 }
 
 GitHubRelease _releaseFromJson(Object? release) {
-  if (release case {
-    'tag_name': final String tag,
-    'assets': final List assets,
-  } when tag.isNotEmpty) {
+  if (release case {'tag_name': final String tag, 'assets': final List assets}
+      when tag.isNotEmpty) {
     return GitHubRelease(
       tag: tag,
       assets: [
         for (final asset in assets)
-          if (asset case {
-            'name': final String name,
-            'browser_download_url': final String url,
-          } when name.isNotEmpty && url.isNotEmpty)
+          if (asset
+              case {
+                'name': final String name,
+                'browser_download_url': final String url,
+              }
+              when name.isNotEmpty && url.isNotEmpty)
             GitHubAsset(name: name, downloadUrl: url)
           else
             throw const UserFacingFormatException(
@@ -152,9 +152,8 @@ Future<String> fetchGitHubBranchCommit(
     'https://api.github.com/repos/$repo/commits/$branch',
     rateLimit: rateLimit ?? GithubRateLimit(),
   );
-  if (jsonDecode(response.body) case {
-    'sha': final String commit,
-  } when commit.isNotEmpty) {
+  if (jsonDecode(response.body) case {'sha': final String commit}
+      when commit.isNotEmpty) {
     return commit;
   }
   throw const UserFacingFormatException(

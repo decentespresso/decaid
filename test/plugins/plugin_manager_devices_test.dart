@@ -1280,9 +1280,9 @@ void main() {
       final sensors = await deviceService.devices
           .where((devices) => devices.length == 2)
           .first;
-      final office =
-          sensors.singleWhere((device) => device.deviceId == officeId)
-              as Sensor;
+      final office = sensors.singleWhere(
+        (device) => device.deviceId == officeId,
+      ) as Sensor;
       final lab =
           sensors.singleWhere((device) => device.deviceId == labId) as Sensor;
       final officeStates = <ConnectionState>[];
@@ -1368,52 +1368,50 @@ void main() {
     },
   );
 
-  test(
-    'persistent unrelated plugin transport stays usable after retired A settles',
-    () async {
-      final server = await _startWsServer((ws) {
-        ws.listen((data) {
-          try {
-            ws.add(data);
-          } catch (_) {}
-        });
+  test('persistent unrelated plugin transport stays usable after retired A settles', () async {
+    final server = await _startWsServer((ws) {
+      ws.listen((data) {
+        try {
+          ws.add(data);
+        } catch (_) {}
       });
-      final deviceService = PluginDeviceService();
-      final deviceController = DeviceController([deviceService]);
-      await deviceController.initialize();
-      final manager = PluginManager(
-        kvStore: FakeKeyValueStoreService(),
-        deviceService: deviceService,
-        deviceInvocationTimeout: const Duration(milliseconds: 500),
-      );
-      addTearDown(() async {
-        await manager.dispose();
-        deviceController.dispose();
-      });
+    });
+    final deviceService = PluginDeviceService();
+    final deviceController = DeviceController([deviceService]);
+    await deviceController.initialize();
+    final manager = PluginManager(
+      kvStore: FakeKeyValueStoreService(),
+      deviceService: deviceService,
+      deviceInvocationTimeout: const Duration(milliseconds: 500),
+    );
+    addTearDown(() async {
+      await manager.dispose();
+      deviceController.dispose();
+    });
 
-      final registered = manager.emitStream
-          .where((event) => event['event'] == 'registered')
-          .map((event) => event['payload'] as String)
-          .take(2)
-          .toList();
-      await manager.loadPlugin(
-        id: 'retired-window.plugin',
-        manifest: testManifest(
-          'retired-window.plugin',
-          permissions: const {
-            PluginPermissions.emit,
-            PluginPermissions.networkWebsocket,
-          },
-          drivers: const [
-            PluginDriverDeclaration(
-              id: 'humidity',
-              type: PluginDriverType.sensor,
-            ),
-          ],
-        ),
-        settings: const {},
-        jsCode:
-            '''
+    final registered = manager.emitStream
+        .where((event) => event['event'] == 'registered')
+        .map((event) => event['payload'] as String)
+        .take(2)
+        .toList();
+    await manager.loadPlugin(
+      id: 'retired-window.plugin',
+      manifest: testManifest(
+        'retired-window.plugin',
+        permissions: const {
+          PluginPermissions.emit,
+          PluginPermissions.networkWebsocket,
+        },
+        drivers: const [
+          PluginDriverDeclaration(
+            id: 'humidity',
+            type: PluginDriverType.sensor,
+          ),
+        ],
+      ),
+      settings: const {},
+      jsCode:
+          '''
         function createPlugin(host) {
           function makeHandlers(instanceKey) {
             let transportHandle;
@@ -1498,108 +1496,104 @@ void main() {
           };
         }
       ''',
-      );
+    );
 
-      final ids = await registered.timeout(const Duration(seconds: 2));
-      final officeId = ids.firstWhere((id) => id.endsWith(':office'));
-      final labId = ids.firstWhere((id) => id.endsWith(':lab'));
-      final sensors = await deviceService.devices
-          .where((devices) => devices.length == 2)
-          .first;
-      final office =
-          sensors.singleWhere((device) => device.deviceId == officeId)
-              as Sensor;
-      final lab =
-          sensors.singleWhere((device) => device.deviceId == labId) as Sensor;
-      final officeStates = <ConnectionState>[];
-      final officeStatesSubscription = office.connectionState.listen(
-        officeStates.add,
-      );
-      addTearDown(officeStatesSubscription.cancel);
-      final labStates = <ConnectionState>[];
-      final labStatesSubscription = lab.connectionState.listen(labStates.add);
-      addTearDown(labStatesSubscription.cancel);
-      unawaited(office.onConnect().catchError((_) {}));
-      await office.connectionState
-          .where((state) => state == ConnectionState.connecting)
-          .first
-          .timeout(const Duration(seconds: 2));
-      await office.connectionState
-          .where((state) => state == ConnectionState.disconnected)
-          .first
-          .timeout(const Duration(seconds: 2));
+    final ids = await registered.timeout(const Duration(seconds: 2));
+    final officeId = ids.firstWhere((id) => id.endsWith(':office'));
+    final labId = ids.firstWhere((id) => id.endsWith(':lab'));
+    final sensors = await deviceService.devices
+        .where((devices) => devices.length == 2)
+        .first;
+    final office =
+        sensors.singleWhere((device) => device.deviceId == officeId) as Sensor;
+    final lab =
+        sensors.singleWhere((device) => device.deviceId == labId) as Sensor;
+    final officeStates = <ConnectionState>[];
+    final officeStatesSubscription = office.connectionState.listen(
+      officeStates.add,
+    );
+    addTearDown(officeStatesSubscription.cancel);
+    final labStates = <ConnectionState>[];
+    final labStatesSubscription = lab.connectionState.listen(labStates.add);
+    addTearDown(labStatesSubscription.cancel);
+    unawaited(office.onConnect().catchError((_) {}));
+    await office.connectionState
+        .where((state) => state == ConnectionState.connecting)
+        .first
+        .timeout(const Duration(seconds: 2));
+    await office.connectionState
+        .where((state) => state == ConnectionState.disconnected)
+        .first
+        .timeout(const Duration(seconds: 2));
 
-      final unregistered = manager.emitStream
-          .where(
-            (event) =>
-                event['event'] == 'unregistered' &&
-                event['payload'] == officeId,
-          )
-          .map((event) => event['payload'] as String)
-          .first;
-      manager.js.evaluate('globalThis.performUnregisterOffice();');
-      expect(await unregistered.timeout(const Duration(seconds: 2)), officeId);
-      await deviceService.devices
-          .where(
-            (devices) =>
-                devices.length == 1 && devices.single.deviceId == labId,
-          )
-          .first;
+    final unregistered = manager.emitStream
+        .where(
+          (event) =>
+              event['event'] == 'unregistered' && event['payload'] == officeId,
+        )
+        .map((event) => event['payload'] as String)
+        .first;
+    manager.js.evaluate('globalThis.performUnregisterOffice();');
+    expect(await unregistered.timeout(const Duration(seconds: 2)), officeId);
+    await deviceService.devices
+        .where(
+          (devices) => devices.length == 1 && devices.single.deviceId == labId,
+        )
+        .first;
 
-      manager.js.evaluate('globalThis.performUnrelatedOpen();');
-      var unrelatedOpened = false;
-      for (var i = 0; i < 100 && !unrelatedOpened; i++) {
-        while (manager.js.executePendingJob() > 0) {}
-        final result = manager.js.evaluate(
-          'String(globalThis.unrelatedOpened || false)',
-        );
-        unrelatedOpened = !result.isError && result.stringResult == 'true';
-        if (!unrelatedOpened) {
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-        }
-      }
-      expect(unrelatedOpened, isTrue);
-      expect(manager.liveTransportCount, 1);
-
-      manager.js.evaluate('globalThis.connectGates.office();');
+    manager.js.evaluate('globalThis.performUnrelatedOpen();');
+    var unrelatedOpened = false;
+    for (var i = 0; i < 100 && !unrelatedOpened; i++) {
       while (manager.js.executePendingJob() > 0) {}
-      var officeRejected = false;
-      for (var i = 0; i < 100 && !officeRejected; i++) {
-        while (manager.js.executePendingJob() > 0) {}
-        final result = manager.js.evaluate(
-          'String(globalThis.connectOutcomes.office || "")',
-        );
-        officeRejected = !result.isError && result.stringResult == 'rejected';
-        if (!officeRejected) {
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-        }
-      }
-      expect(officeRejected, isTrue);
-      expect(manager.liveTransportCount, 1);
-      expect(officeStates, isNot(contains(ConnectionState.connected)));
-      expect(
-        manager.js
-            .evaluate('String(globalThis.disconnectCounts.office || 0)')
-            .stringResult,
-        '1',
+      final result = manager.js.evaluate(
+        'String(globalThis.unrelatedOpened || false)',
       );
-
-      final roundTrip = manager.emitStream
-          .where((event) => event['event'] == 'unrelated-roundtrip')
-          .map((event) => event['payload'] as String)
-          .first;
-      manager.js.evaluate('globalThis.performUnrelatedRoundTrip();');
-      expect(await roundTrip.timeout(const Duration(seconds: 2)), 'still-live');
-      expect(manager.liveTransportCount, 1);
-
-      manager.js.evaluate('globalThis.performUnrelatedClose();');
-      for (var i = 0; i < 100 && manager.liveTransportCount != 0; i++) {
-        while (manager.js.executePendingJob() > 0) {}
+      unrelatedOpened = !result.isError && result.stringResult == 'true';
+      if (!unrelatedOpened) {
         await Future<void>.delayed(const Duration(milliseconds: 10));
       }
-      expect(manager.liveTransportCount, 0);
-    },
-  );
+    }
+    expect(unrelatedOpened, isTrue);
+    expect(manager.liveTransportCount, 1);
+
+    manager.js.evaluate('globalThis.connectGates.office();');
+    while (manager.js.executePendingJob() > 0) {}
+    var officeRejected = false;
+    for (var i = 0; i < 100 && !officeRejected; i++) {
+      while (manager.js.executePendingJob() > 0) {}
+      final result = manager.js.evaluate(
+        'String(globalThis.connectOutcomes.office || "")',
+      );
+      officeRejected = !result.isError && result.stringResult == 'rejected';
+      if (!officeRejected) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+    }
+    expect(officeRejected, isTrue);
+    expect(manager.liveTransportCount, 1);
+    expect(officeStates, isNot(contains(ConnectionState.connected)));
+    expect(
+      manager.js
+          .evaluate('String(globalThis.disconnectCounts.office || 0)')
+          .stringResult,
+      '1',
+    );
+
+    final roundTrip = manager.emitStream
+        .where((event) => event['event'] == 'unrelated-roundtrip')
+        .map((event) => event['payload'] as String)
+        .first;
+    manager.js.evaluate('globalThis.performUnrelatedRoundTrip();');
+    expect(await roundTrip.timeout(const Duration(seconds: 2)), 'still-live');
+    expect(manager.liveTransportCount, 1);
+
+    manager.js.evaluate('globalThis.performUnrelatedClose();');
+    for (var i = 0; i < 100 && manager.liveTransportCount != 0; i++) {
+      while (manager.js.executePendingJob() > 0) {}
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(manager.liveTransportCount, 0);
+  });
 
   test('device disconnect cleanup runs again after reconnect', () async {
     final server = await _startWsServer((ws) {
@@ -2081,10 +2075,8 @@ void main() {
         .first;
     final firstCommand = firstSensor.execute('wait', null);
     final secondCommand = secondSensor.execute('wait', null);
-    await Future.wait([
-      firstStarted,
-      secondStarted,
-    ]).timeout(const Duration(seconds: 10));
+    await Future.wait([firstStarted, secondStarted])
+        .timeout(const Duration(seconds: 10));
     final firstFailure = expectLater(
       firstCommand,
       throwsA(

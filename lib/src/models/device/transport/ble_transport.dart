@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 

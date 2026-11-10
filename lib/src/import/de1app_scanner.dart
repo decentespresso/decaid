@@ -1,4 +1,5 @@
 import 'dart:io';
+
 import 'package:reaprime/src/import/import_result.dart';
 
 class De1appScanner {
@@ -20,9 +21,8 @@ class De1appScanner {
     final profiles = await _basenames(Directory('$path/profiles'), '.tcl');
     final profileCount = profilesV2.union(profiles).length;
 
-    final hasDyeGrinders = await File(
-      '$path/plugins/DYE/grinders.tdb',
-    ).exists();
+    final hasDyeGrinders = await File('$path/plugins/DYE/grinders.tdb')
+        .exists();
 
     final hasSettings = await File('$path/settings.tdb').exists();
 

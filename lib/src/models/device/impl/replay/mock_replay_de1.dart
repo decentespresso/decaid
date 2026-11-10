@@ -25,9 +25,8 @@ import 'package:reaprime/src/services/simulated_shot_library.dart';
 import 'package:rxdart/subjects.dart';
 
 class MockReplayDe1 implements BengleInterface, SimulatedDevice {
-  MockReplayDe1({required SimulatedShotLibrary library, Random? random})
-    : _library = library,
-      _random = random ?? Random();
+  MockReplayDe1({required this._library, Random? random})
+    : _random = random ?? Random();
 
   final SimulatedShotLibrary _library;
   final Random _random;

@@ -9,8 +9,7 @@ import 'package:reaprime/src/services/webserver/data_export/data_export_section.
 class SettingsExportSection implements DataExportSection {
   final SettingsController _controller;
 
-  SettingsExportSection({required SettingsController controller})
-    : _controller = controller;
+  SettingsExportSection({required this._controller});
 
   @override
   String get filename => 'settings.json';
