@@ -101,6 +101,8 @@ Discovery services are responsible for scanning and creating device instances. E
   - `lib/src/services/serial/serial_service_android.dart` (Android)
   - `lib/src/services/serial/serial_service.dart` (factory)
 - **Discovery:** Enumerates serial ports, probes for device identification
+- **Android serial name gate:** Android admits the exact case-sensitive product name `Debug Probe (CMSIS-DAP)` alongside the existing serial names for probing only; admission does not classify the probe as a machine.
+- **Debug Probe policy:** Android opens an admitted `Debug Probe (CMSIS-DAP)` at its 460800 console baud and retains passive `R ` telemetry as a `DebugPort`. An unclassified probe is rejected and disposed without DE1 probe writes. Other Android serial candidates retain the 115200 default. Android discovery is covered by [#1105](https://github.com/decentespresso/decaid/issues/1105); desktop/Linux remains fixed at 115200 and is tracked separately in [#1102](https://github.com/decentespresso/decaid/issues/1102). Real Debug Probe plus Android hardware verification is still required before claiming functional discovery in production. Probe USB descriptors and the automatic CDC pair selection are recorded in `doc/device-notes/debug-probe.md`.
 - **Desktop serial identity:** One canonical id is resolved once per enumerated port: `usb-{vid}-{pid}-{serial}` (plus `-ifNN` for interfaces above 0) when USB descriptors are available, otherwise `serial-<basename>`. Candidates are deduplicated before probing, so a macOS adapter exposed as both `/dev/cu.X` and `/dev/tty.X` appears once and `/dev/cu.X` is the endpoint probed. The resolved id is injected into the transport and is the value used for scan dedup, `Device.deviceId`, remembered devices and API inventory. `serial-<basename>` stays accepted as a legacy quick-connect alias; after a successful alias connect the remembered record and `preferredMachineId` migrate to the canonical id. Android keeps its existing `UsbDevice.deviceId`-suffixed identities.
 - **HDS USB readiness:** `HDSSerial` enables the 10 Hz OpenScale binary stream and remains `connecting` until a checksum-valid weight frame arrives. Its buffered decoder accepts fragmented/coalesced frames mixed with firmware text; only valid weight frames refresh the watchdog.
 
@@ -247,9 +249,12 @@ preferred resolution recognize that canonical ID without adding its remembered
 record beside the live session. Explicit UI and API preference writes also ignore
 session-only IDs; UI selection remains local and can still connect the device.
 Canonical rebind is deferred until a safe disconnected
-redetection rather than forcing a healthy session to reconnect. Scales, sensors,
-debug ports, keyboards, and other USB devices are rejected and their transports
-disposed. The typed result
+redetection rather than forcing a healthy session to reconnect. This deliberate
+machine-only attach path does not expose a `DebugPort` sensor for a non-machine
+attachment, even if detection would succeed; normal scanning can retain a
+detected `DebugPort` once baud and interface behaviour permit classification.
+Scales, sensors, debug ports, keyboards, and other USB devices are rejected from
+attach probing and their transports disposed. The typed result
 distinguishes a connected machine from "no supported machine attached" from
 "machine detected but connection or identity initialization failed". When
 the originating service only implements the notifier (no probe capability),
