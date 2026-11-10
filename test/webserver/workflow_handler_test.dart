@@ -833,6 +833,63 @@ void main() {
       expect(workflowController.currentWorkflow.context?.grinderRpm, 1200);
     });
 
+    test(
+      'rejects invalid grinder RPM values without changing the document',
+      () async {
+        await _settleHandler(spy);
+        final seeded = await put({
+          'context': {'grinderSetting': '12.5', 'grinderRpm': 1200},
+        });
+        expect(seeded.statusCode, 200);
+
+        for (final invalid in <Object>[-1, 12.5, 'fast', true]) {
+          final future = put({
+            'context': {'grinderRpm': invalid},
+          });
+          await _settleHandler(spy);
+          final response = await future;
+
+          expect(response.statusCode, 400, reason: 'grinderRpm=$invalid');
+          expect(
+            workflowController.currentWorkflow.context?.grinderRpm,
+            1200,
+            reason: 'a refused update must not change the document',
+          );
+        }
+      },
+    );
+
+    test('an explicit null clears grinder RPM only', () async {
+      await _settleHandler(spy);
+      final seeded = await put({
+        'context': {
+          'grinderId': 'grinder-1',
+          'grinderSetting': '12.5',
+          'grinderRpm': 1200,
+          'extras': {
+            'plugin.grinder': {'feedingRate': 4.5},
+          },
+        },
+      });
+      expect(seeded.statusCode, 200);
+
+      final future = put({
+        'context': {'grinderRpm': null},
+      });
+      await _settleHandler(spy);
+      final response = await future;
+
+      expect(response.statusCode, 200);
+      final body = await decode(response);
+      expect(body['context'].containsKey('grinderRpm'), isFalse);
+      expect(body['context']['grinderId'], 'grinder-1');
+      expect(body['context']['grinderSetting'], '12.5');
+      expect(body['context']['extras'], {
+        'plugin.grinder': {'feedingRate': 4.5},
+      });
+      expect(workflowController.currentWorkflow.context?.grinderRpm, isNull);
+    });
+
     test('an explicit null is refused with 400', () async {
       await _settleHandler(spy);
       final before = workflowController.currentWorkflow.context?.targetYield;

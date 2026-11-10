@@ -219,7 +219,12 @@ class ShotsHandler {
         maxBytes: largeRequestBodyBytes,
         timeout: largeRequestBodyTimeout,
       );
-      final json = jsonDecode(body) as Map<String, dynamic>;
+      final Map<String, dynamic> json;
+      try {
+        json = jsonDecode(body) as Map<String, dynamic>;
+      } on FormatException catch (e) {
+        return jsonBadRequest({"error": e.message});
+      }
 
       if (json['id'] != null && json['id'] != id) {
         return jsonBadRequest({
@@ -251,31 +256,35 @@ class ShotsHandler {
         return jsonNotFound({"error": "Shot not found"});
       }
 
-      final normalizedPatch = _normalizeLegacyAnnotationPatch(json);
-      final merged = _deepMerge(existingShot.toJson(), normalizedPatch);
-      _representClearedNoteAsEmpty(normalizedPatch, merged);
-      _synchronizeLegacyAnnotationAliases(merged);
-      merged['id'] = id;
+      final ShotRecord updatedShot;
+      try {
+        final normalizedPatch = _normalizeLegacyAnnotationPatch(json);
+        final merged = _deepMerge(existingShot.toJson(), normalizedPatch);
+        _representClearedNoteAsEmpty(normalizedPatch, merged);
+        _synchronizeLegacyAnnotationAliases(merged);
+        merged['id'] = id;
 
-      final contentChanged = !ShotRecord.fromRecordedJson(
-        merged,
-      ).sameContent(existingShot);
-      merged['updatedAt'] =
-          (contentChanged
-                  ? DateTime.now().toUtc()
-                  : existingShot.updatedAt ??
-                        existingShot.createdAt ??
-                        existingShot.timestamp)
-              .toIso8601String();
+        final contentChanged = !ShotRecord.fromRecordedJson(
+          merged,
+        ).sameContent(existingShot);
+        merged['updatedAt'] =
+            (contentChanged
+                    ? DateTime.now().toUtc()
+                    : existingShot.updatedAt ??
+                          existingShot.createdAt ??
+                          existingShot.timestamp)
+                .toIso8601String();
 
-      final updatedShot = ShotRecord.fromRecordedJson(merged);
+        updatedShot = ShotRecord.fromRecordedJson(merged);
+      } on FormatException catch (e) {
+        return jsonBadRequest({"error": e.message});
+      }
+
       await _controller.updateShot(updatedShot, patch: json);
 
       return jsonOk(updatedShot.toJson());
     } on RequestBodyReadException {
       rethrow;
-    } on FormatException catch (e) {
-      return jsonBadRequest({"error": e.message});
     } catch (e, st) {
       _log.severe("Error updating shot $id", e, st);
       return jsonError({"error": e.toString()});
