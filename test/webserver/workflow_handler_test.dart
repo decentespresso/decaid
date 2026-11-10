@@ -400,6 +400,9 @@ void main() {
     );
   }
 
+  Future<Map<String, dynamic>> decode(Response response) async =>
+      jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+
   group('PUT /api/v1/workflow — DE1 governor errors', () {
     test('returns 503 when the DE1 write queue is full', () async {
       await _settleHandler(spy);
@@ -795,6 +798,39 @@ void main() {
             'an explicit 0 is the deliberate stop-at-weight disable and '
             'must survive the merge as a value, not be dropped as absent',
       );
+    });
+
+    test('preserves RPM and nested grinder preparation parameters', () async {
+      await _settleHandler(spy);
+
+      final response = await put({
+        'context': {
+          'grinderId': 'grinder-1',
+          'grinderModel': 'EG1',
+          'grinderSetting': '12.5',
+          'grinderRpm': 1200,
+          'extras': {
+            'plugin.grinder': {
+              'feedingRate': 4.5,
+              'rpmProfile': [900, 1200],
+            },
+          },
+        },
+      });
+
+      expect(response.statusCode, 200);
+      final body = await decode(response);
+      expect(body['context']['grinderId'], 'grinder-1');
+      expect(body['context']['grinderModel'], 'EG1');
+      expect(body['context']['grinderSetting'], '12.5');
+      expect(body['context']['grinderRpm'], 1200);
+      expect(body['context']['extras'], {
+        'plugin.grinder': {
+          'feedingRate': 4.5,
+          'rpmProfile': [900, 1200],
+        },
+      });
+      expect(workflowController.currentWorkflow.context?.grinderRpm, 1200);
     });
 
     test('an explicit null is refused with 400', () async {

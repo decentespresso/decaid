@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
 import 'package:reaprime/src/models/data/profile.dart';
@@ -218,18 +220,34 @@ void main() {
 
   group('WorkflowContext equality', () {
     test('equal by value', () {
-      const a = WorkflowContext(
+      final a = WorkflowContext(
         targetDoseWeight: 18.0,
         targetYield: 36.0,
         targetWaterVolume: 55.0,
         grinderId: 'g1',
+        grinderRpm: 1200,
+        extras:
+            jsonDecode(
+                  jsonEncode({
+                    'plugin.grinder': {'feedingRate': 4.5},
+                  }),
+                )
+                as Map<String, dynamic>,
         coffeeName: 'Illy',
       );
-      const b = WorkflowContext(
+      final b = WorkflowContext(
         targetDoseWeight: 18.0,
         targetYield: 36.0,
         targetWaterVolume: 55.0,
         grinderId: 'g1',
+        grinderRpm: 1200,
+        extras:
+            jsonDecode(
+                  jsonEncode({
+                    'plugin.grinder': {'feedingRate': 4.5},
+                  }),
+                )
+                as Map<String, dynamic>,
         coffeeName: 'Illy',
       );
       expect(a, equals(b));
@@ -241,6 +259,65 @@ void main() {
       expect(base, isNot(equals(base.copyWith(targetDoseWeight: 18.5))));
       expect(base, isNot(equals(base.copyWith(targetWaterVolume: 55.0))));
       expect(base, isNot(equals(base.copyWith(grinderId: 'g2'))));
+      expect(base, isNot(equals(base.copyWith(grinderRpm: 1200))));
+    });
+
+    test('compares nested extras lists and maps by value', () {
+      final firstExtras =
+          jsonDecode(
+                jsonEncode({
+                  'plugin.grinder': {
+                    'feedingRate': 4.5,
+                    'rpmProfile': [900, 1200],
+                  },
+                }),
+              )
+              as Map<String, dynamic>;
+      final equalExtras =
+          jsonDecode(
+                jsonEncode({
+                  'plugin.grinder': {
+                    'feedingRate': 4.5,
+                    'rpmProfile': [900, 1200],
+                  },
+                }),
+              )
+              as Map<String, dynamic>;
+      final changedExtras =
+          jsonDecode(
+                jsonEncode({
+                  'plugin.grinder': {
+                    'feedingRate': 4.5,
+                    'rpmProfile': [900, 1300],
+                  },
+                }),
+              )
+              as Map<String, dynamic>;
+      final first = WorkflowContext(extras: firstExtras);
+      final equal = WorkflowContext(extras: equalExtras);
+      final changed = WorkflowContext(extras: changedExtras);
+
+      expect(identical(first, equal), isFalse);
+      expect(identical(first.extras, equal.extras), isFalse);
+      expect(
+        identical(
+          first.extras!['plugin.grinder'],
+          equal.extras!['plugin.grinder'],
+        ),
+        isFalse,
+      );
+      expect(
+        identical(
+          (first.extras!['plugin.grinder']
+              as Map<String, dynamic>)['rpmProfile'],
+          (equal.extras!['plugin.grinder']
+              as Map<String, dynamic>)['rpmProfile'],
+        ),
+        isFalse,
+      );
+      expect(first, equals(equal));
+      expect(first.hashCode, equals(equal.hashCode));
+      expect(first, isNot(equals(changed)));
     });
 
     test('round-trip via toJson/fromJson', () {
@@ -250,12 +327,40 @@ void main() {
         targetWaterVolume: 55.0,
         grinderId: '123',
         grinderSetting: '5',
+        grinderRpm: 1200,
+        extras: {
+          'plugin.grinder': {
+            'feedingRate': 4.5,
+            'slowFeed': true,
+            'rpmProfile': [900, 1200],
+          },
+        },
         beanBatchId: '456',
         coffeeName: 'Illy',
         coffeeRoaster: 'Mixed',
       );
-      final rt = WorkflowContext.fromJson(original.toJson());
+      final decoded =
+          jsonDecode(jsonEncode(original.toJson())) as Map<String, dynamic>;
+      final rt = WorkflowContext.fromJson(decoded);
+      expect(identical(original, rt), isFalse);
+      expect(identical(original.extras, rt.extras), isFalse);
+      expect(
+        identical(
+          original.extras!['plugin.grinder'],
+          rt.extras!['plugin.grinder'],
+        ),
+        isFalse,
+      );
+      expect(
+        identical(
+          (original.extras!['plugin.grinder']
+              as Map<String, dynamic>)['rpmProfile'],
+          (rt.extras!['plugin.grinder'] as Map<String, dynamic>)['rpmProfile'],
+        ),
+        isFalse,
+      );
       expect(rt, equals(original));
+      expect(rt.hashCode, equals(original.hashCode));
     });
   });
 }

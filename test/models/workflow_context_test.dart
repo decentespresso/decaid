@@ -13,6 +13,7 @@ void main() {
         grinderModel: 'Niche Zero',
         grinderBurrs: 'SSP HU',
         grinderSetting: '15',
+        grinderRpm: 1200,
         beanBatchId: 'batch-456',
         coffeeName: 'Gesha Village',
         coffeeRoaster: 'Sey',
@@ -34,6 +35,7 @@ void main() {
       expect(restored.grinderModel, 'Niche Zero');
       expect(restored.grinderBurrs, 'SSP HU');
       expect(restored.grinderSetting, '15');
+      expect(restored.grinderRpm, 1200);
       expect(restored.beanBatchId, 'batch-456');
       expect(restored.coffeeName, 'Gesha Village');
       expect(restored.coffeeRoaster, 'Sey');
@@ -50,6 +52,7 @@ void main() {
 
       final json = ctx.toJson();
       expect(json.containsKey('grinderId'), false);
+      expect(json.containsKey('grinderRpm'), false);
       expect(json.containsKey('extras'), false);
       expect(json.containsKey('targetWaterVolume'), false);
 
@@ -58,6 +61,26 @@ void main() {
       expect(restored.targetYield, 36.0);
       expect(restored.grinderId, isNull);
       expect(restored.coffeeName, isNull);
+    });
+
+    test('preserves zero and absent grinder RPM without defaults', () {
+      final zero = WorkflowContext.fromJson({'grinderRpm': 0});
+      final absent = WorkflowContext.fromJson({});
+
+      expect(zero.grinderRpm, 0);
+      expect(zero.toJson()['grinderRpm'], 0);
+      expect(absent.grinderRpm, isNull);
+      expect(absent.toJson().containsKey('grinderRpm'), isFalse);
+    });
+
+    test('rejects malformed grinder RPM instead of truncating it', () {
+      for (final value in [1200.5, -1, '1200', true]) {
+        expect(
+          () => WorkflowContext.fromJson({'grinderRpm': value}),
+          throwsFormatException,
+          reason: '$value must not become an RPM',
+        );
+      }
     });
 
     test('ratio computed correctly', () {
@@ -78,6 +101,7 @@ void main() {
         targetDoseWeight: 18.0,
         targetYield: 36.0,
         targetWaterVolume: 55.0,
+        grinderRpm: 1200,
         coffeeName: 'Ethiopian',
       );
 
@@ -86,6 +110,7 @@ void main() {
       expect(updated.targetDoseWeight, 18.0);
       expect(updated.targetYield, 40.0);
       expect(updated.targetWaterVolume, 55.0);
+      expect(updated.grinderRpm, 1200);
       expect(updated.coffeeName, 'Ethiopian');
     });
 

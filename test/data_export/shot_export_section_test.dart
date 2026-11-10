@@ -7,6 +7,7 @@ import 'package:reaprime/src/models/data/shot_record.dart';
 import 'package:reaprime/src/models/data/shot_snapshot.dart';
 import 'package:reaprime/src/models/data/steam_record.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
+import 'package:reaprime/src/models/data/workflow_context.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/services/storage/storage_service.dart';
@@ -163,6 +164,28 @@ ShotRecord makeShot(int i) => ShotRecord.fromJson({
   'workflow': makeWorkflowJson(),
 });
 
+ShotRecord makeGrinderShot(int i) {
+  final shot = makeShot(i);
+  return shot.copyWith(
+    workflow: shot.workflow.copyWith(
+      id: shot.workflow.id,
+      context: const WorkflowContext(
+        grinderId: 'grinder-1',
+        grinderModel: 'EG1',
+        grinderBurrs: 'Core',
+        grinderSetting: '12.5',
+        grinderRpm: 1200,
+        extras: {
+          'plugin.grinder': {
+            'feedingRate': 4.5,
+            'rpmProfile': [900, 1200],
+          },
+        },
+      ),
+    ),
+  );
+}
+
 ShotSnapshot _snapshot() => ShotSnapshot(
   machine: MachineSnapshot(
     timestamp: DateTime.utc(2026, 5, 18, 12),
@@ -186,6 +209,51 @@ ShotSnapshot _snapshot() => ShotSnapshot(
 
 void main() {
   group('ShotExportSection', () {
+    test(
+      'JSON export and import preserve complete grinder workflow values',
+      () async {
+        final source = _TestShotStorage();
+        final original = makeGrinderShot(1);
+        await source.service.storeShot(original);
+        final exporting = ShotExportSection(
+          controller: PersistenceController(storageService: source.service),
+          pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) async =>
+              afterTimestamp == null ? [original] : [],
+        );
+        final sink = CapturingJsonSink();
+        await exporting.exportJson(sink);
+
+        final destination = _TestShotStorage();
+        final importing = ShotExportSection(
+          controller: PersistenceController(
+            storageService: destination.service,
+          ),
+          pageShots: (limit, {afterTimestamp, afterCreatedAt, afterId}) async =>
+              [],
+        );
+        final result = await importSectionJson(
+          importing,
+          sink.json,
+          ConflictStrategy.overwrite,
+        );
+
+        expect(result.imported, 1);
+        final restored = ShotRecord.fromJson(destination.shots['shot-1']!);
+        final context = restored.workflow.context!;
+        expect(context.grinderId, 'grinder-1');
+        expect(context.grinderModel, 'EG1');
+        expect(context.grinderBurrs, 'Core');
+        expect(context.grinderSetting, '12.5');
+        expect(context.grinderRpm, 1200);
+        expect(context.extras, {
+          'plugin.grinder': {
+            'feedingRate': 4.5,
+            'rpmProfile': [900, 1200],
+          },
+        });
+      },
+    );
+
     test('bulk import keeps per-shot plugin events and one refresh', () async {
       final storage = ShotEventStorage();
       storage.shots['existing'] = eventShot(id: 'existing');

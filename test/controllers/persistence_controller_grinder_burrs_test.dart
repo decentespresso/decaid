@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
@@ -86,11 +88,13 @@ class _FakeGrinderStorage implements GrinderStorageService {
 
   final List<Grinder> grinders;
   final List<String> lookups = [];
+  Future<void>? lookupGate;
   bool fail = false;
 
   @override
   Future<Grinder?> getGrinderById(String id) async {
     lookups.add(id);
+    await lookupGate;
     if (fail) throw StateError('grinder lookup failed');
     return grinders.where((g) => g.id == id).firstOrNull;
   }
@@ -117,10 +121,10 @@ Grinder _grinder({required String id, String? burrs}) => Grinder(
   updatedAt: DateTime.utc(2026, 1, 1),
 );
 
-ShotRecord _shot(WorkflowContext? context) {
+ShotRecord _shot(WorkflowContext? context, {String id = 'shot-1'}) {
   final base = WorkflowController().currentWorkflow;
   return ShotRecord(
-    id: 'shot-1',
+    id: id,
     timestamp: DateTime.utc(2026, 5, 18, 12),
     measurements: const [],
     workflow: base.copyWith(id: base.id, context: context),
@@ -133,6 +137,136 @@ void main() {
   setUp(() => storage = _FakeStorage());
 
   WorkflowContext? storedContext() => storage.stored.single.workflow.context;
+
+  test(
+    'persistShot detaches workflow extras before grinder lookup awaits',
+    () async {
+      final lookup = Completer<void>();
+      final grinders = _FakeGrinderStorage([
+        _grinder(id: 'grinder-1', burrs: 'Core'),
+      ])..lookupGate = lookup.future;
+      final extras = <String, dynamic>{
+        'plugin.grinder': {
+          'feedingRate': 4.5,
+          'rpmProfile': [900, 1200],
+        },
+      };
+      final shot = _shot(
+        WorkflowContext(
+          grinderId: 'grinder-1',
+          grinderModel: 'EG1',
+          grinderRpm: 1200,
+          extras: extras,
+        ),
+      );
+      final controller = PersistenceController(
+        storageService: storage,
+        grinderStorageService: grinders,
+      );
+      addTearDown(controller.dispose);
+
+      final persist = controller.persistShot(shot);
+      (extras['plugin.grinder'] as Map<String, dynamic>)['feedingRate'] = 9.0;
+      (extras['plugin.grinder'] as Map<String, dynamic>)['rpmProfile'][0] = 300;
+      shot.workflow.steamSettings.duration = 99;
+      shot.workflow.hotWaterData.volume = 999;
+      shot.workflow.rinseData.flow = 0.1;
+      lookup.complete();
+      await persist;
+
+      final stored = storage.stored.single;
+      expect(stored.workflow.steamSettings.duration, 50);
+      expect(stored.workflow.hotWaterData.volume, 50);
+      expect(stored.workflow.rinseData.flow, 6.0);
+      expect(storedContext()?.grinderRpm, 1200);
+      expect(storedContext()?.extras, {
+        'plugin.grinder': {
+          'feedingRate': 4.5,
+          'rpmProfile': [900, 1200],
+        },
+      });
+    },
+  );
+
+  test(
+    'persistShot keeps saved and repeated workflow snapshots independent',
+    () async {
+      final grinders = _FakeGrinderStorage([
+        _grinder(id: 'grinder-1', burrs: 'Core'),
+      ]);
+      final controller = PersistenceController(
+        storageService: storage,
+        grinderStorageService: grinders,
+      );
+      addTearDown(controller.dispose);
+
+      final extras = <String, dynamic>{
+        'plugin.grinder': {
+          'feedingRate': 4.5,
+          'rpmProfile': [900, 1200],
+        },
+      };
+      await controller.persistShot(
+        _shot(
+          WorkflowContext(
+            grinderId: 'grinder-1',
+            grinderModel: 'EG1',
+            grinderSetting: '5',
+            grinderRpm: 1200,
+            extras: extras,
+          ),
+        ),
+      );
+
+      grinders.grinders[0] = grinders.grinders[0].copyWith(burrs: 'SSP HU');
+      (extras['plugin.grinder'] as Map<String, dynamic>)['feedingRate'] = 6.0;
+      (extras['plugin.grinder'] as Map<String, dynamic>)['rpmProfile'][0] =
+          1100;
+      (extras['plugin.grinder'] as Map<String, dynamic>)['rpmProfile'][1] =
+          1400;
+
+      await controller.persistShot(
+        _shot(
+          WorkflowContext(
+            grinderId: 'grinder-1',
+            grinderModel: 'EG1',
+            grinderBurrs: 'Core',
+            grinderSetting: '7',
+            grinderRpm: 1400,
+            extras: extras,
+          ),
+          id: 'shot-2',
+        ),
+      );
+
+      expect(storage.stored, hasLength(2));
+      final first = storage.stored[0].workflow.context;
+      expect(first?.grinderId, 'grinder-1');
+      expect(first?.grinderModel, 'EG1');
+      expect(first?.grinderBurrs, 'Core');
+      expect(first?.grinderSetting, '5');
+      expect(first?.grinderRpm, 1200);
+      expect(first?.extras, {
+        'plugin.grinder': {
+          'feedingRate': 4.5,
+          'rpmProfile': [900, 1200],
+        },
+      });
+
+      final repeated = storage.stored[1].workflow.context;
+      expect(repeated?.grinderId, 'grinder-1');
+      expect(repeated?.grinderModel, 'EG1');
+      expect(repeated?.grinderBurrs, 'SSP HU');
+      expect(repeated?.grinderSetting, '7');
+      expect(repeated?.grinderRpm, 1400);
+      expect(repeated?.extras, {
+        'plugin.grinder': {
+          'feedingRate': 6.0,
+          'rpmProfile': [1100, 1400],
+        },
+      });
+    },
+  );
 
   test('persistShot snapshots the linked grinder burrs', () async {
     final grinders = _FakeGrinderStorage([
@@ -336,8 +470,30 @@ void main() {
     );
 
     expect(storedContext()?.grinderBurrs, isNull);
+    expect(storedContext()?.grinderRpm, isNull);
     expect(grinders.lookups, isEmpty);
   });
+
+  test(
+    'persistShot preserves a manual grinder without telemetry defaults',
+    () async {
+      final controller = PersistenceController(storageService: storage);
+      addTearDown(controller.dispose);
+
+      await controller.persistShot(
+        _shot(
+          const WorkflowContext(
+            grinderModel: 'Manual hand grinder',
+            grinderSetting: '12',
+          ),
+        ),
+      );
+
+      expect(storedContext()?.grinderId, isNull);
+      expect(storedContext()?.grinderRpm, isNull);
+      expect(storedContext()?.extras, isNull);
+    },
+  );
 
   test('persistShot works without a grinder storage service', () async {
     final controller = PersistenceController(storageService: storage);

@@ -1,3 +1,4 @@
+import 'package:collection/collection.dart';
 import 'package:reaprime/src/models/data/utils.dart';
 
 class WorkflowContext {
@@ -9,6 +10,7 @@ class WorkflowContext {
   final String? grinderModel;
   final String? grinderBurrs;
   final String? grinderSetting;
+  final int? grinderRpm;
 
   final String? beanBatchId;
   final String? coffeeName;
@@ -29,6 +31,7 @@ class WorkflowContext {
     this.grinderModel,
     this.grinderBurrs,
     this.grinderSetting,
+    this.grinderRpm,
     this.beanBatchId,
     this.coffeeName,
     this.coffeeRoaster,
@@ -52,6 +55,7 @@ class WorkflowContext {
       grinderModel: parseOptionalString(json['grinderModel']),
       grinderBurrs: parseOptionalString(json['grinderBurrs']),
       grinderSetting: parseOptionalString(json['grinderSetting']),
+      grinderRpm: _parseOptionalGrinderRpm(json['grinderRpm']),
       beanBatchId: parseOptionalString(json['beanBatchId']),
       coffeeName: parseOptionalString(json['coffeeName']),
       coffeeRoaster: parseOptionalString(json['coffeeRoaster']),
@@ -71,6 +75,7 @@ class WorkflowContext {
       if (grinderModel != null) 'grinderModel': grinderModel,
       if (grinderBurrs != null) 'grinderBurrs': grinderBurrs,
       if (grinderSetting != null) 'grinderSetting': grinderSetting,
+      if (grinderRpm != null) 'grinderRpm': grinderRpm,
       if (beanBatchId != null) 'beanBatchId': beanBatchId,
       if (coffeeName != null) 'coffeeName': coffeeName,
       if (coffeeRoaster != null) 'coffeeRoaster': coffeeRoaster,
@@ -89,6 +94,7 @@ class WorkflowContext {
     grinderModel: null,
     grinderBurrs: null,
     grinderSetting: grinderSetting,
+    grinderRpm: grinderRpm,
     beanBatchId: beanBatchId,
     coffeeName: coffeeName,
     coffeeRoaster: coffeeRoaster,
@@ -106,6 +112,7 @@ class WorkflowContext {
     grinderModel: grinderModel,
     grinderBurrs: grinderBurrs,
     grinderSetting: grinderSetting,
+    grinderRpm: grinderRpm,
     beanBatchId: null,
     coffeeName: null,
     coffeeRoaster: null,
@@ -126,6 +133,7 @@ class WorkflowContext {
     String? grinderBurrs,
     bool clearGrinderBurrs = false,
     String? grinderSetting,
+    int? grinderRpm,
     String? beanBatchId,
     bool clearBeanBatchId = false,
     String? coffeeName,
@@ -147,6 +155,7 @@ class WorkflowContext {
           ? null
           : grinderBurrs ?? this.grinderBurrs,
       grinderSetting: grinderSetting ?? this.grinderSetting,
+      grinderRpm: grinderRpm ?? this.grinderRpm,
       beanBatchId: clearBeanBatchId ? null : beanBatchId ?? this.beanBatchId,
       coffeeName: coffeeName ?? this.coffeeName,
       coffeeRoaster: coffeeRoaster ?? this.coffeeRoaster,
@@ -174,6 +183,7 @@ class WorkflowContext {
         other.grinderModel == grinderModel &&
         other.grinderBurrs == grinderBurrs &&
         other.grinderSetting == grinderSetting &&
+        other.grinderRpm == grinderRpm &&
         other.beanBatchId == beanBatchId &&
         other.coffeeName == coffeeName &&
         other.coffeeRoaster == coffeeRoaster &&
@@ -192,26 +202,24 @@ class WorkflowContext {
     grinderModel,
     grinderBurrs,
     grinderSetting,
+    grinderRpm,
     beanBatchId,
     coffeeName,
     coffeeRoaster,
     finalBeverageType,
     baristaName,
     drinkerName,
-    extras == null
-        ? null
-        : Object.hashAll(
-            extras!.entries.map((e) => Object.hash(e.key, e.value)),
-          ),
+    extras == null ? null : const DeepCollectionEquality().hash(extras),
   );
 }
 
-bool _mapEquals(Map<String, dynamic>? a, Map<String, dynamic>? b) {
-  if (identical(a, b)) return true;
-  if (a == null || b == null) return false;
-  if (a.length != b.length) return false;
-  for (final key in a.keys) {
-    if (!b.containsKey(key) || a[key] != b[key]) return false;
-  }
-  return true;
+int? _parseOptionalGrinderRpm(dynamic value) {
+  if (value == null) return null;
+  if (value is int && value >= 0) return value;
+  throw const FormatException(
+    'grinderRpm must be a non-negative integer or null',
+  );
 }
+
+bool _mapEquals(Map<String, dynamic>? a, Map<String, dynamic>? b) =>
+    const DeepCollectionEquality().equals(a, b);

@@ -8610,6 +8610,13 @@ components:
           nullable: true
           description: Current grinder setting value
           example: "5.2"
+        grinderRpm:
+          type: integer
+          format: int32
+          minimum: 0
+          nullable: true
+          description: Recorded grinder speed in revolutions per minute; absent when not configured.
+          example: 1200
         beanBatchId:
           type: string
           nullable: true
@@ -8709,6 +8716,13 @@ components:
           nullable: true
           description: Current grinder setting value
           example: "5.2"
+        grinderRpm:
+          type: integer
+          format: int32
+          minimum: 0
+          nullable: true
+          description: Recorded grinder speed in revolutions per minute; absent when not configured.
+          example: 1200
         beanBatchId:
           type: string
           nullable: true
