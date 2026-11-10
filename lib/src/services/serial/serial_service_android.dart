@@ -55,6 +55,7 @@ class SerialServiceAndroid
   final Map<int, String> _canonicalSerialByPhysicalId = {};
   Future<void> _admission = Future.value();
   int _usbRevision = 0;
+  final Map<int, int> _usbGenerationByPhysicalId = {};
   final Map<Device, StreamSubscription<ConnectionState>> _deviceSubscriptions =
       {};
 
@@ -112,25 +113,26 @@ class SerialServiceAndroid
       return;
     }
     if (data.event != UsbEvent.ACTION_USB_DETACHED) return;
-    _usbRevision++;
     final physical = data.device;
     final physicalId = physical?.deviceId;
-    final stableId = physical == null ? null : _stableIdOf(physical);
     if (physicalId != null) {
+      _usbGenerationByPhysicalId[physicalId] =
+          (_usbGenerationByPhysicalId[physicalId] ?? 0) + 1;
       _detachedPhysicalIds.add(physicalId);
       _canonicalSerialByPhysicalId.remove(physicalId);
-    } else if (physical == null) {
-      _canonicalSerialByPhysicalId.clear();
+    } else {
+      _usbRevision++;
     }
     await _serializeAdmission(() async {
-      final detached = _devices.where((device) {
-        if (physical == null) return true;
-        if (physicalId != null) {
+      List<Device> detached;
+      if (physicalId != null) {
+        detached = _devices.where((device) {
           return _logicalToPhysicalDeviceId[device.deviceId] == physicalId ||
               device.deviceId == '$physicalId';
-        }
-        return withoutUsbInterfaceSuffix(device.deviceId) == stableId;
-      }).toList();
+        }).toList();
+      } else {
+        detached = await _findMissingDevicesAfterEnumeration();
+      }
       for (final device in detached) {
         _devices.remove(device);
         await device.disconnect();
@@ -149,7 +151,64 @@ class SerialServiceAndroid
     return result;
   }
 
-  bool _isCurrent(int revision) => !_disposed && _usbRevision == revision;
+  int _physicalGeneration(int? physicalId) =>
+      physicalId == null ? 0 : (_usbGenerationByPhysicalId[physicalId] ?? 0);
+
+  bool _isCurrent(
+    int revision, {
+    int? physicalId,
+    int? expectedPhysicalGeneration,
+  }) =>
+      !_disposed &&
+      _usbRevision == revision &&
+      (physicalId == null ||
+          _physicalGeneration(physicalId) == expectedPhysicalGeneration);
+
+  Future<List<Device>> _findMissingDevicesAfterEnumeration() async {
+    List<UsbDevice> devices;
+    try {
+      devices = await _listDevices();
+    } catch (e, st) {
+      _log.warning(
+        'USB enumeration unavailable during detach reconciliation',
+        e,
+        st,
+      );
+      return const [];
+    }
+    for (final device in devices) {
+      _canonicalSerialOf(device);
+    }
+    final livePhysicalIds = devices
+        .map((device) => device.deviceId)
+        .whereType<int>()
+        .toSet();
+    final liveStableIds = devices.map(_stableIdOf).toSet();
+    final knownPhysicalIds = <int>{
+      ..._logicalToPhysicalDeviceId.values,
+      ..._canonicalSerialByPhysicalId.keys,
+    };
+    for (final physicalId in knownPhysicalIds) {
+      if (!livePhysicalIds.contains(physicalId)) {
+        _detachedPhysicalIds.add(physicalId);
+        _usbGenerationByPhysicalId[physicalId] =
+            (_usbGenerationByPhysicalId[physicalId] ?? 0) + 1;
+      }
+    }
+    _canonicalSerialByPhysicalId.removeWhere(
+      (physicalId, _) => !livePhysicalIds.contains(physicalId),
+    );
+    return _devices.where((device) {
+      final physicalId = _logicalToPhysicalDeviceId[device.deviceId];
+      if (physicalId != null) return !livePhysicalIds.contains(physicalId);
+      final logicalId = withoutUsbInterfaceSuffix(device.deviceId);
+      return !liveStableIds.any(
+        (stableId) =>
+            stableId == device.deviceId ||
+            withoutUsbInterfaceSuffix(stableId) == logicalId,
+      );
+    }).toList();
+  }
 
   void _announceAttach(UsbDevice? device) {
     final physicalId = device?.deviceId;
@@ -182,16 +241,35 @@ class SerialServiceAndroid
   @override
   Future<AttachProbeResult> connectAttachedMachine(DeviceAttachedEvent event) {
     final revision = _usbRevision;
+    final generationSnapshot = Map<int, int>.from(_usbGenerationByPhysicalId);
+    final physicalId = event.physicalDeviceId;
+    final physicalGeneration = generationSnapshot[physicalId] ?? 0;
     return _serializeAdmission(() async {
-      if (!_isCurrent(revision)) return const AttachProbeUnsupported();
+      if (!_isCurrent(
+        revision,
+        physicalId: physicalId,
+        expectedPhysicalGeneration: physicalGeneration,
+      )) {
+        return const AttachProbeUnsupported();
+      }
       final devices = await _listDevices();
-      if (!_isCurrent(revision)) return const AttachProbeUnsupported();
+      if (!_isCurrent(
+        revision,
+        physicalId: physicalId,
+        expectedPhysicalGeneration: physicalGeneration,
+      )) {
+        return const AttachProbeUnsupported();
+      }
       for (final device in devices) {
         _canonicalSerialOf(device);
       }
       AttachProbeFailed? failure;
       for (final device in _attachedCandidates(event, devices)) {
-        final result = await _connectAttachedMachine(device, revision);
+        final result = await _connectAttachedMachine(
+          device,
+          revision,
+          generationSnapshot[device.deviceId] ?? 0,
+        );
         if (result is AttachProbeConnected) return result;
         if (result is AttachProbeFailed) failure = result;
       }
@@ -257,8 +335,13 @@ class SerialServiceAndroid
   Future<AttachProbeResult> _connectAttachedMachine(
     UsbDevice physical,
     int revision,
+    int expectedPhysicalGeneration,
   ) async {
-    if (!_isCurrent(revision) ||
+    if (!_isCurrent(
+          revision,
+          physicalId: physical.deviceId,
+          expectedPhysicalGeneration: expectedPhysicalGeneration,
+        ) ||
         _detachedPhysicalIds.contains(physical.deviceId) ||
         !serialProbeAllowsProductName(physical.productName)) {
       return const AttachProbeUnsupported();
@@ -290,12 +373,21 @@ class SerialServiceAndroid
         detected = await _runDetection(physical);
       }
       if (detected == null) return const AttachProbeUnsupported();
-      if (!_isCurrent(revision) || detected is! De1Interface) {
+      if (!_isCurrent(
+            revision,
+            physicalId: physical.deviceId,
+            expectedPhysicalGeneration: expectedPhysicalGeneration,
+          ) ||
+          detected is! De1Interface) {
         await _rejectAttachedDevice(detected);
         return const AttachProbeUnsupported();
       }
       await detected.onConnect().timeout(const Duration(seconds: 10));
-      if (!_isCurrent(revision)) {
+      if (!_isCurrent(
+        revision,
+        physicalId: physical.deviceId,
+        expectedPhysicalGeneration: expectedPhysicalGeneration,
+      )) {
         await _rejectAttachedDevice(detected);
         return const AttachProbeUnsupported();
       }
@@ -347,6 +439,7 @@ class SerialServiceAndroid
   @override
   Future<Device?> tryQuickConnect(RememberedDevice remembered) {
     final revision = _usbRevision;
+    final generationSnapshot = Map<int, int>.from(_usbGenerationByPhysicalId);
     return _serializeAdmission(() async {
       if (!_isCurrent(revision) ||
           remembered.implementation == null ||
@@ -359,7 +452,13 @@ class SerialServiceAndroid
         _canonicalSerialOf(device);
       }
       for (final physical in devices) {
-        if (_detachedPhysicalIds.contains(physical.deviceId) ||
+        final physicalGeneration = generationSnapshot[physical.deviceId] ?? 0;
+        if (!_isCurrent(
+              revision,
+              physicalId: physical.deviceId,
+              expectedPhysicalGeneration: physicalGeneration,
+            ) ||
+            _detachedPhysicalIds.contains(physical.deviceId) ||
             _stableIdOf(physical) != remembered.id) {
           continue;
         }
@@ -372,7 +471,12 @@ class SerialServiceAndroid
         );
         if (existing != null) {
           final state = await existing.connectionState.first;
-          if (state == ConnectionState.connected && _isCurrent(revision)) {
+          if (state == ConnectionState.connected &&
+              _isCurrent(
+                revision,
+                physicalId: physical.deviceId,
+                expectedPhysicalGeneration: physicalGeneration,
+              )) {
             return existing;
           }
           if (state == ConnectionState.connecting) return null;
@@ -383,13 +487,21 @@ class SerialServiceAndroid
         try {
           detected = await _runDetection(physical);
           if (detected == null) continue;
-          if (!_isCurrent(revision) ||
+          if (!_isCurrent(
+                revision,
+                physicalId: physical.deviceId,
+                expectedPhysicalGeneration: physicalGeneration,
+              ) ||
               detected.implementation != remembered.implementation) {
             await _rejectAttachedDevice(detected);
             continue;
           }
           await detected.onConnect().timeout(const Duration(seconds: 10));
-          if (!_isCurrent(revision)) {
+          if (!_isCurrent(
+            revision,
+            physicalId: physical.deviceId,
+            expectedPhysicalGeneration: physicalGeneration,
+          )) {
             await _rejectAttachedDevice(detected);
             continue;
           }
@@ -417,8 +529,11 @@ class SerialServiceAndroid
 
     _isScanning = true;
     final revision = _usbRevision;
+    final generationSnapshot = Map<int, int>.from(_usbGenerationByPhysicalId);
     _currentScan = _serializeAdmission(() async {
-      if (_isCurrent(revision)) await _performScan(revision);
+      if (_isCurrent(revision)) {
+        await _performScan(revision, generationSnapshot);
+      }
     });
 
     try {
@@ -460,7 +575,10 @@ class SerialServiceAndroid
     }
   }
 
-  Future<void> _performScan(int revision) async {
+  Future<void> _performScan(
+    int revision,
+    Map<int, int> generationSnapshot,
+  ) async {
     List<Device> connected = [];
     final devicesCopy = List<Device>.from(_devices);
     for (var d in devicesCopy) {
@@ -552,12 +670,15 @@ class SerialServiceAndroid
 
     _log.info("${devices.length} new devices to detect");
     final seenMachineIds = <String>{};
+    final detectedPhysicalIds = <Device, int?>{};
+    final detectedGenerations = <Device, int>{};
     final results = await Future.wait(
       devices.map((d) async {
         final found = <Device>[];
+        final physicalId = d.deviceId;
+        final physicalGeneration = generationSnapshot[physicalId] ?? 0;
         try {
           final machineId = _stableIdOf(d);
-          final physicalId = d.deviceId;
           final alreadyOwned =
               physicalId != null &&
               _devices.any(
@@ -568,10 +689,21 @@ class SerialServiceAndroid
           if (!alreadyOwned &&
               !_devices.any((t) => t.deviceId == machineId) &&
               seenMachineIds.add(machineId) &&
-              _isCurrent(revision)) {
+              _isCurrent(
+                revision,
+                physicalId: physicalId,
+                expectedPhysicalGeneration: physicalGeneration,
+              )) {
             final device = await _runDetection(d);
-            if (device != null && _isCurrent(revision)) {
+            if (device != null &&
+                _isCurrent(
+                  revision,
+                  physicalId: physicalId,
+                  expectedPhysicalGeneration: physicalGeneration,
+                )) {
               found.add(device);
+              detectedPhysicalIds[device] = physicalId;
+              detectedGenerations[device] = physicalGeneration;
               _recordPhysicalOwnership(device.deviceId, d);
             } else if (device != null) {
               await _rejectAttachedDevice(device);
@@ -581,9 +713,16 @@ class SerialServiceAndroid
           _log.warning("Error detecting device on $d", e, st);
         }
         try {
-          final tap = await _detectTap(d, revision);
-          if (tap != null && _isCurrent(revision)) {
+          final tap = await _detectTap(d, revision, physicalGeneration);
+          if (tap != null &&
+              _isCurrent(
+                revision,
+                physicalId: physicalId,
+                expectedPhysicalGeneration: physicalGeneration,
+              )) {
             found.add(tap);
+            detectedPhysicalIds[tap] = physicalId;
+            detectedGenerations[tap] = physicalGeneration;
           } else if (tap != null) {
             await _rejectAttachedDevice(tap);
           }
@@ -594,13 +733,27 @@ class SerialServiceAndroid
       }),
     );
     final detected = results.expand((e) => e).toList();
+    final currentDetected = <Device>[];
+    for (final device in detected) {
+      final physicalId = detectedPhysicalIds[device];
+      final generation = detectedGenerations[device];
+      if (_isCurrent(
+        revision,
+        physicalId: physicalId,
+        expectedPhysicalGeneration: generation,
+      )) {
+        currentDetected.add(device);
+      } else {
+        await _rejectAttachedDevice(device);
+      }
+    }
     if (!_isCurrent(revision)) {
-      for (final device in detected) {
+      for (final device in currentDetected) {
         await _rejectAttachedDevice(device);
       }
       return;
     }
-    _addDevices(detected);
+    _addDevices(currentDetected);
     _machineSubject.add(List.of(_devices));
   }
 
@@ -612,8 +765,16 @@ class SerialServiceAndroid
   /// control interface as `iface - 1`), while the logical identity and ID
   /// keep denoting interface 2 (`-if02`). Identical-serial boards are
   /// disambiguated by the physical `UsbDevice.deviceId` in the tap ID.
-  Future<Device?> _detectTap(UsbDevice device, int revision) async {
-    if (!_isCurrent(revision) ||
+  Future<Device?> _detectTap(
+    UsbDevice device,
+    int revision,
+    int expectedPhysicalGeneration,
+  ) async {
+    if (!_isCurrent(
+          revision,
+          physicalId: device.deviceId,
+          expectedPhysicalGeneration: expectedPhysicalGeneration,
+        ) ||
         _detachedPhysicalIds.contains(device.deviceId)) {
       return null;
     }
@@ -661,7 +822,11 @@ class SerialServiceAndroid
       );
       return null;
     }
-    if (!_isCurrent(revision)) {
+    if (!_isCurrent(
+      revision,
+      physicalId: device.deviceId,
+      expectedPhysicalGeneration: expectedPhysicalGeneration,
+    )) {
       await port.close();
       return null;
     }
@@ -876,6 +1041,7 @@ class SerialServiceAndroid
     _transportForDeviceId.clear();
     _logicalToPhysicalDeviceId.clear();
     _canonicalSerialByPhysicalId.clear();
+    _usbGenerationByPhysicalId.clear();
     _detachedPhysicalIds.clear();
     await _attachedSubject.close();
     await _machineSubject.close();

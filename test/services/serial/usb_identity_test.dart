@@ -14,23 +14,27 @@ import 'package:reaprime/src/services/serial/utils.dart';
 import 'package:usb_serial/usb_serial.dart';
 
 class _DescriptorDevice extends UsbDevice {
-  _DescriptorDevice(String? serial)
-    : super(
-        '/dev/bus/usb/001/002',
-        0x2e8a,
-        0x000a,
-        'DE1',
-        'Decent Espresso',
-        7,
-        serial,
-        1,
-      );
+  _DescriptorDevice(
+    String? serial, {
+    int physicalId = 7,
+    this.portName = 'descriptor-port',
+  }) : super(
+         '/dev/bus/usb/001/002',
+         0x2e8a,
+         0x000a,
+         'DE1',
+         'Decent Espresso',
+         physicalId,
+         serial,
+         1,
+       );
 
+  final String portName;
   int createCalls = 0;
   @override
   Future<UsbPort?> create([String type = '', int iface = -1]) async {
     createCalls++;
-    return UsbPort('descriptor-port');
+    return UsbPort(portName);
   }
 }
 
@@ -88,6 +92,110 @@ void main() {
       expect(
         (await service.devices.first).single.deviceId,
         'usb-2e8a-a-unknown-7',
+      );
+    },
+  );
+
+  test(
+    'default service detach disposes the mapped port and revokes identity',
+    () async {
+      var listed = <UsbDevice>[_DescriptorDevice('KNOWN')];
+      var closes = 0;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(
+        const MethodChannel('descriptor-port'),
+        (call) async {
+          if (call.method == 'close') closes++;
+          return true;
+        },
+      );
+      final service = SerialServiceAndroid(
+        listDevices: () async => listed,
+        usbEventStream: () => null,
+      );
+      addTearDown(() async {
+        await service.dispose();
+        messenger.setMockMethodCallHandler(
+          const MethodChannel('descriptor-port'),
+          null,
+        );
+      });
+
+      await service.scanForDevices();
+      expect((await service.devices.first).single.deviceId, 'usb-2e8a-a-KNOWN');
+      listed = [];
+      await service.handleUsbEvent(
+        UsbEvent()
+          ..event = UsbEvent.ACTION_USB_DETACHED
+          ..device = _DescriptorDevice('KNOWN'),
+      );
+
+      expect(await service.devices.first, isEmpty);
+      expect(closes, greaterThanOrEqualTo(2));
+
+      listed = [_DescriptorDevice(null)];
+      await service.handleUsbEvent(
+        UsbEvent()
+          ..event = UsbEvent.ACTION_USB_ATTACHED
+          ..device = _DescriptorDevice(null),
+      );
+      await service.scanForDevices();
+      expect(
+        (await service.devices.first).single.deviceId,
+        'usb-2e8a-a-unknown-7',
+      );
+    },
+  );
+
+  test(
+    'incomplete detach disposes only the missing default-service transport',
+    () async {
+      var listed = <UsbDevice>[
+        _DescriptorDevice(null, portName: 'descriptor-port-7'),
+        _DescriptorDevice(null, physicalId: 8, portName: 'descriptor-port-8'),
+      ];
+      var firstCloses = 0;
+      var secondCloses = 0;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      for (final entry in {
+        'descriptor-port-7': () => firstCloses++,
+        'descriptor-port-8': () => secondCloses++,
+      }.entries) {
+        messenger.setMockMethodCallHandler(MethodChannel(entry.key), (
+          call,
+        ) async {
+          if (call.method == 'close') entry.value();
+          return true;
+        });
+      }
+      final service = SerialServiceAndroid(
+        listDevices: () async => listed,
+        usbEventStream: () => null,
+      );
+      addTearDown(() async {
+        await service.dispose();
+        for (final name in ['descriptor-port-7', 'descriptor-port-8']) {
+          messenger.setMockMethodCallHandler(MethodChannel(name), null);
+        }
+      });
+
+      await service.scanForDevices();
+      final initial = await service.devices.first;
+      expect(initial, hasLength(2));
+      listed = [
+        _DescriptorDevice(null, physicalId: 8, portName: 'descriptor-port-8'),
+      ];
+      await service.handleUsbEvent(
+        UsbEvent()..event = UsbEvent.ACTION_USB_DETACHED,
+      );
+
+      expect(firstCloses, greaterThanOrEqualTo(2));
+      expect(secondCloses, 0);
+      expect(
+        (await service.devices.first).single.deviceId,
+        'usb-2e8a-a-unknown-8',
       );
     },
   );

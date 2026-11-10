@@ -3352,6 +3352,78 @@ void main() {
         },
       );
 
+      test(
+        'connects session-only USB scales without changing preference or memory',
+        () async {
+          final scaleConnections = StreamController<RememberedDevice?>();
+          final remembered = RememberedDevicesController(
+            machineConnections: const Stream.empty(),
+            scaleConnections: scaleConnections.stream,
+            settings: mockSettingsService,
+          );
+          await remembered.initialize();
+          final manager = ConnectionManager(
+            deviceScanner: mockScanner,
+            de1Controller: mockDe1Controller,
+            scaleController: MockScaleController(),
+            settingsController: settingsController,
+            rememberedDevices: remembered,
+          );
+          addTearDown(() async {
+            await manager.dispose();
+            await remembered.dispose();
+            await scaleConnections.close();
+          });
+          await settingsController.setPreferredScaleId('usb-2e8a-a-KNOWN');
+
+          final fallback = _TransportScale(
+            deviceId: 'usb-2e8a-a-unknown-7',
+            transportType: TransportType.serial,
+          );
+          expect((await manager.connectScale(fallback)).success, isTrue);
+          scaleConnections.add(
+            const RememberedDevice(
+              id: 'usb-2e8a-a-unknown-7',
+              name: 'Half Decent Scale',
+              type: DeviceType.scale,
+              implementation: DeviceImplementation.hdsSerial,
+              transportType: TransportType.serial,
+            ),
+          );
+          await Future<void>.delayed(Duration.zero);
+          expect(settingsController.preferredScaleId, 'usb-2e8a-a-KNOWN');
+          expect(
+            remembered.remembered.map((device) => device.id),
+            isNot(contains('usb-2e8a-a-unknown-7')),
+          );
+
+          final canonical = _TransportScale(
+            deviceId: 'usb-2e8a-a-KNOWN',
+            transportType: TransportType.serial,
+          );
+          await manager.disconnectScale();
+          expect((await manager.connectScale(canonical)).success, isTrue);
+          expect(settingsController.preferredScaleId, 'usb-2e8a-a-KNOWN');
+          scaleConnections.add(
+            const RememberedDevice(
+              id: 'usb-2e8a-a-KNOWN',
+              name: 'Half Decent Scale',
+              type: DeviceType.scale,
+              implementation: DeviceImplementation.hdsSerial,
+              transportType: TransportType.serial,
+            ),
+          );
+          await Future<void>.delayed(Duration.zero);
+          expect(
+            remembered.remembered.map((device) => device.id),
+            contains('usb-2e8a-a-KNOWN'),
+          );
+          await settingsController.setPreferredScaleId(null);
+          expect(settingsController.preferredScaleId, isNull);
+          expect(await mockSettingsService.preferredScaleId(), isNull);
+        },
+      );
+
       test('does not save preference on failure', () async {
         mockScaleController.shouldFailConnect = true;
         final testScale = TestScale(deviceId: 'fail-scale');

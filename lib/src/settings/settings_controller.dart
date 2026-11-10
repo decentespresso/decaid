@@ -326,6 +326,7 @@ class SettingsController with ChangeNotifier {
   }
 
   Future<void> setPreferredScaleId(String? scaleId) async {
+    if (scaleId != null && isEphemeralDeviceIdentity(scaleId)) return;
     if (scaleId == _preferredScaleId) {
       return;
     }

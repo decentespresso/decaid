@@ -7199,7 +7199,7 @@ components:
           nullable: true
           example: "F4:12:FA:5C:3D:8E"
         preferredScaleId:
-          description: Device ID of the preferred scale for auto-connect on startup. When set, REA will automatically connect to this scale when it's discovered during device scan. Set to null to clear the preference.
+          description: Device ID of the preferred scale for auto-connect on startup. When set, REA will automatically connect to this scale when it's discovered during device scan. Session-only USB scale IDs are not persisted as preferences. Set to null to clear the preference.
           type: string
           nullable: true
           example: "AA:BB:CC:DD:EE:FF"
@@ -7302,7 +7302,7 @@ components:
           nullable: true
           example: "F4:12:FA:5C:3D:8E"
         preferredScaleId:
-          description: Device ID of the preferred scale for auto-connect on startup. Returns null if no preferred device is set.
+          description: Device ID of the preferred scale for auto-connect on startup. Session-only USB scale IDs are not persisted as preferences. Returns null if no preferred device is set.
           type: string
           nullable: true
           example: "AA:BB:CC:DD:EE:FF"

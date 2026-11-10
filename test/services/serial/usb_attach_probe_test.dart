@@ -22,7 +22,7 @@ UsbDevice _device({
   int? pid = 0x000A,
   String? serial = '8549628789ABCDEF',
   String productName = 'DE1',
-  int physicalId = 1002,
+  int? physicalId = 1002,
 }) {
   return UsbDevice(
     '/dev/bus/usb/001/002',
@@ -328,6 +328,76 @@ void main() {
     expect(await service.devices.first, isEmpty);
   });
 
+  test('unrelated physical detach does not cancel pending attach', () async {
+    final machine = _FakeMachine();
+    final detectionStarted = Completer<void>();
+    machine.connectGate = Completer<void>();
+    final de1 = _device(physicalId: 1002);
+    final unrelated = _device(
+      vid: 0x046D,
+      pid: 0xC31C,
+      serial: 'kbd-1',
+      productName: 'USB Keyboard',
+      physicalId: 1003,
+    );
+    listed = [de1, unrelated];
+    detection = (device) async {
+      if (device.deviceId == de1.deviceId) {
+        detectionStarted.complete();
+        return machine;
+      }
+      return null;
+    };
+    service = build();
+
+    final attaching = service.connectAttachedMachine(
+      const DeviceAttachedEvent(physicalDeviceId: 1002),
+    );
+    await detectionStarted.future;
+    final detached = service.handleUsbEvent(
+      UsbEvent()
+        ..event = UsbEvent.ACTION_USB_DETACHED
+        ..device = unrelated,
+    );
+    machine.connectGate!.complete();
+    await detached;
+
+    expect(await attaching, isA<AttachProbeConnected>());
+    expect(await service.devices.first, [same(machine)]);
+  });
+
+  test(
+    'own physical detach cancels pending attach and disconnects machine',
+    () async {
+      final machine = _FakeMachine();
+      final detectionStarted = Completer<void>();
+      machine.connectGate = Completer<void>();
+      final device = _device(physicalId: 1002);
+      listed = [device];
+      detection = (_) async {
+        detectionStarted.complete();
+        return machine;
+      };
+      service = build();
+
+      final attaching = service.connectAttachedMachine(
+        const DeviceAttachedEvent(physicalDeviceId: 1002),
+      );
+      await detectionStarted.future;
+      final detached = service.handleUsbEvent(
+        UsbEvent()
+          ..event = UsbEvent.ACTION_USB_DETACHED
+          ..device = device,
+      );
+      machine.connectGate!.complete();
+
+      await detached;
+      expect(await attaching, isA<AttachProbeUnsupported>());
+      expect(machine.disconnectCalls, 1);
+      expect(await service.devices.first, isEmpty);
+    },
+  );
+
   test('detection failure is unsupported and leaves no residue', () async {
     listed = [_device()];
     detection = (_) async => throw Exception('probe error');
@@ -339,6 +409,93 @@ void main() {
 
     expect(result, isA<AttachProbeUnsupported>());
     expect(await service.devices.first, isEmpty);
+  });
+
+  test(
+    'incomplete detach removes session-only machine after fresh enumeration',
+    () async {
+      final machine = _FakeMachine(id: 'usb-2e8a-a-unknown-1002');
+      final device = _device(serial: null, physicalId: 1002);
+      listed = [device];
+      detection = (_) async => machine;
+      service = build();
+
+      await service.scanForDevices();
+      listed = [];
+      await service.handleUsbEvent(
+        UsbEvent()
+          ..event = UsbEvent.ACTION_USB_DETACHED
+          ..device = _device(serial: null, physicalId: null),
+      );
+
+      expect(machine.disconnectCalls, 1);
+      expect(await service.devices.first, isEmpty);
+    },
+  );
+
+  test('incomplete canonical detach removes session-only machine', () async {
+    final machine = _FakeMachine(id: 'usb-2e8a-a-unknown-1002');
+    final device = _device(serial: null, physicalId: 1002);
+    listed = [device];
+    detection = (_) async => machine;
+    service = build();
+
+    await service.scanForDevices();
+    listed = [];
+    await service.handleUsbEvent(
+      UsbEvent()
+        ..event = UsbEvent.ACTION_USB_DETACHED
+        ..device = _device(serial: 'CANONICAL', physicalId: null),
+    );
+
+    expect(machine.disconnectCalls, 1);
+    expect(await service.devices.first, isEmpty);
+  });
+
+  test(
+    'incomplete detach tombstone blocks a later stale enumeration',
+    () async {
+      final device = _device(serial: 'KNOWN');
+      final machine = _FakeMachine(id: 'usb-2e8a-a-KNOWN');
+      listed = [device];
+      detection = (_) async => machine;
+      service = build();
+
+      await service.scanForDevices();
+      listed = [];
+      await service.handleUsbEvent(
+        UsbEvent()..event = UsbEvent.ACTION_USB_DETACHED,
+      );
+      expect(await service.devices.first, isEmpty);
+
+      listed = [device];
+      await service.scanForDevices();
+      expect(await service.devices.first, isEmpty);
+      expect(machine.disconnectCalls, 1);
+    },
+  );
+
+  test('incomplete detach preserves an identical USB survivor', () async {
+    final first = _device(serial: null, physicalId: 1002);
+    final second = _device(serial: null, physicalId: 1003);
+    final firstMachine = _FakeMachine(id: 'usb-2e8a-a-unknown-1002');
+    final secondMachine = _FakeMachine(id: 'usb-2e8a-a-unknown-1003');
+    listed = [first, second];
+    detection = (device) async =>
+        device.deviceId == first.deviceId ? firstMachine : secondMachine;
+    service = build();
+
+    await service.scanForDevices();
+    listed = [second];
+    await service.handleUsbEvent(
+      UsbEvent()
+        ..event = UsbEvent.ACTION_USB_DETACHED
+        ..device = _device(serial: null, physicalId: null),
+    );
+
+    expect(firstMachine.disconnectCalls, 1);
+    expect(secondMachine.disconnectCalls, 0);
+    expect(await service.devices.first, [same(secondMachine)]);
   });
 
   test(
@@ -546,6 +703,52 @@ void main() {
   });
 
   test(
+    'scan publication filters a detached result but keeps its survivor',
+    () async {
+      final first = _device(physicalId: 1002);
+      final second = _device(physicalId: 1003, serial: 'SECOND');
+      final firstMachine = _FakeMachine(id: 'usb-2e8a-a-FIRST');
+      final secondMachine = _FakeMachine(id: 'usb-2e8a-a-SECOND');
+      final secondDetectionStarted = Completer<void>();
+      final releaseSecondDetection = Completer<void>();
+      listed = [first, second];
+      detection = (device) async {
+        if (device.deviceId == second.deviceId) {
+          secondDetectionStarted.complete();
+          await releaseSecondDetection.future;
+          return secondMachine;
+        }
+        return firstMachine;
+      };
+      service = build();
+      final publications = <List<Device>>[];
+      final subscription = service.devices.listen(
+        (devices) => publications.add(List.of(devices)),
+      );
+      addTearDown(subscription.cancel);
+
+      final scan = service.scanForDevices();
+      await secondDetectionStarted.future;
+      final detach = service.handleUsbEvent(
+        UsbEvent()
+          ..event = UsbEvent.ACTION_USB_DETACHED
+          ..device = first,
+      );
+      releaseSecondDetection.complete();
+      await scan;
+      await detach;
+
+      expect(
+        publications,
+        isNot(contains([same(firstMachine), same(secondMachine)])),
+      );
+      expect(publications.last, [same(secondMachine)]);
+      expect(firstMachine.disconnectCalls, 1);
+      expect(secondMachine.disconnectCalls, 0);
+    },
+  );
+
+  test(
     'scan during attach connection does not start another detection',
     () async {
       final machine = _FakeMachine()..connectGate = Completer<void>();
@@ -570,6 +773,91 @@ void main() {
       expect(machine.onConnectCalls, 1);
     },
   );
+
+  test(
+    'quick-connect rejects a detach and replug during enumeration',
+    () async {
+      final enumerationStarted = Completer<void>();
+      final releaseEnumeration = Completer<void>();
+      final machine = _FakeMachine();
+      final physical = _device();
+      listed = [physical];
+      detection = (_) async => machine;
+      service = SerialServiceAndroid(
+        listDevices: () async {
+          enumerationStarted.complete();
+          await releaseEnumeration.future;
+          return [physical];
+        },
+        usbEventStream: () => null,
+        detectDevice: detection,
+      );
+      final quick = service.tryQuickConnect(
+        const RememberedDevice(
+          id: 'usb-2e8a-a-8549628789ABCDEF',
+          name: 'DE1',
+          type: DeviceType.machine,
+          implementation: DeviceImplementation.unifiedDe1,
+          transportType: TransportType.serial,
+        ),
+      );
+      await enumerationStarted.future;
+      final detach = service.handleUsbEvent(
+        UsbEvent()
+          ..event = UsbEvent.ACTION_USB_DETACHED
+          ..device = physical,
+      );
+      await service.handleUsbEvent(
+        UsbEvent()
+          ..event = UsbEvent.ACTION_USB_ATTACHED
+          ..device = physical,
+      );
+      releaseEnumeration.complete();
+
+      expect(await quick, isNull);
+      await detach;
+      expect(machine.onConnectCalls, 0);
+      expect(await service.devices.first, isEmpty);
+    },
+  );
+
+  test('attach probe rejects a detach and replug during enumeration', () async {
+    final enumerationStarted = Completer<void>();
+    final releaseEnumeration = Completer<void>();
+    final machine = _FakeMachine();
+    final physical = _device();
+    listed = [physical];
+    detection = (_) async => machine;
+    service = SerialServiceAndroid(
+      listDevices: () async {
+        enumerationStarted.complete();
+        await releaseEnumeration.future;
+        return [physical];
+      },
+      usbEventStream: () => null,
+      detectDevice: detection,
+    );
+    final attach = service.connectAttachedMachine(
+      const DeviceAttachedEvent(physicalDeviceId: 1002),
+    );
+    await enumerationStarted.future;
+    final detach = service.handleUsbEvent(
+      UsbEvent()
+        ..event = UsbEvent.ACTION_USB_DETACHED
+        ..device = physical,
+    );
+    await service.handleUsbEvent(
+      UsbEvent()
+        ..event = UsbEvent.ACTION_USB_ATTACHED
+        ..device = physical,
+    );
+    releaseEnumeration.complete();
+
+    expect(await attach, isA<AttachProbeUnsupported>());
+    await detach;
+    expect(machine.onConnectCalls, 0);
+    expect(await service.devices.first, isEmpty);
+  });
 
   test(
     'quick-connect detection completing after detach and replug is rejected',
