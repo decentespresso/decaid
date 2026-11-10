@@ -549,7 +549,7 @@ curl -X PUT http://localhost:8080/api/v1/workflow \
   -d "{\"profile\": $(echo $PROFILE | jq '.profile')}"
 ```
 
-The Workflow API approach updates the entire workflow context (profile + dose + grinder + coffee data), including optional non-negative `grinderRpm` and namespaced grinder preparation values in `context.extras`. These values are recorded workflow configuration, not connected-grinder telemetry.
+The Workflow API approach updates the workflow's `profile` and leaves the rest of the context alone. A profile-only PUT does not populate or update `grinderRpm` or `context.extras`, and any values already recorded there are retained. When a client does send them, `grinderRpm` is an optional non-negative integer and grinder preparation values live in namespaced `context.extras`; both are recorded workflow configuration, not connected-grinder telemetry.
 
 ### Error Handling
 
