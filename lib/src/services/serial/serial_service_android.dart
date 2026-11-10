@@ -1200,6 +1200,10 @@ class AndroidSerialPort implements SerialTransport, CanonicalDeviceIdentity {
       UsbPort.STOPBITS_1,
       UsbPort.PARITY_NONE,
     );
+    if (_disposed || revision != _connectionRevision) {
+      await _port.close();
+      throw StateError('Serial connection cancelled');
+    }
 
     final inputStream = _port.inputStream;
     if (inputStream == null) {

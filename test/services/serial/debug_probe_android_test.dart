@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/impl/sensor/debug_port.dart';
 import 'package:reaprime/src/services/serial/serial_service_android.dart';
@@ -16,12 +17,12 @@ UsbDevice _device({
   return UsbDevice(
     '/dev/bus/usb/001/002',
     0x2e8a,
-    0x000a,
+    0x000c,
     productName,
     'Raspberry Pi',
     deviceId,
     'DEBUG-PROBE',
-    1,
+    4,
   );
 }
 
@@ -39,6 +40,7 @@ void main() {
   late bool portParametersConfigured;
   late bool eventStreamListening;
   late UsbDevice listedDevice;
+  late List<Map<Object?, Object?>> creates;
   MockStreamHandlerEventSink? sink;
 
   Future<void> emitAfterStreamConfigured(Uint8List bytes) async {
@@ -57,6 +59,7 @@ void main() {
     streamConfigured = Completer<void>();
     portParametersConfigured = false;
     eventStreamListening = false;
+    creates = [];
     listedDevice = _device();
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -64,7 +67,10 @@ void main() {
     messenger.setMockMethodCallHandler(const MethodChannel('usb_serial'), (
       call,
     ) async {
-      if (call.method == 'create') return portName;
+      if (call.method == 'create') {
+        creates.add(Map<Object?, Object?>.from(call.arguments as Map));
+        return portName;
+      }
       return null;
     });
     messenger.setMockMethodCallHandler(MethodChannel(portName), (call) async {
@@ -142,6 +148,12 @@ void main() {
       expect(devices.single, isA<DebugPort>());
       expect(devices.single.implementation, DeviceImplementation.debugPort);
       expect(writes, isEmpty);
+      expect(creates.single['type'], 'cdc');
+      expect(
+        creates.single['interface'],
+        -1,
+        reason: 'CDC pair selection stays automatic for the composite probe',
+      );
     },
   );
 
@@ -206,6 +218,63 @@ void main() {
     expect(commands, contains('<-M>\n'));
     expect(commands, contains('<-E>\n'));
   });
+
+  test(
+    'cancellation while baud configuration is pending never connects or listens',
+    () async {
+      final configGate = Completer<void>();
+      final closeCalls = <int>[];
+      var listening = false;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      Future<Object?> handler(MethodCall call) async {
+        switch (call.method) {
+          case 'open':
+            return true;
+          case 'close':
+            closeCalls.add(1);
+            return true;
+          case 'setPortParameters':
+            await configGate.future;
+            return null;
+          default:
+            return null;
+        }
+      }
+
+      messenger.setMockMethodCallHandler(MethodChannel(portName), handler);
+      messenger.setMockStreamHandler(
+        EventChannel('$portName/stream'),
+        MockStreamHandler.inline(
+          onListen: (_, _) {
+            listening = true;
+          },
+          onCancel: (_) {},
+        ),
+      );
+
+      final port = AndroidSerialPort(
+        device: _device(),
+        port: UsbPort(portName),
+      );
+      final states = <ConnectionState>[];
+      final sub = port.connectionState.listen(states.add);
+
+      final connecting = port.connect();
+      await Future<void>.delayed(Duration.zero);
+      final disposed = port.dispose();
+      configGate.complete();
+
+      await expectLater(connecting, throwsA(isA<StateError>()));
+      await disposed;
+      await Future<void>.delayed(Duration.zero);
+
+      expect(states, isNot(contains(ConnectionState.connected)));
+      expect(listening, isFalse);
+      expect(closeCalls, isNotEmpty);
+      await sub.cancel();
+    },
+  );
 
   test(
     'keeps AndroidSerialPort defaults at 115200 for non-probe callers',
