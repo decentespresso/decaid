@@ -55,14 +55,19 @@ SkinNavDecision classifySkinNavigation(Uri? url, {int skinPort = 3000}) {
         (url.queryParameters['id'] ?? '').isNotEmpty) {
       return SkinNavDecision.switchSkin;
     }
-    final target = url.toString();
-    if (target == skinExitDashboardUrlForPort(skinPort)) {
-      return SkinNavDecision.exitDashboard;
-    }
-    if (target == skinExitAppUrlForPort(skinPort)) {
+    if (url.path == skinExitAppPath &&
+        url.scheme == 'http' &&
+        url.port == skinPort &&
+        url.userInfo.isEmpty &&
+        !url.hasFragment &&
+        url.queryParametersAll.length == 1 &&
+        url.queryParametersAll['nonce']?.length == 1 &&
+        url.queryParameters['nonce']!.isNotEmpty) {
       return SkinNavDecision.exitApp;
     }
-    return SkinNavDecision.block;
+    return url.toString() == skinExitDashboardUrlForPort(skinPort)
+        ? SkinNavDecision.exitDashboard
+        : SkinNavDecision.block;
   }
   if (url.scheme == 'http' &&
       url.host == 'localhost' &&
@@ -173,10 +178,6 @@ class _SkinViewHostState extends State<SkinViewHost> {
 }
 
 class SkinExitCoordinator {
-  SkinExitCoordinator({this.exitUrlForPort = skinExitDashboardUrlForPort});
-
-  final String Function(int port) exitUrlForPort;
-
   bool _inProgress = false;
 
   bool get inProgress => _inProgress;
@@ -188,7 +189,7 @@ class SkinExitCoordinator {
     int skinPort = 3000,
   }) {
     if (_inProgress ||
-        target?.toString() != exitUrlForPort(skinPort) ||
+        target?.toString() != skinExitDashboardUrlForPort(skinPort) ||
         !isTrustedSkinPageRequest(
           isForMainFrame: isForMainFrame,
           topLevelUri: topLevelUri,
@@ -199,18 +200,10 @@ class SkinExitCoordinator {
     _inProgress = true;
     return true;
   }
-
-  /// Allows another request after an exit that leaves the skin mounted, such
-  /// as sending the app to the background.
-  void finish() => _inProgress = false;
 }
 
 const _appLifecycleChannel = MethodChannel('app/lifecycle');
 
-/// Leaves the app without stopping it where the platform allows: Android
-/// moves the task to the background, so machine connections and wake
-/// schedules keep running. Desktop platforms quit. iOS does not permit apps
-/// to close themselves, so it returns false.
 Future<bool> exitAppFromSkin() async {
   if (Platform.isAndroid) {
     return await _appLifecycleChannel.invokeMethod<bool>('moveTaskToBack') ??
@@ -295,9 +288,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   Object _webViewAttempt = Object();
   final String _switchNonce = _generateSwitchNonce();
   final _skinExitCoordinator = SkinExitCoordinator();
-  final _skinAppExitCoordinator = SkinExitCoordinator(
-    exitUrlForPort: skinExitAppUrlForPort,
-  );
+  bool _appExitInProgress = false;
   Uri? _mainFrameUri;
   late final _camera = SkinCameraWebViewAccess(
     context: () => mounted ? context : null,
@@ -451,6 +442,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
   }
 
   Future<void> _exitApp() async {
+    _appExitInProgress = true;
     try {
       if (!await exitAppFromSkin()) {
         _log.info('Platform did not leave the app for skin exit request');
@@ -458,7 +450,7 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
     } catch (e, st) {
       _log.warning('Skin app exit failed', e, st);
     } finally {
-      _skinAppExitCoordinator.finish();
+      _appExitInProgress = false;
     }
   }
 
@@ -847,7 +839,9 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
         }
       },
       onReceivedError: (controller, request, error) {
-        if (request.url.toString() == skinExitAppUrlForPort(widget.port)) {
+        if (request.url.host == 'localhost' &&
+            request.url.port == widget.port &&
+            request.url.path == skinExitAppPath) {
           return;
         }
         if (_skinExitCoordinator.inProgress &&
@@ -886,12 +880,14 @@ class _SkinViewState extends State<SkinView> with WidgetsBindingObserver {
             }
             return NavigationActionPolicy.CANCEL;
           case SkinNavDecision.exitApp:
-            if (_skinAppExitCoordinator.tryStart(
-              target: uri,
-              isForMainFrame: navigationAction.isForMainFrame,
-              topLevelUri: _mainFrameUri,
-              skinPort: widget.port,
-            )) {
+            if (!_appExitInProgress &&
+                isTrustedSkinSwitchRequest(
+                  target: uri,
+                  isForMainFrame: navigationAction.isForMainFrame,
+                  topLevelUri: _mainFrameUri,
+                  skinPort: widget.port,
+                  expectedNonce: _switchNonce,
+                )) {
               _log.info('Skin requested app exit');
               unawaited(_exitApp());
             } else {

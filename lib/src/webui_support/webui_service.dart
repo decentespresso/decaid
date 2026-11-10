@@ -122,8 +122,12 @@ String buildSkinApiJavaScript({int port = 3000}) {
       'return true;'
       '};'
       'window.decentApp.exitApp=function(){'
-      'if(window.__DECENT_HOST__)window.location.assign('
-      '${jsonEncode(skinExitAppUrlForPort(port))});'
+      'if(!window.__DECENT_HOST__)return false;'
+      'var nonce=window.$skinSwitchNonceGlobal;'
+      'if(typeof nonce!=="string"||nonce.length===0)return false;'
+      'window.location.assign(${jsonEncode(skinExitAppUrlForPort(port))}'
+      '+"?nonce="+encodeURIComponent(nonce));'
+      'return true;'
       '};';
 }
 
