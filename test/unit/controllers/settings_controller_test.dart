@@ -108,6 +108,18 @@ void main() {
     },
   );
 
+  test('scale preference ignores ephemeral USB identities', () async {
+    final store = MockSettingsService();
+    final controller = SettingsController(store);
+    await controller.setPreferredScaleId('usb-2e8a-a-KNOWN');
+
+    await controller.setPreferredScaleId('usb-2e8a-a-unknown-7');
+
+    expect(controller.preferredScaleId, 'usb-2e8a-a-KNOWN');
+    expect(await store.preferredScaleId(), 'usb-2e8a-a-KNOWN');
+    controller.dispose();
+  });
+
   test('loads and persists preferred grinder device ID', () async {
     final service = MockSettingsService();
     await service.setPreferredGrinderDeviceId('grinder-one');

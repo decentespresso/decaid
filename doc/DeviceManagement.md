@@ -718,7 +718,7 @@ This is the safety net. Device implementations should ALSO catch
 
 Device preferences are stored via `SettingsController`:
 - `preferredMachineId` — auto-set on successful machine connection
-- `preferredScaleId` — auto-set on successful scale connection
+- `preferredScaleId` — auto-set on successful scale connection; session-only USB IDs are not persisted
 - `preferredGrinderDeviceId` — auto-set on successful runtime grinder connection
 - Configurable in Settings → Device Management
 

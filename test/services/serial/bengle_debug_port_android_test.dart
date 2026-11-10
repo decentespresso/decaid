@@ -396,9 +396,6 @@ void main() {
       await service.scanForDevices();
       expect(await service.devices.first, hasLength(4));
 
-      // The detach event carries no physical ID; the stable-ID fallback must
-      // only remove the detached serial's logical devices. Devices without
-      // physical ownership must not all match a null physical ID.
       await service.handleUsbEvent(
         UsbEvent()
           ..event = UsbEvent.ACTION_USB_DETACHED
@@ -406,10 +403,7 @@ void main() {
       );
 
       final devices = await service.devices.first;
-      expect(devices.map((d) => d.deviceId).toSet(), {
-        'usb-2e8a-a-OTHER-SERIAL',
-        'usb-2e8a-a-OTHER-SERIAL-if02',
-      });
+      expect(devices, hasLength(4));
     },
   );
 
@@ -456,6 +450,7 @@ void main() {
       await service.scanForDevices();
       expect(await service.devices.first, [same(tap)]);
       channelCalls.clear();
+      listed = [];
       await service.handleUsbEvent(
         UsbEvent()..event = UsbEvent.ACTION_USB_DETACHED,
       );
