@@ -55,6 +55,50 @@ void main() {
     );
   });
 
+  test('session-only USB identity is not remembered', () async {
+    controller = build();
+    await controller.initialize();
+
+    machine.add(
+      const RememberedDevice(
+        id: 'usb-2e8a-a-unknown-7',
+        name: 'DE1',
+        type: DeviceType.machine,
+      ),
+    );
+    await Future.delayed(Duration.zero);
+
+    expect(controller.remembered, isEmpty);
+    expect(await settings.rememberedDevices(), '[]');
+  });
+
+  test('legacy session-only USB records are removed on restore', () async {
+    await settings.setRememberedDevices(
+      RememberedDevice.encodeList([
+        const RememberedDevice(
+          id: 'usb-2e8a-a-unknown',
+          name: 'DE1',
+          type: DeviceType.machine,
+        ),
+        const RememberedDevice(
+          id: 'wifi:hds.local',
+          name: 'HDS',
+          type: DeviceType.scale,
+        ),
+      ]),
+    );
+    controller = build();
+    await controller.initialize();
+
+    expect(controller.remembered.map((d) => d.id), ['wifi:hds.local']);
+    expect(
+      RememberedDevice.decodeList(
+        await settings.rememberedDevices(),
+      ).map((d) => d.id),
+      ['wifi:hds.local'],
+    );
+  });
+
   test('connecting a scale remembers it', () async {
     controller = build();
     await controller.initialize();

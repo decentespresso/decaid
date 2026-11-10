@@ -498,6 +498,23 @@ void main() {
       },
     );
 
+    for (final id in ['usb-2e8a-a-unknown-7', 'usb-2e8a-a-unknown']) {
+      test('attached session $id preserves canonical preference', () async {
+        await settings.setPreferredMachineId('usb-2e8a-a-KNOWN');
+        probeScanner.probeResult = AttachProbeConnected(_FakeDe1(deviceId: id));
+        await attachAndSettle();
+        expect(realDe1Controller.connectedDe1OrNull?.deviceId, id);
+        expect(settings.preferredMachineId, 'usb-2e8a-a-KNOWN');
+        expect(manager.currentStatus.phase, ConnectionPhase.ready);
+      });
+      test('explicit session $id preserves canonical preference', () async {
+        await settings.setPreferredMachineId('usb-2e8a-a-KNOWN');
+        final result = await manager.connectMachine(_FakeDe1(deviceId: id));
+        expect(result.success, isTrue);
+        expect(settings.preferredMachineId, 'usb-2e8a-a-KNOWN');
+      });
+    }
+
     test('BLE preference loses to a supported attached USB machine', () async {
       await settings.setPreferredMachineId('ble-machine-id');
       probeScanner.probeResult = AttachProbeConnected(

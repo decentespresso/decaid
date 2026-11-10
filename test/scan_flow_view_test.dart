@@ -639,6 +639,43 @@ void main() {
       expect(exited, isTrue);
     });
 
+    testWidgets(
+      'session-only selection remains connectable without changing preference',
+      (tester) async {
+        final machine = FakeDe1(
+          deviceId: 'usb-2e8a-a-unknown-7',
+          name: 'Session DE1',
+        );
+        final other = FakeDe1(deviceId: 'usb-2e8a-a-OTHER', name: 'Other DE1');
+        discovery.addDevice(machine);
+        discovery.addDevice(other);
+        await settingsController.setPreferredMachineId('usb-2e8a-a-KNOWN');
+        mockCm.emitStatus(
+          ConnectionStatus(
+            phase: ConnectionPhase.idle,
+            foundMachines: [machine, other],
+            error: connectError(),
+          ),
+        );
+        await tester.pumpWidget(
+          buildView(initialConnectionIntent: () => mockCm.scanAndConnect()),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('View found devices'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Session DE1'));
+        await tester.pumpAndSettle();
+        expect(settingsController.preferredMachineId, 'usb-2e8a-a-KNOWN');
+        final button = tester.widget<ShadButton>(
+          find.widgetWithText(ShadButton, 'Connect'),
+        );
+        expect(button.onPressed, isNotNull);
+        await tester.tap(find.text('Connect'));
+        await tester.pump();
+        expect(mockCm.connectMachineCallCount, 1);
+      },
+    );
+
     testWidgets('escaped picker can connect the listed machine', (
       tester,
     ) async {

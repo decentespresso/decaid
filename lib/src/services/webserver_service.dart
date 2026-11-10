@@ -20,6 +20,7 @@ import 'package:reaprime/src/models/data/profile_record.dart';
 import 'package:reaprime/src/models/data/shot_state_event.dart';
 import 'package:reaprime/src/models/data/utils.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/device_identity.dart';
 import 'package:reaprime/src/models/device/grinder_device.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/scale_calibration.dart';

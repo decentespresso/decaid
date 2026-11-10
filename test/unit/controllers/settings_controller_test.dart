@@ -87,6 +87,27 @@ class _SpySettingsService implements SettingsService {
 }
 
 void main() {
+  test(
+    'direct preference writers cannot persist a USB session identity',
+    () async {
+      final store = MockSettingsService();
+      final controller = SettingsController(store);
+      await controller.setPreferredMachineId('usb-2e8a-a-KNOWN');
+      for (final id in [
+        'usb-2e8a-a-unknown',
+        'usb-2e8a-a-unknown-7',
+        'usb-session-7',
+      ]) {
+        await controller.setPreferredMachineId(id);
+        expect(controller.preferredMachineId, 'usb-2e8a-a-KNOWN');
+        expect(await store.preferredMachineId(), 'usb-2e8a-a-KNOWN');
+      }
+      await controller.setPreferredMachineId(null);
+      expect(await store.preferredMachineId(), isNull);
+      controller.dispose();
+    },
+  );
+
   test('loads and persists preferred grinder device ID', () async {
     final service = MockSettingsService();
     await service.setPreferredGrinderDeviceId('grinder-one');

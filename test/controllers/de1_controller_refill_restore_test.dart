@@ -17,6 +17,11 @@ class _EmptyTransport extends FakeBleTransport {
   String get id => '';
 }
 
+class _SessionTransport extends FakeBleTransport {
+  @override
+  String get id => 'usb-2e8a-a-unknown-7';
+}
+
 const _shotSettings = <int>[
   0,
   150,
@@ -138,6 +143,32 @@ void main() {
       expect(harness.controller.connectedDe1OrNull?.cachedFlowEstimation, 1.7);
     },
   );
+
+  for (final serial in [0, 12345]) {
+    test(
+      'session USB identity uses only verified MMR serial $serial for settings',
+      () async {
+        final settings = MemoryMachineSettingsStore();
+        await settings.update(
+          'device:usb-2e8a-a-unknown-7',
+          flowCalibration: 1.5,
+        );
+        await settings.update('serial:12345', flowCalibration: 1.25);
+        final harness = await _connect(
+          settings: settings,
+          transport: _SessionTransport(),
+          serialN: serial,
+          calFlowEstSequence: serial == 0 ? [1000] : [1000, 1250],
+        );
+        addTearDown(harness.controller.dispose);
+        expect(settings.reads, isNot(contains('device:usb-2e8a-a-unknown-7')));
+        expect(
+          _flowRegisterWrites(harness.transport),
+          serial == 0 ? isEmpty : [1250],
+        );
+      },
+    );
+  }
 
   test('absent calibration override does not write flow at connect', () async {
     final harness = await _connect();

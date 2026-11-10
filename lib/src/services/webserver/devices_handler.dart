@@ -884,6 +884,10 @@ Future<List<Map<String, dynamic>>> buildAvailabilityDeviceList(
   for (final device in liveDevices) {
     final state = await device.connectionState.first;
     liveIds.add(device.deviceId);
+    if (device is CanonicalDeviceIdentity) {
+      final canonicalId = (device as CanonicalDeviceIdentity).canonicalDeviceId;
+      if (canonicalId != null) liveIds.add(canonicalId);
+    }
     entries.add(DeviceListEntry.live(device, state));
   }
   for (final r in remembered) {
