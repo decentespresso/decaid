@@ -151,6 +151,14 @@ class SerialServiceAndroid
     return result;
   }
 
+  /// True when some already-known device owns the primary (non-tap)
+  /// endpoint of this physical USB attachment.
+  bool _ownsPrimaryEndpoint(int physicalId) => _devices.any(
+    (device) =>
+        device is! BengleDebugPort &&
+        _logicalToPhysicalDeviceId[device.deviceId] == physicalId,
+  );
+
   int _physicalGeneration(int? physicalId) =>
       physicalId == null ? 0 : (_usbGenerationByPhysicalId[physicalId] ?? 0);
 
@@ -465,7 +473,7 @@ class SerialServiceAndroid
         final existing = _devices.firstWhereOrNull(
           (device) => (physical.deviceId == null
               ? device.deviceId == remembered.id
-              : device is De1Interface &&
+              : device is! BengleDebugPort &&
                     _logicalToPhysicalDeviceId[device.deviceId] ==
                         physical.deviceId),
         );
@@ -680,12 +688,7 @@ class SerialServiceAndroid
         try {
           final machineId = _stableIdOf(d);
           final alreadyOwned =
-              physicalId != null &&
-              _devices.any(
-                (t) =>
-                    t is De1Interface &&
-                    _logicalToPhysicalDeviceId[t.deviceId] == physicalId,
-              );
+              physicalId != null && _ownsPrimaryEndpoint(physicalId);
           if (!alreadyOwned &&
               !_devices.any((t) => t.deviceId == machineId) &&
               seenMachineIds.add(machineId) &&

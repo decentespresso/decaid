@@ -96,8 +96,22 @@ class _FakeMachine implements De1Interface {
 }
 
 class _FakeScale implements Device {
+  _FakeScale({String? id}) : _id = id ?? 'usb-2e8a-a-8549628789ABCDEF-scale';
+
+  final String _id;
+
+  int disconnectCalls = 0;
+
+  final BehaviorSubject<ConnectionState> _connectionState =
+      BehaviorSubject.seeded(ConnectionState.connected);
+
   @override
-  String get deviceId => 'usb-2e8a-a-8549628789ABCDEF-scale';
+  Stream<ConnectionState> get connectionState => _connectionState.stream;
+
+  void setConnectionState(ConnectionState state) => _connectionState.add(state);
+
+  @override
+  String get deviceId => _id;
 
   @override
   String get name => 'Half Decent Scale';
@@ -110,12 +124,6 @@ class _FakeScale implements Device {
 
   @override
   TransportType get transportType => TransportType.serial;
-
-  int disconnectCalls = 0;
-
-  @override
-  Stream<ConnectionState> get connectionState =>
-      Stream.value(ConnectionState.connected);
 
   @override
   Future<void> onConnect() async {}
@@ -621,6 +629,100 @@ void main() {
       );
       expect(replugged, isA<AttachProbeConnected>());
       expect((await service.devices.first).single, same(machine));
+    },
+  );
+
+  test(
+    'a serial-less scale re-enumerated with a readable serial is not re-admitted',
+    () async {
+      final scale = _FakeScale(id: 'usb-2e8a-a-unknown-7');
+      var detections = 0;
+      listed = [_device(serial: null, physicalId: 7)];
+      detection = (_) async {
+        detections++;
+        return scale;
+      };
+      service = build();
+
+      await service.scanForDevices();
+      expect(await service.devices.first, [same(scale)]);
+      expect(detections, 1);
+
+      listed = [_device(serial: 'SCALE123', physicalId: 7)];
+      await service.scanForDevices();
+
+      expect(
+        detections,
+        1,
+        reason: 'the scale still owns this physical attachment',
+      );
+      expect(await service.devices.first, [same(scale)]);
+      expect(scale.disconnectCalls, 0);
+    },
+  );
+
+  test(
+    'quick-connect reuses a connected serial-less scale instead of opening a port',
+    () async {
+      final scale = _FakeScale(id: 'usb-2e8a-a-unknown-7');
+      var detections = 0;
+      listed = [_device(serial: null, physicalId: 7)];
+      detection = (_) async {
+        detections++;
+        return scale;
+      };
+      service = build();
+      await service.scanForDevices();
+
+      listed = [_device(serial: 'SCALE123', physicalId: 7)];
+      final reused = await service.tryQuickConnect(
+        const RememberedDevice(
+          id: 'usb-2e8a-a-SCALE123',
+          name: 'Half Decent Scale',
+          type: DeviceType.scale,
+          implementation: DeviceImplementation.hdsSerial,
+          transportType: TransportType.serial,
+        ),
+      );
+
+      expect(reused, same(scale));
+      expect(detections, 1);
+      expect(await service.devices.first, [same(scale)]);
+      expect(scale.disconnectCalls, 0);
+    },
+  );
+
+  test(
+    'a disconnected serial-less scale adopts its canonical serial on redetection',
+    () async {
+      final session = _FakeScale(id: 'usb-2e8a-a-unknown-7');
+      final canonical = _FakeScale(id: 'usb-2e8a-a-SCALE123');
+      Device? detected = session;
+      listed = [_device(serial: null, physicalId: 7)];
+      detection = (_) async => detected;
+      service = build();
+      await service.scanForDevices();
+      expect(await service.devices.first, [same(session)]);
+
+      await service.handleUsbEvent(
+        UsbEvent()
+          ..event = UsbEvent.ACTION_USB_DETACHED
+          ..device = _device(serial: null, physicalId: 7),
+      );
+      expect(await service.devices.first, isEmpty);
+      expect(session.disconnectCalls, 1);
+
+      final replugged = _device(serial: 'SCALE123', physicalId: 7);
+      listed = [replugged];
+      detected = canonical;
+      await service.handleUsbEvent(
+        UsbEvent()
+          ..event = UsbEvent.ACTION_USB_ATTACHED
+          ..device = replugged,
+      );
+      await service.scanForDevices();
+
+      expect(await service.devices.first, [same(canonical)]);
     },
   );
 
