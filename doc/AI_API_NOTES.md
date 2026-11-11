@@ -261,8 +261,8 @@ the `DECAID_EXTENSIONS_TOKEN` environment variable at launch.
   management route must be added to one of those lists to be reachable from a
   plugin. This bounds the plugin's own calls only: a plugin that can write
   plugin source and approve updates can install one holding `api`, or add
-  `api` to itself, which
-  issue #1031 accepts as the delegated authority of the permission.
+  `api` to itself with one source write, which issue #1031 accepts as the
+  delegated authority of the permission.
 - A bearer the token service recognises is removed from the request before
   handlers run, so plugin-defined endpoints never see it.
 - The scope is independent of `account:proxy`; each middleware checks its own.

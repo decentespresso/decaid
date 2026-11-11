@@ -157,8 +157,9 @@ A Decaid plugin consists of two required files:
     machine control, and a plugin that also needs the rest of the REST API
     declares `api` and uses `fetch`. Management itself is still full trust: a
     plugin that can install plugins and approve permissions can install one
-    holding any permission, or give itself `api` by writing its own source and
-    approving the update. See
+    holding any permission, or give itself `api` by rewriting its own source
+    (`PUT /api/v1/plugins/:id/source`), which applies the new manifest at once.
+    See
     [`host.localApi`](#hostlocalapipath-options).
 - **drivers**: Device classes the plugin may register. Each declaration has a plugin-local `id` and a `type`: `sensor`, `scale`, or `grinder`. A manifest may declare at most 8 drivers. Driver declarations authorize registration; they do not grant transport access. For example, a WebSocket-backed device also needs `network.websocket`. A driver may declare up to 8 `surfaces`, each with a unique safe `id`, `role` (`settings` or `diagnostics`), and a safe non-reserved `endpoint` naming a declared same-plugin HTTP endpoint. At most one surface has role `settings`. Surfaces require the `api` permission; optional `label` is display text. Plugins cannot supply URLs, authority, credentials, or routes through surfaces. Surface endpoints must not contain unpaired UTF-16 surrogates, which cannot round-trip through URI encoding; valid surrogate pairs remain supported.
 - **settings**: User-configurable options with `type` (`string`, `number`, `boolean`, `enum`), an optional `label` giving the setting a human-friendly name, an optional `description` explaining what the setting does, an optional `default`, and an optional `secure` flag for credentials such as passwords. Enum `values` are a JSON array of strings. Secure values use platform credential storage, are supplied in memory to `onLoad(settings)`, and are never returned by the REST API.
@@ -403,9 +404,10 @@ That limit is on what the plugin itself can call, not on what it can cause.
 Managing extensions means choosing the code that runs on the device: a plugin
 with `manage.extensions` can install or rewrite a plugin whose manifest holds
 `api` or any other permission, and can approve an update that adds one,
-including to itself. In two calls it can write its own source with `api` added
-and approve that update. Treat the permission as full trust in the plugin; the
-install warning says to allow it only for a plugin you trust completely.
+including to itself. With one call it can rewrite its own source with `api`
+added: a source write applies the manifest directly, without a pending update.
+Treat the permission as full trust in the plugin; the install warning says to
+allow it only for a plugin you trust completely.
 
 | Option | Default | Meaning |
 |--------|---------|---------|
