@@ -91,6 +91,7 @@ import 'package:reaprime/src/services/installed_components.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/account/decent_proxy_service.dart';
 import 'package:reaprime/src/services/account/proxy_token_service.dart';
+import 'package:reaprime/src/services/webserver/extension_management_auth.dart';
 import 'package:reaprime/src/services/webserver/proxy_auth_middleware.dart';
 import 'package:reaprime/src/controllers/battery_controller.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
@@ -370,45 +371,43 @@ Future<void> startWebServer(
     );
   }
 
-  final server = await serveOrReportPortInUse(
-    _init(
-      deviceHandler,
-      de1Handler,
-      firmwareHandler,
-      scaleHandler,
-      grinderHandler,
-      settingsHandler,
-      sensorsHandler,
-      workflowHandler,
-      shotsHandler,
-      steamsHandler,
-      kvStoreHandler,
-      pluginsHandler,
-      profileHandler,
-      webUIHandler,
-      feedbackHandler,
-      logsHandler,
-      webViewLogsHandler,
-      presenceHandler,
-      displayHandler,
-      accountHandler,
-      accountProxyHandler,
-      derekHandler,
-      proxyTokenService,
-      () => accountProxyCorsAllowedOrigins(webUIService),
-      dataExportHandler,
-      dataSyncHandler,
-      beansHandler,
-      grindersHandler,
-      infoHandler,
-      bleDiagnosticsHandler,
-      debugHandler,
-      wifiScaleHandler,
-      updateHandler,
-    ),
-    '0.0.0.0',
-    8080,
+  final handler = _init(
+    deviceHandler,
+    de1Handler,
+    firmwareHandler,
+    scaleHandler,
+    grinderHandler,
+    settingsHandler,
+    sensorsHandler,
+    workflowHandler,
+    shotsHandler,
+    steamsHandler,
+    kvStoreHandler,
+    pluginsHandler,
+    profileHandler,
+    webUIHandler,
+    feedbackHandler,
+    logsHandler,
+    webViewLogsHandler,
+    presenceHandler,
+    displayHandler,
+    accountHandler,
+    accountProxyHandler,
+    derekHandler,
+    proxyTokenService,
+    () => accountProxyCorsAllowedOrigins(webUIService),
+    dataExportHandler,
+    dataSyncHandler,
+    beansHandler,
+    grindersHandler,
+    infoHandler,
+    bleDiagnosticsHandler,
+    debugHandler,
+    wifiScaleHandler,
+    updateHandler,
   );
+  pluginService.pluginManager.attachLocalApi(handler);
+  final server = await serveOrReportPortInUse(handler, '0.0.0.0', 8080);
   log.info('API Web server running on ${server.address.host}:${server.port}');
 
   await startApiDocsServer();
@@ -580,6 +579,7 @@ Handler buildWebServerHandler(
             ? (Handler h) => h
             : proxyAuthMiddleware(proxyTokenService),
       )
+      .addMiddleware(extensionManagementAuthMiddleware(proxyTokenService))
       .addMiddleware(requestBodyReadMiddleware())
       .addMiddleware(apiAdmissionMiddleware(admissionGate ?? _apiAdmissionGate))
       .addHandler(routes);

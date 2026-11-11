@@ -9,6 +9,7 @@ class CliArgs {
   final bool printStoragePaths;
   final Set<String> trustedConsentKeys;
   final bool trustAllConsent;
+  final String? extensionsToken;
   final String? skinId;
   final String? skinPath;
 
@@ -21,6 +22,7 @@ class CliArgs {
     this.printStoragePaths = false,
     this.trustedConsentKeys = const {},
     this.trustAllConsent = false,
+    this.extensionsToken,
     this.skinId,
     this.skinPath,
   });
@@ -64,6 +66,13 @@ CliArgs parseCliArgs(List<String> args) {
       'trust-all-consent',
       help: 'Trust every account-proxy caller for this process.',
       defaultsTo: false,
+    )
+    ..addOption(
+      'extensions-token',
+      help:
+          'Accept this bearer token for plugin and skin management '
+          '(extensions:manage) for this process. At least 32 characters; '
+          'not persisted. For headless and development use.',
     );
 
   final results = parser.parse(args);
@@ -76,6 +85,7 @@ CliArgs parseCliArgs(List<String> args) {
     printStoragePaths: results['print-storage-paths'] as bool,
     trustedConsentKeys: (results['trust-consent'] as List<String>).toSet(),
     trustAllConsent: results['trust-all-consent'] as bool,
+    extensionsToken: results['extensions-token'] as String?,
     skinId: results['skin'] as String?,
     skinPath: results['skin-path'] as String?,
   );

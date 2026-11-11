@@ -142,6 +142,17 @@ A Decaid plugin consists of two required files:
   - `network.websocket`: Open outbound WebSocket connections (`ws://` and `wss://`) through `host.transport`
   - `network.tcp`: Open outbound raw TCP connections through `host.transport`
   - `network.tls`: Open outbound TLS connections (platform trust store) through `host.transport`
+  - `manage.extensions`: Call `host.localApi`, which reaches the plugin and skin
+    management routes. A plugin holding it can install, replace, configure,
+    enable, disable and remove any plugin or skin, change the default skin, start
+    and stop the skin server, and approve pending permission updates for any
+    plugin, itself included. Decaid shows a warning naming these powers when the
+    plugin is installed from the native screens, on the plugin's card, and in the
+    approval dialog when an update adds the permission. A plugin cannot obtain it
+    by itself: an update that adds it waits for approval like any added
+    permission, and without the permission the management routes refuse the
+    plugin and `host.localApi` rejects. See
+    [`host.localApi`](#hostlocalapipath-options).
 - **drivers**: Device classes the plugin may register. Each declaration has a plugin-local `id` and a `type`: `sensor`, `scale`, or `grinder`. A manifest may declare at most 8 drivers. Driver declarations authorize registration; they do not grant transport access. For example, a WebSocket-backed device also needs `network.websocket`. A driver may declare up to 8 `surfaces`, each with a unique safe `id`, `role` (`settings` or `diagnostics`), and a safe non-reserved `endpoint` naming a declared same-plugin HTTP endpoint. At most one surface has role `settings`. Surfaces require the `api` permission; optional `label` is display text. Plugins cannot supply URLs, authority, credentials, or routes through surfaces. Surface endpoints must not contain unpaired UTF-16 surrogates, which cannot round-trip through URI encoding; valid surrogate pairs remain supported.
 - **settings**: User-configurable options with `type` (`string`, `number`, `boolean`, `enum`), an optional `label` giving the setting a human-friendly name, an optional `description` explaining what the setting does, an optional `default`, and an optional `secure` flag for credentials such as passwords. Enum `values` are a JSON array of strings. Secure values use platform credential storage, are supplied in memory to `onLoad(settings)`, and are never returned by the REST API.
 
@@ -351,6 +362,72 @@ endpoint or media type. Permissions, the write allowlist, and native account
 consent still apply. A failed compressed POST has no automatic plain-body
 fallback. This transport option is not a user-facing upload setting.
 
+### `host.localApi(path, options)`
+Call Decaid's own REST API in-process with the authority to manage plugins and
+skins. Requires the `manage.extensions` permission. This is the only way a plugin
+reaches the management routes listed in
+[Plugin Lifecycle Management](#plugin-lifecycle-management-rest-api); `fetch` and
+`host.transport` reach the same server without any authority and get 401.
+
+`path` is a path under `/api/v1/`, optionally with a query string. A scheme, a
+host, a port or a fragment is refused.
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `method` | `GET` | `GET`, `POST`, `PUT`, `PATCH` or `DELETE` |
+| `body` | none | A string is sent as is; any other value is JSON-encoded |
+| `contentType` | `application/json` when there is a body | Request `Content-Type` |
+
+The promise resolves to `{ status, headers, body }`, where `body` is the response
+text. An HTTP error such as 400 or 409 is a resolved response, not a rejection.
+
+```javascript
+const list = await host.localApi("/api/v1/plugins");
+const plugins = JSON.parse(list.body);
+
+await host.localApi("/api/v1/plugins/my.other.reaplugin/enable", {
+  method: "POST"
+});
+
+const install = await host.localApi("/api/v1/plugins/install/github-release", {
+  method: "POST",
+  body: { repo: "acme/my-plugin" }
+});
+if (install.status !== 200) {
+  host.log("install failed: " + install.status + " " + install.body);
+}
+```
+
+Errors (the promise rejects with an `Error`):
+
+- `PluginPermissionError` when the manifest does not hold `manage.extensions`.
+  Decaid checks this in JavaScript and again on the Dart side.
+- `Plugin generation changed` when the plugin was unloaded or reloaded after the
+  call started.
+- `localApi path must start with /api/v1/` for any other path, and
+  `localApi does not support method ...` for another method.
+- `Local API request timed out` after 60 seconds, and an error when the response
+  is larger than the plugin fetch response limit.
+
+Authority rules:
+
+- The authority belongs to the loaded generation of the plugin. It ends when the
+  plugin is unloaded, disabled, uninstalled or reloaded, before `onUnload` runs,
+  and a reloaded plugin gets a new one only if its manifest still holds the
+  permission.
+- It is checked again on every request, so a request sent after the plugin
+  stopped is refused even if the call was prepared earlier.
+- It is attached only to `host.localApi`. `fetch` and `host.transport` never
+  carry it, including requests to `localhost` or the device's own address.
+- No token exists in JavaScript. The request is dispatched in-process and carries
+  the plugin's grant, which a network caller cannot present.
+- The plugin cannot supply headers or a host. A redirect response is returned to
+  the plugin as data and is not followed.
+
+A plugin with this permission can approve pending permission updates, including
+its own. That delegation is what the permission is for: hand it only to plugins
+you trust as much as the native settings screens.
+
 ## Events System
 
 ### Events from Flutter → Plugin
@@ -535,6 +612,13 @@ Plugins can make HTTP requests using the standard `fetch` API (polyfilled by the
 
 Plugin `fetch` requires `api`. Declared HTTP endpoints also require `api` before
 Decaid dispatches a request to the plugin.
+
+`fetch` can reach Decaid's own API at `localhost:8080` or the device address,
+but it does so as an ordinary network client with no authority: the plugin and
+skin management routes answer 401 to it, whatever headers the plugin sets. Use
+[`host.localApi`](#hostlocalapipath-options) with the `manage.extensions`
+permission for those routes. The rest of the API stays open to `fetch`, as it is
+to any client on the network.
 
 ```javascript
 // Basic GET request
@@ -1239,6 +1323,13 @@ The `request` object:
 | `body` | any | Parsed JSON request body, `null` when the body is empty |
 | `query` | object | Query parameters, percent-decoded |
 
+Plugin-defined endpoints need no token, and Decaid does not authenticate them.
+When a request carries an `Authorization: Bearer` token that Decaid itself
+recognises (an account-proxy or `extensions:manage` token), Decaid removes that
+header before the request reaches the plugin, so `request.headers` never holds
+it. Any other `Authorization` value is passed through unchanged, so a plugin that
+checks its own credentials on its endpoints keeps working.
+
 `query` carries every parameter of the request URL and is always present — an
 empty object when the URL has none, so `request.query.name` is safe to read
 without guarding. A caller can therefore name the record a page should open on:
@@ -1482,7 +1573,7 @@ it in Decaid UI.
 - **Global Functions**: `fetch()`, `btoa()`, `setTimeout()`, `clearTimeout()`
 - **Objects**: `Promise`, `JSON`, `Math`, `Date`, `Array`, `Object`
 - **Constants**: `undefined`, `null`, `Infinity`, `NaN`
-- **Host API**: `host.log()`, `host.emit()`, `host.storage()`, `host.decentProxy()`, `host.transport`, `host.devices`
+- **Host API**: `host.log()`, `host.emit()`, `host.storage()`, `host.decentProxy()`, `host.localApi()`, `host.transport`, `host.devices`
 
 ### Not Available
 
@@ -1504,8 +1595,21 @@ it in Decaid UI.
   certificates are not supported
 - Storage is isolated per plugin
 - No filesystem access beyond the plugin's own directory
-- HTTP/fetch cannot reach localhost or private IPs (except for the Decaid
-  API); `host.transport` has no such restriction
+- `fetch` and `host.transport` are not limited by destination, so they can
+  reach Decaid's own API like any client on the network. They carry no
+  authority: the plugin and skin management routes answer 401 to them. Only
+  `host.localApi`, with the `manage.extensions` permission, carries that
+  authority, and only for the plugin's current loaded generation
+- All loaded plugins share one JavaScript runtime and are not isolated from each
+  other. A plugin's permissions, `manage.extensions` included, should be treated
+  as available to every plugin loaded beside it, so grant `manage.extensions`
+  only on a device whose other plugins you trust as well
+- A bearer token that Decaid recognises is removed from a request before it
+  reaches a plugin-defined endpoint, so a client that sends its token to a
+  plugin endpoint does not hand that token to the plugin
+- The rest of the REST API has no authentication yet. Run the API server only on
+  networks you trust; bearer tokens travel in clear text over HTTP until the
+  HTTPS listener exists
 
 ## External First-Party Plugins
 
@@ -1561,12 +1665,17 @@ Branch installs have no tag rule. The resolved commit is the update signal, so a
 branch-backed plugin updates when the branch moves even if `version` never
 changes.
 
+Both install routes need an `extensions:manage` bearer token; see
+[Authorization](#authorization).
+
 ```bash
 curl -X POST http://tablet:8080/api/v1/plugins/install/github-release \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' \
   -d '{"repo": "acme/my-plugin"}'
 
 curl -X POST http://tablet:8080/api/v1/plugins/install/github-branch \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' \
   -d '{"repo": "acme/my-plugin", "branch": "dev"}'
 ```
@@ -1637,8 +1746,22 @@ candidate version and the added permissions, shown in the Plugins settings
 screen and in `GET /api/v1/plugins`, and installed only after explicit approval:
 
 ```bash
-curl -X POST http://tablet:8080/api/v1/plugins/my.reaplugin/update/approve
+curl -X POST http://tablet:8080/api/v1/plugins/my.reaplugin/update/approve \
+  -H "Authorization: Bearer $TOKEN"
 ```
+
+A pending update can be approved by:
+
+- the user, in the Plugins settings screen;
+- a REST client sending a bearer token with the `extensions:manage` scope (see
+  [Authorization](#authorization)); without one the route answers 401, and with
+  a token of another scope 403;
+- a plugin holding `manage.extensions`, through `host.localApi`. This includes
+  approving its own pending update. That is the authority the user delegated
+  when granting the permission, and it is why the permission carries a warning:
+  a plugin with it can raise its own permissions on the next update without
+  asking. A plugin without `manage.extensions` cannot approve anything, including
+  an update that would add the permission to itself.
 
 Approval is bound to the exact candidate that was reviewed. The pending release
 tag or commit is the fetch target, not "whatever is latest now", and the fetched
@@ -1674,28 +1797,76 @@ to plugins hosted in their own repository.
 
 ## Plugin Lifecycle Management (REST API)
 
-Plugins can be managed via REST API:
+Plugins can be managed via REST API. Routes marked **yes** in the Token column
+change what is installed or how it runs and need a bearer token with the
+`extensions:manage` scope; the rest stay open:
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/plugins` | List all plugins (includes `loaded`, `autoLoad`, `source`, `pendingUpdate` fields) |
-| POST | `/api/v1/plugins/:id/enable` | Load plugin + enable auto-load on startup |
-| POST | `/api/v1/plugins/:id/disable` | Unload plugin + disable auto-load |
-| PUT | `/api/v1/plugins/:id/source` | Create or overwrite `manifest.json` + `plugin.js` |
-| DELETE | `/api/v1/plugins/:id` | Remove plugin (unload + delete files) |
-| POST | `/api/v1/plugins/install` | Not supported (501); use the GitHub endpoints below |
-| POST | `/api/v1/plugins/install/github-release` | Install from a GitHub release asset |
-| POST | `/api/v1/plugins/install/github-branch` | Install from a GitHub branch |
-| POST | `/api/v1/plugins/update` | Check every GitHub-backed plugin for updates |
-| POST | `/api/v1/plugins/:id/update/approve` | Install an update that requests new permissions |
-| GET | `/api/v1/plugins/:id/settings` | Get plugin settings |
-| POST | `/api/v1/plugins/:id/settings` | Update plugin settings; reloads the plugin if it is loaded so the change applies immediately |
+| Method | Path | Token | Description |
+|--------|------|-------|-------------|
+| GET | `/api/v1/plugins` | no | List all plugins (includes `loaded`, `autoLoad`, `source`, `pendingUpdate` fields) |
+| POST | `/api/v1/plugins/:id/enable` | yes | Load plugin + enable auto-load on startup |
+| POST | `/api/v1/plugins/:id/disable` | yes | Unload plugin + disable auto-load |
+| PUT | `/api/v1/plugins/:id/source` | yes | Create or overwrite `manifest.json` + `plugin.js` |
+| DELETE | `/api/v1/plugins/:id` | yes | Remove plugin (unload + delete files) |
+| POST | `/api/v1/plugins/install` | yes | Not supported (501); use the GitHub endpoints below |
+| POST | `/api/v1/plugins/install/github-release` | yes | Install from a GitHub release asset |
+| POST | `/api/v1/plugins/install/github-branch` | yes | Install from a GitHub branch |
+| POST | `/api/v1/plugins/update` | yes | Check every GitHub-backed plugin for updates |
+| POST | `/api/v1/plugins/:id/update/approve` | yes | Install an update that requests new permissions |
+| GET | `/api/v1/plugins/:id/settings` | no | Get plugin settings |
+| POST | `/api/v1/plugins/:id/settings` | yes | Update plugin settings; reloads the plugin if it is loaded so the change applies immediately |
+
+The skin routes that change the installed or default skin or the skin server are
+gated the same way; see `doc/Skins.md`. So are `POST /api/v1/settings` when its
+body sets `defaultSkinId` or `webUiPath`, and the `defaultSkinId` part of a
+backup import or a pulling sync, which is skipped with a warning when the request
+is not authorized.
+
+### Authorization
+
+Send the token as `Authorization: Bearer <token>`. Decaid answers:
+
+| Status | Body | When |
+|--------|------|------|
+| 401 | `{"error":"Missing or malformed bearer token"}` | No `Authorization: Bearer` header; the response also has `WWW-Authenticate: Bearer` |
+| 401 | `{"error":"Invalid token"}` | The token is unknown or was revoked |
+| 403 | `{"error":"Token is not scoped for extensions:manage"}` | The token is valid but has another scope, such as an account-proxy token |
+
+Getting a token:
+
+- In the app: **Decent Account** page, **API access tokens**, **Create**, turn on
+  **Manage plugins and skins**. The token is shown once; copy it then. It is kept
+  until revoked on the same page. The section is available whether or not a
+  Decent account is linked.
+- For headless and development runs: start the app with
+  `--extensions-token <value>`. The value must be at least 32 characters; a
+  shorter one is ignored and logged. It is valid for that process only and is not
+  stored. With `scripts/sb-dev.sh`, pass it as
+  `--app-arg "--extensions-token=$TOKEN"`; `sb-dev restart` reuses it.
+
+```bash
+TOKEN="$(openssl rand -hex 32)"
+scripts/sb-dev.sh start --app-arg "--extensions-token=$TOKEN"
+curl -X POST http://localhost:8080/api/v1/plugins/my.reaplugin/enable \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Native settings screens call the services in-process and need no token. A plugin
+uses [`host.localApi`](#hostlocalapipath-options) instead of a token. Skins and
+web pages get no implicit authority; see "Managing plugins and skins from a skin"
+in `doc/Skins.md`.
+
+HTTP bearer tokens are not confidential on the LAN: anyone who can watch the
+traffic can read them. Use a trusted network until Decaid has an HTTPS listener.
+
+### Replacing plugin source
 
 `PUT /api/v1/plugins/:id/source` writes `manifest.json` and `plugin.js` for
 that id, creating the plugin if it is not installed yet:
 
 ```bash
 curl -X PUT http://tablet:8080/api/v1/plugins/my.reaplugin/source \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' \
   -d '{"manifest": {"id": "my.reaplugin", "name": "My plugin", "author": "me", "description": "", "version": "1.1.0", "apiVersion": 1, "permissions": ["log"], "settings": {}, "api": []}, "plugin": "function createPlugin() { return { id: \"my.reaplugin\", onLoad() {} }; }"}'
 ```
@@ -1724,10 +1895,10 @@ Rules:
 - Like `/settings`, this path shadows a plugin-declared endpoint named
   `source`.
 
-The endpoint accepts arbitrary JavaScript that Decaid then runs in-process. It
-is not covered by the account-proxy bearer token, so anyone who can reach the
-API server on the LAN can install or replace plugin code. Run the API server
-only on networks you trust.
+The endpoint accepts arbitrary JavaScript that Decaid then runs in-process, so
+it requires an `extensions:manage` token like the other management routes. An
+account-proxy token is refused with 403. Because the token travels in clear text
+over HTTP, run the API server only on networks you trust.
 
 Settings updates are patches for every field: an omitted field preserves the
 existing value, `null` clears it, and for secure fields a `{ "isSet":
@@ -1736,7 +1907,10 @@ contain only the marker for secure fields, never the submitted or stored
 value. Existing cleartext secure fields are moved out of SharedPreferences on
 first read.
 
-The bundled **settings plugin** (`settings.reaplugin`) provides a web UI for plugin management at `/api/v1/plugins/settings.reaplugin/ui`. It includes an enable/disable toggle and remove button for each plugin, with a self-protection guard that prevents disabling itself.
+The bundled **settings plugin** (`settings.reaplugin`) provides a web UI for plugin management at `/api/v1/plugins/settings.reaplugin/ui`. It includes an enable/disable toggle and remove button for each plugin, with a self-protection guard that prevents disabling itself. The page is a web
+page like any other and has no implicit authority: the first management action
+asks for an `extensions:manage` token, keeps it in memory for the life of the
+page, and sends it as a bearer. A 401 clears it and asks again.
 
 The bundled **Decent shot upload plugin** (`shot-upload.reaplugin`) is fetched
 from the pinned [decentespresso/shot-upload](https://github.com/decentespresso/shot-upload)
@@ -1765,6 +1939,26 @@ uses `host.notify` for an actionable notification. The notification's message,
 Support destination, and recovery rules belong in the
 [plugin repository](https://github.com/decentespresso/shot-upload), not native
 UI.
+
+### Compatibility
+
+Before decaid#1031 the management routes were open to any client. They now
+answer 401 without an `extensions:manage` bearer token, while the rest of the API
+stays unauthenticated. A plugin whose served pages called them (enable, disable,
+settings, install, update, approve, source, remove, or the skin routes) has three
+options:
+
+- prompt the user for a token created in the app and send it from the page as
+  `Authorization: Bearer <token>`, keeping it in memory rather than in storage
+  that other pages on the API origin can read;
+- move the call into the plugin's own JavaScript, declare `manage.extensions`
+  (which users approve with a warning), and call
+  [`host.localApi`](#hostlocalapipath-options);
+- send the user to the native Plugins and Skins settings screens.
+
+Calls from plugin JavaScript to these routes through `fetch` or `host.transport`
+no longer work; switch them to `host.localApi`. Reading routes such as
+`GET /api/v1/plugins` and `GET /api/v1/plugins/:id/settings` are unchanged.
 
 ## Next Steps
 

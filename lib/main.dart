@@ -521,6 +521,21 @@ void main(List<String> args) async {
   CredentialStore? credentialStore;
   AccountConsentGate? consentGate;
   final proxyTokenService = ProxyTokenService();
+  final extensionsToken = cliArgs.extensionsToken;
+  if (extensionsToken != null &&
+      !proxyTokenService.registerProcessToken(
+        extensionsToken,
+        const ProxyCaller(
+          id: 'cli',
+          scopes: {ProxyTokenService.scopeExtensionsManage},
+          label: '--extensions-token',
+        ),
+      )) {
+    log.severe(
+      '--extensions-token ignored: it must be at least '
+      '${ProxyTokenService.minimumProcessTokenLength} characters',
+    );
+  }
   if (cliArgs.noAccount) {
     log.info('--no-account: skipping credential store and account service');
     decentAccountService = null;

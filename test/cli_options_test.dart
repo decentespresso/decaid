@@ -12,6 +12,7 @@ void main() {
       expect(args.noAccount, isFalse);
       expect(args.trustedConsentKeys, isEmpty);
       expect(args.trustAllConsent, isFalse);
+      expect(args.extensionsToken, isNull);
       expect(args.skinId, isNull);
       expect(args.skinPath, isNull);
     });
@@ -75,6 +76,17 @@ void main() {
     test('--trust-all-consent', () {
       final args = parseCliArgs(['--trust-all-consent']);
       expect(args.trustAllConsent, isTrue);
+    });
+
+    test('--extensions-token=<value>', () {
+      final token = 'e' * 40;
+      final args = parseCliArgs(['--extensions-token=$token']);
+      expect(args.extensionsToken, token);
+    });
+
+    test('--extensions-token <value> as a separate argument', () {
+      final args = parseCliArgs(['--extensions-token', 'separate-value']);
+      expect(args.extensionsToken, 'separate-value');
     });
 
     test('all flags combined', () {

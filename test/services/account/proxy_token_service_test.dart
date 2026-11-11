@@ -92,4 +92,57 @@ void main() {
     service.revokeToken(service.skinToken);
     expect(service.validate(service.skinToken), isNotNull);
   });
+
+  test('the extension management scope is extensions:manage', () {
+    expect(ProxyTokenService.scopeExtensionsManage, 'extensions:manage');
+  });
+
+  test('a process token shorter than 32 characters is not registered', () {
+    final service = ProxyTokenService();
+    final short = 'x' * (ProxyTokenService.minimumProcessTokenLength - 1);
+
+    final registered = service.registerProcessToken(
+      short,
+      const ProxyCaller(
+        id: 'cli',
+        scopes: {ProxyTokenService.scopeExtensionsManage},
+      ),
+    );
+
+    expect(registered, isFalse);
+    expect(service.validate(short), isNull);
+  });
+
+  test('a process token of 32 characters or more is registered', () {
+    final service = ProxyTokenService();
+    final token = 'y' * ProxyTokenService.minimumProcessTokenLength;
+
+    final registered = service.registerProcessToken(
+      token,
+      const ProxyCaller(
+        id: 'cli',
+        scopes: {ProxyTokenService.scopeExtensionsManage},
+      ),
+    );
+
+    expect(registered, isTrue);
+    final caller = service.validate(token);
+    expect(caller?.id, 'cli');
+    expect(caller?.scopes, {ProxyTokenService.scopeExtensionsManage});
+  });
+
+  test('a registered caller keeps its label', () {
+    final service = ProxyTokenService();
+    service.registerToken(
+      'labelled-token',
+      const ProxyCaller(
+        id: 'api:station',
+        scopes: {ProxyTokenService.scopeExtensionsManage},
+        label: 'Station laptop',
+      ),
+    );
+
+    expect(service.validate('labelled-token')?.label, 'Station laptop');
+    expect(service.validate(service.skinToken)?.label, isNull);
+  });
 }

@@ -73,6 +73,13 @@ class SettingsHandler {
         maxBytes: largeRequestBodyBytes,
       );
       Map<String, dynamic> json = jsonDecode(payload);
+      if (json.containsKey('webUiPath') || json.containsKey('defaultSkinId')) {
+        final denial = requireExtensionManagement(
+          request,
+          action: 'POST /api/v1/settings skin selection',
+        );
+        if (denial != null) return denial;
+      }
       if (json.containsKey('gatewayMode')) {
         final GatewayMode? gatewayMode = GatewayModeFromString.fromString(
           json['gatewayMode'],

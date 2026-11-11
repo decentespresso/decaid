@@ -24,6 +24,17 @@ class PluginApprovalRequiredException implements Exception {
   String toString() => message;
 }
 
+class PluginInstallDeclinedException implements Exception {
+  final String pluginId;
+  PluginInstallDeclinedException(this.pluginId);
+
+  @override
+  String toString() => 'Installation of $pluginId was declined';
+}
+
+typedef ExtensionManagementApproval =
+    Future<bool> Function(PluginManifest candidate);
+
 final _releaseTagPattern = RegExp(r'^v?\d+\.\d+\.\d+$');
 
 /// GitHub repositories the bundled plugins are published from. A bundled copy
@@ -82,6 +93,7 @@ class PluginSourceService {
     String repo, {
     String? assetName,
     bool includePrerelease = false,
+    ExtensionManagementApproval? approveExtensionManagement,
   }) async {
     final release = await fetchLatestGitHubRelease(
       repo,
@@ -109,6 +121,7 @@ class PluginSourceService {
           installedAt: now,
           lastChecked: now,
         ),
+        approveExtensionManagement: approveExtensionManagement,
       );
     });
   }
@@ -116,6 +129,7 @@ class PluginSourceService {
   Future<PluginManifest> installFromGitHubBranch(
     String repo, {
     String branch = 'main',
+    ExtensionManagementApproval? approveExtensionManagement,
   }) async {
     final commit = await fetchGitHubBranchCommit(
       repo,
@@ -141,11 +155,15 @@ class PluginSourceService {
           installedAt: now,
           lastChecked: now,
         ),
+        approveExtensionManagement: approveExtensionManagement,
       );
     });
   }
 
-  Future<PluginManifest> installFromZip(String zipPath) async {
+  Future<PluginManifest> installFromZip(
+    String zipPath, {
+    ExtensionManagementApproval? approveExtensionManagement,
+  }) async {
     final bytes = await File(zipPath).readAsBytes();
     return _withStaging((staging) async {
       _extractArchive(bytes, staging);
@@ -156,11 +174,15 @@ class PluginSourceService {
           kind: PluginSourceKind.localZip,
           installedAt: DateTime.now(),
         ),
+        approveExtensionManagement: approveExtensionManagement,
       );
     });
   }
 
-  Future<PluginManifest> installFromFolder(String folderPath) async {
+  Future<PluginManifest> installFromFolder(
+    String folderPath, {
+    ExtensionManagementApproval? approveExtensionManagement,
+  }) async {
     final package = resolvePluginPackage(Directory(folderPath));
     return _install(
       package,
@@ -168,13 +190,26 @@ class PluginSourceService {
         kind: PluginSourceKind.localFolder,
         installedAt: DateTime.now(),
       ),
+      approveExtensionManagement: approveExtensionManagement,
     );
   }
 
   Future<PluginManifest> _install(
     PluginPackage package,
-    PluginSource source,
-  ) async {
+    PluginSource source, {
+    ExtensionManagementApproval? approveExtensionManagement,
+  }) async {
+    final candidate = package.manifest;
+    final installed = _loader.getPluginManifest(candidate.id);
+    final addsExtensionManagement =
+        candidate.permissions.contains(PluginPermissions.manageExtensions) &&
+        installed?.permissions.contains(PluginPermissions.manageExtensions) !=
+            true;
+    if (addsExtensionManagement &&
+        approveExtensionManagement != null &&
+        !await approveExtensionManagement(candidate)) {
+      throw PluginInstallDeclinedException(candidate.id);
+    }
     final manifest = await _loader.installPluginPackage(package.root);
     _writeSource(manifest.id, source);
     return manifest;

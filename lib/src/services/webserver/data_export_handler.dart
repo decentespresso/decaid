@@ -10,6 +10,8 @@ import 'package:reaprime/src/services/webserver/data_export/data_export_section.
 import 'package:reaprime/src/services/webserver/data_export/data_transfer_result.dart';
 import 'package:reaprime/src/services/webserver/data_export/data_transfer_limits.dart';
 import 'package:reaprime/src/services/webserver/data_export/kv_store_export_section.dart';
+import 'package:reaprime/src/services/webserver/data_export/settings_export_section.dart';
+import 'package:reaprime/src/services/webserver/extension_management_auth.dart';
 import 'package:reaprime/src/services/export/streaming_zip_writer.dart';
 import 'package:reaprime/src/services/webserver/data_export/streaming_zip_reader.dart';
 import 'package:reaprime/src/services/webserver/json_response.dart';
@@ -209,6 +211,7 @@ class DataExportHandler {
     File zipFile,
     ConflictStrategy strategy, {
     List<String>? sections,
+    bool mayChangeDefaultSkin = false,
   }) async {
     final StreamingZipReader reader;
     try {
@@ -272,6 +275,7 @@ class DataExportHandler {
             entriesByKey[key]!,
             strategy,
             jsonFile,
+            mayChangeDefaultSkin: mayChangeDefaultSkin,
           );
 
           if (section.filename == 'settings.json' &&
@@ -373,14 +377,19 @@ class DataExportHandler {
     DataExportSection section,
     ArchiveFile entry,
     ConflictStrategy strategy,
-    File jsonFile,
-  ) async {
+    File jsonFile, {
+    required bool mayChangeDefaultSkin,
+  }) async {
     try {
       await reader.writeEntryToFile(entry, jsonFile);
-      return await section.importJson(
-        _FileJsonInput(jsonFile, _limits),
-        strategy,
-      );
+      final input = _FileJsonInput(jsonFile, _limits);
+      return section is SettingsExportSection
+          ? await section.importJson(
+              input,
+              strategy,
+              mayChangeDefaultSkin: mayChangeDefaultSkin,
+            )
+          : await section.importJson(input, strategy);
     } on ZipReadException catch (e) {
       throw InvalidBackupException(
         message: 'Could not read the backup ZIP archive: ${e.message}',
@@ -432,7 +441,11 @@ class DataExportHandler {
         await raf.close();
       }
 
-      final outcome = await importFromZipFile(zipFile, strategy);
+      final outcome = await importFromZipFile(
+        zipFile,
+        strategy,
+        mayChangeDefaultSkin: mayManageExtensions(request),
+      );
       return outcome.hasFailures
           ? jsonMultiStatus(outcome.toJson())
           : jsonOk(outcome.toJson());

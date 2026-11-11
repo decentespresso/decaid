@@ -54,10 +54,13 @@ class SettingsExportSection implements DataExportSection {
   @override
   Future<SectionImportResult> importJson(
     SectionJsonInput input,
-    ConflictStrategy strategy,
-  ) async {
+    ConflictStrategy strategy, {
+    bool mayChangeDefaultSkin = false,
+  }) async {
     final errors = <String>[];
+    final warnings = <String>[];
     var imported = 0;
+    var skipped = 0;
 
     try {
       final data = await input.readWhole();
@@ -145,10 +148,17 @@ class SettingsExportSection implements DataExportSection {
         }
 
         if (settings.containsKey('defaultSkinId')) {
-          await _controller.setDefaultSkinId(
-            settings['defaultSkinId'] as String,
-          );
-          imported++;
+          final defaultSkinId = settings['defaultSkinId'] as String;
+          if (mayChangeDefaultSkin) {
+            await _controller.setDefaultSkinId(defaultSkinId);
+            imported++;
+          } else if (defaultSkinId != _controller.defaultSkinId) {
+            skipped++;
+            warnings.add(
+              'defaultSkinId was not imported: changing the default skin '
+              'requires extensions:manage authorization.',
+            );
+          }
         }
 
         if (settings.containsKey('automaticUpdateCheck')) {
@@ -253,6 +263,11 @@ class SettingsExportSection implements DataExportSection {
       errors.add('Failed to import settings: $e');
     }
 
-    return SectionImportResult(imported: imported, errors: errors);
+    return SectionImportResult(
+      imported: imported,
+      skipped: skipped,
+      errors: errors,
+      warnings: warnings,
+    );
   }
 }

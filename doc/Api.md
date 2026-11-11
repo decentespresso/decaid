@@ -53,6 +53,104 @@ documented limits.
 
 ---
 
+## Extension management authorization
+
+Routes that install, update, configure, enable, disable or remove plugins and
+skins, choose the default skin, or start and stop the skin server require
+`Authorization: Bearer <token>` with the scope `extensions:manage`. The rest of
+the API stays unauthenticated (general API authentication is tracked in #1135).
+The OpenAPI spec marks these operations with the `extensionsManage` security
+scheme, and the WebUI & Skins and Plugins route tables below mark them in a
+Token column.
+
+| Method | Route |
+|---|---|
+| POST | `/api/v1/plugins/install` |
+| POST | `/api/v1/plugins/install/github-release` |
+| POST | `/api/v1/plugins/install/github-branch` |
+| POST | `/api/v1/plugins/update` |
+| POST | `/api/v1/plugins/:id/settings` |
+| PUT | `/api/v1/plugins/:id/source` |
+| POST | `/api/v1/plugins/:id/enable` |
+| POST | `/api/v1/plugins/:id/disable` |
+| POST | `/api/v1/plugins/:id/update/approve` |
+| DELETE | `/api/v1/plugins/:id` |
+| PUT | `/api/v1/webui/skins/default` |
+| POST | `/api/v1/webui/skins/install/github-release` |
+| POST | `/api/v1/webui/skins/install/github-branch` |
+| POST | `/api/v1/webui/skins/install/url` |
+| POST | `/api/v1/webui/skins/update` |
+| DELETE | `/api/v1/webui/skins/:id` |
+| POST | `/api/v1/webui/server/start` |
+| POST | `/api/v1/webui/server/stop` |
+
+Two more routes are gated by what the body contains:
+
+- `POST /api/v1/settings` with `defaultSkinId` or `webUiPath` in the body needs
+  the same token and is refused with 401 or 403 before any key is applied.
+  Bodies without those keys need no token.
+- `POST /api/v1/data/import` and a pulling `POST /api/v1/data/sync` (`pull`, or
+  the pull phase of `two_way`) import everything else without a token, but skip
+  a `defaultSkinId` that differs from the current one and report it as a
+  warning in the `settings` section result. Restoring a backup or syncing
+  therefore no longer changes the default skin unless the request is
+  authorized.
+
+Read routes (`GET`), plugin-defined endpoints (`/api/v1/plugins/:id/:endpoint`,
+`/ws/v1/plugins/:id/:endpoint`) and `OPTIONS` are not gated.
+
+Responses on a gated route:
+
+| Status | When | Body |
+|---|---|---|
+| 401 | No `Authorization` header, or not a bearer (also sends `WWW-Authenticate: Bearer`) | `{"error":"Missing or malformed bearer token"}` |
+| 401 | Unknown or revoked token | `{"error":"Invalid token"}` |
+| 403 | Known token without `extensions:manage` (for example an `account:proxy` token) | `{"error":"Token is not scoped for extensions:manage"}` |
+
+The scope is independent of the account-proxy scopes: an `extensions:manage`
+token cannot use `/api/v1/account/proxy/`, and an `account:proxy` token
+(including the skin token injected into served skin pages) gets 403 here.
+
+**Getting a token.** In the app, open the Decent Account page, go to "API
+access tokens", choose Create, name the token and turn on "Manage plugins and
+skins". The token is shown once; copy it then. No linked Decent account is
+needed. For headless or development runs, start the app with
+`--extensions-token <value>` (at least 32 characters; a shorter value is
+ignored with a logged error). That token lasts for the process lifetime.
+
+```bash
+TOKEN='paste-the-token-here'
+curl -X POST http://decaid.local:8080/api/v1/plugins/my.plugin/enable \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Tokens are named. Decaid logs each authorized or refused request with the
+caller id and name (`api:<id> "name"`, or `cli "--extensions-token"`),
+never the token value. A token Decaid recognises is removed from the request
+before handlers run, so a plugin-defined endpoint never receives it.
+
+**Plain HTTP.** The API listens over plain HTTP, so a bearer token is not
+confidential on the local network. Use a trusted network until the HTTPS
+listener (#925) exists.
+
+**Plugins.** A plugin whose manifest declares `manage.extensions` calls these
+routes through `host.localApi(path, options)`, in process, without a token.
+Installing such a plugin from the native screens asks for confirmation, and an
+update that adds the permission waits for approval. A plugin holding the
+permission can approve pending permission updates, including its own; a plugin
+without it cannot grant it to itself. See [`Plugins.md`](Plugins.md).
+
+**Compatibility.** Skins and web pages get no implicit authority. Clients that
+called these routes without a token now get 401: the bundled
+`settings.reaplugin` web page, Streamline's plugin enable, install, update,
+approve and settings calls and its skin switching over REST, and DYE2's
+dashboard when it saves Visualizer plugin settings. Such a client must send a
+user-created token, hand the operation to a plugin that holds
+`manage.extensions`, or leave it to the native settings screens.
+`window.decentApp.switchSkin(skinId)` inside the embedded WebView is unaffected.
+
+---
+
 ## Conditional GETs (ETag / If-None-Match)
 
 The following list endpoints set a strong `ETag` on every `200 OK` response and honour `If-None-Match` with `304 Not Modified` (empty body) when the client's tag matches:
@@ -482,7 +580,7 @@ from normal scan results; it is never a persisted `grinderId`.
 | Method | Path | Description | Handler |
 |--------|------|-------------|---------|
 | GET | `/api/v1/settings` | All app settings (gateway, theme, charging, devices, etc.) | `settings_handler.dart` |
-| POST | `/api/v1/settings` | Update settings (partial, key-by-key) | |
+| POST | `/api/v1/settings` | Update settings (partial, key-by-key); `defaultSkinId` and `webUiPath` need an `extensions:manage` token ([details](#extension-management-authorization)) | |
 
 Settings fields include: `gatewayMode`, `themeMode`, `logLevel`, `weightFlowMultiplier`, `volumeFlowMultiplier`, `hotWaterFlowMultiplier`, `scalePowerMode`, `blockOnNoScale`, `blockTareDuringShot`, `stopHotWaterAtWeight`, `preferredMachineId`, `preferredScaleId`, `preferredGrinderDeviceId`, `defaultSkinId`, `automaticUpdateCheck`, `chargingMode`, `nightModeEnabled`, `nightModeSleepTime`, `nightModeMorningTime`, `lowBatteryBrightnessLimit`, `keepAwake`, `simulatedDevices`.
 
@@ -495,40 +593,44 @@ Android session-only USB machine and scale IDs are usable for the current attach
 
 ### WebUI & Skins
 
-| Method | Path | Description | Handler |
-|--------|------|-------------|---------|
-| GET | `/api/v1/webui/skins` | List installed skins | `webui_handler.dart` |
-| GET | `/api/v1/webui/skins/:id` | Get skin details | |
-| GET | `/api/v1/webui/skins/default` | Get default skin | |
-| PUT | `/api/v1/webui/skins/default` | Set default skin (`{skinId}`) | |
-| POST | `/api/v1/webui/skins/install/github-release` | Install from GitHub release | |
-| POST | `/api/v1/webui/skins/install/github-branch` | Install from GitHub branch and persist its source for update checks | |
-| POST | `/api/v1/webui/skins/install/url` | Install from ZIP URL | |
-| DELETE | `/api/v1/webui/skins/:id` | Remove installed skin | |
-| POST | `/api/v1/webui/skins/update` | Check all skins for updates from remote sources | |
-| GET | `/api/v1/webui/server/status` | Server status (`{serving, path, port, ip}`) | |
-| POST | `/api/v1/webui/server/start` | Start serving default skin through the port 3000 entry point | |
-| POST | `/api/v1/webui/server/stop` | Stop serving | |
-| GET | `/api/v1/webui/skin-assets/:id/:filepath` | Fetch a file from another installed skin (cross-skin asset sharing) | |
+| Method | Path | Description | Handler | Token |
+|--------|------|-------------|---------|-------|
+| GET | `/api/v1/webui/skins` | List installed skins | `webui_handler.dart` | |
+| GET | `/api/v1/webui/skins/:id` | Get skin details | | |
+| GET | `/api/v1/webui/skins/default` | Get default skin | | |
+| PUT | `/api/v1/webui/skins/default` | Set default skin (`{skinId}`) | | required |
+| POST | `/api/v1/webui/skins/install/github-release` | Install from GitHub release | | required |
+| POST | `/api/v1/webui/skins/install/github-branch` | Install from GitHub branch and persist its source for update checks | | required |
+| POST | `/api/v1/webui/skins/install/url` | Install from ZIP URL | | required |
+| DELETE | `/api/v1/webui/skins/:id` | Remove installed skin | | required |
+| POST | `/api/v1/webui/skins/update` | Check all skins for updates from remote sources | | required |
+| GET | `/api/v1/webui/server/status` | Server status (`{serving, path, port, ip}`) | | |
+| POST | `/api/v1/webui/server/start` | Start serving default skin through the port 3000 entry point | | required |
+| POST | `/api/v1/webui/server/stop` | Stop serving | | required |
+| GET | `/api/v1/webui/skin-assets/:id/:filepath` | Fetch a file from another installed skin (cross-skin asset sharing) | | |
+
+Rows marked `required` need a bearer token scoped `extensions:manage`; see [Extension management authorization](#extension-management-authorization).
 
 ### Plugins
 
-| Method | Path | Description | Handler |
-|--------|------|-------------|---------|
-| GET | `/api/v1/plugins` | List all plugins (with `loaded`, `autoLoad`, `source`, `pendingUpdate` fields) | `plugins_handler.dart` |
-| GET | `/api/v1/plugins/:id/settings` | Get plugin settings; secure fields return `{isSet}` only | |
-| POST | `/api/v1/plugins/:id/settings` | Patch plugin settings (omitted preserves, `null` clears), reload the plugin if loaded, and return a redacted result | |
-| POST | `/api/v1/plugins/:id/enable` | Load plugin + enable auto-load | |
-| POST | `/api/v1/plugins/:id/disable` | Unload plugin + disable auto-load | |
-| DELETE | `/api/v1/plugins/:id` | Remove plugin (unload + delete files) | |
-| PUT | `/api/v1/plugins/:id/source` | Create or overwrite `manifest.json` + `plugin.js` | |
-| POST | `/api/v1/plugins/install` | Not supported — returns 501 naming the GitHub endpoints | |
-| POST | `/api/v1/plugins/install/github-release` | Install from a GitHub release asset; tag must equal the manifest version | |
-| POST | `/api/v1/plugins/install/github-branch` | Install from a GitHub branch; the resolved commit drives updates | |
-| POST | `/api/v1/plugins/update` | Check every GitHub-backed plugin for updates | |
-| POST | `/api/v1/plugins/:id/update/approve` | Install an update that asks for new permissions | |
-| ANY | `/api/v1/plugins/:id/:endpoint` | Plugin HTTP endpoint; requires `api` and returns 403 without it | |
-| WS | `/ws/v1/plugins/:id/:endpoint` | Plugin WebSocket endpoint | |
+| Method | Path | Description | Handler | Token |
+|--------|------|-------------|---------|-------|
+| GET | `/api/v1/plugins` | List all plugins (with `loaded`, `autoLoad`, `source`, `pendingUpdate` fields) | `plugins_handler.dart` | |
+| GET | `/api/v1/plugins/:id/settings` | Get plugin settings; secure fields return `{isSet}` only | | |
+| POST | `/api/v1/plugins/:id/settings` | Patch plugin settings (omitted preserves, `null` clears), reload the plugin if loaded, and return a redacted result | | required |
+| POST | `/api/v1/plugins/:id/enable` | Load plugin + enable auto-load | | required |
+| POST | `/api/v1/plugins/:id/disable` | Unload plugin + disable auto-load | | required |
+| DELETE | `/api/v1/plugins/:id` | Remove plugin (unload + delete files) | | required |
+| PUT | `/api/v1/plugins/:id/source` | Create or overwrite `manifest.json` + `plugin.js` | | required |
+| POST | `/api/v1/plugins/install` | Not supported — returns 501 naming the GitHub endpoints | | required |
+| POST | `/api/v1/plugins/install/github-release` | Install from a GitHub release asset; tag must equal the manifest version | | required |
+| POST | `/api/v1/plugins/install/github-branch` | Install from a GitHub branch; the resolved commit drives updates | | required |
+| POST | `/api/v1/plugins/update` | Check every GitHub-backed plugin for updates | | required |
+| POST | `/api/v1/plugins/:id/update/approve` | Install an update that asks for new permissions | | required |
+| ANY | `/api/v1/plugins/:id/:endpoint` | Plugin HTTP endpoint; requires `api` and returns 403 without it | | |
+| WS | `/ws/v1/plugins/:id/:endpoint` | Plugin WebSocket endpoint | | |
+
+Rows marked `required` need a bearer token scoped `extensions:manage`; see [Extension management authorization](#extension-management-authorization).
 
 For plugin HTTP and WebSocket endpoint routes, `id` and `endpoint` are opaque
 URI path components. Clients percent-encode each once; the handler decodes each
@@ -739,9 +841,9 @@ archive is also bounded by the 2 GiB import request limit.
 | POST | `/api/v1/account/proxy/<path>` | Auth-enriching write proxy (relays body) | `account_proxy_handler.dart` |
 | PUT | `/api/v1/account/proxy/<path>` | Auth-enriching write proxy (relays body) | `account_proxy_handler.dart` |
 
-Linking/unlinking a Decent account is **native-only** — there are no network login/logout routes. The webserver is unauthenticated with `Access-Control-Allow-Origin: *`, so exposing credential operations would let any LAN client or browser origin store attacker credentials or unlink the account. The status response omits the linked email (PII).
+Linking/unlinking a Decent account is **native-only** — there are no network login/logout routes. Apart from the account proxy and extension management, the webserver is unauthenticated, and it sends `Access-Control-Allow-Origin: *`, so exposing credential operations would let any LAN client or browser origin store attacker credentials or unlink the account. The status response omits the linked email (PII).
 
-The **proxy** lets clients *use* the account without ever seeing the credentials: it attaches the linked account's Basic auth server-side, forwards to `decentespresso.com`, and relays the upstream status + body verbatim. It requires `Authorization: Bearer <token>` and is enforced only on this path. `GET` requires `account:proxy` (including the skin token injected into served skin pages); `POST`/`PUT` require the stronger `account:proxy:write` scope, so the read-only skin token cannot write. Forwarding is restricted to the `support/api/` prefix. The OpenAPI spec documents the generated-client-safe `/support/api/{endpoint}` form; use this raw catch-all route when a Decent backend path contains additional slashes. Each served skin generation gets a fresh token bound to that skin's immutable consent key; switching or stopping the skin server revokes the previous token. The skin's origin normally remains stable across restarts, with a temporary fallback if its assigned port is occupied; see [Skin Origins and Browser Storage](Skins.md#skin-origins-and-browser-storage). The stable port 3000 entry point redirects without caching to the active origin and is the address to bookmark. The first request from each skin, plugin, or named API client pauses for native approval on the Decaid device. Explicit allow and deny decisions are remembered; a 30-second timeout denies only that request. Responses: 401 (missing/invalid token or no linked account), 403 (token unscoped, path not allowed, or account access not granted). Write-scoped tokens are minted from the account page's API-token UI by enabling "Allow write access". Headless operators can grant session-only access with `--trust-consent=<caller-key>` or `--trust-all-consent`.
+The **proxy** lets clients *use* the account without ever seeing the credentials: it attaches the linked account's Basic auth server-side, forwards to `decentespresso.com`, and relays the upstream status + body verbatim. It requires `Authorization: Bearer <token>`. The account proxy and [extension management](#extension-management-authorization) are the two authenticated surfaces, and their scopes are independent: an `extensions:manage` token cannot use the proxy, and an account-proxy token cannot manage extensions. `GET` requires `account:proxy` (including the skin token injected into served skin pages); `POST`/`PUT` require the stronger `account:proxy:write` scope, so the read-only skin token cannot write. Forwarding is restricted to the `support/api/` prefix. The OpenAPI spec documents the generated-client-safe `/support/api/{endpoint}` form; use this raw catch-all route when a Decent backend path contains additional slashes. Each served skin generation gets a fresh token bound to that skin's immutable consent key; switching or stopping the skin server revokes the previous token. The skin's origin normally remains stable across restarts, with a temporary fallback if its assigned port is occupied; see [Skin Origins and Browser Storage](Skins.md#skin-origins-and-browser-storage). The stable port 3000 entry point redirects without caching to the active origin and is the address to bookmark. The first request from each skin, plugin, or named API client pauses for native approval on the Decaid device. Explicit allow and deny decisions are remembered; a 30-second timeout denies only that request. Responses: 401 (missing/invalid token or no linked account), 403 (token unscoped, path not allowed, or account access not granted). Write-scoped tokens are minted from the account page's API-token UI by enabling "Allow write access". Headless operators can grant session-only access with `--trust-consent=<caller-key>` or `--trust-all-consent`.
 
 ### Other
 

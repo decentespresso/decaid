@@ -5,6 +5,7 @@ import 'dart:math';
 
 import 'package:flutter_js/flutter_js.dart';
 import 'package:logging/logging.dart';
+import 'package:shelf/shelf.dart' as shelf;
 
 import 'plugin_manifest.dart';
 import 'plugin_notifications.dart';
@@ -16,6 +17,7 @@ import 'plugin_ble_service.dart';
 import 'plugin_ble_session.dart';
 import 'plugin_decent_proxy_bridge.dart';
 import 'plugin_device_service.dart';
+import 'plugin_local_api_bridge.dart';
 import 'plugin_runtime.dart';
 import 'plugin_transport_service.dart';
 import 'plugin_types.dart';
@@ -26,8 +28,9 @@ import '../models/device/de1_interface.dart';
 import '../models/device/machine.dart';
 import '../services/account/decent_proxy_service.dart';
 import '../services/ble/ble_exception_mapper.dart';
+import '../services/webserver/extension_management_auth.dart';
 
-enum _PendingOpKind { fetch, pluginHttp, decentProxy }
+enum _PendingOpKind { fetch, pluginHttp, decentProxy, localApi }
 
 enum PluginManagerLifecycle { active, disposing, disposed }
 
@@ -69,6 +72,20 @@ class _PendingDeviceInvocation {
   final Timer? timer;
 }
 
+final class _PluginExtensionGrant implements ExtensionManagementGrant {
+  final PluginManager _manager;
+  final PluginRuntime _runtime;
+  final int _generation;
+
+  _PluginExtensionGrant(this._manager, this._runtime, this._generation);
+
+  @override
+  String get callerId => 'plugin:${_runtime.pluginId}';
+
+  @override
+  bool get isActive => _manager._holdsExtensionGrant(this);
+}
+
 class PluginHttpError implements Exception {
   final String message;
 
@@ -87,6 +104,8 @@ class PluginManager {
   final DecentProxyService? decentProxyService;
   final NotificationCenter notifications;
   late final PluginDecentProxyBridge _decentProxyBridge;
+  late final PluginLocalApiBridge _localApiBridge;
+  final Map<String, _PluginExtensionGrant> _extensionGrants = {};
   final Map<String, String> _pluginBridgeTokens = {};
   final Map<String, String> _pluginIdsByBridgeToken = {};
   final Set<String> _loggedPermissionDenials = {};
@@ -101,6 +120,7 @@ class PluginManager {
   final int maxFetchResponseBytes;
   final Duration pluginHttpTimeout;
   final Duration decentProxyTimeout;
+  final Duration localApiTimeout;
   final Duration transportCloseTimeout;
   final Duration deviceInvocationTimeout;
   final PluginDeviceService deviceService;
@@ -156,6 +176,7 @@ class PluginManager {
     this.maxFetchResponseBytes = 10 * 1024 * 1024,
     this.pluginHttpTimeout = const Duration(seconds: 30),
     this.decentProxyTimeout = const Duration(seconds: 30),
+    this.localApiTimeout = const Duration(seconds: 60),
     JavascriptRuntime? js,
     WebSocketConnector? connectWebSocket,
     SocketConnector? connectSocket,
@@ -170,6 +191,9 @@ class PluginManager {
     _decentProxyBridge = PluginDecentProxyBridge(
       decentProxyService: decentProxyService,
       log: _log,
+    );
+    _localApiBridge = PluginLocalApiBridge(
+      maxResponseBytes: maxFetchResponseBytes,
     );
     _transportService = PluginTransportService(
       eventSink: _dispatchTransportEvent,
@@ -298,6 +322,8 @@ class PluginManager {
       _pluginStorageOperations.clear();
       _pluginBridgeTokens.clear();
       _pluginIdsByBridgeToken.clear();
+      _extensionGrants.clear();
+      _localApiBridge.handler = null;
       for (final pending in _pendingDeviceInvocations.values) {
         pending.timer?.cancel();
         if (!pending.completer.isCompleted) {
@@ -335,6 +361,23 @@ class PluginManager {
       }
     }
     return allowed;
+  }
+
+  void attachLocalApi(shelf.Handler handler) {
+    _ensureActive();
+    _localApiBridge.handler = handler;
+  }
+
+  bool _holdsExtensionGrant(_PluginExtensionGrant grant) {
+    final pluginId = grant._runtime.pluginId;
+    return _lifecycle == PluginManagerLifecycle.active &&
+        identical(_extensionGrants[pluginId], grant) &&
+        identical(_plugins[pluginId], grant._runtime) &&
+        _pluginGenerations[pluginId] == grant._generation &&
+        grant._runtime.isAlive &&
+        grant._runtime.manifest.permissions.contains(
+          PluginPermissions.manageExtensions,
+        );
   }
 
   String _permissionError(String pluginId, PluginPermissions permission) =>
@@ -484,6 +527,31 @@ class PluginManager {
           return __wrapDecentProxyPromise(promise);
         }
 
+        function __localApi(pluginId, generation, bridgeToken, path, method, body, contentType) {
+          const requestId = "__local_api_" + __decentProxyNonce + "_" + (++__decentProxySeq);
+          const promise = new __NativePromise((resolve, reject) => {
+            const pendingByPlugin = __pendingDecentProxyByPlugin(pluginId);
+            __mapSet(pendingByPlugin, requestId, { generation: generation, resolve: resolve, reject: reject });
+            try {
+              __sendHostMessage({
+                pluginId: pluginId,
+                generation: generation,
+                bridgeToken: bridgeToken,
+                type: "localApi",
+                requestId: requestId,
+                path: path,
+                method: method,
+                body: body,
+                contentType: contentType
+              });
+            } catch (e) {
+              __mapDelete(pendingByPlugin, requestId);
+              reject(e);
+            }
+          });
+          return __wrapDecentProxyPromise(promise);
+        }
+
         function __completeDecentProxyRequest(pluginId, requestId, response) {
           const pendingByPlugin = __mapGet(__pendingDecentProxyRequests, pluginId);
           if (!pendingByPlugin) return;
@@ -520,6 +588,7 @@ class PluginManager {
         Object.defineProperty(globalThis, "__reaprimePluginBridge", {
           value: __nativeFreeze({
             decentProxy: __decentProxy,
+            localApi: __localApi,
             completeDecentProxyRequest: __completeDecentProxyRequest,
             cancelForPlugin: __cancelDecentProxyRequestsForPlugin,
             cancelAll: __cancelAllDecentProxyRequests
@@ -1173,6 +1242,10 @@ class PluginManager {
       await Future<void>.delayed(Duration.zero);
       if (type == 'decentProxy') {
         await _handleDecentProxyMessage(pluginId, msg);
+        return;
+      }
+      if (type == 'localApi') {
+        await _handleLocalApiMessage(pluginId, msg);
         return;
       }
       if (!_isCurrentPluginMessage(pluginId, msg) && !retiringStorageWrite) {
@@ -2109,6 +2182,9 @@ class PluginManager {
     _plugins[id] = runtime;
     _pluginBridgeTokens[id] = pluginBridgeToken;
     _pluginIdsByBridgeToken[pluginBridgeToken] = id;
+    if (manifest.permissions.contains(PluginPermissions.manageExtensions)) {
+      _extensionGrants[id] = _PluginExtensionGrant(this, runtime, generation);
+    }
 
     try {
       final wrapperCode =
@@ -2346,6 +2422,20 @@ class PluginManager {
               options.gzip === undefined ? false : options.gzip
             );
           },
+          localApi: (path, options = {}) => {
+            if (!${manifest.permissions.contains(PluginPermissions.manageExtensions)}) {
+              return rejectPermission("manage.extensions");
+            }
+            return globalThis.__reaprimePluginBridge.localApi(
+              pluginId,
+              pluginGeneration,
+              pluginBridgeToken,
+              path,
+              options.method || "GET",
+              options.body ?? null,
+              options.contentType ?? null
+            );
+          },
           transport: transport,
           devices: devices
         };
@@ -2452,6 +2542,7 @@ class PluginManager {
       return;
     }
     _closingPluginPermissions[id] = runtime.manifest.permissions;
+    _extensionGrants.remove(id);
 
     final retiringGeneration = _pluginGenerations[id] ?? 0;
     runtime.markStopping();
@@ -2959,7 +3050,7 @@ class PluginManager {
         } else {
           completer.complete(result);
         }
-      case _PendingOpKind.decentProxy:
+      case _PendingOpKind.decentProxy || _PendingOpKind.localApi:
         js.evaluate(
           'globalThis.__reaprimePluginBridge.completeDecentProxyRequest('
           '${jsonEncode(op.pluginId)}, ${jsonEncode(op.requestId)}, '
@@ -3048,6 +3139,64 @@ class PluginManager {
         error: e.toString(),
         errorCode: 'account_authentication_required',
       );
+    } catch (e) {
+      _completeOp(op, error: e.toString());
+    }
+  }
+
+  Future<void> _handleLocalApiMessage(
+    String pluginId,
+    Map<String, dynamic> msg,
+  ) async {
+    final requestId = msg['requestId'] as String?;
+    if (requestId == null) {
+      _log.warning('Local API message from $pluginId missing requestId');
+      return;
+    }
+    final generation = msg['generation'] is num
+        ? (msg['generation'] as num).toInt()
+        : 0;
+    final op = _PendingOp(
+      kind: _PendingOpKind.localApi,
+      pluginId: pluginId,
+      generation: generation,
+      requestId: requestId,
+    );
+    _pendingOps[op.key] = op;
+
+    if (msg['bridgeToken'] != _pluginBridgeTokens[pluginId]) {
+      _log.warning('Local API message from $pluginId has invalid token');
+      _completeOp(op, error: 'Invalid plugin local API caller');
+      return;
+    }
+    if (generation != _pluginGenerations[pluginId] ||
+        _plugins[pluginId]?.isAlive != true) {
+      _completeOp(op, error: 'Plugin generation changed');
+      return;
+    }
+    final grant = _extensionGrants[pluginId];
+    if (!_hasPermission(pluginId, PluginPermissions.manageExtensions) ||
+        grant == null ||
+        !grant.isActive) {
+      _completeOp(
+        op,
+        error: _permissionError(pluginId, PluginPermissions.manageExtensions),
+      );
+      return;
+    }
+
+    op.timeout = Timer(localApiTimeout, () {
+      _completeOp(op, error: 'Local API request timed out');
+    });
+    try {
+      final response = await _localApiBridge.request(
+        grant: grant,
+        path: msg['path'],
+        method: msg['method'],
+        body: msg['body'],
+        contentType: msg['contentType'],
+      );
+      _completeOp(op, result: response);
     } catch (e) {
       _completeOp(op, error: e.toString());
     }

@@ -93,4 +93,25 @@ void main() {
     expect(firstId, isNotEmpty);
     expect(secondId, firstId);
   });
+
+  test('save then load keeps the extensions:manage scope alone', () async {
+    await store.save([
+      PersistedProxyToken(
+        id: 'manager-id',
+        token: 'tok-manager',
+        label: 'deploy',
+        scopes: {ProxyTokenService.scopeExtensionsManage},
+        createdAt: DateTime.utc(2026, 11, 10),
+      ),
+    ]);
+
+    final loaded = await store.load();
+    expect(loaded.single.scopes, {ProxyTokenService.scopeExtensionsManage});
+  });
+
+  test('load of corrupt persisted tokens throws a FormatException', () async {
+    await creds.write(key: 'account_proxy_tokens', value: '{not json');
+
+    await expectLater(store.load(), throwsFormatException);
+  });
 }

@@ -41,7 +41,9 @@ unpaired UTF-16 surrogates because URI encoding replaces them with U+FFFD;
 valid surrogate pairs, encoded control characters, and whitespace round-trip.
 Host-assigned UUID resource IDs,
 plugin management/KV/skin/file/command paths, and account-proxy normalization
-retain their existing route contracts.
+retain their existing path-encoding contracts. Plugin and skin management
+routes additionally require an `extensions:manage` token; see Extension
+Management Authorization.
 
 ### Patch Nullability
 
@@ -213,6 +215,53 @@ the legacy singular stream retains its existing `WeightSnapshot` payload.
 
 A hostname that resolves to a device address does pass the port-3000 entry redirect and receive the tokenless script tag (issue #699). The redirect only echoes the requested host on the current generation's port, and before 0.8.2 the entry served those requests as static files anyway; `window.decentApp` carries no secret and no-ops outside the embedded webview. Resolutions are cached per served generation under a short TTL and re-checked against the live interface list on every request, so a lookup that recovers, an address that moves, or an interface that disappears reclassifies without waiting for a restart. The cache is bounded so spoofed Host headers cannot grow it without limit or force a lookup per request.
 
+## Extension Management Authorization
+
+### Problem
+
+Plugin and skin management routes were open to any LAN client and to any
+plugin that can reach the local API (issue #1031).
+
+### Solution
+
+`lib/src/services/webserver/extension_management_auth.dart` holds the whole
+policy: `extensionManagementRoutes` (18 method + `shelf_router` patterns) and
+`extensionManagementAuthMiddleware`, installed in `buildWebServerHandler` right
+after `proxyAuthMiddleware`. A matching request needs a bearer scoped
+`extensions:manage`: 401 for a missing, malformed, unknown or revoked bearer,
+403 for a known token without the scope. Tokens come from the native API
+tokens section or `--extensions-token`.
+
+### Design Choices
+
+- Matching builds a real `shelf_router` `Router` from the table, so encoding,
+  case and trailing slashes are judged as the handlers' router judges them and
+  method-specific entries leave plugin endpoints with reserved names alone.
+- The middleware is installed even without a `ProxyTokenService`; then only
+  in-process grants pass, so the routes fail closed.
+- Body-dependent gates (`POST /api/v1/settings` with `defaultSkinId` or
+  `webUiPath`, import and pull-sync of `defaultSkinId`) read the middleware's
+  recorded decision through `requireExtensionManagement` /
+  `mayManageExtensions`. A handler reached without the middleware is refused.
+- Plugins with `manage.extensions` get an in-process `ExtensionManagementGrant`
+  in the shelf request context via `host.localApi`, never a bearer. A network
+  caller cannot populate the context, and the grant's `isActive` is checked on
+  every request.
+- A bearer the token service recognises is removed from the request before
+  handlers run, so plugin-defined endpoints never see it.
+- The scope is independent of `account:proxy`; each middleware checks its own.
+
+When adding a plugin or skin mutation route, add it to
+`extensionManagementRoutes` and declare `security: [extensionsManage]` with
+401/403 in `rest_v1.yml`; `test/api/extension_management_spec_test.dart`
+fails until both agree or the route is listed as reviewed-open there.
+
+### Focused Tests
+
+```sh
+flutter test test/webserver/extension_management_auth_test.dart test/api/extension_management_spec_test.dart
+```
+
 ## Decent Binary Protocol
 
 The protocol is DE1-specific. See
@@ -233,7 +282,8 @@ Workflow JSON has both `context` (new: `WorkflowContext` with `grinderModel`, `c
 3. Register in `webserver_service.dart` `_init()`.
 4. Update `assets/api/rest_v1.yml` (or `websocket_v1.yml`) in the same commit.
 5. Update `doc/Api.md` if user-facing.
-6. Smoke-test via `scripts/sb-dev.sh` + `curl`/`websocat`.
+6. A route that installs, configures or removes plugins or skins goes in `extensionManagementRoutes` and gets the `extensionsManage` security in the spec (enforced by `test/api/extension_management_spec_test.dart`).
+7. Smoke-test via `scripts/sb-dev.sh` + `curl`/`websocat`.
 
 ## Focused Tests
 

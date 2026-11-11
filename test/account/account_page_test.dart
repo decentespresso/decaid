@@ -5,8 +5,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart' as http_testing;
 import 'package:reaprime/src/account/account_page.dart';
+import 'package:reaprime/src/controllers/account_tokens_controller.dart';
 import 'package:reaprime/src/services/account/account_consent_store.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
+import 'package:reaprime/src/services/account/proxy_token_service.dart';
+import 'package:reaprime/src/services/account/proxy_token_store.dart';
 import 'package:reaprime/src/services/app_log_upload_service.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -41,6 +44,12 @@ DecentAccountService buildService(
     credentialStore: store,
   );
 }
+
+AccountTokensController buildTokensController(ProxyTokenService service) =>
+    AccountTokensController(
+      tokenService: service,
+      store: ProxyTokenStore(credentialStore: FakeCredentialStore()),
+    );
 
 class _RebuildingHost extends StatefulWidget {
   const _RebuildingHost(this.childBuilder);
@@ -305,5 +314,157 @@ void main() {
 
     expect(find.text('Logged In'), findsNothing);
     expect(find.text('Link Your Account'), findsOneWidget);
+  });
+
+  group('API access tokens card', () {
+    testWidgets('is shown without a linked Decent account', (tester) async {
+      final service = buildService(
+        FakeCredentialStore(),
+        (_) async => throw StateError('no request without credentials'),
+      );
+
+      await tester.pumpWidget(
+        buildTestApp(
+          AccountPage(
+            accountService: service,
+            tokensController: buildTokensController(ProxyTokenService()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Link Your Account'), findsOneWidget);
+      expect(find.text('API access tokens'), findsOneWidget);
+      expect(find.byKey(const Key('create-token')), findsOneWidget);
+    });
+
+    testWidgets(
+      'is shown without a linked account when log upload is available',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        final store = FakeCredentialStore();
+        final accountService = buildService(
+          store,
+          (_) async => throw StateError('no request without credentials'),
+        );
+        final uploadService = AppLogUploadService(
+          accountService: accountService,
+          consentStore: AccountConsentStore(credentialStore: store),
+          preferences: await SharedPreferences.getInstance(),
+          logFilePath: 'unused',
+          machineIdentity: () => const AppLogMachineIdentity(
+            serialNumber: '12345',
+            firmwareVersion: '1337',
+          ),
+          initialDelay: const Duration(days: 1),
+        );
+        addTearDown(uploadService.dispose);
+
+        await tester.pumpWidget(
+          buildTestApp(
+            AccountPage(
+              accountService: accountService,
+              appLogUploadService: uploadService,
+              tokensController: buildTokensController(ProxyTokenService()),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Link Your Account'), findsOneWidget);
+        expect(find.text('Share app logs with Decent Support'), findsNothing);
+        expect(find.text('API access tokens'), findsOneWidget);
+        uploadService.dispose();
+      },
+    );
+
+    testWidgets('is shown with a linked Decent account', (tester) async {
+      final store = FakeCredentialStore();
+      await store.write(key: 'email', value: 'user@example.com');
+      await store.write(key: 'password', value: 'cryptpw_abc123');
+      final service = buildService(
+        store,
+        (_) async => http.Response('cryptpw_abc123', 200),
+      );
+
+      await tester.pumpWidget(
+        buildTestApp(
+          AccountPage(
+            accountService: service,
+            tokensController: buildTokensController(ProxyTokenService()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Logged In'), findsOneWidget);
+      expect(find.text('API access tokens'), findsOneWidget);
+    });
+
+    testWidgets('is absent without a tokens controller', (tester) async {
+      final service = buildService(
+        FakeCredentialStore(),
+        (_) async => throw StateError('no request without credentials'),
+      );
+
+      await tester.pumpWidget(
+        buildTestApp(AccountPage(accountService: service)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Link Your Account'), findsOneWidget);
+      expect(find.text('API access tokens'), findsNothing);
+      expect(find.byKey(const Key('create-token')), findsNothing);
+    });
+
+    testWidgets(
+      'creates a plugin and skin management token without a linked account',
+      (tester) async {
+        final tokenService = ProxyTokenService();
+        final service = buildService(
+          FakeCredentialStore(),
+          (_) async => throw StateError('no request without credentials'),
+        );
+        await tester.pumpWidget(
+          buildTestApp(
+            AccountPage(
+              accountService: service,
+              tokensController: buildTokensController(tokenService),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.ensureVisible(find.byKey(const Key('create-token')));
+        await tester.tap(find.byKey(const Key('create-token')));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.byType(TextField),
+          ),
+          'deploy',
+        );
+        await tester.tap(find.byKey(const Key('token-extensions-toggle')));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.descendant(
+            of: find.byType(AlertDialog),
+            matching: find.text('Create'),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final tokenValue = tester
+            .widget<SelectableText>(find.byKey(const Key('token-value')))
+            .data!;
+        expect(tokenService.validate(tokenValue)!.scopes, {
+          ProxyTokenService.scopeExtensionsManage,
+        });
+        await tester.tap(find.text('Done'));
+        await tester.pumpAndSettle();
+        expect(find.text('plugin and skin management'), findsOneWidget);
+      },
+    );
   });
 }

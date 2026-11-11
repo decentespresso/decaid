@@ -9,6 +9,7 @@ import 'package:reaprime/src/services/webserver/data_export/data_export_section.
 import 'package:reaprime/src/services/webserver/data_export/data_transfer_result.dart';
 import 'package:reaprime/src/services/webserver/data_export_handler.dart';
 import 'package:reaprime/src/services/webserver/bounded_request_body.dart';
+import 'package:reaprime/src/services/webserver/extension_management_auth.dart';
 import 'package:reaprime/src/services/webserver/json_response.dart';
 import 'package:reaprime/src/util/temp_archive_files.dart';
 import 'package:shelf_plus/shelf_plus.dart';
@@ -155,7 +156,12 @@ class DataSyncHandler {
 
     if (mode == SyncMode.pull || mode == SyncMode.twoWay) {
       try {
-        pull = await _pull(targetUri, strategy, expectedSections);
+        pull = await _pull(
+          targetUri,
+          strategy,
+          expectedSections,
+          mayChangeDefaultSkin: mayManageExtensions(request),
+        );
       } catch (error) {
         pull = _failure(error);
       }
@@ -190,8 +196,9 @@ class DataSyncHandler {
   Future<DataTransferPhaseOutcome> _pull(
     Uri targetUri,
     ConflictStrategy strategy,
-    List<String> expectedSections,
-  ) async {
+    List<String> expectedSections, {
+    required bool mayChangeDefaultSkin,
+  }) async {
     final limits = _exportHandler.limits;
     _log.info('Pulling data from $targetUri');
     final tempDir = await TempArchiveDir.create('reaprime-sync-pull-');
@@ -265,6 +272,7 @@ class DataSyncHandler {
         zipFile,
         strategy,
         sections: expectedSections,
+        mayChangeDefaultSkin: mayChangeDefaultSkin,
       );
       return outcome.phase;
     } finally {
