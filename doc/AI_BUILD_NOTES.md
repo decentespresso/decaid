@@ -184,11 +184,12 @@ The app supports several command-line flags for headless/calibration-station use
   --skin=<id>                 # Pre-select skin by ID
   --skin-path=<path>          # Pre-select skin by filesystem path
   --no-account                # Skip DecentAccountService (headless Linux with no desktop session)
+  --dummy-account             # Isolated demo identity; debug + explicit dart-define only
   --trust-consent=<key>       # Trust one account-proxy caller for this process; repeatable
   --trust-all-consent         # Trust every account-proxy caller for this process
 ```
 
-All flags are optional. Combine as needed. `--no-account` is specifically for headless Linux stations where `libsecret` blocks on XDG secrets portal. `--force-onboarding` is the inverse of `--bypass-onboarding`: it clears the persisted onboarding completion flags so the welcome, login, and import screens show again on the next launch, and it wins if both are passed. Consent keys use `skin:<installed-id>`, `plugin:<id>`, or `api:<token-id>`; API token labels are presentation-only. Both trust flags are session-only and are never persisted. With `flutter run`, pass each app flag separately as `--dart-entrypoint-args=<flag>`; `--dart-define` does not populate `main()` arguments. With `scripts/sb-dev.sh`, pass each app flag separately as `--app-arg <flag>` and repeat `--app-arg` for multiple flags.
+All flags are optional. Combine as needed. `--dummy-account` is safe only with a debug build and `--dart-define=DECAID_ENABLE_DUMMY_ACCOUNT=true`; it uses an in-memory credential store and offline account clients. See [`shot-upload-onboarding.md`](shot-upload-onboarding.md) for isolated persona instructions. `--no-account` is specifically for headless Linux stations where `libsecret` blocks on XDG secrets portal. `--force-onboarding` is the inverse of `--bypass-onboarding`: it clears the persisted onboarding completion flags so the welcome, login, and import screens show again on the next launch, and it wins if both are passed. Consent keys use `skin:<installed-id>`, `plugin:<id>`, or `api:<token-id>`; API token labels are presentation-only. Both trust flags are session-only and are never persisted. With `flutter run`, pass each app flag separately as `--dart-entrypoint-args=<flag>`; `--dart-define` does not populate `main()` arguments. With `scripts/sb-dev.sh`, pass each app flag separately as `--app-arg <flag>` and repeat `--app-arg` for multiple flags.
 
 ## Dev-Loop Skill
 
