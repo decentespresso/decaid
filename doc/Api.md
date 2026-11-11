@@ -1063,6 +1063,8 @@ Built-in settings dashboard accessible at `/api/v1/plugins/settings.reaplugin/ui
 
 **Self-protection:** The plugin management section prevents disabling or removing `settings.reaplugin` itself (UI guard).
 
+**Management actions:** The page's skin and plugin management buttons call routes that need an `extensions:manage` token (see [Extension management authorization](#extension-management-authorization)). The page holds no token and does not ask for one, so those actions are refused with a message; use the settings in the Decaid app or call the API with a token.
+
 ### DYE2 Plugin (`dye2.reaplugin`)
 
 Bean and grinder management. See [`packages/dye2-plugin/README.md`](../packages/dye2-plugin/README.md).

@@ -75,6 +75,21 @@ the API), #925 (HTTPS listener), #1029 (remote skin reload).
    not a Decent account is linked. `--extensions-token` registers a process-lifetime token
    for headless and development runs, where there is no native UI or keyring.
 
+## Authorization is decided at dispatch
+
+A request is authorized when the middleware (or a body-dependent handler check) admits it. An
+operation admitted while a grant was current runs to completion even if the plugin is unloaded
+during a download, exactly as one admitted before a token was revoked does. Re-checking inside the
+install and sync services would need an authorization callback threaded through eight service
+methods for a window in which the caller could already have done the same thing a moment earlier.
+The grant ends for every later request, including one already queued in the JavaScript bridge.
+
+## Bundled settings page
+
+The page served by `settings.reaplugin` does not take a token. Every plugin page is served from
+the API origin, so a page from another plugin can open and script it and would see a token typed
+there. Its management buttons report what to use instead.
+
 ## Known limit
 
 All plugins run in one JavaScript runtime. The grant is bound to a plugin's bridge identity and

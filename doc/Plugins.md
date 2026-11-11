@@ -416,7 +416,9 @@ Authority rules:
   and a reloaded plugin gets a new one only if its manifest still holds the
   permission.
 - It is checked again on every request, so a request sent after the plugin
-  stopped is refused even if the call was prepared earlier.
+  stopped is refused even if the call was prepared earlier. A request that was
+  admitted while the authority was valid runs to completion, as a request
+  admitted before a token was revoked does.
 - It is attached only to `host.localApi`. `fetch` and `host.transport` never
   carry it, including requests to `localhost` or the device's own address.
 - No token exists in JavaScript. The request is dispatched in-process and carries
@@ -1908,9 +1910,10 @@ value. Existing cleartext secure fields are moved out of SharedPreferences on
 first read.
 
 The bundled **settings plugin** (`settings.reaplugin`) provides a web UI for plugin management at `/api/v1/plugins/settings.reaplugin/ui`. It includes an enable/disable toggle and remove button for each plugin, with a self-protection guard that prevents disabling itself. The page is a web
-page like any other and has no implicit authority: the first management action
-asks for an `extensions:manage` token, keeps it in memory for the life of the
-page, and sends it as a bearer. A 401 clears it and asks again.
+page like any other and has no authority: its management buttons now report that
+the action needs the app's own settings or an API token. It does not ask for a
+token, because every plugin's pages share the API origin and one plugin's page
+can script another's.
 
 The bundled **Decent shot upload plugin** (`shot-upload.reaplugin`) is fetched
 from the pinned [decentespresso/shot-upload](https://github.com/decentespresso/shot-upload)
@@ -1945,16 +1948,20 @@ UI.
 Before decaid#1031 the management routes were open to any client. They now
 answer 401 without an `extensions:manage` bearer token, while the rest of the API
 stays unauthenticated. A plugin whose served pages called them (enable, disable,
-settings, install, update, approve, source, remove, or the skin routes) has three
+settings, install, update, approve, source, remove, or the skin routes) has two
 options:
 
-- prompt the user for a token created in the app and send it from the page as
-  `Authorization: Bearer <token>`, keeping it in memory rather than in storage
-  that other pages on the API origin can read;
 - move the call into the plugin's own JavaScript, declare `manage.extensions`
   (which users approve with a warning), and call
-  [`host.localApi`](#hostlocalapipath-options);
+  [`host.localApi`](#hostlocalapipath-options). A plugin endpoint is open to
+  every client on the network, so an endpoint that performs management for
+  whoever calls it reopens the hole this gate closes: let the plugin decide
+  what it does, not the caller;
 - send the user to the native Plugins and Skins settings screens.
+
+A page served by a plugin must not ask for or hold a management token. All
+plugin pages are served from the API origin, so a page from one plugin can
+open, script and read a page from another.
 
 Calls from plugin JavaScript to these routes through `fetch` or `host.transport`
 no longer work; switch them to `host.localApi`. Reading routes such as

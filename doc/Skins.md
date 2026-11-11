@@ -164,11 +164,14 @@ management has these options:
   token is shown once) and send it as a bearer. Keep it in memory for the life of
   the page. Do not put it in `localStorage`, `sessionStorage`, cookies or the
   key-value store: other pages on the same origin, and any client of the
-  key-value store, could read it. On 401, discard it and ask again.
+  key-value store, could read it. On 401, discard it and ask again. Do this only
+  in a page served from the skin's own port. Pages served by plugins on the API
+  port share one origin and can script each other, so a token must never be
+  entered there.
 - **Delegate to a plugin** that holds the `manage.extensions` permission. The
-  plugin calls the routes through `host.localApi` and can expose its own endpoint
-  for the skin to call; it decides what the skin may ask for. See
-  `doc/Plugins.md`.
+  plugin calls the routes through `host.localApi`. Its own endpoints are open to
+  every client on the network, so it must decide for itself what to do rather
+  than pass a caller's request through. See `doc/Plugins.md`.
 - **Send the user to the native settings screens**, which call the services
   in-process and need no token.
 
@@ -3677,13 +3680,12 @@ Live-edit validates that the selected folder contains an `index.html`.
 
 The bundled **settings plugin** provides a web-based settings dashboard at `/api/v1/plugins/settings.reaplugin/ui`. It includes a "Web Interface" section for skin management: select active skin, start/stop server, install/remove skins, and check for updates — all from a browser.
 
-The page has no implicit authority. The first management action (switching or
-removing a skin, starting or stopping the server, installing, checking for
-updates, or changing a plugin) asks for an `extensions:manage` token created in
-the app under **Decent Account** > **API access tokens** > **Create** >
-**Manage plugins and skins**. The page keeps the token in memory for its
-lifetime and sends it as a bearer; reloading the page forgets it, and a 401
-clears it and asks again. Viewing settings needs no token.
+The page has no authority. Its management actions (switching or removing a skin,
+starting or stopping the server, installing, checking for updates, or changing a
+plugin) are refused and the page says to use the settings in the Decaid app or
+to call the API with a token. It does not ask for a token: plugin pages share
+the API origin, so another plugin's page could read one entered there. Viewing
+and changing ordinary settings works as before.
 
 **Linking back from your skin:** Skins can link to the settings plugin with a customizable back button label using the `backName` query parameter:
 
