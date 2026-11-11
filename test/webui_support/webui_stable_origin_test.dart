@@ -601,6 +601,8 @@ void main() {
     await serving;
 
     expect(service.isServing, isFalse);
+    expect(service.serverPath(), isEmpty);
+    expect(service.serveGeneration.value, 1);
     final client = HttpClient();
     addTearDown(client.close);
     for (final port in [portA, entryPort]) {
@@ -609,6 +611,87 @@ void main() {
         throwsA(isA<SocketException>()),
       );
     }
+  });
+
+  test('a superseded serve keeps the newer identity and token', () async {
+    var wifiCalls = 0;
+    final reached = Completer<void>();
+    final release = Completer<void>();
+    WebUIService.resolveWifiIP = () async {
+      wifiCalls++;
+      if (wifiCalls == 1) {
+        reached.complete();
+        await release.future;
+      }
+      return 'localhost';
+    };
+    final service = createService();
+    service.skinProxyTokenProvider = (path) =>
+        path == skinA.path ? 'token-a' : 'token-b';
+
+    final servingA = service.serveFolderAtPath(skinA.path, port: entryPort);
+    await reached.future;
+    await service.serveFolderAtPath(skinB.path, port: entryPort);
+    final portB = service.port;
+
+    release.complete();
+    await servingA;
+
+    expect(portB, isNot(entryPort));
+    expect(service.isServing, isTrue);
+    expect(service.port, portB);
+    expect(service.skinProxyToken, 'token-b');
+    expect(service.serverPath(), skinB.path);
+    expect(await fetchBody(portB), contains('skin-b'));
+  });
+
+  test('a superseded failure leaves the newer serve intact', () async {
+    var wifiCalls = 0;
+    final reached = Completer<void>();
+    final release = Completer<void>();
+    WebUIService.resolveWifiIP = () async {
+      wifiCalls++;
+      if (wifiCalls == 1) {
+        reached.complete();
+        await release.future;
+      }
+      return 'localhost';
+    };
+    final service = createService();
+    service.skinProxyTokenProvider = (path) =>
+        path == skinA.path ? 'token-a' : 'token-b';
+
+    final stale = service.serveFolderAtPath(
+      '${skinA.path}/missing',
+      port: entryPort,
+    );
+    await reached.future;
+    await service.serveFolderAtPath(skinB.path, port: entryPort);
+    final portB = service.port;
+    final generation = service.serveGeneration.value;
+
+    release.complete();
+    await expectLater(stale, throwsA(anything));
+
+    expect(service.isServing, isTrue);
+    expect(service.port, portB);
+    expect(service.skinProxyToken, 'token-b');
+    expect(service.serverPath(), skinB.path);
+    expect(service.serveGeneration.value, generation);
+    expect(await fetchBody(portB), contains('skin-b'));
+
+    final client = HttpClient();
+    addTearDown(client.close);
+    final entry = await client.getUrl(
+      Uri.parse('http://localhost:$entryPort/'),
+    );
+    entry.followRedirects = false;
+    final entryResponse = await entry.close();
+    await entryResponse.drain<void>();
+    expect(
+      entryResponse.headers.value(HttpHeaders.locationHeader),
+      'http://localhost:$portB/',
+    );
   });
 
   test(
