@@ -3850,7 +3850,7 @@ The default skin preference:
 - Defaults to `streamline-project` if no preference is set
 - Persists across app restarts
 - Automatically saved when user selects a skin in Settings view
-- Can be changed via API (with an `extensions:manage` token) or the Settings plugin
+- Can be changed via API (with an `extensions:manage` token) or in the app's Settings view; the Settings plugin's web page can no longer change it
 
 ---
 
