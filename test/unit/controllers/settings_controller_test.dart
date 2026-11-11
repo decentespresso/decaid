@@ -424,4 +424,71 @@ void main() {
       expect(notified, isFalse);
     });
   });
+
+  group('shot upload onboarding preferences', () {
+    test('loads both keys from the settings service', () async {
+      final service = MockSettingsService();
+      await service.setShotUploadStepSeen(true);
+      await service.setShotUploadOptIn(true);
+      final controller = SettingsController(service);
+
+      await controller.loadSettings();
+
+      expect(controller.shotUploadStepSeen, isTrue);
+      expect(controller.shotUploadOptIn, isTrue);
+    });
+
+    test('persists the answer and the seen flag', () async {
+      final spy = _ShotUploadSpy();
+      final controller = SettingsController(spy);
+      await controller.loadSettings();
+      await controller.setShotUploadStepSeen(false);
+      spy.calls.clear();
+
+      await controller.setShotUploadOptIn(true);
+      await controller.setShotUploadStepSeen(true);
+
+      expect(spy.calls, ['optIn:true', 'seen:true']);
+      expect(controller.shotUploadOptIn, isTrue);
+      expect(controller.shotUploadStepSeen, isTrue);
+    });
+
+    test('a failed persist leaves the in-memory value retryable', () async {
+      final spy = _ShotUploadSpy();
+      final controller = SettingsController(spy);
+      await controller.loadSettings();
+      spy.failWrites = true;
+
+      await expectLater(
+        controller.setShotUploadOptIn(true),
+        throwsA(isA<Exception>()),
+      );
+      expect(controller.shotUploadOptIn, isFalse);
+
+      spy.failWrites = false;
+      await controller.setShotUploadOptIn(true);
+
+      expect(controller.shotUploadOptIn, isTrue);
+      expect(spy.calls, ['optIn:true', 'optIn:true']);
+    });
+  });
+}
+
+class _ShotUploadSpy extends MockSettingsService {
+  final List<String> calls = [];
+  bool failWrites = false;
+
+  @override
+  Future<void> setShotUploadOptIn(bool value) async {
+    calls.add('optIn:$value');
+    if (failWrites) throw Exception('write failed');
+    return super.setShotUploadOptIn(value);
+  }
+
+  @override
+  Future<void> setShotUploadStepSeen(bool value) async {
+    calls.add('seen:$value');
+    if (failWrites) throw Exception('write failed');
+    return super.setShotUploadStepSeen(value);
+  }
 }

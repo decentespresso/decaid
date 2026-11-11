@@ -520,6 +520,7 @@ void main(List<String> args) async {
   AccountTokensController? accountTokensController;
   CredentialStore? credentialStore;
   AccountConsentGate? consentGate;
+  AccountConsentStore? accountConsentStore;
   final proxyTokenService = ProxyTokenService();
   if (cliArgs.noAccount) {
     log.info('--no-account: skipping credential store and account service');
@@ -527,10 +528,16 @@ void main(List<String> args) async {
     decentProxyService = null;
   } else {
     credentialStore = await createCredentialStore();
+    if (cliArgs.dummyAccount) {
+      log.info('--dummy-account: seeding demo credentials');
+      await credentialStore.write(key: 'email', value: 'demo@example.com');
+      await credentialStore.write(key: 'password', value: 'demo-password');
+    }
     final consentPrompter = AccountConsentPrompter(
       navigatorKey: NavigationService.navigatorKey,
     );
     final consentStore = AccountConsentStore(credentialStore: credentialStore);
+    accountConsentStore = consentStore;
     final gate = AccountConsentGate(
       store: consentStore,
       prompt: consentPrompter.prompt,
@@ -766,12 +773,16 @@ void main(List<String> args) async {
     await settingsController.setOnboardingCompleted(true);
     await settingsController.setAccountStepSeen(true);
     await settingsController.setAndroidWarningDismissed(true);
+    await settingsController.setShotUploadStepSeen(true);
   }
   if (cliArgs.forceOnboarding) {
     log.info('--force-onboarding: re-arming onboarding screens');
     await settingsController.setOnboardingCompleted(false);
     await settingsController.setAccountStepSeen(false);
     await settingsController.setAndroidWarningDismissed(false);
+    // The opt-in answer survives a forced onboarding run: clearing it would
+    // silently change what the installed plugin does.
+    await settingsController.setShotUploadStepSeen(false);
   }
   if (cliArgs.skinId != null) {
     log.info('--skin: setting default skin to ${cliArgs.skinId}');
@@ -845,6 +856,7 @@ void main(List<String> args) async {
         appLogUploadService: appLogUploadService,
         batteryController: batteryController,
         displayController: displayController,
+        accountConsentStore: accountConsentStore,
       ),
     ),
   );
@@ -949,6 +961,7 @@ class AppRoot extends StatefulWidget {
   final AppLogUploadService? appLogUploadService;
   final BatteryController? batteryController;
   final DisplayController displayController;
+  final AccountConsentStore? accountConsentStore;
 
   const AppRoot({
     super.key,
@@ -977,6 +990,7 @@ class AppRoot extends StatefulWidget {
     this.appLogUploadService,
     this.batteryController,
     required this.displayController,
+    this.accountConsentStore,
   });
 
   static void restart(BuildContext context) {
@@ -1069,6 +1083,7 @@ class _AppRootState extends State<AppRoot> {
         appLogUploadService: widget.appLogUploadService,
         batteryController: widget.batteryController,
         displayController: widget.displayController,
+        accountConsentStore: widget.accountConsentStore,
       ),
     );
 

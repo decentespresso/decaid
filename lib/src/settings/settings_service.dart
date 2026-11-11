@@ -76,6 +76,11 @@ abstract class SettingsService {
   Future<void> setOnboardingCompleted(bool value);
   Future<bool> accountStepSeen();
   Future<void> setAccountStepSeen(bool value);
+  Future<bool> shotUploadStepSeen();
+  Future<void> setShotUploadStepSeen(bool value);
+  Future<bool> shotUploadOptIn();
+  Future<void> setShotUploadOptIn(bool value);
+  Future<void> clearShotUploadOptIn();
   Future<bool> androidWarningDismissed();
   Future<void> setAndroidWarningDismissed(bool value);
   Future<bool> showSkinExitInstructions();
@@ -486,6 +491,31 @@ class SharedPreferencesSettingsService extends SettingsService {
   }
 
   @override
+  Future<bool> shotUploadStepSeen() async {
+    return await prefs.getBool(SettingsKeys.shotUploadStepSeen.name) ?? false;
+  }
+
+  @override
+  Future<void> setShotUploadStepSeen(bool value) async {
+    await prefs.setBool(SettingsKeys.shotUploadStepSeen.name, value);
+  }
+
+  @override
+  Future<bool> shotUploadOptIn() async {
+    return await prefs.getBool(SettingsKeys.shotUploadOptIn.name) ?? false;
+  }
+
+  @override
+  Future<void> setShotUploadOptIn(bool value) async {
+    await prefs.setBool(SettingsKeys.shotUploadOptIn.name, value);
+  }
+
+  @override
+  Future<void> clearShotUploadOptIn() async {
+    await prefs.remove(SettingsKeys.shotUploadOptIn.name);
+  }
+
+  @override
   Future<bool> accountStepSeen() async {
     return await prefs.getBool(SettingsKeys.accountStepSeen.name) ?? false;
   }
@@ -576,6 +606,8 @@ enum SettingsKeys {
   keepAwake,
   onboardingCompleted,
   accountStepSeen,
+  shotUploadStepSeen,
+  shotUploadOptIn,
   androidWarningDismissed,
   showSkinExitInstructions,
   enableSimulatedWebViews,
