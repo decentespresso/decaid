@@ -14,14 +14,13 @@ final _log = Logger('ShotUploadStep');
 const shotUploadPluginId = 'shot-upload.reaplugin';
 const shotUploadConsentKey = 'plugin:$shotUploadPluginId';
 const shotUploadCopy =
-    'Your shots are saved on this tablet and stay yours whether or not you '
-    'upload them. Turn this on to send each finished shot to your Decent '
-    'account at decentespresso.com, where you can look back, compare, and '
-    'share them.\n\n'
-    'Each upload carries the shot and your espresso machine\'s serial '
-    'number, so shots from different machines stay separate. Decent also '
-    'uses them to see how machines perform and improve them. Leaving this '
-    'off changes nothing else.';
+    'Your shots stay on this tablet and are yours whether or not you upload '
+    'them. Turn this on to send each finished shot to your Decent account at '
+    'decentespresso.com, where you can look back, compare, and share them.';
+const shotUploadSerialCopy =
+    'Each upload includes your espresso machine\'s serial number, so shots '
+    'from different machines stay separate. Leaving this off changes nothing '
+    'else.';
 const shotUploadReversibleCopy = 'You can change this later in Settings.';
 
 OnboardingStep createShotUploadStep({
@@ -142,6 +141,12 @@ class _ShotUploadStepViewState extends State<_ShotUploadStepView> {
         Text(
           shotUploadCopy,
           style: theme.textTheme.p,
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 16),
+        Text(
+          shotUploadSerialCopy,
+          style: theme.textTheme.small,
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 24),

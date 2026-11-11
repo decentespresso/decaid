@@ -203,7 +203,20 @@ void main() {
     await _pumpStep(tester, harness);
 
     expect(find.text(shotUploadCopy), findsOneWidget);
+    expect(find.text(shotUploadSerialCopy), findsOneWidget);
     expect(harness.currentStepId, 'shot-upload');
+  });
+
+  testWidgets('serial paragraph is set smaller than the intro copy', (
+    tester,
+  ) async {
+    final harness = await _build();
+    await _pumpStep(tester, harness);
+
+    final intro = tester.widget<Text>(find.text(shotUploadCopy));
+    final serial = tester.widget<Text>(find.text(shotUploadSerialCopy));
+
+    expect(serial.style!.fontSize, lessThan(intro.style!.fontSize!));
   });
 
   testWidgets('continue with the toggle untouched persists off', (
