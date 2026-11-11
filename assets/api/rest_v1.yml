@@ -6326,8 +6326,11 @@ components:
         skin management operations even though the rest of the API is
         unauthenticated. Create one in the app (Decent Account > API access
         tokens > Create, with "Manage plugins and skins" turned on; it is shown
-        once) or supply one at launch with `--extensions-token <value>` (at
-        least 32 characters). Send it as `Authorization: Bearer <token>`.
+        once). For development and automation, supply a random one at launch
+        in the `DECAID_EXTENSIONS_TOKEN` environment variable or with
+        `--extensions-token <value>` (at least 32 characters; other local
+        users can read command-line arguments). Send it as
+        `Authorization: Bearer <token>`.
         Over plain HTTP the token is not confidential on the local network;
         use a trusted network until the HTTPS listener (#925) exists.
   schemas:
