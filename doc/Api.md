@@ -119,9 +119,18 @@ token cannot use `/api/v1/account/proxy/`, and an `account:proxy` token
 **Getting a token.** In the app, open the Decent Account page, go to "API
 access tokens", choose Create, name the token and turn on "Manage plugins and
 skins". The token is shown once; copy it then. No linked Decent account is
-needed. For headless or development runs, start the app with
-`--extensions-token <value>` (at least 32 characters with no spaces or commas; any other value is
-ignored with a logged error). That token lasts for the process lifetime.
+needed. That is the way to provision a device in service: the token is named,
+can be revoked without a restart and is kept in the platform credential store.
+
+For development, headless testing and automation, a token can instead be given
+at launch, in the `DECAID_EXTENSIONS_TOKEN` environment variable or with
+`--extensions-token <value>` (the flag wins when both are set). The value must
+be at least 32 characters with no spaces or commas; any other value is ignored
+with a logged error. Generate it, for example with `openssl rand -hex 32`,
+rather than choosing it. It lasts for the process lifetime and is not stored. A
+command-line argument can be read by other local users in the process list and
+ends up in shell history and launch diagnostics, so prefer the environment
+variable where the value has to stay private.
 
 ```bash
 TOKEN='paste-the-token-here'
@@ -130,8 +139,8 @@ curl -X POST http://decaid.local:8080/api/v1/plugins/my.plugin/enable \
 ```
 
 Tokens are named. Decaid logs each authorized or refused request with the
-caller id and name (`api:<id> "name"`, or `cli "--extensions-token"`),
-never the token value. A token Decaid recognises is removed from the request
+caller id and name (`api:<id> "name"`, or `cli "--extensions-token"` and
+`cli "DECAID_EXTENSIONS_TOKEN"` for a launch token), never the token value. A token Decaid recognises is removed from the request
 before handlers run, so a plugin-defined endpoint never receives it.
 
 **Plain HTTP.** The API listens over plain HTTP, so a bearer token is not
@@ -140,6 +149,11 @@ listener (#925) exists.
 
 **Plugins.** A plugin whose manifest declares `manage.extensions` calls these
 routes through `host.localApi(path, options)`, in process, without a token.
+`host.localApi` reaches only these routes, the `GET` routes that read plugins,
+skins and the skin server, and `POST /api/v1/settings` with a body of only
+`webUiPath`, `defaultSkinId` or `automaticUpdateCheck`. It refuses the rest of
+the API, so `manage.extensions` does not stand in for the `api` permission, and
+`api` does not stand in for it.
 Installing such a plugin from the native screens asks for confirmation, and an
 update that adds the permission waits for approval. A plugin holding the
 permission can approve pending permission updates, including its own; a plugin

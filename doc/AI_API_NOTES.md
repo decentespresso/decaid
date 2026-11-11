@@ -230,7 +230,8 @@ policy: `extensionManagementRoutes` (18 method + `shelf_router` patterns) and
 after `proxyAuthMiddleware`. A matching request needs a bearer scoped
 `extensions:manage`: 401 for a missing, malformed, unknown or revoked bearer,
 403 for a known token without the scope. Tokens come from the native API
-tokens section or `--extensions-token`.
+tokens section, or for development and automation from `--extensions-token` or
+the `DECAID_EXTENSIONS_TOKEN` environment variable at launch.
 
 ### Design Choices
 
@@ -248,6 +249,15 @@ tokens section or `--extensions-token`.
   in the shelf request context via `host.localApi`, never a bearer. A network
   caller cannot populate the context, and the grant's `isActive` is checked on
   every request.
+- `host.localApi` is an allowlist, not a path prefix. `PluginLocalApiBridge`
+  dispatches only `extensionManagementRoutes`, `extensionManagementReadRoutes`
+  (the plugin, skin and skin-server `GET` routes) and `POST /api/v1/settings`
+  with a body of only `extensionManagementSettingsKeys`, matched with the same
+  `shelf_router` matcher as the middleware. Everything else is rejected before
+  dispatch, so `manage.extensions` and `api` stay independent: the first never
+  reaches machine control or plugin-defined endpoints, and `fetch` never
+  carries a grant. A new management route must be added to one of those lists
+  to be reachable from a plugin.
 - A bearer the token service recognises is removed from the request before
   handlers run, so plugin-defined endpoints never see it.
 - The scope is independent of `account:proxy`; each middleware checks its own.

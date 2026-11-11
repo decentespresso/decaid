@@ -206,7 +206,10 @@ curl -s "$BASE/api/v1/plugins/ext-auth-manager/probe?target=ext-auth-plain&actio
 ```
 
 The `fetch` half shows that the manager's authority is not attached to plain
-requests, even to `localhost`.
+requests, even to `localhost`. `host.localApi` in turn reaches only the plugin
+and skin management routes: a call to anything else, such as
+`/api/v1/machine/state/espresso`, rejects before it is sent. The plugin tests
+cover that boundary.
 
 The plain plugin tries the same against the manager and fails both ways:
 

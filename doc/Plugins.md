@@ -151,7 +151,11 @@ A Decaid plugin consists of two required files:
     approval dialog when an update adds the permission. A plugin cannot obtain it
     by itself: an update that adds it waits for approval like any added
     permission, and without the permission the management routes refuse the
-    plugin and `host.localApi` rejects. See
+    plugin and `host.localApi` rejects. The permission covers plugin and skin
+    management only. It does not include `api`, and `api` does not include it:
+    `host.localApi` refuses every route outside that surface, such as machine
+    control, and a plugin that also needs the rest of the REST API declares
+    `api` and uses `fetch`. See
     [`host.localApi`](#hostlocalapipath-options).
 - **drivers**: Device classes the plugin may register. Each declaration has a plugin-local `id` and a `type`: `sensor`, `scale`, or `grinder`. A manifest may declare at most 8 drivers. Driver declarations authorize registration; they do not grant transport access. For example, a WebSocket-backed device also needs `network.websocket`. A driver may declare up to 8 `surfaces`, each with a unique safe `id`, `role` (`settings` or `diagnostics`), and a safe non-reserved `endpoint` naming a declared same-plugin HTTP endpoint. At most one surface has role `settings`. Surfaces require the `api` permission; optional `label` is display text. Plugins cannot supply URLs, authority, credentials, or routes through surfaces. Surface endpoints must not contain unpaired UTF-16 surrogates, which cannot round-trip through URI encoding; valid surrogate pairs remain supported.
 - **settings**: User-configurable options with `type` (`string`, `number`, `boolean`, `enum`), an optional `label` giving the setting a human-friendly name, an optional `description` explaining what the setting does, an optional `default`, and an optional `secure` flag for credentials such as passwords. Enum `values` are a JSON array of strings. Secure values use platform credential storage, are supplied in memory to `onLoad(settings)`, and are never returned by the REST API.
@@ -363,18 +367,36 @@ consent still apply. A failed compressed POST has no automatic plain-body
 fallback. This transport option is not a user-facing upload setting.
 
 ### `host.localApi(path, options)`
-Call Decaid's own REST API in-process with the authority to manage plugins and
-skins. Requires the `manage.extensions` permission. This is the only way a plugin
-reaches the management routes listed in
+Call the plugin and skin management routes of Decaid's own REST API in-process,
+with the authority to manage plugins and skins. Requires the `manage.extensions`
+permission. This is the only way a plugin reaches the management routes listed in
 [Plugin Lifecycle Management](#plugin-lifecycle-management-rest-api); `fetch` and
 `host.transport` reach the same server without any authority and get 401.
 
 `path` is a path under `/api/v1/`, optionally with a query string. A scheme, a
 host, a port or a fragment is refused.
 
+`host.localApi` reaches these routes and no others:
+
+| Routes | What they are |
+|--------|---------------|
+| The 18 plugin and skin routes that need an `extensions:manage` token: those marked **yes** in [Plugin Lifecycle Management](#plugin-lifecycle-management-rest-api) and the skin routes in `doc/Skins.md` (`doc/Api.md` lists them all) | The plugin and skin management operations |
+| `GET /api/v1/plugins`, `GET /api/v1/plugins/{id}/settings` | Reading plugins and their settings |
+| `GET /api/v1/webui/skins`, `GET /api/v1/webui/skins/default`, `GET /api/v1/webui/skins/{id}`, `GET /api/v1/webui/server/status` | Reading skins and the skin server |
+| `POST /api/v1/settings` with a JSON object holding only `webUiPath`, `defaultSkinId` or `automaticUpdateCheck` | The three settings that manage skins and extension updates |
+
+Any other request is rejected before it is sent, whatever the plugin's other
+permissions: machine control, workflow, other settings, data export, import and
+sync, the key-value store, the account proxy, skin assets and plugin-defined
+endpoints (`/api/v1/plugins/{id}/{endpoint}`) are all out of reach. The
+`manage.extensions` and `api` permissions are separate and neither grants the
+other. A plugin that holds `api` keeps calling the rest of the API with `fetch`,
+which carries no management authority; a plugin that holds only
+`manage.extensions` cannot call the rest of the API at all.
+
 | Option | Default | Meaning |
 |--------|---------|---------|
-| `method` | `GET` | `GET`, `POST`, `PUT`, `PATCH` or `DELETE` |
+| `method` | `GET` | `GET`, `POST`, `PUT` or `DELETE` |
 | `body` | none | A string is sent as is; any other value is JSON-encoded |
 | `contentType` | `application/json` when there is a body | Request `Content-Type` |
 
@@ -406,6 +428,9 @@ Errors (the promise rejects with an `Error`):
   call started.
 - `localApi path must start with /api/v1/` for any other path, and
   `localApi does not support method ...` for another method.
+- `localApi reaches only the plugin and skin management routes, not ...` for a
+  route outside the table above, and `localApi changes only these settings: ...`
+  for a settings body that is not a JSON object of those keys.
 - `Local API request timed out` after 60 seconds, and an error when the response
   is larger than the plugin fetch response limit.
 
@@ -1846,10 +1871,13 @@ Getting a token:
   **Manage plugins and skins**. The token is shown once; copy it then. It is kept
   until revoked on the same page. The section is available whether or not a
   Decent account is linked.
-- For headless and development runs: start the app with
-  `--extensions-token <value>`. The value must be at least 32 characters with
-  no spaces or commas; any other value is ignored and logged. It is valid for
-  that process only and is not stored. With `scripts/sb-dev.sh`, pass it as
+- For development, headless testing and automation: give the app a token when
+  it starts, either in the `DECAID_EXTENSIONS_TOKEN` environment variable or
+  with `--extensions-token <value>`. The flag wins when both are set. The value
+  must be at least 32 characters with no spaces or commas; any other value is
+  ignored and logged. Use a random value, such as the output of
+  `openssl rand -hex 32`, not a memorable one. It is valid for that process only
+  and is not stored. With `scripts/sb-dev.sh`, pass the flag as
   `--app-arg "--extensions-token=$TOKEN"`; `sb-dev restart` reuses it.
 
 ```bash
@@ -1857,6 +1885,20 @@ TOKEN="$(openssl rand -hex 32)"
 scripts/sb-dev.sh start --app-arg "--extensions-token=$TOKEN"
 curl -X POST http://localhost:8080/api/v1/plugins/my.reaplugin/enable \
   -H "Authorization: Bearer $TOKEN"
+```
+
+A launch token is for development and automation, not for a device in service.
+There, create a named token in the app: it can be revoked without a restart and
+is kept in the platform credential store. A command-line argument can be read by
+other local users in the process list, and it is recorded in shell history and
+launch diagnostics, so prefer the environment variable wherever the value has to
+stay private:
+
+```bash
+export DECAID_EXTENSIONS_TOKEN="$(openssl rand -hex 32)"
+./decaid --no-account &
+curl -X POST http://localhost:8080/api/v1/plugins/my.reaplugin/enable \
+  -H "Authorization: Bearer $DECAID_EXTENSIONS_TOKEN"
 ```
 
 Native settings screens call the services in-process and need no token. A plugin

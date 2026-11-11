@@ -169,7 +169,8 @@ management has these options:
   port share one origin and can script each other, so a token must never be
   entered there.
 - **Delegate to a plugin** that holds the `manage.extensions` permission. The
-  plugin calls the routes through `host.localApi`. Its own endpoints are open to
+  plugin calls the routes through `host.localApi`, which reaches plugin and skin
+  management and nothing else in the API. Its own endpoints are open to
   every client on the network, so it must decide for itself what to do rather
   than pass a caller's request through. See `doc/Plugins.md`.
 - **Send the user to the native settings screens**, which call the services
@@ -3783,9 +3784,12 @@ Reading routes (`GET /api/v1/webui/skins`, `GET /api/v1/webui/server/status`,
 
 To get a token, create one in the app: **Decent Account** page, **API access
 tokens**, **Create**, turn on **Manage plugins and skins**. It is shown once. For
-headless and development runs, start the app with
-`--extensions-token <at least 32 characters>`; it is valid for that process only.
-The examples below assume it is in `$TOKEN`.
+development, headless testing and automation, give the app a random value of at
+least 32 characters at launch, in the `DECAID_EXTENSIONS_TOKEN` environment
+variable or with `--extensions-token <value>`; it is valid for that process
+only. Other local users can read command-line arguments, so prefer the variable
+where the value has to stay private (see `doc/Api.md`). The examples below
+assume the token is in `$TOKEN`.
 
 ### For User-Installable Skins (via REST API)
 
@@ -3902,9 +3906,10 @@ Decaid tracks skin metadata in `.rea_metadata.json`:
 **Update Detection:**
 - User-installed skins are checked for updates via `updateAllSkins()`, which
   runs on the app's periodic update check, from `POST /api/v1/webui/skins/update`
-  (which needs an `extensions:manage` token),
-  from the web settings plugin's "Check for Skin Updates", and from the native
-  skin page's cogwheel menu under **Check for updates**.
+  (which needs an `extensions:manage` token), and from the native skin page's
+  cogwheel menu under **Check for updates**. The web settings plugin's "Check
+  for Skin Updates" button no longer triggers it: the plugin's page holds no
+  token, so its request is refused with 401.
 - During an update check on the native skin page, the cogwheel shows progress
   and **Check for updates** is disabled until the check finishes, including
   after a failure. The menu can still be opened to access installation.

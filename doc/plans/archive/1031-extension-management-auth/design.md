@@ -67,6 +67,18 @@ the API), #925 (HTTPS listener), #1029 (remote skin reload).
    same generation, runtime running, permission still in the manifest. Unload, disable,
    uninstall, reload and disposal end it before `onUnload` runs. Nothing is followed or
    forwarded: a redirect response is returned to the plugin as data.
+
+   `host.localApi` dispatches an allowlist, not everything under `/api/v1/` (maintainer
+   decision in the review of PR #1142). It reaches the protected routes below, the `GET`
+   routes that read plugins, skins and the skin server, and `POST /api/v1/settings` with a
+   body holding only `webUiPath`, `defaultSkinId` or `automaticUpdateCheck`; the bridge
+   re-encodes that body so the handler sees the keys the bridge checked. Any other request is
+   rejected before dispatch. So `manage.extensions` does not stand in for `api`: a plugin
+   with only `manage.extensions` cannot reach machine control, other settings, data import,
+   the key-value store or plugin-defined endpoints, and a plugin with both reaches those
+   through `fetch`, which never carries the grant. Import and sync stay off the bridge
+   because they write everything else too; a plugin changes the default skin and automatic
+   updates through the settings route instead.
 7. **No bearer reaches plugin code.** There is no token behind `host.localApi`, and a bearer
    that the token service recognises is removed from the request before handlers run, so a
    client that sends its token to a plugin-defined endpoint does not hand it to that plugin.
@@ -78,7 +90,10 @@ the API), #925 (HTTPS listener), #1029 (remote skin reload).
    stated in the UI and docs.
 9. **Named tokens.** The native tokens section creates either kind and is shown whether or
    not a Decent account is linked. `--extensions-token` registers a process-lifetime token
-   for headless and development runs, where there is no native UI or keyring.
+   for development, headless testing and automation, where there is no native UI or keyring.
+   The `DECAID_EXTENSIONS_TOKEN` environment variable does the same without putting the value
+   in the process arguments, which other local users can read; the flag wins when both are
+   set. A device in service is provisioned with a named, revocable token from the native UI.
 
 ## Authorization is decided at dispatch
 
@@ -149,6 +164,8 @@ only `account:proxy`. HTTP bearer tokens are not confidential on the LAN until #
   `fetch`, TCP and WebSocket against loopback, hostname and LAN-address aliases and through a
   redirect is refused; a `manage.extensions` plugin succeeds through `host.localApi`; unload,
   disable, reload and removal end the grant; a plugin cannot approve its own escalation
-  before it holds the permission.
+  before it holds the permission. A plugin with `manage.extensions` and without `api`
+  manages plugins and skins through `host.localApi` and is rejected, before dispatch, on
+  machine control and every other route outside the allowlist.
 - Token lifecycle: persistence across restart, revocation, scope independence in both
   directions.
