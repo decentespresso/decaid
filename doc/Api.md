@@ -120,7 +120,7 @@ token cannot use `/api/v1/account/proxy/`, and an `account:proxy` token
 access tokens", choose Create, name the token and turn on "Manage plugins and
 skins". The token is shown once; copy it then. No linked Decent account is
 needed. For headless or development runs, start the app with
-`--extensions-token <value>` (at least 32 characters; a shorter value is
+`--extensions-token <value>` (at least 32 characters with no spaces or commas; any other value is
 ignored with a logged error). That token lasts for the process lifetime.
 
 ```bash

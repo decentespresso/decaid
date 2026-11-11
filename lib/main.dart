@@ -533,7 +533,8 @@ void main(List<String> args) async {
       )) {
     log.severe(
       '--extensions-token ignored: it must be at least '
-      '${ProxyTokenService.minimumProcessTokenLength} characters',
+      '${ProxyTokenService.minimumProcessTokenLength} characters with no '
+      'spaces or commas',
     );
   }
   if (cliArgs.noAccount) {

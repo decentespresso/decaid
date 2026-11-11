@@ -71,7 +71,8 @@ CliArgs parseCliArgs(List<String> args) {
       'extensions-token',
       help:
           'Accept this bearer token for plugin and skin management '
-          '(extensions:manage) for this process. At least 32 characters; '
+          '(extensions:manage) for this process. At least 32 characters, '
+          'no spaces or commas; '
           'not persisted. For headless and development use.',
     );
 

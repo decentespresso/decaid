@@ -113,6 +113,23 @@ void main() {
     expect(service.validate(short), isNull);
   });
 
+  test('a process token with a space or a comma is not registered', () {
+    final service = ProxyTokenService();
+    const caller = ProxyCaller(
+      id: 'cli',
+      scopes: {ProxyTokenService.scopeExtensionsManage},
+    );
+
+    for (final token in [
+      'correct horse battery staple decaid extensions',
+      '${'z' * 40},${'z' * 40}',
+      '${'z' * 40}\t',
+    ]) {
+      expect(service.registerProcessToken(token, caller), isFalse);
+      expect(service.validate(token), isNull);
+    }
+  });
+
   test('a process token of 32 characters or more is registered', () {
     final service = ProxyTokenService();
     final token = 'y' * ProxyTokenService.minimumProcessTokenLength;

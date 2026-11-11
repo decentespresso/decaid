@@ -1847,9 +1847,9 @@ Getting a token:
   until revoked on the same page. The section is available whether or not a
   Decent account is linked.
 - For headless and development runs: start the app with
-  `--extensions-token <value>`. The value must be at least 32 characters; a
-  shorter one is ignored and logged. It is valid for that process only and is not
-  stored. With `scripts/sb-dev.sh`, pass it as
+  `--extensions-token <value>`. The value must be at least 32 characters with
+  no spaces or commas; any other value is ignored and logged. It is valid for
+  that process only and is not stored. With `scripts/sb-dev.sh`, pass it as
   `--app-arg "--extensions-token=$TOKEN"`; `sb-dev restart` reuses it.
 
 ```bash

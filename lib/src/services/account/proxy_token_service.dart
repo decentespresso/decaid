@@ -47,7 +47,10 @@ class ProxyTokenService {
   }
 
   bool registerProcessToken(String token, ProxyCaller caller) {
-    if (token.length < minimumProcessTokenLength) return false;
+    if (token.length < minimumProcessTokenLength ||
+        token.contains(RegExp(r'[\s,]'))) {
+      return false;
+    }
     registerToken(token, caller);
     return true;
   }
