@@ -369,6 +369,7 @@ class WebUIService {
         serveFilesOutsidePath: false,
         listDirectories: true,
       );
+      if (version != _lifecycleVersion) return;
       final identityProvider = skinIdentityProvider;
       final identity = identityProvider == null ? path : identityProvider(path);
       _activeSkinIdentity = identity;
@@ -382,17 +383,20 @@ class WebUIService {
       this.port = activeServer.port;
       await _serveEntryPoint(port);
       await _reconcileAliasServers();
+      if (version != _lifecycleVersion) return;
       _log.fine("serving $path");
       _path = path;
       _serveGeneration.value++;
     } catch (e, st) {
-      await _server?.close(force: true);
-      await _entryServer?.close(force: true);
-      await _closeAliasServers();
-      _server = null;
-      _entryServer = null;
-      _activeSkinIdentity = null;
-      _revokeSkinProxyToken();
+      if (version == _lifecycleVersion) {
+        await _server?.close(force: true);
+        await _entryServer?.close(force: true);
+        await _closeAliasServers();
+        _server = null;
+        _entryServer = null;
+        _activeSkinIdentity = null;
+        _revokeSkinProxyToken();
+      }
       _log.severe("failed to start serving", e, st);
       rethrow;
     }
