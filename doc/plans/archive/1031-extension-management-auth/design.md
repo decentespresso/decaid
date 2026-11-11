@@ -142,6 +142,9 @@ only `account:proxy`. HTTP bearer tokens are not confidential on the LAN until #
 - A spec test: every operation in `rest_v1.yml` that declares the `extensionsManage` security
   scheme is in the table and the reverse, and every mutating operation under `/plugins` and
   `/webui` is either in the table or in a short reviewed list of open ones.
+- A registration test: every mutating route the plugin and skin handlers register on the
+  router is in the table or in a reviewed open list, so a route added without a spec entry is
+  still caught.
 - Full-pipeline tests over a real socket with the real handlers: an `api` plugin using
   `fetch`, TCP and WebSocket against loopback, hostname and LAN-address aliases and through a
   redirect is refused; a `manage.extensions` plugin succeeds through `host.localApi`; unload,

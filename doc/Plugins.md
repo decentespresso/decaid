@@ -1595,7 +1595,12 @@ it in Decaid UI.
   global `WebSocket` or socket API in the plugin runtime.
 - TLS uses the platform trust store only; custom CA material and client
   certificates are not supported
-- Storage is isolated per plugin
+- Storage is kept per plugin, but it is not private: the key-value store routes
+  (`/api/v1/store/<namespace>/<key>`), which need no token, read and write the
+  same data when the namespace is the plugin id, and backup import and sync
+  restore it. A plugin holding `manage.extensions` must not take instructions,
+  server addresses or credentials from `host.storage`; keep them in plugin
+  settings, whose POST route is gated and whose secure values are never returned
 - No filesystem access beyond the plugin's own directory
 - `fetch` and `host.transport` are not limited by destination, so they can
   reach Decaid's own API like any client on the network. They carry no
@@ -1606,9 +1611,9 @@ it in Decaid UI.
   other. A plugin's permissions, `manage.extensions` included, should be treated
   as available to every plugin loaded beside it, so grant `manage.extensions`
   only on a device whose other plugins you trust as well
-- A bearer token that Decaid recognises is removed from a request before it
-  reaches a plugin-defined endpoint, so a client that sends its token to a
-  plugin endpoint does not hand that token to the plugin
+- An `Authorization` header that carries a token Decaid recognises is removed
+  from a request before it reaches a plugin-defined endpoint, so a client that
+  sends its token to a plugin endpoint does not hand that token to the plugin
 - The rest of the REST API has no authentication yet. Run the API server only on
   networks you trust; bearer tokens travel in clear text over HTTP until the
   HTTPS listener exists

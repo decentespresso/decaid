@@ -255,12 +255,15 @@ tokens section or `--extensions-token`.
 When adding a plugin or skin mutation route, add it to
 `extensionManagementRoutes` and declare `security: [extensionsManage]` with
 401/403 in `rest_v1.yml`; `test/api/extension_management_spec_test.dart`
-fails until both agree or the route is listed as reviewed-open there.
+fails until both agree or the route is listed as reviewed-open there, and
+`test/webserver/extension_management_route_coverage_test.dart` fails for any
+mutating route `PluginsHandler` or `WebUIHandler` registers that is in neither
+list, whether or not the spec mentions it.
 
 ### Focused Tests
 
 ```sh
-flutter test test/webserver/extension_management_auth_test.dart test/api/extension_management_spec_test.dart
+flutter test test/webserver/extension_management_auth_test.dart test/webserver/extension_management_route_coverage_test.dart test/api/extension_management_spec_test.dart
 ```
 
 ## Decent Binary Protocol

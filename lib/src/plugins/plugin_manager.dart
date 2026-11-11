@@ -380,6 +380,9 @@ class PluginManager {
         );
   }
 
+  Object? _withoutBridgeToken(Object? message) =>
+      message is Map ? ({...message}..remove('bridgeToken')) : message;
+
   String _permissionError(String pluginId, PluginPermissions permission) =>
       'PluginPermissionError: Plugin $pluginId requires manifest permission ${permission.wireName}';
 
@@ -1150,7 +1153,7 @@ class PluginManager {
 
     js.onMessage("host", (raw) {
       try {
-        _log.finest("receiving: $raw");
+        _log.finest("receiving: ${_withoutBridgeToken(raw)}");
         final msg = raw as Map<String, dynamic>;
         final pluginId = _pluginIdForBridgeMessage(msg, 'host');
 
@@ -2736,7 +2739,7 @@ class PluginManager {
   }
 
   Future<void> _handleMessage(String pluginId, Map<String, dynamic> msg) async {
-    _log.finest("handle message: $msg");
+    _log.finest("handle message: ${_withoutBridgeToken(msg)}");
     final type = msg['type'];
     final payload = msg['payload'];
 
@@ -3162,6 +3165,10 @@ class PluginManager {
       generation: generation,
       requestId: requestId,
     );
+    if (_pendingOps.containsKey(op.key)) {
+      _log.warning('Local API message from $pluginId reuses a request id');
+      return;
+    }
     _pendingOps[op.key] = op;
 
     if (msg['bridgeToken'] != _pluginBridgeTokens[pluginId]) {

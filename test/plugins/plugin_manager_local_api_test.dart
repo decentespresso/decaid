@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:logging/logging.dart';
 import 'package:reaprime/src/plugins/plugin_manager.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'package:shelf/shelf.dart' as shelf;
@@ -685,6 +686,103 @@ void main() {
       expect(result, startsWith('err:'));
       expect(result, contains('exceeds 64 bytes'));
       expect(manager.activePendingOpCount, 0);
+    });
+
+    test('a reused request id does not displace the pending request', () async {
+      final manager = PluginManager(kvStore: FakeKeyValueStoreService());
+      addTearDown(manager.dispose);
+      final release = Completer<shelf.Response>();
+      var dispatched = 0;
+      manager.attachLocalApi((_) {
+        dispatched += 1;
+        return release.future;
+      });
+      final id = uniqueId('reuse');
+      await manager.loadPlugin(
+        id: id,
+        manifest: testManifest(
+          id,
+          permissions: const {PluginPermissions.manageExtensions},
+        ),
+        settings: {},
+        jsCode:
+            '''
+          function createPlugin(host) {
+            return {
+              id: ${jsonEncode(id)},
+              onLoad() {
+                for (let i = 0; i < 2; i++) {
+                  sendMessage("host", JSON.stringify({
+                    bridgeToken: pluginBridgeToken,
+                    generation: pluginGeneration,
+                    type: "localApi",
+                    requestId: "reused",
+                    path: "/api/v1/test/echo",
+                    method: "POST"
+                  }));
+                }
+              }
+            };
+          }
+        ''',
+      );
+      await pumpEventQueue();
+
+      expect(dispatched, 1);
+      expect(manager.activePendingOpsByType, {'localApi': 1});
+
+      release.complete(shelf.Response.ok('done'));
+      await pumpEventQueue();
+      expect(manager.activePendingOpCount, 0);
+    });
+
+    test('bridge messages are logged without the bridge token', () async {
+      final previousLevel = Logger.root.level;
+      Logger.root.level = Level.ALL;
+      final logged = <String>[];
+      final sub = Logger.root.onRecord.listen(
+        (record) => logged.add(record.message),
+      );
+      addTearDown(() {
+        Logger.root.level = previousLevel;
+        return sub.cancel();
+      });
+      final manager = PluginManager(kvStore: FakeKeyValueStoreService());
+      addTearDown(manager.dispose);
+      manager.attachLocalApi((_) => shelf.Response.ok('ok'));
+      final id = uniqueId('logged');
+      await manager.loadPlugin(
+        id: id,
+        manifest: testManifest(
+          id,
+          permissions: const {
+            PluginPermissions.emit,
+            PluginPermissions.manageExtensions,
+          },
+        ),
+        settings: {},
+        jsCode:
+            '''
+          function createPlugin(host) {
+            return {
+              id: ${jsonEncode(id)},
+              onLoad() {
+                globalThis.__loggedPluginToken = pluginBridgeToken;
+                host.emit("marker", {});
+                host.localApi("/api/v1/test/echo");
+              }
+            };
+          }
+        ''',
+      );
+      await pumpEventQueue();
+      final bridgeToken = manager.js
+          .evaluate('globalThis.__loggedPluginToken')
+          .stringResult;
+
+      expect(bridgeToken, hasLength(greaterThan(20)));
+      expect(logged.where((line) => line.contains('marker')), isNotEmpty);
+      expect(logged.where((line) => line.contains(bridgeToken)), isEmpty);
     });
 
     test('resolves a response within maxFetchResponseBytes', () async {

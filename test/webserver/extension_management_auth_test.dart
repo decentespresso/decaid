@@ -354,6 +354,31 @@ void main() {
       expect(reached.single.headers['authorization'], isNull);
     });
 
+    test(
+      'a recognised token is removed however the header spells it',
+      () async {
+        for (final header in [
+          'bearer $_managerToken',
+          'BEARER $_managerToken',
+          'Bearer\t$_managerToken',
+          'Bearer $_managerToken, Bearer $_managerToken',
+          'Basic abc, Bearer $_managerToken',
+          _managerToken,
+        ]) {
+          await send(
+            'GET',
+            '/api/v1/plugins/example.reaplugin/status',
+            authorization: header,
+          );
+        }
+        expect(reached, hasLength(6));
+        expect(
+          reached.map((request) => request.headers['authorization']),
+          everyElement(isNull),
+        );
+      },
+    );
+
     test('an unrecognised bearer is left for the plugin to judge', () async {
       await send(
         'GET',

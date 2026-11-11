@@ -127,7 +127,9 @@ Middleware extensionManagementAuthMiddleware(
       return inner(
         request.change(
           context: {_authorizationContextKey: authorization},
-          headers: caller == null ? null : _withoutAuthorization(request),
+          headers: _carriesHostToken(request, tokens)
+              ? _withoutAuthorization(request)
+              : null,
         ),
       );
     };
@@ -165,6 +167,14 @@ Response? _authorize(
     );
   }
   return denial;
+}
+
+bool _carriesHostToken(Request request, ProxyTokenService? tokens) {
+  final authorization = request.headers['authorization'];
+  if (authorization == null || tokens == null) return false;
+  return authorization
+      .split(RegExp(r'[\s,]+'))
+      .any((part) => tokens.validate(part) != null);
 }
 
 Map<String, Object?> _withoutAuthorization(Request request) => {
