@@ -127,7 +127,7 @@ Middleware extensionManagementAuthMiddleware(
       return inner(
         request.change(
           context: {_authorizationContextKey: authorization},
-          headers: _carriesHostToken(request, tokens)
+          headers: caller != null || _carriesHostToken(request, tokens)
               ? _withoutAuthorization(request)
               : null,
         ),

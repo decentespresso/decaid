@@ -379,6 +379,34 @@ void main() {
       },
     );
 
+    test('a recognised token that contains spaces is removed too', () async {
+      const spacedToken = 'correct horse battery staple decaid extensions';
+      tokens.registerToken(
+        spacedToken,
+        const ProxyCaller(
+          id: 'cli',
+          scopes: {ProxyTokenService.scopeExtensionsManage},
+        ),
+      );
+
+      final gated = await send(
+        'POST',
+        '/api/v1/plugins/update',
+        authorization: 'Bearer $spacedToken',
+      );
+      await send(
+        'GET',
+        '/api/v1/plugins/example.reaplugin/status',
+        authorization: 'Bearer $spacedToken',
+      );
+
+      expect(gated.statusCode, 200);
+      expect(reached.map((request) => request.headers['authorization']), [
+        isNull,
+        isNull,
+      ]);
+    });
+
     test('an unrecognised bearer is left for the plugin to judge', () async {
       await send(
         'GET',
