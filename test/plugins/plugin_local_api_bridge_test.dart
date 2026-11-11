@@ -171,13 +171,13 @@ void main() {
       '/api/v1/settings',
       method: 'POST',
       body:
-          '{"webUiPath": "/skin", "automaticUpdateCheck": true, '
+          '{"defaultSkinId": "b", "automaticUpdateCheck": true, '
           '"automaticUpdateCheck": false}',
     );
 
     expect(bodies, [
       jsonEncode({'defaultSkinId': 'a', 'automaticUpdateCheck': true}),
-      jsonEncode({'webUiPath': '/skin', 'automaticUpdateCheck': false}),
+      jsonEncode({'defaultSkinId': 'b', 'automaticUpdateCheck': false}),
     ]);
     expect(received.map((r) => r.headers['content-type']), [
       'application/json',
@@ -187,6 +187,8 @@ void main() {
     for (final body in <Object?>[
       {'defaultSkinId': 'a', 'gatewayMode': 'full'},
       {'logLevel': 'FINE'},
+      {'webUiPath': '/'},
+      {'defaultSkinId': 'a', 'webUiPath': '/'},
       '{"defaultSkinId": "a", "gatewayMode": "full"}',
       r'{"defaultSkinId": "a", "gatew\u0061yMode": "full"}',
       '{"defaultSkinId": "a"',

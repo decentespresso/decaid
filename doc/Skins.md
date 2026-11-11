@@ -3690,7 +3690,7 @@ Live-edit validates that the selected folder contains an `index.html`.
 
 ### Settings Plugin (Web-Based Management)
 
-The bundled **settings plugin** provides a web-based settings dashboard at `/api/v1/plugins/settings.reaplugin/ui`. It includes a "Web Interface" section for skin management: select active skin, start/stop server, install/remove skins, and check for updates — all from a browser.
+The bundled **settings plugin** provides a web-based settings dashboard at `/api/v1/plugins/settings.reaplugin/ui`. Its "Web Interface" section shows the installed skins and the skin server's status, with controls to select the active skin, start or stop the server, install or remove skins, and check for updates.
 
 The page has no authority. Its management actions (switching or removing a skin,
 starting or stopping the server, installing, checking for updates, or changing a

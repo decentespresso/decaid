@@ -71,14 +71,23 @@ the API), #925 (HTTPS listener), #1029 (remote skin reload).
    `host.localApi` dispatches an allowlist, not everything under `/api/v1/` (maintainer
    decision in the review of PR #1142). It reaches the protected routes below, the `GET`
    routes that read plugins, skins and the skin server, and `POST /api/v1/settings` with a
-   body holding only `webUiPath`, `defaultSkinId` or `automaticUpdateCheck`; the bridge
-   re-encodes that body so the handler sees the keys the bridge checked. Any other request is
-   rejected before dispatch. So `manage.extensions` does not stand in for `api`: a plugin
-   with only `manage.extensions` cannot reach machine control, other settings, data import,
-   the key-value store or plugin-defined endpoints, and a plugin with both reaches those
-   through `fetch`, which never carries the grant. Import and sync stay off the bridge
+   body holding only `defaultSkinId` or `automaticUpdateCheck`; the bridge re-encodes that
+   body so the handler sees the keys the bridge checked. Any other request is rejected before
+   dispatch. So the bridge does not stand in for `api`: a plugin with only
+   `manage.extensions` has no call of its own into machine control, other settings, data
+   import, the key-value store or plugin-defined endpoints, and a plugin with both reaches
+   those through `fetch`, which never carries the grant. Import and sync stay off the bridge
    because they write everything else too; a plugin changes the default skin and automatic
-   updates through the settings route instead.
+   updates through the settings route instead. `webUiPath` stays off it as well: it serves
+   any readable folder, with directory listings, on the unauthenticated skin port, which is
+   a development aid for token holders and not management of installed skins.
+
+   The allowlist bounds what the plugin calls, not what it can cause. Installing, rewriting
+   and approving plugins is the permission's purpose (decision 8), so a `manage.extensions`
+   plugin can put a plugin holding `api`, or any other permission, on the device. Refusing
+   manifests with permissions the caller lacks was considered and rejected: it contradicts
+   the delegated approval the issue specifies and would stop a fleet-management plugin
+   installing ordinary plugins. The docs therefore describe the permission as full trust.
 7. **No bearer reaches plugin code.** There is no token behind `host.localApi`, and a bearer
    that the token service recognises is removed from the request before handlers run, so a
    client that sends its token to a plugin-defined endpoint does not hand it to that plugin.

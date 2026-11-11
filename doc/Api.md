@@ -151,9 +151,12 @@ listener (#925) exists.
 routes through `host.localApi(path, options)`, in process, without a token.
 `host.localApi` reaches only these routes, the `GET` routes that read plugins,
 skins and the skin server, and `POST /api/v1/settings` with a body of only
-`webUiPath`, `defaultSkinId` or `automaticUpdateCheck`. It refuses the rest of
-the API, so `manage.extensions` does not stand in for the `api` permission, and
-`api` does not stand in for it.
+`defaultSkinId` or `automaticUpdateCheck` (`webUiPath` stays with token
+holders). It refuses the rest of the API, so the plugin's own calls are limited
+to plugin and skin management, and `api` gives no management authority. This
+limits what the plugin calls, not what it can cause: a plugin that can install
+plugins and approve permissions can install one that holds `api` or any other
+permission, so `manage.extensions` is full trust in the plugin.
 Installing such a plugin from the native screens asks for confirmation, and an
 update that adds the permission waits for approval. A plugin holding the
 permission can approve pending permission updates, including its own; a plugin
@@ -1073,7 +1076,7 @@ See [`assets/api/websocket_v1.yml`](../assets/api/websocket_v1.yml) for the full
 
 ### Settings Plugin (`settings.reaplugin`)
 
-Built-in settings dashboard accessible at `/api/v1/plugins/settings.reaplugin/ui`. Provides a web-based interface for managing all app settings, skins, plugins, data, and more.
+Built-in settings dashboard accessible at `/api/v1/plugins/settings.reaplugin/ui`. Provides a web-based interface for app settings, data and more. Its skin and plugin management controls are still shown but are refused (see **Management actions** below).
 
 **Query parameters:**
 - `backName` — customizes the back button label. E.g., `/api/v1/plugins/settings.reaplugin/ui?backName=Extracto` shows "Back to Extracto" instead of "Back to WebUI".

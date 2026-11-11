@@ -68,7 +68,6 @@ const extensionManagementSettingsRoute = ExtensionManagementRoute(
 );
 
 const extensionManagementSettingsKeys = {
-  'webUiPath',
   'defaultSkinId',
   'automaticUpdateCheck',
 };

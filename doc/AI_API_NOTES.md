@@ -254,10 +254,14 @@ the `DECAID_EXTENSIONS_TOKEN` environment variable at launch.
   (the plugin, skin and skin-server `GET` routes) and `POST /api/v1/settings`
   with a body of only `extensionManagementSettingsKeys`, matched with the same
   `shelf_router` matcher as the middleware. Everything else is rejected before
-  dispatch, so `manage.extensions` and `api` stay independent: the first never
-  reaches machine control or plugin-defined endpoints, and `fetch` never
-  carries a grant. A new management route must be added to one of those lists
-  to be reachable from a plugin.
+  dispatch, so `manage.extensions` and `api` stay independent: the bridge never
+  dispatches to machine control or plugin-defined endpoints, and `fetch` never
+  carries a grant. `webUiPath` is gated for token holders but is not one of the
+  bridge's keys, because it serves an arbitrary folder on the skin port. A new
+  management route must be added to one of those lists to be reachable from a
+  plugin. This bounds the plugin's own calls only: a plugin that can write
+  plugin source and approve updates can install one holding `api`, which
+  issue #1031 accepts as the delegated authority of the permission.
 - A bearer the token service recognises is removed from the request before
   handlers run, so plugin-defined endpoints never see it.
 - The scope is independent of `account:proxy`; each middleware checks its own.
