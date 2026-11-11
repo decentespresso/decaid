@@ -92,7 +92,7 @@ flutter test                             # all must pass
 ./scripts/fetch_dye2_plugin.sh           # assets/plugins/dye2.reaplugin/ must exist
 ```
 
-`dart format` is currently **advisory** in CI — the codebase predates the Dart 3.7 "tall style" formatter. Format your own changes (`dart format lib test`) but don't reformat untouched files in the same PR.
+`dart format` is **enforced** in CI on the Dart files your PR changed, using the SDK pinned in `.github/workflows/pr-checks.yml`. Format only your own changes — `git diff --name-only --diff-filter=ACMR -z HEAD -- '*.dart' | xargs -0 -r dart format --` — and don't reformat untouched files in the same PR. A local SDK that differs from the pinned one reflows code CI would leave alone, so check out the pinned version (see [README prerequisites](README.md#prerequisites)) instead of matching your local formatter.
 
 ### 5. Architecture Boundaries (required)
 

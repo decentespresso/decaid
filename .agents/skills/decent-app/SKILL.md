@@ -1,11 +1,13 @@
 ---
 name: decent-app
-description: Drive or operate a running Decaid app through its REST and WebSocket APIs, its skins, and its simulated or real devices — including user-facing tasks like adding a bean, switching the workflow, or pulling shot history from an agent. Use when the task is to use a running instance; use the decent-dev skill instead when the task is to change Decaid's own Dart/Flutter code.
+description: Drive or operate a running Decaid app through its REST and WebSocket APIs, its skins, and its simulated or real devices — including user-facing tasks like adding a bean, switching the workflow, or pulling shot history from an agent. Use when the task is to use a running instance. A task that changes Decaid's own Dart/Flutter code uses the decent-dev skill as its development guide and this skill for the runtime procedures that exercise the change.
 ---
 
 # Decent app runtime
 
-Use this skill to drive a running Decent Flutter app from the shell. Simulate mode is the default; `--real` stops injecting `--dart-define=simulate=1` so BLE or USB hardware can be used, with `--adb-forward` when the app runs on Android. Persisted simulated-device settings still apply.
+Use this skill to drive a running Decent Flutter app from the shell. Changing the code is the
+`decent-dev` skill's job; a code change that needs runtime verification uses both, with `decent-dev`
+supplying the gate and this skill supplying the runtime recipes. Simulate mode is the default; `--real` stops injecting `--dart-define=simulate=1` so BLE or USB hardware can be used, with `--adb-forward` when the app runs on Android. Persisted simulated-device settings still apply.
 
 This is an Agent Skills-compatible bundle. Codex discovers repository skills under `.agents/skills`; other clients may use different discovery locations. Claude Code uses the forwarder under `.claude/skills/decent-app/`.
 
@@ -47,11 +49,11 @@ Real BLE machine on an Android tablet:
 
 ```bash
 scripts/sb-dev.sh start \
-  --platform 8734SCCFAC00000747 \
+  --platform <adb-serial> \
   --real \
   --adb-forward \
   --connect-machine DE1 \
-  --preferred-machine-id D9:11:0B:E6:9F:86
+  --preferred-machine-id <machine-id>
 curl -sf http://localhost:8080/api/v1/settings | jq -e '.simulatedDevices == []'
 curl -sf http://localhost:8080/api/v1/devices | jq .
 scripts/sb-dev.sh stop
