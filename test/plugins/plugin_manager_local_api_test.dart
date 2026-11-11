@@ -122,41 +122,38 @@ void main() {
       expect(harness.skinServer.mutations, ['stopServing']);
     });
 
-    test(
-      'serves read-only routes and resolves 404 and validation errors as responses',
-      () async {
-        final actor = uniqueId('actor');
-        await harness.install(actor, permissions: privilegedPermissions);
+    test('serves read-only routes and resolves 404 and validation errors as responses', () async {
+      final actor = uniqueId('actor');
+      await harness.install(actor, permissions: privilegedPermissions);
 
-        final skins = await harness.localApi(actor, '/api/v1/webui/skins');
-        final settings = await harness.localApi(
-          actor,
-          '/api/v1/plugins/$actor/settings',
-        );
-        final unknownPlugin = await harness.localApi(
-          actor,
-          '/api/v1/plugins/nope.reaplugin/enable',
-          options: {'method': 'POST'},
-        );
-        final invalidSkin = await harness.localApi(
-          actor,
-          '/api/v1/webui/skins/default',
-          options: {'method': 'PUT', 'body': <String, Object?>{}},
-        );
-        final unknownRoute = await harness.localApi(actor, '/api/v1/nothing');
+      final skins = await harness.localApi(actor, '/api/v1/webui/skins');
+      final settings = await harness.localApi(
+        actor,
+        '/api/v1/plugins/$actor/settings',
+      );
+      final unknownPlugin = await harness.localApi(
+        actor,
+        '/api/v1/plugins/nope.reaplugin/enable',
+        options: {'method': 'POST'},
+      );
+      final invalidSkin = await harness.localApi(
+        actor,
+        '/api/v1/webui/skins/default',
+        options: {'method': 'PUT', 'body': <String, Object?>{}},
+      );
+      final unknownRoute = await harness.localApi(actor, '/api/v1/nothing');
 
-        expect(skins.status, 200);
-        expect(
-          (jsonDecode(skins.response['body'] as String) as List).single,
-          containsPair('id', recordedSkinId),
-        );
-        expect(settings.status, 200);
-        expect(unknownPlugin.status, 404);
-        expect(invalidSkin.status, 400);
-        expect(unknownRoute.status, 404);
-        expect(harness.skins.mutations, isEmpty);
-      },
-    );
+      expect(skins.status, 200);
+      expect(
+        (jsonDecode(skins.response['body'] as String) as List).single,
+        containsPair('id', recordedSkinId),
+      );
+      expect(settings.status, 200);
+      expect(unknownPlugin.status, 404);
+      expect(invalidSkin.status, 400);
+      expect(unknownRoute.status, 404);
+      expect(harness.skins.mutations, isEmpty);
+    });
 
     test('exposes no registered bearer to plugin code', () async {
       final actor = uniqueId('actor');
@@ -478,70 +475,64 @@ void main() {
       expect(harness.loader.isPluginLoaded(target), isTrue);
     });
 
-    test(
-      'a reload into a manifest without the permission leaves no authority',
-      () async {
-        harness.stash(actor);
-        final dropped = await harness.externalRequest(
-          'PUT',
-          '/api/v1/plugins/$actor/source',
-          bearer: managerToken,
-          body: {
-            'manifest': pluginManifestJson(actor, version: '1.1.0'),
-            'plugin': probePluginJs(actor),
-          },
-        );
-        expect(dropped.status, 200, reason: dropped.body);
-        expect(harness.loader.isPluginLoaded(actor), isTrue);
-        harness.bridged.clear();
+    test('a reload into a manifest without the permission leaves no authority', () async {
+      harness.stash(actor);
+      final dropped = await harness.externalRequest(
+        'PUT',
+        '/api/v1/plugins/$actor/source',
+        bearer: managerToken,
+        body: {
+          'manifest': pluginManifestJson(actor, version: '1.1.0'),
+          'plugin': probePluginJs(actor),
+        },
+      );
+      expect(dropped.status, 200, reason: dropped.body);
+      expect(harness.loader.isPluginLoaded(actor), isTrue);
+      harness.bridged.clear();
 
-        final viaHost = await harness.localApi(
-          actor,
-          '/api/v1/plugins/$target/disable',
-          options: {'method': 'POST'},
-        );
-        final viaBridge = await harness.probe(
-          actor,
-          'globalThis.__reaprimePluginBridge.localApi(pluginId, pluginGeneration, pluginBridgeToken, "/api/v1/plugins/$target/disable", "POST", null, null)',
-        );
+      final viaHost = await harness.localApi(
+        actor,
+        '/api/v1/plugins/$target/disable',
+        options: {'method': 'POST'},
+      );
+      final viaBridge = await harness.probe(
+        actor,
+        'globalThis.__reaprimePluginBridge.localApi(pluginId, pluginGeneration, pluginBridgeToken, "/api/v1/plugins/$target/disable", "POST", null, null)',
+      );
 
-        expect(viaHost.errorName, 'PluginPermissionError');
-        expect(viaHost.errorMessage, contains('manage.extensions'));
-        expect(viaBridge.resolved, isFalse);
-        expect(viaBridge.errorMessage, contains('PluginPermissionError'));
-        expect(viaBridge.errorMessage, contains('manage.extensions'));
-        expect(harness.bridged, isEmpty);
-        await expectStaleCallRefused();
-      },
-    );
+      expect(viaHost.errorName, 'PluginPermissionError');
+      expect(viaHost.errorMessage, contains('manage.extensions'));
+      expect(viaBridge.resolved, isFalse);
+      expect(viaBridge.errorMessage, contains('PluginPermissionError'));
+      expect(viaBridge.errorMessage, contains('manage.extensions'));
+      expect(harness.bridged, isEmpty);
+      await expectStaleCallRefused();
+    });
 
-    test(
-      'an in-flight request is rejected on unload and the old identity stays refused',
-      () async {
-        final slow = harness.slowRoute('inflight');
-        harness.stash(actor);
-        final outcome = harness.localApi(
-          actor,
-          '/api/v1/test/slow/inflight',
-          options: {'method': 'POST'},
-          reportVia: observer,
-        );
-        final entered = await slow.entered.future;
-        expect(entered.mayManage, isTrue);
-        expect(entered.grant?.isActive, isTrue);
+    test('an in-flight request is rejected on unload and the old identity stays refused', () async {
+      final slow = harness.slowRoute('inflight');
+      harness.stash(actor);
+      final outcome = harness.localApi(
+        actor,
+        '/api/v1/test/slow/inflight',
+        options: {'method': 'POST'},
+        reportVia: observer,
+      );
+      final entered = await slow.entered.future;
+      expect(entered.mayManage, isTrue);
+      expect(entered.grant?.isActive, isTrue);
 
-        await harness.loader.unloadPlugin(actor);
-        final rejected = await outcome;
-        slow.release.complete();
-        final mayManageAfterUnload = await slow.finished.future;
+      await harness.loader.unloadPlugin(actor);
+      final rejected = await outcome;
+      slow.release.complete();
+      final mayManageAfterUnload = await slow.finished.future;
 
-        expect(rejected.resolved, isFalse);
-        expect(rejected.errorMessage, contains('unloaded'));
-        expect(entered.grant?.isActive, isFalse);
-        expect(mayManageAfterUnload, isFalse);
-        await expectStaleCallRefused();
-      },
-    );
+      expect(rejected.resolved, isFalse);
+      expect(rejected.errorMessage, contains('unloaded'));
+      expect(entered.grant?.isActive, isFalse);
+      expect(mayManageAfterUnload, isFalse);
+      await expectStaleCallRefused();
+    });
 
     final selfOperations = <String, Map<String, Object?> Function(String)>{
       'disables': (id) => {

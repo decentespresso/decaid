@@ -160,9 +160,8 @@ void main() {
         'api': <Object>[],
       }),
     );
-    File(
-      '${dir.path}/plugin.js',
-    ).writeAsStringSync('function createPlugin() { return {}; }');
+    File('${dir.path}/plugin.js')
+        .writeAsStringSync('function createPlugin() { return {}; }');
     return dir.path;
   }
 

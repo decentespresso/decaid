@@ -183,13 +183,10 @@ function createPlugin() {
       final source = service.sourceFor(id)!;
       expect(source.kind, PluginSourceKind.localFolder);
       expect(source.installedAt, installedSource.installedAt);
-      final onDisk =
-          jsonDecode(
-                File(
-                  '${loader.getPluginDirectory(id)}/manifest.json',
-                ).readAsStringSync(),
-              )
-              as Map<String, dynamic>;
+      final onDisk = jsonDecode(
+        File('${loader.getPluginDirectory(id)}/manifest.json')
+            .readAsStringSync(),
+      ) as Map<String, dynamic>;
       expect(onDisk['version'], '1.0.0');
     },
   );

@@ -59,12 +59,10 @@ final class ExtensionManagementAuthorization {
   final bool _presentedBearer;
 
   const ExtensionManagementAuthorization._({
-    required ExtensionManagementGrant? grant,
-    required ProxyCaller? caller,
-    required bool presentedBearer,
-  }) : _grant = grant,
-       _caller = caller,
-       _presentedBearer = presentedBearer;
+    required this._grant,
+    required this._caller,
+    required this._presentedBearer,
+  });
 
   String get callerDescription {
     final grant = _grant;

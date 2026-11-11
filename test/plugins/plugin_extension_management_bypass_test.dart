@@ -388,19 +388,16 @@ void main() {
       await expectNoSideEffect();
     });
 
-    test(
-      'it cannot claim the identity of a plugin that holds the grant',
-      () async {
-        final state = await harness.settledState(
-          steward,
-          'globalThis.__probes[${jsonEncode(attacker)}].run(${jsonEncode('globalThis.__reaprimePluginBridge.localApi(${jsonEncode(steward)}, pluginGeneration, pluginBridgeToken, "/api/v1/webui/server/stop", "POST", null, null)')})',
-        );
+    test('it cannot claim the identity of a plugin that holds the grant', () async {
+      final state = await harness.settledState(
+        steward,
+        'globalThis.__probes[${jsonEncode(attacker)}].run(${jsonEncode('globalThis.__reaprimePluginBridge.localApi(${jsonEncode(steward)}, pluginGeneration, pluginBridgeToken, "/api/v1/webui/server/stop", "POST", null, null)')})',
+      );
 
-        expect(state, isNot(startsWith('resolved')), reason: state);
-        expect(harness.bridged, ['GET /api/v1/test/marker']);
-        await expectNoSideEffect();
-      },
-    );
+      expect(state, isNot(startsWith('resolved')), reason: state);
+      expect(harness.bridged, ['GET /api/v1/test/marker']);
+      await expectNoSideEffect();
+    });
   });
 
   group('self-escalation', () {

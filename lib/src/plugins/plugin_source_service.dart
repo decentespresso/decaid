@@ -32,8 +32,9 @@ class PluginInstallDeclinedException implements Exception {
   String toString() => 'Installation of $pluginId was declined';
 }
 
-typedef ExtensionManagementApproval =
-    Future<bool> Function(PluginManifest candidate);
+typedef ExtensionManagementApproval = Future<bool> Function(
+  PluginManifest candidate,
+);
 
 final _releaseTagPattern = RegExp(r'^v?\d+\.\d+\.\d+$');
 

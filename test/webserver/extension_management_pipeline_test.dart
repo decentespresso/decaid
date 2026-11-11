@@ -429,9 +429,8 @@ void main() {
   Future<void> installLocalPlugin(String id, {required bool load}) async {
     final dir = Directory('${tempDir.path}/source_$id')
       ..createSync(recursive: true);
-    File(
-      '${dir.path}/manifest.json',
-    ).writeAsStringSync(jsonEncode(_manifestJson(id)));
+    File('${dir.path}/manifest.json')
+        .writeAsStringSync(jsonEncode(_manifestJson(id)));
     File('${dir.path}/plugin.js').writeAsStringSync(_echoPluginJs(id));
     await service.addPlugin(dir.path);
     if (load) await service.enablePlugin(id);
