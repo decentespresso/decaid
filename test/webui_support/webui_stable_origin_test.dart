@@ -645,33 +645,32 @@ void main() {
     expect(await fetchBody(portB), contains('skin-b'));
   });
 
-  test('a superseded failure leaves the newer serve intact', () async {
-    var wifiCalls = 0;
+  test('a superseded serve cannot publish or clean up newer state', () async {
+    var loads = 0;
     final reached = Completer<void>();
     final release = Completer<void>();
-    WebUIService.resolveWifiIP = () async {
-      wifiCalls++;
-      if (wifiCalls == 1) {
-        reached.complete();
-        await release.future;
-      }
-      return 'localhost';
-    };
-    final service = createService();
+    final service = createService(
+      load: () async {
+        loads++;
+        if (loads == 1) {
+          reached.complete();
+          await release.future;
+        }
+        return <String, int>{};
+      },
+    );
     service.skinProxyTokenProvider = (path) =>
         path == skinA.path ? 'token-a' : 'token-b';
 
-    final stale = service.serveFolderAtPath(
-      '${skinA.path}/missing',
-      port: entryPort,
-    );
+    final stale = service.serveFolderAtPath(skinA.path, port: entryPort);
     await reached.future;
+
     await service.serveFolderAtPath(skinB.path, port: entryPort);
     final portB = service.port;
     final generation = service.serveGeneration.value;
 
     release.complete();
-    await expectLater(stale, throwsA(anything));
+    await stale;
 
     expect(service.isServing, isTrue);
     expect(service.port, portB);
@@ -692,6 +691,36 @@ void main() {
       entryResponse.headers.value(HttpHeaders.locationHeader),
       'http://localhost:$portB/',
     );
+  });
+
+  test('a superseded serve cannot overwrite the device address', () async {
+    var wifiCalls = 0;
+    final reached = Completer<void>();
+    final release = Completer<void>();
+    WebUIService.resolveWifiIP = () async {
+      wifiCalls++;
+      if (wifiCalls == 1) {
+        reached.complete();
+        await release.future;
+        return '10.0.0.1';
+      }
+      return '10.0.0.2';
+    };
+    final service = createService();
+
+    final servingA = service.serveFolderAtPath(skinA.path, port: entryPort);
+    await reached.future;
+    await service.serveFolderAtPath(skinB.path, port: entryPort);
+    final portB = service.port;
+
+    release.complete();
+    await servingA;
+
+    expect(service.deviceIp(), '10.0.0.2');
+    final origins = accountProxyCorsAllowedOrigins(service);
+    expect(origins, contains('http://10.0.0.2:$portB'));
+    expect(origins, isNot(contains('http://10.0.0.1:$portB')));
+    expect(service.port, portB);
   });
 
   test(
