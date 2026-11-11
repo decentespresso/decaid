@@ -684,6 +684,15 @@ class De1Controller {
     });
   }
 
+  Future<void> updateRefillLevel(int? refillLevel) async {
+    await runDeviceWrite((device) async {
+      final identity = _machineSettingsIdentity(device);
+      if (refillLevel == null) return;
+      await device.setRefillLevel(refillLevel);
+      await _saveMachineSettings(identity, refillLevel: refillLevel);
+    });
+  }
+
   Future<void> updateAdvancedMachineSettings({
     double? heaterPh1Flow,
     double? heaterPh2Flow,
@@ -722,12 +731,14 @@ class De1Controller {
     int? fanThreshold,
     De1RefillKitSettings? refillKitSetting,
     double? flowCalibration,
+    int? refillLevel,
   }) async {
     await _machineSettings.update(
       identity,
       fanThreshold: fanThreshold,
       refillKitSetting: refillKitSetting,
       flowCalibration: flowCalibration,
+      refillLevel: refillLevel,
     );
   }
 

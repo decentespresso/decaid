@@ -995,10 +995,11 @@ paths:
       description: |
         Reapplies a baseline set of machine settings (fan threshold, heater idle temp,
         heater phase 1/2 flows, heater phase 2 timeout, refill kit auto mode, and
-        steam purge mode), and clears the retained fan/refill overrides for the
-        connected machine only. Flow calibration is left untouched: no calibration
-        packet is sent, the machine multiplier is neither read nor modified, and the
-        saved per-machine calibration override is preserved for the next connection.
+        steam purge mode), and clears the retained fan/refill-kit overrides for the
+        connected machine only. Flow calibration and the water refill threshold are
+        left untouched: no calibration or water-levels packet is sent, neither machine
+        value is read or modified, and both saved per-machine overrides are preserved
+        for the next connection.
         Profile and workflow are not touched. A reset acknowledgement is not evidence
         of factory restoration.
       tags: [Machine]
@@ -1152,6 +1153,12 @@ paths:
           description: No machine was connected, or the app disconnected the machine or its serial link dropped while the request waited
     post:
       summary: Set water level refill threshold. Only the refillLevel field is used.
+      description: |
+        The DE1 does not retain the refill threshold across a power cycle, so a
+        value written through this API is retained per machine and reapplied after
+        reconnect, using the same per-machine bucket as the fan and refill-kit
+        overrides. Until a value is written the machine keeps its own threshold.
+        A machine-settings reset does not change or forget the saved value.
       tags: [Machine]
       requestBody:
         required: true

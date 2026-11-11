@@ -112,7 +112,33 @@ List<int> _flowRegisterWrites(FakeBleTransport transport) {
       .toList();
 }
 
+List<int> _refillLevelWrites(FakeBleTransport transport) {
+  return transport.writes
+      .where((write) => write.characteristicUUID == Endpoint.waterLevels.uuid)
+      .map(
+        (write) =>
+            ByteData.sublistView(write.data).getUint16(2, Endian.big) ~/ 256,
+      )
+      .toList();
+}
+
 void main() {
+  test('absent refill level does not write water levels at connect', () async {
+    final harness = await _connect();
+    addTearDown(harness.controller.dispose);
+
+    expect(_refillLevelWrites(harness.transport), isEmpty);
+  });
+
+  test('saved refill level is rewritten at connect', () async {
+    final settings = MemoryMachineSettingsStore();
+    await settings.update('serial:12345', refillLevel: 12);
+    final harness = await _connect(settings: settings);
+    addTearDown(harness.controller.dispose);
+
+    expect(_refillLevelWrites(harness.transport), [12]);
+  });
+
   test(
     'unknown machine identity preserves calibration without a write',
     () async {
