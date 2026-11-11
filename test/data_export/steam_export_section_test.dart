@@ -198,8 +198,12 @@ void main() {
         final storage = _RecordingSteamStorage();
         final section = SteamExportSection(
           controller: PersistenceController(storageService: storage),
-          pageSteams:
-              (limit, {afterTimestamp, afterCreatedAt, afterId}) async => [],
+          pageSteams: (
+            limit, {
+            afterTimestamp,
+            afterCreatedAt,
+            afterId,
+          }) async => [],
         );
         await expectLater(
           importSectionJson(

@@ -22,8 +22,7 @@ RemoteServiceException remoteHttpError(
   401 => 'Sign in to the service and try again.',
   403 =>
     'The service refused access. Check repository access or try again later.',
-  404 =>
-    'The repository, release, or download was not found. Check the address and try again.',
+  404 => 'The repository, release, or download was not found. Check the address and try again.',
   429 => 'The service is receiving too many requests. Try again later.',
   _ => 'The service could not complete the request. Try again later.',
 });

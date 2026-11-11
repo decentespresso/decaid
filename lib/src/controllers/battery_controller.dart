@@ -28,10 +28,9 @@ class BatteryController {
   ChargingState? get currentChargingState => _stateSubject.valueOrNull;
 
   BatteryController({
-    required De1Controller de1Controller,
-    required SettingsController settingsController,
-  }) : _de1Controller = de1Controller,
-       _settingsController = settingsController {
+    required this._de1Controller,
+    required this._settingsController,
+  }) {
     _checkTimer = Timer.periodic(const Duration(seconds: 60), (_) => _tick());
     _tick();
   }

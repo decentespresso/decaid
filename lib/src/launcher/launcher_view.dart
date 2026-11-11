@@ -25,6 +25,7 @@ import 'package:reaprime/src/skin_feature/skin_view.dart';
 import 'package:reaprime/src/skin_selector/skin_selector_page.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
+
 import '../notifications/notification_center.dart';
 import '../notifications/notification_actions.dart';
 import '../notifications/notification_overlay.dart';
@@ -121,9 +122,8 @@ class LauncherView extends StatelessWidget {
                             children: [
                               if (!hasMachine)
                                 ConnectDeviceHeroCard(
-                                  onScan: () => Navigator.of(
-                                    context,
-                                  ).pushNamed(LauncherScanPage.routeName),
+                                  onScan: () => Navigator.of(context)
+                                      .pushNamed(LauncherScanPage.routeName),
                                 ),
                               _buildSkinSlot(context, slot),
                             ],

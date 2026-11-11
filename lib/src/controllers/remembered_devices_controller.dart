@@ -26,12 +26,10 @@ class RememberedDevicesController {
   bool _migrationPersistPending = false;
 
   RememberedDevicesController({
-    required Stream<RememberedDevice?> machineConnections,
-    required Stream<RememberedDevice?> scaleConnections,
-    required SettingsService settings,
-  }) : _machineConnections = machineConnections,
-       _scaleConnections = scaleConnections,
-       _settings = settings;
+    required this._machineConnections,
+    required this._scaleConnections,
+    required this._settings,
+  });
 
   List<RememberedDevice> get remembered => List.unmodifiable(_registry.values);
 

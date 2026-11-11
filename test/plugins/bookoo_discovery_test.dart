@@ -118,59 +118,53 @@ void main() {
     },
   );
 
-  test(
-    'persisted Bookoo plugin preference survives reconstruction and never repoints to native',
-    () async {
-      final store = MockSettingsService();
-      RememberedDevice? remembered;
-      String? preferred;
-      for (final enabled in [true, true, false]) {
-        final fixture = _Fixture();
-        await fixture.initialize(store, plugin: enabled);
-        try {
-          if (remembered != null) {
-            expect(fixture.settings.preferredScaleId, preferred);
-            expect(await fixture.devices.tryQuickConnect(remembered), isNull);
-            expect(fixture.transports, isEmpty);
-          }
-          await fixture.connections
-              .connect(scaleOnly: true)
-              .timeout(const Duration(seconds: 3));
-          if (enabled) {
-            final scale = fixture.scales.connectedScale();
-            expect(scale.implementation, DeviceImplementation.plugin);
-            preferred ??= scale.deviceId;
-            expect(scale.deviceId, preferred);
-            expect(fixture.settings.preferredScaleId, preferred);
-            remembered = RememberedDevice.fromDevice(scale)!;
-            expect(fixture.transports.single.connectCalls, 1);
-          } else {
-            expect(
-              fixture.devices.devices.whereType<Scale>().single.implementation,
-              DeviceImplementation.bookooScale,
-            );
-            expect(fixture.connections.currentStatus.pendingAmbiguity, isNull);
-            await fixture.connections.scanAndConnect();
-            expect(fixture.settings.preferredScaleId, preferred);
-            expect(
-              fixture.scales.currentConnectionState,
-              isNot(ConnectionState.connected),
-            );
-            expect(
-              fixture.transports.every((t) => t.connectCalls == 0),
-              isTrue,
-            );
-            expect(
-              fixture.connections.currentStatus.pendingAmbiguity,
-              AmbiguityReason.scalePicker,
-            );
-          }
-        } finally {
-          await fixture.dispose();
+  test('persisted Bookoo plugin preference survives reconstruction and never repoints to native', () async {
+    final store = MockSettingsService();
+    RememberedDevice? remembered;
+    String? preferred;
+    for (final enabled in [true, true, false]) {
+      final fixture = _Fixture();
+      await fixture.initialize(store, plugin: enabled);
+      try {
+        if (remembered != null) {
+          expect(fixture.settings.preferredScaleId, preferred);
+          expect(await fixture.devices.tryQuickConnect(remembered), isNull);
+          expect(fixture.transports, isEmpty);
         }
+        await fixture.connections
+            .connect(scaleOnly: true)
+            .timeout(const Duration(seconds: 3));
+        if (enabled) {
+          final scale = fixture.scales.connectedScale();
+          expect(scale.implementation, DeviceImplementation.plugin);
+          preferred ??= scale.deviceId;
+          expect(scale.deviceId, preferred);
+          expect(fixture.settings.preferredScaleId, preferred);
+          remembered = RememberedDevice.fromDevice(scale)!;
+          expect(fixture.transports.single.connectCalls, 1);
+        } else {
+          expect(
+            fixture.devices.devices.whereType<Scale>().single.implementation,
+            DeviceImplementation.bookooScale,
+          );
+          expect(fixture.connections.currentStatus.pendingAmbiguity, isNull);
+          await fixture.connections.scanAndConnect();
+          expect(fixture.settings.preferredScaleId, preferred);
+          expect(
+            fixture.scales.currentConnectionState,
+            isNot(ConnectionState.connected),
+          );
+          expect(fixture.transports.every((t) => t.connectCalls == 0), isTrue);
+          expect(
+            fixture.connections.currentStatus.pendingAmbiguity,
+            AmbiguityReason.scalePicker,
+          );
+        }
+      } finally {
+        await fixture.dispose();
       }
-    },
-  );
+    }
+  });
 
   test(
     'Bookoo discovery reaches existing Scale HTTP commands and WS snapshots',

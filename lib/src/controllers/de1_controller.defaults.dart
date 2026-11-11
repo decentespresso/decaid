@@ -19,6 +19,11 @@ extension Defaults on De1Controller {
       await device.setFlowEstimation(savedFlowCalibration);
       if (!stillCurrent()) return;
     }
+    final savedRefillLevel = saved?.refillLevel;
+    if (savedRefillLevel != null) {
+      await device.setRefillLevel(savedRefillLevel);
+      if (!stillCurrent()) return;
+    }
     if (defaultWorkflow == null) {
       return;
     }
@@ -129,10 +134,10 @@ extension Defaults on De1Controller {
 
     await device.setRefillKitSettings(.auto);
 
-    // Generic settings reset leaves flow calibration alone: calibration is
-    // managed by its own endpoints, so no A012 packet is sent and the
-    // machine's multiplier is neither read nor modified here.
+    // Generic settings reset leaves flow calibration and the refill level
+    // alone: both are managed by their own endpoints, so no A012 or water
+    // levels packet is sent and neither machine value is read or modified.
     await device.setSteamPurgeMode(0);
-    await _machineSettings.clearExceptFlowCalibration(identity);
+    await _machineSettings.clearResetOverrides(identity);
   }
 }

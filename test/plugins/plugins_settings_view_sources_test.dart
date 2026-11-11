@@ -187,9 +187,8 @@ void main() {
         )
         .onPressed!;
     await tester.runAsync(() async {
-      final failure = Logger('PluginsSettingsView').onRecord.firstWhere(
-        (record) => record.message == 'Failed to install plugin',
-      );
+      final failure = Logger('PluginsSettingsView').onRecord
+          .firstWhere((record) => record.message == 'Failed to install plugin');
       install();
       await failure.timeout(const Duration(seconds: 10));
     });
@@ -221,9 +220,8 @@ void main() {
         .widget<PageActionMenu>(find.byType(PageActionMenu))
         .onInstall!;
     await tester.runAsync(() async {
-      final failure = Logger('PluginsSettingsView').onRecord.firstWhere(
-        (record) => record.message == 'Failed to install plugin',
-      );
+      final failure = Logger('PluginsSettingsView').onRecord
+          .firstWhere((record) => record.message == 'Failed to install plugin');
       install('folder');
       await failure.timeout(const Duration(seconds: 10));
     });

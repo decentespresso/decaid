@@ -1,4 +1,5 @@
 import 'package:logging/logging.dart';
+
 import 'plugin_manifest.dart';
 
 enum PluginRuntimeState { loading, running, stopping, disposed }

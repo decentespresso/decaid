@@ -22,10 +22,9 @@ enum _SimulationType { espresso, steam, hotWater, idle }
 
 class MockDe1 implements De1Interface, SimulatedDevice {
   MockDe1({
-    String deviceId = "MockDe1",
-    Duration simulationTickInterval = const Duration(milliseconds: 100),
-  }) : _deviceId = deviceId,
-       _simulationTickInterval = simulationTickInterval;
+    this._deviceId = "MockDe1",
+    this._simulationTickInterval = const Duration(milliseconds: 100),
+  });
 
   /// Wall-clock cadence of the simulation tick. The simulation model still
   /// advances 100ms per tick, so shortening this makes simulated time run

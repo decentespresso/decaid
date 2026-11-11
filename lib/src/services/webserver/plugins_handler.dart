@@ -150,15 +150,13 @@ final class PluginsHandler {
   Future<Response> _handleInstallFromGitHubRelease(Request request) async {
     final Map<String, dynamic> json;
     try {
-      json =
-          jsonDecode(
-                await readBoundedRequestBodyString(
-                  request,
-                  maxBytes: smallRequestBodyBytes,
-                  timeout: smallRequestBodyTimeout,
-                ),
-              )
-              as Map<String, dynamic>;
+      json = jsonDecode(
+        await readBoundedRequestBodyString(
+          request,
+          maxBytes: smallRequestBodyBytes,
+          timeout: smallRequestBodyTimeout,
+        ),
+      ) as Map<String, dynamic>;
     } on RequestBodyReadException {
       rethrow;
     } catch (e) {
@@ -190,15 +188,13 @@ final class PluginsHandler {
   Future<Response> _handleInstallFromGitHubBranch(Request request) async {
     final Map<String, dynamic> json;
     try {
-      json =
-          jsonDecode(
-                await readBoundedRequestBodyString(
-                  request,
-                  maxBytes: smallRequestBodyBytes,
-                  timeout: smallRequestBodyTimeout,
-                ),
-              )
-              as Map<String, dynamic>;
+      json = jsonDecode(
+        await readBoundedRequestBodyString(
+          request,
+          maxBytes: smallRequestBodyBytes,
+          timeout: smallRequestBodyTimeout,
+        ),
+      ) as Map<String, dynamic>;
     } on RequestBodyReadException {
       rethrow;
     } catch (e) {
@@ -249,15 +245,13 @@ final class PluginsHandler {
   Future<Response> _handlePluginSourceWrite(Request request, String id) async {
     final Map<String, dynamic> json;
     try {
-      json =
-          jsonDecode(
-                await readBoundedRequestBodyString(
-                  request,
-                  maxBytes: largeRequestBodyBytes,
-                  timeout: largeRequestBodyTimeout,
-                ),
-              )
-              as Map<String, dynamic>;
+      json = jsonDecode(
+        await readBoundedRequestBodyString(
+          request,
+          maxBytes: largeRequestBodyBytes,
+          timeout: largeRequestBodyTimeout,
+        ),
+      ) as Map<String, dynamic>;
     } on RequestBodyReadException {
       rethrow;
     } catch (e) {

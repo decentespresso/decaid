@@ -1008,13 +1008,12 @@ void main() {
             watchSupportGate: () => true,
             requiresSystemDevice: () => apple,
             pluginBleService: () => manager.bleService,
-            transportFactory:
-                ({
-                  required device,
-                  required stopScan,
-                  required requestLargeMtuNonAndroid,
-                  required lifecycleGate,
-                }) => transport,
+            transportFactory: ({
+              required device,
+              required stopScan,
+              required requestLargeMtuNonAndroid,
+              required lifecycleGate,
+            }) => transport,
           );
           addTearDown(sut.dispose);
           await sut.initialize();
@@ -1823,64 +1822,61 @@ void main() {
       },
     );
 
-    test(
-      'fresh advertisement replaces a cached connected device after native link loss',
-      () async {
-        const deviceId = 'AA:BB:CC:DD:EE:03';
-        final transports = <_TrackingFakeBleTransport>[];
-        final sut = UniversalBleDiscoveryService(
-          watchSupportGate: () => true,
-          transportFactory:
-              ({
-                required device,
-                required stopScan,
-                required requestLargeMtuNonAndroid,
-                required lifecycleGate,
-              }) {
-                final transport = transportForModel(
-                  129,
-                  deviceId: device.deviceId,
-                );
-                transports.add(transport);
-                return transport;
-              },
-        );
-        addTearDown(sut.dispose);
-        platform.systemDevices.add(BleDevice(deviceId: deviceId, name: 'DE1'));
-        await sut.initialize();
-        final emissions = <List<domain.Device>>[];
-        final subscription = sut.devices.listen(emissions.add);
-        addTearDown(subscription.cancel);
+    test('fresh advertisement replaces a cached connected device after native link loss', () async {
+      const deviceId = 'AA:BB:CC:DD:EE:03';
+      final transports = <_TrackingFakeBleTransport>[];
+      final sut = UniversalBleDiscoveryService(
+        watchSupportGate: () => true,
+        transportFactory:
+            ({
+              required device,
+              required stopScan,
+              required requestLargeMtuNonAndroid,
+              required lifecycleGate,
+            }) {
+              final transport = transportForModel(
+                129,
+                deviceId: device.deviceId,
+              );
+              transports.add(transport);
+              return transport;
+            },
+      );
+      addTearDown(sut.dispose);
+      platform.systemDevices.add(BleDevice(deviceId: deviceId, name: 'DE1'));
+      await sut.initialize();
+      final emissions = <List<domain.Device>>[];
+      final subscription = sut.devices.listen(emissions.add);
+      addTearDown(subscription.cancel);
 
-        final remembered = RememberedDevice(
-          id: deviceId,
-          name: 'DE1',
-          type: domain.DeviceType.machine,
-          implementation: DeviceImplementation.unifiedDe1,
-          transportType: TransportType.ble,
-        );
-        final connected = await sut.tryQuickConnect(remembered);
-        expect(connected, isNotNull);
-        expect(transports, hasLength(1));
-        platform.connectionStates[deviceId.toLowerCase()] =
-            BleConnectionState.disconnected;
-        await sut.startDeviceWatch(_watchFilter);
+      final remembered = RememberedDevice(
+        id: deviceId,
+        name: 'DE1',
+        type: domain.DeviceType.machine,
+        implementation: DeviceImplementation.unifiedDe1,
+        transportType: TransportType.ble,
+      );
+      final connected = await sut.tryQuickConnect(remembered);
+      expect(connected, isNotNull);
+      expect(transports, hasLength(1));
+      platform.connectionStates[deviceId.toLowerCase()] =
+          BleConnectionState.disconnected;
+      await sut.startDeviceWatch(_watchFilter);
 
-        platform.updateScanResult(BleDevice(deviceId: deviceId, name: 'DE1'));
-        await pump();
+      platform.updateScanResult(BleDevice(deviceId: deviceId, name: 'DE1'));
+      await pump();
 
-        expect(
-          transports,
-          hasLength(2),
-          reason: 'fresh advertisement must create a new transport instance',
-        );
-        expect(transports.first.disconnectCalls, 0);
-        expect(platform.disconnectCalls, 0);
-        expect(emissions.last, hasLength(1));
-        expect(emissions.last.single, isNot(same(connected)));
-        await (connected as De1Interface).dispose();
-      },
-    );
+      expect(
+        transports,
+        hasLength(2),
+        reason: 'fresh advertisement must create a new transport instance',
+      );
+      expect(transports.first.disconnectCalls, 0);
+      expect(platform.disconnectCalls, 0);
+      expect(emissions.last, hasLength(1));
+      expect(emissions.last.single, isNot(same(connected)));
+      await (connected as De1Interface).dispose();
+    });
 
     test(
       'fresh advertisement preserves a cached device with a live native link',

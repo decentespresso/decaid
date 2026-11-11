@@ -22,13 +22,12 @@ void main() {
       final service = UniversalBleDiscoveryService(
         watchSupportGate: () => true,
         pluginBleService: () => manager.bleService,
-        transportFactory:
-            ({
-              required device,
-              required stopScan,
-              required requestLargeMtuNonAndroid,
-              required lifecycleGate,
-            }) => PluginBleFixtureTransport(device.deviceId),
+        transportFactory: ({
+          required device,
+          required stopScan,
+          required requestLargeMtuNonAndroid,
+          required lifecycleGate,
+        }) => PluginBleFixtureTransport(device.deviceId),
       );
       addTearDown(() async {
         await service.dispose();
@@ -49,9 +48,8 @@ void main() {
       platform.updateScanResult(
         BleDevice(deviceId: 'AA:BB', name: null, services: ['180f']),
       );
-      final candidate = (await found.timeout(
-        const Duration(seconds: 2),
-      )).single;
+      final candidate = (await found.timeout(const Duration(seconds: 2)))
+          .single;
       expect(candidate.deviceId, 'plugin:ble.sensor:humidity:aa:bb');
       platform.updateScanResult(
         BleDevice(deviceId: 'AA:BB', name: null, services: ['180f']),

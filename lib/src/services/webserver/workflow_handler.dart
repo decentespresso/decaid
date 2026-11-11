@@ -32,14 +32,13 @@ class WorkflowHandler {
   int _pendingRequests = 0;
 
   WorkflowHandler({
-    required WorkflowController controller,
-    required De1Controller de1controller,
+    required this._controller,
+    required this._de1controller,
     this.bodyReadTimeout = _workflowBodyReadTimeout,
     this.queueWaitTimeout = _workflowQueueWaitTimeout,
     this.maxBodyBytes = _workflowMaxBodyBytes,
     this.maxPendingRequests = _workflowMaxPendingRequests,
-  }) : _controller = controller,
-       _de1controller = de1controller;
+  });
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/workflow', _getWorkflow);

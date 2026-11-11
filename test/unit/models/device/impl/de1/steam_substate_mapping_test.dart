@@ -32,9 +32,9 @@ List<String> _restSubstates() {
 }
 
 List<String> _websocketSubstates() {
-  final spec =
-      loadYaml(File('assets/api/websocket_v1.yml').readAsStringSync())
-          as YamlMap;
+  final spec = loadYaml(
+    File('assets/api/websocket_v1.yml').readAsStringSync(),
+  ) as YamlMap;
   final schemas = (spec['components'] as YamlMap)['schemas'] as YamlMap;
   final values = (schemas['MachineSubstate'] as YamlMap)['enum'] as YamlList;
   return values.map((v) => v.toString()).toList();

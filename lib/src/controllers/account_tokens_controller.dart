@@ -12,12 +12,10 @@ class AccountTokensController {
   final List<PersistedProxyToken> _tokens = [];
 
   AccountTokensController({
-    required ProxyTokenService tokenService,
-    required ProxyTokenStore store,
-    void Function(String callerId, String label)? callerLabelRegistrar,
-  }) : _tokenService = tokenService,
-       _store = store,
-       _callerLabelRegistrar = callerLabelRegistrar;
+    required this._tokenService,
+    required this._store,
+    this._callerLabelRegistrar,
+  });
 
   List<PersistedProxyToken> get tokens => List.unmodifiable(_tokens);
 

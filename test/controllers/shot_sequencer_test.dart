@@ -1139,8 +1139,7 @@ void main() {
         expect(
           testDe1.requestedStates,
           contains(MachineState.idle),
-          reason:
-              'SAW should fire when scale is connected and weight exceeds target',
+          reason: 'SAW should fire when scale is connected and weight exceeds target',
         );
 
         shotSequencer.dispose();

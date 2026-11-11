@@ -214,9 +214,8 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
         ],
         Text(
           'Type',
-          style: Theme.of(
-            context,
-          ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+          style: Theme.of(context).textTheme.bodyMedium
+              ?.copyWith(fontWeight: FontWeight.w500),
         ),
         const SizedBox(height: 4),
         ShadSelect<FeedbackType>(
@@ -239,9 +238,8 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
         const SizedBox(height: 12),
         Text(
           'Description',
-          style: Theme.of(
-            context,
-          ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+          style: Theme.of(context).textTheme.bodyMedium
+              ?.copyWith(fontWeight: FontWeight.w500),
         ),
         const SizedBox(height: 4),
         ShadInput(
@@ -275,9 +273,8 @@ class _FeedbackDialogState extends State<FeedbackDialog> {
             Expanded(
               child: Text(
                 'Screenshots (${_screenshots.length}/$_maxScreenshots)',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+                style: Theme.of(context).textTheme.bodyMedium
+                    ?.copyWith(fontWeight: FontWeight.w500),
               ),
             ),
             if (_screenshots.length < _maxScreenshots)

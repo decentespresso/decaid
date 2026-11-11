@@ -1,4 +1,5 @@
 import 'dart:io';
+
 import 'package:flutter/foundation.dart' show setEquals;
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
@@ -172,9 +173,8 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
         _isLoading = false;
       });
     } catch (error, stackTrace) {
-      Logger(
-        'PluginsSettingsView',
-      ).warning('Failed to initialize plugins', error, stackTrace);
+      Logger('PluginsSettingsView')
+          .warning('Failed to initialize plugins', error, stackTrace);
       if (!mounted) return;
       setState(() {
         _loadError = error.toString();
@@ -404,9 +404,8 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                           );
                           setState(() {});
                         } catch (e, st) {
-                          Logger(
-                            'PluginsSettingsView',
-                          ).warning('Failed to set auto-load', e, st);
+                          Logger('PluginsSettingsView')
+                              .warning('Failed to set auto-load', e, st);
                           if (mounted) {
                             _showSnackBar(
                               context,
@@ -526,9 +525,8 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
           if (source.lastError != null)
             Text(
               'Last update failed: ${source.lastError}',
-              style: Theme.of(
-                context,
-              ).textTheme.labelSmall?.copyWith(color: Colors.red),
+              style: Theme.of(context).textTheme.labelSmall
+                  ?.copyWith(color: Colors.red),
             ),
         ],
       ),
@@ -638,9 +636,8 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
       await _sourceService.updateAllPlugins();
       if (context.mounted) _showSnackBar(context, 'Plugin update check done');
     } catch (e, st) {
-      Logger(
-        'PluginsSettingsView',
-      ).warning('Plugin update check failed', e, st);
+      Logger('PluginsSettingsView')
+          .warning('Plugin update check failed', e, st);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           remoteErrorSnackBar(
@@ -798,9 +795,8 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
     } on PluginInstallDeclinedException {
       return;
     } catch (e, st) {
-      Logger(
-        'PluginsSettingsView',
-      ).warning('Plugin installation failed', e, st);
+      Logger('PluginsSettingsView')
+          .warning('Plugin installation failed', e, st);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           remoteErrorSnackBar(
@@ -894,9 +890,8 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
     } catch (e, st) {
       logger.warning('Failed to install plugin', e, st);
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(remoteErrorSnackBar(e, action: 'install the plugin'));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(remoteErrorSnackBar(e, action: 'install the plugin'));
       }
     } finally {
       try {
@@ -1255,9 +1250,8 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                       _showSnackBar(context, 'Settings saved');
                       Navigator.pop(context);
                     } catch (e, st) {
-                      Logger(
-                        'PluginsSettingsView',
-                      ).warning('Failed to save settings', e, st);
+                      Logger('PluginsSettingsView')
+                          .warning('Failed to save settings', e, st);
                       if (context.mounted) {
                         _showSnackBar(
                           context,
@@ -1332,9 +1326,9 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
               if (!checking && !unavailable && !loggedIn) ...[
                 const SizedBox(height: 8),
                 ShadButton.outline(
-                  onPressed: () => Navigator.of(
-                    context,
-                  ).popAndPushNamed(AccountPage.routeName),
+                  onPressed: () =>
+                      Navigator.of(context)
+                          .popAndPushNamed(AccountPage.routeName),
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [

@@ -43,9 +43,8 @@ void main() {
     });
 
     test('appears in the measurement-free list serialization too', () {
-      final json = makeRecord(
-        stopReason: 'machineEnded',
-      ).toJsonWithoutMeasurements();
+      final json = makeRecord(stopReason: 'machineEnded')
+          .toJsonWithoutMeasurements();
       expect(json['stopReason'], 'machineEnded');
     });
 

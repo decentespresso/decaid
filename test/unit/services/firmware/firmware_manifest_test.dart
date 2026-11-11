@@ -18,8 +18,7 @@ void main() {
             'versionLabel': '1356',
             'imageFormat': 'de1',
             'byteLength': 123456,
-            'sha256':
-                'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+            'sha256': 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
             'channel': 'stable',
             'releaseNotes': 'Initial bundled firmware.',
             'assetPath': 'assets/firmware/de1/de1-1356.bin',

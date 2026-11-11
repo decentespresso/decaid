@@ -280,9 +280,9 @@ void main() {
       );
       expect(reset.statusCode, 202);
       expect(machineSettings.clears, isEmpty);
-      expect(machineSettings.clearsExceptFlowCalibration, ['device:fake-ble']);
+      expect(machineSettings.resetClears, ['device:fake-ble']);
       expect(
-        machineSettings.clearsExceptFlowCalibration,
+        machineSettings.resetClears,
         isNot(contains('serial:resolved-a-third-time')),
       );
       expect(_mmrWrites(third.transport, MMRItem.fanThreshold).last, 50);
@@ -293,95 +293,88 @@ void main() {
     },
   );
 
-  test(
-    'legacy raw identity saves and restores calibration after effective resolution',
-    () async {
-      final deviceController = DeviceController([MockDeviceDiscoveryService()]);
-      await deviceController.initialize();
-      final machineSettings = MemoryMachineSettingsStore();
-      final controller = De1Controller(
-        controller: deviceController,
-        machineSettings: machineSettings,
-      );
-      final staleDevices = <UnifiedDe1>[];
-      addTearDown(() async {
-        await controller.dispose();
-        for (final device in staleDevices) {
-          await device.dispose();
-        }
-      });
+  test('legacy raw identity saves and restores calibration after effective resolution', () async {
+    final deviceController = DeviceController([MockDeviceDiscoveryService()]);
+    await deviceController.initialize();
+    final machineSettings = MemoryMachineSettingsStore();
+    final controller = De1Controller(
+      controller: deviceController,
+      machineSettings: machineSettings,
+    );
+    final staleDevices = <UnifiedDe1>[];
+    addTearDown(() async {
+      await controller.dispose();
+      for (final device in staleDevices) {
+        await device.dispose();
+      }
+    });
 
-      final settingsController = SettingsController(MockSettingsService());
-      await settingsController.loadSettings();
-      final handlerRouter = Router().plus;
-      De1Handler(
-        controller: controller,
-        settingsController: settingsController,
-        scaleController: TestScaleController(TestScale()),
-        workflowController: WorkflowController(),
-      ).addRoutes(handlerRouter);
-      final handler = handlerRouter.call;
-      Future<Response> post(Object body) async => await handler(
-        Request(
-          'POST',
-          Uri.parse('http://localhost/api/v1/machine/calibration'),
-          body: jsonEncode(body),
-          headers: {'content-type': 'application/json'},
-        ),
-      );
+    final settingsController = SettingsController(MockSettingsService());
+    await settingsController.loadSettings();
+    final handlerRouter = Router().plus;
+    De1Handler(
+      controller: controller,
+      settingsController: settingsController,
+      scaleController: TestScaleController(TestScale()),
+      workflowController: WorkflowController(),
+    ).addRoutes(handlerRouter);
+    final handler = handlerRouter.call;
+    Future<Response> post(Object body) async => await handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/v1/machine/calibration'),
+        body: jsonEncode(body),
+        headers: {'content-type': 'application/json'},
+      ),
+    );
 
-      final first = await _newMachine(
-        serialN: 0,
-        calFlowEstSequence: [1000, 1250],
-      );
-      final firstResolved = Completer<void>();
-      final firstPublication = controller.de1.listen((device) {
-        if (device == first.de1) {
-          first.de1.applyEffectiveIdentity(
-            serial: 'resolved-first',
-            model: 'DE1Pro',
-          );
-          firstResolved.complete();
-        }
-      });
-      addTearDown(firstPublication.cancel);
-      await controller.connectToDe1(first.de1);
-      await firstResolved.future;
-      await controller.initSettled.firstWhere(
-        (generation) => generation != null,
-      );
+    final first = await _newMachine(
+      serialN: 0,
+      calFlowEstSequence: [1000, 1250],
+    );
+    final firstResolved = Completer<void>();
+    final firstPublication = controller.de1.listen((device) {
+      if (device == first.de1) {
+        first.de1.applyEffectiveIdentity(
+          serial: 'resolved-first',
+          model: 'DE1Pro',
+        );
+        firstResolved.complete();
+      }
+    });
+    addTearDown(firstPublication.cancel);
+    await controller.connectToDe1(first.de1);
+    await firstResolved.future;
+    await controller.initSettled.firstWhere((generation) => generation != null);
 
-      expect((await post({'flowMultiplier': 1.25})).statusCode, 202);
-      expect(machineSettings.values, contains('device:fake-ble'));
-      expect(machineSettings.values, isNot(contains('serial:resolved-first')));
+    expect((await post({'flowMultiplier': 1.25})).statusCode, 202);
+    expect(machineSettings.values, contains('device:fake-ble'));
+    expect(machineSettings.values, isNot(contains('serial:resolved-first')));
 
-      final second = await _newMachine(
-        serialN: 0,
-        calFlowEstSequence: [1000, 1250],
-      );
-      staleDevices.add(first.de1);
-      final secondResolved = Completer<void>();
-      final secondPublication = controller.de1.listen((device) {
-        if (device == second.de1) {
-          second.de1.applyEffectiveIdentity(
-            serial: 'resolved-second',
-            model: 'DE1Pro',
-          );
-          secondResolved.complete();
-        }
-      });
-      addTearDown(secondPublication.cancel);
-      await controller.connectToDe1(second.de1);
-      await secondResolved.future;
-      await controller.initSettled.firstWhere(
-        (generation) => generation != null,
-      );
+    final second = await _newMachine(
+      serialN: 0,
+      calFlowEstSequence: [1000, 1250],
+    );
+    staleDevices.add(first.de1);
+    final secondResolved = Completer<void>();
+    final secondPublication = controller.de1.listen((device) {
+      if (device == second.de1) {
+        second.de1.applyEffectiveIdentity(
+          serial: 'resolved-second',
+          model: 'DE1Pro',
+        );
+        secondResolved.complete();
+      }
+    });
+    addTearDown(secondPublication.cancel);
+    await controller.connectToDe1(second.de1);
+    await secondResolved.future;
+    await controller.initSettled.firstWhere((generation) => generation != null);
 
-      expect(machineSettings.reads, everyElement('device:fake-ble'));
-      expect(_mmrWrites(second.transport, MMRItem.calFlowEst), [1250]);
-      expect(machineSettings.values, isNot(contains('serial:resolved-second')));
-    },
-  );
+    expect(machineSettings.reads, everyElement('device:fake-ble'));
+    expect(_mmrWrites(second.transport, MMRItem.calFlowEst), [1250]);
+    expect(machineSettings.values, isNot(contains('serial:resolved-second')));
+  });
 
   test(
     'adopted effective identity captures raw legacy machine identity',
@@ -464,7 +457,7 @@ void main() {
       await replacing;
       await expectLater(reset, throwsA(isA<StateError>()));
       expect(machineSettings.clears, isEmpty);
-      expect(machineSettings.clearsExceptFlowCalibration, ['device:fake-ble']);
+      expect(machineSettings.resetClears, ['device:fake-ble']);
     },
   );
 

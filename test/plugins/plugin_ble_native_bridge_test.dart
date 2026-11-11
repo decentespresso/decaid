@@ -42,22 +42,17 @@ void main() {
         ),
       );
       final evidence = BleAdvertisementEvidence(serviceUuids: ['180f']);
-      final sensor =
-          await manager.bleService.createCandidate(
-                driver: manager.bleService.registry
-                    .decide(evidence)
-                    .drivers
-                    .single,
-                physicalId: 'AA:BB',
-                evidence: evidence,
-                admit: () => true,
-                createTransport: () => UniversalBleTransport(
-                  device: BleDevice(deviceId: 'AA:BB', name: 'Fixture'),
-                  isLinuxOverride: false,
-                  isAndroidOverride: false,
-                ),
-              )
-              as Sensor;
+      final sensor = await manager.bleService.createCandidate(
+        driver: manager.bleService.registry.decide(evidence).drivers.single,
+        physicalId: 'AA:BB',
+        evidence: evidence,
+        admit: () => true,
+        createTransport: () => UniversalBleTransport(
+          device: BleDevice(deviceId: 'AA:BB', name: 'Fixture'),
+          isLinuxOverride: false,
+          isAndroidOverride: false,
+        ),
+      ) as Sensor;
       await sensor.onConnect();
       final replaced = manager.emitStream.firstWhere(
         (e) => e['event'] == 'replaced',

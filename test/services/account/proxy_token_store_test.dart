@@ -83,8 +83,7 @@ void main() {
   test('load persists an id for legacy token records', () async {
     await creds.write(
       key: 'account_proxy_tokens',
-      value:
-          '[{"token":"legacy","label":"station","scopes":["account:proxy"],"createdAt":"2026-01-01T00:00:00.000Z"}]',
+      value: '[{"token":"legacy","label":"station","scopes":["account:proxy"],"createdAt":"2026-01-01T00:00:00.000Z"}]',
     );
 
     final firstId = (await store.load()).single.id;

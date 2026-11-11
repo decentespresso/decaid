@@ -81,12 +81,10 @@ class DataExportHandler {
   final Logger _log = Logger('DataExportHandler');
 
   DataExportHandler({
-    required List<DataExportSection> sections,
-    DataTransferLimits limits = const DataTransferLimits(),
-    Directory? tempDirParent,
-  }) : _sections = sections,
-       _limits = limits,
-       _tempDirParent = tempDirParent;
+    required this._sections,
+    this._limits = const DataTransferLimits(),
+    this._tempDirParent,
+  });
 
   List<String> get sectionKeys => List.unmodifiable(_sections.map(_sectionKey));
 

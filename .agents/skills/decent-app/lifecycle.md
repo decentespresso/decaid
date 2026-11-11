@@ -48,11 +48,11 @@ For real hardware, `--connect-machine DE1` can match the advertised name during 
 
 ```bash
 scripts/sb-dev.sh start \
-  --platform 8734SCCFAC00000747 \
+  --platform <adb-serial> \
   --real \
   --adb-forward \
   --connect-machine DE1 \
-  --preferred-machine-id D9:11:0B:E6:9F:86
+  --preferred-machine-id <machine-id>
 ```
 
 `--real` does not clear simulations enabled in Settings. After settings load, the app combines dart-define devices with the persisted `simulatedDevices` selection. Before a hardware smoke test, verify that the persisted selection is empty:

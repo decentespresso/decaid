@@ -37,8 +37,7 @@ List<TroubleshootingStep> troubleshootingSteps({
     TroubleshootingStep(
       id: 'machine_power',
       title: 'Is your machine powered on?',
-      description:
-          'Make sure your Decent Espresso machine is turned on and has finished its startup sequence.',
+      description: 'Make sure your Decent Espresso machine is turned on and has finished its startup sequence.',
       buttonText: "Yes, it's on",
       shouldShow: () => true,
     ),
@@ -69,16 +68,14 @@ List<TroubleshootingStep> troubleshootingSteps({
     TroubleshootingStep(
       id: 'other_apps',
       title: 'Is another app connected?',
-      description:
-          'Only one app can connect to your machine via Bluetooth at a time. Close any other apps connected to the machine (e.g., De1App) and try again.',
+      description: 'Only one app can connect to your machine via Bluetooth at a time. Close any other apps connected to the machine (e.g., De1App) and try again.',
       buttonText: "I've closed other apps",
       shouldShow: () => true,
     ),
     TroubleshootingStep(
       id: 'system_bt',
       title: 'Check System Bluetooth Settings',
-      description:
-          'On macOS, if your DE1 appears as "Connected" in System Settings > Bluetooth, the system may hide it from app-level scans. Disconnect it there, then try scanning again.',
+      description: 'On macOS, if your DE1 appears as "Connected" in System Settings > Bluetooth, the system may hide it from app-level scans. Disconnect it there, then try scanning again.',
       buttonText: "I've checked",
       shouldShow: () => runningOnMacOS,
     ),

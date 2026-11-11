@@ -105,9 +105,8 @@ void main() {
         expect(storage.getSkin('good.skin'), isNotNull);
 
         final evilDir = Directory('${webUIDir.path}/evil-dir')..createSync();
-        File(
-          '${evilDir.path}/skin-manifest.json',
-        ).writeAsStringSync(jsonEncode({'id': '../escape', 'name': 'Evil'}));
+        File('${evilDir.path}/skin-manifest.json')
+            .writeAsStringSync(jsonEncode({'id': '../escape', 'name': 'Evil'}));
         File('${evilDir.path}/index.html').writeAsStringSync('<html></html>');
 
         final anotherSource = makeSource('another.skin');

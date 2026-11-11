@@ -210,27 +210,24 @@ void main() {
     }
   });
 
-  test(
-    'authenticated + linked forwards with Basic auth and relays body',
-    () async {
-      await linkAccount();
-      final response = await get(
-        '/api/v1/account/proxy/support/api/sn',
-        token: 'skin-token',
-      );
+  test('authenticated + linked forwards with Basic auth and relays body', () async {
+    await linkAccount();
+    final response = await get(
+      '/api/v1/account/proxy/support/api/sn',
+      token: 'skin-token',
+    );
 
-      expect(response.statusCode, 200);
-      expect(await response.readAsString(), 'SN001\nSN002');
+    expect(response.statusCode, 200);
+    expect(await response.readAsString(), 'SN001\nSN002');
 
-      final expected =
-          'Basic ${base64Encode(utf8.encode('user@example.com:cryptpw_abc123'))}';
-      expect(upstream!.headers['authorization'], expected);
-      expect(
-        upstream!.url.toString(),
-        'https://decentespresso.com/support/api/sn',
-      );
-    },
-  );
+    final expected =
+        'Basic ${base64Encode(utf8.encode('user@example.com:cryptpw_abc123'))}';
+    expect(upstream!.headers['authorization'], expected);
+    expect(
+      upstream!.url.toString(),
+      'https://decentespresso.com/support/api/sn',
+    );
+  });
 
   test('authenticated caller denied consent receives 403', () async {
     await linkAccount();

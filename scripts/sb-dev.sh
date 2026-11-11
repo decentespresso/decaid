@@ -39,7 +39,7 @@ Usage:
 
 Flags:
   --platform <id>          Flutter device id (`-d` passthrough). Examples: macos,
-                           linux, chrome, or an Android adb serial like 8734SCCFAC00000747.
+                           linux, chrome, or an Android adb serial from `adb devices`.
   --connect-machine <v>    Match by device name OR id in the post-boot scan loop.
                            In simulate mode also drives preferredMachineId (the
                            mock's name == its id). In --real mode a name like

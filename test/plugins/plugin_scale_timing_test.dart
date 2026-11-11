@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+
 import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
@@ -8,6 +9,7 @@ import 'package:reaprime/src/plugins/plugin_ble_matcher.dart';
 import 'package:reaprime/src/plugins/plugin_ble_registry.dart';
 import 'package:reaprime/src/plugins/plugin_manager.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
+
 import '../helpers/plugin_ble_fixture.dart';
 import '../helpers/test_scale.dart';
 import '../helpers/scale_timing_shot.dart';
@@ -102,18 +104,13 @@ void main() {
       ''',
         );
         final evidence = BleAdvertisementEvidence(serviceUuids: ['180f']);
-        final scale =
-            await manager.bleService.createCandidate(
-                  driver: manager.bleService.registry
-                      .decide(evidence)
-                      .drivers
-                      .single,
-                  physicalId: 'AA:BB',
-                  evidence: evidence,
-                  admit: () => true,
-                  createTransport: () => transport,
-                )
-                as Scale;
+        final scale = await manager.bleService.createCandidate(
+          driver: manager.bleService.registry.decide(evidence).drivers.single,
+          physicalId: 'AA:BB',
+          evidence: evidence,
+          admit: () => true,
+          createTransport: () => transport,
+        ) as Scale;
         await scale.onConnect();
         final information = scale as DeviceInformationCapable;
         expect(information.currentDeviceInformation!.toJson(), {
@@ -295,18 +292,13 @@ void main() {
           ''',
           );
           final evidence = BleAdvertisementEvidence(serviceUuids: ['180f']);
-          final scale =
-              await manager.bleService.createCandidate(
-                    driver: manager.bleService.registry
-                        .decide(evidence)
-                        .drivers
-                        .single,
-                    physicalId: 'AA:BB',
-                    evidence: evidence,
-                    admit: () => true,
-                    createTransport: () => transport,
-                  )
-                  as Scale;
+          final scale = await manager.bleService.createCandidate(
+            driver: manager.bleService.registry.decide(evidence).drivers.single,
+            physicalId: 'AA:BB',
+            evidence: evidence,
+            admit: () => true,
+            createTransport: () => transport,
+          ) as Scale;
           await plugin.connectToScale(scale);
           nativeScale.emitSnapshot(
             ScaleSnapshot(timestamp: now, weight: 5.2, batteryLevel: null),

@@ -86,15 +86,15 @@ class _AccountPageState extends State<AccountPage> {
                                         children: [
                                           Text(
                                             'Logged In',
-                                            style: Theme.of(
-                                              context,
-                                            ).textTheme.titleMedium,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .titleMedium,
                                           ),
                                           Text(
                                             emailSnap.data ?? '',
-                                            style: Theme.of(
-                                              context,
-                                            ).textTheme.bodySmall,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall,
                                           ),
                                         ],
                                       ),
@@ -144,9 +144,8 @@ class _AccountPageState extends State<AccountPage> {
                       Text(
                         'Link your Decent Espresso account to verify your machine serial number and access additional features.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withValues(alpha: 0.7),
+                          color: Theme.of(context).colorScheme.onSurface
+                              .withValues(alpha: 0.7),
                         ),
                       ),
                       const SizedBox(height: 16),

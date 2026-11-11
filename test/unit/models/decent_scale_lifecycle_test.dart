@@ -586,34 +586,31 @@ void main() {
       },
     );
 
-    test(
-      'exhausted exit does not fake a reconnect on the next same-connection wake',
-      () async {
-        final transport = _LifecycleBleTransport(
-          respondToVoltage: true,
-          statusNotification: _hdsV3114Status,
-        );
-        final scale = DecentScale(transport: transport);
-        await _connectAndSettle(scale, timeout: _fastSettle);
-        await scale.sleepDisplay();
+    test('exhausted exit does not fake a reconnect on the next same-connection wake', () async {
+      final transport = _LifecycleBleTransport(
+        respondToVoltage: true,
+        statusNotification: _hdsV3114Status,
+      );
+      final scale = DecentScale(transport: transport);
+      await _connectAndSettle(scale, timeout: _fastSettle);
+      await scale.sleepDisplay();
 
-        transport.softSleepExitFailures = 5;
-        await expectLater(scale.wakeDisplay(), throwsA(isA<Exception>()));
-        await pumpEventQueue();
+      transport.softSleepExitFailures = 5;
+      await expectLater(scale.wakeDisplay(), throwsA(isA<Exception>()));
+      await pumpEventQueue();
 
-        transport.softSleepExitFailures = 0;
-        transport.writes.clear();
-        final subscribes = transport.subscribeCalls;
-        final resets = transport.resetSubscriptionCalls;
-        await scale.wakeDisplay();
-        await pumpEventQueue();
+      transport.softSleepExitFailures = 0;
+      transport.writes.clear();
+      final subscribes = transport.subscribeCalls;
+      final resets = transport.resetSubscriptionCalls;
+      await scale.wakeDisplay();
+      await pumpEventQueue();
 
-        expect(transport.subscribeCalls, subscribes);
-        expect(transport.resetSubscriptionCalls, resets);
-        expect(_countCommand(transport, 0x0A, 0x04, 0x00), 1);
-        await _disposeScale(scale, transport);
-      },
-    );
+      expect(transport.subscribeCalls, subscribes);
+      expect(transport.resetSubscriptionCalls, resets);
+      expect(_countCommand(transport, 0x0A, 0x04, 0x00), 1);
+      await _disposeScale(scale, transport);
+    });
 
     test('sleep after a failed exit keeps the obligation', () async {
       final transport = _LifecycleBleTransport(

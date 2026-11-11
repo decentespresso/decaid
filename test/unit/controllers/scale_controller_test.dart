@@ -105,34 +105,31 @@ void main() {
     },
   );
 
-  test(
-    'control flow goes negative on a decreasing weight even when device flow is zero',
-    () async {
-      final controller = ScaleController();
-      final scale = _TrackingScale('A');
-      await controller.connectToScale(scale);
-      final snapshots = <WeightSnapshot>[];
-      final subscription = controller.weightSnapshot.listen(snapshots.add);
+  test('control flow goes negative on a decreasing weight even when device flow is zero', () async {
+    final controller = ScaleController();
+    final scale = _TrackingScale('A');
+    await controller.connectToScale(scale);
+    final snapshots = <WeightSnapshot>[];
+    final subscription = controller.weightSnapshot.listen(snapshots.add);
 
-      final t0 = DateTime.utc(2026, 8, 11);
-      scale.emitAt(t0, 100.0, flow: 0.0);
-      scale.emitAt(t0.add(const Duration(seconds: 1)), 99.0, flow: 0.0);
-      scale.emitAt(t0.add(const Duration(seconds: 2)), 98.0, flow: 0.0);
-      scale.emitAt(t0.add(const Duration(seconds: 3)), 97.0, flow: 0.0);
-      await Future<void>.delayed(Duration.zero);
+    final t0 = DateTime.utc(2026, 8, 11);
+    scale.emitAt(t0, 100.0, flow: 0.0);
+    scale.emitAt(t0.add(const Duration(seconds: 1)), 99.0, flow: 0.0);
+    scale.emitAt(t0.add(const Duration(seconds: 2)), 98.0, flow: 0.0);
+    scale.emitAt(t0.add(const Duration(seconds: 3)), 97.0, flow: 0.0);
+    await Future<void>.delayed(Duration.zero);
 
-      final last = snapshots.last;
-      expect(last.weightFlow, 0.0, reason: 'device flow must pass through');
-      expect(
-        last.controlWeightFlow,
-        lessThan(0.0),
-        reason: 'control flow must stay signed/estimator-derived',
-      );
+    final last = snapshots.last;
+    expect(last.weightFlow, 0.0, reason: 'device flow must pass through');
+    expect(
+      last.controlWeightFlow,
+      lessThan(0.0),
+      reason: 'control flow must stay signed/estimator-derived',
+    );
 
-      await subscription.cancel();
-      controller.dispose();
-    },
-  );
+    await subscription.cancel();
+    controller.dispose();
+  });
 
   test('connect forwards connected once', () async {
     final controller = ScaleController();
@@ -303,9 +300,9 @@ void main() {
 
     final frames = <WeightSnapshot>[];
     final sub = controller.weightSnapshot.listen(frames.add);
-    final rows = File(
-      'test/fixtures/shot1_native_trace.csv',
-    ).readAsLinesSync().skip(1);
+    final rows = File('test/fixtures/shot1_native_trace.csv')
+        .readAsLinesSync()
+        .skip(1);
     for (final row in rows) {
       final values = row.split(',');
       scale.emitAt(

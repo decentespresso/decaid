@@ -22,6 +22,7 @@ import 'package:reaprime/src/controllers/workflow_controller.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/settings/scale_power_mode.dart';
+
 import 'dart:convert';
 
 part 'entity_extractor.dart';
@@ -44,10 +45,8 @@ class De1appImporter {
     required this.grinderStorageService,
     this.settingsController,
     this.workflowController,
-    @visibleForTesting
-    ParsedShot Function(Map<String, dynamic>) parseV2Shot =
-        ShotV2JsonParser.parse,
-  }) : _parseV2Shot = parseV2Shot;
+    @visibleForTesting this._parseV2Shot = ShotV2JsonParser.parse,
+  });
 
   Future<List<_ParsedCandidate>> _parseShotSource(
     _ShotSource source,

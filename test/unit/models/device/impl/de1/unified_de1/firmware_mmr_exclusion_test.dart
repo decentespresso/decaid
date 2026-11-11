@@ -144,25 +144,22 @@ void main() {
     },
   );
 
-  test(
-    'transport disconnect while waiting for firmware ownership fails without erase',
-    () async {
-      final activeMmrRequest = transport.nextWrite(Endpoint.readFromMMR.uuid);
-      final activeMmr = de1.getSteamFlow();
-      await activeMmrRequest;
+  test('transport disconnect while waiting for firmware ownership fails without erase', () async {
+    final activeMmrRequest = transport.nextWrite(Endpoint.readFromMMR.uuid);
+    final activeMmr = de1.getSteamFlow();
+    await activeMmrRequest;
 
-      final update = de1.updateFirmware(Uint8List(0), onProgress: (_) {});
-      await _flushEventQueue();
+    final update = de1.updateFirmware(Uint8List(0), onProgress: (_) {});
+    await _flushEventQueue();
 
-      transport.emitConnectionState(ConnectionState.disconnected);
-      transport.emitMmrResponseInt(MMRItem.targetSteamFlow, 100);
-      await activeMmr;
+    transport.emitConnectionState(ConnectionState.disconnected);
+    transport.emitMmrResponseInt(MMRItem.targetSteamFlow, 100);
+    await activeMmr;
 
-      await expectLater(update, throwsA(isA<DeviceNotConnectedException>()));
-      expect(transport.writeCount(Endpoint.fwMapRequest.uuid), 0);
-      expect(transport.writeCount(Endpoint.writeToMMR.uuid), 0);
-    },
-  );
+    await expectLater(update, throwsA(isA<DeviceNotConnectedException>()));
+    expect(transport.writeCount(Endpoint.fwMapRequest.uuid), 0);
+    expect(transport.writeCount(Endpoint.writeToMMR.uuid), 0);
+  });
 
   test('disconnect while waiting for firmware ownership skips erase', () async {
     final activeMmrRequest = transport.nextWrite(Endpoint.readFromMMR.uuid);

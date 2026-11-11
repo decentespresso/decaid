@@ -162,11 +162,9 @@ void main() {
       final metadata = storage.getSkin('passione-dist')!.reaMetadata!;
       expect(metadata.sourceUrl, 'github_branch:tadelv/passione@dist');
 
-      final persisted =
-          jsonDecode(
-                File('${webUIDir.path}/.rea_metadata.json').readAsStringSync(),
-              )
-              as Map<String, dynamic>;
+      final persisted = jsonDecode(
+        File('${webUIDir.path}/.rea_metadata.json').readAsStringSync(),
+      ) as Map<String, dynamic>;
       expect(
         persisted['passione-dist']['sourceUrl'],
         'github_branch:tadelv/passione@dist',
@@ -239,11 +237,9 @@ void main() {
       );
 
       expect(urlHeadRequests, greaterThanOrEqualTo(2));
-      final persisted =
-          jsonDecode(
-                File('${webUIDir.path}/.rea_metadata.json').readAsStringSync(),
-              )
-              as Map<String, dynamic>;
+      final persisted = jsonDecode(
+        File('${webUIDir.path}/.rea_metadata.json').readAsStringSync(),
+      ) as Map<String, dynamic>;
       expect(
         persisted['passione-dist']['sourceUrl'],
         'https://example.com/skin.zip',
@@ -310,79 +306,76 @@ void main() {
       expect(apiGets, greaterThanOrEqualTo(2));
     });
 
-    test(
-      'GitHub release update preserves a specifically selected asset',
-      () async {
-        final archive = makeGitHubArchive();
-        final requestedAssets = <String>[];
-        var releaseTag = 'v1.0.0';
-        Map<String, dynamic> releaseBody() => {
-          'tag_name': releaseTag,
-          'name': 'Custom Skin $releaseTag',
-          'published_at': '2026-01-01T00:00:00Z',
-          'assets': [
-            {
-              'name': 'first.zip',
-              'browser_download_url':
-                  'https://github.com/acme/custom-skin/releases/download/'
-                  '$releaseTag/first.zip',
-              'size': 100,
-            },
-            {
-              'name': 'second.zip',
-              'browser_download_url':
-                  'https://github.com/acme/custom-skin/releases/download/'
-                  '$releaseTag/second.zip',
-              'size': 200,
-            },
-          ],
-        };
-
-        await http.runWithClient(
-          () async {
-            await storage.installFromGitHubRelease(
-              'acme/custom-skin',
-              assetName: 'second.zip',
-            );
-            expect(requestedAssets, [
-              'https://github.com/acme/custom-skin/releases/download/'
-                  'v1.0.0/second.zip',
-            ]);
-            expect(
-              storage.getSkin('passione-dist')!.reaMetadata!.releaseAssetName,
-              'second.zip',
-            );
-
-            releaseTag = 'v1.1.0';
-            await storage.updateAllSkins();
-            expect(requestedAssets, [
-              'https://github.com/acme/custom-skin/releases/download/'
-                  'v1.0.0/second.zip',
-              'https://github.com/acme/custom-skin/releases/download/'
-                  'v1.1.0/second.zip',
-            ]);
-            expect(
-              storage.getSkin('passione-dist')!.reaMetadata!.releaseAssetName,
-              'second.zip',
-            );
+    test('GitHub release update preserves a specifically selected asset', () async {
+      final archive = makeGitHubArchive();
+      final requestedAssets = <String>[];
+      var releaseTag = 'v1.0.0';
+      Map<String, dynamic> releaseBody() => {
+        'tag_name': releaseTag,
+        'name': 'Custom Skin $releaseTag',
+        'published_at': '2026-01-01T00:00:00Z',
+        'assets': [
+          {
+            'name': 'first.zip',
+            'browser_download_url':
+                'https://github.com/acme/custom-skin/releases/download/'
+                '$releaseTag/first.zip',
+            'size': 100,
           },
-          () => MockClient((request) async {
-            final url = request.url.toString();
-            if (url ==
-                'https://api.github.com/repos/acme/custom-skin/releases/latest') {
-              return http.Response(jsonEncode(releaseBody()), 200);
-            }
-            if (url.startsWith(
-              'https://github.com/acme/custom-skin/releases/download/',
-            )) {
-              requestedAssets.add(url);
-              return http.Response.bytes(archive, 200);
-            }
-            return http.Response('', 404);
-          }),
-        );
-      },
-    );
+          {
+            'name': 'second.zip',
+            'browser_download_url':
+                'https://github.com/acme/custom-skin/releases/download/'
+                '$releaseTag/second.zip',
+            'size': 200,
+          },
+        ],
+      };
+
+      await http.runWithClient(
+        () async {
+          await storage.installFromGitHubRelease(
+            'acme/custom-skin',
+            assetName: 'second.zip',
+          );
+          expect(requestedAssets, [
+            'https://github.com/acme/custom-skin/releases/download/'
+                'v1.0.0/second.zip',
+          ]);
+          expect(
+            storage.getSkin('passione-dist')!.reaMetadata!.releaseAssetName,
+            'second.zip',
+          );
+
+          releaseTag = 'v1.1.0';
+          await storage.updateAllSkins();
+          expect(requestedAssets, [
+            'https://github.com/acme/custom-skin/releases/download/'
+                'v1.0.0/second.zip',
+            'https://github.com/acme/custom-skin/releases/download/'
+                'v1.1.0/second.zip',
+          ]);
+          expect(
+            storage.getSkin('passione-dist')!.reaMetadata!.releaseAssetName,
+            'second.zip',
+          );
+        },
+        () => MockClient((request) async {
+          final url = request.url.toString();
+          if (url ==
+              'https://api.github.com/repos/acme/custom-skin/releases/latest') {
+            return http.Response(jsonEncode(releaseBody()), 200);
+          }
+          if (url.startsWith(
+            'https://github.com/acme/custom-skin/releases/download/',
+          )) {
+            requestedAssets.add(url);
+            return http.Response.bytes(archive, 200);
+          }
+          return http.Response('', 404);
+        }),
+      );
+    });
 
     test('GitHub release update preserves prerelease tracking', () async {
       final archive = makeGitHubArchive();

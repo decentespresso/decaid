@@ -28,12 +28,11 @@ import '../helpers/mock_device_discovery_service.dart';
 import '../helpers/mock_settings_service.dart';
 import 'plugin_test_helpers.dart';
 
-typedef _GrinderFixtureFactory =
-    Future<_GrinderFixture> Function({
-      required bool controls,
-      bool metadata,
-      Set<GrinderObservation>? observations,
-    });
+typedef _GrinderFixtureFactory = Future<_GrinderFixture> Function({
+  required bool controls,
+  bool metadata,
+  Set<GrinderObservation>? observations,
+});
 
 void main() {
   final factories = <String, _GrinderFixtureFactory>{
@@ -935,14 +934,12 @@ Future<_GrinderFixture> _bleFixture({
   PluginBleFixtureTransport? transport;
   Future<GrinderDevice> create() async =>
       await manager.bleService.createCandidate(
-            driver: manager.bleService.registry.decide(evidence).drivers.single,
-            physicalId: 'AA:BB',
-            evidence: evidence,
-            createTransport: () =>
-                transport = PluginBleFixtureTransport('AA:BB'),
-            admit: () => true,
-          )
-          as GrinderDevice;
+        driver: manager.bleService.registry.decide(evidence).drivers.single,
+        physicalId: 'AA:BB',
+        evidence: evidence,
+        createTransport: () => transport = PluginBleFixtureTransport('AA:BB'),
+        admit: () => true,
+      ) as GrinderDevice;
   final grinder = await create();
   return _GrinderFixture(manager, grinder, events, () async {
     await manager.unloadPlugin('ble.grinder');

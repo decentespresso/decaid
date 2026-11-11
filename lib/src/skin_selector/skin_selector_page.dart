@@ -151,17 +151,15 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
             children: [
               Text(
                 'Active Skin',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(context).textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 4),
               Text(
                 'Choose and manage your skins',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.onSurface.withValues(alpha: 0.7),
+                  color: Theme.of(context).colorScheme.onSurface
+                      .withValues(alpha: 0.7),
                 ),
               ),
             ],
@@ -173,9 +171,8 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
 
   Widget _buildServerFooter() {
     final serving = widget.webUIService.isServing;
-    final muted = Theme.of(
-      context,
-    ).colorScheme.onSurface.withValues(alpha: 0.7);
+    final muted = Theme.of(context).colorScheme.onSurface
+        .withValues(alpha: 0.7);
 
     final status = Row(
       mainAxisSize: MainAxisSize.min,
@@ -193,9 +190,8 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
           child: Text(
             serving ? 'Skin server running' : 'Skin server stopped',
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: muted),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: muted),
           ),
         ),
       ],
@@ -335,9 +331,9 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
                                   ),
                                   actions: [
                                     TextButton(
-                                      onPressed: () => Navigator.of(
-                                        dialogContext,
-                                      ).pop(false),
+                                      onPressed: () =>
+                                          Navigator.of(dialogContext)
+                                              .pop(false),
                                       child: const Text('Cancel'),
                                     ),
                                     TextButton(
@@ -574,9 +570,8 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
     } catch (e, st) {
       _log.warning('Failed to install skin', e, st);
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(remoteErrorSnackBar(e, action: 'install the skin'));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(remoteErrorSnackBar(e, action: 'install the skin'));
       }
     }
   }

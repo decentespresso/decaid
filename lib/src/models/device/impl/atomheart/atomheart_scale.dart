@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
+
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/device/ble_service_identifier.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
@@ -10,6 +11,7 @@ import 'package:rxdart/subjects.dart';
 import 'package:reaprime/src/models/device/device.dart';
 
 import 'package:reaprime/src/models/errors.dart';
+
 import '../../scale.dart';
 
 class AtomheartScale implements Scale {
@@ -39,9 +41,8 @@ class AtomheartScale implements Scale {
 
   AtomheartScale({
     required BLETransport transport,
-    Duration notificationTimeout = const Duration(milliseconds: 800),
+    this._notificationTimeout = const Duration(milliseconds: 800),
   }) : _transport = transport,
-       _notificationTimeout = notificationTimeout,
        _deviceId = transport.id;
 
   @override

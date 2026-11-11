@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/models/device/device.dart';
@@ -30,18 +31,13 @@ void main() {
         name: 'Bookoo',
         serviceUuids: ['0ffe'],
       );
-      final scale =
-          await manager.bleService.createCandidate(
-                driver: manager.bleService.registry
-                    .decide(evidence)
-                    .drivers
-                    .single,
-                physicalId: 'AA:BB',
-                evidence: evidence,
-                admit: () => true,
-                createTransport: () => transport,
-              )
-              as Scale;
+      final scale = await manager.bleService.createCandidate(
+        driver: manager.bleService.registry.decide(evidence).drivers.single,
+        physicalId: 'AA:BB',
+        evidence: evidence,
+        admit: () => true,
+        createTransport: () => transport,
+      ) as Scale;
       await controller.connectToScale(scale);
       expect(await scale.connectionState.first, ConnectionState.connected);
       expect(transport.disconnectCalls, 0);
@@ -74,18 +70,13 @@ void main() {
           name: 'Bookoo',
           serviceUuids: ['0ffe'],
         );
-        final scale =
-            await manager.bleService.createCandidate(
-                  driver: manager.bleService.registry
-                      .decide(evidence)
-                      .drivers
-                      .single,
-                  physicalId: 'AA:BB',
-                  evidence: evidence,
-                  admit: () => true,
-                  createTransport: () => transport,
-                )
-                as Scale;
+        final scale = await manager.bleService.createCandidate(
+          driver: manager.bleService.registry.decide(evidence).drivers.single,
+          physicalId: 'AA:BB',
+          evidence: evidence,
+          admit: () => true,
+          createTransport: () => transport,
+        ) as Scale;
         final elapsed = Stopwatch()..start();
         final connect = controller.connectToScale(scale);
         final completion = ready
@@ -117,53 +108,49 @@ void main() {
       serviceUuids: ['0ffe'],
     );
     return await manager.bleService.createCandidate(
-          driver: manager.bleService.registry.decide(evidence).drivers.single,
-          physicalId: 'AA:BB',
-          evidence: evidence,
-          admit: () => true,
-          createTransport: () => transport,
-        )
-        as Scale;
+      driver: manager.bleService.registry.decide(evidence).drivers.single,
+      physicalId: 'AA:BB',
+      evidence: evidence,
+      admit: () => true,
+      createTransport: () => transport,
+    ) as Scale;
   }
 
-  test(
-    'Bookoo refused subscription fails the attempt without leftovers',
-    () async {
-      final manager = PluginManager(kvStore: FakeKeyValueStoreService());
-      addTearDown(manager.dispose);
-      await loadBookooPlugin(manager);
-      final transport = BookooPluginTransport(
-        'AA:BB',
-        subscriptionFailure: StateError('Bookoo subscription refused'),
-      );
-      final scale = await bookooCandidate(manager, transport);
-      final states = <ConnectionState>[];
-      final subscription = scale.connectionState.listen(states.add);
-      addTearDown(subscription.cancel);
+  test('Bookoo refused subscription fails the attempt without leftovers', () async {
+    final manager = PluginManager(kvStore: FakeKeyValueStoreService());
+    addTearDown(manager.dispose);
+    await loadBookooPlugin(manager);
+    final transport = BookooPluginTransport(
+      'AA:BB',
+      subscriptionFailure: StateError('Bookoo subscription refused'),
+    );
+    final scale = await bookooCandidate(manager, transport);
+    final states = <ConnectionState>[];
+    final subscription = scale.connectionState.listen(states.add);
+    addTearDown(subscription.cancel);
 
-      final outcome = await scale.onConnect().then<Object?>(
-        (_) => null,
-        onError: (Object error) => error,
-      );
-      expect(
-        outcome,
-        isNotNull,
-        reason: 'a refused subscription must fail the attempt',
-      );
+    final outcome = await scale.onConnect().then<Object?>(
+      (_) => null,
+      onError: (Object error) => error,
+    );
+    expect(
+      outcome,
+      isNotNull,
+      reason: 'a refused subscription must fail the attempt',
+    );
 
-      // Startup teardown already retired the session here, so a late link drop
-      // cannot be delivered through this seam: the abandoned readiness promise
-      // and its later disconnect rejection are asserted by the plugin-runtime
-      // harness in scripts/test_bookoo_readiness_rejection.mjs. This test covers
-      // the observable leftovers instead.
-      transport.dropLink();
-      await pumpEventQueue();
+    // Startup teardown already retired the session here, so a late link drop
+    // cannot be delivered through this seam: the abandoned readiness promise
+    // and its later disconnect rejection are asserted by the plugin-runtime
+    // harness in scripts/test_bookoo_readiness_rejection.mjs. This test covers
+    // the observable leftovers instead.
+    transport.dropLink();
+    await pumpEventQueue();
 
-      expect(states, isNot(contains(ConnectionState.connected)));
-      expect(manager.activeTimerCount, 0);
-      expect(manager.bleService.registry.activeBindingCount, 0);
-    },
-  );
+    expect(states, isNot(contains(ConnectionState.connected)));
+    expect(manager.activeTimerCount, 0);
+    expect(manager.bleService.registry.activeBindingCount, 0);
+  });
 
   test(
     'Bookoo disconnect before the first packet reports the disconnect',
@@ -252,22 +239,17 @@ void main() {
         name: 'BOOKOO',
         serviceUuids: ['0ffe'],
       );
-      final scale =
-          await manager.bleService.createCandidate(
-                driver: manager.bleService.registry
-                    .decide(evidence)
-                    .drivers
-                    .single,
-                physicalId: 'AA:BB',
-                evidence: evidence,
-                admit: () => true,
-                createTransport: () {
-                  final t = BookooPluginTransport('AA:BB');
-                  transports.add(t);
-                  return t;
-                },
-              )
-              as Scale;
+      final scale = await manager.bleService.createCandidate(
+        driver: manager.bleService.registry.decide(evidence).drivers.single,
+        physicalId: 'AA:BB',
+        evidence: evidence,
+        admit: () => true,
+        createTransport: () {
+          final t = BookooPluginTransport('AA:BB');
+          transports.add(t);
+          return t;
+        },
+      ) as Scale;
       for (var attempt = 0; attempt < 2; attempt++) {
         final samples = <WeightSnapshot>[];
         final subscription = controller.weightSnapshot.listen(samples.add);
@@ -336,16 +318,12 @@ void main() {
 
       Future<Scale> createScale(BookooPluginTransport transport) async =>
           await manager.bleService.createCandidate(
-                driver: manager.bleService.registry
-                    .decide(evidence)
-                    .drivers
-                    .single,
-                physicalId: 'AA:BB',
-                evidence: evidence,
-                admit: () => true,
-                createTransport: () => transport,
-              )
-              as Scale;
+            driver: manager.bleService.registry.decide(evidence).drivers.single,
+            physicalId: 'AA:BB',
+            evidence: evidence,
+            admit: () => true,
+            createTransport: () => transport,
+          ) as Scale;
 
       final firstGeneration = manager.pluginGeneration(manifest.id);
       final oldTransport = BookooPluginTransport(
