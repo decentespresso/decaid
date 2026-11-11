@@ -235,9 +235,16 @@ const bodyExample = "</body>";
 
       final client = HttpClient();
       addTearDown(client.close);
-      await expectLater(
-        client.getUrl(Uri.parse('http://localhost:$firstPort/')),
-        throwsA(isA<SocketException>()),
+      final aliasRequest = await client.getUrl(
+        Uri.parse('http://localhost:$firstPort/'),
+      );
+      aliasRequest.followRedirects = false;
+      final aliasResponse = await aliasRequest.close();
+      await aliasResponse.drain<void>();
+      expect(aliasResponse.statusCode, HttpStatus.temporaryRedirect);
+      expect(
+        aliasResponse.headers.value(HttpHeaders.locationHeader),
+        'http://localhost:3000/',
       );
       final entryRequest = await client.getUrl(
         Uri.parse('http://localhost:3000/'),

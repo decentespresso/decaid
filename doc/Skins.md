@@ -327,11 +327,25 @@ unload described above — and it never survives an app restart.
 
 Ports are assigned from 24800 upward. 3000, 4001 and 8080 are reserved, so a
 skin never lands on the entry point, the local listener or the REST API.
-Bookmark `http://localhost:3000` on the device running Decaid, or
-`http://<gateway-ip>:3000` from another device. This entry point redirects
-without caching to the selected skin's origin. Bookmark the entry point
-rather than the redirected address so the bookmark follows skin changes
-and temporary port fallbacks.
+
+`http://localhost:3000` on the device running Decaid — or
+`http://<gateway-ip>:3000` from another device — is the canonical entry point.
+It redirects without caching to the selected skin's origin, and bookmarking it
+is the recommended way back to the WebUI.
+
+**A bookmark to a skin's own port still works.** While a skin is not active,
+its assigned port keeps a lightweight listener that answers requests for a
+device address, or a hostname that resolves to one, with
+`307 Temporary Redirect` and `Cache-Control: no-store` to the entry point,
+preserving the request's host, path and query and changing only the port. Any
+other host gets the same plain 404 the entry point returns. A
+bookmark created after the entry point redirected you to a skin therefore
+recovers on whatever skin is active now, instead of failing with a connection
+error. That listener returns nothing but the redirect: no skin files, no
+injected `skin-api.js`, no account-proxy token metadata, and its origin is not
+added to the account-proxy allowlist. It exists only while Decaid can bind the
+port; if another process holds it, the redirect is absent and Decaid keeps
+serving, so the entry point stays the reliable bookmark.
 
 **The fallback, and what it costs.** If a skin's assigned port cannot be bound
 — another process holds it — Decaid retries briefly, then falls back to a
@@ -339,6 +353,8 @@ and temporary port fallbacks.
 because the origin differs, **persistent browser storage written under the
 stable origin is not visible**, and anything written during that run is not
 visible after it. Nothing is deleted; it is simply keyed to a different origin.
+A temporary origin is exceptional: it changes per run, it is never persisted,
+and it never becomes a redirect alias, so it is not a bookmark target.
 
 A skin that must not lose state across such a run should persist it through the
 Decaid API rather than browser storage. The KV endpoints are unaffected by
