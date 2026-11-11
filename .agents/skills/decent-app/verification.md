@@ -50,26 +50,7 @@ Shortest loop: reload, re-hit the endpoint, diff the response against the spec. 
 
 ## Physical Android device
 
-The tablet is the primary target for onboarding, settings, and permission flows. `adb` works in screen coordinates: the M50Mini display is 1340x800 landscape, so a screenshot pixel is a tap pixel.
-
-```bash
-adb devices -l                                  # confirm the serial first
-adb -s <serial> shell svc power stayon usb      # a dozing screen returns a black PNG
-scripts/sb-dev.sh start --platform <serial> --adb-forward --dart-define key=value
-adb -s <serial> exec-out screencap -p > shot.png
-scripts/sb-dev.sh stop                          # also drops the adb forward
-```
-
-- **Stay awake before anything else.** Without `svc power stayon usb` a screen that dozed on its own returns a fully black screenshot, and the next cycles go into debugging a rendering problem that does not exist. Confirm with `dumpsys power | grep mWakefulness=` reporting `Awake`.
-- **`--dart-define` takes one argument.** Write `--dart-define key=value`; the `--dart-define=key=value` form is rejected with `Unknown flag`.
-- **Find a control before tapping it.** `adb shell uiautomator dump /sdcard/ui.xml`, then grep the dump for `text="..." ... bounds="[...]"`. Guessed coordinates open system apps and produce screenshots that prove nothing about the app.
-- **Read each screenshot before the next tap**, so the evidence for a claim is the screen that tap actually caused.
-
-### Onboarding flows on device
-
-`--dart-define forceOnboarding=true --dart-define dummyAccount=true` reaches the onboarding flow without a real login. `--dart-entrypoint-args` does not reach `main()` on Android; use the dart-define fallbacks.
-
-`forceOnboarding` **re-arms** every step at startup: it clears `onboardingCompleted`, `accountStepSeen`, `androidWarningDismissed` and `shotUploadStepSeen`. Anything that depends on "already answered" — a step that must appear only once, an opt-in cleared after it has been applied — cannot be verified while that flag is on. Verify those with a plain start after completing the flow once.
+See the `decent-dev` skill for the tablet loop (stay-awake, `--dart-define` argument form, tap-target discovery, screenshots) and the onboarding flags. This file covers the app's runtime surface, not the development loop.
 
 ## Completion requirements
 

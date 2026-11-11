@@ -1,6 +1,6 @@
 ---
 name: decent-app
-description: Drive or verify a running Decent app via sb-dev, REST, WebSockets, simulated devices, or real hardware. Use for API/WebSocket changes, runtime/device flows, smoke tests, and end-to-end regression scenarios; not for pure Dart changes that do not require a running app.
+description: Drive or operate a running Decaid app through its REST and WebSocket APIs, its skins, and its simulated or real devices — including user-facing tasks like adding a bean, switching the workflow, or pulling shot history from an agent. Use when the task is to use a running instance; use the decent-dev skill instead when the task is to change Decaid's own Dart/Flutter code.
 ---
 
 # Decent
