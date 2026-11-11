@@ -270,12 +270,18 @@ class WebUIService {
 
   Future<void> serveFolderAtPath(String path, {int port = 3000}) async {
     final version = ++_lifecycleVersion;
-    await _server?.close(force: true);
+    final previousServer = _server;
     _server = null;
+    if (previousServer != null) {
+      await previousServer.close(force: true);
+      if (version != _lifecycleVersion) return;
+    }
     _resolvedHosts.clear();
     final tokenProvider = skinProxyTokenProvider;
     if (tokenProvider != null) _revokeSkinProxyToken();
-    _localIP = await _resolveLocalIP();
+    final resolvedIP = await _resolveLocalIP();
+    if (version != _lifecycleVersion) return;
+    _localIP = resolvedIP;
 
     late Handler webUI;
 
@@ -647,19 +653,25 @@ class WebUIService {
   bool get isServing => _server != null;
 
   Future<void> stopServing() async {
-    _lifecycleVersion++;
-    if (_server != null || _entryServer != null || _aliasServers.isNotEmpty) {
+    final version = ++_lifecycleVersion;
+    final server = _server;
+    final entryServer = _entryServer;
+    final aliasServers = _aliasServers.values.toList();
+    _aliasServers.clear();
+    _server = null;
+    _entryServer = null;
+    _path = "";
+    _activeSkinIdentity = null;
+    if (server != null || entryServer != null || aliasServers.isNotEmpty) {
       _log.info('Stopping WebUI server on port $port');
-      await _server?.close(force: true);
-      await _entryServer?.close(force: true);
-      await _closeAliasServers();
-      _server = null;
-      _entryServer = null;
-      _activeSkinIdentity = null;
-      _path = "";
+      await server?.close(force: true);
+      await entryServer?.close(force: true);
+      for (final aliasServer in aliasServers) {
+        await aliasServer.close(force: true);
+      }
       _log.info('WebUI server stopped');
     }
     _resolvedHosts.clear();
-    _revokeSkinProxyToken();
+    if (version == _lifecycleVersion) _revokeSkinProxyToken();
   }
 }
