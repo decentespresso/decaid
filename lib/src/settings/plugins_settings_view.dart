@@ -1367,7 +1367,7 @@ class ExtensionManagementWarning extends StatelessWidget {
       'manage.extensions lets this plugin install, replace, configure and '
       'remove plugins and skins on this device, including on instruction '
       'from a remote server, and approve new permissions for any plugin, '
-      'itself included.';
+      'itself included. Allow it only for a plugin you trust completely.';
 
   @override
   Widget build(BuildContext context) {

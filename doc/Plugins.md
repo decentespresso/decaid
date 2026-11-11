@@ -151,13 +151,14 @@ A Decaid plugin consists of two required files:
     approval dialog when an update adds the permission. A plugin cannot obtain it
     by itself: an update that adds it waits for approval like any added
     permission, and without the permission the management routes refuse the
-    plugin and `host.localApi` rejects. The permission covers plugin and skin
-    management only. It does not include `api`, and `api` does not include it:
-    `host.localApi` refuses every route outside that surface, such as machine
-    control, and a plugin that also needs the rest of the REST API declares
-    `api` and uses `fetch`. Management itself is still full trust: a plugin
-    that can install plugins and approve permissions can install one holding
-    any permission. See
+    plugin and `host.localApi` rejects. `host.localApi` covers plugin and skin
+    management only and does not stand in for `api`, as `api` gives no
+    management authority: it refuses every route outside that surface, such as
+    machine control, and a plugin that also needs the rest of the REST API
+    declares `api` and uses `fetch`. Management itself is still full trust: a
+    plugin that can install plugins and approve permissions can install one
+    holding any permission, or give itself `api` by writing its own source and
+    approving the update. See
     [`host.localApi`](#hostlocalapipath-options).
 - **drivers**: Device classes the plugin may register. Each declaration has a plugin-local `id` and a `type`: `sensor`, `scale`, or `grinder`. A manifest may declare at most 8 drivers. Driver declarations authorize registration; they do not grant transport access. For example, a WebSocket-backed device also needs `network.websocket`. A driver may declare up to 8 `surfaces`, each with a unique safe `id`, `role` (`settings` or `diagnostics`), and a safe non-reserved `endpoint` naming a declared same-plugin HTTP endpoint. At most one surface has role `settings`. Surfaces require the `api` permission; optional `label` is display text. Plugins cannot supply URLs, authority, credentials, or routes through surfaces. Surface endpoints must not contain unpaired UTF-16 surrogates, which cannot round-trip through URI encoding; valid surrogate pairs remain supported.
 - **settings**: User-configurable options with `type` (`string`, `number`, `boolean`, `enum`), an optional `label` giving the setting a human-friendly name, an optional `description` explaining what the setting does, an optional `default`, and an optional `secure` flag for credentials such as passwords. Enum `values` are a JSON array of strings. Secure values use platform credential storage, are supplied in memory to `onLoad(settings)`, and are never returned by the REST API.
@@ -385,25 +386,26 @@ host, a port or a fragment is refused.
 | The 18 plugin and skin routes that need an `extensions:manage` token: those marked **yes** in [Plugin Lifecycle Management](#plugin-lifecycle-management-rest-api) and the skin routes in `doc/Skins.md` (`doc/Api.md` lists them all) | The plugin and skin management operations |
 | `GET /api/v1/plugins`, `GET /api/v1/plugins/{id}/settings` | Reading plugins and their settings |
 | `GET /api/v1/webui/skins`, `GET /api/v1/webui/skins/default`, `GET /api/v1/webui/skins/{id}`, `GET /api/v1/webui/server/status` | Reading skins and the skin server |
-| `POST /api/v1/settings` with a JSON object holding only `defaultSkinId` or `automaticUpdateCheck` | The settings that choose the default skin and turn automatic extension updates on or off |
+| `POST /api/v1/settings` with a JSON object holding only `defaultSkinId` or `automaticUpdateCheck` | The settings that choose the default skin and turn automatic update checks on or off (plugin and skin updates are installed; app updates are only offered) |
 
 Any other request is rejected before it is sent, whatever the plugin's other
 permissions: machine control, workflow, other settings (`webUiPath` included,
 which serves an arbitrary folder and stays with token holders), reading
 settings, data export, import and sync, the key-value store, the account proxy,
 skin assets and plugin-defined endpoints (`/api/v1/plugins/{id}/{endpoint}`) are
-all out of reach. The `manage.extensions` and `api` permissions are separate and
-neither grants the other. A plugin that holds `api` keeps calling the rest of
-the API with `fetch`, which carries no management authority and is how it reads
-`GET /api/v1/settings`; a plugin that holds only `manage.extensions` has no
-call of its own into the rest of the API.
+all out of reach. `host.localApi` does not stand in for the `api` permission,
+and `api` gives no management authority. A plugin that holds `api` keeps calling
+the rest of the API with `fetch`, which carries no management authority and is
+how it reads `GET /api/v1/settings`; a plugin that holds only
+`manage.extensions` has no call of its own into the rest of the API.
 
 That limit is on what the plugin itself can call, not on what it can cause.
 Managing extensions means choosing the code that runs on the device: a plugin
 with `manage.extensions` can install or rewrite a plugin whose manifest holds
 `api` or any other permission, and can approve an update that adds one,
-including to itself. Treat the permission as full trust in the plugin, as the
-install warning says.
+including to itself. In two calls it can write its own source with `api` added
+and approve that update. Treat the permission as full trust in the plugin; the
+install warning says to allow it only for a plugin you trust completely.
 
 | Option | Default | Meaning |
 |--------|---------|---------|

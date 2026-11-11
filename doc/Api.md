@@ -140,8 +140,9 @@ curl -X POST http://decaid.local:8080/api/v1/plugins/my.plugin/enable \
 
 Tokens are named. Decaid logs each authorized or refused request with the
 caller id and name (`api:<id> "name"`, or `cli "--extensions-token"` and
-`cli "DECAID_EXTENSIONS_TOKEN"` for a launch token), never the token value. A token Decaid recognises is removed from the request
-before handlers run, so a plugin-defined endpoint never receives it.
+`cli "DECAID_EXTENSIONS_TOKEN"` for a launch token), never the token value. A
+token Decaid recognises is removed from the request before handlers run, so a
+plugin-defined endpoint never receives it.
 
 **Plain HTTP.** The API listens over plain HTTP, so a bearer token is not
 confidential on the local network. Use a trusted network until the HTTPS
@@ -156,7 +157,8 @@ holders). It refuses the rest of the API, so the plugin's own calls are limited
 to plugin and skin management, and `api` gives no management authority. This
 limits what the plugin calls, not what it can cause: a plugin that can install
 plugins and approve permissions can install one that holds `api` or any other
-permission, so `manage.extensions` is full trust in the plugin.
+permission, or add `api` to itself, so `manage.extensions` is full trust in the
+plugin.
 Installing such a plugin from the native screens asks for confirmation, and an
 update that adds the permission waits for approval. A plugin holding the
 permission can approve pending permission updates, including its own; a plugin
