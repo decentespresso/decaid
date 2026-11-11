@@ -643,6 +643,13 @@ Content-Type: application/json
 }
 ```
 
+The DE1 forgets this threshold when it loses power, so the app saves the value
+per machine and writes it again each time that machine reconnects. Skins do not
+need to resend it after a reconnect or power cycle. `DELETE
+/api/v1/machine/settings/reset` keeps the saved threshold and does not change
+the machine's current one. Until a skin sets a value, the app writes nothing
+and the machine keeps its own threshold.
+
 ---
 
 ### Scale Integration
