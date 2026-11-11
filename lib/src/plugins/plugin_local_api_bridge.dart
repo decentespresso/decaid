@@ -5,7 +5,15 @@ import 'package:shelf/shelf.dart' as shelf;
 
 class PluginLocalApiBridge {
   static const _pathPrefix = '/api/v1/';
-  static const _methods = {'GET', 'POST', 'PUT', 'PATCH', 'DELETE'};
+  static const _methods = {'GET', 'POST', 'PUT', 'DELETE'};
+
+  static final _managementRoutes = ExtensionManagementRouteMatcher([
+    ...extensionManagementRoutes,
+    ...extensionManagementReadRoutes,
+  ]);
+  static final _settingsRoute = ExtensionManagementRouteMatcher(const [
+    extensionManagementSettingsRoute,
+  ]);
 
   final int maxResponseBytes;
 
@@ -24,20 +32,29 @@ class PluginLocalApiBridge {
     if (handler == null) {
       throw StateError('The local API is not available');
     }
+    final target = shelf.Request(_method(method), _localUri(path));
+    final changesSettings = await _settingsRoute.matches(target);
+    if (!changesSettings && !await _managementRoutes.matches(target)) {
+      throw ArgumentError(
+        'localApi reaches only the plugin and skin management routes, not '
+        '${target.method} /${target.url.path}',
+      );
+    }
+    final requestBody = changesSettings ? _extensionSettings(body) : body;
     final request = shelf.Request(
-      _method(method),
-      _localUri(path),
+      target.method,
+      target.requestedUri,
       headers: {
-        if (body != null)
+        if (requestBody != null)
           'content-type': contentType is String
               ? contentType
               : 'application/json',
       },
-      body: body == null
+      body: requestBody == null
           ? null
-          : body is String
-          ? body
-          : jsonEncode(body),
+          : requestBody is String
+          ? requestBody
+          : jsonEncode(requestBody),
       context: {extensionManagementGrantContextKey: grant},
     );
 
@@ -53,6 +70,26 @@ class PluginLocalApiBridge {
       'headers': response.headers,
       'body': utf8.decode(bytes, allowMalformed: true),
     };
+  }
+
+  static String _extensionSettings(Object? body) {
+    Object? settings = body;
+    if (body is String) {
+      try {
+        settings = jsonDecode(body);
+      } on FormatException {
+        settings = null;
+      }
+    }
+    if (settings is! Map ||
+        settings.isEmpty ||
+        !settings.keys.every(extensionManagementSettingsKeys.contains)) {
+      throw ArgumentError(
+        'localApi changes only these settings: '
+        '${extensionManagementSettingsKeys.join(', ')}',
+      );
+    }
+    return jsonEncode(settings);
   }
 
   static String _method(Object? method) {

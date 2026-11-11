@@ -29,6 +29,15 @@ const unprivilegedPermissions = [
   'network.websocket',
 ];
 const privilegedPermissions = ['emit', 'api', 'manage.extensions'];
+const managementOnlyPermissions = ['emit', 'manage.extensions'];
+
+const fixtureEcho = '/api/v1/plugins/echo.fixture/settings';
+const fixtureEchoSource = '/api/v1/plugins/echo.fixture/source';
+const fixtureMarker = '/api/v1/webui/skins/marker.fixture';
+const fixtureRedirect = '/api/v1/webui/skins/redirect.fixture';
+const machineStatePath = '/api/v1/machine/state/espresso';
+
+String fixtureSlow(String name) => '/api/v1/plugins/slow.$name/enable';
 
 class RecordingWebUIStorage extends Fake implements WebUIStorage {
   final List<String> mutations = [];
@@ -237,6 +246,8 @@ class ExtensionManagementHarness {
   final List<Future<Response>> bridgedResponses;
   final List<String> socketHits;
   final List<SeenRequest> accountProxyHits;
+  final List<SeenRequest> machineHits;
+  final List<SeenRequest> settingsPosts;
   final Map<String, SlowRoute> slowRoutes;
   int _probeSeq = 0;
 
@@ -254,6 +265,8 @@ class ExtensionManagementHarness {
     required this.bridgedResponses,
     required this.socketHits,
     required this.accountProxyHits,
+    required this.machineHits,
+    required this.settingsPosts,
     required this.slowRoutes,
   });
 
@@ -306,6 +319,8 @@ class ExtensionManagementHarness {
     final bridgedResponses = <Future<Response>>[];
     final socketHits = <String>[];
     final accountProxyHits = <SeenRequest>[];
+    final machineHits = <SeenRequest>[];
+    final settingsPosts = <SeenRequest>[];
     final slowRoutes = <String, SlowRoute>{};
 
     Future<SeenRequest> see(Request request) async => SeenRequest(
@@ -320,7 +335,10 @@ class ExtensionManagementHarness {
     );
 
     final app = Router().plus;
-    app.all('/api/v1/test/echo', (Request request) async {
+    app.all('/api/v1/plugins/echo.fixture/<operation>', (
+      Request request,
+      String operation,
+    ) async {
       final seen = await see(request);
       routed.add(seen);
       return Response.ok(
@@ -328,16 +346,27 @@ class ExtensionManagementHarness {
         headers: {'content-type': 'application/json', 'x-echo': 'yes'},
       );
     });
-    app.get('/api/v1/test/marker', (Request request) => Response.ok('marker'));
+    app.get(fixtureMarker, (Request request) => Response.ok('marker'));
     app.get(
-      '/api/v1/test/redirect',
-      (Request request) => Response(
-        307,
-        headers: {'location': '/api/v1/test/echo'},
-        body: 'moved',
-      ),
+      fixtureRedirect,
+      (Request request) =>
+          Response(307, headers: {'location': fixtureEcho}, body: 'moved'),
     );
-    app.post('/api/v1/test/slow/<name>', (Request request, String name) async {
+    app.put('/api/v1/machine/state/<state>', (
+      Request request,
+      String state,
+    ) async {
+      machineHits.add(await see(request));
+      return Response.ok('machine state requested');
+    });
+    app.post('/api/v1/settings', (Request request) async {
+      settingsPosts.add(await see(request));
+      return Response.ok('settings changed');
+    });
+    app.post('/api/v1/plugins/slow.<name>/enable', (
+      Request request,
+      String name,
+    ) async {
       final slow = slowRoutes[name]!;
       slow.entered.complete(await see(request));
       await slow.release.future;
@@ -385,6 +414,8 @@ class ExtensionManagementHarness {
       bridgedResponses: bridgedResponses,
       socketHits: socketHits,
       accountProxyHits: accountProxyHits,
+      machineHits: machineHits,
+      settingsPosts: settingsPosts,
       slowRoutes: slowRoutes,
     );
   }
@@ -513,7 +544,7 @@ class ExtensionManagementHarness {
           (value) => { state = "resolved:" + JSON.stringify(value); },
           (error) => { state = "rejected:" + String(error && error.message); }
         );
-        return host.localApi("/api/v1/test/marker").then(() => state);
+        return host.localApi("$fixtureMarker").then(() => state);
       })()
     ''');
     return outcome.value as String;

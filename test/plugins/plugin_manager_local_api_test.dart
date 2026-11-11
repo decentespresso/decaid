@@ -141,7 +141,11 @@ void main() {
         '/api/v1/webui/skins/default',
         options: {'method': 'PUT', 'body': <String, Object?>{}},
       );
-      final unknownRoute = await harness.localApi(actor, '/api/v1/nothing');
+      final status = await harness.localApi(
+        actor,
+        '/api/v1/webui/server/status',
+      );
+      final plugins = await harness.localApi(actor, '/api/v1/plugins');
 
       expect(skins.status, 200);
       expect(
@@ -151,7 +155,8 @@ void main() {
       expect(settings.status, 200);
       expect(unknownPlugin.status, 404);
       expect(invalidSkin.status, 400);
-      expect(unknownRoute.status, 404);
+      expect(status.status, 200);
+      expect(plugins.status, 200);
       expect(harness.skins.mutations, isEmpty);
     });
 
@@ -182,7 +187,7 @@ void main() {
       );
       final echoedByRoute = await harness.localApi(
         actor,
-        '/api/v1/test/echo',
+        fixtureEcho,
         options: {'method': 'POST', 'body': 'x'},
       );
       final external = await harness.externalRequest(
@@ -218,13 +223,7 @@ void main() {
       );
 
       expect(mutation.status, 200);
-      expect(echoedByPlugin.status, 200);
-      final pluginHeaders =
-          echoedByPlugin.jsonBody['headers'] as Map<String, dynamic>;
-      expect(
-        pluginHeaders.keys.map((k) => k.toLowerCase()),
-        isNot(contains('authorization')),
-      );
+      expect(echoedByPlugin.resolved, isFalse, reason: '$echoedByPlugin');
       final routeSeen = echoedByRoute.jsonBody;
       expect(
         (routeSeen['headers'] as Map).keys,
@@ -253,28 +252,159 @@ void main() {
       expect(harness.loader.isPluginLoaded(target), isTrue);
     });
 
+    test('with manage.extensions and without api manages plugins and skins '
+        'and reaches nothing else', () async {
+      final manager = uniqueId('manager');
+      final target = uniqueId('target');
+      final endpoint = uniqueId('endpoint');
+      await harness.install(manager, permissions: managementOnlyPermissions);
+      await harness.install(target);
+      await harness.install(endpoint);
+
+      final disable = await harness.localApi(
+        manager,
+        '/api/v1/plugins/$target/disable',
+        options: {'method': 'POST'},
+      );
+      final skin = await harness.localApi(
+        manager,
+        '/api/v1/webui/skins/default',
+        options: {
+          'method': 'PUT',
+          'body': {'skinId': recordedSkinId},
+        },
+      );
+      final listed = await harness.localApi(manager, '/api/v1/plugins');
+      expect(disable.status, 200, reason: '$disable');
+      expect(harness.loader.isPluginLoaded(target), isFalse);
+      expect(skin.status, 200, reason: '$skin');
+      expect(harness.skins.mutations, ['setDefaultSkin $recordedSkinId']);
+      expect(listed.status, 200, reason: '$listed');
+      harness.bridged.clear();
+
+      final unrelated = <(String, String, Object?)>[
+        ('PUT', machineStatePath, null),
+        ('GET', '/api/v1/machine/state', null),
+        ('POST', '/api/v1/workflow', <String, Object?>{}),
+        ('GET', '/api/v1/settings', null),
+        ('POST', '/api/v1/settings', {'gatewayMode': 'full'}),
+        ('POST', '/api/v1/data/import', <String, Object?>{}),
+        ('POST', '/api/v1/store/$target/key', 'value'),
+        ('GET', '/api/v1/account/proxy/me', null),
+        ('POST', '/api/v1/plugins/$endpoint/echo', {'ping': 1}),
+        ('GET', '/api/v1/plugins/$endpoint/echo', null),
+        ('PUT', '/api/v1/plugins/$target/../../machine/state/espresso', null),
+      ];
+      for (final (method, path, body) in unrelated) {
+        final outcome = await harness.localApi(
+          manager,
+          path,
+          options: {'method': method, 'body': ?body},
+        );
+        expect(outcome.resolved, isFalse, reason: '$method $path: $outcome');
+        expect(
+          outcome.errorMessage,
+          anyOf(
+            contains('only the plugin and skin management routes'),
+            contains('localApi changes only these settings'),
+          ),
+          reason: '$method $path',
+        );
+      }
+      final ownFetch = await harness.fetch(
+        manager,
+        harness.url(harness.loopback, machineStatePath),
+        method: 'PUT',
+      );
+
+      expect(ownFetch.resolved, isFalse, reason: '$ownFetch');
+      expect(ownFetch.errorName, 'PluginPermissionError');
+      expect(harness.bridged, isEmpty);
+      expect(harness.machineHits, isEmpty);
+      expect(harness.accountProxyHits, isEmpty);
+      expect(harness.settingsPosts, isEmpty);
+      expect(harness.routed, isEmpty);
+    });
+
+    test('with api and manage.extensions keeps the general API on fetch '
+        'and off localApi', () async {
+      final actor = uniqueId('actor');
+      await harness.install(actor, permissions: privilegedPermissions);
+
+      final bridged = await harness.localApi(
+        actor,
+        machineStatePath,
+        options: {'method': 'PUT'},
+      );
+      final fetched = await harness.fetch(
+        actor,
+        harness.url(harness.loopback, machineStatePath),
+        method: 'PUT',
+      );
+
+      expect(bridged.resolved, isFalse, reason: '$bridged');
+      expect(harness.bridged, isEmpty);
+      expect(fetched.status, 200, reason: '$fetched');
+      expect(harness.machineHits.single.grant, isNull);
+      expect(harness.machineHits.single.mayManage, isFalse);
+    });
+
+    test('changes the extension settings and no other setting', () async {
+      final manager = uniqueId('manager');
+      await harness.install(manager, permissions: managementOnlyPermissions);
+
+      final mixed = await harness.localApi(
+        manager,
+        '/api/v1/settings',
+        options: {
+          'method': 'POST',
+          'body': {'defaultSkinId': recordedSkinId, 'logLevel': 'FINE'},
+        },
+      );
+      final allowed = await harness.localApi(
+        manager,
+        '/api/v1/settings',
+        options: {
+          'method': 'POST',
+          'body': {'defaultSkinId': recordedSkinId},
+        },
+      );
+
+      expect(mixed.resolved, isFalse, reason: '$mixed');
+      expect(
+        mixed.errorMessage,
+        contains('localApi changes only these settings'),
+      );
+      expect(allowed.status, 200, reason: '$allowed');
+      expect(harness.bridged, ['POST /api/v1/settings']);
+      final posted = harness.settingsPosts.single;
+      expect(jsonDecode(posted.body), {'defaultSkinId': recordedSkinId});
+      expect(posted.mayManage, isTrue);
+    });
+
     test('accepts only a path under /api/v1/ and a supported method', () async {
       final actor = uniqueId('actor');
       await harness.install(actor, permissions: privilegedPermissions);
       final base = harness.url(harness.loopback, '');
       final refused = <(Object?, Map<String, Object?>)>[
-        ('$base/api/v1/test/echo', const {}),
-        ('//127.0.0.1:${harness.port}/api/v1/test/echo', const {}),
-        ('http:/api/v1/test/echo', const {}),
+        ('$base$fixtureEcho', const {}),
+        ('//127.0.0.1:${harness.port}$fixtureEcho', const {}),
+        ('http:$fixtureEcho', const {}),
         ('api/v1/test/echo', const {}),
         ('/api/v2/test/echo', const {}),
         ('/api/v1', const {}),
         ('/ws/v1/plugins/$actor/echo', const {}),
         ('/api/v1/../../ws/v1/plugins/$actor/echo', const {}),
         ('/api/v1/%2e%2e/test/echo', const {}),
-        ('/api/v1/test/echo#fragment', const {}),
+        ('$fixtureEcho#fragment', const {}),
         (42, const {}),
         (null, const {}),
-        (const {'path': '/api/v1/test/echo'}, const {}),
-        ('/api/v1/test/echo', const {'method': 'OPTIONS'}),
-        ('/api/v1/test/echo', const {'method': 'HEAD'}),
-        ('/api/v1/test/echo', const {'method': 'TRACE'}),
-        ('/api/v1/test/echo', const {'method': 'CONNECT'}),
+        (const {'path': fixtureEcho}, const {}),
+        (fixtureEcho, const {'method': 'OPTIONS'}),
+        (fixtureEcho, const {'method': 'HEAD'}),
+        (fixtureEcho, const {'method': 'TRACE'}),
+        (fixtureEcho, const {'method': 'CONNECT'}),
+        (fixtureEcho, const {'method': 'PATCH'}),
       ];
 
       for (final (path, options) in refused) {
@@ -293,9 +423,9 @@ void main() {
 
       final outcome = await harness.localApi(
         actor,
-        '/api/v1/test/echo?x=1',
+        '$fixtureEcho?x=1',
         options: {
-          'method': 'patch',
+          'method': 'post',
           'body': 'payload',
           'contentType': 'text/plain',
           'headers': {
@@ -306,20 +436,20 @@ void main() {
           },
           'authorization': 'Bearer $managerToken',
           'host': 'evil.example',
-          'url': 'http://evil.example/api/v1/test/echo',
+          'url': 'http://evil.example$fixtureEcho',
         },
       );
 
       expect(outcome.status, 200, reason: '$outcome');
       final seen = harness.routed.single;
-      expect(seen.method, 'PATCH');
+      expect(seen.method, 'POST');
       expect(seen.body, 'payload');
       expect(seen.headers['content-type'], 'text/plain');
       expect(seen.headers.keys, isNot(contains('authorization')));
       expect(seen.headers.keys, isNot(contains('x-forwarded-for')));
       expect(seen.headers.keys, isNot(contains('origin')));
       expect(seen.headers['host'], isNot('evil.example'));
-      expect(harness.bridged.single, 'PATCH /api/v1/test/echo');
+      expect(harness.bridged.single, 'POST $fixtureEcho');
     });
 
     test(
@@ -328,13 +458,13 @@ void main() {
         final actor = uniqueId('actor');
         await harness.install(actor, permissions: privilegedPermissions);
 
-        final outcome = await harness.localApi(actor, '/api/v1/test/redirect');
+        final outcome = await harness.localApi(actor, fixtureRedirect);
 
         expect(outcome.status, 307);
-        expect(outcome.header('location'), '/api/v1/test/echo');
+        expect(outcome.header('location'), fixtureEcho);
         expect(outcome.response['body'], 'moved');
         expect(harness.routed, isEmpty);
-        expect(harness.bridged, ['GET /api/v1/test/redirect']);
+        expect(harness.bridged, ['GET $fixtureRedirect']);
       },
     );
 
@@ -346,12 +476,12 @@ void main() {
 
         await harness.localApi(
           actor,
-          '/api/v1/test/echo',
+          fixtureEcho,
           options: {'method': 'POST', 'body': '{"raw": true }'},
         );
         await harness.localApi(
           actor,
-          '/api/v1/test/echo',
+          fixtureEchoSource,
           options: {
             'method': 'PUT',
             'body': {
@@ -361,14 +491,14 @@ void main() {
         );
         await harness.localApi(
           actor,
-          '/api/v1/test/echo',
+          fixtureEcho,
           options: {
             'method': 'POST',
             'body': 'a=1',
             'contentType': 'application/x-www-form-urlencoded',
           },
         );
-        await harness.localApi(actor, '/api/v1/test/echo');
+        await harness.localApi(actor, fixtureEcho);
 
         final [raw, encoded, form, empty] = harness.routed;
         expect(raw.body, '{"raw": true }');
@@ -399,8 +529,9 @@ void main() {
         options: {'method': 'POST', 'body': <String, Object?>{}},
       );
 
-      expect(read.status, 401);
-      expect(write.status, 401);
+      expect(read.resolved, isFalse, reason: '$read');
+      expect(write.resolved, isFalse, reason: '$write');
+      expect(harness.bridged, isEmpty);
       expect(harness.accountProxyHits, isEmpty);
     });
   });
@@ -430,7 +561,7 @@ void main() {
       );
 
       expect(state, isNot(startsWith('resolved')), reason: state);
-      expect(harness.bridged, ['GET /api/v1/test/marker']);
+      expect(harness.bridged, ['GET $fixtureMarker']);
       expect(harness.loader.isPluginLoaded(target), isTrue);
       printOnFailure('stale call state: $state');
     }
@@ -444,7 +575,7 @@ void main() {
         };
     for (final MapEntry(key: name, value: change) in lifecycleChanges.entries) {
       test('a closure from before $name is refused before dispatch', () async {
-        final before = await harness.localApi(actor, '/api/v1/test/marker');
+        final before = await harness.localApi(actor, fixtureMarker);
         expect(before.status, 200);
         harness.stash(actor);
 
@@ -471,7 +602,7 @@ void main() {
       );
 
       expect(state, startsWith('rejected'), reason: state);
-      expect(harness.bridged, ['GET /api/v1/test/marker']);
+      expect(harness.bridged, ['GET $fixtureMarker']);
       expect(harness.loader.isPluginLoaded(target), isTrue);
     });
 
@@ -514,7 +645,7 @@ void main() {
       harness.stash(actor);
       final outcome = harness.localApi(
         actor,
-        '/api/v1/test/slow/inflight',
+        fixtureSlow('inflight'),
         options: {'method': 'POST'},
         reportVia: observer,
       );
@@ -580,10 +711,7 @@ void main() {
                 await harness.loader.pluginSettings(actor),
                 containsPair('mode', 'self'),
               );
-              final fresh = await harness.localApi(
-                actor,
-                '/api/v1/test/marker',
-              );
+              final fresh = await harness.localApi(actor, fixtureMarker);
               expect(fresh.status, 200);
             case 'removes':
               expect(harness.loader.getPluginManifest(actor), isNull);
@@ -594,8 +722,8 @@ void main() {
     }
 
     test('PluginManager.dispose ends every grant', () async {
-      await harness.localApi(actor, '/api/v1/test/echo');
-      await harness.localApi(observer, '/api/v1/test/echo');
+      await harness.localApi(actor, fixtureEcho);
+      await harness.localApi(observer, fixtureEcho);
       final grants = harness.routed.map((seen) => seen.grant!).toList();
       expect(grants.map((grant) => grant.isActive), [true, true]);
 
@@ -628,7 +756,7 @@ void main() {
             return {
               id: ${jsonEncode(id)},
               onLoad() {
-                host.localApi("/api/v1/test/echo", { method: "POST" }).then(
+                host.localApi("$fixtureEcho", { method: "POST" }).then(
                   (response) => host.emit("result", "ok:" + response.status),
                   (error) => host.emit("result", "err:" + error.message)
                 );
@@ -708,7 +836,7 @@ void main() {
                     generation: pluginGeneration,
                     type: "localApi",
                     requestId: "reused",
-                    path: "/api/v1/test/echo",
+                    path: "$fixtureEcho",
                     method: "POST"
                   }));
                 }
@@ -760,7 +888,7 @@ void main() {
               onLoad() {
                 globalThis.__loggedPluginToken = pluginBridgeToken;
                 host.emit("marker", {});
-                host.localApi("/api/v1/test/echo");
+                host.localApi("$fixtureEcho");
               }
             };
           }

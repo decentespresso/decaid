@@ -395,7 +395,7 @@ void main() {
       );
 
       expect(state, isNot(startsWith('resolved')), reason: state);
-      expect(harness.bridged, ['GET /api/v1/test/marker']);
+      expect(harness.bridged, ['GET $fixtureMarker']);
       await expectNoSideEffect();
     });
   });
@@ -519,7 +519,7 @@ void main() {
           '/api/v1/plugins/$climber/update/approve',
           bearer: managerToken,
         );
-        final echo = await harness.localApi(climber, '/api/v1/test/echo');
+        final echo = await harness.localApi(climber, fixtureEcho);
 
         expect(approved.status, 200, reason: approved.body);
         expect(harness.loader.getPluginManifest(climber)?.version, '1.1.0');
@@ -548,7 +548,7 @@ void main() {
           '/api/v1/plugins/$climber/update/approve',
           options: {'method': 'POST'},
         );
-        final echo = await harness.localApi(climber, '/api/v1/test/echo');
+        final echo = await harness.localApi(climber, fixtureEcho);
 
         expect(approved.status, 200, reason: '$approved');
         expect(harness.loader.getPluginManifest(climber)?.version, '1.1.0');
@@ -578,7 +578,7 @@ void main() {
         );
         await harness.settleBridgedHandlers();
         final approval = await harness.bridgedResponses.single;
-        final fresh = await harness.localApi(steward, '/api/v1/test/echo');
+        final fresh = await harness.localApi(steward, fixtureEcho);
 
         expect(outcome.errorMessage, 'plugin unloaded');
         expect(approval.statusCode, 200);

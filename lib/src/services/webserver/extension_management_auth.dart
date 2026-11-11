@@ -53,6 +53,26 @@ const extensionManagementRoutes = <ExtensionManagementRoute>[
   ExtensionManagementRoute('POST', '/api/v1/webui/server/stop'),
 ];
 
+const extensionManagementReadRoutes = <ExtensionManagementRoute>[
+  ExtensionManagementRoute('GET', '/api/v1/plugins'),
+  ExtensionManagementRoute('GET', '/api/v1/plugins/<id>/settings'),
+  ExtensionManagementRoute('GET', '/api/v1/webui/skins'),
+  ExtensionManagementRoute('GET', '/api/v1/webui/skins/default'),
+  ExtensionManagementRoute('GET', '/api/v1/webui/skins/<id>'),
+  ExtensionManagementRoute('GET', '/api/v1/webui/server/status'),
+];
+
+const extensionManagementSettingsRoute = ExtensionManagementRoute(
+  'POST',
+  '/api/v1/settings',
+);
+
+const extensionManagementSettingsKeys = {
+  'webUiPath',
+  'defaultSkinId',
+  'automaticUpdateCheck',
+};
+
 final class ExtensionManagementAuthorization {
   final ExtensionManagementGrant? _grant;
   final ProxyCaller? _caller;
@@ -102,7 +122,7 @@ Middleware extensionManagementAuthMiddleware(
   ProxyTokenService? tokens, {
   List<ExtensionManagementRoute> routes = extensionManagementRoutes,
 }) {
-  final policy = _RoutePolicy(routes);
+  final policy = ExtensionManagementRouteMatcher(routes);
   return (Handler inner) {
     return (Request request) async {
       final grant = request.context[extensionManagementGrantContextKey];
@@ -114,7 +134,7 @@ Middleware extensionManagementAuthMiddleware(
         presentedBearer: bearer != null,
       );
 
-      if (await policy.protects(request)) {
+      if (await policy.matches(request)) {
         final denial = _authorize(
           authorization,
           '${request.method} /${request.url.path}',
@@ -180,20 +200,20 @@ Map<String, Object?> _withoutAuthorization(Request request) => {
     if (name.toLowerCase() == 'authorization') name: null,
 };
 
-final class _RoutePolicy {
-  static final _protected = Response(204);
-  static final _unprotected = Response(204);
+final class ExtensionManagementRouteMatcher {
+  static final _matched = Response(204);
+  static final _unmatched = Response(204);
 
-  final Router _router = Router(notFoundHandler: (_) => _unprotected);
+  final Router _router = Router(notFoundHandler: (_) => _unmatched);
 
-  _RoutePolicy(List<ExtensionManagementRoute> routes) {
+  ExtensionManagementRouteMatcher(Iterable<ExtensionManagementRoute> routes) {
     for (final route in routes) {
-      _router.add(route.method, route.path, (Request _) => _protected);
+      _router.add(route.method, route.path, (Request _) => _matched);
     }
   }
 
-  Future<bool> protects(Request request) async =>
-      identical(await _router.call(request), _protected);
+  Future<bool> matches(Request request) async =>
+      identical(await _router.call(request), _matched);
 }
 
 Response _unauthorized(String error) => Response(
