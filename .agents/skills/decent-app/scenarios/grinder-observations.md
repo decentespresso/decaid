@@ -3,9 +3,16 @@
 ## Preconditions
 
 Use a disposable development app in simulate mode, with no selected grinder and
-no installed plugin named `issue973.smoke`. Start from this worktree with
-`scripts/sb-dev.sh start --platform macos` (or `linux`). Requires jq and websocat.
-The source API installs a temporary plugin in app storage; remove it afterwards.
+no installed plugin named `issue973.smoke`. Start from this worktree with a
+plugin-management token, which the source, enable and remove routes require:
+
+```bash
+TOKEN="$(openssl rand -hex 32)"
+scripts/sb-dev.sh start --platform macos --app-arg "--extensions-token=$TOKEN"
+```
+
+(or `--platform linux`). Requires jq and websocat. The source API installs a
+temporary plugin in app storage; remove it afterwards.
 
 ## Fixture
 
@@ -46,8 +53,10 @@ jq -n --slurpfile manifest /tmp/grinder-observations/manifest.json \
   --rawfile plugin /tmp/grinder-observations/plugin.js \
   '{manifest:$manifest[0],plugin:$plugin}' > /tmp/grinder-observations/source.json
 curl -sf -X PUT http://localhost:8080/api/v1/plugins/issue973.smoke/source \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' --data-binary @/tmp/grinder-observations/source.json
-curl -sf -X POST http://localhost:8080/api/v1/plugins/issue973.smoke/enable
+curl -sf -X POST http://localhost:8080/api/v1/plugins/issue973.smoke/enable \
+  -H "Authorization: Bearer $TOKEN"
 curl -sf -X PUT http://localhost:8080/api/v1/devices/connect \
   -H 'Content-Type: application/json' -d '{"deviceId":"plugin:issue973.smoke:grinder:one"}'
 ```
@@ -82,7 +91,8 @@ After the state-only publication, both REST and WebSocket omit observed fields.
 ## Cleanup
 
 ```bash
-curl -sf -X DELETE http://localhost:8080/api/v1/plugins/issue973.smoke
+curl -sf -X DELETE http://localhost:8080/api/v1/plugins/issue973.smoke \
+  -H "Authorization: Bearer $TOKEN"
 scripts/sb-dev.sh stop
 ```
 
