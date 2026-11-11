@@ -6,7 +6,7 @@ class MemoryMachineSettingsStore implements MachineSettingsStore {
   final List<String> reads = [];
   final List<String> updates = [];
   final List<String> clears = [];
-  final List<String> clearsExceptFlowCalibration = [];
+  final List<String> resetClears = [];
   void Function(String identity)? onRead;
 
   @override
@@ -17,7 +17,8 @@ class MemoryMachineSettingsStore implements MachineSettingsStore {
     final settings = values[identity];
     if (settings?.fanThreshold == null &&
         settings?.refillKitSetting == null &&
-        settings?.flowCalibration == null) {
+        settings?.flowCalibration == null &&
+        settings?.refillLevel == null) {
       return null;
     }
     return settings;
@@ -29,6 +30,7 @@ class MemoryMachineSettingsStore implements MachineSettingsStore {
     int? fanThreshold,
     De1RefillKitSettings? refillKitSetting,
     double? flowCalibration,
+    int? refillLevel,
   }) async {
     updates.add(identity);
     if (identity.isEmpty) return;
@@ -37,6 +39,7 @@ class MemoryMachineSettingsStore implements MachineSettingsStore {
       fanThreshold: fanThreshold ?? current?.fanThreshold,
       refillKitSetting: refillKitSetting ?? current?.refillKitSetting,
       flowCalibration: flowCalibration ?? current?.flowCalibration,
+      refillLevel: refillLevel ?? current?.refillLevel,
     );
   }
 
@@ -48,14 +51,15 @@ class MemoryMachineSettingsStore implements MachineSettingsStore {
   }
 
   @override
-  Future<void> clearExceptFlowCalibration(String identity) async {
-    clearsExceptFlowCalibration.add(identity);
+  Future<void> clearResetOverrides(String identity) async {
+    resetClears.add(identity);
     if (identity.isEmpty) return;
     final current = values[identity];
     values.remove(identity);
-    if (current?.flowCalibration != null) {
+    if (current?.flowCalibration != null || current?.refillLevel != null) {
       values[identity] = MachineSettings(
         flowCalibration: current?.flowCalibration,
+        refillLevel: current?.refillLevel,
       );
     }
   }

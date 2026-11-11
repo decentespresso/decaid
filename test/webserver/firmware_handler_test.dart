@@ -117,13 +117,14 @@ final class _BlockingMachineSettingsStore implements MachineSettingsStore {
     int? fanThreshold,
     De1RefillKitSettings? refillKitSetting,
     double? flowCalibration,
+    int? refillLevel,
   }) async {}
 
   @override
   Future<void> clear(String identity) async {}
 
   @override
-  Future<void> clearExceptFlowCalibration(String identity) async {}
+  Future<void> clearResetOverrides(String identity) async {}
 
   void release() {
     if (!readRelease.isCompleted) readRelease.complete();

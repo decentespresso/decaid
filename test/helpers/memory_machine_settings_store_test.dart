@@ -36,33 +36,23 @@ void main() {
     expect(store.values['']?.flowCalibration, 9.9);
   });
 
-  test(
-    'clearExceptFlowCalibration with an empty identity keeps entries',
-    () async {
-      final store = MemoryMachineSettingsStore()
-        ..values[''] = const MachineSettings(fanThreshold: 7);
-      await store.update(
-        'serial:12345',
-        fanThreshold: 42,
-        flowCalibration: 1.25,
-      );
-      await store.clearExceptFlowCalibration('');
-      expect(store.clearsExceptFlowCalibration, ['']);
-      expect(store.values['serial:12345']?.fanThreshold, 42);
-      expect(store.values['serial:12345']?.flowCalibration, 1.25);
-      expect(store.values['']?.fanThreshold, 7);
-    },
-  );
+  test('clearResetOverrides with an empty identity keeps entries', () async {
+    final store = MemoryMachineSettingsStore()
+      ..values[''] = const MachineSettings(fanThreshold: 7);
+    await store.update('serial:12345', fanThreshold: 42, flowCalibration: 1.25);
+    await store.clearResetOverrides('');
+    expect(store.resetClears, ['']);
+    expect(store.values['serial:12345']?.fanThreshold, 42);
+    expect(store.values['serial:12345']?.flowCalibration, 1.25);
+    expect(store.values['']?.fanThreshold, 7);
+  });
 
-  test(
-    'clearExceptFlowCalibration without a flow entry removes the entry',
-    () async {
-      final store = MemoryMachineSettingsStore();
-      await store.update('serial:12345', fanThreshold: 42);
-      await store.clearExceptFlowCalibration('serial:12345');
-      expect(await store.read('serial:12345'), isNull);
-    },
-  );
+  test('clearResetOverrides without a flow entry removes the entry', () async {
+    final store = MemoryMachineSettingsStore();
+    await store.update('serial:12345', fanThreshold: 42);
+    await store.clearResetOverrides('serial:12345');
+    expect(await store.read('serial:12345'), isNull);
+  });
 
   test('update without values stores an entry but reads as absent', () async {
     final store = MemoryMachineSettingsStore();
@@ -82,12 +72,14 @@ void main() {
       fanThreshold: 42,
       refillKitSetting: De1RefillKitSettings.forceOn,
       flowCalibration: 1.25,
+      refillLevel: 12,
     );
     await store.update('serial:12345', fanThreshold: 43);
     final stored = store.values['serial:12345'];
     expect(stored?.fanThreshold, 43);
     expect(stored?.refillKitSetting, De1RefillKitSettings.forceOn);
     expect(stored?.flowCalibration, 1.25);
+    expect(stored?.refillLevel, 12);
   });
 
   test('clear removes only the named entry', () async {
@@ -99,19 +91,21 @@ void main() {
     expect(store.values['serial:54321']?.flowCalibration, 1.5);
   });
 
-  test('clearExceptFlowCalibration keeps only the flow entry', () async {
+  test('clearResetOverrides keeps only flow and refill level', () async {
     final store = MemoryMachineSettingsStore();
     await store.update(
       'serial:12345',
       fanThreshold: 42,
       refillKitSetting: De1RefillKitSettings.forceOn,
       flowCalibration: 1.25,
+      refillLevel: 12,
     );
-    await store.clearExceptFlowCalibration('serial:12345');
+    await store.clearResetOverrides('serial:12345');
     final stored = store.values['serial:12345'];
     expect(stored?.fanThreshold, isNull);
     expect(stored?.refillKitSetting, isNull);
     expect(stored?.flowCalibration, 1.25);
+    expect(stored?.refillLevel, 12);
   });
 
   test('onRead observes every read identity', () async {

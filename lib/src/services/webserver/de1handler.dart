@@ -451,10 +451,8 @@ class De1Handler {
       final refillLevel = json['refillLevel'] == null
           ? null
           : (json['refillLevel'] as num).toInt();
-      return withQueuedDe1((de1) async {
-        if (refillLevel != null) {
-          await de1.setRefillLevel(refillLevel);
-        }
+      return _mapDe1WriteErrors(() async {
+        await _controller.updateRefillLevel(refillLevel);
         return jsonAccepted();
       });
     });
