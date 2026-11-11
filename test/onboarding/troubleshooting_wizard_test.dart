@@ -142,29 +142,23 @@ void main() {
         expect(btStep.shouldShow(), isFalse);
       });
 
-      test(
-        'bluetooth step shouldShow returns true on iOS with adapter not powered on',
-        () {
-          final steps = troubleshootingSteps(
-            adapterState: AdapterState.poweredOff,
-            isIOS: true,
-          );
-          final btStep = steps.firstWhere((s) => s.id == 'bluetooth');
-          expect(btStep.shouldShow(), isTrue);
-        },
-      );
+      test('bluetooth step shouldShow returns true on iOS with adapter not powered on', () {
+        final steps = troubleshootingSteps(
+          adapterState: AdapterState.poweredOff,
+          isIOS: true,
+        );
+        final btStep = steps.firstWhere((s) => s.id == 'bluetooth');
+        expect(btStep.shouldShow(), isTrue);
+      });
 
-      test(
-        'bluetooth step shouldShow returns false on iOS with adapter powered on',
-        () {
-          final steps = troubleshootingSteps(
-            adapterState: AdapterState.poweredOn,
-            isIOS: true,
-          );
-          final btStep = steps.firstWhere((s) => s.id == 'bluetooth');
-          expect(btStep.shouldShow(), isFalse);
-        },
-      );
+      test('bluetooth step shouldShow returns false on iOS with adapter powered on', () {
+        final steps = troubleshootingSteps(
+          adapterState: AdapterState.poweredOn,
+          isIOS: true,
+        );
+        final btStep = steps.firstWhere((s) => s.id == 'bluetooth');
+        expect(btStep.shouldShow(), isFalse);
+      });
 
       test('system_bt step shouldShow returns true on macOS', () {
         final steps = troubleshootingSteps(

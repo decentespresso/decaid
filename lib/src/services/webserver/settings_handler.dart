@@ -7,14 +7,11 @@ class SettingsHandler {
   final BatteryController? _batteryController;
 
   SettingsHandler({
-    required SettingsController controller,
+    required this._controller,
     required WebUIService service,
-    required WebUIStorage webUIStorage,
-    BatteryController? batteryController,
-  }) : _controller = controller,
-       _webUIService = service,
-       _webUIStorage = webUIStorage,
-       _batteryController = batteryController;
+    required this._webUIStorage,
+    this._batteryController,
+  }) : _webUIService = service;
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/settings', () async {

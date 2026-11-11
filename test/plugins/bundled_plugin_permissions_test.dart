@@ -67,9 +67,8 @@ void main() {
 
   test('shot upload bundled copy upgrades existing 0.2.0 installs', () async {
     final manifestJson = jsonDecode(
-      await File(
-        'assets/plugins/shot-upload.reaplugin/manifest.json',
-      ).readAsString(),
+      await File('assets/plugins/shot-upload.reaplugin/manifest.json')
+          .readAsString(),
     );
     final manifest = PluginManifest.fromJson(
       manifestJson as Map<String, dynamic>,

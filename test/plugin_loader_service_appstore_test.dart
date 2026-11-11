@@ -1352,42 +1352,39 @@ function createPlugin() {
       );
     }
 
-    test(
-      'rejected installs never create or delete directories outside plugins root',
-      () async {
-        final pluginsDir = Directory('${tempDir.path}/plugins');
+    test('rejected installs never create or delete directories outside plugins root', () async {
+      final pluginsDir = Directory('${tempDir.path}/plugins');
 
-        final escapeDir = Directory('${tempDir.path}/escape');
-        if (escapeDir.existsSync()) escapeDir.deleteSync(recursive: true);
-        await expectLater(
-          service.addPlugin(makePluginSource('../escape').path),
-          throwsFormatException,
-        );
-        expect(escapeDir.existsSync(), isFalse);
+      final escapeDir = Directory('${tempDir.path}/escape');
+      if (escapeDir.existsSync()) escapeDir.deleteSync(recursive: true);
+      await expectLater(
+        service.addPlugin(makePluginSource('../escape').path),
+        throwsFormatException,
+      );
+      expect(escapeDir.existsSync(), isFalse);
 
-        final nested = Directory('${pluginsDir.path}/a/b');
-        await expectLater(
-          service.addPlugin(makePluginSource('a/b').path),
-          throwsFormatException,
-        );
-        expect(nested.existsSync(), isFalse);
+      final nested = Directory('${pluginsDir.path}/a/b');
+      await expectLater(
+        service.addPlugin(makePluginSource('a/b').path),
+        throwsFormatException,
+      );
+      expect(nested.existsSync(), isFalse);
 
-        final absDir = Directory('${pluginsDir.path}/abs');
-        if (absDir.existsSync()) absDir.deleteSync(recursive: true);
-        await expectLater(
-          service.addPlugin(makePluginSource('/abs').path),
-          throwsFormatException,
-        );
-        expect(absDir.existsSync(), isFalse);
+      final absDir = Directory('${pluginsDir.path}/abs');
+      if (absDir.existsSync()) absDir.deleteSync(recursive: true);
+      await expectLater(
+        service.addPlugin(makePluginSource('/abs').path),
+        throwsFormatException,
+      );
+      expect(absDir.existsSync(), isFalse);
 
-        final winSep = Directory('${pluginsDir.path}/a\\b');
-        await expectLater(
-          service.addPlugin(makePluginSource(r'a\b').path),
-          throwsFormatException,
-        );
-        expect(winSep.existsSync(), isFalse);
-      },
-    );
+      final winSep = Directory('${pluginsDir.path}/a\\b');
+      await expectLater(
+        service.addPlugin(makePluginSource(r'a\b').path),
+        throwsFormatException,
+      );
+      expect(winSep.existsSync(), isFalse);
+    });
 
     test(
       'removePlugin rejects an unsafe id before touching the filesystem',
@@ -1427,9 +1424,8 @@ function createPlugin() {
           'api': <Object>[],
         }),
       );
-      File(
-        '${evilDir.path}/plugin.js',
-      ).writeAsStringSync('function createPlugin() {}');
+      File('${evilDir.path}/plugin.js')
+          .writeAsStringSync('function createPlugin() {}');
 
       final fresh = PluginLoaderService(kvStore: FakeKvStore());
       await fresh.initialize();

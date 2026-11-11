@@ -121,43 +121,40 @@ void main() {
     },
   );
 
-  test(
-    'startup without a check and network failure retain unconfirmed saved notices',
-    () async {
-      updater.next = update('99.0.0');
-      await service.checkForUpdate();
-      await updates.settled;
-      await updates.dispose();
-      service.dispose();
-      center.dispose();
-      center = NotificationCenter(preferences: preferences);
-      updater = _Updater()..fail = true;
-      service = UpdateCheckService(
-        settingsService: settings,
-        webUIStorage: WebUIStorage(SettingsController(settings)),
-        updater: updater,
-        platformIsAndroid: true,
-        platformIsMacOS: false,
-        externallyManaged: false,
-      );
-      updates = UpdateNotifications(
-        center: center,
-        service: service,
-        onDownload: (_) async {},
-      );
-      await updates.settled;
-      expect(center.value.single.id, '99.0.0');
-      expect(center.isConfirmed(center.value.single), isFalse);
-      await service.checkForUpdate(quiet: true);
-      await updates.settled;
-      expect(center.value.single.id, '99.0.0');
-      expect(center.isConfirmed(center.value.single), isFalse);
-      updater.fail = false;
-      await service.checkForUpdate();
-      await updates.settled;
-      expect(center.value, isEmpty);
-    },
-  );
+  test('startup without a check and network failure retain unconfirmed saved notices', () async {
+    updater.next = update('99.0.0');
+    await service.checkForUpdate();
+    await updates.settled;
+    await updates.dispose();
+    service.dispose();
+    center.dispose();
+    center = NotificationCenter(preferences: preferences);
+    updater = _Updater()..fail = true;
+    service = UpdateCheckService(
+      settingsService: settings,
+      webUIStorage: WebUIStorage(SettingsController(settings)),
+      updater: updater,
+      platformIsAndroid: true,
+      platformIsMacOS: false,
+      externallyManaged: false,
+    );
+    updates = UpdateNotifications(
+      center: center,
+      service: service,
+      onDownload: (_) async {},
+    );
+    await updates.settled;
+    expect(center.value.single.id, '99.0.0');
+    expect(center.isConfirmed(center.value.single), isFalse);
+    await service.checkForUpdate(quiet: true);
+    await updates.settled;
+    expect(center.value.single.id, '99.0.0');
+    expect(center.isConfirmed(center.value.single), isFalse);
+    updater.fail = false;
+    await service.checkForUpdate();
+    await updates.settled;
+    expect(center.value, isEmpty);
+  });
 
   test(
     'a newer version replaces the reserved host entry and becomes unread',

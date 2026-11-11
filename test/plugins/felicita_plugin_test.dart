@@ -27,16 +27,12 @@ void main() {
         );
         transports.add(transport);
         return await manager.bleService.createCandidate(
-              driver: manager.bleService.registry
-                  .decide(evidence)
-                  .drivers
-                  .single,
-              physicalId: id,
-              evidence: evidence,
-              admit: () => true,
-              createTransport: () => transport,
-            )
-            as Scale;
+          driver: manager.bleService.registry.decide(evidence).drivers.single,
+          physicalId: id,
+          evidence: evidence,
+          admit: () => true,
+          createTransport: () => transport,
+        ) as Scale;
       }
 
       final first = await create('AA:BB', 1);
@@ -99,18 +95,13 @@ void main() {
       await loadFelicitaPlugin(manager);
       final evidence = BleAdvertisementEvidence(name: 'FELICITA ARC');
       final transport = FelicitaPluginTransport('AA:BB');
-      final scale =
-          await manager.bleService.createCandidate(
-                driver: manager.bleService.registry
-                    .decide(evidence)
-                    .drivers
-                    .single,
-                physicalId: 'AA:BB',
-                evidence: evidence,
-                admit: () => true,
-                createTransport: () => transport,
-              )
-              as Scale;
+      final scale = await manager.bleService.createCandidate(
+        driver: manager.bleService.registry.decide(evidence).drivers.single,
+        physicalId: 'AA:BB',
+        evidence: evidence,
+        admit: () => true,
+        createTransport: () => transport,
+      ) as Scale;
       final samples = <WeightSnapshot>[];
       final sampleSubscription = controller.weightSnapshot.listen(samples.add);
       addTearDown(sampleSubscription.cancel);
@@ -157,18 +148,13 @@ void main() {
       await loadFelicitaPlugin(manager);
       final evidence = BleAdvertisementEvidence(name: 'Felicita Arc');
       final transport = FelicitaPluginTransport('AA:BB');
-      final scale =
-          await manager.bleService.createCandidate(
-                driver: manager.bleService.registry
-                    .decide(evidence)
-                    .drivers
-                    .single,
-                physicalId: 'AA:BB',
-                evidence: evidence,
-                admit: () => true,
-                createTransport: () => transport,
-              )
-              as Scale;
+      final scale = await manager.bleService.createCandidate(
+        driver: manager.bleService.registry.decide(evidence).drivers.single,
+        physicalId: 'AA:BB',
+        evidence: evidence,
+        admit: () => true,
+        createTransport: () => transport,
+      ) as Scale;
       final snapshots = <ScaleSnapshot>[];
       final snapshotSubscription = scale.currentSnapshot.listen(snapshots.add);
       addTearDown(snapshotSubscription.cancel);
@@ -197,13 +183,12 @@ void main() {
       );
       transports.add(transport);
       return await manager.bleService.createCandidate(
-            driver: manager.bleService.registry.decide(evidence).drivers.single,
-            physicalId: 'AA:BB',
-            evidence: evidence,
-            admit: () => true,
-            createTransport: () => transport,
-          )
-          as Scale;
+        driver: manager.bleService.registry.decide(evidence).drivers.single,
+        physicalId: 'AA:BB',
+        evidence: evidence,
+        admit: () => true,
+        createTransport: () => transport,
+      ) as Scale;
     }
 
     final first = await createScale(
@@ -239,16 +224,12 @@ void main() {
     final evidence = BleAdvertisementEvidence(name: 'Felicita Arc');
     Future<Scale> create(FelicitaPluginTransport transport) async =>
         await manager.bleService.createCandidate(
-              driver: manager.bleService.registry
-                  .decide(evidence)
-                  .drivers
-                  .single,
-              physicalId: transport.physicalId,
-              evidence: evidence,
-              admit: () => true,
-              createTransport: () => transport,
-            )
-            as Scale;
+          driver: manager.bleService.registry.decide(evidence).drivers.single,
+          physicalId: transport.physicalId,
+          evidence: evidence,
+          admit: () => true,
+          createTransport: () => transport,
+        ) as Scale;
     final missing = await create(
       FelicitaPluginTransport('missing', servicePresent: false),
     );
@@ -272,18 +253,13 @@ void main() {
       firstPacket: felicitaPacket(1),
       subscriptionDelay: const Duration(milliseconds: 2300),
     );
-    final delayed =
-        await manager.bleService.createCandidate(
-              driver: manager.bleService.registry
-                  .decide(evidence)
-                  .drivers
-                  .single,
-              physicalId: 'delayed',
-              evidence: evidence,
-              admit: () => true,
-              createTransport: () => delayedTransport,
-            )
-            as Scale;
+    final delayed = await manager.bleService.createCandidate(
+      driver: manager.bleService.registry.decide(evidence).drivers.single,
+      physicalId: 'delayed',
+      evidence: evidence,
+      admit: () => true,
+      createTransport: () => delayedTransport,
+    ) as Scale;
     await delayed.onConnect();
     expect(await delayed.connectionState.first, ConnectionState.connected);
     await delayed.disconnect();
@@ -291,18 +267,13 @@ void main() {
       'silent',
       firstPacket: felicitaPacket(1),
     );
-    final silent =
-        await manager.bleService.createCandidate(
-              driver: manager.bleService.registry
-                  .decide(evidence)
-                  .drivers
-                  .single,
-              physicalId: 'silent',
-              evidence: evidence,
-              admit: () => true,
-              createTransport: () => silentTransport,
-            )
-            as Scale;
+    final silent = await manager.bleService.createCandidate(
+      driver: manager.bleService.registry.decide(evidence).drivers.single,
+      physicalId: 'silent',
+      evidence: evidence,
+      admit: () => true,
+      createTransport: () => silentTransport,
+    ) as Scale;
     await silent.onConnect();
     await expectLater(
       silent.connectionState.firstWhere(
@@ -337,18 +308,13 @@ void main() {
       'AA:BB',
       firstPacket: felicitaPacket(1),
     );
-    final first =
-        await manager.bleService.createCandidate(
-              driver: manager.bleService.registry
-                  .decide(evidence)
-                  .drivers
-                  .single,
-              physicalId: 'AA:BB',
-              evidence: evidence,
-              admit: () => true,
-              createTransport: () => firstTransport,
-            )
-            as Scale;
+    final first = await manager.bleService.createCandidate(
+      driver: manager.bleService.registry.decide(evidence).drivers.single,
+      physicalId: 'AA:BB',
+      evidence: evidence,
+      admit: () => true,
+      createTransport: () => firstTransport,
+    ) as Scale;
     final firstConnect = first.onConnect();
     await firstTransport.subscribed.future;
     final oldCallback = firstTransport.subscribers[felicitaCharacteristicUuid]!;
@@ -360,18 +326,13 @@ void main() {
       'AA:BB',
       firstPacket: felicitaPacket(2),
     );
-    final second =
-        await manager.bleService.createCandidate(
-              driver: manager.bleService.registry
-                  .decide(evidence)
-                  .drivers
-                  .single,
-              physicalId: 'AA:BB',
-              evidence: evidence,
-              admit: () => true,
-              createTransport: () => secondTransport,
-            )
-            as Scale;
+    final second = await manager.bleService.createCandidate(
+      driver: manager.bleService.registry.decide(evidence).drivers.single,
+      physicalId: 'AA:BB',
+      evidence: evidence,
+      admit: () => true,
+      createTransport: () => secondTransport,
+    ) as Scale;
     final snapshots = <ScaleSnapshot>[];
     final subscription = second.currentSnapshot.listen(snapshots.add);
     addTearDown(subscription.cancel);
@@ -396,18 +357,13 @@ void main() {
       firstPacket: felicitaPacket(1),
       writeFailure: StateError('write'),
     );
-    final scale =
-        await manager.bleService.createCandidate(
-              driver: manager.bleService.registry
-                  .decide(evidence)
-                  .drivers
-                  .single,
-              physicalId: 'AA:BB',
-              evidence: evidence,
-              admit: () => true,
-              createTransport: () => transport,
-            )
-            as Scale;
+    final scale = await manager.bleService.createCandidate(
+      driver: manager.bleService.registry.decide(evidence).drivers.single,
+      physicalId: 'AA:BB',
+      evidence: evidence,
+      admit: () => true,
+      createTransport: () => transport,
+    ) as Scale;
     await scale.onConnect();
     await expectLater(scale.tare(), throwsA(isA<ScaleOperationException>()));
   });

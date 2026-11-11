@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/data/grinder.dart';
 import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
@@ -11,8 +12,7 @@ class GrindersHandler {
   final GrinderStorageService _storage;
   final Logger _log = Logger('GrindersHandler');
 
-  GrindersHandler({required GrinderStorageService storage})
-    : _storage = storage;
+  GrindersHandler({required this._storage});
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/grinders', _getGrinders);

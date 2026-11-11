@@ -155,9 +155,8 @@ class _ImportStepViewState extends State<_ImportStepView> {
       setState(() {
         _phase = _ImportPhase.pickSource;
       });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('No De1App data found')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('No De1App data found')));
       return;
     }
 

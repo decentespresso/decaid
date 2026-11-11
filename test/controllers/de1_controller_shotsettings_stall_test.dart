@@ -370,8 +370,7 @@ void main() {
     expect(
       serial.writes.where((w) => w == '<-K>'),
       isEmpty,
-      reason:
-          'no re-arm may be issued (the connect-time <+K> subscribe is expected)',
+      reason: 'no re-arm may be issued (the connect-time <+K> subscribe is expected)',
     );
     final steamIndex = serial.writes.indexWhere(
       (w) => w.startsWith('<K>009610'),

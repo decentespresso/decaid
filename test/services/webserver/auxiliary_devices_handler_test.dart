@@ -129,9 +129,9 @@ void main() {
 
       final listed =
           jsonDecode(await (await listRest()).readAsString()) as List<dynamic>;
-      final entry =
-          listed.singleWhere((value) => value['id'] == auxiliary.deviceId)
-              as Map<String, dynamic>;
+      final entry = listed.singleWhere(
+        (value) => value['id'] == auxiliary.deviceId,
+      ) as Map<String, dynamic>;
       expect(entry['connectionRole'], 'auxiliary');
     },
   );
@@ -193,9 +193,9 @@ void main() {
     await settle();
     final listed =
         jsonDecode(await (await listRest()).readAsString()) as List<dynamic>;
-    final entry =
-        listed.singleWhere((value) => value['id'] == scale.deviceId)
-            as Map<String, dynamic>;
+    final entry = listed.singleWhere(
+      (value) => value['id'] == scale.deviceId,
+    ) as Map<String, dynamic>;
 
     expect(response.statusCode, 200);
     expect(manager.auxiliaryScaleRegistry.connectedDeviceIds, isEmpty);

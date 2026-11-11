@@ -109,9 +109,8 @@ void main() {
             expect(call.method, 'share');
             shared = call.arguments as Map;
             expect(
-              File(
-                (shared!['paths'] as List).single as String,
-              ).readAsStringSync(),
+              File((shared!['paths'] as List).single as String)
+                  .readAsStringSync(),
               'archive',
             );
             return '';

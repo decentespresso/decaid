@@ -51,9 +51,8 @@ class _BatteryChargingSettingsPageState
         children: [
           Text(
             'Charging Mode',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            style: Theme.of(context).textTheme.titleMedium
+                ?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 4),
           Text(
@@ -61,9 +60,8 @@ class _BatteryChargingSettingsPageState
             'Instead of always charging to 100%, it keeps the battery within a '
             'target range.',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurface.withValues(alpha: 0.7),
+              color: Theme.of(context).colorScheme.onSurface
+                  .withValues(alpha: 0.7),
             ),
           ),
           const SizedBox(height: 16),
@@ -98,9 +96,8 @@ class _BatteryChargingSettingsPageState
           Text(
             _chargingModeDescription(widget.controller.chargingMode),
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurface.withValues(alpha: 0.7),
+              color: Theme.of(context).colorScheme.onSurface
+                  .withValues(alpha: 0.7),
             ),
           ),
         ],
@@ -148,9 +145,8 @@ class _BatteryChargingSettingsPageState
               '30 minutes before sleep: charge to 95%. '
               'Sleep to morning: no charging.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(
-                  context,
-                ).colorScheme.onSurface.withValues(alpha: 0.7),
+                color: Theme.of(context).colorScheme.onSurface
+                    .withValues(alpha: 0.7),
               ),
             ),
             _buildNoChargeWarning(),
@@ -168,9 +164,8 @@ class _BatteryChargingSettingsPageState
         children: [
           Text(
             'Low battery protection',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            style: Theme.of(context).textTheme.titleMedium
+                ?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
           Text(

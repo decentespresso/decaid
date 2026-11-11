@@ -319,9 +319,8 @@ class WebUIStorage {
       final etag = response.headers['etag'];
       final lastModified = response.headers['last-modified'];
 
-      final tempDir = await Directory(
-        await AppDirectories.temp,
-      ).createTemp('webui_install');
+      final tempDir = await Directory(await AppDirectories.temp)
+          .createTemp('webui_install');
       final tempFile = File('${tempDir.path}/skin.zip');
       await tempFile.writeAsBytes(response.bodyBytes);
 
@@ -682,9 +681,8 @@ class WebUIStorage {
         throw remoteHttpError(assetResponse.statusCode);
       }
 
-      final tempDir = await Directory(
-        await AppDirectories.temp,
-      ).createTemp('webui_install');
+      final tempDir = await Directory(await AppDirectories.temp)
+          .createTemp('webui_install');
       final tempFile = File('${tempDir.path}/skin.zip');
       await tempFile.writeAsBytes(assetResponse.bodyBytes);
 
@@ -768,9 +766,8 @@ class WebUIStorage {
         throw remoteHttpError(response.statusCode);
       }
 
-      final tempDir = await Directory(
-        await AppDirectories.temp,
-      ).createTemp('webui_install');
+      final tempDir = await Directory(await AppDirectories.temp)
+          .createTemp('webui_install');
       final tempFile = File('${tempDir.path}/skin.zip');
       await tempFile.writeAsBytes(response.bodyBytes);
 
@@ -1044,13 +1041,13 @@ class WebUIStorage {
 
         Map<String, dynamic>? skinMeta;
         if (skinManifestFile.existsSync()) {
-          skinMeta =
-              jsonDecode(await skinManifestFile.readAsString())
-                  as Map<String, dynamic>;
+          skinMeta = jsonDecode(
+            await skinManifestFile.readAsString(),
+          ) as Map<String, dynamic>;
         } else if (manifestFile.existsSync()) {
-          skinMeta =
-              jsonDecode(await manifestFile.readAsString())
-                  as Map<String, dynamic>;
+          skinMeta = jsonDecode(
+            await manifestFile.readAsString(),
+          ) as Map<String, dynamic>;
         }
 
         if (skinMeta != null) {
@@ -1105,9 +1102,8 @@ class WebUIStorage {
   }) async {
     _log.info('Installing WebUI from zip: $zipPath');
 
-    final tempDir = await Directory(
-      await AppDirectories.temp,
-    ).createTemp('webui_extract');
+    final tempDir = await Directory(await AppDirectories.temp)
+        .createTemp('webui_extract');
 
     try {
       final zipFile = File(zipPath);

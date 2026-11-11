@@ -7,6 +7,7 @@ import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:rxdart/rxdart.dart';
+
 import '../../helpers/bookoo_packets.dart';
 
 class _BookooTransport extends BLETransport {

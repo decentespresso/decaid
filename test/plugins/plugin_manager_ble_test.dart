@@ -116,17 +116,16 @@ void main() {
   }) async {
     final evidence = BleAdvertisementEvidence(serviceUuids: ['180f']);
     return await manager.bleService.createCandidate(
-          driver: manager.bleService.registry.decide(evidence).drivers.single,
-          physicalId: id,
-          evidence: evidence,
-          admit: () => true,
-          createTransport: () {
-            final transport = PluginBleFixtureTransport(id);
-            transports.add(transport);
-            return transport;
-          },
-        )
-        as Sensor;
+      driver: manager.bleService.registry.decide(evidence).drivers.single,
+      physicalId: id,
+      evidence: evidence,
+      admit: () => true,
+      createTransport: () {
+        final transport = PluginBleFixtureTransport(id);
+        transports.add(transport);
+        return transport;
+      },
+    ) as Sensor;
   }
 
   Future<void> load(PluginManager manager, {String source = bleSensorSource}) =>
@@ -353,19 +352,17 @@ void main() {
     final evidence = BleAdvertisementEvidence(serviceUuids: ['180f']);
     final driver = manager.bleService.registry.decide(evidence).drivers.single;
     final transports = <PluginBleFixtureTransport>[];
-    final sensor =
-        await manager.bleService.createCandidate(
-              driver: driver,
-              physicalId: 'AA:BB',
-              evidence: evidence,
-              createTransport: () {
-                final transport = PluginBleFixtureTransport('AA:BB');
-                transports.add(transport);
-                return transport;
-              },
-              admit: () => true,
-            )
-            as Sensor;
+    final sensor = await manager.bleService.createCandidate(
+      driver: driver,
+      physicalId: 'AA:BB',
+      evidence: evidence,
+      createTransport: () {
+        final transport = PluginBleFixtureTransport('AA:BB');
+        transports.add(transport);
+        return transport;
+      },
+      admit: () => true,
+    ) as Sensor;
     expect(sensor.deviceId, 'plugin:ble.sensor:humidity:aa:bb');
     expect(sensor.transportType, TransportType.ble);
     expect(transports, isEmpty);

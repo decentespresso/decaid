@@ -2513,9 +2513,9 @@ void main() {
         await pumpEventQueue();
 
         expect(service.usableRegisteredMachines.map((m) => m.serial), ['2222']);
-        final persisted =
-            jsonDecode((await store.read(key: 'registered_machines'))!)
-                as Map<String, dynamic>;
+        final persisted = jsonDecode(
+          (await store.read(key: 'registered_machines'))!,
+        ) as Map<String, dynamic>;
         expect(persisted['account'], 'new@example.com');
         expect(
           (persisted['machines'] as List).map((m) => (m as Map)['serial']),
@@ -2566,9 +2566,9 @@ void main() {
         await pumpEventQueue();
 
         expect(service.usableRegisteredMachines.map((m) => m.serial), ['2222']);
-        final persisted =
-            jsonDecode((await store.read(key: 'registered_machines'))!)
-                as Map<String, dynamic>;
+        final persisted = jsonDecode(
+          (await store.read(key: 'registered_machines'))!,
+        ) as Map<String, dynamic>;
         expect(persisted['account'], 'new@example.com');
         expect(
           (persisted['machines'] as List).map((m) => (m as Map)['serial']),
@@ -2658,9 +2658,9 @@ void main() {
           expect(service.usableRegisteredMachines.map((m) => m.serial), [
             '2222',
           ]);
-          final persisted =
-              jsonDecode((await store.read(key: 'registered_machines'))!)
-                  as Map<String, dynamic>;
+          final persisted = jsonDecode(
+            (await store.read(key: 'registered_machines'))!,
+          ) as Map<String, dynamic>;
           expect(persisted['account'], 'new@example.com');
         },
       );

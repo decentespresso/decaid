@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/services.dart';
 import 'package:reaprime/src/models/device/device_identity.dart';
@@ -200,27 +201,24 @@ void main() {
     },
   );
 
-  test(
-    'machine forwards attachment-proven identity without relabeling the transport',
-    () {
-      String? canonical;
-      final transport = AndroidSerialPort(
-        device: _DescriptorDevice(null),
-        port: UsbPort('identity-test'),
-        canonicalIdentity: () => canonical,
-      );
-      final machine = UnifiedDe1(transport: transport);
-      expect(machine.canonicalDeviceId, isNull);
-      canonical = 'usb-2e8a-a-KNOWN';
-      expect(machine.canonicalDeviceId, canonical);
-      final policy = resolveMachinePolicy(
-        machines: [machine],
-        preferredMachineId: canonical,
-      );
-      expect((policy as ConnectMachineAction).machine, same(machine));
-      expect(machine.deviceId, 'usb-2e8a-a-unknown-7');
-    },
-  );
+  test('machine forwards attachment-proven identity without relabeling the transport', () {
+    String? canonical;
+    final transport = AndroidSerialPort(
+      device: _DescriptorDevice(null),
+      port: UsbPort('identity-test'),
+      canonicalIdentity: () => canonical,
+    );
+    final machine = UnifiedDe1(transport: transport);
+    expect(machine.canonicalDeviceId, isNull);
+    canonical = 'usb-2e8a-a-KNOWN';
+    expect(machine.canonicalDeviceId, canonical);
+    final policy = resolveMachinePolicy(
+      machines: [machine],
+      preferredMachineId: canonical,
+    );
+    expect((policy as ConnectMachineAction).machine, same(machine));
+    expect(machine.deviceId, 'usb-2e8a-a-unknown-7');
+  });
 
   test(
     'initial enumeration retains readable serial before attach probing',

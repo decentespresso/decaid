@@ -68,6 +68,7 @@ import 'package:reaprime/src/settings/device_management_page.dart';
 import 'package:reaprime/src/settings/advanced_page.dart';
 import 'package:reaprime/src/settings/plugins_settings_view.dart';
 import 'package:reaprime/src/skin_selector/skin_selector_page.dart';
+
 import 'debug_feature/debug_item_details_view.dart';
 
 import 'debug_feature/debug_item_list_view.dart';
@@ -75,6 +76,7 @@ import 'settings/feature_flags.dart';
 import 'settings/gateway_mode.dart';
 import 'settings/settings_controller.dart';
 import 'settings/settings_view.dart';
+
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/app_log_upload_service.dart';
 

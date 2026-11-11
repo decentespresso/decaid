@@ -90,8 +90,12 @@ void main() {
       final storage = MockGrinderStorage()..grinders.add(makeGrinder(0));
       final section = GrinderExportSection(
         storage: storage,
-        pageGrinders:
-            (limit, {afterTimestamp, afterCreatedAt, afterId}) async => [],
+        pageGrinders: (
+          limit, {
+          afterTimestamp,
+          afterCreatedAt,
+          afterId,
+        }) async => [],
       );
       final json = jsonEncode([
         makeGrinder(0).toJson(),
@@ -117,8 +121,12 @@ void main() {
       final storage = MockGrinderStorage();
       final section = GrinderExportSection(
         storage: storage,
-        pageGrinders:
-            (limit, {afterTimestamp, afterCreatedAt, afterId}) async => [],
+        pageGrinders: (
+          limit, {
+          afterTimestamp,
+          afterCreatedAt,
+          afterId,
+        }) async => [],
       );
       await expectLater(
         importSectionJson(section, '[{"id":', ConflictStrategy.skip),

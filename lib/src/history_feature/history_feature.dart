@@ -178,8 +178,7 @@ class _HistoryFeatureState extends State<HistoryFeature> {
               children: [
                 SearchBar(
                   controller: _searchController,
-                  hintText:
-                      "Search by coffee, roaster, profile, grinder, or notes...",
+                  hintText: "Search by coffee, roaster, profile, grinder, or notes...",
                 ),
                 if (_searchController.text.isNotEmpty)
                   Semantics(
@@ -189,9 +188,8 @@ class _HistoryFeatureState extends State<HistoryFeature> {
                       child: Text(
                         "Found ${_shots.length} shot${_shots.length == 1 ? '' : 's'}",
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withValues(alpha: 0.7),
+                          color: Theme.of(context).colorScheme.onSurface
+                              .withValues(alpha: 0.7),
                         ),
                       ),
                     ),
@@ -235,9 +233,9 @@ class _HistoryFeatureState extends State<HistoryFeature> {
                                 : null,
                             border: isSelected
                                 ? Border.all(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .primary,
                                     width: 2,
                                   )
                                 : null,
@@ -268,9 +266,9 @@ class _HistoryFeatureState extends State<HistoryFeature> {
                                         vertical: 2,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.secondaryContainer,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .secondaryContainer,
                                         borderRadius: BorderRadius.circular(4),
                                       ),
                                       child: Text(
@@ -354,9 +352,9 @@ class _HistoryFeatureState extends State<HistoryFeature> {
                                     Expanded(
                                       child: Text(
                                         record.workflow.profile.title,
-                                        style: Theme.of(
-                                          context,
-                                        ).textTheme.bodySmall,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall,
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                       ),
@@ -426,9 +424,9 @@ class _HistoryFeatureState extends State<HistoryFeature> {
                                       Expanded(
                                         child: Text(
                                           "${record.workflow.context?.grinderModel ?? 'Grinder'}: ${record.workflow.context?.grinderSetting ?? ''}",
-                                          style: Theme.of(
-                                            context,
-                                          ).textTheme.bodySmall,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodySmall,
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                         ),
@@ -446,9 +444,9 @@ class _HistoryFeatureState extends State<HistoryFeature> {
                                   Container(
                                     padding: const EdgeInsets.all(6),
                                     decoration: BoxDecoration(
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.surfaceContainerHighest,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .surfaceContainerHighest,
                                       borderRadius: BorderRadius.circular(4),
                                     ),
                                     child: Row(
@@ -502,9 +500,9 @@ class _HistoryFeatureState extends State<HistoryFeature> {
                                             vertical: 2,
                                           ),
                                           decoration: BoxDecoration(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.tertiaryContainer,
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .tertiaryContainer,
                                             borderRadius: BorderRadius.circular(
                                               12,
                                             ),
@@ -581,9 +579,8 @@ class _HistoryFeatureState extends State<HistoryFeature> {
                       Text(
                         record.shotTime(),
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withValues(alpha: 0.7),
+                          color: Theme.of(context).colorScheme.onSurface
+                              .withValues(alpha: 0.7),
                         ),
                       ),
                     ],
@@ -702,7 +699,7 @@ class _HistoryFeatureState extends State<HistoryFeature> {
                         ExcludeSemantics(child: Icon(Icons.coffee, size: 20)),
                         SizedBox(width: 8),
                         Semantics(
-                          header: true,
+                          headingLevel: 1,
                           child: Text(
                             "Coffee Details",
                             style: Theme.of(context).textTheme.titleMedium
@@ -755,7 +752,7 @@ class _HistoryFeatureState extends State<HistoryFeature> {
                         ExcludeSemantics(child: Icon(Icons.settings, size: 20)),
                         SizedBox(width: 8),
                         Semantics(
-                          header: true,
+                          headingLevel: 1,
                           child: Text(
                             "Equipment",
                             style: Theme.of(context).textTheme.titleMedium
@@ -805,7 +802,7 @@ class _HistoryFeatureState extends State<HistoryFeature> {
                           ExcludeSemantics(child: Icon(Icons.note, size: 20)),
                           SizedBox(width: 8),
                           Semantics(
-                            header: true,
+                            headingLevel: 1,
                             child: Text(
                               "Notes",
                               style: Theme.of(context).textTheme.titleMedium
@@ -840,7 +837,7 @@ class _HistoryFeatureState extends State<HistoryFeature> {
                           ExcludeSemantics(child: Icon(Icons.label, size: 20)),
                           SizedBox(width: 8),
                           Semantics(
-                            header: true,
+                            headingLevel: 1,
                             child: Text(
                               "Additional Info",
                               style: Theme.of(context).textTheme.titleMedium
@@ -885,17 +882,17 @@ class _HistoryFeatureState extends State<HistoryFeature> {
                                               vertical: 4,
                                             ),
                                             decoration: BoxDecoration(
-                                              color: Theme.of(
-                                                context,
-                                              ).colorScheme.tertiaryContainer,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .tertiaryContainer,
                                               borderRadius:
                                                   BorderRadius.circular(16),
                                             ),
                                             child: Text(
                                               tag.toString(),
-                                              style: Theme.of(
-                                                context,
-                                              ).textTheme.bodySmall,
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall,
                                             ),
                                           ),
                                       ],
@@ -921,12 +918,11 @@ class _HistoryFeatureState extends State<HistoryFeature> {
             SizedBox(height: 20),
 
             Semantics(
-              header: true,
+              headingLevel: 1,
               child: Text(
                 "Shot Profile",
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(context).textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.bold),
               ),
             ),
             SizedBox(height: 12),
@@ -949,9 +945,8 @@ class _HistoryFeatureState extends State<HistoryFeature> {
               child: Text(
                 "Shot ID: ${record.id}",
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.onSurface.withValues(alpha: 0.6),
+                  color: Theme.of(context).colorScheme.onSurface
+                      .withValues(alpha: 0.6),
                 ),
               ),
             ),
@@ -1102,17 +1097,15 @@ class _StatCard extends StatelessWidget {
               SizedBox(height: 8),
               Text(
                 value,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(context).textTheme.titleLarge
+                    ?.copyWith(fontWeight: FontWeight.bold),
               ),
               SizedBox(height: 4),
               Text(
                 label,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.onSurface.withValues(alpha: 0.7),
+                  color: Theme.of(context).colorScheme.onSurface
+                      .withValues(alpha: 0.7),
                 ),
               ),
             ],
@@ -1147,9 +1140,8 @@ class _DetailRow extends StatelessWidget {
               child: Text(
                 "$label:",
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.onSurface.withValues(alpha: 0.7),
+                  color: Theme.of(context).colorScheme.onSurface
+                      .withValues(alpha: 0.7),
                 ),
               ),
             ),

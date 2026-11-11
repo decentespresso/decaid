@@ -5,6 +5,7 @@ import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/device/impl/bengle/bengle.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
+
 import '../../helpers/fake_ble_transport.dart';
 
 Profile _representativeProfile() => const Profile(

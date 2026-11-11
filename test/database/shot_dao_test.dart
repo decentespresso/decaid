@@ -146,9 +146,8 @@ void main() {
         await db.shotDao.insertShot(
           makeShot(
             id: 'shot-$i',
-            timestamp: DateTime.parse(
-              '2024-01-01T10:00:00Z',
-            ).add(Duration(hours: i)),
+            timestamp: DateTime.parse('2024-01-01T10:00:00Z')
+                .add(Duration(hours: i)),
           ),
         );
       }

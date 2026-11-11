@@ -177,10 +177,10 @@ class _HangingPowerOffTransport extends BLETransport {
 
 class _RecordingBleTransport extends BLETransport {
   _RecordingBleTransport({
-    ConnectionState nativeState = ConnectionState.disconnected,
+    this._nativeState = ConnectionState.disconnected,
     this.responseSubscribeCalls = const [1],
     this.respondToVoltageProbe = true,
-  }) : _nativeState = nativeState;
+  });
 
   final BehaviorSubject<ConnectionState> _connectionState =
       BehaviorSubject.seeded(ConnectionState.discovered);

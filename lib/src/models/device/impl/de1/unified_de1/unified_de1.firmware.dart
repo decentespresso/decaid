@@ -231,9 +231,8 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
 
   bool _hasFirmwareError(FWMapRequestData response, List<int> expected) {
     return response.error.length == expected.length &&
-        Iterable<int>.generate(
-          expected.length,
-        ).every((index) => response.error[index] == expected[index]);
+        Iterable<int>.generate(expected.length)
+            .every((index) => response.error[index] == expected[index]);
   }
 
   void _throwIfFirmwareCancelled(_FirmwareCancellationToken token) {

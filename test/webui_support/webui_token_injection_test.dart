@@ -110,9 +110,8 @@ const bodyExample = "</body>";
     setUp(() async {
       entryPort = await reservePort();
       tempDir = await Directory.systemTemp.createTemp('webui_offline_test');
-      await File(
-        '${tempDir.path}/index.html',
-      ).writeAsString('<html><body>test</body></html>');
+      await File('${tempDir.path}/index.html')
+          .writeAsString('<html><body>test</body></html>');
       service = WebUIService();
     });
 
@@ -221,9 +220,8 @@ const bodyExample = "</body>";
         'webui_second_skin',
       );
       addTearDown(() => secondDir.delete(recursive: true));
-      await File(
-        '${secondDir.path}/index.html',
-      ).writeAsString('<html><body>second</body></html>');
+      await File('${secondDir.path}/index.html')
+          .writeAsString('<html><body>second</body></html>');
       var generation = 0;
       service.skinProxyTokenProvider = (_) => 'token-${++generation}';
 

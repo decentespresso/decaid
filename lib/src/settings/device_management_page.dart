@@ -172,9 +172,8 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
               Expanded(
                 child: Text(
                   title,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: Theme.of(context).textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.bold),
                 ),
               ),
             ],
@@ -192,9 +191,8 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Text(
                 'No $emptyLabel currently known. Connect to devices first, then return here to set a preference.',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(fontStyle: FontStyle.italic),
+                style: Theme.of(context).textTheme.bodySmall
+                    ?.copyWith(fontStyle: FontStyle.italic),
               ),
             )
           else
@@ -265,9 +263,8 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                 size: 20,
                 color: isSelected
                     ? Theme.of(context).colorScheme.primary
-                    : Theme.of(
-                        context,
-                      ).colorScheme.onSurface.withValues(alpha: 0.6),
+                    : Theme.of(context).colorScheme.onSurface
+                          .withValues(alpha: 0.6),
               ),
             const SizedBox(width: 8),
             Expanded(

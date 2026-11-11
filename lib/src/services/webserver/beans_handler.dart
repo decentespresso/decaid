@@ -1,4 +1,5 @@
 import 'dart:convert';
+
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/data/bean.dart';
 import 'package:reaprime/src/services/storage/bean_storage_service.dart';
@@ -11,7 +12,7 @@ class BeansHandler {
   final BeanStorageService _storage;
   final Logger _log = Logger('BeansHandler');
 
-  BeansHandler({required BeanStorageService storage}) : _storage = storage;
+  BeansHandler({required this._storage});
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/beans', _getBeans);

@@ -15,6 +15,7 @@ import 'package:reaprime/src/models/errors.dart';
 
 import 'package:reaprime/src/controllers/connection_manager.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
+
 import '../helpers/fake_ble_transport.dart';
 import '../helpers/mock_device_discovery_service.dart';
 import '../helpers/mock_device_scanner.dart';

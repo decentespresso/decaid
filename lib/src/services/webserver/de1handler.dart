@@ -9,19 +9,15 @@ class De1Handler {
   final log = Logger("De1WebHandler");
 
   De1Handler({
-    required De1Controller controller,
-    required SettingsController settingsController,
-    required ScaleController scaleController,
-    required WorkflowController workflowController,
+    required this._controller,
+    required this._settingsController,
+    required this._scaleController,
+    required this._workflowController,
     String bengleCoalescedSettings = const String.fromEnvironment(
       'bengleCoalescedSettings',
       defaultValue: 'fanTank,flush,heater',
     ),
-  }) : _controller = controller,
-       _settingsController = settingsController,
-       _scaleController = scaleController,
-       _workflowController = workflowController,
-       _bengleSettingsGroups = Set.unmodifiable(
+  }) : _bengleSettingsGroups = Set.unmodifiable(
          bengleCoalescedSettings
              .split(',')
              .map((group) => group.trim())
@@ -451,10 +447,8 @@ class De1Handler {
       final refillLevel = json['refillLevel'] == null
           ? null
           : (json['refillLevel'] as num).toInt();
-      return withQueuedDe1((de1) async {
-        if (refillLevel != null) {
-          await de1.setRefillLevel(refillLevel);
-        }
+      return _mapDe1WriteErrors(() async {
+        await _controller.updateRefillLevel(refillLevel);
         return jsonAccepted();
       });
     });

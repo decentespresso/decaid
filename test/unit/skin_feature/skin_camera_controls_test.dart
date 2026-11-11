@@ -84,9 +84,8 @@ void main() {
               final bytes = await image.toByteData(
                 format: ui.ImageByteFormat.png,
               );
-              await File(
-                '$output/camera-$width-$textScale.png',
-              ).writeAsBytes(bytes!.buffer.asUint8List());
+              await File('$output/camera-$width-$textScale.png')
+                  .writeAsBytes(bytes!.buffer.asUint8List());
               image.dispose();
             });
           }
@@ -148,9 +147,8 @@ void main() {
           child: ShadApp(
             theme: buildDecentTheme(),
             builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(
-                context,
-              ).copyWith(textScaler: const TextScaler.linear(2)),
+              data: MediaQuery.of(context)
+                  .copyWith(textScaler: const TextScaler.linear(2)),
               child: child!,
             ),
             home: Builder(
@@ -173,9 +171,8 @@ void main() {
                       as RenderRepaintBoundary)
                   .toImage();
           final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-          await File(
-            '$output/camera-dialog-$width.png',
-          ).writeAsBytes(bytes!.buffer.asUint8List());
+          await File('$output/camera-dialog-$width.png')
+              .writeAsBytes(bytes!.buffer.asUint8List());
           image.dispose();
         });
       }

@@ -531,15 +531,17 @@ void main() {
         final bestBeforeDate = DateTime.utc(2026, 5, 6, 7, 8, 9, 10);
         final freezeDate = DateTime.utc(2026, 6, 7, 8, 9, 10, 11);
         final unfreezeDate = DateTime.utc(2026, 7, 8, 9, 10, 11, 12);
-        final updateResponse =
-            await sendPut('/api/v1/bean-batches/${batch.id}', {
-              'harvestDate': '2025',
-              'buyDate': buyDate.toIso8601String(),
-              'openDate': openDate.toIso8601String(),
-              'bestBeforeDate': bestBeforeDate.toIso8601String(),
-              'freezeDate': freezeDate.toIso8601String(),
-              'unfreezeDate': unfreezeDate.toIso8601String(),
-            });
+        final updateResponse = await sendPut(
+          '/api/v1/bean-batches/${batch.id}',
+          {
+            'harvestDate': '2025',
+            'buyDate': buyDate.toIso8601String(),
+            'openDate': openDate.toIso8601String(),
+            'bestBeforeDate': bestBeforeDate.toIso8601String(),
+            'freezeDate': freezeDate.toIso8601String(),
+            'unfreezeDate': unfreezeDate.toIso8601String(),
+          },
+        );
         final updated = jsonDecode(await updateResponse.readAsString());
 
         expect(updated['harvestDate'], '2025');
@@ -574,51 +576,43 @@ void main() {
       },
     );
 
-    test(
-      'PUT /api/v1/bean-batches/<id> rejects malformed numbers without mutation',
-      () async {
-        final createRes = await sendPost('/api/v1/beans/$beanId/batches', {
-          'qualityScore': 87.5,
-          'price': 18.5,
-          'weight': 250.0,
-        });
-        final created = jsonDecode(await createRes.readAsString());
-        final batchId = created['id'];
-        const expected = {
-          'qualityScore': 87.5,
-          'price': 18.5,
-          'weight': 250.0,
-          'weightRemaining': 250.0,
-        };
+    test('PUT /api/v1/bean-batches/<id> rejects malformed numbers without mutation', () async {
+      final createRes = await sendPost('/api/v1/beans/$beanId/batches', {
+        'qualityScore': 87.5,
+        'price': 18.5,
+        'weight': 250.0,
+      });
+      final created = jsonDecode(await createRes.readAsString());
+      final batchId = created['id'];
+      const expected = {
+        'qualityScore': 87.5,
+        'price': 18.5,
+        'weight': 250.0,
+        'weightRemaining': 250.0,
+      };
 
-        for (final field in expected.keys) {
-          final patch = {field: 'oops'};
-          final response = await sendPut(
-            '/api/v1/bean-batches/$batchId',
-            patch,
-          );
-          expect(response.statusCode, 400, reason: '$patch');
+      for (final field in expected.keys) {
+        final patch = {field: 'oops'};
+        final response = await sendPut('/api/v1/bean-batches/$batchId', patch);
+        expect(response.statusCode, 400, reason: '$patch');
 
-          final stored = jsonDecode(
-            await (await sendGet(
-              '/api/v1/bean-batches/$batchId',
-            )).readAsString(),
-          );
-          for (final entry in expected.entries) {
-            expect(stored[entry.key], entry.value, reason: '$patch');
-          }
-        }
-
-        final numericString = await sendPut('/api/v1/bean-batches/$batchId', {
-          'price': '12.5',
-        });
-        expect(numericString.statusCode, 400);
         final stored = jsonDecode(
           await (await sendGet('/api/v1/bean-batches/$batchId')).readAsString(),
         );
-        expect(stored['price'], 18.5);
-      },
-    );
+        for (final entry in expected.entries) {
+          expect(stored[entry.key], entry.value, reason: '$patch');
+        }
+      }
+
+      final numericString = await sendPut('/api/v1/bean-batches/$batchId', {
+        'price': '12.5',
+      });
+      expect(numericString.statusCode, 400);
+      final stored = jsonDecode(
+        await (await sendGet('/api/v1/bean-batches/$batchId')).readAsString(),
+      );
+      expect(stored['price'], 18.5);
+    });
 
     test('DELETE /api/v1/bean-batches/<id> deletes a batch', () async {
       final createRes = await sendPost('/api/v1/beans/$beanId/batches', {

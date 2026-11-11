@@ -281,9 +281,8 @@ void main() {
           }
           retryScan.results.complete(harness.withReturnedUsb);
           await retryRecovery.timeout(const Duration(seconds: 5));
-          await Future.wait(
-            harness.manager.recoveries,
-          ).timeout(const Duration(seconds: 5));
+          await Future.wait(harness.manager.recoveries)
+              .timeout(const Duration(seconds: 5));
           expect(harness.manager.connectionWorkActive, isFalse);
           expect(harness.discovery.scanCalls, 2);
           final recovered = await harness.measure(

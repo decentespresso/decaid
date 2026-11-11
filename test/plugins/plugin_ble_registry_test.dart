@@ -294,37 +294,34 @@ void main() {
     );
   });
 
-  test(
-    'complete advertisement supersedes incomplete system metadata in either order',
-    () {
-      final advertisement = BleAdvertisementEvidence(
-        name: 'bookoo',
-        serviceUuids: ['0ffe'],
-        observedAt: DateTime.utc(2026, 9, 7),
-      );
-      final system = BleAdvertisementEvidence(
-        name: 'bookoo',
-        source: BleEvidenceSource.system,
-        observedAt: DateTime.utc(2026, 9, 7, 0, 0, 1),
-      );
-      for (final observations in [
-        [system, advertisement],
-        [advertisement, system],
-      ]) {
-        final cache = BleAdvertisementCache();
-        cache.beginGeneration(1);
-        for (final observation in observations) {
-          cache.record('AB:CD', 1, observation);
-        }
-        expect(cache.get('ab:cd')!.serviceUuids, ['0ffe']);
-        expect(cache.get('ab:cd')!.source, BleEvidenceSource.advertisement);
-        cache.beginGeneration(2);
-        expect(cache.get('ab:cd'), isNull);
-        cache.record('AB:CD', 1, advertisement);
-        expect(cache.get('ab:cd'), isNull);
+  test('complete advertisement supersedes incomplete system metadata in either order', () {
+    final advertisement = BleAdvertisementEvidence(
+      name: 'bookoo',
+      serviceUuids: ['0ffe'],
+      observedAt: DateTime.utc(2026, 9, 7),
+    );
+    final system = BleAdvertisementEvidence(
+      name: 'bookoo',
+      source: BleEvidenceSource.system,
+      observedAt: DateTime.utc(2026, 9, 7, 0, 0, 1),
+    );
+    for (final observations in [
+      [system, advertisement],
+      [advertisement, system],
+    ]) {
+      final cache = BleAdvertisementCache();
+      cache.beginGeneration(1);
+      for (final observation in observations) {
+        cache.record('AB:CD', 1, observation);
       }
-    },
-  );
+      expect(cache.get('ab:cd')!.serviceUuids, ['0ffe']);
+      expect(cache.get('ab:cd')!.source, BleEvidenceSource.advertisement);
+      cache.beginGeneration(2);
+      expect(cache.get('ab:cd'), isNull);
+      cache.record('AB:CD', 1, advertisement);
+      expect(cache.get('ab:cd'), isNull);
+    }
+  });
 
   test('observations are not combined into a fabricated match', () {
     final cache = BleAdvertisementCache()..beginGeneration(1);

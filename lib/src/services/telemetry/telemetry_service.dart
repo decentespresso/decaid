@@ -1,4 +1,5 @@
 import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:reaprime/src/services/telemetry/firebase_crashlytics_telemetry_service.dart';
 import 'package:reaprime/src/services/telemetry/noop_telemetry_service.dart';

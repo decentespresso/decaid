@@ -139,10 +139,8 @@ void main() {
         machine.sendRawMessage(request(De1RawOperationType.notify, 'A001'));
         machine.sendRawMessage(request(De1RawOperationType.read, 'A001'));
       }
-      await Future.wait([
-        mockResponse,
-        realResponse,
-      ]).timeout(const Duration(seconds: 2));
+      await Future.wait([mockResponse, realResponse])
+          .timeout(const Duration(seconds: 2));
       // An absent characteristic suppresses writes as well as reads.
       de1.sendRawMessage(request(De1RawOperationType.write, 'A00B', '0102'));
       await Future<void>.delayed(Duration.zero);

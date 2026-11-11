@@ -184,9 +184,8 @@ void main() {
           permissions: const ['log', 'emit', 'pluginStorage', 'events.machine'],
         ),
       );
-      File(
-        '${directory.path}/plugin.js',
-      ).writeAsStringSync('// installed script\n');
+      File('${directory.path}/plugin.js')
+          .writeAsStringSync('// installed script\n');
 
       await service.initialize();
 
@@ -233,9 +232,8 @@ void main() {
           );
         }
         if (damage != 'missing script') {
-          File(
-            '${directory.path}/plugin.js',
-          ).writeAsStringSync('// locally installed script\n');
+          File('${directory.path}/plugin.js')
+              .writeAsStringSync('// locally installed script\n');
         }
         final originalFiles = {
           for (final file in directory.listSync().whereType<File>())
@@ -252,9 +250,8 @@ void main() {
           expect(File(entry.key).readAsBytesSync(), entry.value);
         }
         expect(
-          File(
-            '${tempDir.path}/plugins/$otherId/manifest.json',
-          ).readAsBytesSync(),
+          File('${tempDir.path}/plugins/$otherId/manifest.json')
+              .readAsBytesSync(),
           utf8.encode(assets[otherManifestAsset]!),
         );
         expect(

@@ -13,7 +13,7 @@ class FeedbackHandler {
   final Logger _log = Logger('FeedbackHandler');
   final FeedbackService _service;
 
-  FeedbackHandler({required FeedbackService service}) : _service = service;
+  FeedbackHandler({required this._service});
 
   void addRoutes(RouterPlus app) {
     app.post('/api/v1/feedback', _handleSubmitFeedback);
@@ -47,8 +47,7 @@ class FeedbackHandler {
       } else if (!_service.isConfigured) {
         return jsonServiceUnavailable({
           'error': 'Service unavailable',
-          'message':
-              'Feedback service is not configured. Build with --dart-define=GITHUB_FEEDBACK_TOKEN=<token>',
+          'message': 'Feedback service is not configured. Build with --dart-define=GITHUB_FEEDBACK_TOKEN=<token>',
         });
       } else if (result.success) {
         return jsonCreated(result.toJson());

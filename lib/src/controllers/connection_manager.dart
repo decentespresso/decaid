@@ -2347,9 +2347,8 @@ class ConnectionManager {
     );
 
     try {
-      await _trackConnectionWork(
-        () => _connectMachineSource(attempt),
-      ).timeout(_connectTimeout);
+      await _trackConnectionWork(() => _connectMachineSource(attempt))
+          .timeout(_connectTimeout);
       if (!identical(_machineAttempt, attempt)) {
         return const ConnectionResult.conflict();
       }
@@ -2596,9 +2595,8 @@ class ConnectionManager {
     );
 
     try {
-      await _trackConnectionWork(
-        () => _connectScaleSource(attempt),
-      ).timeout(_connectTimeout);
+      await _trackConnectionWork(() => _connectScaleSource(attempt))
+          .timeout(_connectTimeout);
       if (!identical(_scaleAttempt, attempt)) {
         return const ConnectionResult.conflict();
       }

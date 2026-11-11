@@ -10,9 +10,11 @@ import 'package:reaprime/src/services/storage/app_directories.dart';
 import 'package:reaprime/src/services/storage/kv_store_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:reaprime/src/plugins/plugin_device_service.dart';
+
 import 'plugin_ble_registry.dart';
 import '../notifications/notification_center.dart';
 import '../notifications/native_notification.dart';
+
 import 'package:reaprime/src/plugins/plugin_manager.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'package:reaprime/src/plugins/plugin_package.dart';
@@ -86,11 +88,10 @@ class PluginLoaderService {
     required KeyValueStoreService kvStore,
     NotificationCenter? notifications,
     DecentProxyService? decentProxyService,
-    CredentialStore? credentialStore,
+    this._credentialStore,
     PluginDeviceService? deviceService,
     Stream<void>? decentAccountChanges,
-  }) : _credentialStore = credentialStore,
-       pluginManager = PluginManager(
+  }) : pluginManager = PluginManager(
          kvStore: kvStore,
          notifications: notifications,
          decentProxyService: decentProxyService,
@@ -1016,9 +1017,8 @@ class PluginLoaderService {
           final manifestAsset = await rootBundle.loadString(
             '$pluginPath/manifest.json',
           );
-          File(
-            '${destDir.path}/manifest.json',
-          ).writeAsStringSync(manifestAsset);
+          File('${destDir.path}/manifest.json')
+              .writeAsStringSync(manifestAsset);
 
           final pluginAsset = await rootBundle.loadString(
             '$pluginPath/plugin.js',

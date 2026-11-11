@@ -42,9 +42,8 @@ void main() {
   void install(String id, {required bool withSetting}) {
     final dir = Directory('${tempDir.path}/plugins/$id')
       ..createSync(recursive: true);
-    File(
-      '${dir.path}/manifest.json',
-    ).writeAsStringSync(_manifest(id, withSetting: withSetting));
+    File('${dir.path}/manifest.json')
+        .writeAsStringSync(_manifest(id, withSetting: withSetting));
     File('${dir.path}/plugin.js').writeAsStringSync('''
 function createPlugin(host) {
   return { id: "$id", onLoad() {} };

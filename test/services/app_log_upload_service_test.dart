@@ -145,13 +145,12 @@ void main() {
   }
 
   test('first upload sends the last 24 hours oldest first', () async {
-    await File(
-      '${tempDir.path}${Platform.pathSeparator}log.txt.1',
-    ).writeAsString(
-      '[main] 2026-08-26 10:00:00.000001 INFO Main - ignored\n'
-      '[main] 2026-08-26 13:00:00.000001 INFO Main - Rotated first\n'
-      'continued detail\n',
-    );
+    await File('${tempDir.path}${Platform.pathSeparator}log.txt.1')
+        .writeAsString(
+          '[main] 2026-08-26 10:00:00.000001 INFO Main - ignored\n'
+          '[main] 2026-08-26 13:00:00.000001 INFO Main - Rotated first\n'
+          'continued detail\n',
+        );
     await File('${tempDir.path}${Platform.pathSeparator}log.txt').writeAsString(
       '[main] 2026-08-27 11:00:00.000001 WARNING Main - Live second\n',
     );
@@ -190,11 +189,10 @@ void main() {
   });
 
   test('reads rotated logs across missing suffixes', () async {
-    await File(
-      '${tempDir.path}${Platform.pathSeparator}log.txt.2',
-    ).writeAsString(
-      '[main] 2026-08-27 09:00:00.000001 INFO Main - older rotated log\n',
-    );
+    await File('${tempDir.path}${Platform.pathSeparator}log.txt.2')
+        .writeAsString(
+          '[main] 2026-08-27 09:00:00.000001 INFO Main - older rotated log\n',
+        );
     await File('${tempDir.path}${Platform.pathSeparator}log.txt').writeAsString(
       '[main] 2026-08-27 10:00:00.000001 INFO Main - current log\n',
     );
@@ -318,9 +316,8 @@ void main() {
         '[main] 2026-08-27 10:00:00.900001 INFO Main - ${'b' * 40}';
     final nextSecond =
         '[main] 2026-08-27 10:00:01.000001 INFO Main - ${'c' * 40}';
-    await File(
-      '${tempDir.path}${Platform.pathSeparator}log.txt',
-    ).writeAsString('$first\n$sameSecond\n$nextSecond\n');
+    await File('${tempDir.path}${Platform.pathSeparator}log.txt')
+        .writeAsString('$first\n$sameSecond\n$nextSecond\n');
     final service = buildService(softLimitBytes: 80, hardLimitBytes: 500);
     addTearDown(service.dispose);
     await service.initialize();
@@ -605,9 +602,8 @@ void main() {
       );
       accountService = blockingService;
       final timestamp = DateTime.now().toIso8601String().replaceFirst('T', ' ');
-      await File(
-        '${tempDir.path}${Platform.pathSeparator}log.txt',
-      ).writeAsString('[main] $timestamp INFO Main - private log\n');
+      await File('${tempDir.path}${Platform.pathSeparator}log.txt')
+          .writeAsString('[main] $timestamp INFO Main - private log\n');
       final service = buildService(
         initialDelay: const Duration(milliseconds: 50),
         uploadInterval: const Duration(days: 1),

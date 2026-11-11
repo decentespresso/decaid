@@ -100,6 +100,15 @@ Older firmware ignores the request while refilling but keeps it latched, then
 sleeps immediately after refill. The firmware itself suppresses sleep while a
 refill kit is active.
 
+## Refill threshold is volatile
+
+The `WaterLevels` (`A011`) refill threshold is not kept by the firmware across a
+power cycle; the machine comes back with its built-in default. de1app resends
+its saved `water_refill_point` on every connection. Decaid saves the value
+written through `POST /api/v1/machine/waterLevels` in the per-machine
+`MachineSettingsStore` bucket and rewrites it in the connect-time defaults,
+after flow calibration. Without a saved value nothing is written.
+
 ## Refill stopped substate
 
 The DE1 main state value `0x11` is `Refill`, while substate value `0x11` is

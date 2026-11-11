@@ -315,9 +315,8 @@ void main() {
     await tester.pump();
     expect(launchCount, 0);
     expect(find.text('Unable to open device settings.'), findsOneWidget);
-    ScaffoldMessenger.of(
-      tester.element(find.byType(DeviceManagementPage)),
-    ).removeCurrentSnackBar();
+    ScaffoldMessenger.of(tester.element(find.byType(DeviceManagementPage)))
+        .removeCurrentSnackBar();
     await tester.pumpAndSettle();
     expect(find.text('Unable to open device settings.'), findsNothing);
     await service.unregister(
@@ -485,9 +484,8 @@ void main() {
     await tester.tap(find.byTooltip('Device settings'));
     await tester.pump();
     expect(find.text('Unable to open device settings.'), findsOneWidget);
-    ScaffoldMessenger.of(
-      tester.element(find.byType(DeviceManagementPage)),
-    ).removeCurrentSnackBar();
+    ScaffoldMessenger.of(tester.element(find.byType(DeviceManagementPage)))
+        .removeCurrentSnackBar();
     await tester.pumpAndSettle();
     expect(find.text('Unable to open device settings.'), findsNothing);
     throwOnLaunch = true;

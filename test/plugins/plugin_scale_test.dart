@@ -368,96 +368,90 @@ void main() {
     },
   );
 
-  test(
-    'readiness weight reaches activated ScaleController once with unknown battery',
-    () async {
-      late PluginScale scale;
-      String? firstSession;
-      scale = PluginScale(
-        deviceId: 'plugin:test:scale:memory',
-        name: 'Memory',
-        capabilities: {},
-        invoke: (operation, payload) async {
-          if (operation == PluginDeviceOperation.connect) {
-            firstSession = payload['session'] as String;
-            scale.publish({'weight': -1.25}, session: firstSession);
-          }
-          return {};
-        },
-      );
-      final controller = ScaleController();
-      final weights = <double>[];
-      final listener = controller.weightSnapshot.listen(
-        (sample) => weights.add(sample.weight),
-      );
-      await controller.connectToScale(scale);
-      await Future<void>.delayed(Duration.zero);
-      expect(weights, [-1.25]);
-      expect(controller.currentWeightSnapshot!.battery, isNull);
-      await scale.disconnect();
-      await expectLater(
-        scale.tare(),
-        throwsA(
-          isA<ScaleOperationException>().having(
-            (e) => e.code,
-            'code',
-            'unsupported_operation',
-          ),
+  test('readiness weight reaches activated ScaleController once with unknown battery', () async {
+    late PluginScale scale;
+    String? firstSession;
+    scale = PluginScale(
+      deviceId: 'plugin:test:scale:memory',
+      name: 'Memory',
+      capabilities: {},
+      invoke: (operation, payload) async {
+        if (operation == PluginDeviceOperation.connect) {
+          firstSession = payload['session'] as String;
+          scale.publish({'weight': -1.25}, session: firstSession);
+        }
+        return {};
+      },
+    );
+    final controller = ScaleController();
+    final weights = <double>[];
+    final listener = controller.weightSnapshot.listen(
+      (sample) => weights.add(sample.weight),
+    );
+    await controller.connectToScale(scale);
+    await Future<void>.delayed(Duration.zero);
+    expect(weights, [-1.25]);
+    expect(controller.currentWeightSnapshot!.battery, isNull);
+    await scale.disconnect();
+    await expectLater(
+      scale.tare(),
+      throwsA(
+        isA<ScaleOperationException>().having(
+          (e) => e.code,
+          'code',
+          'unsupported_operation',
         ),
-      );
-      expect(
-        () => scale.publish({'weight': 2}, session: firstSession),
-        throwsA(isA<PluginDeviceException>()),
-      );
-      await listener.cancel();
-      controller.dispose();
-      await scale.dispose();
-    },
-  );
+      ),
+    );
+    expect(
+      () => scale.publish({'weight': 2}, session: firstSession),
+      throwsA(isA<PluginDeviceException>()),
+    );
+    await listener.cancel();
+    controller.dispose();
+    await scale.dispose();
+  });
 
-  test(
-    'reconnect rejects old-session publications and optional commands are explicit',
-    () async {
-      late PluginScale scale;
-      final sessions = <String>[];
-      final commands = <String>[];
-      scale = PluginScale(
-        deviceId: 'scale',
-        name: 'Scale',
-        capabilities: {PluginScaleCapability.tare},
-        invoke: (operation, payload) async {
-          commands.add(operation.name);
-          if (operation == PluginDeviceOperation.connect) {
-            sessions.add(payload['session'] as String);
-            scale.publish({'weight': 1}, session: sessions.last);
-          }
-          return {};
-        },
-      );
-      await scale.onConnect();
-      await scale.tare();
-      await expectLater(
-        scale.startTimer(),
-        throwsA(
-          isA<ScaleOperationException>().having(
-            (e) => e.code,
-            'code',
-            'unsupported_operation',
-          ),
+  test('reconnect rejects old-session publications and optional commands are explicit', () async {
+    late PluginScale scale;
+    final sessions = <String>[];
+    final commands = <String>[];
+    scale = PluginScale(
+      deviceId: 'scale',
+      name: 'Scale',
+      capabilities: {PluginScaleCapability.tare},
+      invoke: (operation, payload) async {
+        commands.add(operation.name);
+        if (operation == PluginDeviceOperation.connect) {
+          sessions.add(payload['session'] as String);
+          scale.publish({'weight': 1}, session: sessions.last);
+        }
+        return {};
+      },
+    );
+    await scale.onConnect();
+    await scale.tare();
+    await expectLater(
+      scale.startTimer(),
+      throwsA(
+        isA<ScaleOperationException>().having(
+          (e) => e.code,
+          'code',
+          'unsupported_operation',
         ),
-      );
-      await scale.disconnect();
-      await scale.onConnect();
-      expect(sessions.toSet(), hasLength(2));
-      expect(
-        () => scale.publish({'weight': 50}, session: sessions.first),
-        throwsA(isA<PluginDeviceException>()),
-      );
-      expect(commands.where((name) => name == 'tare'), hasLength(1));
-      await scale.disconnect();
-      await scale.dispose();
-    },
-  );
+      ),
+    );
+    await scale.disconnect();
+    await scale.onConnect();
+    expect(sessions.toSet(), hasLength(2));
+    expect(
+      () => scale.publish({'weight': 50}, session: sessions.first),
+      throwsA(isA<PluginDeviceException>()),
+    );
+    expect(commands.where((name) => name == 'tare'), hasLength(1));
+    await scale.disconnect();
+    await scale.dispose();
+  });
 
   test('plugin command failures become Scale operation errors', () async {
     late PluginScale scale;

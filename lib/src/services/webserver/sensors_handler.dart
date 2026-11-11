@@ -4,8 +4,7 @@ final class SensorsHandler {
   final SensorController _controller;
   final Logger _log = Logger("Sensor handler");
 
-  SensorsHandler({required SensorController controller})
-    : _controller = controller;
+  SensorsHandler({required this._controller});
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/sensors', (Request req) {

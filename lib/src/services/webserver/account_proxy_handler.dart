@@ -4,10 +4,7 @@ class AccountProxyHandler {
   final DecentProxyService _proxy;
   final bool enableWrites;
 
-  AccountProxyHandler({
-    required DecentProxyService proxy,
-    this.enableWrites = false,
-  }) : _proxy = proxy;
+  AccountProxyHandler({required this._proxy, this.enableWrites = false});
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/account/proxy/<rest|.*>', _handleGet);

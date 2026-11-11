@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
+
 import '../launcher/widgets/destination_card.dart';
 
 import 'native_notification.dart';

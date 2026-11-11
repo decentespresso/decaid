@@ -44,7 +44,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          flutter-version: '3.44.2'
+          flutter-version: '3.47.9'
           cache: true
           pub-cache: true
 
@@ -118,7 +118,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          flutter-version: '3.44.2'
+          flutter-version: '3.47.9'
           cache: true
           pub-cache: true
 
@@ -264,7 +264,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          flutter-version: '3.44.2'
+          flutter-version: '3.47.9'
           cache: true
           pub-cache: true
 
@@ -321,7 +321,7 @@ jobs:
           # Flutter publishes no prebuilt arm64 Linux SDK; the master channel
           # path lets flutter-action git-clone the tagged version instead.
           channel: 'master'
-          flutter-version: '3.44.2'
+          flutter-version: '3.47.9'
           cache: true
           pub-cache: true
 
@@ -377,7 +377,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          flutter-version: '3.44.2'
+          flutter-version: '3.47.9'
           cache: true
           pub-cache: true
 
@@ -445,7 +445,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          flutter-version: '3.44.2'
+          flutter-version: '3.47.9'
           cache: true
           pub-cache: true
 

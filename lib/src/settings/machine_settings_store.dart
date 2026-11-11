@@ -8,11 +8,13 @@ class MachineSettings {
     this.fanThreshold,
     this.refillKitSetting,
     this.flowCalibration,
+    this.refillLevel,
   });
 
   final int? fanThreshold;
   final De1RefillKitSettings? refillKitSetting;
   final double? flowCalibration;
+  final int? refillLevel;
 }
 
 abstract interface class MachineSettingsStore {
@@ -23,14 +25,16 @@ abstract interface class MachineSettingsStore {
     int? fanThreshold,
     De1RefillKitSettings? refillKitSetting,
     double? flowCalibration,
+    int? refillLevel,
   });
 
   Future<void> clear(String identity);
 
-  /// Clears fan and refill entries for [identity] while preserving the saved
-  /// flow-calibration override. A generic machine-settings reset uses this so
-  /// a live multiplier keeps its saved intent across the reset.
-  Future<void> clearExceptFlowCalibration(String identity);
+  /// Clears fan and refill-kit entries for [identity] while preserving the
+  /// saved flow-calibration and refill-level overrides. A generic
+  /// machine-settings reset uses this because it writes neither value, so
+  /// both keep their saved intent across the reset.
+  Future<void> clearResetOverrides(String identity);
 }
 
 class NoopMachineSettingsStore implements MachineSettingsStore {
@@ -45,13 +49,14 @@ class NoopMachineSettingsStore implements MachineSettingsStore {
     int? fanThreshold,
     De1RefillKitSettings? refillKitSetting,
     double? flowCalibration,
+    int? refillLevel,
   }) async {}
 
   @override
   Future<void> clear(String identity) async {}
 
   @override
-  Future<void> clearExceptFlowCalibration(String identity) async {}
+  Future<void> clearResetOverrides(String identity) async {}
 }
 
 class SharedPreferencesMachineSettingsStore implements MachineSettingsStore {
@@ -60,8 +65,7 @@ class SharedPreferencesMachineSettingsStore implements MachineSettingsStore {
 
   final SharedPreferences? _preferences;
 
-  SharedPreferencesMachineSettingsStore({SharedPreferences? preferences})
-    : _preferences = preferences;
+  SharedPreferencesMachineSettingsStore({this._preferences});
 
   @override
   Future<MachineSettings?> read(String identity) async {
@@ -78,6 +82,7 @@ class SharedPreferencesMachineSettingsStore implements MachineSettingsStore {
     int? fanThreshold,
     De1RefillKitSettings? refillKitSetting,
     double? flowCalibration,
+    int? refillLevel,
   }) async {
     if (identity.isEmpty) return;
     final entries = await _readEntries();
@@ -87,6 +92,7 @@ class SharedPreferencesMachineSettingsStore implements MachineSettingsStore {
     if (fanThreshold != null) existing['fan'] = fanThreshold;
     if (refillKitSetting != null) existing['refillKit'] = refillKitSetting.hex;
     if (flowCalibration != null) existing['flowCalibration'] = flowCalibration;
+    if (refillLevel != null) existing['refillLevel'] = refillLevel;
     existing['updatedAt'] = _nextUpdatedAt(entries);
     entries.remove(identity);
     entries[identity] = existing;
@@ -109,18 +115,20 @@ class SharedPreferencesMachineSettingsStore implements MachineSettingsStore {
   }
 
   @override
-  Future<void> clearExceptFlowCalibration(String identity) async {
+  Future<void> clearResetOverrides(String identity) async {
     if (identity.isEmpty) return;
     final entries = await _readEntries();
     final entry = entries[identity];
     if (entry is! Map) return;
     final flow = entry['flowCalibration'];
+    final refillLevel = entry['refillLevel'];
     entries.remove(identity);
-    if (flow is num && flow.isFinite) {
-      entries[identity] = {
-        'flowCalibration': flow.toDouble(),
-        'updatedAt': _updatedAt(entry),
-      };
+    final kept = <String, dynamic>{
+      if (flow is num && flow.isFinite) 'flowCalibration': flow.toDouble(),
+      if (refillLevel is num) 'refillLevel': refillLevel.toInt(),
+    };
+    if (kept.isNotEmpty) {
+      entries[identity] = {...kept, 'updatedAt': _updatedAt(entry)};
     }
     await _writeEntries(entries);
   }
@@ -149,6 +157,7 @@ class SharedPreferencesMachineSettingsStore implements MachineSettingsStore {
     final fan = entry['fan'];
     final refill = entry['refillKit'];
     final flow = entry['flowCalibration'];
+    final level = entry['refillLevel'];
     final fanThreshold = fan is num ? fan.toInt() : null;
     final refillKitSetting = refill is num
         ? De1RefillKitSettings.values
@@ -158,15 +167,18 @@ class SharedPreferencesMachineSettingsStore implements MachineSettingsStore {
     final flowCalibration = flow is num && flow.isFinite
         ? flow.toDouble()
         : null;
+    final refillLevel = level is num ? level.toInt() : null;
     if (fanThreshold == null &&
         refillKitSetting == null &&
-        flowCalibration == null) {
+        flowCalibration == null &&
+        refillLevel == null) {
       return null;
     }
     return MachineSettings(
       fanThreshold: fanThreshold,
       refillKitSetting: refillKitSetting,
       flowCalibration: flowCalibration,
+      refillLevel: refillLevel,
     );
   }
 
