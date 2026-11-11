@@ -1672,10 +1672,13 @@ paths:
       summary: Update Decent settings
       description: >
         Applies the keys present in the body. A body that contains
-        `defaultSkinId` or `webUiPath` requires `Authorization: Bearer <token>`
-        scoped `extensions:manage` (see the extensionsManage security scheme)
-        and is refused with 401 or 403 before any key is applied. Bodies
-        without those keys need no token.
+        `webUiPath`, sets `defaultSkinId` to a skin other than the current
+        default, or sets `automaticUpdateCheck` to true while it is off
+        (automatic checks install plugin and skin updates) requires
+        `Authorization: Bearer <token>` scoped `extensions:manage` (see the
+        extensionsManage security scheme) and is refused with 401 or 403
+        before any key is applied. Values already in effect, turning
+        `automaticUpdateCheck` off, and every other key need no token.
       tags: [Decent Settings]
       requestBody:
         required: true
@@ -1688,16 +1691,18 @@ paths:
           description: Decent settings updated successfully
         "401":
           description: >
-            The body contains defaultSkinId or webUiPath and the bearer token
-            is missing, malformed, unknown or revoked; no key was applied
+            The body contains webUiPath, changes defaultSkinId or turns on
+            automaticUpdateCheck, and the bearer token is missing, malformed,
+            unknown or revoked; no key was applied
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
           description: >
-            The body contains defaultSkinId or webUiPath and the token is not
-            scoped for extensions:manage; no key was applied
+            The body contains webUiPath, changes defaultSkinId or turns on
+            automaticUpdateCheck, and the token is not scoped for
+            extensions:manage; no key was applied
           content:
             application/json:
               schema:
@@ -5422,10 +5427,12 @@ paths:
         recognized files, truncated archives, CRC mismatches, and malformed
         JSON all fail safely with 400.
 
-        Changing the default skin requires `Authorization: Bearer <token>`
-        scoped `extensions:manage`. Without it, every other setting is still
-        imported, but a `defaultSkinId` that differs from the current one is
-        skipped and reported as a warning in the `settings` section result.
+        Changing the default skin or turning on automatic updates requires
+        `Authorization: Bearer <token>` scoped `extensions:manage`. Without
+        it, every other setting is still imported, but a `defaultSkinId` that
+        differs from the current one and an `automaticUpdateCheck: true` while
+        automatic updates are off are each skipped and reported as a warning
+        in the `settings` section result.
       tags: [Data Management]
       parameters:
         - in: query
@@ -5538,8 +5545,9 @@ paths:
         A pull (including the pull phase of two_way) imports the target's
         settings under the same rule as /api/v1/data/import: without a token
         scoped `extensions:manage` on this request, a `defaultSkinId` that
-        differs from the current one is skipped and reported as a warning in
-        the `settings` section result. A push sends no token, so the target
+        differs from the current one and an `automaticUpdateCheck: true` while
+        automatic updates are off are each skipped and reported as a warning
+        in the `settings` section result. A push sends no token, so the target
         applies the same rule to the pushed archive.
       tags: [Data Management]
       requestBody:
@@ -7498,7 +7506,7 @@ components:
           enum: ["disabled", "full", "tracking"]
           nullable: true
         webUiPath:
-          description: Set a path on local filesystem, from which REA will serve the webUI. Requires a bearer token scoped extensions:manage (see POST /api/v1/settings).
+          description: Set a path on local filesystem, from which REA will serve the webUI. Any value requires a bearer token scoped extensions:manage (see POST /api/v1/settings).
           type: string
           nullable: true
         logLevel:
@@ -7555,11 +7563,11 @@ components:
           nullable: true
           example: "plugin:grinder.example:grinder:one"
         defaultSkinId:
-          description: ID of the default WebUI skin to serve. Requires a bearer token scoped extensions:manage (see POST /api/v1/settings).
+          description: ID of the default WebUI skin to serve. A value other than the current default requires a bearer token scoped extensions:manage (see POST /api/v1/settings).
           type: string
           nullable: true
         automaticUpdateCheck:
-          description: Whether to automatically check for updates
+          description: Whether to automatically check for updates. Automatic checks install plugin and skin updates, so setting true while it is off requires a bearer token scoped extensions:manage (see POST /api/v1/settings); turning it off needs none.
           type: boolean
           nullable: true
         chargingMode:

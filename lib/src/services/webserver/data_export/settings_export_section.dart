@@ -55,7 +55,7 @@ class SettingsExportSection implements DataExportSection {
   Future<SectionImportResult> importJson(
     SectionJsonInput input,
     ConflictStrategy strategy, {
-    bool mayChangeDefaultSkin = false,
+    bool extensionsAuthorized = false,
   }) async {
     final errors = <String>[];
     final warnings = <String>[];
@@ -149,7 +149,7 @@ class SettingsExportSection implements DataExportSection {
 
         if (settings.containsKey('defaultSkinId')) {
           final defaultSkinId = settings['defaultSkinId'] as String;
-          if (mayChangeDefaultSkin) {
+          if (extensionsAuthorized) {
             await _controller.setDefaultSkinId(defaultSkinId);
             imported++;
           } else if (defaultSkinId != _controller.defaultSkinId) {
@@ -162,10 +162,19 @@ class SettingsExportSection implements DataExportSection {
         }
 
         if (settings.containsKey('automaticUpdateCheck')) {
-          await _controller.setAutomaticUpdateCheck(
-            settings['automaticUpdateCheck'] as bool,
-          );
-          imported++;
+          final automaticUpdateCheck = settings['automaticUpdateCheck'] as bool;
+          if (extensionsAuthorized ||
+              !automaticUpdateCheck ||
+              _controller.automaticUpdateCheck) {
+            await _controller.setAutomaticUpdateCheck(automaticUpdateCheck);
+            imported++;
+          } else {
+            skipped++;
+            warnings.add(
+              'automaticUpdateCheck was not turned on: automatic plugin and '
+              'skin updates require extensions:manage authorization.',
+            );
+          }
         }
 
         if (settings.containsKey('chargingMode')) {

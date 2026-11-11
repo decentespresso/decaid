@@ -13,10 +13,12 @@ the API), #925 (HTTPS listener), #1029 (remote skin reload).
   the plugin side of `fetch` would therefore be bypassable; only the server can decide.
 - Direct mutations: ten plugin routes in `plugins_handler.dart` and eight skin routes in
   `webui_handler.dart` (table below).
-- Indirect mutations: `POST /api/v1/settings` with `defaultSkinId` (same effect as
-  `PUT /api/v1/webui/skins/default`) or `webUiPath` (restarts the skin server on any path);
+- Indirect mutations: `POST /api/v1/settings` with a changed `defaultSkinId` (same effect as
+  `PUT /api/v1/webui/skins/default`), `webUiPath` (restarts the skin server on any path) or
+  `automaticUpdateCheck` turned on (automatic checks install plugin and skin updates, like
+  `POST /api/v1/plugins/update` and `POST /api/v1/webui/skins/update`);
   `POST /api/v1/data/import` and a pulling `POST /api/v1/data/sync`, whose `settings.json`
-  section sets `defaultSkinId`.
+  section sets `defaultSkinId` and `automaticUpdateCheck`.
 - Audited and left open: `GET` discovery and status routes, `GET /api/v1/plugins/<id>/settings`
   (secure values are already reduced to `isSet`), plugin-defined endpoints
   (`/api/v1/plugins/<id>/<endpoint>`, `/ws/v1/plugins/<id>/<endpoint>`), the app update
@@ -49,9 +51,12 @@ the API), #925 (HTTPS listener), #1029 (remote skin reload).
    without the scope: 403. The JSON shape matches the account proxy (`{"error": …}`).
 5. **Body-dependent routes use the same decision.** The middleware records its decision in the
    request context; `requireExtensionManagement` and `mayManageExtensions` read it. Settings
-   POST refuses `defaultSkinId` and `webUiPath` before applying any key. Import and pull-sync
-   skip a differing `defaultSkinId` with a section warning and import the rest, so an ordinary
-   backup restore keeps working. A handler reached without the middleware is refused.
+   POST refuses `webUiPath`, a differing `defaultSkinId` and `automaticUpdateCheck: true`
+   while it is off before applying any key; values already in effect and turning automatic
+   updates off pass. Import and pull-sync skip a differing `defaultSkinId` and an
+   `automaticUpdateCheck: true` while it is off, each with a section warning, and import the
+   rest, so an ordinary backup restore keeps working. A handler reached without the middleware
+   is refused.
 6. **Plugins get a principal, not a bearer.** `manage.extensions` is a manifest permission.
    On load `PluginManager` creates an in-memory grant bound to that runtime object and
    generation. `host.localApi(path, options)` sends a path-only request (`/api/v1/…`, no
@@ -126,8 +131,8 @@ only `account:proxy`. HTTP bearer tokens are not confidential on the LAN until #
 | DELETE | `/api/v1/webui/skins/<id>` |
 | POST | `/api/v1/webui/server/start` |
 | POST | `/api/v1/webui/server/stop` |
-| POST | `/api/v1/settings` when the body has `defaultSkinId` or `webUiPath` |
-| POST | `/api/v1/data/import`, `/api/v1/data/sync` (pull): `defaultSkinId` only |
+| POST | `/api/v1/settings` when the body has `webUiPath`, a changed `defaultSkinId` or turns `automaticUpdateCheck` on |
+| POST | `/api/v1/data/import`, `/api/v1/data/sync` (pull): a changed `defaultSkinId` and `automaticUpdateCheck` turned on only |
 
 ## Tests
 

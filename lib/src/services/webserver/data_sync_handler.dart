@@ -160,7 +160,7 @@ class DataSyncHandler {
           targetUri,
           strategy,
           expectedSections,
-          mayChangeDefaultSkin: mayManageExtensions(request),
+          extensionsAuthorized: mayManageExtensions(request),
         );
       } catch (error) {
         pull = _failure(error);
@@ -197,7 +197,7 @@ class DataSyncHandler {
     Uri targetUri,
     ConflictStrategy strategy,
     List<String> expectedSections, {
-    required bool mayChangeDefaultSkin,
+    required bool extensionsAuthorized,
   }) async {
     final limits = _exportHandler.limits;
     _log.info('Pulling data from $targetUri');
@@ -272,7 +272,7 @@ class DataSyncHandler {
         zipFile,
         strategy,
         sections: expectedSections,
-        mayChangeDefaultSkin: mayChangeDefaultSkin,
+        extensionsAuthorized: extensionsAuthorized,
       );
       return outcome.phase;
     } finally {

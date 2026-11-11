@@ -1820,9 +1820,10 @@ change what is installed or how it runs and need a bearer token with the
 
 The skin routes that change the installed or default skin or the skin server are
 gated the same way; see `doc/Skins.md`. So are `POST /api/v1/settings` when its
-body sets `defaultSkinId` or `webUiPath`, and the `defaultSkinId` part of a
-backup import or a pulling sync, which is skipped with a warning when the request
-is not authorized.
+body contains `webUiPath`, changes `defaultSkinId` or turns `automaticUpdateCheck`
+on (automatic checks install plugin updates), and the same `defaultSkinId` and
+`automaticUpdateCheck` changes in a backup import or a pulling sync, which are
+skipped with a warning when the request is not authorized.
 
 ### Authorization
 

@@ -73,10 +73,17 @@ class SettingsHandler {
         maxBytes: largeRequestBodyBytes,
       );
       Map<String, dynamic> json = jsonDecode(payload);
-      if (json.containsKey('webUiPath') || json.containsKey('defaultSkinId')) {
+      final changesSkin =
+          json.containsKey('webUiPath') ||
+          (json.containsKey('defaultSkinId') &&
+              json['defaultSkinId'] != _controller.defaultSkinId);
+      final enablesAutomaticUpdates =
+          json['automaticUpdateCheck'] == true &&
+          !_controller.automaticUpdateCheck;
+      if (changesSkin || enablesAutomaticUpdates) {
         final denial = requireExtensionManagement(
           request,
-          action: 'POST /api/v1/settings skin selection',
+          action: 'POST /api/v1/settings extension settings',
         );
         if (denial != null) return denial;
       }

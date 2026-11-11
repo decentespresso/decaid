@@ -24,6 +24,10 @@ const _skinWarning =
     'defaultSkinId was not imported: changing the default skin requires '
     'extensions:manage authorization.';
 
+const _automaticUpdateWarning =
+    'automaticUpdateCheck was not turned on: automatic plugin and skin '
+    'updates require extensions:manage authorization.';
+
 class _RecordingWebUIStorage extends Fake implements WebUIStorage {
   final List<String> calls = [];
 
@@ -269,6 +273,135 @@ void main() {
       expect(settings.weightFlowMultiplier, 2.5);
       expect(storage.calls, isEmpty);
       expect(webUi.calls, isEmpty);
+    });
+  });
+
+  group('POST /api/v1/settings with automaticUpdateCheck', () {
+    setUp(() => settings.setAutomaticUpdateCheck(false));
+
+    test('turning it on without a bearer is 401 and applies nothing', () async {
+      final reply = await send(
+        'POST',
+        '/api/v1/settings',
+        json: {'gatewayMode': 'full', 'automaticUpdateCheck': true},
+      );
+      expect(reply.status, 401);
+      expect(reply.json, {'error': 'Missing or malformed bearer token'});
+      expect(settings.automaticUpdateCheck, isFalse);
+      expect(settings.gatewayMode, isNot(GatewayMode.full));
+    });
+
+    test('turning it on with an unscoped token is 403', () async {
+      final reply = await send(
+        'POST',
+        '/api/v1/settings',
+        authorization: 'Bearer $accountToken',
+        json: {'automaticUpdateCheck': true},
+      );
+      expect(reply.status, 403);
+      expect(settings.automaticUpdateCheck, isFalse);
+    });
+
+    test('an extensions:manage token turns it on', () async {
+      final reply = await send(
+        'POST',
+        '/api/v1/settings',
+        authorization: 'Bearer $managerToken',
+        json: {'automaticUpdateCheck': true},
+      );
+      expect(reply.status, 200, reason: '$reply');
+      expect(settings.automaticUpdateCheck, isTrue);
+    });
+
+    test('turning it off needs no bearer', () async {
+      await settings.setAutomaticUpdateCheck(true);
+      final reply = await send(
+        'POST',
+        '/api/v1/settings',
+        json: {'automaticUpdateCheck': false},
+      );
+      expect(reply.status, 200, reason: '$reply');
+      expect(settings.automaticUpdateCheck, isFalse);
+    });
+
+    test('sending the values already in effect needs no bearer', () async {
+      await settings.setAutomaticUpdateCheck(true);
+      final reply = await send(
+        'POST',
+        '/api/v1/settings',
+        json: {
+          'automaticUpdateCheck': true,
+          'defaultSkinId': _currentSkinId,
+          'gatewayMode': 'full',
+        },
+      );
+      expect(reply.status, 200, reason: '$reply');
+      expect(settings.automaticUpdateCheck, isTrue);
+      expect(settings.gatewayMode, GatewayMode.full);
+      expect(settings.defaultSkinId, _currentSkinId);
+    });
+  });
+
+  group('POST /api/v1/data/import with automaticUpdateCheck', () {
+    List<int> archive(bool value) => _settingsArchive({
+      'gatewayMode': 'full',
+      'automaticUpdateCheck': value,
+    });
+
+    test('without a bearer leaves automatic updates off and warns', () async {
+      await settings.setAutomaticUpdateCheck(false);
+      final reply = await send(
+        'POST',
+        '/api/v1/data/import',
+        bytes: archive(true),
+      );
+      expect(reply.status, 200, reason: '$reply');
+      final section = reply.json['settings'] as Map<String, dynamic>;
+      expect(section['imported'], 1);
+      expect(section['skipped'], 1);
+      expect(section['warnings'], [_automaticUpdateWarning]);
+      expect(settings.automaticUpdateCheck, isFalse);
+      expect(settings.gatewayMode, GatewayMode.full);
+    });
+
+    test(
+      'with an extensions:manage token turns automatic updates on',
+      () async {
+        await settings.setAutomaticUpdateCheck(false);
+        final reply = await send(
+          'POST',
+          '/api/v1/data/import',
+          authorization: 'Bearer $managerToken',
+          bytes: archive(true),
+        );
+        expect(reply.status, 200, reason: '$reply');
+        expect(reply.json['settings'], isNot(contains('warnings')));
+        expect(settings.automaticUpdateCheck, isTrue);
+      },
+    );
+
+    test('without a bearer can still turn automatic updates off', () async {
+      await settings.setAutomaticUpdateCheck(true);
+      final reply = await send(
+        'POST',
+        '/api/v1/data/import',
+        bytes: archive(false),
+      );
+      expect(reply.status, 200, reason: '$reply');
+      expect(reply.json['settings'], isNot(contains('warnings')));
+      expect(settings.automaticUpdateCheck, isFalse);
+    });
+
+    test('an archive matching the current value produces no warning', () async {
+      await settings.setAutomaticUpdateCheck(true);
+      final reply = await send(
+        'POST',
+        '/api/v1/data/import',
+        bytes: archive(true),
+      );
+      expect(reply.status, 200, reason: '$reply');
+      expect(reply.json['settings'], isNot(contains('warnings')));
+      expect(settings.automaticUpdateCheck, isTrue);
     });
   });
 

@@ -86,15 +86,20 @@ Token column.
 
 Two more routes are gated by what the body contains:
 
-- `POST /api/v1/settings` with `defaultSkinId` or `webUiPath` in the body needs
-  the same token and is refused with 401 or 403 before any key is applied.
-  Bodies without those keys need no token.
+- `POST /api/v1/settings` needs the same token when the body contains
+  `webUiPath`, sets `defaultSkinId` to a skin other than the current default,
+  or sets `automaticUpdateCheck` to `true` while it is off (automatic checks
+  install plugin and skin updates, like `POST /api/v1/plugins/update` and
+  `POST /api/v1/webui/skins/update`). Such a body is refused with 401 or 403
+  before any key is applied. Values already in effect, turning
+  `automaticUpdateCheck` off, and every other key need no token.
 - `POST /api/v1/data/import` and a pulling `POST /api/v1/data/sync` (`pull`, or
   the pull phase of `two_way`) import everything else without a token, but skip
-  a `defaultSkinId` that differs from the current one and report it as a
-  warning in the `settings` section result. Restoring a backup or syncing
-  therefore no longer changes the default skin unless the request is
-  authorized.
+  a `defaultSkinId` that differs from the current one and an
+  `automaticUpdateCheck: true` while automatic updates are off, reporting each
+  as a warning in the `settings` section result. Restoring a backup or syncing
+  therefore no longer changes the default skin or turns on automatic updates
+  unless the request is authorized.
 
 Read routes (`GET`), plugin-defined endpoints (`/api/v1/plugins/:id/:endpoint`,
 `/ws/v1/plugins/:id/:endpoint`) and `OPTIONS` are not gated.
@@ -580,7 +585,7 @@ from normal scan results; it is never a persisted `grinderId`.
 | Method | Path | Description | Handler |
 |--------|------|-------------|---------|
 | GET | `/api/v1/settings` | All app settings (gateway, theme, charging, devices, etc.) | `settings_handler.dart` |
-| POST | `/api/v1/settings` | Update settings (partial, key-by-key); `defaultSkinId` and `webUiPath` need an `extensions:manage` token ([details](#extension-management-authorization)) | |
+| POST | `/api/v1/settings` | Update settings (partial, key-by-key); `webUiPath`, a changed `defaultSkinId` and turning `automaticUpdateCheck` on need an `extensions:manage` token ([details](#extension-management-authorization)) | |
 
 Settings fields include: `gatewayMode`, `themeMode`, `logLevel`, `weightFlowMultiplier`, `volumeFlowMultiplier`, `hotWaterFlowMultiplier`, `scalePowerMode`, `blockOnNoScale`, `blockTareDuringShot`, `stopHotWaterAtWeight`, `preferredMachineId`, `preferredScaleId`, `preferredGrinderDeviceId`, `defaultSkinId`, `automaticUpdateCheck`, `chargingMode`, `nightModeEnabled`, `nightModeSleepTime`, `nightModeMorningTime`, `lowBatteryBrightnessLimit`, `keepAwake`, `simulatedDevices`.
 

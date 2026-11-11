@@ -211,7 +211,7 @@ class DataExportHandler {
     File zipFile,
     ConflictStrategy strategy, {
     List<String>? sections,
-    bool mayChangeDefaultSkin = false,
+    bool extensionsAuthorized = false,
   }) async {
     final StreamingZipReader reader;
     try {
@@ -275,7 +275,7 @@ class DataExportHandler {
             entriesByKey[key]!,
             strategy,
             jsonFile,
-            mayChangeDefaultSkin: mayChangeDefaultSkin,
+            extensionsAuthorized: extensionsAuthorized,
           );
 
           if (section.filename == 'settings.json' &&
@@ -378,7 +378,7 @@ class DataExportHandler {
     ArchiveFile entry,
     ConflictStrategy strategy,
     File jsonFile, {
-    required bool mayChangeDefaultSkin,
+    required bool extensionsAuthorized,
   }) async {
     try {
       await reader.writeEntryToFile(entry, jsonFile);
@@ -387,7 +387,7 @@ class DataExportHandler {
           ? await section.importJson(
               input,
               strategy,
-              mayChangeDefaultSkin: mayChangeDefaultSkin,
+              extensionsAuthorized: extensionsAuthorized,
             )
           : await section.importJson(input, strategy);
     } on ZipReadException catch (e) {
@@ -444,7 +444,7 @@ class DataExportHandler {
       final outcome = await importFromZipFile(
         zipFile,
         strategy,
-        mayChangeDefaultSkin: mayManageExtensions(request),
+        extensionsAuthorized: mayManageExtensions(request),
       );
       return outcome.hasFailures
           ? jsonMultiStatus(outcome.toJson())

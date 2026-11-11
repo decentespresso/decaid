@@ -1619,13 +1619,17 @@ Content-Type: application/json
 
 Only include fields you want to update. Changes take effect immediately.
 
-A body that contains `defaultSkinId` or `webUiPath` changes which skin is served,
-so it needs an `extensions:manage` bearer token. Without one the request is
-refused with 401 or 403 and none of its fields are applied. Other fields need no
-token. Restoring a backup (`POST /api/v1/data/import`) or pulling a sync
+A body that contains `webUiPath` or sets `defaultSkinId` to a skin other than the
+current default changes which skin is served, and one that sets
+`automaticUpdateCheck` to `true` while it is off lets Decaid install skin and
+plugin updates, so these need an `extensions:manage` bearer token. Without one
+the request is refused with 401 or 403 and none of its fields are applied.
+Values already in effect, turning `automaticUpdateCheck` off, and other fields
+need no token. Restoring a backup (`POST /api/v1/data/import`) or pulling a sync
 (`POST /api/v1/data/sync`) without the token imports everything except a
-`defaultSkinId` that differs from the current one, and reports a warning for that
-setting.
+`defaultSkinId` that differs from the current one and an
+`automaticUpdateCheck: true` while automatic updates are off, and reports a
+warning for each skipped setting.
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/settings \
@@ -3761,7 +3765,7 @@ skin's injected account-proxy token, 403.
 | DELETE | `/api/v1/webui/skins/{id}` |
 | POST | `/api/v1/webui/server/start` |
 | POST | `/api/v1/webui/server/stop` |
-| POST | `/api/v1/settings` with `defaultSkinId` or `webUiPath` in the body |
+| POST | `/api/v1/settings` with `webUiPath`, a changed `defaultSkinId` or `automaticUpdateCheck` turned on in the body |
 | POST | `/api/v1/plugins/install`, `/install/github-release`, `/install/github-branch`, `/update` |
 | POST | `/api/v1/plugins/{id}/enable`, `/disable`, `/settings`, `/update/approve` |
 | PUT | `/api/v1/plugins/{id}/source` |

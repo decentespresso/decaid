@@ -239,8 +239,9 @@ tokens section or `--extensions-token`.
   method-specific entries leave plugin endpoints with reserved names alone.
 - The middleware is installed even without a `ProxyTokenService`; then only
   in-process grants pass, so the routes fail closed.
-- Body-dependent gates (`POST /api/v1/settings` with `defaultSkinId` or
-  `webUiPath`, import and pull-sync of `defaultSkinId`) read the middleware's
+- Body-dependent gates (`POST /api/v1/settings` with `webUiPath`, a changed
+  `defaultSkinId` or `automaticUpdateCheck` turned on; import and pull-sync of a
+  changed `defaultSkinId` or `automaticUpdateCheck: true`) read the middleware's
   recorded decision through `requireExtensionManagement` /
   `mayManageExtensions`. A handler reached without the middleware is refused.
 - Plugins with `manage.extensions` get an in-process `ExtensionManagementGrant`

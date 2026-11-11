@@ -4,9 +4,10 @@ Verifies the gate from decaid#1031 by hand: the routes that install, replace,
 configure, enable, disable or remove plugins and skins (and change the default
 skin or the skin server) need `Authorization: Bearer <token>` with the
 `extensions:manage` scope; reading routes stay open; `POST /api/v1/settings`
-needs the token only when it changes the skin; a plugin holding
-`manage.extensions` reaches the routes through `host.localApi`, and a plugin
-without it fails both through `host.localApi` and through plain `fetch`.
+needs the token only when it changes the skin or turns on automatic updates; a
+plugin holding `manage.extensions` reaches the routes through `host.localApi`,
+and a plugin without it fails both through `host.localApi` and through plain
+`fetch`.
 
 The full route table and the 403 case (a valid token of another scope) are
 covered by `test/webserver/extension_management_auth_test.dart`; this scenario
@@ -142,21 +143,54 @@ code "$BASE/api/v1/webui/skins"                            # 200
 code "$BASE/api/v1/webui/server/status"                    # 200
 ```
 
-## 3. Settings: only skin selection needs the token
+## 3. Settings: only skin and automatic-update changes need the token
+
+Record the current values first:
 
 ```bash
-CURRENT=$(curl -sf "$BASE/api/v1/webui/skins/default" | jq -r .id)
-code -X POST "$BASE/api/v1/settings" -H 'content-type: application/json' \
-  -d "{\"defaultSkinId\": \"$CURRENT\"}"                                   # 401
-code -X POST "$BASE/api/v1/settings" -H "$AUTH" -H 'content-type: application/json' \
-  -d "{\"defaultSkinId\": \"$CURRENT\"}"                                   # 200
-LOG_LEVEL=$(curl -sf "$BASE/api/v1/settings" | jq -r .logLevel)
-code -X POST "$BASE/api/v1/settings" -H 'content-type: application/json' \
-  -d "{\"logLevel\": \"$LOG_LEVEL\"}"                                      # 200
+ORIG=$(curl -sf "$BASE/api/v1/settings" | jq -c '{defaultSkinId, automaticUpdateCheck, logLevel}')
+CURRENT=$(jq -r .defaultSkinId <<<"$ORIG")
+AUTO=$(jq -r .automaticUpdateCheck <<<"$ORIG")
+LOG_LEVEL=$(jq -r .logLevel <<<"$ORIG")
+OTHER_LEVEL=$([ "$LOG_LEVEL" = FINE ] && echo INFO || echo FINE)
+settings() { code -X POST "$BASE/api/v1/settings" -H 'content-type: application/json' "$@"; }
 ```
 
-A refused request applies none of its fields, including other keys sent with
-`defaultSkinId`. Re-sending the current values keeps the app as it was.
+Values already in effect and other keys need no token; a different skin,
+`webUiPath`, or turning automatic updates on does, and a refused body applies
+none of its keys:
+
+```bash
+settings -d "{\"defaultSkinId\": \"$CURRENT\"}"                          # 200
+settings -d "{\"logLevel\": \"$LOG_LEVEL\"}"                             # 200
+settings -d "{\"logLevel\": \"$OTHER_LEVEL\", \"defaultSkinId\": \"ext-auth-no-such-skin\"}"   # 401
+settings -d '{"webUiPath": "/tmp/ext-auth"}'                             # 401
+curl -sf "$BASE/api/v1/settings" | jq -r .logLevel                       # $LOG_LEVEL, unchanged
+settings -d '{"automaticUpdateCheck": false}'                            # 200
+settings -d '{"automaticUpdateCheck": true}'                             # 401
+settings -H "$AUTH" -d "{\"automaticUpdateCheck\": $AUTO}"                 # 200
+```
+
+With at least two skins installed, switching the default and switching it back
+both need the token:
+
+```bash
+OTHER=$(curl -sf "$BASE/api/v1/webui/skins" | jq -r --arg c "$CURRENT" \
+  '[.[] | select(.id != $c) | .id][0] // empty')
+if [ -n "$OTHER" ]; then
+  settings -d "{\"defaultSkinId\": \"$OTHER\"}"                          # 401
+  settings -H "$AUTH" -d "{\"defaultSkinId\": \"$OTHER\"}"               # 200
+  settings -d "{\"defaultSkinId\": \"$CURRENT\"}"                        # 401
+  settings -H "$AUTH" -d "{\"defaultSkinId\": \"$CURRENT\"}"             # 200
+fi
+```
+
+The app is now as it was:
+
+```bash
+[ "$(curl -sf "$BASE/api/v1/settings" | jq -c '{defaultSkinId, automaticUpdateCheck, logLevel}')" = "$ORIG" ] \
+  && echo restored                                                       # restored
+```
 
 ## 4. `host.localApi` works only with `manage.extensions`
 
