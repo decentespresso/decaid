@@ -24,6 +24,22 @@ import 'package:reaprime/src/services/account/decent_proxy_service.dart';
 import 'package:reaprime/src/util/safe_path.dart';
 import 'package:reaprime/src/util/user_facing_exception.dart';
 
+const shotUploadPluginSettingsPreferenceKey =
+    'plugin.settings.shot-upload.reaplugin';
+
+Future<bool> persistedShotUploadAutoUploadEnabled() async {
+  try {
+    final raw = (await SharedPreferences.getInstance()).getString(
+      shotUploadPluginSettingsPreferenceKey,
+    );
+    if (raw == null) return false;
+    final decoded = jsonDecode(raw);
+    return decoded is Map && decoded['AutoUpload'] == true;
+  } catch (_) {
+    return false;
+  }
+}
+
 class PluginSettingsValidationException implements Exception {
   final String message;
   PluginSettingsValidationException(this.message);

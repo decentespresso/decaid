@@ -1,3 +1,7 @@
+import 'dart:async';
+import 'dart:ui' show Tristate;
+
+import 'package:flutter/semantics.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -15,12 +19,19 @@ import '../helpers/mock_settings_service.dart';
 
 class _CredentialStore implements CredentialStore {
   final Map<String, String> values = {};
+  bool failReads = false;
+  Completer<void>? readGate;
 
   @override
   Future<void> delete({required String key}) async => values.remove(key);
 
   @override
-  Future<String?> read({required String key}) async => values[key];
+  Future<String?> read({required String key}) async {
+    final gate = readGate;
+    if (gate != null) await gate.future;
+    if (failReads) throw StateError('credential read failed');
+    return values[key];
+  }
 
   @override
   Future<void> write({required String key, required String value}) async {
@@ -51,6 +62,14 @@ class _OrderedSettingsService extends MockSettingsService {
   _OrderedSettingsService({required this.events});
 
   final List<String> events;
+  bool failDecision = false;
+
+  @override
+  Future<void> setShotUploadDecision(bool value) async {
+    events.add('decision:$value');
+    if (failDecision) throw Exception('decision store unavailable');
+    await super.setShotUploadDecision(value);
+  }
 
   @override
   Future<void> setShotUploadOptIn(bool value) async {
@@ -96,6 +115,8 @@ class _Harness {
   _Harness({
     required this.events,
     required this.consent,
+    required this.credentials,
+    required this.settingsService,
     required this.settings,
     required this.controller,
     required this.step,
@@ -103,6 +124,8 @@ class _Harness {
 
   final List<String> events;
   final _RecordingConsentStore consent;
+  final _CredentialStore credentials;
+  final _OrderedSettingsService settingsService;
   final SettingsController settings;
   final OnboardingController controller;
   final OnboardingStep step;
@@ -113,7 +136,10 @@ class _Harness {
 Future<_Harness> _build({
   bool linked = true,
   bool consentFails = false,
+  bool decisionFails = false,
   bool seen = false,
+  bool accountReadFails = false,
+  bool accountReadDelayed = false,
 }) async {
   final events = <String>[];
   final credentials = _CredentialStore();
@@ -121,11 +147,14 @@ Future<_Harness> _build({
     await credentials.write(key: 'email', value: 'user@example.com');
     await credentials.write(key: 'password', value: 'cryptpw');
   }
+  credentials.failReads = accountReadFails;
+  if (accountReadDelayed) credentials.readGate = Completer<void>();
   final consent = _RecordingConsentStore(
     credentialStore: credentials,
     events: events,
   )..failWrites = consentFails;
-  final settingsService = _OrderedSettingsService(events: events);
+  final settingsService = _OrderedSettingsService(events: events)
+    ..failDecision = decisionFails;
   await settingsService.setShotUploadStepSeen(seen);
   events.clear();
   final settings = SettingsController(settingsService);
@@ -137,7 +166,6 @@ Future<_Harness> _build({
   final step = createShotUploadStep(
     accountService: accountService,
     settingsController: settings,
-    consentStore: consent,
   );
   final controller = OnboardingController(
     steps: [
@@ -153,6 +181,8 @@ Future<_Harness> _build({
   return _Harness(
     events: events,
     consent: consent,
+    credentials: credentials,
+    settingsService: settingsService,
     settings: settings,
     controller: controller,
     step: step,
@@ -203,20 +233,7 @@ void main() {
     await _pumpStep(tester, harness);
 
     expect(find.text(shotUploadCopy), findsOneWidget);
-    expect(find.text(shotUploadSerialCopy), findsOneWidget);
     expect(harness.currentStepId, 'shot-upload');
-  });
-
-  testWidgets('serial paragraph is set smaller than the intro copy', (
-    tester,
-  ) async {
-    final harness = await _build();
-    await _pumpStep(tester, harness);
-
-    final intro = tester.widget<Text>(find.text(shotUploadCopy));
-    final serial = tester.widget<Text>(find.text(shotUploadSerialCopy));
-
-    expect(serial.style!.fontSize, lessThan(intro.style!.fontSize!));
   });
 
   testWidgets('the primary action reads Not now until the toggle is on', (
@@ -249,14 +266,14 @@ void main() {
     await _tapContinue(tester);
     await tester.pumpAndSettle();
 
-    expect(harness.events, ['seen:true']);
+    expect(harness.events, ['decision:false']);
     expect(harness.consent.writes, isEmpty);
     expect(harness.settings.shotUploadOptIn, isFalse);
     expect(harness.settings.shotUploadStepSeen, isTrue);
     expect(harness.currentStepId, 'sentinel');
   });
 
-  testWidgets('toggling on writes consent before the opt-in and seen flags', (
+  testWidgets('toggling on persists the decision before writing consent', (
     tester,
   ) async {
     final harness = await _build();
@@ -267,11 +284,8 @@ void main() {
     await _tapContinue(tester);
     await tester.pumpAndSettle();
 
-    expect(harness.events, [
-      'consent:$shotUploadConsentKey:allowed',
-      'optIn:true',
-      'seen:true',
-    ]);
+    expect(harness.events, ['decision:true']);
+    expect(harness.consent.writes, isEmpty);
     expect(harness.settings.shotUploadOptIn, isTrue);
     expect(harness.settings.shotUploadStepSeen, isTrue);
     expect(harness.currentStepId, 'sentinel');
@@ -290,13 +304,13 @@ void main() {
 
     expect(harness.consent.writes, isEmpty);
     expect(harness.settings.shotUploadOptIn, isFalse);
-    expect(harness.events, ['seen:true']);
+    expect(harness.events, ['decision:false']);
   });
 
-  testWidgets('a consent failure keeps the user on the screen and retries', (
+  testWidgets('a decision failure keeps the user on the screen and retries', (
     tester,
   ) async {
-    final harness = await _build(consentFails: true);
+    final harness = await _build(decisionFails: true);
     await _pumpStep(tester, harness);
 
     await _tapToggle(tester);
@@ -308,10 +322,10 @@ void main() {
     expect(find.text('Could not save your choice. Try again.'), findsOneWidget);
     expect(harness.settings.shotUploadOptIn, isFalse);
     expect(harness.settings.shotUploadStepSeen, isFalse);
-    expect(harness.events, ['consent:$shotUploadConsentKey:allowed']);
-    expect(await harness.consent.read(shotUploadConsentKey), isNull);
+    expect(harness.events, ['decision:true']);
+    expect(harness.settings.shotUploadPendingDecision, isNull);
 
-    harness.consent.failWrites = false;
+    harness.settingsService.failDecision = false;
     await _tapContinue(tester);
     await tester.pumpAndSettle();
 
@@ -320,10 +334,78 @@ void main() {
     expect(harness.settings.shotUploadStepSeen, isTrue);
   });
 
+  testWidgets('the switch exposes activation semantics in both directions', (
+    tester,
+  ) async {
+    final harness = await _build();
+    await _pumpStep(tester, harness);
+    final handle = tester.ensureSemantics();
+    final toggleFinder = find.bySemanticsLabel('Upload my shots').at(1);
+    var node = tester.getSemantics(toggleFinder);
+    var data = node.getSemanticsData();
+
+    expect(data.flagsCollection.isToggled, isNot(Tristate.none));
+    expect(data.flagsCollection.isToggled, Tristate.isFalse);
+    expect(data.hasAction(SemanticsAction.tap), isTrue);
+    expect(data.label, 'Upload my shots');
+
+    // ignore: deprecated_member_use
+    tester.binding.pipelineOwner.semanticsOwner!.performAction(
+      node.id,
+      SemanticsAction.tap,
+    );
+    await tester.pump();
+    expect(find.bySemanticsLabel('Continue'), findsOneWidget);
+
+    node = tester.getSemantics(toggleFinder);
+    data = node.getSemanticsData();
+    expect(data.flagsCollection.isToggled, Tristate.isTrue);
+    expect(data.hasAction(SemanticsAction.tap), isTrue);
+
+    // ignore: deprecated_member_use
+    tester.binding.pipelineOwner.semanticsOwner!.performAction(
+      node.id,
+      SemanticsAction.tap,
+    );
+    await tester.pump();
+    expect(find.bySemanticsLabel('Not now'), findsOneWidget);
+    handle.dispose();
+  });
+
   test('shouldShow is false once the step was seen', () async {
     final harness = await _build(seen: true);
 
     expect(await harness.step.shouldShow(), isFalse);
+  });
+
+  testWidgets('account read failure renders retry without flashing the body', (
+    tester,
+  ) async {
+    final harness = await _build(accountReadFails: true);
+    await _pumpStep(tester, harness);
+
+    expect(find.text(shotUploadCopy), findsNothing);
+    expect(
+      find.text('Could not check your account. Try again.'),
+      findsOneWidget,
+    );
+    expect(find.text('Retry'), findsOneWidget);
+    expect(harness.currentStepId, 'shot-upload');
+  });
+
+  testWidgets('delayed account read does not flash the body', (tester) async {
+    final harness = await _build(accountReadDelayed: true);
+    await tester.pumpWidget(
+      ShadApp(home: _StepHost(controller: harness.controller)),
+    );
+    await tester.pump();
+
+    expect(find.text(shotUploadCopy), findsNothing);
+    expect(find.text('Retry'), findsNothing);
+
+    harness.credentials.readGate!.complete();
+    await tester.pumpAndSettle();
+    expect(find.text(shotUploadCopy), findsOneWidget);
   });
 
   testWidgets('no linked account renders nothing and advances', (tester) async {
@@ -358,8 +440,7 @@ void main() {
       final service = _OrderedSettingsService(events: events);
       final settings = SettingsController(service);
       await settings.loadSettings();
-      await settings.setShotUploadStepSeen(seen);
-      await settings.setShotUploadOptIn(optedIn);
+      if (seen) await settings.setShotUploadDecision(optedIn);
       final loader = _SpyPluginLoader()
         ..stored = Map<String, dynamic>.of(stored)
         ..failSave = failSave;
@@ -373,7 +454,14 @@ void main() {
         stored: {'AutoUpload': false},
       );
 
-      await applyShotUploadIntent(settings, loader);
+      await applyShotUploadIntent(
+        settings,
+        loader,
+        consentStore: _RecordingConsentStore(
+          credentialStore: _CredentialStore(),
+          events: [],
+        ),
+      );
 
       expect(loader.reads, 1);
       expect(loader.saves, [
@@ -388,7 +476,14 @@ void main() {
         stored: {'AutoUpload': true},
       );
 
-      await applyShotUploadIntent(settings, loader);
+      await applyShotUploadIntent(
+        settings,
+        loader,
+        consentStore: _RecordingConsentStore(
+          credentialStore: _CredentialStore(),
+          events: [],
+        ),
+      );
 
       expect(loader.saves, isEmpty);
     });
@@ -400,7 +495,11 @@ void main() {
         stored: {'AutoUpload': false},
       );
 
-      await applyShotUploadIntent(settings, loader);
+      final consent = _RecordingConsentStore(
+        credentialStore: _CredentialStore(),
+        events: [],
+      );
+      await applyShotUploadIntent(settings, loader, consentStore: consent);
 
       expect(loader.saves, [
         {'AutoUpload': true},
@@ -430,7 +529,7 @@ void main() {
         await applyShotUploadIntent(settings, loader);
 
         expect(
-          settings.shotUploadOptIn,
+          settings.shotUploadPendingDecision,
           isTrue,
           reason: 'the retry needs the answer until it lands',
         );
@@ -444,7 +543,14 @@ void main() {
         stored: {'AutoUpload': true},
       );
 
-      await applyShotUploadIntent(settings, loader);
+      await applyShotUploadIntent(
+        settings,
+        loader,
+        consentStore: _RecordingConsentStore(
+          credentialStore: _CredentialStore(),
+          events: [],
+        ),
+      );
 
       expect(loader.saves, [
         {'AutoUpload': false},
@@ -464,6 +570,64 @@ void main() {
       expect(loader.saves, isEmpty);
       expect(loader.stored['AutoUpload'], isTrue);
     });
+
+    test('passes consent only during the plugin handoff', () async {
+      final (settings, loader) = await intentHarness(
+        seen: true,
+        optedIn: true,
+        stored: {'AutoUpload': false},
+      );
+      final consent = _RecordingConsentStore(
+        credentialStore: _CredentialStore(),
+        events: [],
+      );
+
+      await applyShotUploadIntent(settings, loader, consentStore: consent);
+
+      expect(consent.writes, ['$shotUploadConsentKey:allowed']);
+      expect(settings.shotUploadPendingDecision, isNull);
+    });
+
+    test('does not consume enabled intent without a consent store', () async {
+      final (settings, loader) = await intentHarness(
+        seen: true,
+        optedIn: true,
+        stored: {'AutoUpload': false},
+      );
+
+      await applyShotUploadIntent(settings, loader);
+
+      expect(loader.saves, [
+        {'AutoUpload': true},
+      ]);
+      expect(settings.shotUploadPendingDecision, isTrue);
+      expect(loader.suppressed, [shotUploadPluginId]);
+    });
+
+    test(
+      'disabled intent does not mutate an existing consent decision',
+      () async {
+        final (settings, loader) = await intentHarness(
+          seen: true,
+          optedIn: false,
+          stored: {'AutoUpload': true},
+        );
+        final consent = _RecordingConsentStore(
+          credentialStore: _CredentialStore(),
+          events: [],
+        );
+        await consent.write(
+          shotUploadConsentKey,
+          AccountConsentDecision.denied,
+        );
+        consent.writes.clear();
+
+        await applyShotUploadIntent(settings, loader, consentStore: consent);
+
+        expect(consent.writes, isEmpty);
+        expect(settings.shotUploadPendingDecision, isNull);
+      },
+    );
 
     test('suppresses the plugin when the write fails', () async {
       final (settings, loader) = await intentHarness(

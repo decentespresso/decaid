@@ -42,6 +42,7 @@ class MockSettingsService extends SettingsService {
   bool _onboardingCompleted = true;
   bool _shotUploadStepSeen = true;
   bool _shotUploadOptIn = false;
+  bool? _shotUploadPendingDecision;
   bool _accountStepSeen = true;
   bool _androidWarningDismissed = true;
   bool _showSkinExitInstructions = false;
@@ -246,6 +247,17 @@ class MockSettingsService extends SettingsService {
   Future<void> setShotUploadOptIn(bool value) async => _shotUploadOptIn = value;
   @override
   Future<void> clearShotUploadOptIn() async => _shotUploadOptIn = false;
+  @override
+  Future<bool?> shotUploadPendingDecision() async => _shotUploadPendingDecision;
+  @override
+  Future<void> setShotUploadDecision(bool value) async {
+    _shotUploadPendingDecision = value;
+    _shotUploadStepSeen = true;
+  }
+
+  @override
+  Future<void> clearShotUploadPendingDecision() async =>
+      _shotUploadPendingDecision = null;
   @override
   Future<bool> accountStepSeen() async => _accountStepSeen;
   @override

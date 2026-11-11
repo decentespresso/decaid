@@ -71,6 +71,7 @@ class SettingsController with ChangeNotifier {
   bool _accountStepSeen = false;
   bool _shotUploadStepSeen = false;
   bool _shotUploadOptIn = false;
+  bool? _shotUploadPendingDecision;
   bool _androidWarningDismissed = false;
   bool _showSkinExitInstructions = true;
   bool _enableSimulatedWebViews = false;
@@ -112,6 +113,7 @@ class SettingsController with ChangeNotifier {
   bool get onboardingCompleted => _onboardingCompleted;
   bool get shotUploadStepSeen => _shotUploadStepSeen;
   bool get shotUploadOptIn => _shotUploadOptIn;
+  bool? get shotUploadPendingDecision => _shotUploadPendingDecision;
   bool get accountStepSeen => _accountStepSeen;
   bool get androidWarningDismissed => _androidWarningDismissed;
   bool get showSkinExitInstructions => _showSkinExitInstructions;
@@ -164,6 +166,8 @@ class SettingsController with ChangeNotifier {
     _accountStepSeen = await _settingsService.accountStepSeen();
     _shotUploadStepSeen = await _settingsService.shotUploadStepSeen();
     _shotUploadOptIn = await _settingsService.shotUploadOptIn();
+    _shotUploadPendingDecision = await _settingsService
+        .shotUploadPendingDecision();
     _androidWarningDismissed = await _settingsService.androidWarningDismissed();
     _showSkinExitInstructions = await _settingsService
         .showSkinExitInstructions();
@@ -498,8 +502,21 @@ class SettingsController with ChangeNotifier {
     notifyListeners();
   }
 
-  // One-shot onboarding answer: cleared once it has been applied to the plugin,
-  // so the plugin setting is authoritative from then on.
+  Future<void> setShotUploadDecision(bool value) async {
+    await _settingsService.setShotUploadDecision(value);
+    _shotUploadPendingDecision = value;
+    _shotUploadStepSeen = true;
+    _shotUploadOptIn = value;
+    notifyListeners();
+  }
+
+  Future<void> clearShotUploadPendingDecision() async {
+    await _settingsService.clearShotUploadPendingDecision();
+    _shotUploadPendingDecision = null;
+    _shotUploadOptIn = false;
+    notifyListeners();
+  }
+
   Future<void> clearShotUploadOptIn() async {
     await _settingsService.clearShotUploadOptIn();
     _shotUploadOptIn = false;

@@ -244,6 +244,23 @@ Future<void> persistSkinPortAssignments(Map<String, int> assignments) async {
   );
 }
 
+Future<void> prepareShotUploadStartup(
+  SettingsController settings, {
+  required bool forceOnboarding,
+  required bool bypassOnboarding,
+}) async {
+  if (!settings.shotUploadStepSeen &&
+      await persistedShotUploadAutoUploadEnabled()) {
+    await settings.setShotUploadStepSeen(true);
+  }
+  if (bypassOnboarding && !forceOnboarding) {
+    await settings.setShotUploadStepSeen(true);
+  }
+  if (forceOnboarding) {
+    await settings.setShotUploadStepSeen(false);
+  }
+}
+
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   if (Platform.isWindows) await initializeWindowsPreferences();
@@ -762,6 +779,11 @@ void main(List<String> args) async {
     };
   });
   await settingsController.loadSettings();
+  await prepareShotUploadStartup(
+    settingsController,
+    forceOnboarding: cliArgs.forceOnboarding,
+    bypassOnboarding: cliArgs.bypassOnboarding,
+  );
   if (macosUpdater != null) {
     try {
       await macosUpdater.configure(
@@ -790,16 +812,12 @@ void main(List<String> args) async {
     await settingsController.setOnboardingCompleted(true);
     await settingsController.setAccountStepSeen(true);
     await settingsController.setAndroidWarningDismissed(true);
-    await settingsController.setShotUploadStepSeen(true);
   }
   if (cliArgs.forceOnboarding) {
     log.info('--force-onboarding: re-arming onboarding screens');
     await settingsController.setOnboardingCompleted(false);
     await settingsController.setAccountStepSeen(false);
     await settingsController.setAndroidWarningDismissed(false);
-    // The opt-in answer survives a forced onboarding run: clearing it would
-    // silently change what the installed plugin does.
-    await settingsController.setShotUploadStepSeen(false);
   }
   if (cliArgs.skinId != null) {
     log.info('--skin: setting default skin to ${cliArgs.skinId}');

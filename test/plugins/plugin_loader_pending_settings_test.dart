@@ -73,6 +73,30 @@ function createPlugin(host) {
     tempDir.deleteSync(recursive: true);
   });
 
+  test(
+    'legacy shot upload preference helper reads only true AutoUpload',
+    () async {
+      SharedPreferences.setMockInitialValues({
+        'plugin.settings.shot-upload.reaplugin': jsonEncode({
+          'AutoUpload': true,
+        }),
+      });
+      expect(await persistedShotUploadAutoUploadEnabled(), isTrue);
+
+      SharedPreferences.setMockInitialValues({
+        'plugin.settings.shot-upload.reaplugin': jsonEncode({
+          'AutoUpload': false,
+        }),
+      });
+      expect(await persistedShotUploadAutoUploadEnabled(), isFalse);
+
+      SharedPreferences.setMockInitialValues({
+        'plugin.settings.shot-upload.reaplugin': true,
+      });
+      expect(await persistedShotUploadAutoUploadEnabled(), isFalse);
+    },
+  );
+
   test('the hook runs after the manifest scan and before autoload', () async {
     install(_first, withSetting: true);
     SharedPreferences.setMockInitialValues({'plugin.autoload.$_first': true});

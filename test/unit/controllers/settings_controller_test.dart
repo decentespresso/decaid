@@ -1,4 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/main.dart';
+import 'package:reaprime/src/plugins/plugin_loader_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:reaprime/src/services/android_updater.dart';
 import 'package:reaprime/src/settings/feature_flags.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
@@ -425,6 +428,114 @@ void main() {
     });
   });
 
+  group('shot upload startup preparation', () {
+    Future<SettingsController> settingsWithSeen(bool seen) async {
+      final service = MockSettingsService();
+      await service.setShotUploadStepSeen(seen);
+      final settings = SettingsController(service);
+      await settings.loadSettings();
+      return settings;
+    }
+
+    setUp(() {
+      SharedPreferences.resetStatic();
+    });
+
+    test('only true legacy AutoUpload migrates an unseen user', () async {
+      for (final raw in [
+        null,
+        '{bad',
+        '[]',
+        'null',
+        '"true"',
+        'false',
+        '{"AutoUpload":1}',
+        '{"AutoUpload":"true"}',
+        '{"AutoUpload":false}',
+      ]) {
+        SharedPreferences.setMockInitialValues(
+          raw == null
+              ? <String, Object>{}
+              : {'plugin.settings.shot-upload.reaplugin': raw},
+        );
+        final settings = await settingsWithSeen(false);
+        await prepareShotUploadStartup(
+          settings,
+          forceOnboarding: false,
+          bypassOnboarding: false,
+        );
+        expect(settings.shotUploadStepSeen, isFalse, reason: '$raw');
+      }
+
+      SharedPreferences.setMockInitialValues({
+        'plugin.settings.shot-upload.reaplugin':
+            '{"AutoUpload":true,"autoload":false}',
+      });
+      final settings = await settingsWithSeen(false);
+      await prepareShotUploadStartup(
+        settings,
+        forceOnboarding: false,
+        bypassOnboarding: false,
+      );
+      expect(settings.shotUploadStepSeen, isTrue);
+    });
+
+    test(
+      'seen state survives restart and force/bypass are deterministic',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final service = MockSettingsService();
+        await service.setShotUploadStepSeen(false);
+        final first = SettingsController(service);
+        await first.loadSettings();
+        await prepareShotUploadStartup(
+          first,
+          forceOnboarding: false,
+          bypassOnboarding: true,
+        );
+        final second = SettingsController(service);
+        await second.loadSettings();
+        expect(second.shotUploadStepSeen, isTrue);
+
+        await prepareShotUploadStartup(
+          second,
+          forceOnboarding: true,
+          bypassOnboarding: false,
+        );
+        expect(second.shotUploadStepSeen, isFalse);
+        await prepareShotUploadStartup(
+          second,
+          forceOnboarding: true,
+          bypassOnboarding: true,
+        );
+        expect(second.shotUploadStepSeen, isFalse);
+      },
+    );
+
+    test(
+      'migration does not alter an existing answer or plugin flags',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          'plugin.settings.shot-upload.reaplugin':
+              '{"AutoUpload":true,"autoload":false}',
+        });
+        final service = MockSettingsService();
+        await service.setShotUploadStepSeen(true);
+        await service.setShotUploadOptIn(true);
+        final settings = SettingsController(service);
+        await settings.loadSettings();
+        await prepareShotUploadStartup(
+          settings,
+          forceOnboarding: false,
+          bypassOnboarding: false,
+        );
+        expect(settings.shotUploadStepSeen, isTrue);
+        expect(settings.shotUploadOptIn, isTrue);
+        expect(await persistedShotUploadAutoUploadEnabled(), isTrue);
+      },
+    );
+  });
+
   group('shot upload onboarding preferences', () {
     test('loads both keys from the settings service', () async {
       final service = MockSettingsService();
@@ -453,6 +564,35 @@ void main() {
       expect(controller.shotUploadStepSeen, isTrue);
     });
 
+    test('persists a pending decision and completion together', () async {
+      final spy = _ShotUploadSpy();
+      final controller = SettingsController(spy);
+      await controller.loadSettings();
+
+      await controller.setShotUploadDecision(false);
+
+      expect(spy.calls, ['decision:false']);
+      expect(controller.shotUploadStepSeen, isTrue);
+      expect(controller.shotUploadPendingDecision, isFalse);
+    });
+
+    test(
+      'a consumed decision is not replayed by a reconstructed controller',
+      () async {
+        final spy = _ShotUploadSpy();
+        final first = SettingsController(spy);
+        await first.loadSettings();
+        await first.setShotUploadDecision(true);
+        await first.clearShotUploadPendingDecision();
+
+        final second = SettingsController(spy);
+        await second.loadSettings();
+
+        expect(second.shotUploadStepSeen, isTrue);
+        expect(second.shotUploadPendingDecision, isNull);
+      },
+    );
+
     test('a failed persist leaves the in-memory value retryable', () async {
       final spy = _ShotUploadSpy();
       final controller = SettingsController(spy);
@@ -477,6 +617,20 @@ void main() {
 class _ShotUploadSpy extends MockSettingsService {
   final List<String> calls = [];
   bool failWrites = false;
+
+  @override
+  Future<void> setShotUploadDecision(bool value) async {
+    calls.add('decision:$value');
+    if (failWrites) throw Exception('write failed');
+    return super.setShotUploadDecision(value);
+  }
+
+  @override
+  Future<void> clearShotUploadPendingDecision() async {
+    calls.add('clear');
+    if (failWrites) throw Exception('write failed');
+    return super.clearShotUploadPendingDecision();
+  }
 
   @override
   Future<void> setShotUploadOptIn(bool value) async {

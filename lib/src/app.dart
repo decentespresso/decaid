@@ -165,6 +165,7 @@ class _MyAppState extends State<MyApp> {
         applyShotUploadIntent(
           widget.settingsController,
           widget.pluginLoaderService,
+          consentStore: widget.accountConsentStore,
         );
     _notificationActions = NotificationActions(
       center: widget.pluginLoaderService.pluginManager.notifications,
@@ -199,7 +200,6 @@ class _MyAppState extends State<MyApp> {
           createShotUploadStep(
             accountService: widget.decentAccountService!,
             settingsController: widget.settingsController,
-            consentStore: widget.accountConsentStore!,
           ),
         createPermissionsStep(de1Controller: widget.de1Controller),
         createInitializationStep(
