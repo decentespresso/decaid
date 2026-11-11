@@ -17,7 +17,7 @@ flutter test                                   # All tests
 flutter test test/path/to_test.dart            # Specific file
 flutter test --name "test pattern"             # Specific test
 flutter analyze                                # Static analysis
-dart format <changed dart files>               # Format; never the whole tree (see AGENTS.md)
+# Format changed Dart files: see AGENTS.md -> Verification step 1.
 
 # Build (Linux via Docker/Colima)
 make build-arm                                 # ARM64 binary
@@ -173,9 +173,9 @@ the primary checkout; `git worktree add` does not copy it.
 
 ## CLI Parameters
 
-The app supports several command-line flags for headless/calibration-station use. See PR #349 and #352 for full details.
+The app supports several command-line flags for headless/calibration-station use. See PR #349 and #352 for full details. This is an option catalogue, not a runnable script: pass the flags separately as described below the list.
 
-```bash
+```text
 ./flutter_with_commit.sh run --dart-define=simulate=1 \
   --serial                    # Serial-only mode; skip BLE service creation
   --bypass-onboarding         # Skip onboarding, go straight to launcher
@@ -216,7 +216,7 @@ Prefer `reload` over `hot-restart` — state is preserved.
 ```sh
 flutter analyze          # Minimum before any commit
 flutter test             # Full suite before commit/PR
-dart format <changed dart files>  # Format check; CI checks only the files the PR changed
+# Format changed Dart files: see AGENTS.md -> Verification step 1.
 ```
 
 ## Keeping Notes Fresh

@@ -26,7 +26,7 @@ Thanks for contributing. This guide tells you what's required to land a PR — i
 
 ## Local Setup
 
-Requirements: Flutter 3.47.9 (project/CI development version; see [README prerequisites](README.md#prerequisites) for the Dart SDK constraint), the [GitHub CLI](https://cli.github.com) (`gh`, authenticated — used to fetch the DYE2 bundled plugin), `jq` (validates the fetched plugin's manifest).
+Requirements: the Flutter SDK pinned in `.github/workflows/pr-checks.yml` (restated in [README prerequisites](README.md#prerequisites) along with the Dart SDK constraint), the [GitHub CLI](https://cli.github.com) (`gh`, authenticated — used to fetch the DYE2 bundled plugin), `jq` (validates the fetched plugin's manifest).
 
 ```bash
 flutter pub get
@@ -92,7 +92,7 @@ flutter test                             # all must pass
 ./scripts/fetch_dye2_plugin.sh           # assets/plugins/dye2.reaplugin/ must exist
 ```
 
-`dart format` is **enforced** in CI on the Dart files your PR changed, using the SDK pinned in `.github/workflows/pr-checks.yml`. Format only your own changes — `git diff --name-only --diff-filter=ACMR -z HEAD -- '*.dart' | xargs -0 -r dart format --` — and don't reformat untouched files in the same PR. A local SDK that differs from the pinned one reflows code CI would leave alone, so check out the pinned version (see [README prerequisites](README.md#prerequisites)) instead of matching your local formatter.
+`dart format` is **enforced** in CI on the Dart files your PR changed, using the SDK pinned in `.github/workflows/pr-checks.yml`. Use the merge-base-plus-untracked Dart formatting command in [`AGENTS.md` → Verification, step 1](AGENTS.md#verification) so in-progress edits and committed branch changes are covered without reformatting untouched files. A local SDK that differs from the pinned one reflows code CI would leave alone, so check out the pinned version (see [README prerequisites](README.md#prerequisites)) instead of matching your local formatter.
 
 ### 5. Architecture Boundaries (required)
 

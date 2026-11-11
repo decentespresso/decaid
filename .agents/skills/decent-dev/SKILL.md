@@ -30,7 +30,8 @@ do not: the local loop's sharp edges.
 ## The local gate
 
 ```bash
-git diff --name-only --diff-filter=ACMR -z HEAD -- '*.dart' | xargs -0 -r dart format --
+base="$(git merge-base origin/main HEAD)"
+{ git diff --name-only --diff-filter=ACMR -z "$base" -- '*.dart'; git ls-files -z --others --exclude-standard -- '*.dart'; } | xargs -0 -r dart format --
 flutter analyze
 flutter test                  # full suite before claiming done
 ```
@@ -45,8 +46,10 @@ CI enforces formatting. The `Dart format check` step in `.github/workflows/pr-ch
 `dart format --set-exit-if-changed` over the Dart files the PR **changed**, with the Flutter SDK that
 workflow pins. So:
 
-- Format the files you changed, not the tree. `dart format lib test` rewrites every file in both
-  directories with whatever formatter your local SDK ships.
+- Use the merge-base-plus-untracked command in [`AGENTS.md` → Verification, step 1](../../../AGENTS.md#verification)
+  to format the files changed since the PR target branch, including committed branch changes and
+  untracked files. Do not use `dart format lib test`; it rewrites every file in both directories with
+  whatever formatter your local SDK ships.
 - Do not restate the SDK version in prose. The workflow `flutter-version` is authoritative and
   `README.md` prerequisites restate it for humans; if the two ever disagree, the workflow wins.
 - Local and CI SDKs drift independently. A newer local formatter reflows code CI would leave alone, and

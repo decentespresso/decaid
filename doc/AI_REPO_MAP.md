@@ -52,7 +52,7 @@ flutter test                                  # All tests
 flutter test test/path/to/test.dart           # Specific file
 flutter test --name "test pattern"            # Specific test
 flutter analyze                               # Static analysis
-dart format <changed dart files>              # Format; never the whole tree (see AGENTS.md)
+# Format changed Dart files: see AGENTS.md -> Verification step 1.
 ```
 
 API smoke test: `scripts/sb-dev.sh start` then `curl` / `websocat` per `.agents/skills/decent-app/verification.md`.
