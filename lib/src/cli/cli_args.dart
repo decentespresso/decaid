@@ -1,5 +1,7 @@
 import 'package:args/args.dart';
 
+const extensionsTokenEnvironmentVariable = 'DECAID_EXTENSIONS_TOKEN';
+
 class CliArgs {
   final bool serial;
   final bool bypassOnboarding;
@@ -10,6 +12,7 @@ class CliArgs {
   final Set<String> trustedConsentKeys;
   final bool trustAllConsent;
   final String? extensionsToken;
+  final String? extensionsTokenSource;
   final String? skinId;
   final String? skinPath;
 
@@ -23,12 +26,16 @@ class CliArgs {
     this.trustedConsentKeys = const {},
     this.trustAllConsent = false,
     this.extensionsToken,
+    this.extensionsTokenSource,
     this.skinId,
     this.skinPath,
   });
 }
 
-CliArgs parseCliArgs(List<String> args) {
+CliArgs parseCliArgs(
+  List<String> args, {
+  Map<String, String> environment = const {},
+}) {
   final parser = ArgParser()
     ..addFlag('serial', help: 'Serial-only mode; skip BLE service creation.')
     ..addFlag(
@@ -73,10 +80,15 @@ CliArgs parseCliArgs(List<String> args) {
           'Accept this bearer token for plugin and skin management '
           '(extensions:manage) for this process. At least 32 characters, '
           'no spaces or commas; '
-          'not persisted. For headless and development use.',
+          'not persisted. For headless and development use. Other local '
+          'users can read command-line arguments; set '
+          '$extensionsTokenEnvironmentVariable instead to keep the value out '
+          'of them.',
     );
 
   final results = parser.parse(args);
+  final flagToken = results['extensions-token'] as String?;
+  final environmentToken = environment[extensionsTokenEnvironmentVariable];
   return CliArgs(
     serial: results['serial'] as bool,
     bypassOnboarding: results['bypass-onboarding'] as bool,
@@ -86,7 +98,12 @@ CliArgs parseCliArgs(List<String> args) {
     printStoragePaths: results['print-storage-paths'] as bool,
     trustedConsentKeys: (results['trust-consent'] as List<String>).toSet(),
     trustAllConsent: results['trust-all-consent'] as bool,
-    extensionsToken: results['extensions-token'] as String?,
+    extensionsToken: flagToken ?? environmentToken,
+    extensionsTokenSource: flagToken != null
+        ? '--extensions-token'
+        : environmentToken != null
+        ? extensionsTokenEnvironmentVariable
+        : null,
     skinId: results['skin'] as String?,
     skinPath: results['skin-path'] as String?,
   );

@@ -246,7 +246,7 @@ Future<void> persistSkinPortAssignments(Map<String, int> assignments) async {
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   if (Platform.isWindows) await initializeWindowsPreferences();
-  final cliArgs = parseCliArgs(args);
+  final cliArgs = parseCliArgs(args, environment: Platform.environment);
   if (cliArgs.printStoragePaths) {
     await _printStoragePaths();
   }
@@ -524,14 +524,14 @@ void main(List<String> args) async {
   if (extensionsToken != null &&
       !proxyTokenService.registerProcessToken(
         extensionsToken,
-        const ProxyCaller(
+        ProxyCaller(
           id: 'cli',
-          scopes: {ProxyTokenService.scopeExtensionsManage},
-          label: '--extensions-token',
+          scopes: const {ProxyTokenService.scopeExtensionsManage},
+          label: cliArgs.extensionsTokenSource,
         ),
       )) {
     log.severe(
-      '--extensions-token ignored: it must be at least '
+      '${cliArgs.extensionsTokenSource} ignored: it must be at least '
       '${ProxyTokenService.minimumProcessTokenLength} characters with no '
       'spaces or commas',
     );

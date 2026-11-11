@@ -89,6 +89,36 @@ void main() {
       expect(args.extensionsToken, 'separate-value');
     });
 
+    test('--extensions-token is named as the source of its value', () {
+      final args = parseCliArgs(['--extensions-token=${'e' * 40}']);
+      expect(args.extensionsTokenSource, '--extensions-token');
+    });
+
+    test('DECAID_EXTENSIONS_TOKEN supplies the token without an argument', () {
+      final token = 'v' * 40;
+      final args = parseCliArgs(
+        [],
+        environment: {extensionsTokenEnvironmentVariable: token},
+      );
+      expect(args.extensionsToken, token);
+      expect(args.extensionsTokenSource, 'DECAID_EXTENSIONS_TOKEN');
+    });
+
+    test('--extensions-token wins over DECAID_EXTENSIONS_TOKEN', () {
+      final args = parseCliArgs(
+        ['--extensions-token=${'f' * 40}'],
+        environment: {extensionsTokenEnvironmentVariable: 'v' * 40},
+      );
+      expect(args.extensionsToken, 'f' * 40);
+      expect(args.extensionsTokenSource, '--extensions-token');
+    });
+
+    test('no token source without the flag or the variable', () {
+      final args = parseCliArgs([], environment: {'PATH': '/usr/bin'});
+      expect(args.extensionsToken, isNull);
+      expect(args.extensionsTokenSource, isNull);
+    });
+
     test('all flags combined', () {
       final args = parseCliArgs([
         '--serial',
