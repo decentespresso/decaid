@@ -37,7 +37,12 @@ For non-trivial features or fixes, write a plan in `doc/plans/`. Seek approval f
 ### Verification
 
 After every meaningful code change:
-1. Format only the Dart files you changed: `git diff --name-only --diff-filter=ACMR -z HEAD -- '*.dart' | xargs -0 -r dart format --`. CI's `Dart format check` enforces `dart format` on the PR's changed Dart files with the SDK pinned in `.github/workflows/pr-checks.yml`, so a repo-wide `dart format lib test` under a different local SDK produces unrelated churn and does not describe what CI checks. That pinned version (restated in `README.md` prerequisites) is authoritative; if the local formatter and CI disagree, switch SDKs rather than reformatting untouched files.
+1. Format the Dart files changed since the PR's target branch (normally `origin/main`) plus untracked Dart files. If the PR targets another branch, replace `origin/main` with that branch's remote ref:
+   ```bash
+   base="$(git merge-base origin/main HEAD)"
+   { git diff --name-only --diff-filter=ACMR -z "$base" -- '*.dart'; git ls-files -z --others --exclude-standard -- '*.dart'; } | xargs -0 -r dart format --
+   ```
+   CI's `Dart format check` enforces `dart format` only on the PR's changed Dart files with the pinned SDK from `.github/workflows/pr-checks.yml`, so a repo-wide `dart format lib test` under a different local SDK produces unrelated churn and does not describe what CI checks. That pinned version (restated in `README.md` prerequisites) is authoritative; if the local formatter and CI disagree, switch SDKs rather than reformatting untouched files.
 2. Run relevant tests + `flutter analyze`. Fix immediately if anything fails.
 3. Run full `flutter test` before committing and before claiming done.
 4. Evidence before assertions — show test output, not just "tests pass."
