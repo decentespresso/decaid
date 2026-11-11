@@ -184,7 +184,7 @@ Future<void> _tapToggle(WidgetTester tester) async {
 }
 
 Future<void> _tapContinue(WidgetTester tester) async {
-  final button = find.text('Continue');
+  final button = find.byType(ShadButton);
   await tester.ensureVisible(button);
   await tester.pumpAndSettle();
   await tester.tap(button);
@@ -217,6 +217,27 @@ void main() {
     final serial = tester.widget<Text>(find.text(shotUploadSerialCopy));
 
     expect(serial.style!.fontSize, lessThan(intro.style!.fontSize!));
+  });
+
+  testWidgets('the primary action reads Not now until the toggle is on', (
+    tester,
+  ) async {
+    final harness = await _build();
+    await _pumpStep(tester, harness);
+
+    expect(find.text('Not now'), findsOneWidget);
+    expect(find.text('Continue'), findsNothing);
+
+    await _tapToggle(tester);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Continue'), findsOneWidget);
+    expect(find.text('Not now'), findsNothing);
+
+    await _tapToggle(tester);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Not now'), findsOneWidget);
   });
 
   testWidgets('continue with the toggle untouched persists off', (

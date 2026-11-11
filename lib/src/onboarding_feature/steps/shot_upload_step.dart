@@ -133,6 +133,7 @@ class _ShotUploadStepViewState extends State<_ShotUploadStepView> {
   @override
   Widget build(BuildContext context) {
     final theme = ShadTheme.of(context);
+    final primaryLabel = _optedIn ? 'Continue' : 'Not now';
 
     return OnboardingScaffold(
       title: 'Shot upload',
@@ -187,11 +188,11 @@ class _ShotUploadStepViewState extends State<_ShotUploadStepView> {
         ],
       ],
       primaryAction: AccessibleButton(
-        label: 'Continue',
+        label: primaryLabel,
         onTap: _committing ? null : _continue,
         child: ShadButton(
           onPressed: _committing ? null : _continue,
-          child: const Text('Continue'),
+          child: Text(primaryLabel),
         ),
       ),
     );
