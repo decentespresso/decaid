@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -27,6 +28,26 @@ const _skinWarning =
 const _automaticUpdateWarning =
     'automaticUpdateCheck was not turned on: automatic plugin and skin '
     'updates require extensions:manage authorization.';
+
+class _PausableSettingsService extends MockSettingsService {
+  Completer<void>? _gatewayWriteStarted;
+  Completer<void>? _gatewayWriteMayFinish;
+
+  Future<void> pauseNextGatewayWrite() {
+    _gatewayWriteMayFinish = Completer<void>();
+    return (_gatewayWriteStarted = Completer<void>()).future;
+  }
+
+  void resumeGatewayWrite() => _gatewayWriteMayFinish?.complete();
+
+  @override
+  Future<void> updateGatewayMode(GatewayMode mode) async {
+    _gatewayWriteStarted?.complete();
+    _gatewayWriteStarted = null;
+    await _gatewayWriteMayFinish?.future;
+    await super.updateGatewayMode(mode);
+  }
+}
 
 class _RecordingWebUIStorage extends Fake implements WebUIStorage {
   final List<String> calls = [];
@@ -71,6 +92,7 @@ List<int> _settingsArchive(Map<String, dynamic> settings) {
 
 void main() {
   late Directory tempDir;
+  late _PausableSettingsService settingsService;
   late SettingsController settings;
   late _RecordingWebUIStorage storage;
   late _RecordingWebUIService webUi;
@@ -120,7 +142,8 @@ void main() {
 
   setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('extension_mgmt_settings');
-    settings = SettingsController(MockSettingsService());
+    settingsService = _PausableSettingsService();
+    settings = SettingsController(settingsService);
     await settings.loadSettings();
     storage = _RecordingWebUIStorage();
     webUi = _RecordingWebUIService();
@@ -322,6 +345,32 @@ void main() {
       );
       expect(reply.status, 200, reason: '$reply');
       expect(settings.automaticUpdateCheck, isFalse);
+    });
+
+    test('values that stop being current during the request are not '
+        'written back', () async {
+      await settings.setAutomaticUpdateCheck(true);
+      final gatewayWriteStarted = settingsService.pauseNextGatewayWrite();
+      final pending = send(
+        'POST',
+        '/api/v1/settings',
+        json: {
+          'gatewayMode': 'full',
+          'automaticUpdateCheck': true,
+          'defaultSkinId': _currentSkinId,
+        },
+      );
+      await gatewayWriteStarted;
+      await settings.setAutomaticUpdateCheck(false);
+      await settings.setDefaultSkinId(_otherSkinId);
+      settingsService.resumeGatewayWrite();
+
+      final reply = await pending;
+      expect(reply.status, 200, reason: '$reply');
+      expect(settings.gatewayMode, GatewayMode.full);
+      expect(settings.automaticUpdateCheck, isFalse);
+      expect(settings.defaultSkinId, _otherSkinId);
+      expect(storage.calls, isEmpty);
     });
 
     test('sending the values already in effect needs no bearer', () async {

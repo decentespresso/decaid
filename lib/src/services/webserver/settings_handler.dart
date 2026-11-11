@@ -80,6 +80,7 @@ class SettingsHandler {
       final enablesAutomaticUpdates =
           json['automaticUpdateCheck'] == true &&
           !_controller.automaticUpdateCheck;
+      final extensionsAuthorized = mayManageExtensions(request);
       if (changesSkin || enablesAutomaticUpdates) {
         final denial = requireExtensionManagement(
           request,
@@ -208,7 +209,7 @@ class SettingsHandler {
           });
         }
       }
-      if (json.containsKey('defaultSkinId')) {
+      if (extensionsAuthorized && json.containsKey('defaultSkinId')) {
         final value = json['defaultSkinId'];
         if (value is String) {
           try {
@@ -225,7 +226,9 @@ class SettingsHandler {
       if (json.containsKey('automaticUpdateCheck')) {
         final value = json['automaticUpdateCheck'];
         if (value is bool) {
-          await _controller.setAutomaticUpdateCheck(value);
+          if (extensionsAuthorized || !value) {
+            await _controller.setAutomaticUpdateCheck(value);
+          }
         } else {
           return jsonBadRequest({
             'message': 'automaticUpdateCheck must be a boolean',
