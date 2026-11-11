@@ -147,11 +147,14 @@ class WebUIService {
   final Duration _wifiIpResolutionTimeout;
   HttpServer? _server;
   HttpServer? _entryServer;
+  final Map<int, HttpServer> _aliasServers = {};
   Map<String, int>? _skinPortAssignments;
+  int _entryPort = 3000;
   int port = 3000;
   final ValueNotifier<int> _serveGeneration = ValueNotifier<int>(0);
   String _path = "";
   String? _localIP;
+  String? _activeSkinIdentity;
 
   @visibleForTesting
   static Future<String?> Function() resolveWifiIP = NetworkInfo().getWifiIP;
@@ -360,20 +363,24 @@ class WebUIService {
         .addHandler(skinHandler);
 
     try {
-      if (tokenProvider != null) skinProxyToken = tokenProvider(path);
       final identityProvider = skinIdentityProvider;
       final identity = identityProvider == null ? path : identityProvider(path);
+      _activeSkinIdentity = identity;
+      if (tokenProvider != null) skinProxyToken = tokenProvider(path);
       _server = await _serveStable(handler, identity);
       this.port = _server!.port;
       await _serveEntryPoint(port);
+      await _reconcileAliasServers();
       _log.fine("serving $path");
       _path = path;
       _serveGeneration.value++;
     } catch (e, st) {
       await _server?.close(force: true);
       await _entryServer?.close(force: true);
+      await _closeAliasServers();
       _server = null;
       _entryServer = null;
+      _activeSkinIdentity = null;
       _revokeSkinProxyToken();
       _log.severe("failed to start serving", e, st);
       rethrow;
@@ -462,6 +469,7 @@ class WebUIService {
     }
     final assigned = assignments[identity];
     if (assigned != null) {
+      await _closeAliasServer(assigned);
       final server = await _bindAssignedSkinPort(handler, assigned);
       if (server != null) return server;
       _log.severe(
@@ -522,28 +530,73 @@ class WebUIService {
     }
   }
 
+  Future<Response> _redirectResponse(Request request, int targetPort) async {
+    final uri = request.requestedUri;
+    if (uri.scheme != 'http' ||
+        uri.userInfo.isNotEmpty ||
+        !await _isDeviceHost(uri.host)) {
+      return Response.notFound('Not found');
+    }
+    return Response(
+      HttpStatus.temporaryRedirect,
+      headers: {
+        HttpHeaders.locationHeader: uri.replace(port: targetPort).toString(),
+        HttpHeaders.cacheControlHeader: 'no-store',
+      },
+    );
+  }
+
   Future<void> _serveEntryPoint(int requestedPort) async {
+    _entryPort = requestedPort;
     if (_entryServer?.port == requestedPort) return;
     await _entryServer?.close(force: true);
     _entryServer = await shelf_io.serve(
-      (request) async {
-        final uri = request.requestedUri;
-        if (uri.scheme != 'http' ||
-            uri.userInfo.isNotEmpty ||
-            !await _isDeviceHost(uri.host)) {
-          return Response.notFound('Not found');
-        }
-        return Response(
-          HttpStatus.temporaryRedirect,
-          headers: {
-            HttpHeaders.locationHeader: uri.replace(port: port).toString(),
-            HttpHeaders.cacheControlHeader: 'no-store',
-          },
-        );
-      },
+      (request) => _redirectResponse(request, port),
       '0.0.0.0',
       requestedPort,
     );
+  }
+
+  Future<void> _closeAliasServer(int aliasPort) async {
+    final server = _aliasServers.remove(aliasPort);
+    await server?.close(force: true);
+  }
+
+  Future<void> _closeAliasServers() async {
+    final servers = _aliasServers.values.toList();
+    _aliasServers.clear();
+    for (final server in servers) {
+      await server.close(force: true);
+    }
+  }
+
+  Future<void> _reconcileAliasServers() async {
+    final assignments = await _loadedSkinPortAssignments();
+    final desired = {
+      for (final entry in assignments.entries)
+        if (entry.key != _activeSkinIdentity && entry.value != port)
+          entry.value,
+    };
+    for (final aliasPort in _aliasServers.keys.toList()) {
+      if (!desired.contains(aliasPort)) await _closeAliasServer(aliasPort);
+    }
+    for (final aliasPort in desired) {
+      if (_aliasServers.containsKey(aliasPort)) continue;
+      HttpServer? server;
+      try {
+        server = await _bindSkinPort(
+          (request) => _redirectResponse(request, _entryPort),
+          aliasPort,
+        );
+      } catch (e) {
+        _log.warning('Failed to bind skin port alias $aliasPort', e);
+      }
+      if (server == null) {
+        _log.warning('Failed to bind skin port alias $aliasPort');
+        continue;
+      }
+      _aliasServers[aliasPort] = server;
+    }
   }
 
   String serverIP() {
@@ -564,12 +617,14 @@ class WebUIService {
   bool get isServing => _server != null;
 
   Future<void> stopServing() async {
-    if (_server != null || _entryServer != null) {
+    if (_server != null || _entryServer != null || _aliasServers.isNotEmpty) {
       _log.info('Stopping WebUI server on port $port');
       await _server?.close(force: true);
       await _entryServer?.close(force: true);
+      await _closeAliasServers();
       _server = null;
       _entryServer = null;
+      _activeSkinIdentity = null;
       _path = "";
       _log.info('WebUI server stopped');
     }
