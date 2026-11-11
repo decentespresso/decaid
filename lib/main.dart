@@ -71,6 +71,7 @@ import 'package:reaprime/src/services/account/proxy_token_service.dart';
 import 'package:reaprime/src/services/account/proxy_token_store.dart';
 import 'package:reaprime/src/controllers/account_tokens_controller.dart';
 import 'package:reaprime/src/services/account/credential_store_factory.dart';
+import 'package:reaprime/src/services/account/development_identity.dart';
 import 'package:reaprime/src/services/app_log_upload_service.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
@@ -527,9 +528,19 @@ void main(List<String> args) async {
     decentAccountService = null;
     decentProxyService = null;
   } else {
-    credentialStore = await createCredentialStore();
-    if (cliArgs.dummyAccount) {
-      log.info('--dummy-account: seeding demo credentials');
+    final useDevelopmentIdentity =
+        cliArgs.dummyAccount && developmentIdentityEnabled;
+    if (cliArgs.dummyAccount && !developmentIdentityEnabled) {
+      log.warning(
+        '--dummy-account is disabled; use a debug build with '
+        '--dart-define=DECAID_ENABLE_DUMMY_ACCOUNT=true',
+      );
+    }
+    credentialStore = await createCredentialStore(
+      developmentIdentity: useDevelopmentIdentity,
+    );
+    if (useDevelopmentIdentity) {
+      log.info('--dummy-account: using an isolated in-memory identity');
       await credentialStore.write(key: 'email', value: 'demo@example.com');
       await credentialStore.write(key: 'password', value: 'demo-password');
     }
@@ -549,15 +560,21 @@ void main(List<String> args) async {
       'DECENT_BASE_URL',
       defaultValue: 'https://decentespresso.com',
     );
+    final accountHttpClient = useDevelopmentIdentity
+        ? DevelopmentIdentityHttpClient()
+        : IOClient(
+            HttpClient()..connectionTimeout = const Duration(seconds: 30),
+          );
+    final proxyHttpClient = useDevelopmentIdentity
+        ? DevelopmentIdentityHttpClient()
+        : http.Client();
     decentAccountService = DecentAccountService(
-      httpClient: IOClient(
-        HttpClient()..connectionTimeout = const Duration(seconds: 30),
-      ),
+      httpClient: accountHttpClient,
       credentialStore: credentialStore,
       baseUrl: decentBaseUrl,
     );
     decentProxyService = DecentProxyService(
-      httpClient: http.Client(),
+      httpClient: proxyHttpClient,
       credentialStore: credentialStore,
       requireConsent: gate.requireConsent,
       baseUrl: decentBaseUrl,

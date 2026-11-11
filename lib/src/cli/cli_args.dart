@@ -56,8 +56,8 @@ CliArgs parseCliArgs(List<String> args) {
     ..addFlag(
       'dummy-account',
       help:
-          'Seed demo credentials so the app behaves as a linked install. '
-          'Demo and screenshot builds only.',
+          'Use an isolated in-memory demo identity. Requires a debug build '
+          'with --dart-define=DECAID_ENABLE_DUMMY_ACCOUNT=true.',
       defaultsTo: false,
     )
     ..addFlag(
