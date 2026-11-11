@@ -148,6 +148,7 @@ class WebUIService {
   HttpServer? _server;
   HttpServer? _entryServer;
   final Map<int, HttpServer> _aliasServers = {};
+  int _lifecycleVersion = 0;
   Map<String, int>? _skinPortAssignments;
   int _entryPort = 3000;
   int port = 3000;
@@ -165,6 +166,9 @@ class WebUIService {
 
   @visibleForTesting
   static Duration hostResolutionTtl = const Duration(seconds: 30);
+
+  @visibleForTesting
+  static Future<void> Function()? aliasBindBarrier;
 
   @visibleForTesting
   static int skinPortRangeStart = 24800;
@@ -265,6 +269,7 @@ class WebUIService {
   }
 
   Future<void> serveFolderAtPath(String path, {int port = 3000}) async {
+    final version = ++_lifecycleVersion;
     await _server?.close(force: true);
     _server = null;
     _resolvedHosts.clear();
@@ -272,12 +277,7 @@ class WebUIService {
     if (tokenProvider != null) _revokeSkinProxyToken();
     _localIP = await _resolveLocalIP();
 
-    final webUI = createStaticHandler(
-      path,
-      defaultDocument: 'index.html',
-      serveFilesOutsidePath: false,
-      listDirectories: true,
-    );
+    late Handler webUI;
 
     FutureOr<Response> skinHandler(Request request) {
       if (request.url.path == skinApiScriptPath.substring(1)) {
@@ -363,12 +363,23 @@ class WebUIService {
         .addHandler(skinHandler);
 
     try {
+      webUI = createStaticHandler(
+        path,
+        defaultDocument: 'index.html',
+        serveFilesOutsidePath: false,
+        listDirectories: true,
+      );
       final identityProvider = skinIdentityProvider;
       final identity = identityProvider == null ? path : identityProvider(path);
       _activeSkinIdentity = identity;
       if (tokenProvider != null) skinProxyToken = tokenProvider(path);
-      _server = await _serveStable(handler, identity);
-      this.port = _server!.port;
+      final activeServer = await _serveStable(handler, identity);
+      if (version != _lifecycleVersion) {
+        await activeServer.close(force: true);
+        return;
+      }
+      _server = activeServer;
+      this.port = activeServer.port;
       await _serveEntryPoint(port);
       await _reconcileAliasServers();
       _log.fine("serving $path");
@@ -547,14 +558,20 @@ class WebUIService {
   }
 
   Future<void> _serveEntryPoint(int requestedPort) async {
+    final version = _lifecycleVersion;
     _entryPort = requestedPort;
     if (_entryServer?.port == requestedPort) return;
     await _entryServer?.close(force: true);
-    _entryServer = await shelf_io.serve(
+    final server = await shelf_io.serve(
       (request) => _redirectResponse(request, port),
       '0.0.0.0',
       requestedPort,
     );
+    if (version != _lifecycleVersion) {
+      await server.close(force: true);
+      return;
+    }
+    _entryServer = server;
   }
 
   Future<void> _closeAliasServer(int aliasPort) async {
@@ -571,7 +588,9 @@ class WebUIService {
   }
 
   Future<void> _reconcileAliasServers() async {
+    final version = _lifecycleVersion;
     final assignments = await _loadedSkinPortAssignments();
+    if (version != _lifecycleVersion) return;
     final desired = {
       for (final entry in assignments.entries)
         if (entry.key != _activeSkinIdentity && entry.value != port)
@@ -582,6 +601,7 @@ class WebUIService {
     }
     for (final aliasPort in desired) {
       if (_aliasServers.containsKey(aliasPort)) continue;
+      if (version != _lifecycleVersion) return;
       HttpServer? server;
       try {
         server = await _bindSkinPort(
@@ -594,6 +614,12 @@ class WebUIService {
       if (server == null) {
         _log.warning('Failed to bind skin port alias $aliasPort');
         continue;
+      }
+      final barrier = aliasBindBarrier;
+      if (barrier != null) await barrier();
+      if (version != _lifecycleVersion) {
+        await server.close(force: true);
+        return;
       }
       _aliasServers[aliasPort] = server;
     }
@@ -617,6 +643,7 @@ class WebUIService {
   bool get isServing => _server != null;
 
   Future<void> stopServing() async {
+    _lifecycleVersion++;
     if (_server != null || _entryServer != null || _aliasServers.isNotEmpty) {
       _log.info('Stopping WebUI server on port $port');
       await _server?.close(force: true);

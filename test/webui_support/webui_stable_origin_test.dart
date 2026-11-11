@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -62,6 +63,7 @@ void main() {
     WebUIService.resolveWifiIP = NetworkInfo().getWifiIP;
     WebUIService.skinPortRangeStart = 24800;
     WebUIService.skinPortRangeSize = 4096;
+    WebUIService.aliasBindBarrier = null;
   });
 
   test('serves a skin on the same origin across restarts', () async {
@@ -531,6 +533,83 @@ void main() {
       }
     },
   );
+
+  test('releases every listener when the skin directory is invalid', () async {
+    final service = createService();
+
+    await service.serveFolderAtPath(skinA.path, port: entryPort);
+    final portA = service.port;
+    await service.serveFolderAtPath(skinB.path, port: entryPort);
+    final portB = service.port;
+
+    await expectLater(
+      service.serveFolderAtPath('${skinA.path}/missing', port: entryPort),
+      throwsA(anything),
+    );
+
+    expect(service.isServing, isFalse);
+    final client = HttpClient();
+    addTearDown(client.close);
+    for (final port in [portA, portB, entryPort]) {
+      await expectLater(
+        client.getUrl(Uri.parse('http://localhost:$port/')),
+        throwsA(isA<SocketException>()),
+      );
+    }
+  });
+
+  test('rejects an untrusted host on an inactive alias port', () async {
+    final service = createService();
+
+    await service.serveFolderAtPath(skinA.path, port: entryPort);
+    final aliasPort = service.port;
+    await service.serveFolderAtPath(skinB.path, port: entryPort);
+
+    final client = HttpClient();
+    addTearDown(client.close);
+    final request = await client.getUrl(
+      Uri.parse('http://localhost:$aliasPort/'),
+    );
+    request.followRedirects = false;
+    request.headers.set(HttpHeaders.hostHeader, 'example.invalid:$aliasPort');
+    final response = await request.close();
+    final body = await response.transform(utf8.decoder).join();
+
+    expect(response.statusCode, HttpStatus.notFound);
+    expect(response.headers.value(HttpHeaders.locationHeader), isNull);
+    expect(body, isNot(contains('skin-')));
+    expect(body, isNot(contains('reaprime-proxy-token')));
+  });
+
+  test('a stop during alias reconciliation leaves no alias bound', () async {
+    final service = createService();
+
+    await service.serveFolderAtPath(skinA.path, port: entryPort);
+    final portA = service.port;
+
+    final reached = Completer<void>();
+    final release = Completer<void>();
+    WebUIService.aliasBindBarrier = () {
+      if (!reached.isCompleted) reached.complete();
+      return release.future;
+    };
+
+    final serving = service.serveFolderAtPath(skinB.path, port: entryPort);
+    await reached.future;
+    await service.stopServing();
+    release.complete();
+    await serving;
+
+    expect(service.isServing, isFalse);
+    final client = HttpClient();
+    addTearDown(client.close);
+    for (final port in [portA, entryPort]) {
+      await expectLater(
+        client.getUrl(Uri.parse('http://localhost:$port/')),
+        throwsA(isA<SocketException>()),
+      );
+    }
+  });
 
   test(
     'does not allowlist an inactive alias origin for the account proxy',
