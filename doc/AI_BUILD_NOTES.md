@@ -17,7 +17,7 @@ flutter test                                   # All tests
 flutter test test/path/to_test.dart            # Specific file
 flutter test --name "test pattern"             # Specific test
 flutter analyze                                # Static analysis
-dart format lib/ test/                      # Format
+dart format <changed dart files>               # Format; never the whole tree (see AGENTS.md)
 
 # Build (Linux via Docker/Colima)
 make build-arm                                 # ARM64 binary
@@ -188,11 +188,11 @@ The app supports several command-line flags for headless/calibration-station use
   --trust-all-consent         # Trust every account-proxy caller for this process
 ```
 
-All flags are optional. Combine as needed. `--no-account` is specifically for headless Linux stations where `libsecret` blocks on XDG secrets portal. `--force-onboarding` is the inverse of `--bypass-onboarding`: it clears the persisted onboarding completion flags so the welcome, login, and import screens show again on the next launch, and it wins if both are passed. Consent keys use `skin:<installed-id>`, `plugin:<id>`, or `api:<token-id>`; API token labels are presentation-only. Both trust flags are session-only and are never persisted. With `flutter run`, pass each app flag separately as `--dart-entrypoint-args=<flag>`; `--dart-define` does not populate `main()` arguments. With `scripts/sb-dev.sh`, pass each app flag separately as `--app-arg <flag>` and repeat `--app-arg` for multiple flags.
+All flags are optional. Combine as needed. `--no-account` is specifically for headless Linux stations where `libsecret` blocks on XDG secrets portal. `--force-onboarding` is the inverse of `--bypass-onboarding`: it clears the persisted onboarding completion flags so the welcome, login, and import screens show again on the next launch, and it wins if both are passed. Consent keys use `skin:<installed-id>`, `plugin:<id>`, or `api:<token-id>`; API token labels are presentation-only. Both trust flags are session-only and are never persisted. With `flutter run`, pass each app flag separately as `--dart-entrypoint-args=<flag>`; `--dart-define` does not populate `main()` arguments. With `scripts/sb-dev.sh`, pass each app flag separately as `--app-arg <flag>` and repeat `--app-arg` for multiple flags. Entrypoint arguments reach `main()` on desktop and `flutter-tester`; the Android and iOS launch paths in `flutter_tools` do not forward them, so on a tablet both mechanisms are inert. See `.agents/skills/decent-dev/SKILL.md` for the Android onboarding reset procedure.
 
-## Dev-Loop Skill
+## Dev-Loop Skills
 
-Driving a running app through its lifecycle: `.agents/skills/decent-app/SKILL.md`. Managed by `scripts/sb-dev.sh`:
+Driving a running app through its lifecycle: `.agents/skills/decent-app/SKILL.md`. Changing the code — gate, formatting, worktrees, tablet loop: `.agents/skills/decent-dev/SKILL.md`. A code change verified at runtime uses both. Managed by `scripts/sb-dev.sh`:
 
 ```bash
 scripts/sb-dev.sh start      # Launch in simulate mode
@@ -216,7 +216,7 @@ Prefer `reload` over `hot-restart` — state is preserved.
 ```sh
 flutter analyze          # Minimum before any commit
 flutter test             # Full suite before commit/PR
-dart format lib/ test/  # Format check
+dart format <changed dart files>  # Format check; CI checks only the files the PR changed
 ```
 
 ## Keeping Notes Fresh

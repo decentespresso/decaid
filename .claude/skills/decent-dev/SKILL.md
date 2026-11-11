@@ -1,6 +1,6 @@
 ---
 name: decent-dev
-description: Development workflows for changing Decaid itself — Flutter/Dart code, tests, the local gate, worktrees, CI pins, and driving the M50Mini tablet. Use when making or verifying a code change in reaprime/Decaid; use the decent-app skill instead when the task is to drive a running instance through its REST/WebSocket API without changing code.
+description: Development workflows for changing Decaid — the GitHub repository is decentespresso/decaid and the Dart package is reaprime — covering Flutter/Dart source, tests, build configuration, the local gate, and worktrees. Use when the task modifies the code; when a code change also needs runtime verification, use this skill as the primary guide and the decent-app skill for the REST/WebSocket procedures that exercise the running build.
 ---
 
 # Decaid development
