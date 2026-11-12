@@ -71,6 +71,7 @@ import 'package:reaprime/src/services/account/proxy_token_service.dart';
 import 'package:reaprime/src/services/account/proxy_token_store.dart';
 import 'package:reaprime/src/controllers/account_tokens_controller.dart';
 import 'package:reaprime/src/services/account/credential_store_factory.dart';
+import 'package:reaprime/src/services/account/development_identity.dart';
 import 'package:reaprime/src/services/app_log_upload_service.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
@@ -241,6 +242,23 @@ Future<void> persistSkinPortAssignments(Map<String, int> assignments) async {
     skinPortAssignmentsPreferenceKey,
     jsonEncode(assignments),
   );
+}
+
+Future<void> prepareShotUploadStartup(
+  SettingsController settings, {
+  required bool forceOnboarding,
+  required bool bypassOnboarding,
+}) async {
+  if (!settings.shotUploadStepSeen &&
+      await persistedShotUploadAutoUploadEnabled()) {
+    await settings.setShotUploadStepSeen(true);
+  }
+  if (bypassOnboarding && !forceOnboarding) {
+    await settings.setShotUploadStepSeen(true);
+  }
+  if (forceOnboarding) {
+    await settings.setShotUploadStepSeen(false);
+  }
 }
 
 void main(List<String> args) async {
@@ -519,6 +537,7 @@ void main(List<String> args) async {
   AccountTokensController? accountTokensController;
   CredentialStore? credentialStore;
   AccountConsentGate? consentGate;
+  AccountConsentStore? accountConsentStore;
   final proxyTokenService = ProxyTokenService();
   final extensionsToken = cliArgs.extensionsToken;
   if (extensionsToken != null &&
@@ -541,11 +560,27 @@ void main(List<String> args) async {
     decentAccountService = null;
     decentProxyService = null;
   } else {
-    credentialStore = await createCredentialStore();
+    final useDevelopmentIdentity =
+        cliArgs.dummyAccount && developmentIdentityEnabled;
+    if (cliArgs.dummyAccount && !developmentIdentityEnabled) {
+      log.warning(
+        '--dummy-account is disabled; use a debug build with '
+        '--dart-define=DECAID_ENABLE_DUMMY_ACCOUNT=true',
+      );
+    }
+    credentialStore = await createCredentialStore(
+      developmentIdentity: useDevelopmentIdentity,
+    );
+    if (useDevelopmentIdentity) {
+      log.info('--dummy-account: using an isolated in-memory identity');
+      await credentialStore.write(key: 'email', value: 'demo@example.com');
+      await credentialStore.write(key: 'password', value: 'demo-password');
+    }
     final consentPrompter = AccountConsentPrompter(
       navigatorKey: NavigationService.navigatorKey,
     );
     final consentStore = AccountConsentStore(credentialStore: credentialStore);
+    accountConsentStore = consentStore;
     final gate = AccountConsentGate(
       store: consentStore,
       prompt: consentPrompter.prompt,
@@ -557,15 +592,21 @@ void main(List<String> args) async {
       'DECENT_BASE_URL',
       defaultValue: 'https://decentespresso.com',
     );
+    final accountHttpClient = useDevelopmentIdentity
+        ? DevelopmentIdentityHttpClient()
+        : IOClient(
+            HttpClient()..connectionTimeout = const Duration(seconds: 30),
+          );
+    final proxyHttpClient = useDevelopmentIdentity
+        ? DevelopmentIdentityHttpClient()
+        : http.Client();
     decentAccountService = DecentAccountService(
-      httpClient: IOClient(
-        HttpClient()..connectionTimeout = const Duration(seconds: 30),
-      ),
+      httpClient: accountHttpClient,
       credentialStore: credentialStore,
       baseUrl: decentBaseUrl,
     );
     decentProxyService = DecentProxyService(
-      httpClient: http.Client(),
+      httpClient: proxyHttpClient,
       credentialStore: credentialStore,
       requireConsent: gate.requireConsent,
       baseUrl: decentBaseUrl,
@@ -753,6 +794,11 @@ void main(List<String> args) async {
     };
   });
   await settingsController.loadSettings();
+  await prepareShotUploadStartup(
+    settingsController,
+    forceOnboarding: cliArgs.forceOnboarding,
+    bypassOnboarding: cliArgs.bypassOnboarding,
+  );
   if (macosUpdater != null) {
     try {
       await macosUpdater.configure(
@@ -860,6 +906,7 @@ void main(List<String> args) async {
         appLogUploadService: appLogUploadService,
         batteryController: batteryController,
         displayController: displayController,
+        accountConsentStore: accountConsentStore,
       ),
     ),
   );
@@ -964,6 +1011,7 @@ class AppRoot extends StatefulWidget {
   final AppLogUploadService? appLogUploadService;
   final BatteryController? batteryController;
   final DisplayController displayController;
+  final AccountConsentStore? accountConsentStore;
 
   const AppRoot({
     super.key,
@@ -992,6 +1040,7 @@ class AppRoot extends StatefulWidget {
     this.appLogUploadService,
     this.batteryController,
     required this.displayController,
+    this.accountConsentStore,
   });
 
   static void restart(BuildContext context) {
@@ -1084,6 +1133,7 @@ class _AppRootState extends State<AppRoot> {
         appLogUploadService: widget.appLogUploadService,
         batteryController: widget.batteryController,
         displayController: widget.displayController,
+        accountConsentStore: widget.accountConsentStore,
       ),
     );
 

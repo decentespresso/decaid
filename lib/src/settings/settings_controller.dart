@@ -69,6 +69,9 @@ class SettingsController with ChangeNotifier {
   bool _keepAwake = true;
   bool _onboardingCompleted = false;
   bool _accountStepSeen = false;
+  bool _shotUploadStepSeen = false;
+  bool _shotUploadOptIn = false;
+  bool? _shotUploadPendingDecision;
   bool _androidWarningDismissed = false;
   bool _showSkinExitInstructions = true;
   bool _enableSimulatedWebViews = false;
@@ -108,6 +111,9 @@ class SettingsController with ChangeNotifier {
   bool get lowBatteryBrightnessLimit => _lowBatteryBrightnessLimit;
   bool get keepAwake => _keepAwake;
   bool get onboardingCompleted => _onboardingCompleted;
+  bool get shotUploadStepSeen => _shotUploadStepSeen;
+  bool get shotUploadOptIn => _shotUploadOptIn;
+  bool? get shotUploadPendingDecision => _shotUploadPendingDecision;
   bool get accountStepSeen => _accountStepSeen;
   bool get androidWarningDismissed => _androidWarningDismissed;
   bool get showSkinExitInstructions => _showSkinExitInstructions;
@@ -158,6 +164,10 @@ class SettingsController with ChangeNotifier {
     _keepAwake = await _settingsService.keepAwake();
     _onboardingCompleted = await _settingsService.onboardingCompleted();
     _accountStepSeen = await _settingsService.accountStepSeen();
+    _shotUploadStepSeen = await _settingsService.shotUploadStepSeen();
+    _shotUploadOptIn = await _settingsService.shotUploadOptIn();
+    _shotUploadPendingDecision = await _settingsService
+        .shotUploadPendingDecision();
     _androidWarningDismissed = await _settingsService.androidWarningDismissed();
     _showSkinExitInstructions = await _settingsService
         .showSkinExitInstructions();
@@ -472,6 +482,44 @@ class SettingsController with ChangeNotifier {
     if (value == _accountStepSeen) return;
     _accountStepSeen = value;
     await _settingsService.setAccountStepSeen(value);
+    notifyListeners();
+  }
+
+  // Persistence before mutation on purpose: if the write throws, the field must
+  // not already hold the new value, or the onboarding retry short-circuits on
+  // the equality guard above and the write is skipped forever.
+  Future<void> setShotUploadStepSeen(bool value) async {
+    if (value == _shotUploadStepSeen) return;
+    await _settingsService.setShotUploadStepSeen(value);
+    _shotUploadStepSeen = value;
+    notifyListeners();
+  }
+
+  Future<void> setShotUploadOptIn(bool value) async {
+    if (value == _shotUploadOptIn) return;
+    await _settingsService.setShotUploadOptIn(value);
+    _shotUploadOptIn = value;
+    notifyListeners();
+  }
+
+  Future<void> setShotUploadDecision(bool value) async {
+    await _settingsService.setShotUploadDecision(value);
+    _shotUploadPendingDecision = value;
+    _shotUploadStepSeen = true;
+    _shotUploadOptIn = value;
+    notifyListeners();
+  }
+
+  Future<void> clearShotUploadPendingDecision() async {
+    await _settingsService.clearShotUploadPendingDecision();
+    _shotUploadPendingDecision = null;
+    _shotUploadOptIn = false;
+    notifyListeners();
+  }
+
+  Future<void> clearShotUploadOptIn() async {
+    await _settingsService.clearShotUploadOptIn();
+    _shotUploadOptIn = false;
     notifyListeners();
   }
 

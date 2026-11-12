@@ -28,6 +28,8 @@ import 'package:reaprime/src/onboarding_feature/steps/permissions_step.dart';
 import 'package:reaprime/src/onboarding_feature/steps/scan_step.dart';
 import 'package:reaprime/src/onboarding_feature/steps/welcome_step.dart';
 import 'package:reaprime/src/onboarding_feature/steps/login_step.dart';
+import 'package:reaprime/src/onboarding_feature/steps/shot_upload_step.dart';
+import 'package:reaprime/src/services/account/account_consent_store.dart';
 import 'package:reaprime/src/realtime_shot_feature/realtime_shot_feature.dart';
 import 'package:reaprime/src/realtime_steam_feature/realtime_steam_feature.dart';
 import 'package:reaprime/src/skin_feature/skin_switch_coordinator.dart';
@@ -114,6 +116,7 @@ class MyApp extends StatefulWidget {
     this.accountTokensController,
     this.appLogUploadService,
     this.batteryController,
+    this.accountConsentStore,
   });
 
   final bool directConnect;
@@ -141,6 +144,7 @@ class MyApp extends StatefulWidget {
   final AccountTokensController? accountTokensController;
   final AppLogUploadService? appLogUploadService;
   final BatteryController? batteryController;
+  final AccountConsentStore? accountConsentStore;
 
   @override
   State<MyApp> createState() => _MyAppState();
@@ -159,6 +163,12 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     super.initState();
+    widget.pluginLoaderService.applyPendingSettings = () =>
+        applyShotUploadIntent(
+          widget.settingsController,
+          widget.pluginLoaderService,
+          consentStore: widget.accountConsentStore,
+        );
     _notificationActions = NotificationActions(
       center: widget.pluginLoaderService.pluginManager.notifications,
       updateCheckService: widget.updateCheckService,
@@ -184,6 +194,12 @@ class _MyAppState extends State<MyApp> {
         ),
         if (widget.decentAccountService != null)
           createLoginStep(
+            accountService: widget.decentAccountService!,
+            settingsController: widget.settingsController,
+          ),
+        if (widget.decentAccountService != null &&
+            widget.accountConsentStore != null)
+          createShotUploadStep(
             accountService: widget.decentAccountService!,
             settingsController: widget.settingsController,
           ),

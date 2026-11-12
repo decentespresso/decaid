@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_js/quickjs/ffi.dart';
 import 'package:reaprime/src/services/android_updater.dart';
@@ -76,6 +78,14 @@ abstract class SettingsService {
   Future<void> setOnboardingCompleted(bool value);
   Future<bool> accountStepSeen();
   Future<void> setAccountStepSeen(bool value);
+  Future<bool> shotUploadStepSeen();
+  Future<void> setShotUploadStepSeen(bool value);
+  Future<bool> shotUploadOptIn();
+  Future<void> setShotUploadOptIn(bool value);
+  Future<void> clearShotUploadOptIn();
+  Future<bool?> shotUploadPendingDecision();
+  Future<void> setShotUploadDecision(bool value);
+  Future<void> clearShotUploadPendingDecision();
   Future<bool> androidWarningDismissed();
   Future<void> setAndroidWarningDismissed(bool value);
   Future<bool> showSkinExitInstructions();
@@ -486,6 +496,83 @@ class SharedPreferencesSettingsService extends SettingsService {
   }
 
   @override
+  Future<bool> shotUploadStepSeen() async {
+    final decision = await _readShotUploadDecision();
+    if (decision case final record? when record['seen'] is bool) {
+      return record['seen'] as bool;
+    }
+    return await prefs.getBool(SettingsKeys.shotUploadStepSeen.name) ?? false;
+  }
+
+  @override
+  Future<void> setShotUploadStepSeen(bool value) async {
+    final decision = await _readShotUploadDecision();
+    if (decision != null) {
+      await prefs.setString(
+        SettingsKeys.shotUploadDecision.name,
+        jsonEncode({...decision, 'seen': value}),
+      );
+      return;
+    }
+    await prefs.setBool(SettingsKeys.shotUploadStepSeen.name, value);
+  }
+
+  @override
+  Future<bool> shotUploadOptIn() async {
+    return await prefs.getBool(SettingsKeys.shotUploadOptIn.name) ?? false;
+  }
+
+  @override
+  Future<void> setShotUploadOptIn(bool value) async {
+    await prefs.setBool(SettingsKeys.shotUploadOptIn.name, value);
+  }
+
+  @override
+  Future<void> clearShotUploadOptIn() async {
+    await prefs.remove(SettingsKeys.shotUploadOptIn.name);
+  }
+
+  @override
+  Future<bool?> shotUploadPendingDecision() async {
+    final decision = await _readShotUploadDecision();
+    final record = decision;
+    if (record?['pending'] != true || record?['answer'] is! bool) {
+      return null;
+    }
+    return record!['answer'] as bool;
+  }
+
+  @override
+  Future<void> setShotUploadDecision(bool value) async {
+    await prefs.setString(
+      SettingsKeys.shotUploadDecision.name,
+      jsonEncode({'answer': value, 'pending': true, 'seen': true}),
+    );
+  }
+
+  @override
+  Future<void> clearShotUploadPendingDecision() async {
+    final decision = await _readShotUploadDecision();
+    if (decision == null) return;
+    await prefs.setString(
+      SettingsKeys.shotUploadDecision.name,
+      jsonEncode({...decision, 'pending': false, 'seen': true}),
+    );
+  }
+
+  Future<Map<String, dynamic>?> _readShotUploadDecision() async {
+    final raw = await prefs.getString(SettingsKeys.shotUploadDecision.name);
+    if (raw == null) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+      return Map<String, dynamic>.from(decoded);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
   Future<bool> accountStepSeen() async {
     return await prefs.getBool(SettingsKeys.accountStepSeen.name) ?? false;
   }
@@ -576,6 +663,9 @@ enum SettingsKeys {
   keepAwake,
   onboardingCompleted,
   accountStepSeen,
+  shotUploadStepSeen,
+  shotUploadOptIn,
+  shotUploadDecision,
   androidWarningDismissed,
   showSkinExitInstructions,
   enableSimulatedWebViews,

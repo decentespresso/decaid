@@ -10,6 +10,7 @@ void main() {
       expect(args.forceOnboarding, isFalse);
       expect(args.direct, isFalse);
       expect(args.noAccount, isFalse);
+      expect(args.dummyAccount, isFalse);
       expect(args.trustedConsentKeys, isEmpty);
       expect(args.trustAllConsent, isFalse);
       expect(args.extensionsToken, isNull);
@@ -57,6 +58,11 @@ void main() {
     test('--no-account', () {
       final args = parseCliArgs(['--no-account']);
       expect(args.noAccount, isTrue);
+    });
+
+    test('--dummy-account', () {
+      final args = parseCliArgs(['--dummy-account']);
+      expect(args.dummyAccount, isTrue);
     });
 
     test('--print-storage-paths', () {
@@ -126,6 +132,7 @@ void main() {
         '--force-onboarding',
         '--direct',
         '--no-account',
+        '--dummy-account',
         '--trust-consent=skin:streamline.js',
         '--trust-all-consent',
         '--skin=streamline.js',
@@ -136,6 +143,7 @@ void main() {
       expect(args.forceOnboarding, isTrue);
       expect(args.direct, isTrue);
       expect(args.noAccount, isTrue);
+      expect(args.dummyAccount, isTrue);
       expect(args.trustedConsentKeys, {'skin:streamline.js'});
       expect(args.trustAllConsent, isTrue);
       expect(args.skinId, 'streamline.js');

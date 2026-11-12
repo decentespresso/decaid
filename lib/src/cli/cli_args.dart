@@ -8,6 +8,7 @@ class CliArgs {
   final bool forceOnboarding;
   final bool direct;
   final bool noAccount;
+  final bool dummyAccount;
   final bool printStoragePaths;
   final Set<String> trustedConsentKeys;
   final bool trustAllConsent;
@@ -22,6 +23,7 @@ class CliArgs {
     this.forceOnboarding = false,
     this.direct = false,
     this.noAccount = false,
+    this.dummyAccount = false,
     this.printStoragePaths = false,
     this.trustedConsentKeys = const {},
     this.trustAllConsent = false,
@@ -61,6 +63,13 @@ CliArgs parseCliArgs(
       defaultsTo: false,
     )
     ..addFlag(
+      'dummy-account',
+      help:
+          'Use an isolated in-memory demo identity. Requires a debug build '
+          'with --dart-define=DECAID_ENABLE_DUMMY_ACCOUNT=true.',
+      defaultsTo: false,
+    )
+    ..addFlag(
       'print-storage-paths',
       help: 'Print resolved application storage paths and exit.',
       defaultsTo: false,
@@ -92,9 +101,14 @@ CliArgs parseCliArgs(
   return CliArgs(
     serial: results['serial'] as bool,
     bypassOnboarding: results['bypass-onboarding'] as bool,
-    forceOnboarding: results['force-onboarding'] as bool,
+    forceOnboarding:
+        (results['force-onboarding'] as bool) ||
+        const bool.fromEnvironment('forceOnboarding'),
     direct: results['direct'] as bool,
     noAccount: results['no-account'] as bool,
+    dummyAccount:
+        (results['dummy-account'] as bool) ||
+        const bool.fromEnvironment('dummyAccount'),
     printStoragePaths: results['print-storage-paths'] as bool,
     trustedConsentKeys: (results['trust-consent'] as List<String>).toSet(),
     trustAllConsent: results['trust-all-consent'] as bool,

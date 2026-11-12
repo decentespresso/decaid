@@ -26,6 +26,22 @@ import 'package:reaprime/src/services/account/decent_proxy_service.dart';
 import 'package:reaprime/src/util/safe_path.dart';
 import 'package:reaprime/src/util/user_facing_exception.dart';
 
+const shotUploadPluginSettingsPreferenceKey =
+    'plugin.settings.shot-upload.reaplugin';
+
+Future<bool> persistedShotUploadAutoUploadEnabled() async {
+  try {
+    final raw = (await SharedPreferences.getInstance()).getString(
+      shotUploadPluginSettingsPreferenceKey,
+    );
+    if (raw == null) return false;
+    final decoded = jsonDecode(raw);
+    return decoded is Map && decoded['AutoUpload'] == true;
+  } catch (_) {
+    return false;
+  }
+}
+
 class PluginSettingsValidationException implements Exception {
   final String message;
   PluginSettingsValidationException(this.message);
@@ -98,6 +114,19 @@ class PluginLoaderService {
     }
   }
 
+  /// Late settings that must reach registered plugins before they load.
+  ///
+  /// Awaited between the manifest scan and the autoload pass so a plugin never
+  /// starts with a value the user has already replaced.
+  Future<void> Function()? applyPendingSettings;
+
+  final Set<String> _loadSuppressed = {};
+
+  /// Refuses every later load of [pluginId] for this session.
+  void suppressLoad(String pluginId) => _loadSuppressed.add(pluginId);
+
+  bool isLoadSuppressed(String pluginId) => _loadSuppressed.contains(pluginId);
+
   Future<void> initialize() {
     _ensureActive();
     if (_initialized) {
@@ -135,6 +164,12 @@ class PluginLoaderService {
 
     for (final manifest in _availablePluginsCache.values) {
       await _reconcileNotificationPermission(manifest);
+    }
+
+    try {
+      await applyPendingSettings?.call();
+    } catch (e) {
+      _log.warning('applyPendingSettings failed', e);
     }
 
     await _loadAutoLoadPlugins();
@@ -452,6 +487,9 @@ class PluginLoaderService {
 
   Future<void> _loadPlugin(String pluginId) async {
     _ensureActive();
+    if (_loadSuppressed.contains(pluginId)) {
+      throw Exception('Loading $pluginId is suppressed for this session');
+    }
     if (!_availablePluginsCache.containsKey(pluginId)) {
       throw Exception('Plugin not found: $pluginId');
     }
