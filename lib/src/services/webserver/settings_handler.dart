@@ -70,6 +70,21 @@ class SettingsHandler {
         maxBytes: largeRequestBodyBytes,
       );
       Map<String, dynamic> json = jsonDecode(payload);
+      final changesSkin =
+          json.containsKey('webUiPath') ||
+          (json.containsKey('defaultSkinId') &&
+              json['defaultSkinId'] != _controller.defaultSkinId);
+      final enablesAutomaticUpdates =
+          json['automaticUpdateCheck'] == true &&
+          !_controller.automaticUpdateCheck;
+      final extensionsAuthorized = mayManageExtensions(request);
+      if (changesSkin || enablesAutomaticUpdates) {
+        final denial = requireExtensionManagement(
+          request,
+          action: 'POST /api/v1/settings extension settings',
+        );
+        if (denial != null) return denial;
+      }
       if (json.containsKey('gatewayMode')) {
         final GatewayMode? gatewayMode = GatewayModeFromString.fromString(
           json['gatewayMode'],
@@ -191,7 +206,7 @@ class SettingsHandler {
           });
         }
       }
-      if (json.containsKey('defaultSkinId')) {
+      if (extensionsAuthorized && json.containsKey('defaultSkinId')) {
         final value = json['defaultSkinId'];
         if (value is String) {
           try {
@@ -208,7 +223,9 @@ class SettingsHandler {
       if (json.containsKey('automaticUpdateCheck')) {
         final value = json['automaticUpdateCheck'];
         if (value is bool) {
-          await _controller.setAutomaticUpdateCheck(value);
+          if (extensionsAuthorized || !value) {
+            await _controller.setAutomaticUpdateCheck(value);
+          }
         } else {
           return jsonBadRequest({
             'message': 'automaticUpdateCheck must be a boolean',

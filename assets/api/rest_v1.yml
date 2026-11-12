@@ -1677,6 +1677,15 @@ paths:
                 $ref: "#/components/schemas/ReaSettings"
     post:
       summary: Update Decent settings
+      description: >
+        Applies the keys present in the body. A body that contains
+        `webUiPath`, sets `defaultSkinId` to a skin other than the current
+        default, or sets `automaticUpdateCheck` to true while it is off
+        (automatic checks install plugin and skin updates) requires
+        `Authorization: Bearer <token>` scoped `extensions:manage` (see the
+        extensionsManage security scheme) and is refused with 401 or 403
+        before any key is applied. Values already in effect, turning
+        `automaticUpdateCheck` off, and every other key need no token.
       tags: [Decent Settings]
       requestBody:
         required: true
@@ -1687,6 +1696,24 @@ paths:
       responses:
         "200":
           description: Decent settings updated successfully
+        "401":
+          description: >
+            The body contains webUiPath, changes defaultSkinId or turns on
+            automaticUpdateCheck, and the bearer token is missing, malformed,
+            unknown or revoked; no key was applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: >
+            The body contains webUiPath, changes defaultSkinId or turns on
+            automaticUpdateCheck, and the token is not scoped for
+            extensions:manage; no key was applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   # REA Workflow API
   /api/v1/workflow:
@@ -3321,6 +3348,8 @@ paths:
 
     post:
       tags: [Plugins]
+      security:
+        - extensionsManage: []
       summary: Save settings for specific plugin
       description: >
         Applies a settings patch. Omitted fields preserve the existing value;
@@ -3329,6 +3358,8 @@ paths:
         is loaded, it is reloaded so the running instance picks up the patch;
         if it is unloaded, the patch is only persisted. The response
         is always redacted and never echoes a submitted credential.
+        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
+        (see the extensionsManage security scheme).
       parameters:
         - name: id
           in: path
@@ -3349,12 +3380,29 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PluginSettings'
+        "401":
+          description: Missing, malformed, unknown or revoked bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Token is not scoped for extensions:manage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /api/v1/plugins/{id}/enable:
     post:
       summary: Enable a plugin
-      description: Enables and loads the specified plugin
+      description: >
+        Enables and loads the specified plugin.
+        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
+        (see the extensionsManage security scheme).
       tags: [Plugins]
+      security:
+        - extensionsManage: []
       parameters:
         - name: id
           in: path
@@ -3374,12 +3422,29 @@ paths:
                     type: string
                   id:
                     type: string
+        "401":
+          description: Missing, malformed, unknown or revoked bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Token is not scoped for extensions:manage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /api/v1/plugins/{id}/disable:
     post:
       summary: Disable a plugin
-      description: Disables and unloads the specified plugin
+      description: >
+        Disables and unloads the specified plugin.
+        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
+        (see the extensionsManage security scheme).
       tags: [Plugins]
+      security:
+        - extensionsManage: []
       parameters:
         - name: id
           in: path
@@ -3399,6 +3464,18 @@ paths:
                     type: string
                   id:
                     type: string
+        "401":
+          description: Missing, malformed, unknown or revoked bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Token is not scoped for extensions:manage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /api/v1/plugins/{id}/source:
     put:
@@ -3417,7 +3494,11 @@ paths:
         bundled plugin is temporary: on the next app start the bundled copy wins
         whenever its version is higher. This path shadows a plugin-declared
         endpoint named "source", the same way /settings does.
+        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
+        (see the extensionsManage security scheme).
       tags: [Plugins]
+      security:
+        - extensionsManage: []
       parameters:
         - name: id
           in: path
@@ -3466,6 +3547,18 @@ paths:
                 properties:
                   error:
                     type: string
+        "401":
+          description: Missing, malformed, unknown or revoked bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Token is not scoped for extensions:manage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "409":
           description: >
             The submitted version is lower than the installed version; remove
@@ -3496,8 +3589,13 @@ paths:
   /api/v1/plugins/{id}:
     delete:
       summary: Delete a plugin
-      description: Removes a plugin from the system
+      description: >
+        Removes a plugin from the system.
+        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
+        (see the extensionsManage security scheme).
       tags: [Plugins]
+      security:
+        - extensionsManage: []
       parameters:
         - name: id
           in: path
@@ -3517,6 +3615,18 @@ paths:
                     type: string
                   id:
                     type: string
+        "401":
+          description: Missing, malformed, unknown or revoked bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Token is not scoped for extensions:manage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /api/v1/plugins/{id}/{endpoint}:
     get:
@@ -3527,7 +3637,10 @@ paths:
         each once, and the route decodes each once before lookup. The
         runtime applies this contract to every HTTP method. The plugin manifest
         must declare the api permission; otherwise Decaid rejects the request
-        before dispatch.
+        before dispatch. A bearer token that Decaid recognises (an
+        `account:proxy` or `extensions:manage` token) is removed from the
+        request before it reaches the plugin; plugin endpoints are not gated
+        by the extensionsManage scheme.
       tags: [Plugins]
       parameters:
         - name: id
@@ -3564,7 +3677,11 @@ paths:
         Installing from an arbitrary URL is not supported. Use
         /api/v1/plugins/install/github-release or
         /api/v1/plugins/install/github-branch.
+        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
+        (see the extensionsManage security scheme).
       tags: [Plugins]
+      security:
+        - extensionsManage: []
       requestBody:
         required: false
         content:
@@ -3575,6 +3692,18 @@ paths:
                 url:
                   type: string
       responses:
+        "401":
+          description: Missing, malformed, unknown or revoked bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Token is not scoped for extensions:manage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "501":
           description: Not supported; the response names the endpoints to use
           content:
@@ -3599,7 +3728,11 @@ paths:
         Malformed downloaded data and package manifests return HTTP 400 with
         plain-language validation errors, without parser diagnostics or source snippets.
         This includes missing or incorrectly typed release fields and asset entries.
+        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
+        (see the extensionsManage security scheme).
       tags: [Plugins]
+      security:
+        - extensionsManage: []
       requestBody:
         required: true
         content:
@@ -3630,6 +3763,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing, malformed, unknown or revoked bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Token is not scoped for extensions:manage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "409":
           description: The release is older than the installed version
           content:
@@ -3655,7 +3800,11 @@ paths:
         transport exceptions.
         Invalid GitHub commit response structures return HTTP 400 with
         plain-language validation guidance and no response-body snippets.
+        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
+        (see the extensionsManage security scheme).
       tags: [Plugins]
+      security:
+        - extensionsManage: []
       requestBody:
         required: true
         content:
@@ -3679,6 +3828,18 @@ paths:
                 $ref: '#/components/schemas/PluginInstallResult'
         "400":
           description: Invalid body or invalid package
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing, malformed, unknown or revoked bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Token is not scoped for extensions:manage
           content:
             application/json:
               schema:
@@ -3707,7 +3868,11 @@ paths:
         does not stop the others.
         After all items are processed, any failure (including partial completion)
         returns HTTP 500 with a plain-language error. Successful updates are kept.
+        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
+        (see the extensionsManage security scheme).
       tags: [Plugins]
+      security:
+        - extensionsManage: []
       responses:
         "200":
           description: Update check finished
@@ -3718,6 +3883,18 @@ paths:
                 properties:
                   message:
                     type: string
+        "401":
+          description: Missing, malformed, unknown or revoked bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Token is not scoped for extensions:manage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "500":
           description: The update check could not run or some items failed
           content:
@@ -3733,7 +3910,11 @@ paths:
         release tag or commit - accepting its added permissions. If the source
         moved since detection, the fetched candidate is refused, recorded as
         the new pendingUpdate and has to be approved again.
+        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
+        (see the extensionsManage security scheme).
       tags: [Plugins]
+      security:
+        - extensionsManage: []
       parameters:
         - name: id
           in: path
@@ -3749,6 +3930,18 @@ paths:
                 $ref: '#/components/schemas/PluginInstallResult'
         "400":
           description: The candidate package is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing, malformed, unknown or revoked bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Token is not scoped for extensions:manage
           content:
             application/json:
               schema:
@@ -4231,8 +4424,13 @@ paths:
           description: Internal Server Error
     delete:
       summary: Remove/uninstall a WebUI skin
-      description: Removes a user-installed WebUI skin (bundled skins cannot be removed)
+      description: >
+        Removes a user-installed WebUI skin (bundled skins cannot be removed).
+        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
+        (see the extensionsManage security scheme).
       tags: [WebUI]
+      security:
+        - extensionsManage: []
       parameters:
         - name: id
           in: path
@@ -4254,8 +4452,18 @@ paths:
                     type: string
                   id:
                     type: string
+        "401":
+          description: Missing, malformed, unknown or revoked bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "403":
-          description: Cannot remove bundled skin
+          description: Cannot remove bundled skin, or token is not scoped for extensions:manage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "404":
           description: Skin not found
         "500":
@@ -4279,8 +4487,13 @@ paths:
           description: Internal Server Error
     put:
       summary: Set the default WebUI skin
-      description: Sets the user's preferred default skin by ID and persists to preferences
+      description: >
+        Sets the user's preferred default skin by ID and persists to preferences.
+        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
+        (see the extensionsManage security scheme).
       tags: [WebUI]
+      security:
+        - extensionsManage: []
       requestBody:
         required: true
         content:
@@ -4310,6 +4523,18 @@ paths:
                     type: string
         "400":
           description: Bad request (missing skinId field)
+        "401":
+          description: Missing, malformed, unknown or revoked bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Token is not scoped for extensions:manage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "404":
           description: Skin not found
         "500":
@@ -4318,8 +4543,13 @@ paths:
   /api/v1/webui/skins/install/github-release:
     post:
       summary: Install skin from GitHub Release
-      description: Downloads and installs a WebUI skin from a GitHub Release using the GitHub API
+      description: >
+        Downloads and installs a WebUI skin from a GitHub Release using the GitHub API.
+        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
+        (see the extensionsManage security scheme).
       tags: [WebUI]
+      security:
+        - extensionsManage: []
       requestBody:
         required: true
         content:
@@ -4357,14 +4587,31 @@ paths:
                     type: string
         "400":
           description: Bad request (missing repo field)
+        "401":
+          description: Missing, malformed, unknown or revoked bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Token is not scoped for extensions:manage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "500":
           description: Internal Server Error
 
   /api/v1/webui/skins/install/github-branch:
     post:
       summary: Install skin from GitHub branch
-      description: Downloads and installs a WebUI skin from a GitHub branch archive, persisting the branch source for future update checks
+      description: >
+        Downloads and installs a WebUI skin from a GitHub branch archive, persisting the branch source for future update checks.
+        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
+        (see the extensionsManage security scheme).
       tags: [WebUI]
+      security:
+        - extensionsManage: []
       requestBody:
         required: true
         content:
@@ -4401,14 +4648,31 @@ paths:
                     type: string
         "400":
           description: Bad request (missing repo field)
+        "401":
+          description: Missing, malformed, unknown or revoked bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Token is not scoped for extensions:manage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "500":
           description: Internal Server Error
 
   /api/v1/webui/skins/install/url:
     post:
       summary: Install skin from URL
-      description: Downloads and installs a WebUI skin from a direct ZIP URL
+      description: >
+        Downloads and installs a WebUI skin from a direct ZIP URL.
+        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
+        (see the extensionsManage security scheme).
       tags: [WebUI]
+      security:
+        - extensionsManage: []
       requestBody:
         required: true
         content:
@@ -4439,6 +4703,18 @@ paths:
                     type: string
         "400":
           description: Bad request (missing url field)
+        "401":
+          description: Missing, malformed, unknown or revoked bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Token is not scoped for extensions:manage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "500":
           description: Internal Server Error
 
@@ -4451,7 +4727,11 @@ paths:
         downloaded and updated. Every item is attempted; any failure, including
         partial completion, returns HTTP 500 with a plain-language error.
         Successful updates are retained.
+        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
+        (see the extensionsManage security scheme).
       tags: [WebUI]
+      security:
+        - extensionsManage: []
       responses:
         "200":
           description: Update check completed
@@ -4463,6 +4743,18 @@ paths:
                   message:
                     type: string
                     example: "Skin update check completed"
+        "401":
+          description: Missing, malformed, unknown or revoked bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Token is not scoped for extensions:manage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "500":
           description: Update check failed or completed only partially; error contains a plain-language message
 
@@ -4495,8 +4787,13 @@ paths:
   /api/v1/webui/server/start:
     post:
       summary: Start the WebUI server
-      description: Starts serving the default WebUI skin through the stable port 3000 entry point
+      description: >
+        Starts serving the default WebUI skin through the stable port 3000 entry point.
+        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
+        (see the extensionsManage security scheme).
       tags: [WebUI]
+      security:
+        - extensionsManage: []
       responses:
         "200":
           description: Server started successfully
@@ -4518,12 +4815,29 @@ paths:
                 properties:
                   error:
                     type: string
+        "401":
+          description: Missing, malformed, unknown or revoked bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Token is not scoped for extensions:manage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /api/v1/webui/server/stop:
     post:
       summary: Stop the WebUI server
-      description: Stops the WebUI skin server
+      description: >
+        Stops the WebUI skin server.
+        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
+        (see the extensionsManage security scheme).
       tags: [WebUI]
+      security:
+        - extensionsManage: []
       responses:
         "200":
           description: Server stopped successfully
@@ -4534,6 +4848,18 @@ paths:
                 properties:
                   message:
                     type: string
+        "401":
+          description: Missing, malformed, unknown or revoked bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: Token is not scoped for extensions:manage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /api/v1/webui/skin-assets/{id}/{filepath}:
     get:
@@ -5107,6 +5433,13 @@ paths:
         duplicate entry names, directory/symlink entries masquerading as
         recognized files, truncated archives, CRC mismatches, and malformed
         JSON all fail safely with 400.
+
+        Changing the default skin or turning on automatic updates requires
+        `Authorization: Bearer <token>` scoped `extensions:manage`. Without
+        it, every other setting is still imported, but a `defaultSkinId` that
+        differs from the current one and an `automaticUpdateCheck: true` while
+        automatic updates are off are each skipped and reported as a warning
+        in the `settings` section result.
       tags: [Data Management]
       parameters:
         - in: query
@@ -5215,6 +5548,14 @@ paths:
         phase reports reason `timeout_unknown`. A generated archive is also
         bounded by the 2 GiB import request limit, and per-record limits
         are measured in UTF-8 bytes.
+
+        A pull (including the pull phase of two_way) imports the target's
+        settings under the same rule as /api/v1/data/import: without a token
+        scoped `extensions:manage` on this request, a `defaultSkinId` that
+        differs from the current one and an `automaticUpdateCheck: true` while
+        automatic updates are off are each skipped and reported as a warning
+        in the `settings` section result. A push sends no token, so the target
+        applies the same rule to the pushed archive.
       tags: [Data Management]
       requestBody:
         required: true
@@ -5976,6 +6317,22 @@ paths:
             400 with a `detail.code`, or a 429 rate-limit).
 
 components:
+  securitySchemes:
+    extensionsManage:
+      type: http
+      scheme: bearer
+      description: >
+        A bearer token scoped `extensions:manage`, required by the plugin and
+        skin management operations even though the rest of the API is
+        unauthenticated. Create one in the app (Decent Account > API access
+        tokens > Create, with "Manage plugins and skins" turned on; it is shown
+        once). For development and automation, supply a random one at launch
+        in the `DECAID_EXTENSIONS_TOKEN` environment variable or with
+        `--extensions-token <value>` (at least 32 characters; other local
+        users can read command-line arguments). Send it as
+        `Authorization: Bearer <token>`.
+        Over plain HTTP the token is not confidential on the local network;
+        use a trusted network until the HTTPS listener (#925) exists.
   schemas:
     ScaleCommandError:
       type: object
@@ -7159,7 +7516,7 @@ components:
           enum: ["disabled", "full", "tracking"]
           nullable: true
         webUiPath:
-          description: Set a path on local filesystem, from which REA will serve the webUI
+          description: Set a path on local filesystem, from which REA will serve the webUI. Any value requires a bearer token scoped extensions:manage (see POST /api/v1/settings).
           type: string
           nullable: true
         logLevel:
@@ -7216,11 +7573,11 @@ components:
           nullable: true
           example: "plugin:grinder.example:grinder:one"
         defaultSkinId:
-          description: ID of the default WebUI skin to serve
+          description: ID of the default WebUI skin to serve. A value other than the current default requires a bearer token scoped extensions:manage (see POST /api/v1/settings).
           type: string
           nullable: true
         automaticUpdateCheck:
-          description: Whether to automatically check for updates
+          description: Whether to automatically check for updates. Automatic checks install plugin and skin updates, so setting true while it is off requires a bearer token scoped extensions:manage (see POST /api/v1/settings); turning it off needs none.
           type: boolean
           nullable: true
         chargingMode:
@@ -7926,7 +8283,7 @@ components:
           type: array
           items:
             type: string
-            enum: [log, api, emit, notifications, pluginStorage, events.machine, events.shots, events.workflow, proxy.decent_api, proxy.decent_api.write, network.websocket, network.tcp, network.tls, transport.ble]
+            enum: [log, api, emit, notifications, pluginStorage, events.machine, events.shots, events.workflow, proxy.decent_api, proxy.decent_api.write, network.websocket, network.tcp, network.tls, transport.ble, manage.extensions]
         drivers:
           type: array
           maxItems: 8

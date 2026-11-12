@@ -1082,6 +1082,15 @@ function createPlugin(host) {
 
         const baseUrl = window.location.protocol + '//' + window.location.host;
 
+        const managementHelp = 'Plugin and skin management needs an extensions:manage API token, which this page does not handle. Use the settings in the Decaid app, or call the API with a token.';
+
+        async function responseErrorText(response) {
+            const text = await response.text();
+            if (response.status === 401) return managementHelp;
+            if (response.status === 403 && text.indexOf('extensions:manage') !== -1) return managementHelp;
+            return text;
+        }
+
         async function updateReaSetting(key, value) {
             try {
                 const payload = {};
@@ -1099,7 +1108,7 @@ function createPlugin(host) {
                     showToast('Decent setting updated successfully');
                     document.getElementById('timestamp').textContent = new Date().toLocaleString();
                 } else {
-                    const error = await response.text();
+                    const error = await responseErrorText(response);
                     showToast('Failed to update Decent setting: ' + error, true);
                 }
             } catch (e) {
@@ -1227,7 +1236,7 @@ function createPlugin(host) {
                     body: JSON.stringify({ skinId: skinId })
                 });
                 if (!setResponse.ok) {
-                    const error = await setResponse.text();
+                    const error = await responseErrorText(setResponse);
                     showToast('Failed to set default skin: ' + error, true);
                     return;
                 }
@@ -1235,12 +1244,19 @@ function createPlugin(host) {
                 const statusResponse = await fetch(baseUrl + '/api/v1/webui/server/status');
                 const status = await statusResponse.json();
                 if (status.serving) {
-                    await fetch(baseUrl + '/api/v1/webui/server/stop', { method: 'POST' });
+                    const stopResponse = await fetch(baseUrl + '/api/v1/webui/server/stop', { method: 'POST' });
+                    if (!stopResponse.ok) {
+                        const error = await responseErrorText(stopResponse);
+                        showToast('Default skin set, but the server could not be stopped to apply it: ' + error, true);
+                        return;
+                    }
                     const startResponse = await fetch(baseUrl + '/api/v1/webui/server/start', { method: 'POST' });
                     if (startResponse.ok) {
                         showToast('Skin switched and server restarted');
                     } else {
-                        showToast('Skin set but server failed to restart', true);
+                        const error = await responseErrorText(startResponse);
+                        showToast('Default skin set and server stopped, but it failed to restart: ' + error, true);
+                        return;
                     }
                 } else {
                     showToast('Default skin updated');
@@ -1261,7 +1277,7 @@ function createPlugin(host) {
                     showToast('Skin removed');
                     setTimeout(() => location.reload(), 500);
                 } else {
-                    const error = await response.text();
+                    const error = await responseErrorText(response);
                     showToast('Failed to remove skin: ' + error, true);
                 }
             } catch (e) {
@@ -1277,7 +1293,7 @@ function createPlugin(host) {
                     showToast('Skin update check completed');
                     setTimeout(() => location.reload(), 1000);
                 } else {
-                    const error = await response.text();
+                    const error = await responseErrorText(response);
                     showToast('Update check failed: ' + error, true);
                 }
             } catch (e) {
@@ -1309,7 +1325,7 @@ function createPlugin(host) {
                     showToast('Skin installed successfully');
                     setTimeout(() => location.reload(), 500);
                 } else {
-                    const error = await response.text();
+                    const error = await responseErrorText(response);
                     showToast('Failed to install skin: ' + error, true);
                 }
             } catch (e) {
@@ -1325,7 +1341,7 @@ function createPlugin(host) {
                     showToast('WebUI server started');
                     setTimeout(() => location.reload(), 500);
                 } else {
-                    const error = await response.text();
+                    const error = await responseErrorText(response);
                     showToast('Failed to start WebUI server: ' + error, true);
                 }
             } catch (e) {
@@ -1340,7 +1356,7 @@ function createPlugin(host) {
                     showToast('WebUI server stopped');
                     setTimeout(() => location.reload(), 500);
                 } else {
-                    const error = await response.text();
+                    const error = await responseErrorText(response);
                     showToast('Failed to stop WebUI server: ' + error, true);
                 }
             } catch (e) {
@@ -1479,7 +1495,7 @@ function createPlugin(host) {
                     showToast('Plugin enabled');
                     setTimeout(() => location.reload(), 500);
                 } else {
-                    const error = await response.text();
+                    const error = await responseErrorText(response);
                     showToast('Failed to enable plugin: ' + error, true);
                 }
             } catch (e) {
@@ -1494,7 +1510,7 @@ function createPlugin(host) {
                     showToast('Plugin disabled');
                     setTimeout(() => location.reload(), 500);
                 } else {
-                    const error = await response.text();
+                    const error = await responseErrorText(response);
                     showToast('Failed to disable plugin: ' + error, true);
                 }
             } catch (e) {
@@ -1512,7 +1528,7 @@ function createPlugin(host) {
                     showToast('Plugin removed');
                     setTimeout(() => location.reload(), 500);
                 } else {
-                    const error = await response.text();
+                    const error = await responseErrorText(response);
                     showToast('Failed to remove plugin: ' + error, true);
                 }
             } catch (e) {
@@ -1534,7 +1550,7 @@ function createPlugin(host) {
                     showToast('Plugin installed successfully');
                     setTimeout(() => location.reload(), 500);
                 } else {
-                    const error = await response.text();
+                    const error = await responseErrorText(response);
                     showToast('Failed to install plugin: ' + error, true);
                 }
             } catch (e) {
@@ -1595,7 +1611,7 @@ function createPlugin(host) {
   // Return the plugin object
   return {
     id: "settings.reaplugin",
-    version: "0.1.8",
+    version: "0.1.9",
 
     onLoad(settings) {
       state.refreshInterval = settings.RefreshInterval !== undefined ? settings.RefreshInterval : 5;

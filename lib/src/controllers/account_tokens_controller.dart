@@ -33,12 +33,19 @@ class AccountTokensController {
     }
   }
 
-  Future<String> create({required String label, bool write = false}) async {
-    final token = ProxyTokenService.generateToken();
-    final scopes = <String>{
+  Future<String> create({required String label, bool write = false}) {
+    return _create(label, {
       ProxyTokenService.scopeAccountProxy,
       if (write) ProxyTokenService.scopeAccountProxyWrite,
-    };
+    });
+  }
+
+  Future<String> createExtensionManager({required String label}) {
+    return _create(label, {ProxyTokenService.scopeExtensionsManage});
+  }
+
+  Future<String> _create(String label, Set<String> scopes) async {
+    final token = ProxyTokenService.generateToken();
     final record = PersistedProxyToken(
       id: const Uuid().v4(),
       token: token,
@@ -63,7 +70,7 @@ class AccountTokensController {
     final callerId = 'api:${token.id}';
     _tokenService.registerToken(
       token.token,
-      ProxyCaller(id: callerId, scopes: token.scopes),
+      ProxyCaller(id: callerId, scopes: token.scopes, label: token.label),
     );
     _callerLabelRegistrar?.call(callerId, token.label);
   }

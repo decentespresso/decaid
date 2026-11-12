@@ -137,9 +137,67 @@ rollback live in
 `.agents/skills/decent-app/scenarios/skin-switch-embedded.md`.
 
 In an external browser `switchSkin` is a no-op. Use the REST skin controls
-(`PUT /api/v1/webui/skins/{id}/default` and the WebUI server endpoints) and then
-open the stable entry point on port 3000, which redirects to the selected skin's
-origin.
+(`PUT /api/v1/webui/skins/default` with `{"skinId": "<id>"}`, then the WebUI
+server stop and start endpoints) and then open the stable entry point on port
+3000, which redirects to the selected skin's origin. Those REST calls need an
+`extensions:manage` bearer token; see
+[Managing Plugins and Skins from a Skin](#managing-plugins-and-skins-from-a-skin).
+
+### Managing Plugins and Skins from a Skin
+
+The REST routes that install, replace, configure, enable, disable or remove
+plugins and skins, change the default skin, or start and stop the skin server
+require `Authorization: Bearer <token>` with the `extensions:manage` scope. The
+rest of the API stays unauthenticated. The full list is in
+[REST management routes](#rest-management-routes).
+
+Skins get no implicit management authority. The account-proxy token Decaid
+injects into served skin pages has only the `account:proxy` scope, and the
+management routes refuse it with 403. A skin that offers plugin or skin
+management has these options:
+
+- **Switch skins inside the app** with `window.decentApp.switchSkin(skinId)`
+  (see [Switching Skins from an Embedded Skin](#switching-skins-from-an-embedded-skin)).
+  It needs no token and is unaffected by this gate.
+- **Ask the user for a token** created in the app (**Decent Account** page,
+  **API access tokens**, **Create**, turn on **Manage plugins and skins**; the
+  token is shown once) and send it as a bearer. Keep it in memory for the life of
+  the page. Do not put it in `localStorage`, `sessionStorage`, cookies or the
+  key-value store: other pages on the same origin, and any client of the
+  key-value store, could read it. On 401, discard it and ask again. Do this only
+  in a page served from the skin's own port. Pages served by plugins on the API
+  port share one origin and can script each other, so a token must never be
+  entered there.
+- **Delegate to a plugin** that holds the `manage.extensions` permission. The
+  plugin calls the routes through `host.localApi`, which reaches plugin and skin
+  management and nothing else in the API. Its own endpoints are open to
+  every client on the network, so it must decide for itself what to do rather
+  than pass a caller's request through. See `doc/Plugins.md`.
+- **Send the user to the native settings screens**, which call the services
+  in-process and need no token.
+
+```javascript
+let extensionsToken = null;
+
+async function manage(path, init = {}) {
+  extensionsToken ??= window.prompt('Paste a "Manage plugins and skins" API token');
+  if (!extensionsToken) return null;
+  const response = await fetch(`http://${location.hostname}:8080${path}`, {
+    ...init,
+    headers: { ...init.headers, Authorization: `Bearer ${extensionsToken}` },
+  });
+  if (response.status === 401) extensionsToken = null;
+  return response;
+}
+
+await manage('/api/v1/plugins/my.reaplugin/enable', { method: 'POST' });
+```
+
+The responses are 401 `{"error":"Missing or malformed bearer token"}`, 401
+`{"error":"Invalid token"}` for an unknown or revoked token, and 403
+`{"error":"Token is not scoped for extensions:manage"}` for a token of another
+scope. HTTP bearer tokens are not confidential on the LAN; use a trusted network
+until Decaid has an HTTPS listener.
 
 ### Live Camera Access on Android, iOS and macOS
 
@@ -1569,6 +1627,25 @@ Content-Type: application/json
 
 Only include fields you want to update. Changes take effect immediately.
 
+A body that contains `webUiPath` or sets `defaultSkinId` to a skin other than the
+current default changes which skin is served, and one that sets
+`automaticUpdateCheck` to `true` while it is off lets Decaid install skin and
+plugin updates, so these need an `extensions:manage` bearer token. Without one
+the request is refused with 401 or 403 and none of its fields are applied.
+Values already in effect, turning `automaticUpdateCheck` off, and other fields
+need no token. Restoring a backup (`POST /api/v1/data/import`) or pulling a sync
+(`POST /api/v1/data/sync`) without the token imports everything except a
+`defaultSkinId` that differs from the current one and an
+`automaticUpdateCheck: true` while automatic updates are off, and reports a
+warning for each skipped setting.
+
+```bash
+curl -X POST http://localhost:8080/api/v1/settings \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"defaultSkinId": "my-skin-id"}'
+```
+
 ---
 
 ### Key-Value Store
@@ -1660,8 +1737,14 @@ GET /api/v1/plugins/{id}/settings
 Returns current settings for the plugin.
 
 #### Update Plugin Settings
+
+Requires an `extensions:manage` bearer token; see
+[Managing Plugins and Skins from a Skin](#managing-plugins-and-skins-from-a-skin).
+Enabling, disabling, installing, updating and removing plugins need it too.
+
 ```http
 POST /api/v1/plugins/{id}/settings
+Authorization: Bearer <token>
 Content-Type: application/json
 
 {
@@ -3335,11 +3418,13 @@ This creates an `out/` directory with static HTML/CSS/JS files.
 3. Enter `owner/repo` (and optionally the asset name, or the branch, defaulting to `main`)
 4. The skin is installed and appears in the skin list; **Check for updates** re-fetches from the same source
 
-**Option C: Install via REST API:**
+**Option C: Install via REST API** (needs an `extensions:manage` token, see
+[REST management routes](#rest-management-routes)):
 
 ```bash
 # Install from a local or remote URL
 curl -X POST http://localhost:8080/api/v1/webui/skins/install/url \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"url": "file:///path/to/my-skin.zip"}'
 ```
@@ -3605,7 +3690,14 @@ Live-edit validates that the selected folder contains an `index.html`.
 
 ### Settings Plugin (Web-Based Management)
 
-The bundled **settings plugin** provides a web-based settings dashboard at `/api/v1/plugins/settings.reaplugin/ui`. It includes a "Web Interface" section for skin management: select active skin, start/stop server, install/remove skins, and check for updates — all from a browser.
+The bundled **settings plugin** provides a web-based settings dashboard at `/api/v1/plugins/settings.reaplugin/ui`. Its "Web Interface" section shows the installed skins and the skin server's status, with controls to select the active skin, start or stop the server, install or remove skins, and check for updates.
+
+The page has no authority. Its management actions (switching or removing a skin,
+starting or stopping the server, installing, checking for updates, or changing a
+plugin) are refused and the page says to use the settings in the Decaid app or
+to call the API with a token. It does not ask for a token: plugin pages share
+the API origin, so another plugin's page could read one entered there. Viewing
+and changing ordinary settings works as before.
 
 **Linking back from your skin:** Skins can link to the settings plugin with a customizable back button label using the `backName` query parameter:
 
@@ -3656,14 +3748,48 @@ the update notice, and installation still requires a separate action.
 
 **Server control endpoints:**
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/webui/server/status` | Current status (`{serving, path, port, ip}`) |
-| POST | `/api/v1/webui/server/start` | Start serving the default skin through the port 3000 entry point |
-| POST | `/api/v1/webui/server/stop` | Stop serving |
-| POST | `/api/v1/webui/skins/update` | Check all remote skin sources for updates |
+| Method | Path | Token | Description |
+|--------|------|-------|-------------|
+| GET | `/api/v1/webui/server/status` | no | Current status (`{serving, path, port, ip}`) |
+| POST | `/api/v1/webui/server/start` | yes | Start serving the default skin through the port 3000 entry point |
+| POST | `/api/v1/webui/server/stop` | yes | Stop serving |
+| POST | `/api/v1/webui/skins/update` | yes | Check all remote skin sources for updates |
 
-The start endpoint uses `defaultSkinId` from settings. To switch skins: set the default via `PUT /api/v1/webui/skins/default`, then restart the server.
+The start endpoint uses `defaultSkinId` from settings. To switch skins: set the default via `PUT /api/v1/webui/skins/default`, then restart the server. All three steps need an `extensions:manage` bearer token.
+
+### REST Management Routes
+
+These routes need `Authorization: Bearer <token>` with the `extensions:manage`
+scope. Without it they answer 401; with a token of another scope, such as the
+skin's injected account-proxy token, 403.
+
+| Method | Path |
+|--------|------|
+| PUT | `/api/v1/webui/skins/default` |
+| POST | `/api/v1/webui/skins/install/github-release` |
+| POST | `/api/v1/webui/skins/install/github-branch` |
+| POST | `/api/v1/webui/skins/install/url` |
+| POST | `/api/v1/webui/skins/update` |
+| DELETE | `/api/v1/webui/skins/{id}` |
+| POST | `/api/v1/webui/server/start` |
+| POST | `/api/v1/webui/server/stop` |
+| POST | `/api/v1/settings` with `webUiPath`, a changed `defaultSkinId` or `automaticUpdateCheck` turned on in the body |
+| POST | `/api/v1/plugins/install`, `/install/github-release`, `/install/github-branch`, `/update` |
+| POST | `/api/v1/plugins/{id}/enable`, `/disable`, `/settings`, `/update/approve` |
+| PUT | `/api/v1/plugins/{id}/source` |
+| DELETE | `/api/v1/plugins/{id}` |
+
+Reading routes (`GET /api/v1/webui/skins`, `GET /api/v1/webui/server/status`,
+`GET /api/v1/plugins` and so on) stay open.
+
+To get a token, create one in the app: **Decent Account** page, **API access
+tokens**, **Create**, turn on **Manage plugins and skins**. It is shown once. For
+development, headless testing and automation, give the app a random value of at
+least 32 characters at launch, in the `DECAID_EXTENSIONS_TOKEN` environment
+variable or with `--extensions-token <value>`; it is valid for that process
+only. Other local users can read command-line arguments, so prefer the variable
+where the value has to stay private (see `doc/Api.md`). The examples below
+assume the token is in `$TOKEN`.
 
 ### For User-Installable Skins (via REST API)
 
@@ -3672,6 +3798,7 @@ Users can also install skins dynamically via REST API without using the Settings
 **Install from GitHub Release:**
 ```bash
 curl -X POST http://localhost:8080/api/v1/webui/skins/install/github-release \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "repo": "username/my-skin-repo",
@@ -3683,6 +3810,7 @@ curl -X POST http://localhost:8080/api/v1/webui/skins/install/github-release \
 **Install from GitHub Branch:**
 ```bash
 curl -X POST http://localhost:8080/api/v1/webui/skins/install/github-branch \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "repo": "username/my-skin-repo",
@@ -3693,6 +3821,7 @@ curl -X POST http://localhost:8080/api/v1/webui/skins/install/github-branch \
 **Install from URL:**
 ```bash
 curl -X POST http://localhost:8080/api/v1/webui/skins/install/url \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "url": "https://example.com/skin.zip"
@@ -3711,7 +3840,8 @@ curl http://localhost:8080/api/v1/webui/skins/my-skin-id
 
 **Remove Skin (user-installed only):**
 ```bash
-curl -X DELETE http://localhost:8080/api/v1/webui/skins/my-skin-id
+curl -X DELETE http://localhost:8080/api/v1/webui/skins/my-skin-id \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 **Get Default Skin:**
@@ -3722,6 +3852,7 @@ curl http://localhost:8080/api/v1/webui/skins/default
 **Set Default Skin:**
 ```bash
 curl -X PUT http://localhost:8080/api/v1/webui/skins/default \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"skinId": "my-skin-id"}'
 ```
@@ -3730,7 +3861,7 @@ The default skin preference:
 - Defaults to `streamline-project` if no preference is set
 - Persists across app restarts
 - Automatically saved when user selects a skin in Settings view
-- Can be changed via API or Settings plugin
+- Can be changed via API (with an `extensions:manage` token) or in the app's Settings view; the Settings plugin's web page can no longer change it
 
 ---
 
@@ -3774,9 +3905,11 @@ Decaid tracks skin metadata in `.rea_metadata.json`:
 
 **Update Detection:**
 - User-installed skins are checked for updates via `updateAllSkins()`, which
-  runs on the app's periodic update check, from `POST /api/v1/webui/skins/update`,
-  from the web settings plugin's "Check for Skin Updates", and from the native
-  skin page's cogwheel menu under **Check for updates**.
+  runs on the app's periodic update check, from `POST /api/v1/webui/skins/update`
+  (which needs an `extensions:manage` token), and from the native skin page's
+  cogwheel menu under **Check for updates**. The web settings plugin's "Check
+  for Skin Updates" button no longer triggers it: the plugin's page holds no
+  token, so its request is refused with 401.
 - During an update check on the native skin page, the cogwheel shows progress
   and **Check for updates** is disabled until the check finishes, including
   after a failure. The menu can still be opened to access installation.

@@ -12,9 +12,16 @@ every call.
 ## Preconditions
 
 ```bash
-scripts/sb-dev.sh start --connect-machine MockDe1
+TOKEN="$(openssl rand -hex 32)"
+scripts/sb-dev.sh start --connect-machine MockDe1 \
+  --app-arg "--extensions-token=$TOKEN"
 BASE=http://localhost:8080
+AUTH="Authorization: Bearer $TOKEN"
 ```
+
+Installing skins, setting the default skin and starting or stopping the skin
+server need the `extensions:manage` token; the calls below send it as `$AUTH`.
+`sb-dev restart` keeps the token.
 
 Nothing else may hold ports 3000, 4001 or 8080 — a packaged Decaid running on the
 same machine does, and the dev instance then fails to bind.
@@ -39,7 +46,7 @@ or install them over REST from a local HTTP server, which also works for Android
 
 for skin in a b; do
   curl -sf -X POST "$BASE/api/v1/webui/skins/install/url" \
-    -H 'content-type: application/json' \
+    -H "$AUTH" -H 'content-type: application/json' \
     -d "{\"url\": \"http://localhost:8099/switch-test-$skin.zip\"}" | jq .
 done
 
@@ -56,10 +63,10 @@ curl -sf "$BASE/api/v1/webui/skins" | jq '[.[] | select(.id | startswith("switch
 ## Open skin A in the embedded view
 
 ```bash
-curl -sf -X PUT "$BASE/api/v1/webui/skins/default" \
+curl -sf -X PUT "$BASE/api/v1/webui/skins/default" -H "$AUTH" \
   -H 'content-type: application/json' -d '{"skinId": "switch-test-a"}' | jq .
-curl -sf -X POST "$BASE/api/v1/webui/server/stop" | jq .
-curl -sf -X POST "$BASE/api/v1/webui/server/start" | jq .
+curl -sf -X POST "$BASE/api/v1/webui/server/stop" -H "$AUTH" | jq .
+curl -sf -X POST "$BASE/api/v1/webui/server/start" -H "$AUTH" | jq .
 curl -sf "$BASE/api/v1/webui/server/status" | jq '{serving, port}'
 ```
 
@@ -170,8 +177,10 @@ adb shell 'run-as net.tadel.reaprime cp -r /data/local/tmp/switch-test-a \
 The registry is scanned at startup, so restart after copying:
 
 ```bash
-scripts/sb-dev.sh restart --platform <device-id> --adb-forward \
-  --connect-machine MockDe1 --app-arg --skin=switch-test-auto
+scripts/sb-dev.sh stop
+scripts/sb-dev.sh start --platform <device-id> --adb-forward \
+  --connect-machine MockDe1 --app-arg --skin=switch-test-auto \
+  --app-arg "--extensions-token=$TOKEN"
 curl -sf "$BASE/api/v1/webui/skins" | jq '[.[] | select(.id | startswith("switch-test")) | .id]'
 ```
 
@@ -186,7 +195,7 @@ coalesces them into one and the `busy` branch never runs.
 Postconditions for the device:
 
 ```bash
-curl -sf -X PUT "$BASE/api/v1/webui/skins/default" \
+curl -sf -X PUT "$BASE/api/v1/webui/skins/default" -H "$AUTH" \
   -H 'content-type: application/json' -d '{"skinId": "streamline.js"}' | jq .
 adb shell 'run-as net.tadel.reaprime rm -rf app_flutter/web-ui/switch-test-a \
   app_flutter/web-ui/switch-test-b app_flutter/web-ui/switch-test-auto'
@@ -201,7 +210,7 @@ created it.
 ## Postconditions
 
 ```bash
-curl -sf -X PUT "$BASE/api/v1/webui/skins/default" \
+curl -sf -X PUT "$BASE/api/v1/webui/skins/default" -H "$AUTH" \
   -H 'content-type: application/json' -d '{"skinId": "streamline.js"}' | jq .
 scripts/sb-dev.sh stop
 rm -rf "$SKINS/switch-test-a" "$SKINS/switch-test-b" \
@@ -217,8 +226,9 @@ embedded view, so one click on the dashboard is still needed to enter the
 skin; everything after that click runs on its own.
 
 ```bash
+TOKEN="${TOKEN:-$(openssl rand -hex 32)}"
 scripts/sb-dev.sh start --platform macos --connect-machine MockDe1 \
-  --app-arg --skin=switch-test-auto
+  --app-arg --skin=switch-test-auto --app-arg "--extensions-token=$TOKEN"
 scripts/sb-dev.sh logs -n 200 --filter 'switch-test\|SkinSwitchCoordinator\|SkinView'
 ```
 
