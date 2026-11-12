@@ -7,6 +7,72 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
         <title>Decaid</title>
         <item>
             <title>0.9.2</title>
+            <pubDate>Thu, 12 Nov 2026 09:46:30 +0000</pubDate>
+            <sparkle:version>3191</sparkle:version>
+            <sparkle:shortVersionString>0.9.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* feat: name the installed skin and plugin versions in feedback reports by @allofmeng in https://github.com/decentespresso/decaid/pull/1049
+* fix(plugins): stop bundled copies downgrading newer installed plugins by @tadelv in https://github.com/decentespresso/decaid/pull/1050
+* chore(android): drop unused SCHEDULE_EXACT_ALARM declaration by @tadelv in https://github.com/decentespresso/decaid/pull/1023
+* chore(ios): clarify permission purpose strings and drop unused location keys by @tadelv in https://github.com/decentespresso/decaid/pull/1024
+* docs(agents): record worktree and local-verification gotchas by @tadelv in https://github.com/decentespresso/decaid/pull/1041
+* fix(machine): support the raw channel on MockDe1 by @tadelv in https://github.com/decentespresso/decaid/pull/1042
+* fix(machine): keep the machine's flow calibration across resets and reconnects by @tadelv in https://github.com/decentespresso/decaid/pull/1053
+* fix(shot-sequencer): stop the scale timer on zero-yield shot ends by @tadelv in https://github.com/decentespresso/decaid/pull/1056
+* perf(de1): coalesce sequential MMR settings reads into multi-word requests by @tadelv in https://github.com/decentespresso/decaid/pull/1057
+* docs(de1): record serial-path verification on Bengle by @tadelv in https://github.com/decentespresso/decaid/pull/1060
+* test: consolidate the duplicated MachineSettingsStore doubles into one helper by @tadelv in https://github.com/decentespresso/decaid/pull/1061
+* feat(shots): add minEnjoyment filter to GET /api/v1/shots by @allofmeng in https://github.com/decentespresso/decaid/pull/1063
+* ci: auto-label newly opened issues for triage (#1045) by @tadelv in https://github.com/decentespresso/decaid/pull/1064
+* fix(plugins): route release checks through the shared GitHub rate-limit cooldown by @tadelv in https://github.com/decentespresso/decaid/pull/1067
+* perf(bengle): enable the coalesced settings groups that verify over USB serial by @tadelv in https://github.com/decentespresso/decaid/pull/1068
+* Add App Store listing metadata, screenshots, and TestFlight crash log tool by @tadelv in https://github.com/decentespresso/decaid/pull/1072
+* fix(import): merge de1app legacy and v2 shots by shot id by @allofmeng in https://github.com/decentespresso/decaid/pull/1075
+* fix(onboarding): stream backup ZIP imports by @tadelv in https://github.com/decentespresso/decaid/pull/1076
+* fix(plugins): add native notification center and upload recovery by @ODevStudio in https://github.com/decentespresso/decaid/pull/1003
+* fix(firmware): allow managed updates on DE1, DE1Plus and DE1Cafe by @tadelv in https://github.com/decentespresso/decaid/pull/1083
+* fix(skins): disable native Android WebView overscroll by @tadelv in https://github.com/decentespresso/decaid/pull/1091
+* fix(ios): restore location purpose string for linked CoreLocation by @tadelv in https://github.com/decentespresso/decaid/pull/1088
+* fix(serial): detect a SensorBasket reporting a non-finite field by @tadelv in https://github.com/decentespresso/decaid/pull/1086
+* Publish the iPad installer to a dist branch by @johnbuckman in https://github.com/decentespresso/decaid/pull/1089
+* fix(notifications): return to dashboard before opening full center by @ODevStudio in https://github.com/decentespresso/decaid/pull/1092
+* fix(plugins): pin shot-upload v0.2.4 (pauses uploads on unlinked-serial 403) by @tadelv in https://github.com/decentespresso/decaid/pull/1096
+* fix(ios): pin flutter_foreground_task fork to stop the BGTaskScheduler launch crash by @tadelv in https://github.com/decentespresso/decaid/pull/1098
+* fix(firmware): expose pre-transfer apply diagnostics by @tadelv in https://github.com/decentespresso/decaid/pull/1099
+* feat(api): add GET /api/v1/machine/waterLevels by @loganfuller in https://github.com/decentespresso/decaid/pull/1104
+* fix(de1): report a stopped refill kit as needsWater/refillStopped by @tadelv in https://github.com/decentespresso/decaid/pull/1113
+* fix(difluid): decode R2 concentration as signed int16 by @tadelv in https://github.com/decentespresso/decaid/pull/1114
+* docs(workflow): inventory numeric limits without guessed REST bounds by @tadelv in https://github.com/decentespresso/decaid/pull/1116
+* test(data-sync): make upload timeout phases deterministic by @tadelv in https://github.com/decentespresso/decaid/pull/1117
+* fix(build): skip Crashlytics symbol upload in Debug by @allofmeng in https://github.com/decentespresso/decaid/pull/1121
+* fix(plugins): autoapprove bundled plugin permission updates by @tadelv in https://github.com/decentespresso/decaid/pull/1126
+* feat(skins): embedded switchSkin hook with port adoption by @allofmeng in https://github.com/decentespresso/decaid/pull/1111
+* feat(api): expose documentation discovery and route-miss hints by @tadelv in https://github.com/decentespresso/decaid/pull/1127
+* test(plugins): cover bundled copy permission upgrades by @tadelv in https://github.com/decentespresso/decaid/pull/1131
+* test(plugins): split the bundled source tests into their own suite by @tadelv in https://github.com/decentespresso/decaid/pull/1132
+* fix(history): snapshot complete grinder workflow configuration at shot completion by @tadelv in https://github.com/decentespresso/decaid/pull/1136
+* fix(serial): keep Android USB identity scoped to physical attachment by @tadelv in https://github.com/decentespresso/decaid/pull/1137
+* feature: let skins exit the app with window.decentApp.exitApp() by @ReubenNinan in https://github.com/decentespresso/decaid/pull/1134
+* fix: retain preferred scale retries when alternatives are discovered by @ODevStudio in https://github.com/decentespresso/decaid/pull/1133
+* chore: move the development toolchain to Flutter 3.47.9 / Dart 3.13 by @tadelv in https://github.com/decentespresso/decaid/pull/1139
+* fix: retain the water refill level and reapply it after reconnect by @giladger in https://github.com/decentespresso/decaid/pull/1144
+* docs(skills): split decent-app (running instance) from decent-dev (changing the code) by @tadelv in https://github.com/decentespresso/decaid/pull/1147
+* feat(api): require extensions:manage for plugin and skin management by @loganfuller in https://github.com/decentespresso/decaid/pull/1142
+* feat(onboarding): ask about shot upload between login and permissions by @tadelv in https://github.com/decentespresso/decaid/pull/1145
+* fix(webui): keep bookmarked skin ports working after skin switches by @tadelv in https://github.com/decentespresso/decaid/pull/1148
+
+## New Contributors
+* @loganfuller made their first contribution in https://github.com/decentespresso/decaid/pull/1104
+* @ReubenNinan made their first contribution in https://github.com/decentespresso/decaid/pull/1134
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.9.1...v0.9.2
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.9.2/decaid-macos-0.9.2.zip" length="63568560" type="application/octet-stream" sparkle:edSignature="XrPzX0fYCy3ARis/1ukAV7uGXhzXIiLX74dCx6FJ9v4PBbQOR4BEMWPggM20HreHVrHCbtRYmqWWlmRvGfBwCg=="/>
+        </item>
+        <item>
+            <title>0.9.2</title>
             <pubDate>Tue, 03 Nov 2026 12:52:58 +0000</pubDate>
             <sparkle:channel>beta</sparkle:channel>
             <sparkle:version>3079</sparkle:version>
@@ -737,6 +803,6 @@ See `doc/RELEASE.md` for install and verification instructions.
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: PCo5ib1aIxuOQNOi9cc/haaTKKbiaF8M4BgKYh/xbNjIsfanZSgsUNdq4HY3oo+0i7q0FQOo+vZSdxBsHiyBAA==
-length: 65095
+edSignature: ZZa0k8TIrb0nmwFw9sFxdrhY72IJSL555Yg6rCHvZ+dlAuSOkiFshI9Z32Y6EKiZC8IJX+Nl0d5eNkf9TaIHAw==
+length: 72623
 -->
