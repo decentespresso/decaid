@@ -32,8 +32,10 @@ request is denied and the gate cannot be exercised. Use one of:
 ```sh
 cd test_assets
 python3 -m http.server 8123
-# find the phone IP in Decaid's Skins page, then:
+# find the phone IP in Decaid's Skins page, then, with a "Manage plugins and
+# skins" token from Decent Account > API access tokens in $TOKEN:
 curl -X POST "http://<PHONE_IP>:8080/api/v1/webui/skins/install/url" \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"url":"http://<MAC_IP>:8123/camera-audit-test.zip"}'
 ```

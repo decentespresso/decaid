@@ -29,6 +29,7 @@ Pick the scenario that matches the task and run it before calling related work d
 | MockDe1 raw machine channel | `scenarios/mock-de1-raw.md` |
 | Onboarding connection phases | `scenarios/onboarding-connection-phases.md` |
 | Preferred-device fast path | `scenarios/onboarding-preferred-device.md` |
+| Plugin and skin management authorization (`extensions:manage`) | `scenarios/extension-management-auth.md` |
 | Plugin Decent account proxy bridge | `scenarios/plugin-decent-proxy.md` |
 | Discover and restore default profiles | `scenarios/profiles-defaults.md` |
 | Shot-state WebSocket and persisted stop reason | `scenarios/shot-state-ws.md` |

@@ -264,7 +264,7 @@ Future<void> prepareShotUploadStartup(
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   if (Platform.isWindows) await initializeWindowsPreferences();
-  final cliArgs = parseCliArgs(args);
+  final cliArgs = parseCliArgs(args, environment: Platform.environment);
   if (cliArgs.printStoragePaths) {
     await _printStoragePaths();
   }
@@ -539,6 +539,22 @@ void main(List<String> args) async {
   AccountConsentGate? consentGate;
   AccountConsentStore? accountConsentStore;
   final proxyTokenService = ProxyTokenService();
+  final extensionsToken = cliArgs.extensionsToken;
+  if (extensionsToken != null &&
+      !proxyTokenService.registerProcessToken(
+        extensionsToken,
+        ProxyCaller(
+          id: 'cli',
+          scopes: const {ProxyTokenService.scopeExtensionsManage},
+          label: cliArgs.extensionsTokenSource,
+        ),
+      )) {
+    log.severe(
+      '${cliArgs.extensionsTokenSource} ignored: it must be at least '
+      '${ProxyTokenService.minimumProcessTokenLength} characters with no '
+      'spaces or commas',
+    );
+  }
   if (cliArgs.noAccount) {
     log.info('--no-account: skipping credential store and account service');
     decentAccountService = null;

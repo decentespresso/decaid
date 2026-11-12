@@ -81,6 +81,7 @@ void main() {
         'network.websocket',
         'network.tcp',
         'network.tls',
+        'manage.extensions',
       ],
       'settings': <String, dynamic>{},
       'api': <dynamic>[],
@@ -99,6 +100,7 @@ void main() {
     expect(manifest.permissions, contains(PluginPermissions.networkWebsocket));
     expect(manifest.permissions, contains(PluginPermissions.networkTcp));
     expect(manifest.permissions, contains(PluginPermissions.networkTls));
+    expect(manifest.permissions, contains(PluginPermissions.manageExtensions));
   });
 
   test('rejects unknown manifest permissions', () {
@@ -131,6 +133,7 @@ void main() {
   test('rejects Dart enum names as manifest permission aliases', () {
     expect(PluginPermissions.fromString('eventsShots'), isNull);
     expect(PluginPermissions.fromString('eventsWorkflow'), isNull);
+    expect(PluginPermissions.fromString('manageExtensions'), isNull);
   });
 
   test('serializes permissions using manifest wire values', () {
@@ -146,6 +149,7 @@ void main() {
         PluginPermissions.pluginStorage,
         PluginPermissions.eventsWorkflow,
         PluginPermissions.proxyDecentApi,
+        PluginPermissions.manageExtensions,
       },
       settings: {},
       api: PluginApi(endpoints: []),
@@ -158,6 +162,7 @@ void main() {
         'pluginStorage',
         'events.workflow',
         'proxy.decent_api',
+        'manage.extensions',
       ]),
     );
   });

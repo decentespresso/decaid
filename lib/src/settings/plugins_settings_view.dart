@@ -358,14 +358,19 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
                         .map(
                           (permission) => Chip(
                             label: Text(permission.wireName),
-                            backgroundColor: Theme.of(context)
-                                .colorScheme
-                                .tertiary,
+                            backgroundColor:
+                                permission == PluginPermissions.manageExtensions
+                                ? Theme.of(context).colorScheme.errorContainer
+                                : Theme.of(context).colorScheme.tertiary,
                             labelStyle: Theme.of(context).textTheme.labelSmall,
                           ),
                         )
                         .toList(),
                   ),
+                  if (plugin.permissions.contains(
+                    PluginPermissions.manageExtensions,
+                  ))
+                    const ExtensionManagementWarning(),
                 ],
               ),
             _buildSourceLine(context, plugin),
@@ -574,6 +579,10 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
             const Text('This update requests new permissions:'),
             const SizedBox(height: 8),
             ...pending.addedPermissions.map((p) => Text('• $p')),
+            if (pending.addedPermissions.contains(
+              PluginPermissions.manageExtensions.wireName,
+            ))
+              const ExtensionManagementWarning(),
             const SizedBox(height: 12),
             Text(
               'Current permissions: '
@@ -736,10 +745,14 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
           ? _sourceService.installFromGitHubRelease(
               repo,
               assetName: detail.isEmpty ? null : detail,
+              approveExtensionManagement: (candidate) =>
+                  _approveExtensionManagement(context, candidate),
             )
           : _sourceService.installFromGitHubBranch(
               repo,
               branch: detail.isEmpty ? 'main' : detail,
+              approveExtensionManagement: (candidate) =>
+                  _approveExtensionManagement(context, candidate),
             ),
       successMessage: 'Plugin installed',
     );
@@ -755,7 +768,11 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
 
     await _runInstall(
       context,
-      () => _sourceService.installFromZip(path),
+      () => _sourceService.installFromZip(
+        path,
+        approveExtensionManagement: (candidate) =>
+            _approveExtensionManagement(context, candidate),
+      ),
       successMessage: 'Plugin installed',
     );
   }
@@ -775,6 +792,8 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
       if (context.mounted) {
         _showSnackBar(context, '$successMessage: ${manifest.name}');
       }
+    } on PluginInstallDeclinedException {
+      return;
     } catch (e, st) {
       Logger('PluginsSettingsView')
           .warning('Plugin installation failed', e, st);
@@ -856,12 +875,18 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
         }
       }
 
-      await _sourceService.installFromFolder(tempDir.path);
+      await _sourceService.installFromFolder(
+        tempDir.path,
+        approveExtensionManagement: (candidate) =>
+            _approveExtensionManagement(context, candidate),
+      );
 
       if (context.mounted) {
         _showSnackBar(context, 'Plugin installed successfully');
       }
       _refreshPlugins();
+    } on PluginInstallDeclinedException {
+      return;
     } catch (e, st) {
       logger.warning('Failed to install plugin', e, st);
       if (context.mounted) {
@@ -877,6 +902,32 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
         logger.warning('Failed to clean up plugin staging directory', e, st);
       }
     }
+  }
+
+  Future<bool> _approveExtensionManagement(
+    BuildContext context,
+    PluginManifest candidate,
+  ) async {
+    if (!mounted || !context.mounted) return false;
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Allow ${candidate.name} to manage plugins and skins?'),
+        content: const ExtensionManagementWarning(),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            key: const Key('approve-extension-management'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Allow and install'),
+          ),
+        ],
+      ),
+    );
+    return approved == true;
   }
 
   Future<void> _confirmRemovePlugin(
@@ -1304,6 +1355,34 @@ class _PluginsSettingsViewState extends State<PluginsSettingsView> {
       SnackBar(
         content: Text(message),
         backgroundColor: isError ? Colors.red : null,
+      ),
+    );
+  }
+}
+
+class ExtensionManagementWarning extends StatelessWidget {
+  const ExtensionManagementWarning({super.key});
+
+  static const message =
+      'manage.extensions lets this plugin install, replace, configure and '
+      'remove plugins and skins on this device, including on instruction '
+      'from a remote server, and approve new permissions for any plugin, '
+      'itself included. Allow it only for a plugin you trust completely.';
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.error;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.warning_amber_rounded, color: color, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(message, style: TextStyle(color: color)),
+          ),
+        ],
       ),
     );
   }

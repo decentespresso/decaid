@@ -366,7 +366,8 @@ enum PluginPermissions {
   networkWebsocket('network.websocket'),
   networkTcp('network.tcp'),
   networkTls('network.tls'),
-  transportBle('transport.ble');
+  transportBle('transport.ble'),
+  manageExtensions('manage.extensions');
 
   final String wireName;
 
