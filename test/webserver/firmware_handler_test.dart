@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
+import 'package:reaprime/src/models/device/de1_firmwaremodel.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/firmware_update_state.dart';
@@ -82,6 +84,33 @@ final class _FirmwareDe1 extends MockDe1 {
   }
 }
 
+final class _VerificationTransport extends FakeBleTransport {
+  final verificationRequested = Completer<void>();
+
+  @override
+  Future<void> write(
+    String serviceUUID,
+    String characteristicUUID,
+    Uint8List data, {
+    bool withResponse = true,
+    Duration? timeout,
+  }) async {
+    await super.write(
+      serviceUUID,
+      characteristicUUID,
+      data,
+      withResponse: withResponse,
+      timeout: timeout,
+    );
+    if (!verificationRequested.isCompleted &&
+        characteristicUUID == Endpoint.fwMapRequest.uuid &&
+        FWMapRequestData.from(ByteData.sublistView(data)).firmwareToErase ==
+            0) {
+      verificationRequested.complete();
+    }
+  }
+}
+
 final class _BlockingFirmwareBundle extends CachingAssetBundle {
   final Completer<void> imageLoadStarted = Completer<void>();
   final Completer<void> imageLoadRelease = Completer<void>();
@@ -98,6 +127,35 @@ final class _BlockingFirmwareBundle extends CachingAssetBundle {
   @override
   Future<String> loadString(String key, {bool cache = true}) {
     return rootBundle.loadString(key, cache: cache);
+  }
+}
+
+final class _LoadedFirmwareBundle extends CachingAssetBundle {
+  _LoadedFirmwareBundle(this.manifest, this.image);
+
+  final ByteData manifest;
+  final ByteData image;
+
+  @override
+  Future<ByteData> load(String key) async {
+    return switch (key) {
+      'assets/firmware/manifest.json' => manifest,
+      'assets/firmware/de1/de1-1358.bin' => image,
+      _ => throw StateError('Unexpected firmware asset: $key'),
+    };
+  }
+
+  @override
+  Future<String> loadString(String key, {bool cache = true}) async {
+    if (key != 'assets/firmware/manifest.json') {
+      throw StateError('Unexpected firmware asset: $key');
+    }
+    return utf8.decode(
+      manifest.buffer.asUint8List(
+        manifest.offsetInBytes,
+        manifest.lengthInBytes,
+      ),
+    );
   }
 }
 
@@ -412,7 +470,7 @@ void main() {
   );
 
   test('NDJSON stays open until successful verification', () async {
-    final transport = FakeBleTransport();
+    final transport = _VerificationTransport();
     addTearDown(transport.dispose);
     transport.queueOnConnectResponses(v13Model: 3, calFlowEst: 0);
     final de1 = UnifiedDe1(
@@ -436,12 +494,14 @@ void main() {
     expect(await iterator.moveNext(), isTrue);
     expect(iterator.current['status'], 'uploading');
 
+    await transport.verificationRequested.future;
+    expect(de1.firmwareUpdateState, FirmwareUpdateState.verifying);
     var terminalArrived = false;
     final terminal = iterator.moveNext().then((value) {
       terminalArrived = true;
       return value;
     });
-    await Future<void>.delayed(const Duration(milliseconds: 10));
+    await Future<void>.delayed(Duration.zero);
     expect(terminalArrived, isFalse);
 
     transport.emitFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xfd]);
@@ -573,11 +633,48 @@ void main() {
     transport.writes.clear();
     controller.machine = de1;
 
-    final response = await _apply(
-      handler,
-      jsonEncode({'artifactId': 'de1-1358'}),
+    final bundle = await _loadFirmwareBundle();
+    final timedHandler = _handlerWithBundle(controller, bundle);
+    final time = FakeAsync();
+    final response = await _flushVirtual(
+      time,
+      time.run(
+        (_) => _apply(timedHandler, jsonEncode({'artifactId': 'de1-1358'})),
+      ),
     );
-    final events = await _readEvents(response);
+    final events = <Map<String, dynamic>>[];
+    var closed = false;
+    final done = time.run((_) => Completer<void>());
+    time.run(
+      (_) => response
+          .read()
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen(
+            (line) => events.add(jsonDecode(line) as Map<String, dynamic>),
+            onDone: () {
+              closed = true;
+              done.complete();
+            },
+          ),
+    );
+    time.flushMicrotasks();
+    expect(events.map((event) => event['status']), ['erasing']);
+    expect(closed, isFalse);
+    expect(
+      transport.writes.where(
+        (write) => write.characteristicUUID == Endpoint.fwMapRequest.uuid,
+      ),
+      isEmpty,
+    );
+    time.elapse(const Duration(seconds: 2) - const Duration(microseconds: 1));
+    expect(events.map((event) => event['status']), ['erasing']);
+    expect(closed, isFalse);
+    time.elapse(const Duration(microseconds: 1));
+    await _flushVirtual(time, done.future);
+    expect(closed, isTrue);
+    expect(time.nonPeriodicTimerCount, 0);
+    expect(time.periodicTimerCount, 0);
     final catalogResponse = await handler(
       Request('GET', Uri.parse('http://localhost/api/v1/machine/firmware')),
     );
@@ -643,13 +740,39 @@ void main() {
     harness.transport.writes.clear();
     harness.transport.trace.clear();
 
-    final stopwatch = Stopwatch()..start();
-    final response = await _apply(
-      harness.handler,
-      jsonEncode({'artifactId': 'de1-1358'}),
+    final bundle = await _loadFirmwareBundle();
+    final timedHandler = _handlerWithBundle(harness.controller, bundle);
+    final time = FakeAsync();
+    final response = await _flushVirtual(
+      time,
+      time.run(
+        (_) => _apply(timedHandler, jsonEncode({'artifactId': 'de1-1358'})),
+      ),
     );
-    final events = await _readEvents(response);
-    stopwatch.stop();
+    var finished = false;
+    final reading = time.run(
+      (_) => _readEvents(response).then((events) {
+        finished = true;
+        return events;
+      }),
+    );
+    time.flushMicrotasks();
+    expect(finished, isFalse);
+    expect(
+      logs.any(
+        (record) =>
+            record.message.contains('firmware stage=initialization start'),
+      ),
+      isTrue,
+    );
+    expect(harness.transport.writes, isEmpty);
+    time.elapse(const Duration(seconds: 2) - const Duration(microseconds: 1));
+    expect(finished, isFalse);
+    expect(harness.transport.writes, isEmpty);
+    time.elapse(const Duration(microseconds: 1));
+    final events = await _flushVirtual(time, reading);
+    expect(time.nonPeriodicTimerCount, 0);
+    expect(time.periodicTimerCount, 0);
     final catalogResponse = await harness.handler(
       Request('GET', Uri.parse('http://localhost/api/v1/machine/firmware')),
     );
@@ -697,7 +820,6 @@ void main() {
     final failureLog = failureLogs.single;
     final transcript = [
       'connectionGeneration=${harness.controller.connectionGeneration}',
-      'elapsed=${stopwatch.elapsed}',
       'events=$events',
       'transportTrace=${harness.transport.trace}',
       'failureLog=${failureLog.message}',
@@ -714,7 +836,6 @@ void main() {
     );
     expect(events.single['cause'], events.single['error']);
     expect(events.single['stage'], isNot('erasing'));
-    expect(stopwatch.elapsed, greaterThanOrEqualTo(const Duration(seconds: 2)));
     expect(operation['state'], 'idle');
     expect(
       writesBeforePostTimeoutProbe.any(
@@ -958,7 +1079,7 @@ void main() {
   });
 
   test('verification timeout emits error and closes without done', () async {
-    final transport = FakeBleTransport();
+    final transport = _VerificationTransport();
     addTearDown(transport.dispose);
     transport.queueOnConnectResponses(v13Model: 3, calFlowEst: 0);
     final de1 = UnifiedDe1(
@@ -970,8 +1091,32 @@ void main() {
     controller.machine = de1;
     transport.queueFirmwareMapResponse([0, 0, 0, 1, 0xff, 0xff, 0xff]);
 
-    final response = await _raw(handler, List.filled(16, 1));
-    final events = await _readEvents(response);
+    final time = FakeAsync();
+    final response = await _flushVirtual(
+      time,
+      time.run((_) => _raw(handler, List.filled(16, 1))),
+    );
+    var finished = false;
+    final reading = time.run(
+      (_) => _readEvents(response).then((events) {
+        finished = true;
+        return events;
+      }),
+    );
+    time.elapse(Duration.zero);
+    await _flushVirtual(time, transport.verificationRequested.future);
+    expect(de1.firmwareUpdateState, FirmwareUpdateState.verifying);
+    time.elapse(
+      const Duration(milliseconds: 100) - const Duration(microseconds: 1),
+    );
+    await _flushVirtual(time, time.run((_) => Future<void>.value()));
+    expect(finished, isFalse);
+    time.elapse(const Duration(microseconds: 1));
+    final events = await _flushVirtual(time, reading);
+    expect(de1.firmwareUpdateState, FirmwareUpdateState.idle);
+    time.flushTimers();
+    expect(time.nonPeriodicTimerCount, 0);
+    expect(time.periodicTimerCount, 0);
 
     expect(events.map((event) => event['status']), [
       'erasing',
@@ -1108,6 +1253,21 @@ Future<Response> _delete(Handler handler) async {
   );
 }
 
+Future<_LoadedFirmwareBundle> _loadFirmwareBundle() async {
+  final manifest = await rootBundle.load('assets/firmware/manifest.json');
+  final image = await rootBundle.load('assets/firmware/de1/de1-1358.bin');
+  return _LoadedFirmwareBundle(manifest, image);
+}
+
+Handler _handlerWithBundle(De1Controller controller, AssetBundle bundle) {
+  final app = Router().plus;
+  FirmwareHandler(
+    controller: controller,
+    catalog: BundledFirmwareCatalog(bundle: bundle),
+  ).addRoutes(app);
+  return app.call;
+}
+
 Future<
   ({
     Handler handler,
@@ -1131,6 +1291,15 @@ _blockedInitializationHandler() async {
     cpuFirmwareBuild: 1333,
     calFlowEst: 0,
   );
+  for (final item in [
+    MMRItem.targetSteamFlow,
+    MMRItem.hotWaterFlowRate,
+    MMRItem.flushFlowRate,
+    MMRItem.flushTimeout,
+    MMRItem.flushTemp,
+  ]) {
+    transport.queueMmrResponseInt(item, 0);
+  }
   final machine = UnifiedDe1(transport: transport);
   await controller.connectToDe1(machine);
   await settings.readStarted.future;
@@ -1173,4 +1342,20 @@ Future<List<Map<String, dynamic>>> _readEvents(Response response) async {
       .transform(const LineSplitter())
       .map((line) => jsonDecode(line) as Map<String, dynamic>)
       .toList();
+}
+
+Future<T> _flushVirtual<T>(FakeAsync time, Future<T> future) async {
+  var completed = false;
+  final observed = future.whenComplete(() => completed = true);
+  for (var turn = 0; turn < 100 && !completed; turn++) {
+    time.flushMicrotasks();
+    await Future<void>.delayed(Duration.zero);
+  }
+  time.flushMicrotasks();
+  expect(
+    completed,
+    isTrue,
+    reason: 'Operation must settle without advancing time',
+  );
+  return observed;
 }
