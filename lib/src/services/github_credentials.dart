@@ -1,9 +1,10 @@
-// ignore_for_file: prefer_initializing_formals
+// ignore_for_file: deprecated_member_use, prefer_initializing_formals
 
 import 'dart:async';
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:reaprime/src/services/account/credential_store.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 
@@ -15,6 +16,29 @@ class GithubCredentialException implements Exception {
   @override
   String toString() => message;
 }
+
+const githubPatAndroidSharedPreferencesName = 'decaid_github_pat';
+const githubPatAndroidKeyPrefix = 'decaid_github_pat';
+
+const githubPatAndroidOptions = AndroidOptions(
+  sharedPreferencesName: githubPatAndroidSharedPreferencesName,
+  preferencesKeyPrefix: githubPatAndroidKeyPrefix,
+  migrateOnAlgorithmChange: true,
+);
+const githubPatIosOptions = IOSOptions(
+  accessibility: KeychainAccessibility.first_unlock_this_device,
+  synchronizable: false,
+);
+const githubPatMacOsOptions = MacOsOptions(
+  accessibility: KeychainAccessibility.first_unlock_this_device,
+  synchronizable: false,
+);
+
+const _githubPatStorage = FlutterSecureStorage(
+  aOptions: githubPatAndroidOptions,
+  iOptions: githubPatIosOptions,
+  mOptions: githubPatMacOsOptions,
+);
 
 class GithubCredentialSnapshot {
   final String _token;
@@ -84,7 +108,7 @@ class GithubCredentialProvider {
     Duration loadTimeout = const Duration(seconds: 2),
   }) : assert(loadTimeout > Duration.zero),
        assert(loadTimeout <= const Duration(seconds: 5)),
-       _store = store ?? SecureCredentialStore(),
+       _store = store ?? SecureCredentialStore(storage: _githubPatStorage),
        _loadTimeout = loadTimeout;
 
   GithubCredentialSnapshot get current => _current;
