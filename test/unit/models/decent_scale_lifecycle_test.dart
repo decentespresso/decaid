@@ -244,10 +244,14 @@ Future<void> _connectWithMissingEvidence(DecentScale scale) async {
 Future<void> _connectAndNegotiate(DecentScale scale) async {
   final negotiationsBefore = scale.debugCompletedNegotiations;
   await scale.onConnect();
-  await pumpEventQueue();
-  while (scale.debugCompletedNegotiations == negotiationsBefore) {
+  for (var turn = 0; turn < 50; turn++) {
     await pumpEventQueue();
+    if (scale.debugCompletedNegotiations != negotiationsBefore) return;
   }
+  fail(
+    'Profile negotiation did not complete: debugCompletedNegotiations stayed '
+    'at $negotiationsBefore (identity: ${scale.debugProfile.identity})',
+  );
 }
 
 Future<void> _disposeScale(
