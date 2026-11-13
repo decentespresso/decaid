@@ -77,15 +77,21 @@ void main() {
     expect(factory, isNot(contains(githubPatAndroidSharedPreferencesName)));
   });
 
-  test('PAT file creation uses mktemp before writing encrypted bytes', () {
+  test('PAT file creation uses an absolute same-directory mktemp template', () {
     final source = File('lib/src/services/github_credential_store.dart')
         .readAsStringSync();
     final mktemp = source.indexOf("Process.run('/usr/bin/mktemp'");
     final write = source.indexOf('writeAsBytes(bytes');
     expect(mktemp, greaterThanOrEqualTo(0));
     expect(write, greaterThan(mktemp));
-    expect(source, contains("'-p'"));
-    expect(source, contains("'.github_pat_secure_storage_v1.XXXXXX'"));
+    final normalized = source.replaceAll(RegExp(r'\s+'), ' ');
+    expect(
+      normalized,
+      contains(
+        "final template = p.join( directory, '.github_pat_secure_storage_v1.XXXXXX', );",
+      ),
+    );
+    expect(source, contains("Process.run('/usr/bin/mktemp', [template])"));
   });
 
   test('macOS PAT storage does not require a keychain entitlement', () {

@@ -463,4 +463,26 @@ void main() {
     expect(utf8.decode(bytes, allowMalformed: true), isNot(contains(token)));
     expect((await file.stat()).mode & 0x1ff, 0x180);
   });
+
+  test('cleans up the temporary file when final replacement fails', () async {
+    final store = GithubPatFileCredentialStore(
+      systemGuid: 'machine-a',
+      supportDirectory: directory.path,
+    );
+    await Directory(store.filePath).create();
+
+    await expectLater(
+      store.write(key: GithubCredentialProvider.storageKey, value: 'token'),
+      throwsA(isA<GithubPatStorageException>()),
+    );
+
+    final leftovers = (await directory.list().toList())
+        .where(
+          (entry) => p
+              .basename(entry.path)
+              .startsWith('.github_pat_secure_storage_v1.'),
+        )
+        .toList();
+    expect(leftovers, isEmpty);
+  });
 }
