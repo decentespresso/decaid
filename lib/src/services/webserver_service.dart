@@ -87,6 +87,7 @@ import 'package:stack_trace/stack_trace.dart';
 import 'package:reaprime/src/models/device/de1_rawmessage.dart';
 import 'package:reaprime/src/plugins/plugin_manager.dart';
 import 'package:reaprime/src/services/feedback_service.dart';
+import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/services/installed_components.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/account/decent_proxy_service.dart';
@@ -174,6 +175,7 @@ Future<void> startWebServer(
   ProxyTokenService? proxyTokenService,
   UpdateCheckService? updateCheckService,
   required PluginSourceService pluginSourceService,
+  GithubCredentialProvider? credentials,
 }) async {
   log.info("starting webserver");
   final de1Handler = De1Handler(
@@ -247,6 +249,7 @@ Future<void> startWebServer(
         pluginService: pluginService,
       ),
       accountService: decentAccountService,
+      credentials: credentials,
     ),
   );
 

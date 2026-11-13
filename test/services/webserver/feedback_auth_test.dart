@@ -100,13 +100,21 @@ void main() {
             },
             () => MockClient((request) async {
               events.add('${request.method} ${request.url.path}');
-              return http.Response(
-                jsonEncode({
-                  'number': 123,
-                  'html_url': 'https://github.com/example/issues/123',
-                }),
-                201,
-              );
+              return request.url.path == '/gists'
+                  ? http.Response(
+                      jsonEncode({
+                        'html_url':
+                            'https://gist.github.com/test/abcdef0123456789',
+                      }),
+                      201,
+                    )
+                  : http.Response(
+                      jsonEncode({
+                        'number': 123,
+                        'html_url': 'https://github.com/example/issues/123',
+                      }),
+                      201,
+                    );
             }),
           );
 

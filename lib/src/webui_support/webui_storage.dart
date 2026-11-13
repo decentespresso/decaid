@@ -10,6 +10,7 @@ import 'package:reaprime/src/util/remote_update_exception.dart';
 import 'package:reaprime/src/util/user_facing_exception.dart';
 import 'package:archive/archive_io.dart';
 import 'package:path/path.dart' as p;
+import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/services/github_rate_limit.dart';
 import 'package:reaprime/src/services/github_request.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
@@ -155,16 +156,18 @@ class WebUIStorage {
   Future<void>? _remoteDownload;
 
   final GithubRateLimit _rateLimit;
+  final GithubCredentialProvider? credentials;
 
   WebUIStorage(
     this._settingsController, {
     Directory? webUIDir,
     GithubRateLimit? rateLimit,
+    this.credentials,
   }) : _webUIDirOverride = webUIDir,
        _rateLimit = rateLimit ?? GithubRateLimit();
 
   Future<http.Response> _getGitHubRelease(String apiUrl) =>
-      githubGet(apiUrl, rateLimit: _rateLimit);
+      githubGet(apiUrl, rateLimit: _rateLimit, credentials: credentials);
 
   ValueListenable<Future<void>?> get updateCheck => _updateCheck;
 

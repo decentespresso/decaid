@@ -6,6 +6,7 @@ import 'package:reaprime/src/util/remote_error.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/services/android_updater.dart';
+import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/services/github_rate_limit.dart';
 import 'package:reaprime/src/services/app_update_state.dart';
 import 'package:reaprime/src/settings/settings_service.dart';
@@ -43,6 +44,7 @@ class UpdateCheckService {
     bool? platformIsAndroid,
     bool? platformIsMacOS,
     GithubRateLimit? rateLimit,
+    GithubCredentialProvider? credentials,
     this.externallyManaged = BuildInfo.appStore,
   }) : _updater =
            updater ??
@@ -50,6 +52,7 @@ class UpdateCheckService {
              owner: 'tadelv',
              repo: 'reaprime',
              rateLimit: rateLimit,
+             credentials: credentials,
            ),
        _isAndroid = platformIsAndroid ?? Platform.isAndroid,
        _isMacOS = platformIsMacOS ?? Platform.isMacOS {

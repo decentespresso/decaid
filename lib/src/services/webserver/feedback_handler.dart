@@ -44,21 +44,27 @@ class FeedbackHandler {
           'error': 'Decent account required',
           'message': result.errorMessage,
         });
+      } else if (result.success) {
+        return result.supportLink == 'failed'
+            ? jsonOk(result.toJson())
+            : jsonCreated(result.toJson());
       } else if (!_service.isConfigured) {
         return jsonServiceUnavailable({
           'error': 'Service unavailable',
-          'message': 'Feedback service is not configured. Build with --dart-define=GITHUB_FEEDBACK_TOKEN=<token>',
+          'message': 'Feedback service is not configured. Open native Advanced Settings to add a GitHub token or build with --dart-define=GITHUB_FEEDBACK_TOKEN=<token>.',
         });
-      } else if (result.success) {
-        return jsonCreated(result.toJson());
       } else {
         return jsonError(result.toJson());
       }
     } on RequestBodyReadException {
       rethrow;
-    } catch (e, st) {
-      _log.severe('Error in _handleSubmitFeedback', e, st);
-      return jsonError({'error': 'Internal server error', 'message': '$e'});
+    } catch (_) {
+      _log.severe('Error in _handleSubmitFeedback');
+      return jsonError({
+        'error': 'Internal server error',
+        'message':
+            'Could not submit feedback. Check the request and try again.',
+      });
     }
   }
 }

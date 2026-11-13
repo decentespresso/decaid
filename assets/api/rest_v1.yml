@@ -6022,8 +6022,11 @@ paths:
       summary: Submit feedback
       description: |
         Submits user feedback as a GitHub issue. Logs and system info are
-        attached as a private Gist when requested. Requires the app to be
-        built with `--dart-define=GITHUB_FEEDBACK_TOKEN=<token>`.
+        attached as a private Gist when requested. Uses the configured native
+        GitHub PAT when present, otherwise the build-supplied
+        `GITHUB_FEEDBACK_TOKEN`; PAT failures never fall back to another identity
+        and advise replacing or removing the PAT in Advanced Settings. The PAT
+        is never exposed through this API.
         Requires an authenticated Decent account. Stored credentials are verified
         before any Gist upload, GitHub issue creation, or Support message.
         Verification has a 30-second deadline, including credential reads and
@@ -6048,8 +6051,14 @@ paths:
             schema:
               $ref: "#/components/schemas/FeedbackRequest"
       responses:
+        "200":
+          description: GitHub issue created but optional Support linking failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeedbackResponse"
         "201":
-          description: Feedback submitted successfully
+          description: Feedback submitted successfully, with Support linking complete or no Support receipt available
           content:
             application/json:
               schema:
@@ -6616,6 +6625,13 @@ components:
         issueNumber:
           type: integer
           description: Issue number (on success)
+        supportLink:
+          type: string
+          enum: [linked, failed]
+          description: Optional Support-link outcome; omitted when no Support receipt is available
+        warning:
+          type: string
+          description: Safe actionable warning when issue creation succeeded with a secondary failure
         errorMessage:
           type: string
           description: Error message (on failure)

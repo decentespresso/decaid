@@ -878,7 +878,7 @@ The **proxy** lets clients *use* the account without ever seeing the credentials
 | GET | `/api/v1/info` | Build metadata (version, commit, branch) + gateway LAN IP (`localIp`) | `info_handler.dart` |
 | GET | `/api/v1/diagnostics/ble` | Read-only BLE adapter, scan/watch ownership, reconnect policy, cache, and advertisement diagnostics | `ble_diagnostics_handler.dart` |
 | GET | `/api/v1/update` | App-update state snapshot (`phase`, `latestVersion`, `releaseNotes`, `releaseUrl`, `installable`). Pure read — no network call; force a re-check via `/ws/v1/update`. | `update_handler.dart` |
-| POST | `/api/v1/feedback` | Submit feedback with an authenticated Decent account (creates GitHub issue) | `feedback_handler.dart` |
+| POST | `/api/v1/feedback` | Submit feedback with an authenticated Decent account (creates GitHub issue; optional Support-link status) | `feedback_handler.dart` |
 | GET | `/api/v1/logs` | Recent log entries, newest first. Live log + rotated files `log.txt.1..N` are always stitched chronologically; response is a size-bounded tail window (`?kb=N`, default 1024 KB, clamped to 4096 KB). `?order=asc` for original chronological order | `logs_handler.dart` |
 | GET | `/api/v1/webview/logs` | WebView console log forwarding, newest first (`?order=asc` for original chronological order) | `webview_logs_handler.dart` |
 | POST | `/api/v1/derek/answers/stream` | Relay to the Derek RAG assistant: forwards the JSON body verbatim to `derek.decentespresso.com/api/answers/stream` and pipes the SSE response back unbuffered. No auth (public data). Exists so browser skins avoid Derek's failing CORS preflight. | `derek_handler.dart` |
@@ -906,12 +906,21 @@ points offer feedback only while logged in; otherwise they direct users to
 Decent Account. Submission always re-verifies credentials, with a 30-second
 deadline covering credential reads and the complete upstream response. A timeout
 returns `400`, aborts the verification request, and ignores late replies.
+Feedback uses the configured native GitHub PAT for GitHub API requests when
+present; otherwise it uses the build-supplied feedback credential. PAT failures
+never fall back to another identity and advise replacing or removing the PAT in
+Advanced Settings. The PAT is never exposed through this API.
 Account failures take precedence over missing GitHub configuration: `503` only
 applies after successful account verification. Other submission failures remain
 `500`. Trusted-LAN callers use the host's account without separate caller
 authentication.
 After issue creation, Support linking is best-effort: only the returned
 `messageId` is appended to the latest issue body as `**Support message:**`.
+Issue creation is submission success even when Support linking fails. A normal
+full success returns `201`; if linking fails, the API returns `200` with the
+same issue reference plus optional `supportLink: "failed"` and a safe `warning`.
+A successful link may include `supportLink: "linked"`; it is omitted when no
+Support reference receipt is available.
 The Support response contract is `{"messageId":67890}`; no user ID is requested
 or retained. The proposed ID format is a positive JSON integer or an ASCII
 decimal string of 1-256 digits without leading zeros. The value `1` is reserved
