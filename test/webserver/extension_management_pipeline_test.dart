@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:path/path.dart' as p;
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
@@ -27,6 +28,15 @@ const _releasedId = 'installed.reaplugin';
 const _defaultSkinId = 'streamline.js';
 const _otherSkinId = 'other.skin';
 const _origin = 'http://skin.example';
+const _bundledPluginIds = [
+  'time-to-ready.reaplugin',
+  'visualizer.reaplugin',
+  'settings.reaplugin',
+  'dye2.reaplugin',
+  'decent-profile.reaplugin',
+  'shot-upload.reaplugin',
+  'dcamp.reaplugin',
+];
 
 const _missingBearer = 'Missing or malformed bearer token';
 const _invalidToken = 'Invalid token';
@@ -254,6 +264,35 @@ List<int> _releaseArchive({
   return ZipEncoder().encode(archive);
 }
 
+void _copyDirectorySync(Directory source, Directory destination) {
+  destination.createSync(recursive: true);
+  for (final entity in source.listSync()) {
+    final target = p.join(destination.path, p.basename(entity.path));
+    if (entity is Directory) {
+      _copyDirectorySync(entity, Directory(target));
+    } else if (entity is File) {
+      entity.copySync(target);
+    }
+  }
+}
+
+void _expectBundledPluginFixtureShape(Directory root) {
+  for (final id in _bundledPluginIds) {
+    final pluginDir = Directory('${root.path}/plugins/$id');
+    expect(pluginDir.existsSync(), isTrue, reason: pluginDir.path);
+    expect(
+      File('${pluginDir.path}/manifest.json').existsSync(),
+      isTrue,
+      reason: pluginDir.path,
+    );
+    expect(
+      File('${pluginDir.path}/plugin.js').existsSync(),
+      isTrue,
+      reason: pluginDir.path,
+    );
+  }
+}
+
 String _concretePath(ExtensionManagementRoute route) {
   final id = route.path.startsWith('/api/v1/webui/')
       ? _otherSkinId
@@ -284,6 +323,8 @@ void main() {
   HttpOverrides.global = null;
 
   late Directory tempDir;
+  late Directory fixtureDir;
+  late Directory supportDir;
   late FakeKeyValueStoreService kvStore;
   late PluginLoaderService service;
   late PluginSourceService sources;
@@ -295,7 +336,9 @@ void main() {
   late String releaseTag;
   late List<int> releaseArchive;
   late Handler routes;
+  Handler? activeHandler;
   late HttpServer server;
+  late int listenerPort;
   late HttpClient client;
   late List<HttpServer> extraServers;
 
@@ -304,7 +347,6 @@ void main() {
   late String accountWriteToken;
   late String revokedToken;
   late String unknownToken;
-
   List<_Credential> refusedCredentials() => [
     const _Credential('no bearer', null, 401, _missingBearer),
     _Credential(
@@ -426,14 +468,11 @@ void main() {
     return _Reply(status, _NoHeaders(), body);
   }
 
-  Future<void> installLocalPlugin(String id, {required bool load}) async {
-    final dir = Directory('${tempDir.path}/source_$id')
-      ..createSync(recursive: true);
-    File('${dir.path}/manifest.json')
-        .writeAsStringSync(jsonEncode(_manifestJson(id)));
-    File('${dir.path}/plugin.js').writeAsStringSync(_echoPluginJs(id));
-    await service.addPlugin(dir.path);
-    if (load) await service.enablePlugin(id);
+  void copyLocalPlugin(String id) {
+    _copyDirectorySync(
+      Directory('${fixtureDir.path}/source_$id'),
+      Directory('${tempDir.path}/plugins/$id'),
+    );
   }
 
   Future<Map<String, Object?>> snapshot() async {
@@ -481,14 +520,61 @@ void main() {
     );
   }
 
-  setUp(() async {
-    SharedPreferences.setMockInitialValues({});
-    tempDir = Directory.systemTemp.createTempSync('extension_mgmt_pipeline');
+  setUpAll(() async {
+    fixtureDir = Directory.systemTemp.createTempSync(
+      'extension_mgmt_pipeline_fixture',
+    );
+    supportDir = fixtureDir;
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
           const MethodChannel('plugins.flutter.io/path_provider'),
-          (_) async => tempDir.path,
+          (_) async => supportDir.path,
         );
+
+    SharedPreferences.setMockInitialValues({
+      for (final id in _bundledPluginIds) 'plugin.autoload.$id': false,
+    });
+    final fixtureService = PluginLoaderService(
+      kvStore: FakeKeyValueStoreService(),
+    );
+    await fixtureService.initialize();
+    await fixtureService.dispose();
+
+    for (final id in [_echoId, _idleId]) {
+      final source = Directory('${fixtureDir.path}/source_$id')
+        ..createSync(recursive: true);
+      File('${source.path}/manifest.json')
+          .writeAsStringSync(jsonEncode(_manifestJson(id)));
+      File('${source.path}/plugin.js').writeAsStringSync(_echoPluginJs(id));
+    }
+
+    server = await shelf_io.serve(
+      (request) async {
+        final handler = activeHandler;
+        if (handler == null) return Response.internalServerError();
+        return http.runWithClient(() => handler(request), gitHubClient);
+      },
+      InternetAddress.loopbackIPv4,
+      0,
+    );
+    listenerPort = server.port;
+  });
+
+  Future<void> initializeTestContext() async {
+    SharedPreferences.setMockInitialValues({
+      for (final id in _bundledPluginIds) 'plugin.autoload.$id': false,
+      'plugin.autoload.$_echoId': true,
+      'plugin.autoload.$_idleId': false,
+    });
+    tempDir = Directory.systemTemp.createTempSync('extension_mgmt_pipeline');
+    supportDir = tempDir;
+    _copyDirectorySync(
+      Directory('${fixtureDir.path}/plugins'),
+      Directory('${tempDir.path}/plugins'),
+    );
+    _expectBundledPluginFixtureShape(tempDir);
+    copyLocalPlugin(_echoId);
+    copyLocalPlugin(_idleId);
     gitHubRequests = [];
     accountUpstream = [];
     extraServers = [];
@@ -498,12 +584,10 @@ void main() {
     kvStore = FakeKeyValueStoreService();
     service = PluginLoaderService(kvStore: kvStore);
     await service.initialize();
-    for (final plugin in service.availablePlugins) {
-      await service.removePlugin(plugin.id);
+    for (final id in _bundledPluginIds) {
+      if (service.getPluginManifest(id) != null) await service.removePlugin(id);
     }
     sources = PluginSourceService(service);
-    await installLocalPlugin(_echoId, load: true);
-    await installLocalPlugin(_idleId, load: false);
 
     storage = _RecordingWebUIStorage(tempDir.path);
     webUi = _RecordingWebUIService();
@@ -569,23 +653,32 @@ void main() {
     WebUIHandler(storage: storage, service: webUi).addRoutes(app);
     AccountProxyHandler(proxy: proxy, enableWrites: true).addRoutes(app);
     routes = app.call;
-
-    server = await serve(pipeline());
+    activeHandler = pipeline();
     client = HttpClient();
-  });
+  }
 
-  tearDown(() async {
+  Future<void> disposeTestContext() async {
+    activeHandler = null;
     client.close(force: true);
     for (final listener in extraServers) {
       await listener.close(force: true);
     }
+    await service.dispose();
+    if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+  }
+
+  setUp(initializeTestContext);
+
+  tearDown(disposeTestContext);
+
+  tearDownAll(() async {
+    await server.close(force: true);
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
           const MethodChannel('plugins.flutter.io/path_provider'),
           null,
         );
-    await service.dispose();
-    if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+    if (fixtureDir.existsSync()) fixtureDir.deleteSync(recursive: true);
   });
 
   group('refused management requests over HTTP', () {
@@ -1083,6 +1176,61 @@ void main() {
       },
     );
   });
+
+  test(
+    'reused listener delegates to isolated per-test handler state',
+    () async {
+      expect(server.port, listenerPort);
+      expect(tempDir.path, isNot(fixtureDir.path));
+
+      final firstToken = managerToken;
+      final firstEnabled = await send(
+        'POST',
+        '/api/v1/plugins/$_idleId/enable',
+        authorization: 'Bearer $firstToken',
+      );
+      expect(firstEnabled.status, 200, reason: '$firstEnabled');
+      expect(service.isPluginLoaded(_idleId), isTrue);
+
+      final firstSettings = await send(
+        'POST',
+        '/api/v1/plugins/$_idleId/settings',
+        authorization: 'Bearer $firstToken',
+        body: {'Label': 'previous-test'},
+      );
+      expect(firstSettings.status, 200, reason: '$firstSettings');
+      expect(
+        await service.pluginSettings(_idleId),
+        containsPair('Label', 'previous-test'),
+      );
+      expect(firstToken, isNotEmpty);
+
+      await disposeTestContext();
+      await initializeTestContext();
+
+      expect(server.port, listenerPort);
+      expect(tempDir.path, isNot(fixtureDir.path));
+      expect(service.isPluginLoaded(_idleId), isFalse);
+      expect(await service.pluginSettings(_idleId), isEmpty);
+      expect(managerToken, isNot(equals(firstToken)));
+
+      final staleToken = await send(
+        'POST',
+        '/api/v1/plugins/$_idleId/enable',
+        authorization: 'Bearer $firstToken',
+      );
+      expect(staleToken.status, 401, reason: '$staleToken');
+      expect(staleToken.error, _invalidToken);
+
+      final secondEnabled = await send(
+        'POST',
+        '/api/v1/plugins/$_idleId/enable',
+        authorization: 'Bearer $managerToken',
+      );
+      expect(secondEnabled.status, 200, reason: '$secondEnabled');
+      expect(service.isPluginLoaded(_idleId), isTrue);
+    },
+  );
 
   test('refused requests do not consume admission capacity', () async {
     final gate = AdmissionGate(
