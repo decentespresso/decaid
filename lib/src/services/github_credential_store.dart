@@ -88,11 +88,11 @@ class _PrivateFileBlobStore implements SecretBlobStore {
     final directory = p.dirname(path);
     String? temporaryPath;
     try {
-      final result = await Process.run('/usr/bin/mktemp', [
-        '-p',
+      final template = p.join(
         directory,
         '.github_pat_secure_storage_v1.XXXXXX',
-      ]);
+      );
+      final result = await Process.run('/usr/bin/mktemp', [template]);
       if (result.exitCode != 0) throw const GithubPatStorageException();
       temporaryPath = (result.stdout as String).trim();
       if (temporaryPath.isEmpty) throw const GithubPatStorageException();
