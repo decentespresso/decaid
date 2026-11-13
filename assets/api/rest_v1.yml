@@ -4102,8 +4102,12 @@ paths:
             invalid parent ID). A step limiter without a numeric `value` or
             `range` is refused with the message
             `FormatException: limiter "value" must be a number` or
-            `FormatException: limiter "range" must be a number`, the same text
-            that PUT /api/v1/profiles/{id} returns.
+            `FormatException: limiter "range" must be a number`. A `value` or
+            `range` that parses to NaN or an infinity (for example the string
+            `"NaN"` or the number `1e400`) is refused with
+            `FormatException: limiter "value" must be a finite number` or
+            `FormatException: limiter "range" must be a finite number`. PUT
+            /api/v1/profiles/{id} returns the same text.
         "500":
           description: Internal Server Error
 
@@ -7325,8 +7329,8 @@ components:
       description: >-
         Safety limiter for a step (caps the non-controlled variable). Both
         fields are required numbers: a profile upload whose limiter has a
-        missing, null or non-numeric `value` or `range` is refused with a 400
-        that names the field.
+        missing, null, non-numeric or non-finite (NaN or infinite) `value` or
+        `range` is refused with a 400 that names the field.
       required:
         - value
         - range

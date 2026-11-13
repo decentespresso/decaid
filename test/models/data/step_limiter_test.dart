@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/data/profile_hash.dart';
@@ -195,6 +197,57 @@ void main() {
       expect(
         ProfileHash.calculateProfileHash(profile),
         equals('profile:ce03a28e18f849d671ef'),
+      );
+    });
+  });
+
+  group('StepLimiter.fromJson - a value that is not finite', () {
+    Matcher refusesAsNotFinite(String field) => throwsA(
+      isA<FormatException>().having(
+        (e) => e.message,
+        'message',
+        'limiter "$field" must be a finite number',
+      ),
+    );
+
+    for (final (json, field) in [
+      (<String, dynamic>{'value': 'NaN', 'range': 1}, 'value'),
+      (<String, dynamic>{'value': 'Infinity', 'range': 1}, 'value'),
+      (<String, dynamic>{'value': '-Infinity', 'range': 1}, 'value'),
+      (<String, dynamic>{'value': 6, 'range': 'NaN'}, 'range'),
+      (<String, dynamic>{'value': 6, 'range': 'Infinity'}, 'range'),
+      (<String, dynamic>{'value': 6, 'range': '-Infinity'}, 'range'),
+      (<String, dynamic>{'value': double.nan, 'range': 1}, 'value'),
+      (<String, dynamic>{'value': double.infinity, 'range': 1}, 'value'),
+      (
+        <String, dynamic>{'value': 6, 'range': double.negativeInfinity},
+        'range',
+      ),
+    ]) {
+      test('$json refuses by naming "$field"', () {
+        expect(() => StepLimiter.fromJson(json), refusesAsNotFinite(field));
+      });
+    }
+
+    test('the JSON number 1e400 decodes to infinity and is refused', () {
+      final json =
+          jsonDecode('{"value": 1e400, "range": 1}') as Map<String, dynamic>;
+
+      expect(json['value'], double.infinity);
+      expect(() => StepLimiter.fromJson(json), refusesAsNotFinite('value'));
+    });
+
+    test('the hex string "0x10" is still accepted as 16', () {
+      final limiter = StepLimiter.fromJson({'value': '0x10', 'range': 1});
+
+      expect(limiter.value, 16.0);
+      expect(limiter.range, 1.0);
+    });
+
+    test('a flow step refuses a non-finite limiter value', () {
+      expect(
+        () => profileWithLimiter({'value': 'NaN', 'range': 1}),
+        refusesAsNotFinite('value'),
       );
     });
   });

@@ -416,5 +416,82 @@ void main() {
       expect(put.statusCode, 400);
       expect(postBody, equals(putBody));
     });
+
+    group('a non-finite limiter', () {
+      Map<String, String> notFiniteRefusal(String field) => {
+        'error': 'Invalid request',
+        'message': 'FormatException: limiter "$field" must be a finite number',
+      };
+
+      final nonFiniteForms = <(Map<String, dynamic>, String)>[
+        (const {'value': 'NaN', 'range': 1}, 'value'),
+        (const {'value': 'Infinity', 'range': 1}, 'value'),
+        (const {'value': 6, 'range': 'NaN'}, 'range'),
+        (const {'value': 6, 'range': '-Infinity'}, 'range'),
+      ];
+
+      for (final (limiter, field) in nonFiniteForms) {
+        test(
+          '$limiter: POST and PUT both answer 400 naming "$field"',
+          () async {
+            final id = await seedRecord();
+            final body = {'profile': profileWithStepLimiter(limiter)};
+
+            final post = await postProfile(body);
+            final put = await putProfile(id, body);
+
+            expect(post.statusCode, 400);
+            expect(put.statusCode, 400);
+            expect(await decode(post), notFiniteRefusal(field));
+            expect(await decode(put), notFiniteRefusal(field));
+          },
+        );
+      }
+
+      for (final (number, field) in [('1e400', 'value'), ('-1e400', 'range')]) {
+        test(
+          'the JSON number $number in "$field" is a 400 on POST and PUT',
+          () async {
+            final id = await seedRecord();
+            final limiter = <String, dynamic>{'value': 6, 'range': 1}
+              ..[field] = 'PLACEHOLDER';
+            final body = jsonEncode({
+              'profile': profileWithStepLimiter(limiter),
+            }).replaceFirst('"PLACEHOLDER"', number);
+
+            final post = await postRawProfile(body);
+            final put = await putRawProfile(id, body);
+
+            expect(post.statusCode, 400);
+            expect(put.statusCode, 400);
+            expect(await decode(post), notFiniteRefusal(field));
+            expect(await decode(put), notFiniteRefusal(field));
+          },
+        );
+      }
+
+      test('the hex string "0x10" is still stored as 16', () async {
+        final id = await seedRecord();
+        final body = {
+          'profile': profileWithStepLimiter({'value': '0x10', 'range': 1}),
+        };
+
+        final post = await postProfile(body);
+        final put = await putProfile(id, body);
+
+        expect(post.statusCode, 201);
+        expect(put.statusCode, 200);
+        for (final response in [post, put]) {
+          final record = await decode(response);
+          final steps =
+              (record['profile'] as Map<String, dynamic>)['steps']
+                  as List<dynamic>;
+          expect((steps.single as Map<String, dynamic>)['limiter'], {
+            'value': 16.0,
+            'range': 1.0,
+          });
+        }
+      });
+    });
   });
 }

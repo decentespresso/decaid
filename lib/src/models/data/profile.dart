@@ -161,8 +161,17 @@ enum ExitType { pressure, flow }
 
 enum ExitCondition { over, under }
 
-double? _parseLimiterNumber(dynamic raw) =>
-    raw is num || raw is String ? parseOptionalDouble(raw) : null;
+double _requireLimiterNumber(Map<String, dynamic> json, String field) {
+  final raw = json[field];
+  final number = raw is num || raw is String ? parseOptionalDouble(raw) : null;
+  if (number == null) {
+    throw FormatException('limiter "$field" must be a number');
+  }
+  if (!number.isFinite) {
+    throw FormatException('limiter "$field" must be a finite number');
+  }
+  return number;
+}
 
 class StepLimiter extends Equatable {
   final double value;
@@ -171,14 +180,8 @@ class StepLimiter extends Equatable {
   const StepLimiter({required this.value, required this.range});
 
   factory StepLimiter.fromJson(Map<String, dynamic> json) {
-    final value = _parseLimiterNumber(json['value']);
-    if (value == null) {
-      throw const FormatException('limiter "value" must be a number');
-    }
-    final range = _parseLimiterNumber(json['range']);
-    if (range == null) {
-      throw const FormatException('limiter "range" must be a number');
-    }
+    final value = _requireLimiterNumber(json, 'value');
+    final range = _requireLimiterNumber(json, 'range');
     return StepLimiter(value: value, range: range);
   }
 
