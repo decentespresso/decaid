@@ -8,9 +8,8 @@ import 'package:reaprime/src/models/device/impl/decent_scale/profile.dart';
 import 'package:reaprime/src/models/device/impl/decent_scale/scale.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
-import 'package:rxdart/rxdart.dart';
 
-const _fastSettle = Duration(milliseconds: 100);
+import '../../helpers/completing_cancel_stream.dart';
 
 const _originalV11Status = [0x03, 0x0A, 0x00, 0x00, 0x64, 0x02, 0x00];
 const _hdsV258Status = [0x03, 0x0A, 0x00, 0x00, 0x64, 0x02, 0x58];
@@ -23,8 +22,8 @@ class _LifecycleBleTransport extends BLETransport {
     this.statusNotification = _originalV11Status,
   });
 
-  final BehaviorSubject<ConnectionState> _connectionState =
-      BehaviorSubject.seeded(ConnectionState.disconnected);
+  final StreamController<ConnectionState> _connectionStateController =
+      StreamController.broadcast();
   ConnectionState _nativeState = ConnectionState.disconnected;
   bool respondToVoltage;
   bool respondToStatus;
@@ -48,7 +47,8 @@ class _LifecycleBleTransport extends BLETransport {
   String get name => 'Decent Scale Lifecycle Test';
 
   @override
-  Stream<ConnectionState> get connectionState => _connectionState.stream;
+  Stream<ConnectionState> get connectionState =>
+      CompletingCancelStream(_connectionStateController);
 
   @override
   Future<ConnectionState> getConnectionState() async => _nativeState;
@@ -57,14 +57,14 @@ class _LifecycleBleTransport extends BLETransport {
   Future<void> connect() async {
     connectCalls++;
     _nativeState = ConnectionState.connected;
-    _connectionState.add(ConnectionState.connected);
+    _connectionStateController.add(ConnectionState.connected);
   }
 
   @override
   Future<void> disconnect() async {
     disconnectCalls++;
     _nativeState = ConnectionState.disconnected;
-    _connectionState.add(ConnectionState.disconnected);
+    _connectionStateController.add(ConnectionState.disconnected);
   }
 
   @override
@@ -160,7 +160,7 @@ class _LifecycleBleTransport extends BLETransport {
 
   void emitDisconnected() {
     _nativeState = ConnectionState.disconnected;
-    _connectionState.add(ConnectionState.disconnected);
+    _connectionStateController.add(ConnectionState.disconnected);
   }
 
   void emitNotification(List<int> data) {
@@ -169,7 +169,7 @@ class _LifecycleBleTransport extends BLETransport {
 
   @override
   Future<void> dispose() async {
-    await _connectionState.close();
+    await _connectionStateController.close();
   }
 }
 
@@ -227,14 +227,27 @@ int _lastIndexOfCommand(
 bool _hasSoftSleep(_LifecycleBleTransport transport, [int? param]) =>
     _hasCommand(transport, 0x0A, 0x04, param);
 
-Future<void> _connectAndSettle(
-  DecentScale scale, {
-  Duration timeout = const Duration(milliseconds: 900),
-}) async {
+Future<void> _connectWithMissingEvidence(DecentScale scale) async {
+  final negotiationsBefore = scale.debugCompletedNegotiations;
+  var connected = false;
+  fakeAsync((async) {
+    scale.onConnect().then((_) => connected = true);
+    async.flushMicrotasks();
+    async.elapse(const Duration(milliseconds: 1600));
+    async.flushMicrotasks();
+    expect(connected, isTrue);
+    expect(scale.debugCompletedNegotiations, negotiationsBefore + 1);
+  });
+  await pumpEventQueue();
+}
+
+Future<void> _connectAndNegotiate(DecentScale scale) async {
+  final negotiationsBefore = scale.debugCompletedNegotiations;
   await scale.onConnect();
   await pumpEventQueue();
-  await Future<void>.delayed(timeout);
-  await pumpEventQueue();
+  while (scale.debugCompletedNegotiations == negotiationsBefore) {
+    await pumpEventQueue();
+  }
 }
 
 Future<void> _disposeScale(
@@ -261,7 +274,7 @@ void main() {
     test('original v1.1 uses shared display off and stays connected', () async {
       final transport = _LifecycleBleTransport();
       final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale);
+      await _connectWithMissingEvidence(scale);
 
       expect(
         scale.debugProfile.identity,
@@ -294,7 +307,7 @@ void main() {
     test('unknown scale uses display off and stays connected', () async {
       final transport = _LifecycleBleTransport(respondToStatus: false);
       final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale);
+      await _connectWithMissingEvidence(scale);
 
       expect(scale.debugProfile.identity, DecentScaleIdentity.unknown);
       transport.writes.clear();
@@ -314,7 +327,7 @@ void main() {
         statusNotification: _hdsV258Status,
       );
       final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale);
+      await _connectAndNegotiate(scale);
 
       expect(scale.debugProfile.identity, DecentScaleIdentity.halfDecentScale);
       expect(
@@ -341,7 +354,7 @@ void main() {
           statusNotification: _hdsV3114Status,
         );
         final scale = DecentScale(transport: transport);
-        await _connectAndSettle(scale);
+        await _connectAndNegotiate(scale);
 
         expect(scale.debugProfile.capabilities.supportsSoftSleep, isTrue);
         transport.writes.clear();
@@ -374,7 +387,7 @@ void main() {
         statusNotification: _hdsV3114Status,
       );
       final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale);
+      await _connectAndNegotiate(scale);
       expect(scale.debugProfile.capabilities.supportsSoftSleep, isTrue);
       transport.failSoftSleep = true;
       transport.writes.clear();
@@ -394,7 +407,7 @@ void main() {
         statusNotification: _hdsV3114Status,
       );
       final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale, timeout: _fastSettle);
+      await _connectAndNegotiate(scale);
       expect(scale.debugProfile.capabilities.supportsSoftSleep, isTrue);
       transport.failSoftSleep = true;
       transport.writes.clear();
@@ -421,7 +434,7 @@ void main() {
         statusNotification: _hdsV3114Status,
       );
       final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale, timeout: _fastSettle);
+      await _connectAndNegotiate(scale);
       await scale.sleepDisplay();
 
       transport.softSleepExitFailures = 1;
@@ -451,7 +464,7 @@ void main() {
         statusNotification: _hdsV3114Status,
       );
       final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale, timeout: _fastSettle);
+      await _connectAndNegotiate(scale);
       await scale.sleepDisplay();
 
       transport.softSleepExitFailures = 5;
@@ -483,7 +496,7 @@ void main() {
         statusNotification: _hdsV3114Status,
       );
       final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale, timeout: _fastSettle);
+      await _connectAndNegotiate(scale);
       await scale.sleepDisplay();
 
       transport.softSleepExitFailures = 5;
@@ -511,7 +524,7 @@ void main() {
           statusNotification: _hdsV3114Status,
         );
         final scale = DecentScale(transport: transport);
-        await _connectAndSettle(scale, timeout: _fastSettle);
+        await _connectAndNegotiate(scale);
         await scale.sleepDisplay();
 
         transport.emitDisconnected();
@@ -556,7 +569,7 @@ void main() {
           statusNotification: _hdsV3114Status,
         );
         final scale = DecentScale(transport: transport);
-        await _connectAndSettle(scale, timeout: _fastSettle);
+        await _connectAndNegotiate(scale);
         await scale.sleepDisplay();
 
         final exitWrite = Completer<void>();
@@ -592,7 +605,7 @@ void main() {
         statusNotification: _hdsV3114Status,
       );
       final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale, timeout: _fastSettle);
+      await _connectAndNegotiate(scale);
       await scale.sleepDisplay();
 
       transport.softSleepExitFailures = 5;
@@ -618,7 +631,7 @@ void main() {
         statusNotification: _hdsV3114Status,
       );
       final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale, timeout: _fastSettle);
+      await _connectAndNegotiate(scale);
       await scale.sleepDisplay();
 
       transport.softSleepExitFailures = 2;
@@ -644,7 +657,7 @@ void main() {
     test('failed display off keeps the connection', () async {
       final transport = _LifecycleBleTransport()..failDisplayOff = true;
       final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale);
+      await _connectWithMissingEvidence(scale);
       transport.writes.clear();
 
       await scale.sleepDisplay();
@@ -660,7 +673,7 @@ void main() {
       () async {
         final transport = _LifecycleBleTransport();
         final scale = DecentScale(transport: transport);
-        await _connectAndSettle(scale);
+        await _connectWithMissingEvidence(scale);
         final connectsBefore = transport.connectCalls;
         final disconnectsBefore = transport.disconnectCalls;
 
@@ -692,7 +705,7 @@ void main() {
         statusNotification: _hdsV3114Status,
       );
       final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale);
+      await _connectAndNegotiate(scale);
       final disconnectsBeforeSleep = transport.disconnectCalls;
       await scale.sleepDisplay();
       await pumpEventQueue();
@@ -720,7 +733,7 @@ void main() {
           statusNotification: _hdsV3114Status,
         );
         final scale = DecentScale(transport: transport);
-        await _connectAndSettle(scale, timeout: _fastSettle);
+        await _connectAndNegotiate(scale);
         await scale.sleepDisplay();
 
         transport.emitDisconnected();
@@ -770,14 +783,14 @@ void main() {
         statusNotification: _hdsV3114Status,
       );
       final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale);
+      await _connectAndNegotiate(scale);
       expect(scale.debugProfile.capabilities.supportsSoftSleep, isTrue);
       await scale.disconnectForHandoff();
 
       transport.respondToVoltage = false;
       transport.statusNotification = _originalV11Status;
       transport.writes.clear();
-      await _connectAndSettle(scale);
+      await _connectWithMissingEvidence(scale);
 
       expect(scale.debugProfile.capabilities.supportsSoftSleep, isFalse);
       transport.writes.clear();
@@ -794,7 +807,7 @@ void main() {
       () async {
         final transport = _LifecycleBleTransport();
         final scale = DecentScale(transport: transport);
-        await _connectAndSettle(scale);
+        await _connectWithMissingEvidence(scale);
         transport.writes.clear();
 
         await scale.disconnect();
@@ -813,7 +826,7 @@ void main() {
         statusNotification: _hdsV3114Status,
       );
       final scale = DecentScale(transport: transport);
-      await _connectAndSettle(scale);
+      await _connectAndNegotiate(scale);
 
       await scale.tare();
       await scale.startTimer();
