@@ -1,3 +1,5 @@
+// ignore_for_file: prefer_initializing_formals
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -12,15 +14,27 @@ abstract class SecretBlobStore {
   Future<void> delete();
 }
 
+class EncryptedCredentialStoreException implements Exception {
+  const EncryptedCredentialStoreException();
+
+  @override
+  String toString() => 'Encrypted credential data cannot be read.';
+}
+
 class EncryptedCredentialStore implements CredentialStore {
   final SecretKey _key;
   final SecretBlobStore _blob;
+  final bool _strict;
   final AesGcm _algo = AesGcm.with256bits();
 
   Future<void> _lock = Future<void>.value();
 
-  EncryptedCredentialStore({required List<int> keyBytes, required this._blob})
-    : _key = SecretKey(keyBytes);
+  EncryptedCredentialStore({
+    required List<int> keyBytes,
+    required this._blob,
+    bool strict = false,
+  }) : _key = SecretKey(keyBytes),
+       _strict = strict;
 
   @override
   Future<String?> read({required String key}) =>
@@ -29,22 +43,45 @@ class EncryptedCredentialStore implements CredentialStore {
   @override
   Future<void> write({required String key, required String value}) =>
       _locked(() async {
-        final map = await _load();
+        Map<String, String> map;
+        try {
+          map = await _load();
+        } on EncryptedCredentialStoreException {
+          if (!_strict) rethrow;
+          map = {};
+        }
         map[key] = value;
         await _save(map);
       });
 
   @override
   Future<void> delete({required String key}) => _locked(() async {
-    final map = await _load();
+    Map<String, String> map;
+    try {
+      map = await _load();
+    } on EncryptedCredentialStoreException {
+      if (!_strict) rethrow;
+      await _blob.delete();
+      return;
+    }
     if (map.remove(key) != null) {
       await _save(map);
     }
   });
 
   Future<Map<String, String>> _load() async {
-    final bytes = await _blob.read();
-    if (bytes == null || bytes.isEmpty) return {};
+    Uint8List? bytes;
+    try {
+      bytes = await _blob.read();
+    } catch (_) {
+      if (_strict) throw const EncryptedCredentialStoreException();
+      rethrow;
+    }
+    if (bytes == null) return {};
+    if (bytes.isEmpty) {
+      if (_strict) throw const EncryptedCredentialStoreException();
+      return {};
+    }
     try {
       final box = SecretBox.fromConcatenation(
         bytes,
@@ -55,6 +92,7 @@ class EncryptedCredentialStore implements CredentialStore {
       final decoded = jsonDecode(utf8.decode(clear)) as Map<String, dynamic>;
       return decoded.map((k, v) => MapEntry(k, v as String));
     } catch (_) {
+      if (_strict) throw const EncryptedCredentialStoreException();
       return {};
     }
   }

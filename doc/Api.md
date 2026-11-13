@@ -20,11 +20,14 @@ For skin development, see [`doc/Skins.md`](Skins.md). For plugin development, se
 GitHub personal access tokens are stored in platform secure storage and are not
 part of the REST API or data exports. Android uses a dedicated secure-storage
 preferences file excluded from both cloud backup and device transfer; other
-application preferences remain eligible for backup. Apple PAT items use
-non-synchronizing, this-device-only keychain accessibility. The current iOS
-project has no existing entitlement files or Xcode entitlement wiring, so no
-unused iOS entitlement was added; iOS release validation must confirm the
-project's keychain capability before shipping.
+application preferences remain eligible for backup. iOS uses a non-synchronizing,
+this-device-only keychain item. macOS stores the token in an encrypted file named
+`github_pat_secure_storage_v1.dat` in Application Support, using a device- and
+purpose-separated key; temporary and final files have mode 0600 from creation.
+An absent file means no PAT is configured. A corrupt or unreadable file blocks
+GitHub requests rather than falling back to another identity; native Advanced
+Settings offers explicit replacement or removal. No macOS keychain entitlement
+is required.
 
 External sensor IDs in REST and WebSocket paths are opaque URI path
 components. Clients percent-encode them once; the host decodes them once at

@@ -25,11 +25,6 @@ void main() {
         KeychainAccessibility.first_unlock_this_device,
       );
       expect(githubPatIosOptions.synchronizable, isFalse);
-      expect(
-        githubPatMacOsOptions.accessibility,
-        KeychainAccessibility.first_unlock_this_device,
-      );
-      expect(githubPatMacOsOptions.synchronizable, isFalse);
     },
   );
 
@@ -82,20 +77,24 @@ void main() {
     expect(factory, isNot(contains(githubPatAndroidSharedPreferencesName)));
   });
 
-  test(
-    'macOS keychain sharing capability is wired for both configurations',
-    () {
-      for (final path in [
-        'macos/Runner/DebugProfile.entitlements',
-        'macos/Runner/Release.entitlements',
-      ]) {
-        final entitlements = File(path).readAsStringSync();
-        expect(entitlements, contains('<key>keychain-access-groups</key>'));
-        expect(
-          entitlements,
-          contains('<key>keychain-access-groups</key>\n\t<array/>'),
-        );
-      }
-    },
-  );
+  test('PAT file creation uses mktemp before writing encrypted bytes', () {
+    final source = File('lib/src/services/github_credential_store.dart')
+        .readAsStringSync();
+    final mktemp = source.indexOf("Process.run('/usr/bin/mktemp'");
+    final write = source.indexOf('writeAsBytes(bytes');
+    expect(mktemp, greaterThanOrEqualTo(0));
+    expect(write, greaterThan(mktemp));
+    expect(source, contains("'-p'"));
+    expect(source, contains("'.github_pat_secure_storage_v1.XXXXXX'"));
+  });
+
+  test('macOS PAT storage does not require a keychain entitlement', () {
+    for (final path in [
+      'macos/Runner/DebugProfile.entitlements',
+      'macos/Runner/Release.entitlements',
+    ]) {
+      final entitlements = File(path).readAsStringSync();
+      expect(entitlements, isNot(contains('keychain-access-groups')));
+    }
+  });
 }

@@ -65,11 +65,6 @@ class AdvancedPage extends StatelessWidget {
                 ),
               ),
               const SettingsDivider(),
-              if (credentials != null) ...[
-                GithubTokenSection(credentials: credentials!),
-                const SettingsDivider(),
-              ],
-
               SettingsTile(
                 icon: Icons.settings_remote_outlined,
                 label: 'Gateway Mode',
@@ -305,6 +300,10 @@ class AdvancedPage extends StatelessWidget {
                     exit(0);
                   },
                 ),
+              if (credentials != null) ...[
+                const SettingsDivider(),
+                GithubTokenSection(credentials: credentials!),
+              ],
             ],
           );
         },

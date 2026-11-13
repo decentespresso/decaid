@@ -16,6 +16,7 @@ class _GithubTokenSectionState extends State<GithubTokenSection> {
   bool _loading = true;
   bool _configured = false;
   bool _storageAvailable = false;
+  bool _unreadable = false;
   String? _error;
 
   @override
@@ -40,6 +41,7 @@ class _GithubTokenSectionState extends State<GithubTokenSection> {
       if (!mounted) return;
       setState(() {
         _configured = widget.credentials.current.isUser;
+        _unreadable = false;
         _storageAvailable = true;
         _loading = false;
       });
@@ -47,6 +49,7 @@ class _GithubTokenSectionState extends State<GithubTokenSection> {
       if (!mounted) return;
       setState(() {
         _loading = false;
+        _unreadable = widget.credentials.isUnreadable;
         _storageAvailable = false;
         _error = error.message;
       });
@@ -72,6 +75,7 @@ class _GithubTokenSectionState extends State<GithubTokenSection> {
       _tokenController.clear();
       setState(() {
         _configured = true;
+        _unreadable = false;
         _storageAvailable = true;
         _loading = false;
       });
@@ -96,6 +100,7 @@ class _GithubTokenSectionState extends State<GithubTokenSection> {
       _tokenController.clear();
       setState(() {
         _configured = false;
+        _unreadable = false;
         _storageAvailable = true;
         _loading = false;
       });
@@ -116,6 +121,8 @@ class _GithubTokenSectionState extends State<GithubTokenSection> {
   Widget build(BuildContext context) {
     final status = _loading
         ? 'Checking secure storage…'
+        : _unreadable
+        ? 'Stored token cannot be read'
         : !_storageAvailable
         ? 'Unknown (storage unavailable)'
         : (_configured ? 'Configured' : 'Not configured');
@@ -160,9 +167,11 @@ class _GithubTokenSectionState extends State<GithubTokenSection> {
                 children: [
                   FilledButton(
                     onPressed: _loading ? null : _save,
-                    child: Text(_configured ? 'Replace' : 'Save'),
+                    child: Text(
+                      _configured || _unreadable ? 'Replace' : 'Save',
+                    ),
                   ),
-                  if (_configured)
+                  if (_configured || _unreadable)
                     OutlinedButton(
                       onPressed: _loading ? null : _remove,
                       child: const Text('Remove'),
