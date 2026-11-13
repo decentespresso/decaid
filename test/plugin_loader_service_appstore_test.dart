@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart'
     show CredentialStore;
@@ -52,10 +53,28 @@ class FakeCredentialStore implements CredentialStore {
   }
 }
 
+void _copyDirectorySync(Directory source, Directory destination) {
+  destination.createSync(recursive: true);
+  for (final entity in source.listSync()) {
+    final target = p.join(destination.path, p.basename(entity.path));
+    if (entity is Directory) {
+      _copyDirectorySync(entity, Directory(target));
+    } else if (entity is File) {
+      entity.copySync(target);
+    }
+  }
+}
+
 class FakeKvStore implements KeyValueStoreService {
   final Map<String, Map<String, Object>> _store = {};
+  final _setEvents =
+      StreamController<({String namespace, String key})>.broadcast(sync: true);
   Completer<void>? _nextWriteStarted;
   Future<void>? _nextWriteRelease;
+
+  Stream<({String namespace, String key})> get setEvents => _setEvents.stream;
+
+  Future<void> dispose() => _setEvents.close();
 
   void blockNextWrite(Completer<void> started, Future<void> release) {
     _nextWriteStarted = started;
@@ -80,6 +99,7 @@ class FakeKvStore implements KeyValueStoreService {
       await release;
     }
     _store.putIfAbsent(namespace, () => {})[key] = value;
+    _setEvents.add((namespace: namespace, key: key));
   }
 
   @override
@@ -116,23 +136,61 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('PluginLoaderService App Store mode', () {
+    late Directory bundledFixtureDir;
     late Directory tempDir;
     late PluginLoaderService service;
     late FakeCredentialStore credentialStore;
     late FakeKvStore kvStore;
+    final bundledPluginIds = <String>[];
     var sourceCounter = 0;
+
+    const bundledPluginPaths = [
+      'assets/plugins/time-to-ready.reaplugin',
+      'assets/plugins/visualizer.reaplugin',
+      'assets/plugins/settings.reaplugin',
+      'assets/plugins/dye2.reaplugin',
+      'assets/plugins/decent-profile.reaplugin',
+      'assets/plugins/shot-upload.reaplugin',
+      'assets/plugins/dcamp.reaplugin',
+    ];
 
     Future<Object?> waitForStorage(
       String namespace,
       String key,
       Object? expected,
     ) async {
-      for (var i = 0; i < 200; i++) {
-        final value = await kvStore.get(namespace: namespace, key: key);
-        if (value == expected) return value;
-        await Future<void>.delayed(const Duration(milliseconds: 5));
+      while (true) {
+        final changed = Completer<void>();
+        final subscription = kvStore.setEvents.listen((event) {
+          if (event.namespace == namespace &&
+              event.key == key &&
+              !changed.isCompleted) {
+            changed.complete();
+          }
+        });
+        try {
+          final value = await kvStore.get(namespace: namespace, key: key);
+          if (value == expected) return value;
+          await changed.future.timeout(const Duration(seconds: 1));
+        } on TimeoutException {
+          return kvStore.get(namespace: namespace, key: key);
+        } finally {
+          await subscription.cancel();
+        }
       }
-      return kvStore.get(namespace: namespace, key: key);
+    }
+
+    Future<void> initializeService() => service.initialize();
+
+    Future<void> installSettingsPlugin(Directory source) async {
+      final manifest = jsonDecode(
+        File(p.join(source.path, 'manifest.json')).readAsStringSync(),
+      ) as Map<String, dynamic>;
+      final pluginDir = Directory(
+        p.join(tempDir.path, 'plugins', manifest['id'] as String),
+      );
+      _copyDirectorySync(source, pluginDir);
+      await initializeService();
     }
 
     Directory makePluginSource(
@@ -167,24 +225,60 @@ function createPlugin() {
       return dir;
     }
 
-    setUp(() async {
+    setUpAll(() async {
       SharedPreferences.setMockInitialValues({});
+      bundledFixtureDir = Directory.systemTemp.createTempSync(
+        'plugin_appstore_fixture',
+      );
+      for (final pluginPath in bundledPluginPaths) {
+        final pluginName = p.basename(pluginPath);
+        final pluginDir = Directory(p.join(bundledFixtureDir.path, pluginName))
+          ..createSync(recursive: true);
+        File(p.join(pluginDir.path, 'manifest.json')).writeAsStringSync(
+          await rootBundle.loadString('$pluginPath/manifest.json'),
+        );
+        File(p.join(pluginDir.path, 'plugin.js')).writeAsStringSync(
+          await rootBundle.loadString('$pluginPath/plugin.js'),
+        );
+        final manifest = jsonDecode(
+          File(p.join(pluginDir.path, 'manifest.json')).readAsStringSync(),
+        ) as Map<String, dynamic>;
+        bundledPluginIds.add(manifest['id'] as String);
+      }
+    });
+
+    setUp(() async {
       tempDir = Directory.systemTemp.createTempSync('plugin_appstore_test');
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
             const MethodChannel('plugins.flutter.io/path_provider'),
             (_) async => tempDir.path,
           );
+      final pluginsDir = Directory(p.join(tempDir.path, 'plugins'))
+        ..createSync(recursive: true);
+      for (final entity in bundledFixtureDir.listSync()) {
+        _copyDirectorySync(
+          entity as Directory,
+          Directory(p.join(pluginsDir.path, p.basename(entity.path))),
+        );
+      }
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+      for (final pluginId in bundledPluginIds) {
+        await prefs.setBool('plugin.autoload.$pluginId', false);
+      }
       credentialStore = FakeCredentialStore();
       kvStore = FakeKvStore();
       service = PluginLoaderService(
         kvStore: kvStore,
         credentialStore: credentialStore,
       );
-      await service.initialize();
+      sourceCounter = 0;
     });
 
-    tearDown(() {
+    tearDown(() async {
+      await service.dispose();
+      await kvStore.dispose();
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(
             const MethodChannel('plugins.flutter.io/path_provider'),
@@ -193,10 +287,17 @@ function createPlugin() {
       if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
     });
 
+    tearDownAll(() async {
+      if (bundledFixtureDir.existsSync()) {
+        bundledFixtureDir.deleteSync(recursive: true);
+      }
+    });
+
     test('addPlugin installs a plugin from a real source directory', () async {
       const id = 'installed.reaplugin';
       final source = makePluginSource(id);
 
+      await initializeService();
       await service.addPlugin(source.path);
 
       final pluginDir = Directory('${tempDir.path}/plugins/$id');
@@ -209,6 +310,7 @@ function createPlugin() {
 
     test('addPlugin replaces an already-installed plugin', () async {
       const id = 'replaced.reaplugin';
+      await initializeService();
       await service.addPlugin(makePluginSource(id).path);
 
       final updatedSource = makePluginSource(id);
@@ -223,6 +325,7 @@ function createPlugin() {
 
     test('removePlugin deletes the installed plugin directory', () async {
       const id = 'removable.reaplugin';
+      await initializeService();
       await service.addPlugin(makePluginSource(id).path);
 
       final pluginDir = Directory('${tempDir.path}/plugins/$id');
@@ -236,14 +339,14 @@ function createPlugin() {
 
     test('migrates and redacts legacy secure settings on first read', () async {
       const id = 'secure.reaplugin';
-      await service.addPlugin(
+      await installSettingsPlugin(
         makePluginSource(
           id,
           settings: {
             'Username': {'type': 'string'},
             'Password': {'type': 'string', 'secure': true},
           },
-        ).path,
+        ),
       );
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
@@ -268,14 +371,14 @@ function createPlugin() {
       'secure setting patches set, preserve, and clear credentials',
       () async {
         const id = 'patch.reaplugin';
-        await service.addPlugin(
+        await installSettingsPlugin(
           makePluginSource(
             id,
             settings: {
               'Username': {'type': 'string'},
               'Password': {'type': 'string', 'secure': true},
             },
-          ).path,
+          ),
         );
 
         await service.savePluginSettings(id, {
@@ -304,7 +407,7 @@ function createPlugin() {
 
     test('ordinary setting patches set, preserve, and clear values', () async {
       const id = 'ordinary-patch.reaplugin';
-      await service.addPlugin(
+      await installSettingsPlugin(
         makePluginSource(
           id,
           settings: {
@@ -312,7 +415,7 @@ function createPlugin() {
             'Theme': {'type': 'string'},
             'Nickname': {'type': 'string'},
           },
-        ).path,
+        ),
       );
       final prefs = await SharedPreferences.getInstance();
 
@@ -344,7 +447,7 @@ function createPlugin() {
 
     test('enum settings reject values outside the manifest array', () async {
       const id = 'enum.reaplugin';
-      await service.addPlugin(
+      await installSettingsPlugin(
         makePluginSource(
           id,
           settings: {
@@ -353,7 +456,7 @@ function createPlugin() {
               'values': ['Light', 'Medium', 'Dark'],
             },
           },
-        ).path,
+        ),
       );
 
       await service.savePluginSettings(id, {'Roast': 'Light'});
@@ -369,6 +472,7 @@ function createPlugin() {
     });
 
     test('rejects pipe-delimited enum manifest values', () async {
+      await initializeService();
       await expectLater(
         service.addPlugin(
           makePluginSource(
@@ -386,7 +490,7 @@ function createPlugin() {
       'a mixed patch updates, preserves, and clears settings at once',
       () async {
         const id = 'mixed-patch.reaplugin';
-        await service.addPlugin(
+        await installSettingsPlugin(
           makePluginSource(
             id,
             settings: {
@@ -396,7 +500,7 @@ function createPlugin() {
               'ApiKey': {'type': 'string', 'secure': true},
               'Token': {'type': 'string', 'secure': true},
             },
-          ).path,
+          ),
         );
         final prefs = await SharedPreferences.getInstance();
 
@@ -435,14 +539,14 @@ function createPlugin() {
     test('concurrent setting patches preserve both updates', () async {
       const id = 'concurrent-patch.reaplugin';
       const credentialKey = 'plugin.settings.secure.$id';
-      await service.addPlugin(
+      await installSettingsPlugin(
         makePluginSource(
           id,
           settings: {
             'Username': {'type': 'string'},
             'Password': {'type': 'string', 'secure': true},
           },
-        ).path,
+        ),
       );
       credentialStore.values = {
         credentialKey: jsonEncode({'Password': 'old-secret'}),
@@ -480,13 +584,13 @@ function createPlugin() {
 
     test('failed credential cleanup leaves uninstall retryable', () async {
       const id = 'retry-remove.reaplugin';
-      await service.addPlugin(
+      await installSettingsPlugin(
         makePluginSource(
           id,
           settings: {
             'Password': {'type': 'string', 'secure': true},
           },
-        ).path,
+        ),
       );
       await service.savePluginSettings(id, {'Password': 'secret'});
       final pluginDir = Directory('${tempDir.path}/plugins/$id');
@@ -507,7 +611,7 @@ function createPlugin() {
 
     test('assembles secure settings only for plugin onLoad', () async {
       const id = 'load-secure.reaplugin';
-      await service.addPlugin(
+      await installSettingsPlugin(
         makePluginSource(
           id,
           settings: {
@@ -527,7 +631,7 @@ function createPlugin() {
   };
 }
 ''',
-        ).path,
+        ),
       );
       await service.savePluginSettings(id, {
         'Username': 'user',
@@ -547,7 +651,7 @@ function createPlugin() {
       'saving settings for a loaded plugin reloads it with the new value',
       () async {
         const id = 'live-apply.reaplugin';
-        await service.addPlugin(
+        await installSettingsPlugin(
           makePluginSource(
             id,
             settings: {
@@ -567,7 +671,7 @@ function createPlugin(host) {
   };
 }
 ''',
-          ).path,
+          ),
         );
 
         await service.savePluginSettings(id, {'Mode': 'off'});
@@ -587,13 +691,13 @@ function createPlugin(host) {
 
     test('saving settings for an unloaded plugin leaves it unloaded', () async {
       const id = 'unloaded-save.reaplugin';
-      await service.addPlugin(
+      await installSettingsPlugin(
         makePluginSource(
           id,
           settings: {
             'Mode': {'type': 'string'},
           },
-        ).path,
+        ),
       );
 
       await service.savePluginSettings(id, {'Mode': 'auto'});
@@ -607,7 +711,7 @@ function createPlugin(host) {
       () async {
         const id = 'concurrent-loaded.reaplugin';
         const credentialKey = 'plugin.settings.secure.$id';
-        await service.addPlugin(
+        await installSettingsPlugin(
           makePluginSource(
             id,
             settings: {
@@ -620,7 +724,7 @@ function createPlugin() {
   return { id: "$id", onLoad() {} };
 }
 ''',
-          ).path,
+          ),
         );
         credentialStore.values = {
           credentialKey: jsonEncode({'Password': 'old-secret'}),
@@ -666,7 +770,7 @@ function createPlugin() {
 
     test('a disable racing a settings save does not fail the save', () async {
       const id = 'save-disable-race.reaplugin';
-      await service.addPlugin(
+      await installSettingsPlugin(
         makePluginSource(
           id,
           settings: {
@@ -684,7 +788,7 @@ function createPlugin(host) {
   };
 }
 ''',
-        ).path,
+        ),
       );
       await service.savePluginSettings(id, {'Mode': 'auto'});
       await service.loadPlugin(id);
@@ -710,14 +814,14 @@ function createPlugin(host) {
     group('settings schema evolution', () {
       test('drops a removed setting and cleans it from storage', () async {
         const id = 'evolve-remove.reaplugin';
-        await service.addPlugin(
+        await installSettingsPlugin(
           makePluginSource(
             id,
             settings: {
               'AutoUpload': {'type': 'boolean'},
               'DrainHistory': {'type': 'boolean'},
             },
-          ).path,
+          ),
         );
         await service.savePluginSettings(id, {
           'AutoUpload': true,
@@ -753,7 +857,7 @@ function createPlugin(host) {
       test('reload after a schema change passes only current settings to the '
           'plugin', () async {
         const id = 'evolve-load.reaplugin';
-        await service.addPlugin(
+        await installSettingsPlugin(
           makePluginSource(
             id,
             settings: {
@@ -773,7 +877,7 @@ function createPlugin(host) {
   };
 }
 ''',
-          ).path,
+          ),
         );
         await service.savePluginSettings(id, {'Mode': 'fast', 'Legacy': 'old'});
         await service.loadPlugin(id);
@@ -814,7 +918,7 @@ function createPlugin(host) {
 
       test('resets an obsolete enum value to a valid default', () async {
         const id = 'evolve-enum.reaplugin';
-        await service.addPlugin(
+        await installSettingsPlugin(
           makePluginSource(
             id,
             settings: {
@@ -824,7 +928,7 @@ function createPlugin(host) {
                 'default': 'Medium',
               },
             },
-          ).path,
+          ),
         );
         await service.savePluginSettings(id, {'Roast': 'Medium'});
 
@@ -850,7 +954,7 @@ function createPlugin(host) {
 
       test('removes an enum value with no valid default', () async {
         const id = 'evolve-enum-null.reaplugin';
-        await service.addPlugin(
+        await installSettingsPlugin(
           makePluginSource(
             id,
             settings: {
@@ -860,7 +964,7 @@ function createPlugin(host) {
                 'default': 'Medium',
               },
             },
-          ).path,
+          ),
         );
         await service.savePluginSettings(id, {'Roast': 'Light'});
 
@@ -884,13 +988,13 @@ function createPlugin(host) {
 
       test('converts an incompatible persisted type via the default', () async {
         const id = 'evolve-type.reaplugin';
-        await service.addPlugin(
+        await installSettingsPlugin(
           makePluginSource(
             id,
             settings: {
               'Enabled': {'type': 'string'},
             },
-          ).path,
+          ),
         );
         await service.savePluginSettings(id, {'Enabled': 'yes'});
 
@@ -912,13 +1016,13 @@ function createPlugin(host) {
 
       test('drops a value incompatible with the new type', () async {
         const id = 'evolve-type-drop.reaplugin';
-        await service.addPlugin(
+        await installSettingsPlugin(
           makePluginSource(
             id,
             settings: {
               'Level': {'type': 'string'},
             },
-          ).path,
+          ),
         );
         await service.savePluginSettings(id, {'Level': 'high'});
 
@@ -938,13 +1042,13 @@ function createPlugin(host) {
 
       test('still rejects unknown caller-provided keys', () async {
         const id = 'evolve-reject.reaplugin';
-        await service.addPlugin(
+        await installSettingsPlugin(
           makePluginSource(
             id,
             settings: {
               'AutoUpload': {'type': 'boolean'},
             },
-          ).path,
+          ),
         );
 
         await expectLater(
@@ -958,13 +1062,13 @@ function createPlugin(host) {
 
       test('migrates a setting that became secure', () async {
         const id = 'evolve-secure.reaplugin';
-        await service.addPlugin(
+        await installSettingsPlugin(
           makePluginSource(
             id,
             settings: {
               'Token': {'type': 'string'},
             },
-          ).path,
+          ),
         );
         await service.savePluginSettings(id, {'Token': 'secret'});
 
@@ -990,13 +1094,13 @@ function createPlugin(host) {
 
       test('never copies a former secret into ordinary storage', () async {
         const id = 'evolve-secure-drop.reaplugin';
-        await service.addPlugin(
+        await installSettingsPlugin(
           makePluginSource(
             id,
             settings: {
               'Token': {'type': 'string', 'secure': true},
             },
-          ).path,
+          ),
         );
         await service.savePluginSettings(id, {'Token': 'secret'});
 
@@ -1017,13 +1121,13 @@ function createPlugin(host) {
 
       test('a manifest with no settings cleans persisted settings', () async {
         const id = 'evolve-empty.reaplugin';
-        await service.addPlugin(
+        await installSettingsPlugin(
           makePluginSource(
             id,
             settings: {
               'Mode': {'type': 'string'},
             },
-          ).path,
+          ),
         );
         await service.savePluginSettings(id, {'Mode': 'fast'});
         final prefs = await SharedPreferences.getInstance();
@@ -1039,7 +1143,7 @@ function createPlugin(host) {
 
       test('a manifest with no settings loads the plugin with none', () async {
         const id = 'evolve-empty-load.reaplugin';
-        await service.addPlugin(
+        await installSettingsPlugin(
           makePluginSource(
             id,
             settings: {
@@ -1058,7 +1162,7 @@ function createPlugin(host) {
   };
 }
 ''',
-          ).path,
+          ),
         );
         await service.savePluginSettings(id, {'Mode': 'fast'});
         await service.loadPlugin(id);
@@ -1100,7 +1204,7 @@ function createPlugin(host) {
 
       test('a failed update restores the previous settings', () async {
         const id = 'evolve-rollback.reaplugin';
-        await service.addPlugin(
+        await installSettingsPlugin(
           makePluginSource(
             id,
             settings: {
@@ -1114,7 +1218,7 @@ function createPlugin() {
   return { id: "$id", onLoad() {} };
 }
 ''',
-          ).path,
+          ),
         );
         await service.savePluginSettings(id, {
           'AutoUpload': true,
@@ -1153,7 +1257,7 @@ function createPlugin() {
         'a failed update restores settings reconciled away by the new schema',
         () async {
           const id = 'evolve-rollback-schema.reaplugin';
-          await service.addPlugin(
+          await installSettingsPlugin(
             makePluginSource(
               id,
               settings: {
@@ -1171,7 +1275,7 @@ function createPlugin() {
   return { id: "$id", onLoad() {} };
 }
 ''',
-            ).path,
+            ),
           );
           await service.savePluginSettings(id, {
             'Level': 'high',
@@ -1207,7 +1311,7 @@ function createPlugin() {
 
       test('a failed update restores a secure migration', () async {
         const id = 'evolve-rollback-secure.reaplugin';
-        await service.addPlugin(
+        await installSettingsPlugin(
           makePluginSource(
             id,
             settings: {
@@ -1220,7 +1324,7 @@ function createPlugin() {
   return { id: "$id", onLoad() {} };
 }
 ''',
-          ).path,
+          ),
         );
         await service.savePluginSettings(id, {'Token': 'secret'});
         await service.loadPlugin(id);
@@ -1249,13 +1353,13 @@ function createPlugin() {
 
       test('reconciles a secure value that changed type', () async {
         const id = 'evolve-secure-type.reaplugin';
-        await service.addPlugin(
+        await installSettingsPlugin(
           makePluginSource(
             id,
             settings: {
               'Enabled': {'type': 'string'},
             },
-          ).path,
+          ),
         );
         await service.savePluginSettings(id, {'Enabled': 'yes'});
 
@@ -1278,7 +1382,7 @@ function createPlugin() {
 
       test('resets a secure enum value removed from values', () async {
         const id = 'evolve-secure-enum.reaplugin';
-        await service.addPlugin(
+        await installSettingsPlugin(
           makePluginSource(
             id,
             settings: {
@@ -1289,7 +1393,7 @@ function createPlugin() {
                 'default': 'Medium',
               },
             },
-          ).path,
+          ),
         );
         await service.savePluginSettings(id, {'Roast': 'Medium'});
 
@@ -1337,6 +1441,7 @@ function createPlugin() {
       test(
         'addPlugin rejects unsafe plugin id ${id.isEmpty ? '(empty)' : '"$id"'}',
         () async {
+          await initializeService();
           final source = makePluginSource(id);
 
           await expectLater(
@@ -1353,6 +1458,7 @@ function createPlugin() {
     }
 
     test('rejected installs never create or delete directories outside plugins root', () async {
+      await initializeService();
       final pluginsDir = Directory('${tempDir.path}/plugins');
 
       final escapeDir = Directory('${tempDir.path}/escape');
@@ -1389,6 +1495,7 @@ function createPlugin() {
     test(
       'removePlugin rejects an unsafe id before touching the filesystem',
       () async {
+        await initializeService();
         await expectLater(
           service.removePlugin('../escape'),
           throwsFormatException,
@@ -1401,7 +1508,8 @@ function createPlugin() {
       },
     );
 
-    test('getPluginDirectory rejects an unsafe id', () {
+    test('getPluginDirectory rejects an unsafe id', () async {
+      await initializeService();
       expect(
         () => service.getPluginDirectory('../escape'),
         throwsFormatException,
@@ -1427,7 +1535,8 @@ function createPlugin() {
       File('${evilDir.path}/plugin.js')
           .writeAsStringSync('function createPlugin() {}');
 
-      final fresh = PluginLoaderService(kvStore: FakeKvStore());
+      final freshKvStore = FakeKvStore();
+      final fresh = PluginLoaderService(kvStore: freshKvStore);
       await fresh.initialize();
 
       expect(fresh.getPluginManifest('../escape'), isNull);
@@ -1436,6 +1545,8 @@ function createPlugin() {
         isFalse,
         reason: 'an unsafe manifest id must not enter the registry',
       );
+      await fresh.dispose();
+      await freshKvStore.dispose();
     });
   });
 }
