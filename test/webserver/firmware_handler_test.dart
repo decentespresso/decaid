@@ -638,6 +638,7 @@ void main() {
     final time = FakeAsync();
     final response = await _flushVirtual(
       time,
+      'managed sleep-write timeout request',
       time.run(
         (_) => _apply(timedHandler, jsonEncode({'artifactId': 'de1-1358'})),
       ),
@@ -671,7 +672,11 @@ void main() {
     expect(events.map((event) => event['status']), ['erasing']);
     expect(closed, isFalse);
     time.elapse(const Duration(microseconds: 1));
-    await _flushVirtual(time, done.future);
+    await _flushVirtual(
+      time,
+      'managed sleep-write timeout response close',
+      done.future,
+    );
     expect(closed, isTrue);
     expect(time.nonPeriodicTimerCount, 0);
     expect(time.periodicTimerCount, 0);
@@ -745,6 +750,7 @@ void main() {
     final time = FakeAsync();
     final response = await _flushVirtual(
       time,
+      'managed initialization timeout request',
       time.run(
         (_) => _apply(timedHandler, jsonEncode({'artifactId': 'de1-1358'})),
       ),
@@ -770,7 +776,11 @@ void main() {
     expect(finished, isFalse);
     expect(harness.transport.writes, isEmpty);
     time.elapse(const Duration(microseconds: 1));
-    final events = await _flushVirtual(time, reading);
+    final events = await _flushVirtual(
+      time,
+      'managed initialization timeout response close',
+      reading,
+    );
     expect(time.nonPeriodicTimerCount, 0);
     expect(time.periodicTimerCount, 0);
     final catalogResponse = await harness.handler(
@@ -1094,6 +1104,7 @@ void main() {
     final time = FakeAsync();
     final response = await _flushVirtual(
       time,
+      'verification timeout request',
       time.run((_) => _raw(handler, List.filled(16, 1))),
     );
     var finished = false;
@@ -1104,20 +1115,29 @@ void main() {
       }),
     );
     time.elapse(Duration.zero);
-    await _flushVirtual(time, transport.verificationRequested.future);
+    await _flushVirtual(
+      time,
+      'verification write reached firmware map request',
+      transport.verificationRequested.future,
+    );
     expect(de1.firmwareUpdateState, FirmwareUpdateState.verifying);
     time.elapse(
       const Duration(milliseconds: 100) - const Duration(microseconds: 1),
     );
-    await _flushVirtual(time, time.run((_) => Future<void>.value()));
+    await _flushVirtual(
+      time,
+      'verification timeout pre-deadline microtasks',
+      time.run((_) => Future<void>.value()),
+    );
     expect(finished, isFalse);
     time.elapse(const Duration(microseconds: 1));
-    final events = await _flushVirtual(time, reading);
+    final events = await _flushVirtual(
+      time,
+      'verification timeout response close',
+      reading,
+    );
+    expect(finished, isTrue);
     expect(de1.firmwareUpdateState, FirmwareUpdateState.idle);
-    time.flushTimers();
-    expect(time.nonPeriodicTimerCount, 0);
-    expect(time.periodicTimerCount, 0);
-
     expect(events.map((event) => event['status']), [
       'erasing',
       'uploading',
@@ -1127,6 +1147,27 @@ void main() {
       events.last['error'],
       contains('Timed out waiting for firmware verification'),
     );
+    expect(
+      time.nonPeriodicTimerCount,
+      2,
+      reason:
+          'expected 2 pending 250 ms polling timers owned by UnifiedDe1 '
+          'firmware polling (erase + verification); ownership: production '
+          'Future.any losers, see unified_de1.firmware.dart:203-206',
+    );
+    expect(time.periodicTimerCount, 0);
+
+    time.elapse(const Duration(milliseconds: 150));
+    expect(time.nonPeriodicTimerCount, 0);
+    expect(time.periodicTimerCount, 0);
+
+    await _flushVirtual(
+      time,
+      'verification timeout device disposal',
+      time.run((_) => de1.dispose()),
+    );
+    expect(time.nonPeriodicTimerCount, 0);
+    expect(time.periodicTimerCount, 0);
   });
 
   for (final model in ['DE1', 'DE1Plus', 'DE1Cafe']) {
@@ -1344,18 +1385,49 @@ Future<List<Map<String, dynamic>>> _readEvents(Response response) async {
       .toList();
 }
 
-Future<T> _flushVirtual<T>(FakeAsync time, Future<T> future) async {
+const _flushVirtualIterationLimit = 100;
+
+Future<T> _flushVirtual<T>(
+  FakeAsync time,
+  String phase,
+  Future<T> future,
+) async {
   var completed = false;
-  final observed = future.whenComplete(() => completed = true);
-  for (var turn = 0; turn < 100 && !completed; turn++) {
+  var failed = false;
+  Object? error;
+  StackTrace? errorStack;
+  future.then<void>(
+    (_) {
+      completed = true;
+    },
+    onError: (Object caught, StackTrace stack) {
+      completed = true;
+      failed = true;
+      error = caught;
+      errorStack = stack;
+    },
+  );
+  for (var turn = 0; turn < _flushVirtualIterationLimit && !completed; turn++) {
     time.flushMicrotasks();
     await Future<void>.delayed(Duration.zero);
   }
   time.flushMicrotasks();
-  expect(
-    completed,
-    isTrue,
-    reason: 'Operation must settle without advancing time',
-  );
-  return observed;
+  if (!completed) {
+    fail(
+      'Operation "$phase" did not settle without advancing time '
+      '(non-periodic timers: ${time.nonPeriodicTimerCount}, '
+      'periodic timers: ${time.periodicTimerCount})',
+    );
+  }
+  if (failed) {
+    Error.throwWithStackTrace(
+      StateError(
+        'Operation "$phase" completed with error: $error '
+        '(non-periodic timers: ${time.nonPeriodicTimerCount}, '
+        'periodic timers: ${time.periodicTimerCount})',
+      ),
+      errorStack!,
+    );
+  }
+  return future;
 }
