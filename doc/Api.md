@@ -909,7 +909,16 @@ returns `400`, aborts the verification request, and ignores late replies.
 Feedback uses the configured native GitHub PAT for GitHub API requests when
 present; otherwise it uses the build-supplied feedback credential. PAT failures
 never fall back to another identity and advise replacing or removing the PAT in
-Advanced Settings. The PAT is never exposed through this API.
+Advanced Settings. The PAT is never exposed through this API. It is managed only in native
+Advanced Settings and stored in the platform secure credential store under a
+separate Decaid GitHub namespace; it is not included in SharedPreferences,
+settings responses, exports, logs, diagnostics, skins, or plugins. A token is
+optional: without one, public metadata requests remain anonymous and feedback
+uses the build-supplied credential. With one, GitHub API requests use the
+current token immediately, while release archives, ZIPs, and CDN downloads
+remain unauthenticated. The token owner is the GitHub identity shown on native
+feedback issues and attachment gists. Secure-storage read failures are surfaced
+in native settings and do not block app startup; requests retry loading later.
 Account failures take precedence over missing GitHub configuration: `503` only
 applies after successful account verification. Other submission failures remain
 `500`. Trusted-LAN callers use the host's account without separate caller

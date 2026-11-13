@@ -5,6 +5,7 @@ import 'package:logging/logging.dart';
 import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/controllers/presence_controller.dart';
 import 'package:reaprime/src/services/android_updater.dart';
+import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/services/macos_updater.dart';
 import 'package:reaprime/src/services/update_check_service.dart';
 import 'package:reaprime/src/settings/battery_charging_settings_page.dart';
@@ -28,6 +29,7 @@ class SettingsView extends StatelessWidget {
     this.macosUpdater,
     required this.presenceController,
     this.webUIStorage,
+    this.githubCredentials,
   });
 
   static const routeName = '/settings';
@@ -37,6 +39,7 @@ class SettingsView extends StatelessWidget {
   final UpdateCheckService? updateCheckService;
   final MacOSUpdater? macosUpdater;
   final WebUIStorage? webUIStorage;
+  final GithubCredentialProvider? githubCredentials;
 
   @override
   Widget build(BuildContext context) {
@@ -482,7 +485,11 @@ class SettingsView extends StatelessWidget {
 
       if (updateInfo != null) {
         if (Platform.isAndroid) {
-          final updater = AndroidUpdater(owner: 'tadelv', repo: 'reaprime');
+          final updater = AndroidUpdater(
+            owner: 'tadelv',
+            repo: 'reaprime',
+            credentials: githubCredentials,
+          );
           final releaseUrl = updateCheckService?.getReleaseUrl(updateInfo);
           await showDialog(
             context: context,

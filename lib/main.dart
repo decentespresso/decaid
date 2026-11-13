@@ -46,6 +46,7 @@ import 'package:reaprime/src/plugins/plugin_device_service.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/notifications/notification_center.dart';
+import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/services/github_rate_limit.dart';
 import 'package:reaprime/src/services/wifi/wifi_scale_discovery_service.dart';
 import 'package:reaprime/src/services/database/database.dart' hide Workflow;
@@ -525,10 +526,21 @@ void main(List<String> args) async {
     loadSkinPortAssignments: loadPersistedSkinPortAssignments,
     saveSkinPortAssignments: persistSkinPortAssignments,
   );
+  final githubCredentials = GithubCredentialProvider();
+  if (!cliArgs.noAccount) {
+    try {
+      await githubCredentials.load();
+    } on GithubCredentialException {
+      log.warning(
+        'GitHub credential storage unavailable; requests will retry secure storage later',
+      );
+    }
+  }
   final githubRateLimit = GithubRateLimit();
   final WebUIStorage webUIStorage = WebUIStorage(
     settingsController,
     rateLimit: githubRateLimit,
+    credentials: githubCredentials,
   );
 
   DecentAccountService? decentAccountService;
@@ -698,12 +710,14 @@ void main(List<String> args) async {
   final pluginSourceService = PluginSourceService(
     pluginService,
     rateLimit: githubRateLimit,
+    credentials: githubCredentials,
   );
   final updateCheckService = UpdateCheckService(
     settingsService: SharedPreferencesSettingsService(),
     webUIStorage: webUIStorage,
     pluginSourceService: pluginSourceService,
     rateLimit: githubRateLimit,
+    credentials: githubCredentials,
   );
 
   final macosUpdater = Platform.isMacOS && !BuildInfo.appStore
@@ -772,6 +786,7 @@ void main(List<String> args) async {
       decentProxyService: decentProxyService,
       proxyTokenService: proxyTokenService,
       updateCheckService: updateCheckService,
+      credentials: githubCredentials,
     );
   } on WebServerPortInUse catch (e) {
     log.severe(
@@ -907,6 +922,7 @@ void main(List<String> args) async {
         batteryController: batteryController,
         displayController: displayController,
         accountConsentStore: accountConsentStore,
+        credentials: githubCredentials,
       ),
     ),
   );
@@ -1012,6 +1028,7 @@ class AppRoot extends StatefulWidget {
   final BatteryController? batteryController;
   final DisplayController displayController;
   final AccountConsentStore? accountConsentStore;
+  final GithubCredentialProvider credentials;
 
   const AppRoot({
     super.key,
@@ -1041,6 +1058,7 @@ class AppRoot extends StatefulWidget {
     this.batteryController,
     required this.displayController,
     this.accountConsentStore,
+    required this.credentials,
   });
 
   static void restart(BuildContext context) {
@@ -1134,6 +1152,7 @@ class _AppRootState extends State<AppRoot> {
         batteryController: widget.batteryController,
         displayController: widget.displayController,
         accountConsentStore: widget.accountConsentStore,
+        credentials: widget.credentials,
       ),
     );
 

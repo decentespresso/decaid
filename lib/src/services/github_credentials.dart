@@ -1,5 +1,6 @@
 // ignore_for_file: prefer_initializing_formals
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
@@ -38,6 +39,12 @@ class GithubCredentialSnapshot {
 
   String? get authorizationHeader => _token.isEmpty ? null : 'Bearer $_token';
 
+  bool containsSecret(String value) =>
+      _token.isNotEmpty && value.contains(_token);
+
+  String redact(String value) =>
+      containsSecret(value) ? value.replaceAll(_token, '[REDACTED]') : value;
+
   factory GithubCredentialSnapshot.user(String token) =>
       GithubCredentialSnapshot._(
         token: token,
@@ -66,13 +73,19 @@ class GithubCredentialProvider {
       'Enter a GitHub personal access token, or remove the configured token.';
 
   final CredentialStore _store;
+  final Duration _loadTimeout;
   GithubCredentialSnapshot _current =
       const GithubCredentialSnapshot.anonymous();
   Future<void>? _loadFuture;
   bool _loaded = false;
 
-  GithubCredentialProvider({CredentialStore? store})
-    : _store = store ?? SecureCredentialStore();
+  GithubCredentialProvider({
+    CredentialStore? store,
+    Duration loadTimeout = const Duration(seconds: 2),
+  }) : assert(loadTimeout > Duration.zero),
+       assert(loadTimeout <= const Duration(seconds: 5)),
+       _store = store ?? SecureCredentialStore(),
+       _loadTimeout = loadTimeout;
 
   GithubCredentialSnapshot get current => _current;
 
@@ -89,20 +102,32 @@ class GithubCredentialProvider {
     if (existing != null) return existing;
     final future = _read();
     _loadFuture = future;
+    future.then<void>(
+      (_) {
+        if (identical(_loadFuture, future)) _loadFuture = null;
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (identical(_loadFuture, future)) _loadFuture = null;
+      },
+    );
     return future;
   }
 
   Future<void> _read() async {
     try {
-      final value = (await _store.read(key: storageKey))?.trim() ?? '';
+      final value =
+          (await _store.read(key: storageKey).timeout(_loadTimeout))?.trim() ??
+          '';
       _current = value.isEmpty
           ? const GithubCredentialSnapshot.anonymous()
           : GithubCredentialSnapshot.user(value);
       _loaded = true;
+    } on TimeoutException {
+      throw const GithubCredentialException(_storageError);
+    } on GithubCredentialException {
+      rethrow;
     } catch (_) {
       throw const GithubCredentialException(_storageError);
-    } finally {
-      _loadFuture = null;
     }
   }
 

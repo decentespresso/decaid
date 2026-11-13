@@ -8,8 +8,29 @@ import 'package:reaprime/src/models/feedback/feedback_request.dart';
 import 'package:reaprime/src/models/feedback/feedback_result.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/feedback_service.dart';
+import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/services/webserver/feedback_handler.dart';
+import 'package:shelf/shelf.dart' as shelf;
 import 'package:shelf_plus/shelf_plus.dart';
+
+class _GithubStore implements CredentialStore {
+  _GithubStore(this.value);
+
+  String? value;
+
+  @override
+  Future<String?> read({required String key}) async => value;
+
+  @override
+  Future<void> write({required String key, required String value}) async {
+    this.value = value;
+  }
+
+  @override
+  Future<void> delete({required String key}) async {
+    value = null;
+  }
+}
 
 class _CredentialStore extends Fake implements CredentialStore {
   final bool hasCredentials;
@@ -166,6 +187,66 @@ void main() {
       );
     }
   }
+
+  test('REST feedback follows live user PAT replacement and removal', () async {
+    final credentials = GithubCredentialProvider(store: _GithubStore(null));
+    final account = DecentAccountService(
+      credentialStore: _CredentialStore(true),
+      httpClient: MockClient((request) async {
+        if (request.url.path == '/support/api/login_test') {
+          return http.Response('token', 200);
+        }
+        return http.Response('', 200);
+      }),
+    );
+    final service = FeedbackService(
+      githubToken: 'bundled-pat',
+      credentials: credentials,
+      currentSerialNumbers: () => const [],
+      accountService: account,
+    );
+    final router = Router().plus;
+    FeedbackHandler(service: service).addRoutes(router);
+    final githubRequests = <http.Request>[];
+
+    Future<shelf.Response> submit() async {
+      return http.runWithClient(
+        () => router.call(
+          Request(
+            'POST',
+            Uri.parse('http://localhost/api/v1/feedback'),
+            body: jsonEncode({
+              'description': 'REST feedback',
+              'includeLogs': false,
+              'includeSystemInfo': false,
+            }),
+          ),
+        ),
+        () => MockClient((request) async {
+          githubRequests.add(request);
+          return http.Response(
+            jsonEncode({
+              'number': githubRequests.length,
+              'html_url':
+                  'https://github.com/decentespresso/decaid/issues/${githubRequests.length}',
+            }),
+            201,
+          );
+        }),
+      );
+    }
+
+    expect((await submit()).statusCode, isIn([200, 201]));
+    await credentials.save('user-pat');
+    expect((await submit()).statusCode, isIn([200, 201]));
+    await credentials.remove();
+    expect((await submit()).statusCode, isIn([200, 201]));
+    expect(githubRequests.map((request) => request.headers['authorization']), [
+      'Bearer bundled-pat',
+      'Bearer user-pat',
+      'Bearer bundled-pat',
+    ]);
+  });
 
   test(
     'missing account fails before configuration or attachment work',

@@ -1,9 +1,34 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/github_credentials.dart';
 
+class _HangingStore implements CredentialStore {
+  _HangingStore(this.values);
+
+  final List<String?> values;
+  var reads = 0;
+
+  @override
+  Future<String?> read({required String key}) async {
+    reads++;
+    if (reads == 1) return Completer<String?>().future;
+    return values.last;
+  }
+
+  @override
+  Future<void> write({required String key, required String value}) async {}
+
+  @override
+  Future<void> delete({required String key}) async {}
+}
+
 class _MemoryStore implements CredentialStore {
   String? value;
+  String? readKey;
+  String? writeKey;
+  String? deleteKey;
   Object? readFailure;
   Object? writeFailure;
   Object? deleteFailure;
@@ -13,6 +38,7 @@ class _MemoryStore implements CredentialStore {
 
   @override
   Future<String?> read({required String key}) async {
+    readKey = key;
     reads++;
     if (readFailure != null) throw readFailure!;
     return value;
@@ -20,6 +46,7 @@ class _MemoryStore implements CredentialStore {
 
   @override
   Future<void> write({required String key, required String value}) async {
+    writeKey = key;
     writes++;
     if (writeFailure != null) throw writeFailure!;
     this.value = value;
@@ -27,6 +54,7 @@ class _MemoryStore implements CredentialStore {
 
   @override
   Future<void> delete({required String key}) async {
+    deleteKey = key;
     deletes++;
     if (deleteFailure != null) throw deleteFailure!;
     value = null;
@@ -34,6 +62,23 @@ class _MemoryStore implements CredentialStore {
 }
 
 void main() {
+  test('times out a hanging read and allows a later retry', () async {
+    final store = _HangingStore(['recovered-token']);
+    final credentials = GithubCredentialProvider(
+      store: store,
+      loadTimeout: const Duration(milliseconds: 1),
+    );
+
+    await expectLater(
+      credentials.load(),
+      throwsA(isA<GithubCredentialException>()),
+    );
+    await credentials.load();
+
+    expect(store.reads, 2);
+    expect(credentials.current.authorizationHeader, 'Bearer recovered-token');
+  });
+
   test(
     'loads trimmed credentials and persists them across provider instances',
     () async {
@@ -48,8 +93,19 @@ void main() {
       await restored.load();
       expect(restored.current.isUser, isTrue);
       expect(restored.current.authorizationHeader, 'Bearer secret-token');
+      expect(store.readKey, GithubCredentialProvider.storageKey);
+      expect(store.writeKey, GithubCredentialProvider.storageKey);
     },
   );
+
+  test('credential snapshots detect and redact reflected secrets', () {
+    final snapshot = GithubCredentialSnapshot.user('secret-token');
+
+    expect(snapshot.containsSecret('metadata secret-token'), isTrue);
+    expect(snapshot.redact('metadata secret-token'), 'metadata [REDACTED]');
+    expect(snapshot.containsSecret('metadata other-token'), isFalse);
+    expect(snapshot.redact('metadata other-token'), 'metadata other-token');
+  });
 
   test('empty, replace, and remove update live state', () async {
     final store = _MemoryStore();
@@ -61,6 +117,7 @@ void main() {
     await credentials.remove();
     expect(credentials.current.isAnonymous, isTrue);
     expect(store.value, isNull);
+    expect(store.deleteKey, GithubCredentialProvider.storageKey);
 
     await expectLater(
       credentials.save(' \t '),

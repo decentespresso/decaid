@@ -499,7 +499,7 @@ class FeedbackService {
 
     if (systemInfo.isNotEmpty) {
       body.writeln('## System Info');
-      body.writeln(systemInfo);
+      body.writeln(_scrubSensitive(systemInfo, authorization: authorization));
       body.writeln();
     }
 
@@ -645,6 +645,10 @@ class FeedbackService {
       );
     }
 
+    final scrubbedSystemInfo = _scrubSensitive(
+      systemInfo,
+      authorization: authorization,
+    );
     final html = StringBuffer();
     html.writeln('<!DOCTYPE html>');
     html.writeln('<html><head>');
@@ -682,9 +686,9 @@ class FeedbackService {
       '<p>${_escapeHtml(_scrubSensitive(request.description, authorization: authorization)).replaceAll('\n', '<br>')}</p>',
     );
 
-    if (systemInfo.isNotEmpty) {
+    if (scrubbedSystemInfo.isNotEmpty) {
       html.writeln('<h2>System Information</h2><ul>');
-      for (final line in systemInfo.split('\n')) {
+      for (final line in scrubbedSystemInfo.split('\n')) {
         final trimmed = line.trim();
         if (trimmed.startsWith('- ')) {
           html.writeln('<li>${_escapeHtml(trimmed.substring(2))}</li>');

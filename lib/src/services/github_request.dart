@@ -34,6 +34,8 @@ class GithubRequestException extends RemoteServiceException {
 
 const _credentialMessage =
     'GitHub rejected the configured credential. Open Advanced Settings to replace or remove it.';
+const _credentialReflectedMessage =
+    'GitHub response rejected for security reasons.';
 
 String _cooldownMessage(DateTime? resetAt) {
   if (resetAt == null) {
@@ -107,6 +109,13 @@ Future<http.Response> githubGet(
     final response = await http.Response.fromStream(streamed);
     if (response.statusCode == 200 ||
         (allowNotModified && response.statusCode == 304)) {
+      if (authorization.containsSecret(response.body)) {
+        throw GithubRequestException(
+          _credentialReflectedMessage,
+          statusCode: response.statusCode,
+          userMessageOverride: _credentialReflectedMessage,
+        );
+      }
       return response;
     }
     final limited = rateLimit.recordIfLimited(

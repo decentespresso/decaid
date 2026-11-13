@@ -54,6 +54,7 @@ import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/notifications/notification_actions.dart';
 import 'package:reaprime/src/notifications/update_notifications.dart';
 import 'package:reaprime/src/services/android_updater.dart';
+import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/settings/update_dialog.dart';
 import 'package:reaprime/src/debug_feature/scale_debug_view.dart';
 import 'package:reaprime/src/services/storage/bean_storage_service.dart';
@@ -117,6 +118,7 @@ class MyApp extends StatefulWidget {
     this.appLogUploadService,
     this.batteryController,
     this.accountConsentStore,
+    required this.credentials,
   });
 
   final bool directConnect;
@@ -145,6 +147,7 @@ class MyApp extends StatefulWidget {
   final AppLogUploadService? appLogUploadService;
   final BatteryController? batteryController;
   final AccountConsentStore? accountConsentStore;
+  final GithubCredentialProvider credentials;
 
   @override
   State<MyApp> createState() => _MyAppState();
@@ -259,7 +262,11 @@ class _MyAppState extends State<MyApp> {
   Future<void> _confirmUpdateDownload(UpdateInfo update) async {
     final context = NavigationService.context;
     if (context == null || !context.mounted) return;
-    final updater = AndroidUpdater(owner: 'tadelv', repo: 'reaprime');
+    final updater = AndroidUpdater(
+      owner: 'tadelv',
+      repo: 'reaprime',
+      credentials: widget.credentials,
+    );
     try {
       await showDialog<void>(
         context: context,
@@ -412,6 +419,7 @@ class _MyAppState extends State<MyApp> {
                         macosUpdater: widget.macosUpdater,
                         presenceController: widget.presenceController,
                         webUIStorage: widget.webUIStorage,
+                        githubCredentials: widget.credentials,
                       );
                     case De1DebugView.routeName:
                       final args = routeSettings.arguments;
@@ -556,6 +564,7 @@ class _MyAppState extends State<MyApp> {
                         persistenceController: widget.persistenceController,
                         de1Controller: widget.de1Controller,
                         decentAccountService: widget.decentAccountService,
+                        githubCredentials: widget.credentials,
                         profileStorageService: widget.profileStorageService,
                         beanStorageService: widget.beanStorage,
                         grinderStorageService: widget.grinderStorage,
@@ -575,6 +584,7 @@ class _MyAppState extends State<MyApp> {
                     case AdvancedPage.routeName:
                       return AdvancedPage(
                         controller: widget.settingsController,
+                        credentials: widget.credentials,
                       );
                     case AccountPage.routeName:
                       if (widget.decentAccountService == null) {

@@ -254,59 +254,137 @@ void main() {
   );
 
   test(
-    'identity cooldowns do not cross replacement or anonymous requests',
+    'cooldowns stay scoped across anonymous, replacement, and removal',
     () async {
       var now = DateTime.utc(2030, 1, 1);
+      final anonymousReset = now.add(const Duration(hours: 1));
+      final patReset = now.add(const Duration(hours: 2));
       final limit = GithubRateLimit(now: () => now);
-      final credentials = GithubCredentialProvider(store: _TestStore('first'));
-      final reset = now.add(const Duration(hours: 1));
-      final limited = MockClient(
-        (_) async => http.Response(
+      final store = _TestStore(null);
+      final credentials = GithubCredentialProvider(store: store);
+      var requests = 0;
+      final anonymousLimited = MockClient((request) async {
+        requests++;
+        expect(request.headers.containsKey('authorization'), isFalse);
+        return http.Response(
+          '',
+          403,
+          headers: {
+            'x-ratelimit-remaining': '0',
+            'x-ratelimit-reset':
+                '${anonymousReset.millisecondsSinceEpoch ~/ 1000}',
+          },
+        );
+      });
+      await expectLater(
+        githubGet(
+          'https://api.github.com/repos/acme/project',
+          rateLimit: limit,
+          client: anonymousLimited,
+          credentials: credentials,
+        ),
+        throwsA(isA<GithubRequestException>()),
+      );
+
+      await credentials.save('pat1');
+      await githubGet(
+        'https://api.github.com/repos/acme/project',
+        rateLimit: limit,
+        credentials: credentials,
+        client: MockClient((request) async {
+          expect(request.headers['authorization'], 'Bearer pat1');
+          return http.Response('{}', 200);
+        }),
+      );
+
+      final patLimited = MockClient((request) async {
+        requests++;
+        expect(request.headers['authorization'], 'Bearer pat1');
+        return http.Response(
           '',
           429,
           headers: {
             'x-ratelimit-remaining': '0',
-            'x-ratelimit-reset': '${reset.millisecondsSinceEpoch ~/ 1000}',
+            'x-ratelimit-reset': '${patReset.millisecondsSinceEpoch ~/ 1000}',
           },
+        );
+      });
+      await expectLater(
+        githubGet(
+          'https://api.github.com/repos/acme/project',
+          rateLimit: limit,
+          client: patLimited,
+          credentials: credentials,
         ),
+        throwsA(isA<GithubRequestException>()),
       );
       await expectLater(
         githubGet(
           'https://api.github.com/repos/acme/project',
           rateLimit: limit,
-          client: limited,
+          client: patLimited,
           credentials: credentials,
         ),
         throwsA(isA<GithubRequestException>()),
       );
-      await credentials.save('second');
-      var calls = 0;
+
+      await credentials.save('pat2');
       await githubGet(
         'https://api.github.com/repos/acme/project',
         rateLimit: limit,
-        client: MockClient((_) async {
-          calls++;
+        credentials: credentials,
+        client: MockClient((request) async {
+          expect(request.headers['authorization'], 'Bearer pat2');
           return http.Response('{}', 200);
         }),
-        credentials: credentials,
       );
-      expect(calls, 1);
+
       await credentials.remove();
+      final anonymousCallsBeforeCooldown = requests;
       await expectLater(
         githubGet(
           'https://api.github.com/repos/acme/project',
           rateLimit: limit,
-          client: limited,
+          client: anonymousLimited,
           credentials: credentials,
         ),
         throwsA(isA<GithubRequestException>()),
       );
-      now = reset;
+      expect(requests, anonymousCallsBeforeCooldown);
+
+      await credentials.save('pat1');
+      final patCallsBeforeCooldown = requests;
+      await expectLater(
+        githubGet(
+          'https://api.github.com/repos/acme/project',
+          rateLimit: limit,
+          client: patLimited,
+          credentials: credentials,
+        ),
+        throwsA(isA<GithubRequestException>()),
+      );
+      expect(requests, patCallsBeforeCooldown);
+
+      now = patReset;
       await githubGet(
         'https://api.github.com/repos/acme/project',
         rateLimit: limit,
-        client: MockClient((_) async => http.Response('{}', 200)),
         credentials: credentials,
+        client: MockClient((request) async {
+          expect(request.headers['authorization'], 'Bearer pat1');
+          return http.Response('{}', 200);
+        }),
+      );
+      await credentials.remove();
+      now = anonymousReset;
+      await githubGet(
+        'https://api.github.com/repos/acme/project',
+        rateLimit: limit,
+        credentials: credentials,
+        client: MockClient((request) async {
+          expect(request.headers.containsKey('authorization'), isFalse);
+          return http.Response('{}', 200);
+        }),
       );
     },
   );
@@ -327,6 +405,47 @@ void main() {
     expect(error, isA<GithubRequestException>());
     expect(error.toString(), isNot(contains('secret')));
     expect(error.toString(), contains('connection'));
+  });
+
+  test(
+    'reflected credentials are rejected before callers receive the body',
+    () async {
+      const pat = 'ghp-reflected-secret';
+      final credentials = GithubCredentialProvider(store: _TestStore(pat));
+      final error = await captureError(
+        githubGet(
+          'https://api.github.com/repos/acme/project',
+          rateLimit: GithubRateLimit(),
+          credentials: credentials,
+          client: MockClient(
+            (_) async => http.Response('{"tag_name":"$pat"}', 200),
+          ),
+        ),
+      );
+
+      expect(error, isA<GithubRequestException>());
+      expect(error.toString(), isNot(contains(pat)));
+      expect(
+        (error as GithubRequestException).userMessage,
+        isNot(contains(pat)),
+      );
+      expect(
+        error.toString(),
+        'GitHub response rejected for security reasons.',
+      );
+    },
+  );
+
+  test('anonymous successful responses remain unchanged', () async {
+    const pat = 'ghp-reflected-secret';
+    final response = await githubGet(
+      'https://api.github.com/repos/acme/project',
+      rateLimit: GithubRateLimit(),
+      client: MockClient(
+        (_) async => http.Response('{"tag_name":"$pat"}', 200),
+      ),
+    );
+    expect(response.body, contains(pat));
   });
 
   test('304 remains available for conditional requests', () async {
