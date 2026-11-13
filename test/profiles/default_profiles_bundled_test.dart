@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/data/profile.dart'
-    show ExitCondition, ExitType, Profile;
+    show BeverageType, ExitCondition, ExitType, Profile;
 import 'package:reaprime/src/models/data/profile_hash.dart';
 
 void main() {
@@ -136,5 +136,40 @@ void main() {
         'Baseline • High Contact • 8 Bar',
       ]),
     );
+  });
+
+  test('profiles ported from de1app keep their source beverage type', () {
+    const ported = <String, BeverageType>{
+      'Best overall pressure profile': BeverageType.espresso,
+      'E61 espresso machine': BeverageType.espresso,
+      'E61 classic gently up to 10 bar': BeverageType.espresso,
+      'E61 rocketing up to 10 bar': BeverageType.espresso,
+      'E61 with fast preinfusion to 9 bar': BeverageType.espresso,
+      'Gentle flat 2.5 ml per second': BeverageType.espresso,
+      'Gentle preinfusion flow profile': BeverageType.espresso,
+      'Gentler but still traditional 8.4 bar': BeverageType.espresso,
+      'Hybrid pour over espresso': BeverageType.espresso,
+      'Innovative long preinfusion': BeverageType.espresso,
+      'Italian Australian espresso': BeverageType.espresso,
+      'Low pressure lever machine at 6 bar': BeverageType.espresso,
+      'Steam only': BeverageType.espresso,
+      'Cleaning/Forward flush': BeverageType.cleaning,
+      'Test/Flow calibration': BeverageType.calibrate,
+      'Test/for a small leak': BeverageType.calibrate,
+      'Test/leakage stress test': BeverageType.calibrate,
+      'Test/low pressure leak': BeverageType.calibrate,
+      'Test/pressure calibration': BeverageType.calibrate,
+      'Test/profile_editor_demo': BeverageType.calibrate,
+      'Test/temperature accuracy': BeverageType.calibrate,
+      'Test/temperature calibration': BeverageType.calibrate,
+    };
+    final byTitle = {for (final p in profiles.values) p.title: p.beverageType};
+    for (final entry in ported.entries) {
+      expect(
+        byTitle[entry.key],
+        entry.value,
+        reason: '${entry.key} must stay bundled as ${entry.value.name}',
+      );
+    }
   });
 }
