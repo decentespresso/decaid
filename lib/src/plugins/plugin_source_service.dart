@@ -10,6 +10,7 @@ import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'package:reaprime/src/plugins/plugin_package.dart';
 import 'package:reaprime/src/plugins/plugin_source.dart';
 import 'package:reaprime/src/plugins/plugin_version.dart';
+import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/services/github_rate_limit.dart';
 import 'package:reaprime/src/util/github_archive.dart';
 import 'package:reaprime/src/util/remote_error.dart';
@@ -54,6 +55,7 @@ class PluginSourceService {
   final Map<String, String> _canonicalBundledRepos;
 
   final GithubRateLimit _rateLimit;
+  final GithubCredentialProvider? credentials;
   final GitHubReleaseCache _releaseCache;
   final _log = Logger('PluginSourceService');
   final ValueNotifier<Future<void>?> _updateCheck = ValueNotifier(null);
@@ -63,6 +65,7 @@ class PluginSourceService {
     GithubRateLimit? rateLimit,
     GitHubReleaseCache? releaseCache,
     Map<String, String>? canonicalBundledRepos,
+    this.credentials,
   }) : _rateLimit = rateLimit ?? GithubRateLimit(),
        _releaseCache = releaseCache ?? GitHubReleaseCache(),
        _canonicalBundledRepos = canonicalBundledRepos ?? bundledPluginRepos;
@@ -100,6 +103,7 @@ class PluginSourceService {
       includePrerelease: includePrerelease,
       rateLimit: _rateLimit,
       cache: _releaseCache,
+      credentials: credentials,
     );
     final asset = _selectReleaseAsset(release, assetName);
     final bytes = await downloadGitHubArchive(asset.downloadUrl);
@@ -135,6 +139,7 @@ class PluginSourceService {
       repo,
       branch,
       rateLimit: _rateLimit,
+      credentials: credentials,
     );
     final bytes = await downloadGitHubArchive(
       gitHubCommitArchiveUrl(repo, commit),
@@ -326,6 +331,7 @@ class PluginSourceService {
         includePrerelease: source.includePrerelease,
         rateLimit: _rateLimit,
         cache: _releaseCache,
+        credentials: credentials,
       );
       if (release.tag == source.releaseTag) {
         _writeSource(
@@ -390,6 +396,7 @@ class PluginSourceService {
       source.repo!,
       branch,
       rateLimit: _rateLimit,
+      credentials: credentials,
     );
     if (commit == source.commit) {
       _writeSource(
@@ -466,6 +473,7 @@ class PluginSourceService {
         tag,
         rateLimit: _rateLimit,
         cache: _releaseCache,
+        credentials: credentials,
       );
       final asset = _selectReleaseAsset(release, source.assetName);
       final bytes = await downloadGitHubArchive(asset.downloadUrl);

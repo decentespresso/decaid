@@ -5,8 +5,21 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/android_updater.dart';
+import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/util/remote_error.dart';
+
+class _CredentialStore implements CredentialStore {
+  @override
+  Future<String?> read({required String key}) async => 'test-pat';
+
+  @override
+  Future<void> write({required String key, required String value}) async {}
+
+  @override
+  Future<void> delete({required String key}) async {}
+}
 
 void main() {
   group('AndroidUpdater.checkForUpdate', () {
@@ -360,10 +373,11 @@ void main() {
               (e) => e.message,
               'message',
               allOf(
-                contains('User-Agent required'),
+                contains('HTTP 403'),
                 contains('remaining: 0'),
                 contains('reset time unavailable'),
-                isNot(contains('rate limit exceeded')),
+                isNot(contains('User-Agent required')),
+                isNot(contains('xxxxx')),
                 isNot(contains('\n')),
                 predicate<String>((message) => message.length < 500),
               ),
@@ -392,8 +406,9 @@ void main() {
               (e) => e.message,
               'message',
               allOf(
-                contains('403'),
-                contains('User-Agent required'),
+                contains('HTTP 403'),
+                isNot(contains('User-Agent required')),
+                isNot(contains('xxxxx')),
                 predicate<String>((message) => message.length < 500),
               ),
             ),
@@ -419,6 +434,35 @@ void main() {
             'message',
             'GitHub request failed: HTTP 404',
           ),
+        ),
+      );
+    });
+
+    test('preserves user credential advice in update errors', () async {
+      final updater = AndroidUpdater(
+        owner: 'tadelv',
+        repo: 'reaprime',
+        credentials: GithubCredentialProvider(store: _CredentialStore()),
+        httpClient: MockClient(
+          (_) async => http.Response('private response payload', 401),
+        ),
+      );
+
+      await expectLater(
+        updater.checkForUpdate('0.7.14'),
+        throwsA(
+          isA<UpdateCheckException>()
+              .having((e) => e.credentialRejected, 'credentialRejected', isTrue)
+              .having(
+                (e) => e.userMessage,
+                'userMessage',
+                contains('Advanced Settings'),
+              )
+              .having(
+                (e) => e.message,
+                'message',
+                isNot(contains('private response payload')),
+              ),
         ),
       );
     });

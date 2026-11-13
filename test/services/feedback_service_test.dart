@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -13,6 +14,7 @@ import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'package:reaprime/src/plugins/plugin_runtime.dart';
 import 'package:reaprime/src/services/feedback_service.dart';
+import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/services/installed_components.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 
@@ -25,6 +27,24 @@ class _FakePathProvider extends Fake
 
   @override
   Future<String?> getApplicationDocumentsPath() async => docsDir.path;
+}
+
+DecentAccountService _authenticatedAccountService() {
+  return DecentAccountService(
+    httpClient: http_testing.MockClient((request) async {
+      if (request.url.path == '/support/api/login_test') {
+        return http.Response('cryptpw_abc123', 200);
+      }
+      if (request.url.path == '/support/api/sn') {
+        return http.Response('', 200);
+      }
+      return http.Response('{}', 200);
+    }),
+    credentialStore: _MemoryCredentialStore({
+      'email': 'test@example.com',
+      'password': 'cryptpw_abc123',
+    }),
+  );
 }
 
 class _MemoryCredentialStore implements CredentialStore {
@@ -141,6 +161,7 @@ void main() {
       expect(result.success, isTrue);
       expect(result.issueNumber, 728);
       expect(result.issueUrl, issueUrl);
+      expect(result.supportLink, 'linked');
       expect(requests.map((request) => request.method), [
         'POST',
         'GET',
@@ -345,6 +366,256 @@ void main() {
     expect(result.issueNumber, 730);
     expect(githubRequests.map((request) => request.method), ['POST']);
   });
+
+  test(
+    'user credential is used for issue and support reference requests',
+    () async {
+      const issueUrl = 'https://github.com/decentespresso/decaid/issues/731';
+      final githubRequests = <http.Request>[];
+      final accountService = DecentAccountService(
+        httpClient: http_testing.MockClient((request) async {
+          if (request.url.path == '/support/api/login_test') {
+            return http.Response('cryptpw_abc123', 200);
+          }
+          if (request.url.path == '/support/api/sn') {
+            return http.Response('', 200);
+          }
+          return http.Response(jsonEncode({'messageId': 67890}), 200);
+        }),
+        credentialStore: _MemoryCredentialStore({
+          'email': 'test@example.com',
+          'password': 'cryptpw_abc123',
+        }),
+      );
+      final credentials = GithubCredentialProvider(
+        store: _MemoryCredentialStore({
+          GithubCredentialProvider.storageKey: 'user-pat',
+        }),
+      );
+      await credentials.load();
+      final service = FeedbackService(
+        githubToken: 'bundled-pat',
+        credentials: credentials,
+        currentSerialNumbers: () => const [],
+        accountService: accountService,
+      );
+
+      final result = await http.runWithClient(
+        () => service.submitFeedback(
+          FeedbackRequest(
+            description: 'User credential feedback',
+            type: FeedbackType.bug,
+            includeLogs: false,
+            includeSystemInfo: false,
+          ),
+        ),
+        () => http_testing.MockClient((request) async {
+          if (request.url.host == 'api.github.com') {
+            githubRequests.add(request);
+            return switch (githubRequests.length) {
+              1 => http.Response(
+                jsonEncode({'number': 731, 'html_url': issueUrl}),
+                201,
+              ),
+              2 => http.Response(jsonEncode({'body': 'current'}), 200),
+              3 => http.Response('{}', 200),
+              _ => http.Response('unexpected request', 500),
+            };
+          }
+          return http.Response('unexpected request', 500);
+        }),
+      );
+
+      expect(result.success, isTrue);
+      expect(githubRequests.map((request) => request.method), [
+        'POST',
+        'GET',
+        'PATCH',
+      ]);
+      for (final request in githubRequests) {
+        expect(request.headers['authorization'], 'Bearer user-pat');
+        expect(request.followRedirects, isFalse);
+      }
+    },
+  );
+
+  test('user issue authorization failures do not fall back', () async {
+    for (final status in [401, 403, 404]) {
+      final credentials = GithubCredentialProvider(
+        store: _MemoryCredentialStore({
+          GithubCredentialProvider.storageKey: 'user-pat',
+        }),
+      );
+      await credentials.load();
+      final requests = <http.Request>[];
+      final service = FeedbackService(
+        githubToken: 'bundled-pat',
+        credentials: credentials,
+        currentSerialNumbers: () => const [],
+        accountService: _authenticatedAccountService(),
+        httpClient: http_testing.MockClient((request) async {
+          requests.add(request);
+          return http.Response('secret response payload', status);
+        }),
+      );
+
+      final result = await service.submitFeedback(
+        FeedbackRequest(
+          description: 'Issue authorization failure',
+          type: FeedbackType.bug,
+          includeLogs: false,
+          includeSystemInfo: false,
+        ),
+      );
+
+      expect(result.success, isFalse);
+      expect(result.errorMessage, contains('Advanced Settings'));
+      expect(result.errorMessage, isNot(contains('secret')));
+      expect(requests, hasLength(1));
+      expect(requests.single.headers['authorization'], 'Bearer user-pat');
+    }
+  });
+
+  test('attachment upload failure does not create an issue', () async {
+    final credentials = GithubCredentialProvider(
+      store: _MemoryCredentialStore({
+        GithubCredentialProvider.storageKey: 'user-pat',
+      }),
+    );
+    await credentials.load();
+    final requests = <http.Request>[];
+    final service = FeedbackService(
+      githubToken: 'bundled-pat',
+      credentials: credentials,
+      currentSerialNumbers: () => const [],
+      accountService: _authenticatedAccountService(),
+      httpClient: http_testing.MockClient((request) async {
+        requests.add(request);
+        return http.Response('permission denied', 403);
+      }),
+    );
+
+    final result = await service.submitFeedback(
+      FeedbackRequest(
+        description: 'With attachment',
+        type: FeedbackType.bug,
+        includeLogs: false,
+        includeSystemInfo: false,
+        screenshots: [
+          Uint8List.fromList([1]),
+        ],
+      ),
+    );
+
+    expect(result.success, isFalse);
+    expect(result.errorMessage, contains('Gists write permission'));
+    expect(result.errorMessage, contains('Advanced Settings'));
+    expect(requests, hasLength(1));
+    expect(requests.single.url.path, '/gists');
+  });
+
+  test('invalid gist URL cannot reach the issue body', () async {
+    final credentials = GithubCredentialProvider(
+      store: _MemoryCredentialStore({
+        GithubCredentialProvider.storageKey: 'abcdef1234',
+      }),
+    );
+    await credentials.load();
+    final requests = <http.Request>[];
+    final service = FeedbackService(
+      githubToken: 'bundled-pat',
+      credentials: credentials,
+      currentSerialNumbers: () => const [],
+      accountService: _authenticatedAccountService(),
+      httpClient: http_testing.MockClient((request) async {
+        requests.add(request);
+        return request.url.path == '/gists'
+            ? http.Response(
+                jsonEncode({
+                  'html_url': 'https://gist.github.com/user/abcdef1234',
+                }),
+                201,
+              )
+            : http.Response(
+                jsonEncode({'number': 732, 'html_url': 'bad'}),
+                201,
+              );
+      }),
+    );
+
+    final result = await service.submitFeedback(
+      FeedbackRequest(
+        description: 'With attachment',
+        type: FeedbackType.bug,
+        includeLogs: false,
+        includeSystemInfo: false,
+        screenshots: [
+          Uint8List.fromList([1]),
+        ],
+      ),
+    );
+
+    expect(result.success, isFalse);
+    expect(result.errorMessage, isNot(contains('abcdef1234')));
+    expect(requests, hasLength(1));
+  });
+
+  test(
+    'selected credential remains stable when replaced during gist upload',
+    () async {
+      final credentials = GithubCredentialProvider(
+        store: _MemoryCredentialStore({
+          GithubCredentialProvider.storageKey: 'old-pat',
+        }),
+      );
+      await credentials.load();
+      final requests = <http.Request>[];
+      final service = FeedbackService(
+        githubToken: 'bundled-pat',
+        credentials: credentials,
+        currentSerialNumbers: () => const [],
+        accountService: _authenticatedAccountService(),
+        httpClient: http_testing.MockClient((request) async {
+          requests.add(request);
+          if (request.url.path == '/gists') {
+            await credentials.save('new-pat');
+            return http.Response(
+              jsonEncode({
+                'html_url': 'https://gist.github.com/owner/abcdef1234',
+              }),
+              201,
+            );
+          }
+          return http.Response(
+            jsonEncode({'number': 733, 'html_url': 'bad'}),
+            201,
+          );
+        }),
+      );
+
+      final result = await service.submitFeedback(
+        FeedbackRequest(
+          description: 'contains old-pat',
+          type: FeedbackType.bug,
+          includeLogs: false,
+          includeSystemInfo: false,
+          screenshots: [
+            Uint8List.fromList([1]),
+          ],
+        ),
+      );
+
+      expect(result.success, isTrue);
+      expect(requests.map((request) => request.headers['authorization']), [
+        'Bearer old-pat',
+        'Bearer old-pat',
+      ]);
+      final issue = jsonDecode(requests[1].body) as Map<String, dynamic>;
+      expect(issue['title'], isNot(contains('old-pat')));
+      expect(issue['body'], isNot(contains('old-pat')));
+      expect(issue['body'], isNot(contains('new-pat')));
+    },
+  );
 
   test('system info carries the served skin and the loaded plugins', () async {
     final service = FeedbackService(

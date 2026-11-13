@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pub_semver/pub_semver.dart';
 import 'package:uuid/uuid.dart';
 import 'package:reaprime/src/services/apk_installer.dart';
+import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/services/github_rate_limit.dart';
 import 'package:reaprime/src/services/github_request.dart';
 import 'package:reaprime/src/util/remote_error.dart';
@@ -52,6 +53,8 @@ class UpdateCheckException extends GithubRequestException {
     super.statusCode,
     super.rateLimited,
     super.resetAt,
+    super.credentialRejected,
+    super.userMessageOverride,
   });
 }
 
@@ -64,6 +67,7 @@ class AndroidUpdater {
   final http.Client _httpClient;
   final ApkInstaller _apkInstaller;
   final GithubRateLimit _rateLimit;
+  final GithubCredentialProvider? credentials;
 
   AndroidUpdater({
     required this._owner,
@@ -72,6 +76,7 @@ class AndroidUpdater {
     ApkInstaller? apkInstaller,
     DateTime Function()? now,
     GithubRateLimit? rateLimit,
+    this.credentials,
   }) : _rateLimit = rateLimit ?? GithubRateLimit(now: now),
        _httpClient = httpClient ?? http.Client(),
        _apkInstaller = apkInstaller ?? ApkInstaller();
@@ -92,6 +97,7 @@ class AndroidUpdater {
         _releasesUrl,
         rateLimit: _rateLimit,
         client: _httpClient,
+        credentials: credentials,
       );
 
       final releases = json.decode(response.body) as List<dynamic>;
@@ -132,6 +138,8 @@ class AndroidUpdater {
         statusCode: e.statusCode,
         rateLimited: e.rateLimited,
         resetAt: e.resetAt,
+        credentialRejected: e.credentialRejected,
+        userMessageOverride: e.userMessage,
       );
     } catch (e, stackTrace) {
       _log.severe('Error checking for updates', e, stackTrace);
