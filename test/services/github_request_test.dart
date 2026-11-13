@@ -1,9 +1,38 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/services/github_rate_limit.dart';
 import 'package:reaprime/src/services/github_request.dart';
 import 'package:reaprime/src/util/github_archive.dart';
+import 'package:reaprime/src/services/account/decent_account_service.dart';
+
+class _TestStore implements CredentialStore {
+  _TestStore(this.value);
+  String? value;
+
+  @override
+  Future<String?> read({required String key}) async => value;
+
+  @override
+  Future<void> write({required String key, required String value}) async {
+    this.value = value;
+  }
+
+  @override
+  Future<void> delete({required String key}) async {
+    value = null;
+  }
+}
+
+Future<Object> captureError(Future<Object?> future) async {
+  try {
+    await future;
+  } catch (error) {
+    return error;
+  }
+  throw StateError('expected an error');
+}
 
 void main() {
   final resetAt = DateTime.utc(2030, 1, 1, 12);
@@ -148,6 +177,167 @@ void main() {
       expect(requests, 2);
     },
   );
+
+  test('user credentials are sent only to the exact API origin', () async {
+    final credentials = GithubCredentialProvider(store: _TestStore('secret'));
+    final seen = <http.BaseRequest>[];
+    final client = MockClient((request) async {
+      seen.add(request);
+      return http.Response('{}', 200);
+    });
+    for (final url in [
+      'https://api.github.com/repos/acme/project',
+      'http://api.github.com/repos/acme/project',
+      'https://github.com/acme/project',
+      'https://api.github.com:444/repos/acme/project',
+      'https://api.github.com:0/repos/acme/project',
+      'https://user:password@api.github.com/repos/acme/project',
+      'https://cdn.github.com/acme/project',
+    ]) {
+      await githubGet(
+        url,
+        rateLimit: GithubRateLimit(),
+        client: client,
+        credentials: credentials,
+      );
+    }
+    expect(seen.first.headers['authorization'], 'Bearer secret');
+    for (final request in seen.skip(1)) {
+      expect(request.headers.containsKey('authorization'), isFalse);
+    }
+  });
+
+  test('credential-bearing requests do not follow redirects', () async {
+    final credentials = GithubCredentialProvider(store: _TestStore('secret'));
+    final seen = <http.BaseRequest>[];
+    await expectLater(
+      githubGet(
+        'https://api.github.com/repos/acme/project',
+        rateLimit: GithubRateLimit(),
+        client: MockClient((request) async {
+          seen.add(request);
+          return http.Response(
+            '',
+            302,
+            headers: {'location': 'https://evil.test'},
+          );
+        }),
+        credentials: credentials,
+      ),
+      throwsA(isA<GithubRequestException>()),
+    );
+    expect(seen, hasLength(1));
+    expect(seen.single.followRedirects, isFalse);
+  });
+
+  test(
+    'user credential failures are actionable and never include response body',
+    () async {
+      final credentials = GithubCredentialProvider(store: _TestStore('secret'));
+      for (final status in [401, 403, 404]) {
+        final error = await captureError(
+          githubGet(
+            'https://api.github.com/repos/acme/project',
+            rateLimit: GithubRateLimit(),
+            client: MockClient(
+              (_) async => http.Response('secret response payload', status),
+            ),
+            credentials: credentials,
+          ),
+        );
+        expect(error, isA<GithubRequestException>());
+        expect(error.toString(), contains('Advanced Settings'));
+        expect(error.toString(), contains('replace or remove'));
+        expect(error.toString(), isNot(contains('secret')));
+      }
+    },
+  );
+
+  test(
+    'identity cooldowns do not cross replacement or anonymous requests',
+    () async {
+      var now = DateTime.utc(2030, 1, 1);
+      final limit = GithubRateLimit(now: () => now);
+      final credentials = GithubCredentialProvider(store: _TestStore('first'));
+      final reset = now.add(const Duration(hours: 1));
+      final limited = MockClient(
+        (_) async => http.Response(
+          '',
+          429,
+          headers: {
+            'x-ratelimit-remaining': '0',
+            'x-ratelimit-reset': '${reset.millisecondsSinceEpoch ~/ 1000}',
+          },
+        ),
+      );
+      await expectLater(
+        githubGet(
+          'https://api.github.com/repos/acme/project',
+          rateLimit: limit,
+          client: limited,
+          credentials: credentials,
+        ),
+        throwsA(isA<GithubRequestException>()),
+      );
+      await credentials.save('second');
+      var calls = 0;
+      await githubGet(
+        'https://api.github.com/repos/acme/project',
+        rateLimit: limit,
+        client: MockClient((_) async {
+          calls++;
+          return http.Response('{}', 200);
+        }),
+        credentials: credentials,
+      );
+      expect(calls, 1);
+      await credentials.remove();
+      await expectLater(
+        githubGet(
+          'https://api.github.com/repos/acme/project',
+          rateLimit: limit,
+          client: limited,
+          credentials: credentials,
+        ),
+        throwsA(isA<GithubRequestException>()),
+      );
+      now = reset;
+      await githubGet(
+        'https://api.github.com/repos/acme/project',
+        rateLimit: limit,
+        client: MockClient((_) async => http.Response('{}', 200)),
+        credentials: credentials,
+      );
+    },
+  );
+
+  test('transport failures do not expose the credential', () async {
+    final credentials = GithubCredentialProvider(store: _TestStore('secret'));
+    final error = await captureError(
+      githubGet(
+        'https://api.github.com/repos/acme/project',
+        rateLimit: GithubRateLimit(),
+        credentials: credentials,
+        client: MockClient((_) async {
+          throw http.ClientException('transport echoed secret');
+        }),
+      ),
+    );
+
+    expect(error, isA<GithubRequestException>());
+    expect(error.toString(), isNot(contains('secret')));
+    expect(error.toString(), contains('connection'));
+  });
+
+  test('304 remains available for conditional requests', () async {
+    final response = await githubGet(
+      'https://api.github.com/repos/acme/project',
+      rateLimit: GithubRateLimit(),
+      allowNotModified: true,
+      client: MockClient((_) async => http.Response('', 304)),
+    );
+    expect(response.statusCode, 304);
+  });
 
   test('branch exhaustion also blocks release requests', () async {
     var requests = 0;
