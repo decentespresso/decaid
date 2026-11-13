@@ -1,0 +1,51 @@
+{
+  "version": "2",
+  "title": "Test/temperature accuracy",
+  "author": "Decent",
+  "notes": "Put a pour over basket in your DE1.  Look for smooth temperature ramps between each temperature stage.",
+  "beverage_type": "calibrate",
+  "steps": [
+    {
+      "name": "90c",
+      "pump": "flow",
+      "transition": "fast",
+      "temperature": "90.0",
+      "sensor": "coffee",
+      "seconds": "20.0",
+      "volume": "500.0",
+      "weight": "0.0",
+      "flow": "4.0",
+      "pressure": "9.0"
+    },
+    {
+      "name": "80c",
+      "pump": "flow",
+      "transition": "fast",
+      "temperature": "80.0",
+      "sensor": "coffee",
+      "seconds": "30.0",
+      "volume": "500.0",
+      "weight": "0.0",
+      "flow": "4.0",
+      "pressure": "9.0"
+    },
+    {
+      "name": "70c",
+      "pump": "flow",
+      "transition": "fast",
+      "temperature": "70.0",
+      "sensor": "coffee",
+      "seconds": "30.0",
+      "volume": "500.0",
+      "weight": "0.0",
+      "flow": "4.0",
+      "pressure": "9.0"
+    }
+  ],
+  "tank_temperature": "0.0",
+  "target_weight": "0.0",
+  "target_volume": "0.0",
+  "target_volume_count_start": "0",
+  "type": "advanced",
+  "hidden": "0"
+}
