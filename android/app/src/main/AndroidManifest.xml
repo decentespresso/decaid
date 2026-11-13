@@ -49,7 +49,9 @@
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:networkSecurityConfig="@xml/network_security_config">
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:fullBackupContent="@xml/github_pat_backup_rules"
+        android:dataExtractionRules="@xml/github_pat_data_extraction_rules">
         
         <!-- FileProvider for sharing APK files -->
         <provider

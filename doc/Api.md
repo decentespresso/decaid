@@ -17,6 +17,15 @@ The `viewer`, `openapi`, and `asyncapi` paths use the same host as the API reque
 
 For skin development, see [`doc/Skins.md`](Skins.md). For plugin development, see [`doc/Plugins.md`](Plugins.md).
 
+GitHub personal access tokens are stored in platform secure storage and are not
+part of the REST API or data exports. Android uses a dedicated secure-storage
+preferences file excluded from both cloud backup and device transfer; other
+application preferences remain eligible for backup. Apple PAT items use
+non-synchronizing, this-device-only keychain accessibility. The current iOS
+project has no existing entitlement files or Xcode entitlement wiring, so no
+unused iOS entitlement was added; iOS release validation must confirm the
+project's keychain capability before shipping.
+
 External sensor IDs in REST and WebSocket paths are opaque URI path
 components. Clients percent-encode them once; the host decodes them once at
 the sensor route boundary. This preserves literal reserved characters,
