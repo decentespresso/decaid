@@ -62,7 +62,9 @@ class FeedbackService {
   }) : _installedComponents = installedComponents ?? _noComponents;
 
   bool get isConfigured =>
-      _githubToken.isNotEmpty || _credentials?.current.isUser == true;
+      _githubToken.isNotEmpty ||
+      _credentials?.current.isUser == true ||
+      _credentials?.hasStorageFailure == true;
 
   Future<FeedbackSubmissionResult> submitFeedback(
     FeedbackRequest request,

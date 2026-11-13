@@ -179,6 +179,19 @@ void main() {
     },
   );
 
+  test('feedback selection does not fall back after a load failure', () async {
+    final store = _MemoryStore()..readFailure = StateError('storage failure');
+    final credentials = GithubCredentialProvider(store: store);
+    await expectLater(
+      credentials.load(),
+      throwsA(isA<GithubCredentialException>()),
+    );
+    expect(
+      () => credentials.selectForFeedback(bundledToken: 'bundled-secret'),
+      throwsA(isA<GithubCredentialException>()),
+    );
+  });
+
   test(
     'feedback selection uses user identity or an immutable bundled fallback',
     () async {

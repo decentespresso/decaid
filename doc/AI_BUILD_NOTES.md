@@ -45,7 +45,7 @@ temporary real-hardware tuning builds where debug endpoints must be reachable.
 
 **Supported platforms:** Android (primary), macOS, Linux, Windows, iOS.
 
-The sandboxed macOS Runner's PAT Keychain capability requires a development signing certificate for `flutter build macos --debug`; without one, use `flutter build macos --debug --config-only` followed by `xcodebuild -workspace macos/Runner.xcworkspace -scheme Runner -configuration Debug -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO build` to check compilation/linking only, not Keychain access.
+macOS PATs use a separate AES-256-GCM file while the existing account backend is unchanged; standard `flutter build macos --debug --no-pub` is supported without a new capability.
 
 - `flutter_with_commit.sh` injects the git commit hash as a compile-time constant via `--dart-define`.
 - CI uses pinned Flutter version. Linux build smoke runs via Docker.

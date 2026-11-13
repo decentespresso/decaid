@@ -9,6 +9,7 @@ import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/feedback/feedback_request.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/feedback_service.dart';
+import 'package:reaprime/src/services/github_credential_store.dart';
 import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/services/webserver/data_export_handler.dart';
 import 'package:reaprime/src/services/webserver/data_export/settings_export_section.dart';
@@ -60,7 +61,14 @@ void main() {
       const pat = 'security-test-pat-123';
       SharedPreferences.setMockInitialValues({});
       final preferences = await SharedPreferences.getInstance();
-      final credentials = GithubCredentialProvider(store: _Store(null));
+      final tempDir = await Directory.systemTemp.createTemp('pat-security-');
+      addTearDown(() => tempDir.delete(recursive: true));
+      final credentials = GithubCredentialProvider(
+        store: GithubPatFileCredentialStore(
+          systemGuid: 'security-test-machine',
+          supportDirectory: tempDir.path,
+        ),
+      );
       await credentials.save(pat);
 
       expect(preferences.getKeys(), isEmpty);
@@ -79,8 +87,6 @@ void main() {
       final settingsBody = await response.readAsString();
       expect(settingsBody, isNot(contains(pat)));
 
-      final tempDir = await Directory.systemTemp.createTemp('pat-security-');
-      addTearDown(() => tempDir.delete(recursive: true));
       final export = DataExportHandler(
         sections: [SettingsExportSection(controller: settings)],
       );

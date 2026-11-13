@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
+import 'package:reaprime/src/services/account/encrypted_credential_store.dart';
 import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/settings/github_token_section.dart';
 
@@ -158,6 +159,27 @@ void main() {
     expect(store.value, 'keep-secret');
     expect(find.text('Status: Configured'), findsOneWidget);
     expect(find.text('keep-secret'), findsNothing);
+  });
+
+  testWidgets('unreadable state offers explicit recovery actions', (
+    tester,
+  ) async {
+    final store = _Store()
+      ..readFailure = const EncryptedCredentialStoreException();
+    final credentials = GithubCredentialProvider(store: store);
+    await tester.pumpWidget(_page(credentials));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Status: Stored token cannot be read'), findsOneWidget);
+    expect(find.text('Replace'), findsOneWidget);
+    expect(find.text('Remove'), findsOneWidget);
+    expect(find.text('Retry'), findsNothing);
+
+    store.readFailure = null;
+    await tester.enterText(find.byType(TextField), 'replacement-secret');
+    await tester.tap(find.text('Replace'));
+    await tester.pumpAndSettle();
+    expect(find.text('Status: Configured'), findsOneWidget);
   });
 
   testWidgets('read errors offer retry without revealing storage details', (
