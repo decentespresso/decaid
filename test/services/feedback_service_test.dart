@@ -439,6 +439,106 @@ void main() {
     },
   );
 
+  test(
+    'feedback keeps one credential across account verification and gist work',
+    () async {
+      for (final phase in ['account verification', 'gist']) {
+        final credentials = GithubCredentialProvider(
+          store: _MemoryCredentialStore({
+            GithubCredentialProvider.storageKey: 'old-pat',
+          }),
+        );
+        await credentials.load();
+        final githubRequests = <http.Request>[];
+        final supportRequests = <http.Request>[];
+        final account = DecentAccountService(
+          httpClient: http_testing.MockClient((request) async {
+            supportRequests.add(request);
+            if (request.url.path == '/support/api/login_test') {
+              if (phase == 'account verification') {
+                await credentials.save('new-pat');
+              }
+              return http.Response('cryptpw_abc123', 200);
+            }
+            if (request.url.path == '/support/api/email') {
+              return http.Response('{"messageId":67890}', 200);
+            }
+            return http.Response('', 200);
+          }),
+          credentialStore: _MemoryCredentialStore({
+            'email': 'test@example.com',
+            'password': 'cryptpw_abc123',
+          }),
+        );
+        final service = FeedbackService(
+          githubToken: 'bundled-pat',
+          credentials: credentials,
+          currentSerialNumbers: () => const [],
+          accountService: account,
+          httpClient: http_testing.MockClient((request) async {
+            githubRequests.add(request);
+            if (request.url.path == '/gists' && phase == 'gist') {
+              await credentials.save('new-pat');
+            }
+            return switch (request.url.path) {
+              '/gists' => http.Response(
+                jsonEncode({
+                  'html_url': 'https://gist.github.com/test/abcdef0123456789',
+                }),
+                201,
+              ),
+              '/repos/decentespresso/decaid/issues' => http.Response(
+                jsonEncode({
+                  'number': 734,
+                  'html_url':
+                      'https://github.com/decentespresso/decaid/issues/734',
+                }),
+                201,
+              ),
+              '/repos/decentespresso/decaid/issues/734' =>
+                request.method == 'GET'
+                    ? http.Response(jsonEncode({'body': 'current'}), 200)
+                    : http.Response('{}', 200),
+              _ => http.Response('unexpected request', 500),
+            };
+          }),
+        );
+
+        final result = await service.submitFeedback(
+          FeedbackRequest(
+            description: 'Stable identity feedback',
+            type: FeedbackType.bug,
+            includeLogs: false,
+            includeSystemInfo: false,
+            screenshots: [
+              Uint8List.fromList([1]),
+            ],
+          ),
+        );
+
+        expect(result.success, isTrue, reason: phase);
+        expect(githubRequests.map((request) => request.method), [
+          'POST',
+          'POST',
+          'GET',
+          'PATCH',
+        ]);
+        expect(
+          githubRequests.map((request) => request.headers['authorization']),
+          everyElement('Bearer old-pat'),
+        );
+        for (final request in supportRequests) {
+          expect(request.headers['authorization'], isNot('Bearer old-pat'));
+          expect(request.url.toString(), isNot(contains('old-pat')));
+          expect(request.url.toString(), isNot(contains('new-pat')));
+          expect(request.body, isNot(contains('old-pat')));
+          expect(request.body, isNot(contains('new-pat')));
+        }
+        expect(credentials.current.authorizationHeader, 'Bearer new-pat');
+      }
+    },
+  );
+
   test('user issue authorization failures do not fall back', () async {
     for (final status in [401, 403, 404]) {
       final credentials = GithubCredentialProvider(
@@ -661,6 +761,32 @@ void main() {
 
     expect(report, contains('Skin: streamline.js 0.2.19'));
     expect(report, contains('Loaded plugins: dye2.reaplugin 1.3.0'));
+  });
+
+  test('scrubs the selected PAT from system info and generated HTML', () async {
+    const pat = 'user-pat-system-info';
+    final credentials = GithubCredentialProvider(
+      store: _MemoryCredentialStore({GithubCredentialProvider.storageKey: pat}),
+    );
+    await credentials.load();
+    final service = FeedbackService(
+      githubToken: 'bundled-pat',
+      credentials: credentials,
+      currentSerialNumbers: () => const [],
+      installedComponents: () => ['Loaded plugin version $pat'],
+    );
+
+    final report = await service.generateHtmlReport(
+      FeedbackRequest(
+        description: 'Description mentions $pat',
+        type: FeedbackType.bug,
+        includeLogs: false,
+        includeSystemInfo: true,
+      ),
+    );
+
+    expect(report, isNot(contains(pat)));
+    expect(report, contains('Loaded plugin version serial_'));
   });
 
   test('a provider that throws does not cost us the report', () async {

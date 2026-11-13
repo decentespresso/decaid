@@ -20,6 +20,7 @@ import 'package:reaprime/src/import/widgets/import_progress_view.dart';
 import 'package:reaprime/src/import/widgets/import_result_view.dart';
 import 'package:reaprime/src/import/widgets/import_summary_view.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
+import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/services/storage/bean_storage_service.dart';
 import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
 import 'package:reaprime/src/services/storage/profile_storage_service.dart';
@@ -43,6 +44,7 @@ class DataManagementPage extends StatefulWidget {
     required this.persistenceController,
     required this.de1Controller,
     required this.decentAccountService,
+    this.githubCredentials,
     this.profileStorageService,
     this.beanStorageService,
     this.grinderStorageService,
@@ -57,6 +59,7 @@ class DataManagementPage extends StatefulWidget {
   final PersistenceController persistenceController;
   final De1Controller de1Controller;
   final DecentAccountService? decentAccountService;
+  final GithubCredentialProvider? githubCredentials;
   final ProfileStorageService? profileStorageService;
   final BeanStorageService? beanStorageService;
   final GrinderStorageService? grinderStorageService;
@@ -264,6 +267,7 @@ class _DataManagementPageState extends State<DataManagementPage> {
               serialNumbers: () => widget.de1Controller.seenSerials,
               accountService: widget.decentAccountService,
               installedComponents: widget.installedComponents,
+              credentials: widget.githubCredentials,
             ),
           ),
         ],
