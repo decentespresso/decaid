@@ -3880,7 +3880,11 @@ paths:
         or missing the scope is never admitted. Tokenless checks are throttled
         to one per 30 seconds per route (HTTP 429 with Retry-After). When
         automatic update checks are disabled, tokenless checks are refused and
-        manual checks remain unavailable until native confirmation ships.
+        manual checks remain unavailable until native confirmation ships. For an admitted tokenless check, the response carries
+        `Access-Control-Allow-Origin` set to that exact request Origin and
+        `Vary: Origin`, so the embedded skin can read the result; a throttled
+        `429` carries the same headers. No wildcard origin and no
+        `Access-Control-Allow-Credentials` are ever sent.
       tags: [Plugins]
       security:
         - extensionsManage: []
@@ -4756,7 +4760,11 @@ paths:
         or missing the scope is never admitted. Tokenless checks are throttled
         to one per 30 seconds per route (HTTP 429 with Retry-After). When
         automatic update checks are disabled, tokenless checks are refused and
-        manual checks remain unavailable until native confirmation ships.
+        manual checks remain unavailable until native confirmation ships. For an admitted tokenless check, the response carries
+        `Access-Control-Allow-Origin` set to that exact request Origin and
+        `Vary: Origin`, so the embedded skin can read the result; a throttled
+        `429` carries the same headers. No wildcard origin and no
+        `Access-Control-Allow-Credentials` are ever sent.
       tags: [WebUI]
       security:
         - extensionsManage: []
