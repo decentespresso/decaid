@@ -7,6 +7,7 @@ import 'package:logging/logging.dart';
 import 'package:http/http.dart' as http;
 import 'package:reaprime/src/util/remote_error.dart';
 import 'package:reaprime/src/util/remote_update_exception.dart';
+import 'package:reaprime/src/util/remote_update_report.dart';
 import 'package:reaprime/src/util/user_facing_exception.dart';
 import 'package:archive/archive_io.dart';
 import 'package:path/path.dart' as p;
@@ -153,6 +154,7 @@ class WebUIStorage {
   final Map<String, WebUIReaMetadata> _skinMetadata = {};
   bool _initialized = false;
   final ValueNotifier<Future<void>?> _updateCheck = ValueNotifier(null);
+  Future<RemoteUpdateReport>? _updateCheckReport;
   Future<void>? _remoteDownload;
 
   final GithubRateLimit _rateLimit;
@@ -449,9 +451,20 @@ class WebUIStorage {
       _downloadRemoteSkins().whenComplete(() => _remoteDownload = null);
 
   Future<void> _downloadRemoteSkins() async {
+    final report = RemoteUpdateReport(await checkRemoteBundledSkins());
+    if (report.hasFailures) {
+      throw RemoteUpdateException(
+        attemptedCount: report.results.length,
+        failures: report.failures,
+      );
+    }
+  }
+
+  Future<List<RemoteUpdateItemResult>> checkRemoteBundledSkins() async {
     final sources = await _getRemoteWebUISources();
-    var failures = const <({String item, Object error})>[];
+    final results = <RemoteUpdateItemResult>[];
     for (final sourceConfig in sources) {
+      final item = '${sourceConfig['repo'] ?? sourceConfig['url']}';
       try {
         final type = sourceConfig['type'] as String;
 
@@ -464,7 +477,16 @@ class WebUIStorage {
             _log.info(
               'Downloading remote bundled skin from GitHub release: $repo',
             );
-            await _installFromGitHubRelease(repo, asset, prerelease);
+            results.add(
+              RemoteUpdateItemResult(
+                item: item,
+                status: await _installFromGitHubRelease(
+                  repo,
+                  asset,
+                  prerelease,
+                ),
+              ),
+            );
             break;
 
           case 'github_branch':
@@ -476,24 +498,44 @@ class WebUIStorage {
             _log.info(
               'Downloading remote bundled skin from GitHub branch: $repo/$branch',
             );
-            await _installFromUrlAsRemoteBundled(url);
+            results.add(
+              RemoteUpdateItemResult(
+                item: item,
+                status: await _installFromUrlAsRemoteBundled(url),
+              ),
+            );
             break;
 
           case 'url':
             final url = sourceConfig['url'] as String;
 
             _log.info('Downloading remote bundled skin from URL: $url');
-            await _installFromUrlAsRemoteBundled(url);
+            results.add(
+              RemoteUpdateItemResult(
+                item: item,
+                status: await _installFromUrlAsRemoteBundled(url),
+              ),
+            );
             break;
 
           default:
             _log.warning('Unknown remote source type: $type');
+            results.add(
+              RemoteUpdateItemResult(
+                item: sourceConfig['repo'] ?? sourceConfig['url'] ?? type,
+                status: RemoteUpdateStatus.failed,
+                error: FormatException('Unknown remote source type: $type'),
+              ),
+            );
         }
       } catch (e, st) {
-        failures = [
-          ...failures,
-          (item: '${sourceConfig['repo'] ?? sourceConfig['url']}', error: e),
-        ];
+        results.add(
+          RemoteUpdateItemResult(
+            item: item,
+            status: RemoteUpdateStatus.failed,
+            error: e,
+          ),
+        );
         _log.warning(
           'Failed to download remote skin from $sourceConfig',
           e,
@@ -501,12 +543,7 @@ class WebUIStorage {
         );
       }
     }
-    if (failures.isNotEmpty) {
-      throw RemoteUpdateException(
-        attemptedCount: sources.length,
-        failures: failures,
-      );
-    }
+    return results;
   }
 
   Future<void> downloadRemoteSkinsAndRescan() async {
@@ -517,23 +554,41 @@ class WebUIStorage {
     }
   }
 
-  Future<void> updateAllSkins() => _updateCheck.value ??= _updateAllSkins()
-      .whenComplete(() => _updateCheck.value = null);
-
-  Future<void> _updateAllSkins() async {
-    _log.info('Starting update check for all skins');
-    var failures = const <({String item, Object error})>[];
-    var attemptedCount = 0;
-
-    try {
-      await downloadRemoteSkins();
-      attemptedCount = (await _getRemoteWebUISources()).length;
-    } on RemoteUpdateException catch (e, st) {
-      attemptedCount = e.attemptedCount;
-      failures = [...failures, ...e.failures];
-      _log.warning('Failed to update remote-bundled skins', e, st);
+  Future<void> updateAllSkins() async {
+    final report = await checkForSkinUpdates();
+    if (report.hasFailures) {
+      throw RemoteUpdateException(
+        attemptedCount: report.results.length,
+        failures: report.failures,
+      );
     }
+  }
 
+  Future<RemoteUpdateReport> checkForSkinUpdates() {
+    final existing = _updateCheckReport;
+    if (existing != null) return existing;
+    final report = _runSkinUpdates().whenComplete(() {
+      _updateCheckReport = null;
+      _updateCheck.value = null;
+    });
+    _updateCheckReport = report;
+    _updateCheck.value = report.then<void>((_) {}).catchError((Object _) {});
+    return report;
+  }
+
+  Future<RemoteUpdateReport> _runSkinUpdates() async {
+    _log.info('Starting update check for all skins');
+    final results = <RemoteUpdateItemResult>[
+      ...await checkRemoteBundledSkins(),
+      ...await _checkUserSkins(),
+    ];
+    await _scanInstalledSkins();
+    _log.info('Finished update check for all skins');
+    return RemoteUpdateReport(results);
+  }
+
+  Future<List<RemoteUpdateItemResult>> _checkUserSkins() async {
+    final results = <RemoteUpdateItemResult>[];
     final userSkins = _skinMetadata.entries
         .where(
           (entry) =>
@@ -553,7 +608,6 @@ class WebUIStorage {
         );
         continue;
       }
-      attemptedCount++;
 
       try {
         if (sourceUrl.startsWith('github_release:')) {
@@ -566,11 +620,16 @@ class WebUIStorage {
           _log.info(
             'Updating user-installed skin "$skinId" from GitHub release: $repo',
           );
-          await _installFromGitHubRelease(
-            repo,
-            entry.value.releaseAssetName,
-            entry.value.includePrerelease ?? false,
-            markAsRemoteBundled: false,
+          results.add(
+            RemoteUpdateItemResult(
+              item: skinId,
+              status: await _installFromGitHubRelease(
+                repo,
+                entry.value.releaseAssetName,
+                entry.value.includePrerelease ?? false,
+                markAsRemoteBundled: false,
+              ),
+            ),
           );
         } else if (sourceUrl.startsWith('github_branch:')) {
           final withoutPrefix = sourceUrl.substring('github_branch:'.length);
@@ -586,33 +645,47 @@ class WebUIStorage {
             'Updating user-installed skin "$skinId" from GitHub branch: '
             '$repo@$branch',
           );
-          await installFromGitHub(repo, branch: branch);
-        } else if (sourceUrl.startsWith('http')) {
+          final url = 'https://github.com/$repo/archive/refs/heads/$branch.zip';
+          results.add(
+            RemoteUpdateItemResult(
+              item: skinId,
+              status: await _installFromUrlAsRemoteBundled(
+                url,
+                markAsRemoteBundled: false,
+                sourceIdentifier: 'github_branch:$repo@$branch',
+              ),
+            ),
+          );
+        } else {
           _log.info(
             'Updating user-installed skin "$skinId" from URL: $sourceUrl',
           );
-          await _installFromUrlAsRemoteBundled(
-            sourceUrl,
-            markAsRemoteBundled: false,
+          results.add(
+            RemoteUpdateItemResult(
+              item: skinId,
+              status: await _installFromUrlAsRemoteBundled(
+                sourceUrl,
+                markAsRemoteBundled: false,
+              ),
+            ),
           );
         }
       } catch (e, st) {
-        failures = [...failures, (item: skinId, error: e)];
+        results.add(
+          RemoteUpdateItemResult(
+            item: skinId,
+            status: RemoteUpdateStatus.failed,
+            error: e,
+          ),
+        );
         _log.warning('Failed to update skin "$skinId" from $sourceUrl', e, st);
       }
     }
 
-    await _scanInstalledSkins();
-    _log.info('Finished update check for all skins');
-    if (failures.isNotEmpty) {
-      throw RemoteUpdateException(
-        attemptedCount: attemptedCount,
-        failures: failures,
-      );
-    }
+    return results;
   }
 
-  Future<void> _installFromGitHubRelease(
+  Future<RemoteUpdateStatus> _installFromGitHubRelease(
     String repo,
     String? assetName,
     bool includePrerelease, {
@@ -676,7 +749,7 @@ class WebUIStorage {
           lastChecked: DateTime.now(),
         );
         await _saveSkinMetadata();
-        return;
+        return RemoteUpdateStatus.alreadyCurrent;
       }
 
       final assetResponse = await http.get(Uri.parse(downloadUrl));
@@ -719,13 +792,14 @@ class WebUIStorage {
       );
 
       await _scanInstalledSkins();
+      return RemoteUpdateStatus.updated;
     } catch (e, st) {
       _log.severe('Failed to install from GitHub release: $repo', e, st);
       rethrow;
     }
   }
 
-  Future<void> _installFromUrlAsRemoteBundled(
+  Future<RemoteUpdateStatus> _installFromUrlAsRemoteBundled(
     String url, {
     bool markAsRemoteBundled = true,
     String? sourceIdentifier,
@@ -759,7 +833,7 @@ class WebUIStorage {
       }
 
       if (!needsUpdate) {
-        return;
+        return RemoteUpdateStatus.alreadyCurrent;
       }
 
       _log.info('Downloading WebUI from URL: $url');
@@ -808,6 +882,7 @@ class WebUIStorage {
       await _scanInstalledSkins();
 
       _log.info('Successfully installed remote bundled WebUI from URL: $url');
+      return RemoteUpdateStatus.updated;
     } catch (e) {
       _log.severe('Failed to install WebUI from URL: $url', e);
       rethrow;

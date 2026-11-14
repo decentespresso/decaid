@@ -12,6 +12,7 @@ import 'package:reaprime/src/plugins/plugin_package.dart';
 import 'package:reaprime/src/plugins/plugin_source.dart';
 import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/util/remote_update_exception.dart';
+import 'package:reaprime/src/util/remote_update_report.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'plugin_test_helpers.dart';
@@ -169,18 +170,18 @@ function createPlugin() {
         var releaseRequests = 0;
         await http.runWithClient(
           () async {
-            final first = service.updateAllPlugins();
-            final second = service.updateAllPlugins();
+            final first = service.checkForPluginUpdates();
+            final second = service.checkForPluginUpdates();
             try {
               expect(second, same(first));
-              expect(service.updateCheck.value, same(first));
+              expect(service.updateCheck.value, isNotNull);
             } finally {
               release.complete(http.Response(releaseJson('v1.0.0', []), 200));
               await Future.wait([first, second]);
             }
             expect(releaseRequests, 1);
             expect(service.updateCheck.value, isNull);
-            await service.updateAllPlugins();
+            await service.checkForPluginUpdates();
             expect(releaseRequests, 2);
           },
           () => MockClient((request) async {
@@ -194,12 +195,37 @@ function createPlugin() {
       },
     );
 
+    test('updateAllPlugins joins an in-flight report check', () async {
+      await http.runWithClient(
+        () => service.installFromGitHubRelease('acme/plugin'),
+        gitHubClient,
+      );
+      final release = Completer<http.Response>();
+      var releaseRequests = 0;
+      await http.runWithClient(
+        () async {
+          final report = service.checkForPluginUpdates();
+          final legacy = service.updateAllPlugins();
+          release.complete(http.Response(releaseJson('v1.0.0', []), 200));
+          await Future.wait([report, legacy]);
+          expect(releaseRequests, 1);
+        },
+        () => MockClient((request) async {
+          if (!request.url.path.contains('/acme/plugin/')) {
+            return http.Response('', 404);
+          }
+          releaseRequests++;
+          return release.future;
+        }),
+      );
+    });
+
     test(
       'failed plugin checks clear the shared future and allow retry',
       () async {
         final failing = _FailingSeedSourceService(loader);
         final first = failing.updateAllPlugins();
-        expect(failing.updateCheck.value, same(first));
+        expect(failing.updateCheck.value, isNotNull);
         await expectLater(first, throwsStateError);
         expect(failing.updateCheck.value, isNull);
         failing.fail = false;
@@ -824,6 +850,112 @@ function createPlugin() {
       expect(service.sourceFor('other.reaplugin')!.commit, 'second');
       expect(service.sourceFor('other.reaplugin')!.lastError, isNull);
     });
+
+    test(
+      'checkForPluginUpdates reports per-item statuses without throwing',
+      () async {
+        await http.runWithClient(
+          () => service.installFromGitHubRelease('acme/plugin'),
+          gitHubClient,
+        );
+
+        final current = await http.runWithClient(
+          () => service.checkForPluginUpdates(),
+          () => gitHubClient(tag: 'v1.0.0'),
+        );
+        expect(current.hasFailures, isFalse);
+        expect(current.results.single.item, id);
+        expect(
+          current.results.single.status,
+          RemoteUpdateStatus.alreadyCurrent,
+        );
+
+        final updated = await http.runWithClient(
+          () => service.checkForPluginUpdates(),
+          () => gitHubClient(
+            tag: 'v1.1.0',
+            releaseArchive: pluginArchive(version: '1.1.0'),
+          ),
+        );
+        expect(updated.hasFailures, isFalse);
+        expect(updated.results.single.status, RemoteUpdateStatus.updated);
+        expect(loader.getPluginManifest(id)?.version, '1.1.0');
+      },
+    );
+
+    test(
+      'checkForPluginUpdates records pendingApproval for new permissions',
+      () async {
+        await http.runWithClient(
+          () => service.installFromGitHubRelease('acme/plugin'),
+          () =>
+              gitHubClient(releaseArchive: pluginArchive(permissions: ['log'])),
+        );
+
+        final report = await http.runWithClient(
+          () => service.checkForPluginUpdates(),
+          () => gitHubClient(
+            tag: 'v1.1.0',
+            releaseArchive: pluginArchive(
+              version: '1.1.0',
+              permissions: ['log', 'proxy.decent_api'],
+            ),
+          ),
+        );
+        expect(report.hasFailures, isFalse);
+        expect(
+          report.results.single.status,
+          RemoteUpdateStatus.pendingApproval,
+        );
+        expect(loader.getPluginManifest(id)?.version, '1.0.0');
+        expect(service.sourceFor(id)?.pendingUpdate?.version, '1.1.0');
+      },
+    );
+
+    test(
+      'checkForPluginUpdates keeps per-item failures and does not throw',
+      () async {
+        await http.runWithClient(
+          () => service.installFromGitHubBranch('broken/plugin'),
+          () => gitHubClient(commit: 'first'),
+        );
+        await http.runWithClient(
+          () => service.installFromGitHubBranch('good/plugin'),
+          () => gitHubClient(
+            commit: 'first',
+            branchArchive: pluginArchive(pluginId: 'other.reaplugin'),
+          ),
+        );
+
+        final report = await http.runWithClient(
+          () => service.checkForPluginUpdates(),
+          () => MockClient((request) async {
+            final url = request.url.toString();
+            if (url.contains('broken/plugin')) {
+              return http.Response('boom', 500);
+            }
+            if (url.contains('/commits/')) {
+              return http.Response(jsonEncode({'sha': 'second'}), 200);
+            }
+            return http.Response.bytes(
+              pluginArchive(pluginId: 'other.reaplugin', marker: 'fresh'),
+              200,
+            );
+          }),
+        );
+
+        expect(report.hasFailures, isTrue);
+        expect(report.results, hasLength(2));
+        expect(report.results.map((r) => r.status).toSet(), {
+          RemoteUpdateStatus.failed,
+          RemoteUpdateStatus.updated,
+        });
+        expect(report.failures.single.item, id);
+        expect(service.sourceFor(id)?.lastError, isNotNull);
+        expect(service.sourceFor(id)?.commit, 'first');
+        expect(service.sourceFor('other.reaplugin')?.commit, 'second');
+      },
+    );
 
     test(
       'diagnostic metadata failure does not stop the remaining updates',

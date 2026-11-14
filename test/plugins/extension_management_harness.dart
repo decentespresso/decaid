@@ -10,6 +10,7 @@ import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/services/account/proxy_token_service.dart';
 import 'package:reaprime/src/services/webserver/extension_management_auth.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
+import 'package:reaprime/src/util/remote_update_report.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -96,6 +97,12 @@ class RecordingWebUIStorage extends Fake implements WebUIStorage {
   @override
   Future<void> updateAllSkins() async {
     mutations.add('updateAllSkins');
+  }
+
+  @override
+  Future<RemoteUpdateReport> checkForSkinUpdates() async {
+    mutations.add('checkForSkinUpdates');
+    return const RemoteUpdateReport([]);
   }
 }
 

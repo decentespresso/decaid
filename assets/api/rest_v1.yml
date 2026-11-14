@@ -3866,8 +3866,10 @@ paths:
         installed when the candidate keeps the same permissions or fewer, and
         recorded as a pendingUpdate when it asks for more. One plugin failing
         does not stop the others.
-        After all items are processed, any failure (including partial completion)
-        returns HTTP 500 with a plain-language error. Successful updates are kept.
+        After all items are processed, per-item outcomes are returned in the
+        `results` array: `updated`, `alreadyCurrent`, `pendingApproval`, or
+        `failed` with a plain-language `error`. Partial failures no longer
+        produce a blanket 500; only a failure of the check machinery itself does.
         Requires `Authorization: Bearer <token>` scoped `extensions:manage`
         (see the extensionsManage security scheme).
         When automatic update checks are enabled in native settings, a
@@ -3898,6 +3900,20 @@ paths:
                 properties:
                   message:
                     type: string
+                    example: "Plugin update check complete"
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        item:
+                          type: string
+                        status:
+                          type: string
+                          enum: [updated, alreadyCurrent, failed, pendingApproval]
+                        error:
+                          type: string
+                      required: [item, status]
         "401":
           description: Missing, malformed, unknown or revoked bearer token
           content:
@@ -3917,7 +3933,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "500":
-          description: The update check could not run or some items failed
+          description: The update check could not run
           content:
             application/json:
               schema:
@@ -4745,9 +4761,10 @@ paths:
       description: >
         Triggers an update check for all skins from their remote sources
         (GitHub releases, branches). Skins with newer versions available are
-        downloaded and updated. Every item is attempted; any failure, including
-        partial completion, returns HTTP 500 with a plain-language error.
-        Successful updates are retained.
+        downloaded and updated. Every item is attempted, and per-item outcomes
+        are returned in the `results` array: `updated`, `alreadyCurrent`, or
+        `failed` with a plain-language `error`. Partial failures no longer
+        produce a blanket 500; only a failure of the check machinery itself does.
         Requires `Authorization: Bearer <token>` scoped `extensions:manage`
         (see the extensionsManage security scheme).
         When automatic update checks are enabled in native settings, a
@@ -4779,6 +4796,19 @@ paths:
                   message:
                     type: string
                     example: "Skin update check completed"
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        item:
+                          type: string
+                        status:
+                          type: string
+                          enum: [updated, alreadyCurrent, failed]
+                        error:
+                          type: string
+                      required: [item, status]
         "401":
           description: Missing, malformed, unknown or revoked bearer token
           content:
@@ -4798,7 +4828,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "500":
-          description: Update check failed or completed only partially; error contains a plain-language message
+          description: The update check could not run
 
   /api/v1/webui/server/status:
     get:

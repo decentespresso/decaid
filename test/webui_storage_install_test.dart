@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
+import 'package:reaprime/src/util/remote_update_report.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 
 import 'helpers/mock_settings_service.dart';
@@ -16,7 +17,8 @@ class _UserSkinStorage extends WebUIStorage {
   _UserSkinStorage(super.settingsController);
 
   @override
-  Future<void> downloadRemoteSkins() async {}
+  Future<List<RemoteUpdateItemResult>> checkRemoteBundledSkins() async =>
+      const [];
 }
 
 class _BlockedUpdateStorage extends WebUIStorage {
@@ -26,9 +28,10 @@ class _BlockedUpdateStorage extends WebUIStorage {
   int downloadCalls = 0;
 
   @override
-  Future<void> downloadRemoteSkins() async {
+  Future<List<RemoteUpdateItemResult>> checkRemoteBundledSkins() async {
     downloadCalls++;
     await completion.future;
+    return const [];
   }
 }
 
@@ -74,9 +77,8 @@ void main() {
         final first = blocked.updateAllSkins();
         final second = blocked.updateAllSkins();
         try {
-          expect(second, same(first));
-          expect(blocked.updateCheck.value, same(first));
           expect(blocked.downloadCalls, 1);
+          expect(blocked.updateCheck.value, isNotNull);
         } finally {
           blocked.completion.complete();
           await Future.wait([first, second]);

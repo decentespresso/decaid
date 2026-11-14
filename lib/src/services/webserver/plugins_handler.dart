@@ -53,8 +53,11 @@ final class PluginsHandler {
 
     app.post('/api/v1/plugins/update', (Request request) async {
       try {
-        await pluginSourceService.updateAllPlugins();
-        return jsonOk({'message': 'Plugin update check complete'});
+        final report = await pluginSourceService.checkForPluginUpdates();
+        return jsonOk({
+          'message': 'Plugin update check complete',
+          'results': report.results.map((r) => r.toJson()).toList(),
+        });
       } catch (e, st) {
         _log.warning('Plugin update check failed', e, st);
         return jsonError({

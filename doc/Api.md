@@ -674,13 +674,19 @@ Android session-only USB machine and scale IDs are usable for the current attach
 | POST | `/api/v1/webui/skins/install/github-branch` | Install from GitHub branch and persist its source for update checks | | required |
 | POST | `/api/v1/webui/skins/install/url` | Install from ZIP URL | | required |
 | DELETE | `/api/v1/webui/skins/:id` | Remove installed skin | | required |
-| POST | `/api/v1/webui/skins/update` | Check all skins for updates from remote sources | | required* |
+| POST | `/api/v1/webui/skins/update` | Check all skins for updates from remote sources; returns per-item `results` | | required* |
 | GET | `/api/v1/webui/server/status` | Server status (`{serving, path, port, ip}`) | | |
 | POST | `/api/v1/webui/server/start` | Start serving default skin through the port 3000 entry point | | required |
 | POST | `/api/v1/webui/server/stop` | Stop serving | | required |
 | GET | `/api/v1/webui/skin-assets/:id/:filepath` | Fetch a file from another installed skin (cross-skin asset sharing) | | |
 
 Rows marked `required` need a bearer token scoped `extensions:manage`; see [Extension management authorization](#extension-management-authorization). Rows marked `required*` additionally admit a tokenless same-device loopback caller while `automaticUpdateCheck` is on; see [Tokenless loopback update checks](#tokenless-loopback-update-checks).
+
+`POST /api/v1/webui/skins/update` returns `200` with `{message, results}` when the
+check runs to completion, even if some skins fail. Each `results` entry has
+`item`, `status` (`updated`, `alreadyCurrent`, or `failed`), and an `error`
+string only when `status` is `failed`. A `500` now means the check itself could
+not run, not that some items failed.
 
 ### Plugins
 
@@ -696,12 +702,18 @@ Rows marked `required` need a bearer token scoped `extensions:manage`; see [Exte
 | POST | `/api/v1/plugins/install` | Not supported — returns 501 naming the GitHub endpoints | | required |
 | POST | `/api/v1/plugins/install/github-release` | Install from a GitHub release asset; tag must equal the manifest version | | required |
 | POST | `/api/v1/plugins/install/github-branch` | Install from a GitHub branch; the resolved commit drives updates | | required |
-| POST | `/api/v1/plugins/update` | Check every GitHub-backed plugin for updates | | required* |
+| POST | `/api/v1/plugins/update` | Check every GitHub-backed plugin for updates; returns per-item `results` | | required* |
 | POST | `/api/v1/plugins/:id/update/approve` | Install an update that asks for new permissions | | required |
 | ANY | `/api/v1/plugins/:id/:endpoint` | Plugin HTTP endpoint; requires `api` and returns 403 without it | | |
 | WS | `/ws/v1/plugins/:id/:endpoint` | Plugin WebSocket endpoint | | |
 
 Rows marked `required` need a bearer token scoped `extensions:manage`; see [Extension management authorization](#extension-management-authorization). Rows marked `required*` additionally admit a tokenless same-device loopback caller while `automaticUpdateCheck` is on; see [Tokenless loopback update checks](#tokenless-loopback-update-checks).
+
+`POST /api/v1/plugins/update` returns `200` with `{message, results}` when the
+check runs to completion, even if some plugins fail. Each `results` entry has
+`item`, `status` (`updated`, `alreadyCurrent`, `pendingApproval`, or `failed`),
+and an `error` string only when `status` is `failed`. A `500` now means the
+check itself could not run, not that some items failed.
 
 For plugin HTTP and WebSocket endpoint routes, `id` and `endpoint` are opaque
 URI path components. Clients percent-encode each once; the handler decodes each

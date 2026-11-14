@@ -257,11 +257,15 @@ void main() {
           () => post('/api/v1/plugins/update'),
           offline,
         );
-        expect(update.statusCode, 500);
-        expect(
-          await update.readAsString(),
-          contains('Check your internet connection'),
+        expect(update.statusCode, 200);
+        final updateBody = jsonDecode(await update.readAsString());
+        final results = (updateBody['results'] as List)
+            .cast<Map<String, dynamic>>();
+        final failed = results.firstWhere(
+          (result) => result['item'] == id && result['status'] == 'failed',
         );
+        expect(failed['error'], contains('Check your internet connection'));
+        expect(failed['error'], isNot(contains('SocketException')));
         final listed = await listedPlugin();
         expect(
           listed['source']['lastError'],
