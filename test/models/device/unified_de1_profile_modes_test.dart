@@ -1,10 +1,20 @@
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/data/profile.dart';
+import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
 import 'package:reaprime/src/models/errors.dart';
 
 import '../../helpers/fake_ble_transport.dart';
+
+class _FakeAsyncBleTransport extends FakeBleTransport {
+  @override
+  Stream<ConnectionState> get connectionState => Stream.multi((controller) {
+    controller.add(ConnectionState.connected);
+    controller.close();
+  });
+}
 
 /// Byte-exact ext-frame encoding for the additive Power / Lever pump modes,
 /// plus the capability refusal gate. A real [UnifiedDe1] over
@@ -356,6 +366,28 @@ void main() {
 
       expect(transport.writes.where(isCapsRead), hasLength(1));
       expect(de1.machineInfo.extra['profileModeCaps'], 0x7);
+    });
+
+    test('a Bengle that never answers the read settles to caps 0 within 5 s '
+        'with one read request', () {
+      fakeAsync((async) {
+        final transport = _FakeAsyncBleTransport();
+        final de1 = UnifiedDe1(transport: transport);
+        queueConnectResponsesWithoutCaps(transport, 128);
+
+        var connected = false;
+        de1.onConnect().then((_) => connected = true);
+        async.elapse(const Duration(seconds: 5));
+
+        expect(connected, isTrue);
+        expect(de1.machineInfo.extra['profileModeCaps'], 0);
+        expect(transport.writes.where(isCapsRead), hasLength(1));
+
+        async.elapse(const Duration(seconds: 30));
+        expect(transport.writes.where(isCapsRead), hasLength(1));
+        transport.dispose();
+        async.flushMicrotasks();
+      });
     });
   });
 }

@@ -481,11 +481,13 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
     await enableUserPresenceFeature();
   }
 
-  /// Outer bound on the ProfileModeCaps read. Long enough to let one internal
-  /// MMR read attempt resolve, short enough to bail before the retry budget —
-  /// so a machine WITHOUT the register (stock firmware, every DE1) settles to
-  /// caps 0 in ~one attempt instead of stalling the connect flow for the full
-  /// MMR-read retry budget.
+  /// The ProfileModeCaps read makes one attempt with this timeout and no
+  /// retries, so a Bengle firmware WITHOUT the register settles to caps 0 and
+  /// frees the serial MMR gate after one attempt instead of holding the
+  /// connect flow for the full MMR-read retry budget.
+  static const _profileModeCapsAttemptTimeout = Duration(seconds: 4);
+
+  /// Outer bound on the ProfileModeCaps read, longer than the one attempt.
   static const _profileModeCapsReadTimeout = Duration(milliseconds: 4500);
 
   /// Read the ProfileModeCaps bitmask, fail-closed to 0.
@@ -503,10 +505,15 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
   /// above 0xF remain undefined and still fail-close to 0.
   Future<int> _readProfileModeCaps() async {
     try {
-      final caps = await _mmrRead(MMRItem.profileModeCaps)
-          .then(_unpackMMRInt)
-          .catchError((Object _) => 0)
-          .timeout(_profileModeCapsReadTimeout, onTimeout: () => 0);
+      final caps =
+          await _mmrRead(
+                MMRItem.profileModeCaps,
+                timeout: _profileModeCapsAttemptTimeout,
+                retries: 0,
+              )
+              .then(_unpackMMRInt)
+              .catchError((Object _) => 0)
+              .timeout(_profileModeCapsReadTimeout, onTimeout: () => 0);
       if (caps < 0 || (caps & ~0xF) != 0) return 0;
       return caps;
     } catch (_) {
