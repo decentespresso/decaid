@@ -151,6 +151,15 @@ require `Authorization: Bearer <token>` with the `extensions:manage` scope. The
 rest of the API stays unauthenticated. The full list is in
 [REST management routes](#rest-management-routes).
 
+One narrow exception exists for update checks: when `automaticUpdateCheck` is
+enabled in native settings, `POST /api/v1/webui/skins/update` (and
+`POST /api/v1/plugins/update`) also admit a tokenless caller on the same
+device — an IPv4/IPv6 loopback peer address with a loopback `Host` on the API
+port and, when present, a loopback skin/API `Origin`. LAN peers, spoofed
+forwarding headers, `Origin: null` and cross-origin requests are never
+admitted. When automatic updates are off, tokenless local checks are refused
+until the native-confirmation follow-up.
+
 Skins get no implicit management authority. The account-proxy token Decaid
 injects into served skin pages has only the `account:proxy` scope, and the
 management routes refuse it with 403. A skin that offers plugin or skin
@@ -3779,6 +3788,9 @@ These routes need `Authorization: Bearer <token>` with the `extensions:manage`
 scope. Without it they answer 401; with a token of another scope, such as the
 skin's injected account-proxy token, 403.
 
+`POST /api/v1/webui/skins/update` additionally admits a tokenless same-device
+loopback caller while `automaticUpdateCheck` is on; see [Managing Plugins and Skins from a Skin](#managing-plugins-and-skins-from-a-skin).
+
 | Method | Path |
 |--------|------|
 | PUT | `/api/v1/webui/skins/default` |
@@ -3922,10 +3934,13 @@ Decaid tracks skin metadata in `.rea_metadata.json`:
 **Update Detection:**
 - User-installed skins are checked for updates via `updateAllSkins()`, which
   runs on the app's periodic update check, from `POST /api/v1/webui/skins/update`
-  (which needs an `extensions:manage` token), and from the native skin page's
+  (which needs an `extensions:manage` token, or a same-device loopback caller
+  while `automaticUpdateCheck` is on; see [Managing Plugins and Skins from a Skin](#managing-plugins-and-skins-from-a-skin)),
+  and from the native skin page's
   cogwheel menu under **Check for updates**. The web settings plugin's "Check
-  for Skin Updates" button no longer triggers it: the plugin's page holds no
-  token, so its request is refused with 401.
+  for Skin Updates" button only triggers it when automatic updates are on and
+  the request comes from the same device; otherwise its request is refused
+  with 401.
 - During an update check on the native skin page, the cogwheel shows progress
   and **Check for updates** is disabled until the check finishes, including
   after a failure. The menu can still be opened to access installation.

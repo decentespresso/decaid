@@ -3870,6 +3870,17 @@ paths:
         returns HTTP 500 with a plain-language error. Successful updates are kept.
         Requires `Authorization: Bearer <token>` scoped `extensions:manage`
         (see the extensionsManage security scheme).
+        When automatic update checks are enabled in native settings, a
+        tokenless request from the same device is also admitted: the actual
+        socket peer must be an IPv4/IPv6 loopback address (IPv4-mapped IPv6
+        included), the Host header must name a loopback host on the API port,
+        and an Origin header, when present, must be a loopback origin of the
+        active skin or API. A LAN or other non-loopback peer, a spoofed Host,
+        Origin, Referer or forwarding header, or a credential that is invalid
+        or missing the scope is never admitted. Tokenless checks are throttled
+        to one per 30 seconds per route (HTTP 429 with Retry-After). When
+        automatic update checks are disabled, tokenless checks are refused and
+        manual checks remain unavailable until native confirmation ships.
       tags: [Plugins]
       security:
         - extensionsManage: []
@@ -3891,6 +3902,12 @@ paths:
                 $ref: "#/components/schemas/Error"
         "403":
           description: Token is not scoped for extensions:manage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: A tokenless update check just ran for this route
           content:
             application/json:
               schema:
@@ -4729,6 +4746,17 @@ paths:
         Successful updates are retained.
         Requires `Authorization: Bearer <token>` scoped `extensions:manage`
         (see the extensionsManage security scheme).
+        When automatic update checks are enabled in native settings, a
+        tokenless request from the same device is also admitted: the actual
+        socket peer must be an IPv4/IPv6 loopback address (IPv4-mapped IPv6
+        included), the Host header must name a loopback host on the API port,
+        and an Origin header, when present, must be a loopback origin of the
+        active skin or API. A LAN or other non-loopback peer, a spoofed Host,
+        Origin, Referer or forwarding header, or a credential that is invalid
+        or missing the scope is never admitted. Tokenless checks are throttled
+        to one per 30 seconds per route (HTTP 429 with Retry-After). When
+        automatic update checks are disabled, tokenless checks are refused and
+        manual checks remain unavailable until native confirmation ships.
       tags: [WebUI]
       security:
         - extensionsManage: []
@@ -4751,6 +4779,12 @@ paths:
                 $ref: "#/components/schemas/Error"
         "403":
           description: Token is not scoped for extensions:manage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          description: A tokenless update check just ran for this route
           content:
             application/json:
               schema:

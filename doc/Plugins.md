@@ -1858,7 +1858,7 @@ change what is installed or how it runs and need a bearer token with the
 | POST | `/api/v1/plugins/install` | yes | Not supported (501); use the GitHub endpoints below |
 | POST | `/api/v1/plugins/install/github-release` | yes | Install from a GitHub release asset |
 | POST | `/api/v1/plugins/install/github-branch` | yes | Install from a GitHub branch |
-| POST | `/api/v1/plugins/update` | yes | Check every GitHub-backed plugin for updates |
+| POST | `/api/v1/plugins/update` | yes* | Check every GitHub-backed plugin for updates |
 | POST | `/api/v1/plugins/:id/update/approve` | yes | Install an update that requests new permissions |
 | GET | `/api/v1/plugins/:id/settings` | no | Get plugin settings |
 | POST | `/api/v1/plugins/:id/settings` | yes | Update plugin settings; reloads the plugin if it is loaded so the change applies immediately |
@@ -1879,6 +1879,20 @@ Send the token as `Authorization: Bearer <token>`. Decaid answers:
 | 401 | `{"error":"Missing or malformed bearer token"}` | No `Authorization: Bearer` header; the response also has `WWW-Authenticate: Bearer` |
 | 401 | `{"error":"Invalid token"}` | The token is unknown or was revoked |
 | 403 | `{"error":"Token is not scoped for extensions:manage"}` | The token is valid but has another scope, such as an account-proxy token |
+
+**Tokenless loopback update checks.** `yes*` marks the one route that, while
+`automaticUpdateCheck` is on, also admits a tokenless caller on the same
+device: an IPv4/IPv6 loopback peer address (IPv4-mapped IPv6 included), a
+loopback `Host` on the API port, and, when present, a loopback skin/API
+`Origin`. Any `Authorization` header keeps the normal token decision; invalid
+or unscoped tokens are not laundered into the exception. A LAN or other
+non-loopback peer, spoofed `Host`/`Origin`/forwarding headers, and
+cross-origin requests are never admitted. Tokenless checks are throttled to
+one per 30 seconds per route (HTTP 429 with `Retry-After`). The exception
+never bypasses permission escalation: an update that adds a permission is
+still only recorded as `pendingUpdate` until approved. When automatic updates
+are off, tokenless checks are refused with 401 and cause no network fetch,
+install, or pending approval.
 
 Getting a token:
 
