@@ -56,6 +56,7 @@ class WorkflowDeviceSync {
   int _attempt = 0;
 
   bool _errorSurfaced = false;
+  bool _refusalSurfaced = false;
   bool _disposed = false;
 
   static const int _retryLogHeartbeat = 10;
@@ -115,6 +116,7 @@ class WorkflowDeviceSync {
           _attempt = 0;
           if (_errorSurfaced) {
             _errorSurfaced = false;
+            _refusalSurfaced = false;
             onUploadErrorCleared?.call();
           }
         } on ProfileModeUnsupportedException catch (e) {
@@ -148,8 +150,9 @@ class WorkflowDeviceSync {
           } else {
             _log.fine(message, e);
           }
-          if (!_errorSurfaced) {
+          if (!_errorSurfaced || _refusalSurfaced) {
             _errorSurfaced = true;
+            _refusalSurfaced = false;
             onUploadError?.call(
               ConnectionError(
                 kind: ConnectionErrorKind.profileUploadFailed,
@@ -176,6 +179,7 @@ class WorkflowDeviceSync {
 
   void _surfaceRefusal(ProfileModeUnsupportedException refusal) {
     _errorSurfaced = true;
+    _refusalSurfaced = true;
     onUploadError?.call(
       ConnectionError(
         kind: ConnectionErrorKind.profileUploadFailed,
@@ -213,6 +217,7 @@ class WorkflowDeviceSync {
       _attempt = 0;
       if (_errorSurfaced) {
         _errorSurfaced = false;
+        _refusalSurfaced = false;
         onUploadErrorCleared?.call();
       }
       return;
@@ -231,6 +236,7 @@ class WorkflowDeviceSync {
     _initSettledSub = null;
     if (_errorSurfaced) {
       _errorSurfaced = false;
+      _refusalSurfaced = false;
       onUploadErrorCleared?.call();
     }
   }

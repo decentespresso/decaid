@@ -237,8 +237,9 @@ class _NotConnectedDe1 extends TestDe1 {
 /// `UnifiedDe1._assertProfileModeSupported` throwing before any BLE write, so
 /// the workflow-sync path must PARK instead of retrying forever.
 class _RefusingDe1 extends TestDe1 {
-  _RefusingDe1({required this.refuseTitle});
+  _RefusingDe1({required this.refuseTitle, this.transientFailures = 0});
   final String refuseTitle;
+  int transientFailures;
   int totalCalls = 0;
   final List<Profile> setProfileCalls = [];
 
@@ -246,6 +247,10 @@ class _RefusingDe1 extends TestDe1 {
   Future<void> setProfile(Profile profile) async {
     totalCalls++;
     setProfileCalls.add(profile);
+    if (profile.title != refuseTitle && transientFailures > 0) {
+      transientFailures--;
+      throw Exception('simulated BLE write timeout');
+    }
     if (profile.title == refuseTitle) {
       throw const ProfileModeUnsupportedException(
         'This machine does not support the Lever pump mode used by this '
@@ -1477,6 +1482,79 @@ void main() {
       ]);
       expect(cleared, 1);
       expect(errors.length, 1);
+    });
+
+    test('a transient failure after a refusal replaces the refusal '
+        'message', () async {
+      final refusing = _RefusingDe1(refuseTitle: 'Lever demo');
+      final controller = await connect(refusing);
+      final errors = <ConnectionError>[];
+      var cleared = 0;
+      final s = WorkflowDeviceSync(
+        workflowController: wf,
+        de1Controller: controller,
+        retryDelays: const [Duration(milliseconds: 20)],
+        onUploadError: errors.add,
+        onUploadErrorCleared: () => cleared++,
+      );
+      activeSync = s;
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      wf.setWorkflow(
+        wf.currentWorkflow.copyWith(profile: _profile('Lever demo')),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(errors.length, 1);
+
+      refusing.transientFailures = 1;
+      wf.setWorkflow(
+        wf.currentWorkflow.copyWith(profile: _profile('Adaptive')),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(errors.length, 2, reason: 'the stale refusal must not hide it');
+      expect(errors.last.message, contains('retrying automatically'));
+      expect(cleared, 0);
+
+      await Future<void>.delayed(const Duration(milliseconds: 40));
+      expect(refusing.setProfileCalls.last.title, 'Adaptive');
+      expect(cleared, 1);
+      expect(errors.length, 2);
+    });
+
+    test('a transient failure then a refusal shows the refusal, and a '
+        'disconnect clears it', () async {
+      final refusing = _RefusingDe1(
+        refuseTitle: 'Lever demo',
+        transientFailures: 1,
+      );
+      final controller = await connect(refusing);
+      final errors = <ConnectionError>[];
+      var cleared = 0;
+      final s = WorkflowDeviceSync(
+        workflowController: wf,
+        de1Controller: controller,
+        retryDelays: const [Duration(milliseconds: 20)],
+        onUploadError: errors.add,
+        onUploadErrorCleared: () => cleared++,
+      );
+      activeSync = s;
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      expect(errors.length, 1, reason: 'the on-connect push failed once');
+
+      wf.setWorkflow(
+        wf.currentWorkflow.copyWith(profile: _profile('Lever demo')),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(errors.length, 2);
+      expect(
+        errors.last.message,
+        contains('does not support the Lever pump mode'),
+      );
+      expect(cleared, 0);
+
+      refusing.setConnectionState(ConnectionState.disconnected);
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(cleared, 1);
     });
   });
 }
