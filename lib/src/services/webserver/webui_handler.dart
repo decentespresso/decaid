@@ -242,8 +242,11 @@ class WebUIHandler {
 
   Future<Response> _handleUpdateSkins(Request request) async {
     try {
-      await _storage.updateAllSkins();
-      return jsonOk({'message': 'Skin update check completed'});
+      final report = await _storage.checkForSkinUpdates();
+      return jsonOk({
+        'message': 'Skin update check completed',
+        'results': report.results.map((r) => r.toJson()).toList(),
+      });
     } catch (e, st) {
       log.warning('Skin update check failed', e, st);
       return jsonError({

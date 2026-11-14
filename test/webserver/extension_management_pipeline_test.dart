@@ -14,6 +14,7 @@ import 'package:reaprime/src/services/account/decent_proxy_service.dart';
 import 'package:reaprime/src/services/account/proxy_token_service.dart';
 import 'package:reaprime/src/services/webserver/extension_management_auth.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
+import 'package:reaprime/src/util/remote_update_report.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -52,6 +53,7 @@ class _RecordingWebUIStorage extends Fake implements WebUIStorage {
   final Map<String, WebUISkin> _skins;
   final List<String> calls = [];
   String defaultSkinId = _defaultSkinId;
+  RemoteUpdateReport? skinUpdateReport;
 
   List<String> get skinIds => _skins.keys.toList();
 
@@ -113,6 +115,12 @@ class _RecordingWebUIStorage extends Fake implements WebUIStorage {
   @override
   Future<void> updateAllSkins() async {
     calls.add('updateAllSkins');
+  }
+
+  @override
+  Future<RemoteUpdateReport> checkForSkinUpdates() async {
+    calls.add('checkForSkinUpdates');
+    return skinUpdateReport ?? const RemoteUpdateReport([]);
   }
 
   @override
@@ -905,6 +913,40 @@ void main() {
       );
       expect(urlInstall.status, 501);
     });
+
+    test(
+      'skin update returns 200 with per-item results on partial failure',
+      () async {
+        storage.skinUpdateReport = const RemoteUpdateReport([
+          RemoteUpdateItemResult(
+            item: 'a/b',
+            status: RemoteUpdateStatus.updated,
+          ),
+          RemoteUpdateItemResult(
+            item: 'c/d',
+            status: RemoteUpdateStatus.failed,
+            error: SocketException('offline'),
+          ),
+        ]);
+
+        final reply = await send(
+          'POST',
+          '/api/v1/webui/skins/update',
+          authorization: bearer(),
+        );
+        expect(reply.status, 200, reason: '$reply');
+        final json = reply.json as Map<String, dynamic>;
+        expect(json['message'], 'Skin update check completed');
+        final results = (json['results'] as List).cast<Map<String, dynamic>>();
+        expect(results, hasLength(2));
+        expect(results[0], {'item': 'a/b', 'status': 'updated'});
+        expect(results[1], {
+          'item': 'c/d',
+          'status': 'failed',
+          'error': 'Check your internet connection and try again.',
+        });
+      },
+    );
 
     test('skin default, install, removal and the skin server apply', () async {
       final setDefault = await send(

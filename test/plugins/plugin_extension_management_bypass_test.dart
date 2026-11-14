@@ -639,7 +639,7 @@ void main() {
 
           final skins = await harness.externalRequest('POST', skinsUpdate);
           expect(skins.status, 200, reason: skins.body);
-          expect(harness.skins.mutations, ['updateAllSkins']);
+          expect(harness.skins.mutations, ['checkForSkinUpdates']);
 
           final plugins = await harness.externalRequest('POST', pluginsUpdate);
           expect(plugins.status, 200, reason: plugins.body);
