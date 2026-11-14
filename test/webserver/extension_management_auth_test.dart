@@ -540,6 +540,124 @@ void main() {
       },
     );
 
+    test('an admitted update response carries scoped CORS headers', () async {
+      for (final path in [pluginsUpdate, skinsUpdate]) {
+        final response = await loopback(
+          updateRequest(
+            path,
+            peer: loopback4,
+            headers: {'host': 'localhost:8080', 'origin': skinOrigin},
+          ),
+        );
+        expect(response.statusCode, 200, reason: path);
+        expect(
+          response.headers['access-control-allow-origin'],
+          skinOrigin,
+          reason: '$path must be readable by the skin origin',
+        );
+        expect(response.headers['vary'], contains('Origin'));
+      }
+    });
+
+    test('CORS is never added when no Origin is present', () async {
+      final response = await loopback(
+        updateRequest(skinsUpdate, peer: loopback4),
+      );
+      expect(response.statusCode, 200);
+      expect(
+        response.headers.containsKey('access-control-allow-origin'),
+        isFalse,
+      );
+    });
+
+    test(
+      'an existing Vary value is preserved when Origin is appended',
+      () async {
+        final pipeline = buildLoopbackPipeline(
+          inner: (request) {
+            reached.add(request);
+            return Response.ok('inner', headers: {'vary': 'Accept-Encoding'});
+          },
+        );
+        final response = await pipeline(
+          updateRequest(
+            skinsUpdate,
+            peer: loopback4,
+            headers: {'host': 'localhost:8080', 'origin': skinOrigin},
+          ),
+        );
+        expect(response.headers['access-control-allow-origin'], skinOrigin);
+        expect(response.headers['vary'], 'Accept-Encoding, Origin');
+      },
+    );
+
+    test('a disallowed Origin is refused and gets no CORS header', () async {
+      final response = await loopback(
+        updateRequest(
+          skinsUpdate,
+          peer: loopback4,
+          headers: {'host': 'localhost:8080', 'origin': lanOrigin},
+        ),
+      );
+      expect(response.statusCode, anyOf(401, 403));
+      expect(
+        response.headers.containsKey('access-control-allow-origin'),
+        isFalse,
+        reason: 'CORS must never widen authorization',
+      );
+    });
+
+    test(
+      'a LAN peer spoofing an allowed Origin is refused without CORS',
+      () async {
+        final response = await loopback(
+          updateRequest(
+            skinsUpdate,
+            peer: InternetAddress('192.168.1.50'),
+            headers: {'host': 'localhost:8080', 'origin': skinOrigin},
+          ),
+        );
+        expect(response.statusCode, anyOf(401, 403));
+        expect(
+          response.headers.containsKey('access-control-allow-origin'),
+          isFalse,
+        );
+      },
+    );
+
+    test(
+      'a disabled setting refuses before any CORS header is added',
+      () async {
+        automaticOn = false;
+        final response = await loopback(
+          updateRequest(
+            skinsUpdate,
+            headers: {'host': 'localhost:8080', 'origin': skinOrigin},
+          ),
+        );
+        expect(response.statusCode, anyOf(401, 403));
+        expect(
+          response.headers.containsKey('access-control-allow-origin'),
+          isFalse,
+        );
+      },
+    );
+
+    test('a throttled tokenless retry stays browser-readable', () async {
+      final headers = {'host': 'localhost:8080', 'origin': skinOrigin};
+      final first = await loopback(
+        updateRequest(skinsUpdate, peer: loopback4, headers: headers),
+      );
+      expect(first.statusCode, 200);
+
+      final second = await loopback(
+        updateRequest(skinsUpdate, peer: loopback4, headers: headers),
+      );
+      expect(second.statusCode, 429);
+      expect(second.headers['access-control-allow-origin'], skinOrigin);
+      expect(second.headers['retry-after'], isNotNull);
+    });
+
     test('refuses non-loopback and absent peers', () async {
       for (final peer in [
         InternetAddress('192.168.1.20'),

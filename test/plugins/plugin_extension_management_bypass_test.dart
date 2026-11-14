@@ -621,21 +621,42 @@ void main() {
 
     test(
       'a loopback caller runs both update checks when auto updates are on',
-      () async {
+      () => http.runWithClient(() async {
         final harness = await ExtensionManagementHarness.start(
           automaticUpdates: true,
           localOrigins: loopbackOrigins,
         );
+        // A configured GitHub source makes the plugin update observable: the
+        // call must actually poll it, not merely return 200.
+        final repo = 'acme/loopcheck';
+        final id = uniqueId('loopcheck');
+        gitHub.publish(repo, id, '1.0.0', permissions: unprivilegedPermissions);
+        await harness.sourceService.installFromGitHubRelease(repo);
+        await harness.loader.enablePlugin(id);
+
         try {
-          for (final path in [pluginsUpdate, skinsUpdate]) {
-            final outcome = await harness.externalRequest('POST', path);
-            expect(outcome.status, 200, reason: '$path: ${outcome.body}');
-          }
+          final pollsBefore = gitHub.requests.length;
+
+          final skins = await harness.externalRequest('POST', skinsUpdate);
+          expect(skins.status, 200, reason: skins.body);
           expect(harness.skins.mutations, ['updateAllSkins']);
+
+          final plugins = await harness.externalRequest('POST', pluginsUpdate);
+          expect(plugins.status, 200, reason: plugins.body);
+          expect(
+            gitHub.requests.length,
+            greaterThan(pollsBefore),
+            reason: 'updateAllPlugins must execute, not just return 200',
+          );
+          expect(
+            harness.sourceService.sourceFor(id)?.lastChecked,
+            isNotNull,
+            reason: 'the source must have been checked',
+          );
         } finally {
           await harness.dispose();
         }
-      },
+      }, () => gitHub.client),
     );
 
     test(

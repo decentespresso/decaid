@@ -152,13 +152,17 @@ Middleware extensionManagementAuthMiddleware(
           // decision; only a truly tokenless loopback caller can use the
           // narrow update-check exception (#1163).
           final exception = await tokenlessUpdates.adjudicate(request, denial);
+          final corsOrigin = tokenlessUpdates.corsOrigin(request);
           if (exception == null) {
             _log.info('$action authorized for a tokenless loopback caller');
             try {
-              return await inner(
-                request.change(
-                  context: {_authorizationContextKey: authorization},
+              return _withCors(
+                await inner(
+                  request.change(
+                    context: {_authorizationContextKey: authorization},
+                  ),
                 ),
+                corsOrigin,
               );
             } finally {
               tokenlessUpdates.recordCompletion(request);
@@ -167,7 +171,13 @@ Middleware extensionManagementAuthMiddleware(
           _log.warning(
             '$action refused (${exception.statusCode}) for a tokenless caller',
           );
-          return exception;
+          // Only a response produced after the policy admitted the caller (the
+          // throttle) is made browser-readable. A pre-admission denial, such as
+          // a LAN peer or a disallowed Origin, keeps its exact headers.
+          return _withCors(
+            exception,
+            exception.statusCode == 429 ? corsOrigin : null,
+          );
         }
         final refusal = _authorize(authorization, action);
         if (refusal != null) return refusal;
@@ -259,6 +269,31 @@ Response _json(int status, String error) => Response(
   headers: {'content-type': 'application/json'},
 );
 
+/// Adds `Access-Control-Allow-Origin` for an already-authorized tokenless
+/// update check so a browser can read the response. It never authorizes:
+/// [origin] is only non-null after the policy accepted that same Origin, and
+/// no wildcard or credentials header is ever added.
+Response _withCors(Response response, String? origin) {
+  if (origin == null) return response;
+  final headers = Map<String, String>.from(response.headers);
+  headers['access-control-allow-origin'] = origin;
+  headers['vary'] = _appendVary(headers['vary'], 'Origin');
+  return response.change(headers: headers);
+}
+
+String _appendVary(String? existing, String value) {
+  if (existing == null || existing.trim().isEmpty) return value;
+  final tokens = existing
+      .split(',')
+      .map((token) => token.trim())
+      .where((token) => token.isNotEmpty)
+      .toList();
+  if (tokens.any((token) => token.toLowerCase() == value.toLowerCase())) {
+    return existing;
+  }
+  return [...tokens, value].join(', ');
+}
+
 Response _tooManyRequests(Duration remaining) {
   final seconds = (remaining.inMilliseconds + 999) ~/ 1000;
   return Response(
@@ -346,6 +381,15 @@ final class _TokenlessUpdateCheckPolicy {
 
   void recordCompletion(Request request) {
     _completedAt[_keyFor(request)] = _clock();
+  }
+
+  /// The request Origin when it may be echoed back in
+  /// `Access-Control-Allow-Origin`: present, and an allowed loopback origin.
+  /// An absent or disallowed Origin yields null, so no CORS header is added
+  /// and a wildcard is never produced.
+  String? corsOrigin(Request request) {
+    final origin = request.headers['origin'];
+    return origin != null && _isAllowedOrigin(origin) ? origin : null;
   }
 
   static String _keyFor(Request request) =>

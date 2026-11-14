@@ -150,6 +150,12 @@ without a token. The exception is narrow and server-side:
   authority regardless of the setting.
 - Tokenless checks are throttled to one per 30 seconds per route (HTTP 429
   with `Retry-After`).
+- An admitted tokenless response carries `Access-Control-Allow-Origin` with the
+  exact request `Origin` plus `Vary: Origin`, and a throttled `429` carries the
+  same headers, so the embedded skin can read the result. A wildcard origin and
+  `Access-Control-Allow-Credentials` are never sent. CORS is a readability
+  header only: it is added after the authorization decision and never widens
+  it, so a refused caller still receives no `Access-Control-Allow-Origin`.
 
 When `automaticUpdateCheck` is off, or the setting cannot be read, tokenless
 checks are refused with 401 and cause no network fetch, install, or pending
