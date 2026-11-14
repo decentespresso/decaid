@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/services/account/proxy_token_service.dart';
@@ -11,6 +13,17 @@ class _Grant implements ExtensionManagementGrant {
 
   @override
   String get callerId => 'plugin:manager.reaplugin';
+}
+
+class _ConnectionInfo implements HttpConnectionInfo {
+  @override
+  final InternetAddress remoteAddress;
+  @override
+  final int localPort;
+  @override
+  final int remotePort = 51000;
+
+  _ConnectionInfo(this.remoteAddress, {this.localPort = 8080});
 }
 
 const _managerToken = 'manager-token';
@@ -440,5 +453,486 @@ void main() {
       through: closed,
     );
     expect(response.statusCode, 200);
+  });
+
+  group('tokenless loopback update checks', () {
+    const skinOrigin = 'http://localhost:3000';
+    const apiOrigin = 'http://127.0.0.1:8080';
+    const lanOrigin = 'http://192.168.1.50:3000';
+    const pluginsUpdate = '/api/v1/plugins/update';
+    const skinsUpdate = '/api/v1/webui/skins/update';
+
+    final loopback4 = InternetAddress('127.0.0.1');
+
+    late bool automaticOn;
+    late DateTime now;
+    late Handler loopback;
+
+    Handler buildLoopbackPipeline({
+      Future<bool> Function()? setting,
+      Set<String> Function()? origins,
+      Handler? inner,
+    }) {
+      return const Pipeline()
+          .addMiddleware(
+            extensionManagementAuthMiddleware(
+              tokens,
+              automaticUpdateCheckEnabled: setting ?? () async => automaticOn,
+              localOrigins:
+                  origins ?? () => const {skinOrigin, apiOrigin, lanOrigin},
+              clock: () => now,
+            ),
+          )
+          .addHandler(
+            inner ??
+                (request) {
+                  reached.add(request);
+                  return Response.ok('inner');
+                },
+          );
+    }
+
+    Request updateRequest(
+      String path, {
+      InternetAddress? peer,
+      int localPort = 8080,
+      Map<String, String> headers = const {'host': 'localhost:8080'},
+      Map<String, Object>? extraContext,
+    }) {
+      return Request(
+        'POST',
+        Uri.parse('http://localhost:8080$path'),
+        headers: headers,
+        context: {
+          if (peer != null)
+            'shelf.io.connection_info': _ConnectionInfo(
+              peer,
+              localPort: localPort,
+            ),
+          ...?extraContext,
+        },
+      );
+    }
+
+    setUp(() {
+      automaticOn = true;
+      now = DateTime(2026, 11, 13, 12);
+      loopback = buildLoopbackPipeline();
+    });
+
+    test(
+      'admits IPv4, IPv6 and mapped loopback peers on both routes',
+      () async {
+        for (final peer in [
+          InternetAddress('127.0.0.1'),
+          InternetAddress('127.0.0.2'),
+          InternetAddress('::1'),
+          InternetAddress('::ffff:127.0.0.1'),
+        ]) {
+          for (final path in [pluginsUpdate, skinsUpdate]) {
+            reached.clear();
+            final response = await loopback(updateRequest(path, peer: peer));
+            expect(response.statusCode, 200, reason: '${peer.address} $path');
+            expect(reached, hasLength(1));
+            now = now.add(const Duration(seconds: 31));
+          }
+        }
+      },
+    );
+
+    test('refuses non-loopback and absent peers', () async {
+      for (final peer in [
+        InternetAddress('192.168.1.20'),
+        InternetAddress('10.0.0.5'),
+        InternetAddress('203.0.113.9'),
+        InternetAddress('::ffff:192.168.1.20'),
+        InternetAddress('fe80::1'),
+        InternetAddress('::'),
+      ]) {
+        final response = await loopback(
+          updateRequest(pluginsUpdate, peer: peer),
+        );
+        expect(response.statusCode, 401, reason: peer.address);
+        expect(response.headers['www-authenticate'], 'Bearer');
+      }
+      final missing = await loopback(updateRequest(pluginsUpdate));
+      expect(missing.statusCode, 401);
+      expect(reached, isEmpty);
+    });
+
+    test('never trusts forwarding headers as peer proof', () async {
+      final response = await loopback(
+        updateRequest(
+          pluginsUpdate,
+          peer: InternetAddress('192.168.1.20'),
+          headers: {
+            'host': 'localhost:8080',
+            'x-forwarded-for': '127.0.0.1',
+            'x-real-ip': '127.0.0.1',
+            'referer': 'http://localhost:3000/',
+            'origin': skinOrigin,
+          },
+        ),
+      );
+      expect(response.statusCode, 401);
+      expect(reached, isEmpty);
+    });
+
+    test(
+      'fails closed when the setting is off, unreadable or unwired',
+      () async {
+        automaticOn = false;
+        expect(
+          (await loopback(updateRequest(pluginsUpdate, peer: loopback4)))
+              .statusCode,
+          401,
+        );
+
+        final failing = buildLoopbackPipeline(
+          setting: () async => throw StateError('prefs unreadable'),
+        );
+        expect(
+          (await failing(updateRequest(pluginsUpdate, peer: loopback4)))
+              .statusCode,
+          401,
+        );
+
+        final unwired = const Pipeline()
+            .addMiddleware(extensionManagementAuthMiddleware(tokens))
+            .addHandler((request) {
+              reached.add(request);
+              return Response.ok('inner');
+            });
+        expect(
+          (await unwired(updateRequest(pluginsUpdate, peer: loopback4)))
+              .statusCode,
+          401,
+        );
+        expect(reached, isEmpty);
+      },
+    );
+
+    test(
+      'reads the setting fresh on every dispatch, throttled or not',
+      () async {
+        var reads = 0;
+        final counting = buildLoopbackPipeline(
+          setting: () async {
+            reads += 1;
+            return automaticOn;
+          },
+        );
+
+        expect(
+          (await counting(updateRequest(pluginsUpdate, peer: loopback4)))
+              .statusCode,
+          200,
+        );
+        automaticOn = false;
+        // The setting is consulted before the throttle: off means 401, not 429.
+        expect(
+          (await counting(updateRequest(pluginsUpdate, peer: loopback4)))
+              .statusCode,
+          401,
+        );
+        automaticOn = true;
+        expect(
+          (await counting(updateRequest(pluginsUpdate, peer: loopback4)))
+              .statusCode,
+          429,
+        );
+        expect(reads, 3);
+        expect(reached, hasLength(1));
+      },
+    );
+
+    test('validates Host as a loopback authority on the local port', () async {
+      Future<int> status(
+        String? host, {
+        int localPort = 8080,
+        InternetAddress? peer,
+      }) async {
+        final response = await loopback(
+          updateRequest(
+            pluginsUpdate,
+            peer: peer ?? loopback4,
+            localPort: localPort,
+            headers: {'host': ?host},
+          ),
+        );
+        now = now.add(const Duration(seconds: 31));
+        return response.statusCode;
+      }
+
+      expect(await status('localhost:8080'), 200);
+      expect(await status('LOCALHOST:8080'), 200);
+      expect(await status('127.0.0.1:8080'), 200);
+      expect(await status('[::1]:8080', peer: InternetAddress('::1')), 200);
+      expect(await status('[::ffff:127.0.0.1]:8080'), 200);
+      expect(await status('localhost', localPort: 80), 200);
+
+      expect(await status(null), 401);
+      expect(await status(''), 401);
+      expect(await status('localhost:9090'), 401);
+      expect(await status('localhost'), 401);
+      expect(await status('evil.com:8080'), 401);
+      expect(await status('192.168.1.50:8080'), 401);
+      expect(await status('localhost.evil.com:8080'), 401);
+      expect(await status('user@localhost:8080'), 401);
+      expect(await status('localhost:8080/path'), 401);
+      expect(await status('localhost:notaport'), 401);
+      expect(reached, hasLength(6));
+    });
+
+    test('admits the active skin and api loopback origins', () async {
+      for (final origin in [skinOrigin, apiOrigin]) {
+        final response = await loopback(
+          updateRequest(
+            pluginsUpdate,
+            peer: loopback4,
+            headers: {'host': 'localhost:8080', 'origin': origin},
+          ),
+        );
+        expect(response.statusCode, 200, reason: origin);
+        now = now.add(const Duration(seconds: 31));
+      }
+      expect(reached, hasLength(2));
+    });
+
+    test('refuses null, cross-origin, malformed and LAN origins', () async {
+      for (final origin in [
+        'null',
+        'https://evil.example',
+        'not-an-origin',
+        'http://localhost:9999',
+        'https://localhost:3000',
+        lanOrigin,
+      ]) {
+        final response = await loopback(
+          updateRequest(
+            pluginsUpdate,
+            peer: loopback4,
+            headers: {'host': 'localhost:8080', 'origin': origin},
+          ),
+        );
+        expect(response.statusCode, 401, reason: origin);
+      }
+      expect(reached, isEmpty);
+    });
+
+    test('admits a local client without an Origin header', () async {
+      final noOrigins = buildLoopbackPipeline(origins: () => const {});
+      final response = await noOrigins(
+        updateRequest(pluginsUpdate, peer: loopback4),
+      );
+      expect(response.statusCode, 200);
+      expect(reached, hasLength(1));
+    });
+
+    test('any presented credential keeps the existing decision', () async {
+      Future<Response> withHeader(String authorization) async => loopback(
+        updateRequest(
+          pluginsUpdate,
+          peer: loopback4,
+          headers: {'host': 'localhost:8080', 'authorization': authorization},
+        ),
+      );
+
+      final invalid = await withHeader('Bearer not-a-token');
+      expect(invalid.statusCode, 401);
+      expect(await errorOf(invalid), 'Invalid token');
+
+      final malformed = await withHeader('Basic abc');
+      expect(malformed.statusCode, 401);
+      expect(await errorOf(malformed), 'Missing or malformed bearer token');
+
+      final unscoped = await withHeader('Bearer $_accountToken');
+      expect(unscoped.statusCode, 403);
+      expect(await errorOf(unscoped), contains('extensions:manage'));
+
+      final manager = await withHeader('Bearer $_managerToken');
+      expect(manager.statusCode, 200);
+      expect(reached, hasLength(1));
+    });
+
+    test(
+      'bearers and grants work regardless of setting, peer and origin',
+      () async {
+        automaticOn = false;
+        final remote = InternetAddress('203.0.113.9');
+
+        final bearer = await loopback(
+          updateRequest(
+            pluginsUpdate,
+            peer: remote,
+            headers: {
+              'host': 'decaid-dashboard.local:8080',
+              'authorization': 'Bearer $_managerToken',
+            },
+          ),
+        );
+        expect(bearer.statusCode, 200);
+
+        final granted = await loopback(
+          updateRequest(
+            skinsUpdate,
+            peer: remote,
+            headers: const {},
+            extraContext: {extensionManagementGrantContextKey: _Grant()},
+          ),
+        );
+        expect(granted.statusCode, 200);
+        expect(reached, hasLength(2));
+      },
+    );
+
+    test('an ended grant keeps its denial even on loopback', () async {
+      final response = await loopback(
+        updateRequest(
+          pluginsUpdate,
+          peer: loopback4,
+          extraContext: {
+            extensionManagementGrantContextKey: _Grant()..isActive = false,
+          },
+        ),
+      );
+      expect(response.statusCode, 401);
+      expect(
+        await errorOf(response),
+        'Plugin extension-management authority has ended',
+      );
+      expect(reached, isEmpty);
+    });
+
+    test('an admitted tokenless request is not a management grant', () async {
+      final response = await loopback(
+        updateRequest(pluginsUpdate, peer: loopback4),
+      );
+      expect(response.statusCode, 200);
+      final request = reached.single;
+      expect(mayManageExtensions(request), isFalse);
+      expect(
+        requireExtensionManagement(request, action: 'test')?.statusCode,
+        401,
+      );
+      expect(request.headers['authorization'], isNull);
+    });
+
+    test('other protected routes keep their denial on loopback', () async {
+      for (final (method, path) in [
+        ('POST', '/api/v1/plugins/install'),
+        ('POST', '/api/v1/plugins/example.reaplugin/update/approve'),
+        ('PUT', '/api/v1/plugins/example.reaplugin/source'),
+        ('POST', '/api/v1/webui/server/stop'),
+      ]) {
+        final response = await loopback(
+          Request(
+            method,
+            Uri.parse('http://localhost:8080$path'),
+            headers: const {'host': 'localhost:8080'},
+            context: {'shelf.io.connection_info': _ConnectionInfo(loopback4)},
+          ),
+        );
+        expect(response.statusCode, 401, reason: '$method $path');
+      }
+      expect(reached, isEmpty);
+    });
+
+    test('OPTIONS on the update routes stays open', () async {
+      for (final path in [pluginsUpdate, skinsUpdate]) {
+        final response = await loopback(
+          Request('OPTIONS', Uri.parse('http://localhost:8080$path')),
+        );
+        expect(response.statusCode, 200, reason: path);
+      }
+      expect(reached, hasLength(2));
+    });
+
+    test(
+      'throttles a completed tokenless check for thirty seconds per route',
+      () async {
+        Future<Response> check(String path) async =>
+            loopback(updateRequest(path, peer: loopback4));
+
+        expect((await check(pluginsUpdate)).statusCode, 200);
+
+        final throttled = await check(pluginsUpdate);
+        expect(throttled.statusCode, 429);
+        expect(throttled.headers['retry-after'], '30');
+        expect(await errorOf(throttled), contains('retry'));
+        expect(reached, hasLength(1));
+
+        // The two route keys are independent.
+        expect((await check(skinsUpdate)).statusCode, 200);
+
+        now = now.add(const Duration(seconds: 30));
+        expect((await check(pluginsUpdate)).statusCode, 200);
+        expect(reached, hasLength(3));
+      },
+    );
+
+    test(
+      'bearer and grant calls are not throttled and do not throttle',
+      () async {
+        Future<Response> manager() async => loopback(
+          updateRequest(
+            pluginsUpdate,
+            peer: loopback4,
+            headers: {
+              'host': 'localhost:8080',
+              'authorization': 'Bearer $_managerToken',
+            },
+          ),
+        );
+
+        expect((await manager()).statusCode, 200);
+        expect((await manager()).statusCode, 200);
+
+        // Manager completions are not recorded against the tokenless budget.
+        expect(
+          (await loopback(updateRequest(pluginsUpdate, peer: loopback4)))
+              .statusCode,
+          200,
+        );
+
+        // A bearer call right after a tokenless completion is still fine.
+        expect((await manager()).statusCode, 200);
+        expect(reached, hasLength(4));
+      },
+    );
+
+    test(
+      'overlapping tokenless checks still reach the coalescing services',
+      () async {
+        final firstEntered = Completer<void>();
+        final bothEntered = Completer<void>();
+        final release = Completer<void>();
+        var entries = 0;
+        final gated = buildLoopbackPipeline(
+          inner: (request) async {
+            entries += 1;
+            if (entries == 1) firstEntered.complete();
+            if (entries == 2) bothEntered.complete();
+            await release.future;
+            return Response.ok('inner');
+          },
+        );
+
+        final first = gated(updateRequest(pluginsUpdate, peer: loopback4));
+        await firstEntered.future.timeout(const Duration(seconds: 5));
+        final second = gated(updateRequest(pluginsUpdate, peer: loopback4));
+        await bothEntered.future.timeout(const Duration(seconds: 5));
+        release.complete();
+
+        expect((await first).statusCode, 200);
+        expect((await second).statusCode, 200);
+
+        // Completion was recorded when the in-flight checks finished.
+        final third = await gated(
+          updateRequest(pluginsUpdate, peer: loopback4),
+        );
+        expect(third.statusCode, 429);
+      },
+    );
   });
 }

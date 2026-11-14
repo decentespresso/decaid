@@ -594,4 +594,163 @@ void main() {
       }),
     );
   });
+
+  group('tokenless loopback update exception', () {
+    const loopbackOrigins = {
+      'http://localhost:3000',
+      'http://127.0.0.1:3000',
+      'http://[::1]:3000',
+    };
+    const pluginsUpdate = '/api/v1/plugins/update';
+    const skinsUpdate = '/api/v1/webui/skins/update';
+
+    late FakeGitHub gitHub;
+
+    setUp(() => gitHub = FakeGitHub());
+
+    Future<List<String>> nonLoopbackAddresses() async {
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+        includeLoopback: false,
+      );
+      return [
+        for (final interface in interfaces)
+          for (final address in interface.addresses) address.address,
+      ];
+    }
+
+    test(
+      'a loopback caller runs both update checks when auto updates are on',
+      () async {
+        final harness = await ExtensionManagementHarness.start(
+          automaticUpdates: true,
+          localOrigins: loopbackOrigins,
+        );
+        try {
+          for (final path in [pluginsUpdate, skinsUpdate]) {
+            final outcome = await harness.externalRequest('POST', path);
+            expect(outcome.status, 200, reason: '$path: ${outcome.body}');
+          }
+          expect(harness.skins.mutations, ['updateAllSkins']);
+        } finally {
+          await harness.dispose();
+        }
+      },
+    );
+
+    test(
+      'every other protected route stays refused on loopback when on',
+      () async {
+        final harness = await ExtensionManagementHarness.start(
+          automaticUpdates: true,
+          localOrigins: loopbackOrigins,
+        );
+        try {
+          for (final route in extensionManagementRoutes) {
+            if (route.path == pluginsUpdate || route.path == skinsUpdate) {
+              continue;
+            }
+            final path = route.path.replaceAll('<id>', 'nope.reaplugin');
+            final outcome = await harness.externalRequest(route.method, path);
+            expect(outcome.status, 401, reason: '${route.method} $path');
+          }
+        } finally {
+          await harness.dispose();
+        }
+      },
+    );
+
+    test('a LAN peer is refused on both update routes even when on', () async {
+      final addresses = await nonLoopbackAddresses();
+      if (addresses.isEmpty) {
+        markTestSkipped(
+          'No non-loopback IPv4 address; LAN peer case not exercised',
+        );
+        return;
+      }
+      final harness = await ExtensionManagementHarness.start(
+        automaticUpdates: true,
+        localOrigins: loopbackOrigins,
+      );
+      try {
+        for (final path in [pluginsUpdate, skinsUpdate]) {
+          final outcome = await harness.externalRequestFrom(
+            addresses.first,
+            'POST',
+            path,
+          );
+          expect(outcome.status, 401, reason: '$path via ${addresses.first}');
+        }
+        expect(harness.skins.mutations, isEmpty);
+      } finally {
+        await harness.dispose();
+      }
+    });
+
+    test(
+      'auto updates off keeps loopback denied with no side effect',
+      () async {
+        final harness = await ExtensionManagementHarness.start(
+          automaticUpdates: false,
+          localOrigins: loopbackOrigins,
+        );
+        try {
+          for (final path in [pluginsUpdate, skinsUpdate]) {
+            final outcome = await harness.externalRequest('POST', path);
+            expect(outcome.status, 401, reason: path);
+          }
+          expect(harness.skins.mutations, isEmpty);
+        } finally {
+          await harness.dispose();
+        }
+      },
+    );
+
+    test(
+      'an allowed tokenless check keeps a permission escalation pending',
+      () => http.runWithClient(() async {
+        final harness = await ExtensionManagementHarness.start(
+          automaticUpdates: true,
+          localOrigins: loopbackOrigins,
+        );
+        try {
+          final climber = uniqueId('climber');
+          final repo = 'acme/${climber.split('.').first}';
+          gitHub.publish(
+            repo,
+            climber,
+            '1.0.0',
+            permissions: unprivilegedPermissions,
+          );
+          await harness.sourceService.installFromGitHubRelease(repo);
+          await harness.loader.enablePlugin(climber);
+          gitHub.publish(
+            repo,
+            climber,
+            '1.1.0',
+            permissions: [...unprivilegedPermissions, 'manage.extensions'],
+          );
+
+          final outcome = await harness.externalRequest('POST', pluginsUpdate);
+          expect(outcome.status, 200, reason: outcome.body);
+
+          final pending = harness.sourceService
+              .sourceFor(climber)
+              ?.pendingUpdate;
+          expect(pending?.version, '1.1.0');
+          expect(pending?.addedPermissions, ['manage.extensions']);
+          expect(harness.loader.getPluginManifest(climber)?.version, '1.0.0');
+
+          final approve = await harness.externalRequest(
+            'POST',
+            '/api/v1/plugins/$climber/update/approve',
+          );
+          expect(approve.status, 401, reason: approve.body);
+          expect(harness.loader.getPluginManifest(climber)?.version, '1.0.0');
+        } finally {
+          await harness.dispose();
+        }
+      }, () => gitHub.client),
+    );
+  });
 }

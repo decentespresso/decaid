@@ -128,6 +128,35 @@ The scope is independent of the account-proxy scopes: an `extensions:manage`
 token cannot use `/api/v1/account/proxy/`, and an `account:proxy` token
 (including the skin token injected into served skin pages) gets 403 here.
 
+### Tokenless loopback update checks
+
+When `automaticUpdateCheck` is enabled in the app's settings, the two
+existing-source update endpoints — `POST /api/v1/plugins/update` and
+`POST /api/v1/webui/skins/update` — also admit a same-device loopback caller
+without a token. The exception is narrow and server-side:
+
+- The actual socket peer address (from the HTTP connection, never `Host`,
+  `Origin`, `Referer`, `X-Forwarded-For` or `X-Real-IP`) must be IPv4/IPv6
+  loopback (`127.0.0.0/8`, `::1`, or an IPv4-mapped IPv6 loopback). A LAN or
+  other non-loopback peer is always refused.
+- The `Host` header must name a loopback host on the API's listening port.
+- An `Origin` header, when present, must be a loopback origin of the active
+  skin (its assigned port) or the API; `Origin: null` and cross-origin values
+  are refused. A non-browser local client with no `Origin` is admitted under
+  the same loopback rule.
+- Any `Authorization` header keeps the normal token decision; an invalid or
+  unscoped token is not laundered into the exception. Valid
+  `extensions:manage` bearers and active in-process plugin grants retain
+  authority regardless of the setting.
+- Tokenless checks are throttled to one per 30 seconds per route (HTTP 429
+  with `Retry-After`).
+
+When `automaticUpdateCheck` is off, or the setting cannot be read, tokenless
+checks are refused with 401 and cause no network fetch, install, or pending
+approval. Manual checks from a tokenless local skin therefore remain
+unavailable until the native-confirmation follow-up; native settings and
+authorized manager callers can still run them.
+
 **Getting a token.** In the app, open the Decent Account page, go to "API
 access tokens", choose Create, name the token and turn on "Manage plugins and
 skins". The token is shown once; copy it then. No linked Decent account is
@@ -639,13 +668,13 @@ Android session-only USB machine and scale IDs are usable for the current attach
 | POST | `/api/v1/webui/skins/install/github-branch` | Install from GitHub branch and persist its source for update checks | | required |
 | POST | `/api/v1/webui/skins/install/url` | Install from ZIP URL | | required |
 | DELETE | `/api/v1/webui/skins/:id` | Remove installed skin | | required |
-| POST | `/api/v1/webui/skins/update` | Check all skins for updates from remote sources | | required |
+| POST | `/api/v1/webui/skins/update` | Check all skins for updates from remote sources | | required* |
 | GET | `/api/v1/webui/server/status` | Server status (`{serving, path, port, ip}`) | | |
 | POST | `/api/v1/webui/server/start` | Start serving default skin through the port 3000 entry point | | required |
 | POST | `/api/v1/webui/server/stop` | Stop serving | | required |
 | GET | `/api/v1/webui/skin-assets/:id/:filepath` | Fetch a file from another installed skin (cross-skin asset sharing) | | |
 
-Rows marked `required` need a bearer token scoped `extensions:manage`; see [Extension management authorization](#extension-management-authorization).
+Rows marked `required` need a bearer token scoped `extensions:manage`; see [Extension management authorization](#extension-management-authorization). Rows marked `required*` additionally admit a tokenless same-device loopback caller while `automaticUpdateCheck` is on; see [Tokenless loopback update checks](#tokenless-loopback-update-checks).
 
 ### Plugins
 
@@ -661,12 +690,12 @@ Rows marked `required` need a bearer token scoped `extensions:manage`; see [Exte
 | POST | `/api/v1/plugins/install` | Not supported — returns 501 naming the GitHub endpoints | | required |
 | POST | `/api/v1/plugins/install/github-release` | Install from a GitHub release asset; tag must equal the manifest version | | required |
 | POST | `/api/v1/plugins/install/github-branch` | Install from a GitHub branch; the resolved commit drives updates | | required |
-| POST | `/api/v1/plugins/update` | Check every GitHub-backed plugin for updates | | required |
+| POST | `/api/v1/plugins/update` | Check every GitHub-backed plugin for updates | | required* |
 | POST | `/api/v1/plugins/:id/update/approve` | Install an update that asks for new permissions | | required |
 | ANY | `/api/v1/plugins/:id/:endpoint` | Plugin HTTP endpoint; requires `api` and returns 403 without it | | |
 | WS | `/ws/v1/plugins/:id/:endpoint` | Plugin WebSocket endpoint | | |
 
-Rows marked `required` need a bearer token scoped `extensions:manage`; see [Extension management authorization](#extension-management-authorization).
+Rows marked `required` need a bearer token scoped `extensions:manage`; see [Extension management authorization](#extension-management-authorization). Rows marked `required*` additionally admit a tokenless same-device loopback caller while `automaticUpdateCheck` is on; see [Tokenless loopback update checks](#tokenless-loopback-update-checks).
 
 For plugin HTTP and WebSocket endpoint routes, `id` and `endpoint` are opaque
 URI path components. Clients percent-encode each once; the handler decodes each
@@ -1119,7 +1148,7 @@ Built-in settings dashboard accessible at `/api/v1/plugins/settings.reaplugin/ui
 
 **Self-protection:** The plugin management section prevents disabling or removing `settings.reaplugin` itself (UI guard).
 
-**Management actions:** The page's skin and plugin management buttons call routes that need an `extensions:manage` token (see [Extension management authorization](#extension-management-authorization)). The page holds no token and does not ask for one, so those actions are refused with a message; use the settings in the Decaid app or call the API with a token.
+**Management actions:** The page's skin and plugin management buttons call routes that need an `extensions:manage` token (see [Extension management authorization](#extension-management-authorization)). The page holds no token and does not ask for one, so those actions are refused with a message; use the settings in the Decaid app or call the API with a token. The skin and plugin **update check** buttons are the one exception: while `automaticUpdateCheck` is on, they run from this page's loopback origin without a token (see [Tokenless loopback update checks](#tokenless-loopback-update-checks)).
 
 ### DYE2 Plugin (`dye2.reaplugin`)
 

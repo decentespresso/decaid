@@ -278,7 +278,10 @@ class ExtensionManagementHarness {
 
   String get loopback => '127.0.0.1';
 
-  static Future<ExtensionManagementHarness> start() async {
+  static Future<ExtensionManagementHarness> start({
+    bool? automaticUpdates,
+    Set<String>? localOrigins,
+  }) async {
     HttpOverrides.global = null;
     SharedPreferences.setMockInitialValues({});
     final tempDir = Directory.systemTemp.createTempSync('extension_mgmt');
@@ -384,7 +387,14 @@ class ExtensionManagementHarness {
     ).addRoutes(app);
     WebUIHandler(storage: skins, service: skinServer).addRoutes(app);
 
-    final handler = buildWebServerHandler(app.call, proxyTokenService: tokens);
+    final handler = buildWebServerHandler(
+      app.call,
+      proxyTokenService: tokens,
+      automaticUpdateCheckEnabled: automaticUpdates == null
+          ? null
+          : () async => automaticUpdates,
+      localOrigins: localOrigins == null ? null : () => localOrigins,
+    );
     loader.pluginManager.attachLocalApi((request) {
       bridged.add('${request.method} ${request.requestedUri.path}');
       final response = Future.sync(() => handler(request));
@@ -568,13 +578,18 @@ class ExtensionManagementHarness {
     String path, {
     String? bearer,
     Object? body,
+  }) => externalRequestFrom(loopback, method, path, bearer: bearer, body: body);
+
+  Future<({int status, String body})> externalRequestFrom(
+    String host,
+    String method,
+    String path, {
+    String? bearer,
+    Object? body,
   }) async {
     final client = HttpClient();
     try {
-      final request = await client.openUrl(
-        method,
-        Uri.parse(url(loopback, path)),
-      );
+      final request = await client.openUrl(method, Uri.parse(url(host, path)));
       if (bearer != null) {
         request.headers.set('authorization', 'Bearer $bearer');
       }
