@@ -255,6 +255,31 @@ class _RefusingDe1 extends TestDe1 {
   }
 }
 
+class _GatedRefusingDe1 extends TestDe1 {
+  _GatedRefusingDe1({required this.refuseTitle});
+  final String refuseTitle;
+  final List<Profile> setProfileCalls = [];
+  final List<Completer<void>> _gates = [];
+
+  int get pendingUploads => _gates.length;
+
+  void completeNext() => _gates.removeAt(0).complete();
+
+  @override
+  Future<void> setProfile(Profile profile) async {
+    setProfileCalls.add(profile);
+    final gate = Completer<void>();
+    _gates.add(gate);
+    await gate.future;
+    if (profile.title == refuseTitle) {
+      throw const ProfileModeUnsupportedException(
+        'This machine does not support the Lever pump mode used by this '
+        'profile.',
+      );
+    }
+  }
+}
+
 void main() {
   late WorkflowController workflow;
   late DeviceController deviceController;
@@ -1361,6 +1386,97 @@ void main() {
         'Power exit demo',
         'Adaptive',
       ], reason: 'a workflow change clears the park and re-attempts');
+    });
+
+    test('a refusal of an in-flight profile still uploads the newer '
+        'selection', () async {
+      final gated = _GatedRefusingDe1(refuseTitle: 'Lever demo');
+      final controller = await connect(gated);
+      final s = WorkflowDeviceSync(
+        workflowController: wf,
+        de1Controller: controller,
+        retryDelays: const [Duration(milliseconds: 20)],
+      );
+      activeSync = s;
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      while (gated.pendingUploads > 0) {
+        gated.completeNext();
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      gated.setProfileCalls.clear();
+
+      wf.setWorkflow(
+        wf.currentWorkflow.copyWith(profile: _profile('Lever demo')),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(gated.setProfileCalls.map((p) => p.title), ['Lever demo']);
+
+      wf.setWorkflow(
+        wf.currentWorkflow.copyWith(profile: _profile('Adaptive')),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(gated.setProfileCalls.length, 1);
+
+      gated.completeNext();
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(gated.setProfileCalls.map((p) => p.title), [
+        'Lever demo',
+        'Adaptive',
+      ], reason: 'the newer selection must not be stranded by the refusal');
+
+      gated.completeNext();
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(gated.setProfileCalls.map((p) => p.title), [
+        'Lever demo',
+        'Adaptive',
+      ], reason: 'Adaptive uploads once and Lever demo is not retried');
+      expect(gated.pendingUploads, 0);
+    });
+
+    test('a refusal surfaces once via onUploadError with its reason, is not '
+        'retried, and a good selection clears it', () async {
+      final refusing = _RefusingDe1(refuseTitle: 'Lever demo');
+      final controller = await connect(refusing);
+      final errors = <ConnectionError>[];
+      var cleared = 0;
+      final s = WorkflowDeviceSync(
+        workflowController: wf,
+        de1Controller: controller,
+        retryDelays: const [
+          Duration(milliseconds: 20),
+          Duration(milliseconds: 40),
+        ],
+        onUploadError: errors.add,
+        onUploadErrorCleared: () => cleared++,
+      );
+      activeSync = s;
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      refusing.totalCalls = 0;
+      refusing.setProfileCalls.clear();
+
+      wf.setWorkflow(
+        wf.currentWorkflow.copyWith(profile: _profile('Lever demo')),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      expect(refusing.totalCalls, 1, reason: 'no retry of a refusal');
+      expect(errors.length, 1, reason: 'the refusal is shown exactly once');
+      expect(errors.single.kind, ConnectionErrorKind.profileUploadFailed);
+      expect(
+        errors.single.message,
+        contains('does not support the Lever pump mode'),
+      );
+      expect(cleared, 0);
+
+      wf.setWorkflow(
+        wf.currentWorkflow.copyWith(profile: _profile('Adaptive')),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(refusing.setProfileCalls.map((p) => p.title), [
+        'Lever demo',
+        'Adaptive',
+      ]);
+      expect(cleared, 1);
+      expect(errors.length, 1);
     });
   });
 }

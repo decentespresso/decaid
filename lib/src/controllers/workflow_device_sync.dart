@@ -130,7 +130,8 @@ class WorkflowDeviceSync {
           _log.warning(
             'setProfile refused (unsupported pump step types): ${e.message}',
           );
-          return;
+          _surfaceRefusal(e);
+          continue;
         } on DeviceNotConnectedException {
           _log.fine('DE1 not connected; skipping profile push');
           return;
@@ -171,6 +172,20 @@ class WorkflowDeviceSync {
         unawaited(_drain());
       }
     }
+  }
+
+  void _surfaceRefusal(ProfileModeUnsupportedException refusal) {
+    _errorSurfaced = true;
+    onUploadError?.call(
+      ConnectionError(
+        kind: ConnectionErrorKind.profileUploadFailed,
+        severity: ConnectionErrorSeverity.warning,
+        timestamp: DateTime.now().toUtc(),
+        deviceId: _de1.connectedDe1OrNull?.deviceId,
+        deviceName: _de1.connectedDe1OrNull?.name,
+        message: 'Profile not sent to the machine: ${refusal.message}',
+      ),
+    );
   }
 
   Duration _scheduleRetry(int generation) {
