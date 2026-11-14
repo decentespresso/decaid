@@ -307,4 +307,55 @@ void main() {
       );
     });
   });
+
+  group('ProfileModeCaps probe on connect', () {
+    bool isCapsRead(FakeBleWrite w) {
+      if (w.characteristicUUID != Endpoint.readFromMMR.uuid) return false;
+      final address = MMRItem.profileModeCaps.address;
+      return w.data[1] == (address >> 16) & 0xFF &&
+          w.data[2] == (address >> 8) & 0xFF &&
+          w.data[3] == address & 0xFF;
+    }
+
+    void queueConnectResponsesWithoutCaps(
+      FakeBleTransport transport,
+      int model,
+    ) {
+      transport.queueMmrResponseInt(MMRItem.v13Model, model);
+      transport.queueMmrResponseInt(MMRItem.ghcInfo, 0);
+      transport.queueMmrResponseInt(MMRItem.serialN, 12345);
+      transport.queueMmrResponseInt(MMRItem.cpuFirmwareBuild, 1300);
+      transport.queueMmrResponseInt(MMRItem.heaterV, 230);
+      transport.queueMmrResponseInt(MMRItem.refillKitPresent, 0);
+      transport.queueMmrResponseInt(MMRItem.calFlowEst, 1000);
+    }
+
+    test(
+      'a stock DE1 does not read the register and does not wait for it',
+      () async {
+        final transport = FakeBleTransport();
+        addTearDown(transport.dispose);
+        final de1 = UnifiedDe1(transport: transport);
+        queueConnectResponsesWithoutCaps(transport, 1);
+
+        await de1.onConnect().timeout(const Duration(seconds: 2));
+
+        expect(de1.isBengle, isFalse);
+        expect(transport.writes.where(isCapsRead), isEmpty);
+        expect(de1.machineInfo.extra['profileModeCaps'], 0);
+      },
+    );
+
+    test('a Bengle reads the register once', () async {
+      final transport = FakeBleTransport();
+      addTearDown(transport.dispose);
+      final de1 = UnifiedDe1(transport: transport);
+      transport.queueOnConnectResponses(v13Model: 128, profileModeCaps: 0x7);
+
+      await de1.onConnect();
+
+      expect(transport.writes.where(isCapsRead), hasLength(1));
+      expect(de1.machineInfo.extra['profileModeCaps'], 0x7);
+    });
+  });
 }

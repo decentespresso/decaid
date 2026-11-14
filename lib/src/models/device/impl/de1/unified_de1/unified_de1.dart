@@ -452,7 +452,7 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
     // with bits outside 0xF — must yield 0, so the read can never hang or fail
     // the connect flow and the arm-time refusal gate then fail-closes on any
     // new-mode step.
-    final profileModeCaps = await _readProfileModeCaps();
+    final profileModeCaps = isBengle ? await _readProfileModeCaps() : 0;
     try {
       _cachedFlowEstimation = await getFlowEstimation();
     } catch (e) {
