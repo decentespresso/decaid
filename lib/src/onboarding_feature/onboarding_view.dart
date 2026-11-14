@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-
+import 'package:reaprime/src/services/telemetry/frame_profiler.dart';
 import 'onboarding_controller.dart';
 
 class OnboardingView extends StatefulWidget {
@@ -48,6 +48,7 @@ class _OnboardingViewState extends State<OnboardingView> {
     if (!_initialized) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+    FrameProfiler.mark('onboarding:${widget.controller.currentStep.id}');
     return PopScope(
       canPop: false,
       child: widget.controller.currentStep.builder(widget.controller),
