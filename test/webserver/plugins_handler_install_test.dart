@@ -7,11 +7,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
+import 'package:reaprime/src/plugins/plugin_source_service.dart';
 import 'package:reaprime/src/services/webserver_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shelf_plus/shelf_plus.dart';
 
 import '../plugins/plugin_test_helpers.dart';
+
+class _FailingSeedSourceService extends PluginSourceService {
+  _FailingSeedSourceService(super.loader);
+
+  @override
+  void seedBundledSources() {
+    throw StateError('source unavailable');
+  }
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -22,12 +32,14 @@ void main() {
     late Handler handler;
 
     const id = 'installed.reaplugin';
+    const otherId = 'other.reaplugin';
 
     Map<String, dynamic> manifestJson({
+      String pluginId = id,
       String version = '1.0.0',
       List<String> permissions = const [],
     }) => {
-      'id': id,
+      'id': pluginId,
       'author': 'Test',
       'name': 'Test plugin',
       'description': 'Test plugin',
@@ -38,7 +50,11 @@ void main() {
       'api': <Object>[],
     };
 
+    String pluginJs(String pluginId) =>
+        'function createPlugin() { return { id: "$pluginId", onLoad() {} }; }';
+
     List<int> pluginArchive({
+      String pluginId = id,
       String version = '1.0.0',
       List<String> permissions = const [],
     }) {
@@ -47,15 +63,16 @@ void main() {
           ArchiveFile.string(
             'repo-main/manifest.json',
             jsonEncode(
-              manifestJson(version: version, permissions: permissions),
+              manifestJson(
+                pluginId: pluginId,
+                version: version,
+                permissions: permissions,
+              ),
             ),
           ),
         )
         ..addFile(
-          ArchiveFile.string(
-            'repo-main/plugin.js',
-            'function createPlugin() { return { id: "$id", onLoad() {} }; }',
-          ),
+          ArchiveFile.string('repo-main/plugin.js', pluginJs(pluginId)),
         );
       return ZipEncoder().encode(archive);
     }
@@ -98,13 +115,13 @@ void main() {
       ),
     );
 
-    Future<Map<String, dynamic>> listedPlugin() async {
+    Future<Map<String, dynamic>> listedPlugin([String pluginId = id]) async {
       final res = await handler(
         Request('GET', Uri.parse('http://localhost/api/v1/plugins')),
       );
       final list = jsonDecode(await res.readAsString()) as List<dynamic>;
       return list.cast<Map<String, dynamic>>().firstWhere(
-        (plugin) => plugin['id'] == id,
+        (plugin) => plugin['id'] == pluginId,
       );
     }
 
@@ -372,6 +389,151 @@ void main() {
     test('approving an unknown plugin is a 404', () async {
       final res = await post('/api/v1/plugins/nope.reaplugin/update/approve');
       expect(res.statusCode, 404);
+    });
+
+    test('update reports an updated and a failed item together', () async {
+      await http.runWithClient(
+        () => post('/api/v1/plugins/install/github-release', {
+          'repo': 'acme/plugin',
+        }),
+        gitHubClient,
+      );
+      await http.runWithClient(
+        () => post('/api/v1/plugins/install/github-release', {
+          'repo': 'other/plugin',
+        }),
+        () => gitHubClient(archive: pluginArchive(pluginId: otherId)),
+      );
+
+      final res = await http.runWithClient(
+        () => post('/api/v1/plugins/update'),
+        () => MockClient((request) async {
+          final url = request.url.toString();
+          if (url.contains('/repos/acme/plugin/')) {
+            if (url.contains('/releases/latest')) {
+              return http.Response(
+                jsonEncode({
+                  'tag_name': 'v1.1.0',
+                  'assets': [
+                    {
+                      'name': 'plugin.zip',
+                      'browser_download_url':
+                          'https://example.test/acme-plugin.zip',
+                    },
+                  ],
+                }),
+                200,
+              );
+            }
+            return http.Response.bytes(pluginArchive(version: '1.1.0'), 200);
+          }
+          if (url.contains('/repos/other/plugin/')) {
+            return http.Response('boom', 500);
+          }
+          if (url.endsWith('/acme-plugin.zip')) {
+            return http.Response.bytes(pluginArchive(version: '1.1.0'), 200);
+          }
+          return http.Response('not found: $url', 404);
+        }),
+      );
+
+      expect(res.statusCode, 200);
+      final body = jsonDecode(await res.readAsString());
+      final results = (body['results'] as List).cast<Map<String, dynamic>>();
+      expect(results, hasLength(2));
+
+      final updated = results.firstWhere((result) => result['item'] == id);
+      expect(updated['status'], 'updated');
+
+      final failed = results.firstWhere((result) => result['item'] == otherId);
+      expect(failed['status'], 'failed');
+      expect(failed['error'], contains('could not complete'));
+      expect(failed['error'], isNot(contains('example.test')));
+
+      expect((await listedPlugin())['version'], '1.1.0');
+    });
+
+    test(
+      'update preserves pendingApproval without activating new permissions',
+      () async {
+        await http.runWithClient(
+          () => post('/api/v1/plugins/install/github-release', {
+            'repo': 'acme/plugin',
+          }),
+          () => gitHubClient(archive: pluginArchive(permissions: ['log'])),
+        );
+
+        final res = await http.runWithClient(
+          () => post('/api/v1/plugins/update'),
+          () => gitHubClient(
+            tag: 'v1.1.0',
+            archive: pluginArchive(
+              version: '1.1.0',
+              permissions: ['log', 'proxy.decent_api'],
+            ),
+          ),
+        );
+
+        expect(res.statusCode, 200);
+        final body = jsonDecode(await res.readAsString());
+        final results = (body['results'] as List).cast<Map<String, dynamic>>();
+        expect(results.single['status'], 'pendingApproval');
+        expect(results.single['item'], id);
+
+        final listed = await listedPlugin();
+        expect(listed['version'], '1.0.0');
+        expect(listed['pendingUpdate']['version'], '1.1.0');
+        expect(listed['pendingUpdate']['addedPermissions'], [
+          'proxy.decent_api',
+        ]);
+        expect(listed['permissions'], ['log']);
+      },
+    );
+
+    test('all-failed update returns 200 with a friendly error', () async {
+      await http.runWithClient(
+        () => post('/api/v1/plugins/install/github-release', {
+          'repo': 'acme/plugin',
+        }),
+        gitHubClient,
+      );
+
+      final res = await http.runWithClient(
+        () => post('/api/v1/plugins/update'),
+        () => MockClient((_) async => http.Response('boom', 500)),
+      );
+
+      expect(res.statusCode, 200);
+      final body = jsonDecode(await res.readAsString());
+      final results = (body['results'] as List).cast<Map<String, dynamic>>();
+      expect(results, hasLength(1));
+      expect(results.single['status'], 'failed');
+      expect(results.single['item'], id);
+      expect(
+        results.single['error'],
+        'The service could not complete the request. Try again later.',
+      );
+
+      final listed = await listedPlugin();
+      expect(listed['source']['lastError'], contains('could not complete'));
+      expect(listed['source']['lastError'], isNot(contains('boom')));
+    });
+
+    test('a check-machinery failure returns 500', () async {
+      final failing = _FailingSeedSourceService(service);
+      final app = Router().plus;
+      PluginsHandler(
+        pluginManager: service.pluginManager,
+        pluginService: service,
+        pluginSourceService: failing,
+      ).addRoutes(app);
+
+      final res = await app.call(
+        Request('POST', Uri.parse('http://localhost/api/v1/plugins/update')),
+      );
+
+      expect(res.statusCode, 500);
+      expect(await res.readAsString(), contains('error'));
     });
   });
 }

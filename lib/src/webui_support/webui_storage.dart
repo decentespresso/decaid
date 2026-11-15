@@ -155,7 +155,8 @@ class WebUIStorage {
   bool _initialized = false;
   final ValueNotifier<Future<void>?> _updateCheck = ValueNotifier(null);
   Future<RemoteUpdateReport>? _updateCheckReport;
-  Future<void>? _remoteDownload;
+  Future<List<RemoteUpdateItemResult>>? _remoteDownload;
+  Future<void>? _downloadRemoteSkinsCheck;
 
   final GithubRateLimit _rateLimit;
   final GithubCredentialProvider? credentials;
@@ -447,20 +448,32 @@ class WebUIStorage {
     }
   }
 
-  Future<void> downloadRemoteSkins() => _remoteDownload ??=
-      _downloadRemoteSkins().whenComplete(() => _remoteDownload = null);
+  Future<void> downloadRemoteSkins() =>
+      _downloadRemoteSkinsCheck ??= _downloadRemoteSkins().whenComplete(
+        () => _downloadRemoteSkinsCheck = null,
+      );
 
   Future<void> _downloadRemoteSkins() async {
-    final report = RemoteUpdateReport(await checkRemoteBundledSkins());
-    if (report.hasFailures) {
+    final results = await checkRemoteBundledSkins();
+    final failures = [
+      for (final result in results)
+        if (result.isFailure)
+          (item: result.item, error: result.error as Object),
+    ];
+    if (failures.isNotEmpty) {
       throw RemoteUpdateException(
-        attemptedCount: report.results.length,
-        failures: report.failures,
+        attemptedCount: results.length,
+        failures: failures,
       );
     }
   }
 
-  Future<List<RemoteUpdateItemResult>> checkRemoteBundledSkins() async {
+  Future<List<RemoteUpdateItemResult>> checkRemoteBundledSkins() =>
+      _remoteDownload ??= _checkRemoteBundledSkins().whenComplete(
+        () => _remoteDownload = null,
+      );
+
+  Future<List<RemoteUpdateItemResult>> _checkRemoteBundledSkins() async {
     final sources = await _getRemoteWebUISources();
     final results = <RemoteUpdateItemResult>[];
     for (final sourceConfig in sources) {

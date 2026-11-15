@@ -127,6 +127,42 @@ void main() {
   });
 
   test(
+    'update check joins an in-flight background bundled-skin download',
+    () async {
+      await storage.initialize(downloadRemote: false);
+      final release = Completer<void>();
+      var requests = 0;
+      await http.runWithClient(
+        () async {
+          final background = storage.downloadRemoteSkins();
+          final check = storage.checkForSkinUpdates();
+          release.complete();
+          await expectLater(background, throwsA(isA<RemoteUpdateException>()));
+          final report = await check;
+          expect(requests, 2);
+          expect(report.hasFailures, isTrue);
+          expect(report.results, hasLength(2));
+          expect(storage.updateCheck.value, isNull);
+        },
+        () => MockClient((_) async {
+          requests++;
+          await release.future;
+          throw const SocketException('offline');
+        }),
+      );
+      final requestsAfterFirst = requests;
+      await http.runWithClient(
+        () => storage.checkForSkinUpdates(),
+        () => MockClient((_) async {
+          requests++;
+          throw const SocketException('offline');
+        }),
+      );
+      expect(requests, requestsAfterFirst * 2);
+    },
+  );
+
+  test(
     'offline update attempts every remote source and retains installed skins',
     () async {
       await storage.initialize(downloadRemote: false);

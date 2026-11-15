@@ -950,9 +950,11 @@ Plugin validation and downgrade failures retain HTTP 400 and 409, respectively.
 Missing or incorrectly typed GitHub release, asset, or commit fields are
 validation failures (HTTP 400), including when the response is valid JSON.
 
-Skin/plugin batches attempt all items and retain successes. Any failure returns
-HTTP 500 with an `error` describing complete or partial failure. Background checks
-stay quiet; retries are manual.
+Skin/plugin batches attempt all items and retain successes. Both update
+endpoints return HTTP 200 with per-item `results` (`updated`, `alreadyCurrent`,
+`failed`, `pendingApproval`) even when some items fail. HTTP 500 means the overall
+checking machinery could not run, not an individual item failure. Background
+checks stay quiet; retries are manual.
 Failure to persist a plugin's diagnostic `lastError` is logged without stopping
 the remaining updates or replacing the original failure in the aggregate.
 
