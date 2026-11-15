@@ -86,7 +86,7 @@ test('checkSkinUpdates: an updated item schedules a reload', async () => {
   assert.equal(reloads.length, 1);
 });
 
-test('checkSkinUpdates: partial failure reports errors and reloads for updates', async () => {
+test('checkSkinUpdates: partial failure reports errors and does not reload', async () => {
   const { context, toasts, reloads, timers } = runCheck(async () => ({
     ok: true,
     status: 200,
@@ -111,9 +111,42 @@ test('checkSkinUpdates: partial failure reports errors and reloads for updates',
       'The service could not complete the request. Try again later.',
     ),
   );
+  assert.ok(
+    final.message.includes('- reload to see the updates'),
+    'partial failure must tell the user to reload manually',
+  );
   assert.equal(final.isError, true);
   for (const t of timers) t.fn();
-  assert.equal(reloads.length, 1);
+  assert.equal(reloads.length, 0);
+});
+
+test('checkSkinUpdates: an unexpected success payload is not reported as success', async () => {
+  const { context, toasts, reloads, timers } = runCheck(async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ message: 'checked' }),
+  }));
+  await context.checkSkinUpdates();
+  const final = toasts[toasts.length - 1];
+  assert.equal(final.isError, true);
+  assert.ok(final.message.includes('unexpected response'));
+  assert.ok(!final.message.includes('completed'));
+  for (const t of timers) t.fn();
+  assert.equal(reloads.length, 0);
+});
+
+test('checkSkinUpdates: a non-array results field is not reported as success', async () => {
+  const { context, toasts, reloads, timers } = runCheck(async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ results: 'not-an-array' }),
+  }));
+  await context.checkSkinUpdates();
+  const final = toasts[toasts.length - 1];
+  assert.equal(final.isError, true);
+  assert.ok(final.message.includes('unexpected response'));
+  for (const t of timers) t.fn();
+  assert.equal(reloads.length, 0);
 });
 
 test('checkSkinUpdates: all failed reports failure and does not reload', async () => {
