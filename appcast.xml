@@ -6,6 +6,26 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Decaid</title>
         <item>
+            <title>0.9.3</title>
+            <pubDate>Sun, 15 Nov 2026 18:42:23 +0000</pubDate>
+            <sparkle:channel>beta</sparkle:channel>
+            <sparkle:version>3204</sparkle:version>
+            <sparkle:shortVersionString>0.9.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown"><![CDATA[## What's Changed
+* test(firmware): virtualize handler timeout coverage by @tadelv in https://github.com/decentespresso/decaid/pull/1151
+* test(perf): cut repeated setup and real waits in three slow suites by @tadelv in https://github.com/decentespresso/decaid/pull/1157
+* feat(github): let users supply a device GitHub PAT for metadata and feedback by @tadelv in https://github.com/decentespresso/decaid/pull/1158
+* fix(webserver): allow tokenless loopback update checks when automatic updates are on by @tadelv in https://github.com/decentespresso/decaid/pull/1165
+* fix(webserver): return per-item update results instead of a blanket 500 by @tadelv in https://github.com/decentespresso/decaid/pull/1167
+
+
+**Full Changelog**: https://github.com/decentespresso/decaid/compare/v0.9.2...v0.9.3-beta.1
+
+]]></description>
+            <enclosure url="https://github.com/decentespresso/decaid/releases/download/v0.9.3-beta.1/decaid-macos-0.9.3-beta.1.zip" length="63660870" type="application/octet-stream" sparkle:edSignature="6hp+eE2K7yoUt20LzOnaWIT/lKqAlEb72RybfgJboi0ojs374bJXOjtBcxpvKUj46zk6rBT6/O4WunuT+b8ZBg=="/>
+        </item>
+        <item>
             <title>0.9.2</title>
             <pubDate>Thu, 12 Nov 2026 09:46:30 +0000</pubDate>
             <sparkle:version>3191</sparkle:version>
@@ -803,6 +823,6 @@ See `doc/RELEASE.md` for install and verification instructions.
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: ZZa0k8TIrb0nmwFw9sFxdrhY72IJSL555Yg6rCHvZ+dlAuSOkiFshI9Z32Y6EKiZC8IJX+Nl0d5eNkf9TaIHAw==
-length: 72623
+edSignature: M6ZwSUNaPSLY6knTdZvh1Mj0k0VCuBaM4Qdlc9z8kiQHYiCKFrFJN5ICWL5mj6tA0son8tw9K4286WkCraG+Cw==
+length: 74181
 -->
