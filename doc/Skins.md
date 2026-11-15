@@ -3898,7 +3898,10 @@ The default skin preference:
 Online failures use plain-language guidance; technical details stay in logs.
 **Retry** retains repository, branch, and asset options. Concurrent remote downloads
 share one batch, including Settings Retry. Batches attempt all items and retain
-successes; complete or partial failures show warnings and return HTTP 500.
+successes; the skin update endpoint returns HTTP 200 with per-item `results`
+(`updated`, `alreadyCurrent`, `failed`) even when some items fail. Partial and
+all-failed outcomes are reflected in `results`, not a blanket HTTP 500; HTTP 500
+means the check could not run.
 In native Settings, skin downloading waits for an available app-update dialog
 to close so a skin failure's Retry action is not hidden behind its modal barrier.
 Startup/periodic failures stay quiet. Installed skins and local ZIP installation
