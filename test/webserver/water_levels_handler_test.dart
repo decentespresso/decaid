@@ -8,6 +8,7 @@ import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
+import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/de1_rawmessage.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
@@ -20,9 +21,21 @@ import '../helpers/barrier_ble_transport.dart';
 import '../helpers/mock_device_discovery_service.dart';
 import '../helpers/mock_settings_service.dart';
 
+class _ObservedDe1 extends UnifiedDe1 {
+  _ObservedDe1({required super.transport});
+
+  int deliveredWaterLevels = 0;
+
+  @override
+  Stream<De1WaterLevels> get waterLevels => super.waterLevels.map((value) {
+    deliveredWaterLevels++;
+    return value;
+  });
+}
+
 void main() {
   late BarrierBleTransport transport;
-  late UnifiedDe1 de1;
+  late _ObservedDe1 de1;
   late De1Controller de1Controller;
   late DeviceController deviceController;
   late ScaleController scaleController;
@@ -32,7 +45,7 @@ void main() {
     transport = BarrierBleTransport();
     transport.queueOnConnectResponses();
 
-    de1 = UnifiedDe1(transport: transport);
+    de1 = _ObservedDe1(transport: transport);
 
     deviceController = DeviceController([MockDeviceDiscoveryService()]);
     await deviceController.initialize();
@@ -187,9 +200,33 @@ void main() {
         emitWaterLevels(currentRaw: 20 * 256, refillRaw: 7 * 256);
         async.elapse(Duration.zero);
 
-        expect(rawWaterLevels, isEmpty);
+        expect(de1.deliveredWaterLevels, 0);
+        expect(rawWaterLevels, hasLength(1));
       });
     });
+
+    test(
+      'polling the latest value never duplicates its raw notification',
+      () async {
+        final notifications = <De1RawMessage>[];
+        final subscription = de1.rawOutStream
+            .where(
+              (message) =>
+                  message.characteristicUUID == Endpoint.waterLevels.uuid,
+            )
+            .listen(notifications.add);
+        addTearDown(subscription.cancel);
+        emitWaterLevels(currentRaw: 20 * 256, refillRaw: 7 * 256);
+        await _settle();
+
+        for (var i = 0; i < 3; i++) {
+          final response = await getWaterLevels();
+          expect(response.statusCode, 200);
+        }
+
+        expect(notifications, hasLength(1));
+      },
+    );
 
     test(
       'answers 500 when the app disconnects the machine during the wait',

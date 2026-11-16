@@ -503,6 +503,43 @@ void main() {
       de1.readCalibration(De1CalibrationTarget.flow),
       throwsA(isA<EndpointUnavailableException>()),
     );
+    expect(de1.debugHasCalibrationListener, isFalse);
+  });
+
+  test('successful reads release calibration listeners', () async {
+    for (var i = 0; i < 3; i++) {
+      final response = de1.readCalibration(De1CalibrationTarget.flow);
+      await pumpEventQueue();
+      expect(de1.debugHasCalibrationListener, isTrue);
+      transport.emitNotification(Endpoint.calibration, _packet(measured: 1.25));
+      await response;
+      expect(de1.debugHasCalibrationListener, isFalse);
+    }
+  });
+
+  test('disconnect terminates the active calibration response wait', () async {
+    final response = expectLater(
+      de1.readCalibration(De1CalibrationTarget.flow),
+      throwsA(isA<EndpointUnavailableException>()),
+    );
+    await pumpEventQueue();
+    await de1.disconnect();
+    await response;
+    expect(de1.debugHasCalibrationListener, isFalse);
+  });
+
+  test('failed read dispatch cancels its response listener', () async {
+    final failingTransport = _FailingCalibrationWriteTransport()
+      ..queueOnConnectResponses();
+    final failingDe1 = UnifiedDe1(transport: failingTransport);
+    await failingDe1.onConnect();
+    addTearDown(failingDe1.dispose);
+
+    await expectLater(
+      failingDe1.readCalibration(De1CalibrationTarget.flow),
+      throwsStateError,
+    );
+    expect(failingDe1.debugHasCalibrationListener, isFalse);
   });
 
   test('concurrent calibration operations are serialized', () async {

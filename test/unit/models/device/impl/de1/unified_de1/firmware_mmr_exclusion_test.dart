@@ -162,24 +162,25 @@ void main() {
   });
 
   test('disconnect while waiting for firmware ownership skips erase', () async {
-    final activeMmrRequest = transport.nextWrite(Endpoint.readFromMMR.uuid);
-    final activeMmr = de1.getSteamFlow();
+    final activeMmrBarrier = Completer<void>();
+    transport.pauseNextWrite(Endpoint.writeToMMR.uuid, activeMmrBarrier);
+    final activeMmrRequest = transport.nextWrite(Endpoint.writeToMMR.uuid);
+    final activeMmr = de1.setSteamFlow(1.0);
     await activeMmrRequest;
 
     final eraseBarrier = Completer<void>();
     transport.pauseNextWrite(Endpoint.fwMapRequest.uuid, eraseBarrier);
     final eraseRequest = transport.nextWrite(Endpoint.fwMapRequest.uuid);
     final update = de1.updateFirmware(Uint8List(0), onProgress: (_) {});
-    await _flushEventQueue();
-
-    await de1.disconnect();
-    transport.emitMmrResponseInt(MMRItem.targetSteamFlow, 100);
-    await activeMmr;
-
     final cancellation = expectLater(
       update,
       throwsA(isA<FirmwareUpdateCancelledException>()),
     );
+    await _flushEventQueue();
+
+    await de1.disconnect();
+    activeMmrBarrier.complete();
+    await activeMmr;
     final outcome = await Future.any([
       cancellation.then((_) => 'cancelled'),
       eraseRequest.then((_) => 'erase'),
@@ -192,6 +193,8 @@ void main() {
     expect(outcome, 'cancelled');
     expect(transport.writeCount(Endpoint.fwMapRequest.uuid), 0);
 
+    transport.queueOnConnectResponses(calFlowEst: 0);
+    await de1.onConnect();
     transport.queueMmrResponseInt(MMRItem.targetSteamFlow, 100);
     await de1.getSteamFlow();
   });

@@ -8,6 +8,7 @@ import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/calibration_codec.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1_transport.dart';
 import 'package:reaprime/src/models/device/transport/serial_port.dart';
+import 'package:reaprime/src/models/errors.dart';
 import 'package:rxdart/rxdart.dart';
 
 import '../../../../../../helpers/fake_ble_transport.dart';
@@ -128,6 +129,26 @@ void main() {
   });
 
   group('serial', () {
+    test('mirrors incoming frames without mirroring seeds or replay', () async {
+      final serial = _FakeSerialTransport();
+      final notifications = <Endpoint>[];
+      final transport = UnifiedDe1Transport(
+        transport: serial,
+        onNotification: (endpoint, _) => notifications.add(endpoint),
+      );
+      addTearDown(transport.dispose);
+      await transport.connect();
+      transport.recordLocalShotSettings(ByteData(9));
+      await transport.shotSettings.first;
+      expect(notifications, isEmpty);
+
+      serial.input.add('[Q]002A000C\n');
+      await pumpEventQueue();
+      await transport.waterLevels.first;
+      await transport.waterLevels.first;
+      expect(notifications, [Endpoint.waterLevels]);
+    });
+
     test(
       'connect enables calibration notifications and disconnect disables',
       () async {
@@ -185,6 +206,22 @@ void main() {
 
       final result = await read;
       expect(result.buffer.asUint8List(), packet);
+    });
+
+    test('timed out serial calibration reads release their listener', () async {
+      final serial = _FakeSerialTransport();
+      final transport = UnifiedDe1Transport(transport: serial);
+      addTearDown(transport.dispose);
+      await transport.connect();
+
+      await expectLater(
+        transport.read(
+          Endpoint.calibration,
+          timeout: const Duration(milliseconds: 20),
+        ),
+        throwsA(isA<EndpointUnavailableException>()),
+      );
+      expect(transport.debugHasCalibrationListener, isFalse);
     });
   });
 }

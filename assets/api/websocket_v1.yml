@@ -125,6 +125,12 @@ channels:
       instance swap — see MachineSnapshot. Commands are delivered to the machine
       the socket is currently bound to, not the one present when the socket was
       opened.
+      For UnifiedDe1 transports, state info, DE1/Bengle shot samples, shot
+      settings, water levels and MMR notification frames are mirrored once at
+      BLE/serial ingress, independently of typed subscribers. Initial reads,
+      replayed values, serial settings seeds and local settings writes do not
+      emit notify frames. Firmware-map and calibration notifications retain
+      typed-only delivery. Raw command read/write receipts are unchanged.
     address: ws/v1/machine/raw
     messages:
       machineRawMessage:
