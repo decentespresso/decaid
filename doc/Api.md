@@ -688,6 +688,20 @@ check runs to completion, even if some skins fail. Each `results` entry has
 string only when `status` is `failed`. A `500` now means the check itself could
 not run, not that some items failed.
 
+`GET /api/v1/webui/skins` and `GET /api/v1/webui/skins/:id` report installed
+state only. `version` is read from the installed skin's `skin-manifest.json`
+(falling back to `manifest.json`) and is `null` when the manifest omits it, so a
+client shows an unknown version instead of inferring one from a release tag,
+`sourceUrl`, `commitHash`, an `ETag` / `Last-Modified` header or
+`reaMetadata.lastChecked`. Both GET routes are strictly read-only: they never
+contact GitHub or another source and never install anything, and they keep
+reporting the installed version immediately after an update and across an app
+restart. `POST /api/v1/webui/skins/update` is the only skin API operation that
+checks the configured sources and recorded user sources for updates and
+installs eligible changes. The individual install routes
+(`/install/github-release`, `/install/github-branch`, `/install/url`) install
+one explicitly requested source rather than running the batch update check.
+
 ### Plugins
 
 | Method | Path | Description | Handler | Token |

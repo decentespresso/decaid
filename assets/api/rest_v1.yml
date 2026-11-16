@@ -4422,7 +4422,16 @@ paths:
   /api/v1/webui/skins:
     get:
       summary: List all installed WebUI skins
-      description: Returns a list of all installed WebUI skins with their metadata
+      description: >
+        Returns every installed WebUI skin with its installed state. `version`
+        is read from the installed skin's own manifest (`skin-manifest.json`,
+        falling back to `manifest.json`), so it describes what is on disk right
+        now, including immediately after `POST /api/v1/webui/skins/update` and
+        after a restart. The route is read-only: it serves the current scan of
+        the installed skins and never contacts GitHub or any other source, never
+        downloads and never installs anything. Checking the configured sources
+        and installing eligible changes is the job of
+        `POST /api/v1/webui/skins/update`.
       tags: [WebUI]
       responses:
         "200":
@@ -4439,7 +4448,12 @@ paths:
   /api/v1/webui/skins/{id}:
     get:
       summary: Get specific WebUI skin details
-      description: Returns details for a specific WebUI skin by ID
+      description: >
+        Returns the installed state of one WebUI skin by ID. `version` is the
+        installed skin's manifest version and is identical to the value this
+        skin has in the `GET /api/v1/webui/skins` list. The route is read-only:
+        it never contacts GitHub or any other source and never installs
+        anything.
       tags: [WebUI]
       parameters:
         - name: id
@@ -4759,12 +4773,19 @@ paths:
     post:
       summary: Check for skin updates
       description: >
-        Triggers an update check for all skins from their remote sources
-        (GitHub releases, branches). Skins with newer versions available are
-        downloaded and updated. Every item is attempted, and per-item outcomes
-        are returned in the `results` array: `updated`, `alreadyCurrent`, or
-        `failed` with a plain-language `error`. Partial failures no longer
-        produce a blanket 500; only a failure of the check machinery itself does.
+        Resolves the configured sources (GitHub releases, branches and plain
+        URLs) plus every user-installed skin's recorded source, downloads
+        and installs eligible changes, and reports per-item outcomes. This is
+        the only skin API operation that checks the configured sources and
+        recorded user sources for updates and installs eligible changes; the
+        `GET /api/v1/webui/skins` routes only report installed state, while
+        each individual install route (`/install/github-release`,
+        `/install/github-branch`, `/install/url`) installs one explicitly
+        requested source rather than running the batch update check. Every item is attempted,
+        and per-item outcomes are returned in the `results` array: `updated`,
+        `alreadyCurrent`, or `failed` with a plain-language `error`. Partial
+        failures no longer produce a blanket 500; only a failure of the check
+        machinery itself does.
         Requires `Authorization: Bearer <token>` scoped `extensions:manage`
         (see the extensionsManage security scheme).
         When automatic update checks are enabled in native settings, a
@@ -8772,7 +8793,12 @@ components:
         version:
           type: string
           nullable: true
-          description: Skin version
+          description: >
+            Installed version, read from the installed skin's own manifest
+            (`skin-manifest.json`, falling back to `manifest.json`). `null` when
+            the manifest omits it, which clients show as an unknown version.
+            Never inferred from a release tag, `sourceUrl`, `commitHash`, an
+            ETag or Last-Modified header, or `lastChecked`.
           example: "1.2.0"
         isBundled:
           type: boolean
@@ -8815,7 +8841,10 @@ components:
           type: string
           format: date-time
           nullable: true
-          description: When updates were last checked
+          description: >
+            When Decaid last checked this skin's source. It records that a check
+            ran; it does not mean the installed version is current and it is not
+            a remote-version answer.
 
     WakeSchedule:
       type: object

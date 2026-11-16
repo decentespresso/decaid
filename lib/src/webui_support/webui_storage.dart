@@ -1200,6 +1200,11 @@ class WebUIStorage {
       final zipFile = File(zipPath);
       final bytes = await zipFile.readAsBytes();
       final archive = ZipDecoder().decodeBytes(bytes);
+      if (archive.files.isEmpty) {
+        throw const UserFacingFormatException(
+          'The file is not a valid skin archive.',
+        );
+      }
 
       extractArchiveToDirectory(
         archive,
