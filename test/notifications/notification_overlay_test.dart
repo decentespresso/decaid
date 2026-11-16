@@ -313,7 +313,7 @@ void main() {
                   downloads++;
                   return '/tmp/app.apk';
                 },
-                onInstall: (_) async => false,
+                onInstall: (_) async => ApkInstallOutcome.permissionRequired,
               ),
             );
           },
@@ -410,7 +410,7 @@ void main() {
                   currentVersion: '0.9.0',
                   onViewReleaseNotes: () {},
                   onDownload: (_, _) async => '/tmp/app.apk',
-                  onInstall: (_) async => false,
+                  onInstall: (_) async => ApkInstallOutcome.permissionRequired,
                 ),
               );
             },

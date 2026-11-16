@@ -89,6 +89,10 @@ class MainActivity: FlutterFragmentActivity() {
         
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
+                "isValidApk" -> {
+                    val path = call.argument<String>("apkPath")
+                    result.success(path != null && isValidApk(path))
+                }
                 "installApk" -> {
                     val apkPath = call.argument<String>("apkPath")
                     if (apkPath != null) {
@@ -212,6 +216,10 @@ class MainActivity: FlutterFragmentActivity() {
             throw IllegalArgumentException("APK file does not exist: $apkPath")
         }
 
+        if (!isValidApk(apkPath)) {
+            throw IllegalArgumentException("APK file is invalid")
+        }
+
         val intent = Intent(Intent.ACTION_VIEW).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
             
@@ -228,6 +236,11 @@ class MainActivity: FlutterFragmentActivity() {
         }
 
         startActivity(intent)
+    }
+
+    private fun isValidApk(path: String): Boolean {
+        val archive = packageManager.getPackageArchiveInfo(path, 0)
+        return archive != null && archive.packageName == packageName
     }
 
     private fun recreateSafely() {

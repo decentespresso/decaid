@@ -44,15 +44,20 @@ class _FakeUpdater extends AndroidUpdater {
   UpdateInfo? nextCheck;
   bool throwOnCheck = false;
   bool throwOnDownload = false;
-  bool installResult = true;
+  ApkInstallOutcome installResult = ApkInstallOutcome.installerLaunched;
+  bool permissionGranted = true;
+  Object? installFailure;
   List<double> progressToEmit = const [];
 
   int checkCalls = 0;
   UpdateChannel? lastChannel;
   int downloadCalls = 0;
   int installCalls = 0;
+  int permissionChecks = 0;
+  List<bool> requestedPermissions = const [];
 
   Completer<void>? downloadGate;
+  Completer<ApkInstallOutcome>? installGate;
 
   @override
   Future<UpdateInfo?> checkForUpdate(
@@ -81,9 +86,21 @@ class _FakeUpdater extends AndroidUpdater {
   }
 
   @override
-  Future<bool> installUpdate(String apkPath) async {
+  Future<ApkInstallOutcome> installUpdate(
+    String apkPath, {
+    bool requestPermission = true,
+  }) async {
     installCalls++;
+    requestedPermissions = [...requestedPermissions, requestPermission];
+    if (installFailure case final error?) throw error;
+    if (installGate case final gate?) return gate.future;
     return installResult;
+  }
+
+  @override
+  Future<bool> canInstallPackages() async {
+    permissionChecks++;
+    return permissionGranted;
   }
 
   @override
@@ -308,17 +325,48 @@ void main() {
       svc.dispose();
     });
 
-    test('reports error when install permission is missing', () async {
+    test('permission denial retains a neutral available update', () async {
       final svc = build();
       updater.nextCheck = _update();
-      updater.installResult = false;
+      updater.installResult = ApkInstallOutcome.permissionRequired;
+
+      await svc.downloadAndInstall();
+
+      expect(svc.currentState.phase, AppUpdatePhase.available);
+      expect(svc.currentState.error, isNull);
+      expect(updater.requestedPermissions, [true]);
+      svc.dispose();
+    });
+
+    test('genuine installer failures remain errors', () async {
+      final svc = build();
+      updater.nextCheck = _update();
+      updater.installFailure = StateError('installer unavailable');
 
       await svc.downloadAndInstall();
 
       expect(svc.currentState.phase, AppUpdatePhase.error);
-      expect(svc.currentState.error, contains('permission'));
+      expect(svc.currentState.error, isNotNull);
+      expect(updater.installCalls, 1);
       svc.dispose();
     });
+
+    test(
+      'disposing a pending installation cannot publish to closed state',
+      () async {
+        final svc = build();
+        updater.nextCheck = _update();
+        updater.installGate = Completer<ApkInstallOutcome>();
+        final installation = svc.downloadAndInstall();
+        await Future<void>.delayed(Duration.zero);
+        expect(updater.installCalls, 1);
+
+        svc.dispose();
+        updater.installGate!.complete(ApkInstallOutcome.cancelled);
+
+        await expectLater(installation, completes);
+      },
+    );
 
     test('reports error when the download throws', () async {
       final svc = build();
@@ -357,6 +405,85 @@ void main() {
       expect(updater.checkCalls, 0);
       svc.dispose();
     });
+  });
+
+  group('remote installation preflight', () {
+    test(
+      'missing approval leaves state unchanged without any update work',
+      () async {
+        final svc = build();
+        updater.permissionGranted = false;
+        final before = svc.currentState;
+        final states = <AppUpdateState>[];
+        final subscription = svc.updateState.listen(states.add);
+        await Future<void>.delayed(Duration.zero);
+        final beforeCount = states.length;
+
+        expect(await svc.requestRemoteInstall(), isFalse);
+
+        expect(svc.currentState, same(before));
+        expect(states.length, beforeCount);
+        expect(updater.permissionChecks, 1);
+        expect(updater.checkCalls, 0);
+        expect(updater.downloadCalls, 0);
+        expect(updater.installCalls, 0);
+        expect(updater.requestedPermissions, isEmpty);
+        await subscription.cancel();
+        svc.dispose();
+      },
+    );
+
+    test(
+      'approved remote installation never requests local settings',
+      () async {
+        final svc = build();
+        updater.nextCheck = _update();
+
+        expect(await svc.requestRemoteInstall(), isTrue);
+
+        expect(updater.permissionChecks, 1);
+        expect(updater.checkCalls, 1);
+        expect(updater.downloadCalls, 1);
+        expect(updater.installCalls, 1);
+        expect(updater.requestedPermissions, [false]);
+        expect(svc.currentState.phase, AppUpdatePhase.installing);
+        svc.dispose();
+      },
+    );
+
+    test(
+      'permission revoked during a remote download remains neutral',
+      () async {
+        final svc = build();
+        updater.nextCheck = _update();
+        updater.downloadGate = Completer<void>();
+        final installation = svc.requestRemoteInstall();
+        await Future<void>.delayed(Duration.zero);
+        updater.permissionGranted = false;
+        updater.installResult = ApkInstallOutcome.permissionRequired;
+        updater.downloadGate!.complete();
+
+        expect(await installation, isTrue);
+
+        expect(updater.requestedPermissions, [false]);
+        expect(svc.currentState.phase, AppUpdatePhase.available);
+        expect(svc.currentState.error, isNull);
+        svc.dispose();
+      },
+    );
+
+    test(
+      'unsupported builds are rejected without checking permission',
+      () async {
+        for (final isAndroid in [false, true]) {
+          final svc = build(isAndroid: isAndroid, externallyManaged: isAndroid);
+          expect(svc.canInstall, isFalse);
+          expect(await svc.requestRemoteInstall(), isFalse);
+          expect(updater.permissionChecks, 0);
+          svc.dispose();
+        }
+      },
+    );
   });
 
   group('externally managed builds', () {

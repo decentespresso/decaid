@@ -70,7 +70,7 @@ class UpdateCheckService {
 
   AppUpdateState get currentState => _state.value;
 
-  bool get canInstall => _isAndroid;
+  bool get canInstall => _isAndroid && !externallyManaged;
 
   bool get canCheck => !_isMacOS && !externallyManaged;
 
@@ -94,7 +94,9 @@ class UpdateCheckService {
   }
 
   void _emit(AppUpdatePhase phase, {double? progress, String? error}) {
-    _state.add(_snapshot(phase, progress: progress, error: error));
+    if (!_state.isClosed) {
+      _state.add(_snapshot(phase, progress: progress, error: error));
+    }
   }
 
   bool get _inProgress => const {
@@ -112,7 +114,13 @@ class UpdateCheckService {
     }
   }
 
-  Future<void> downloadAndInstall() async {
+  Future<bool> requestRemoteInstall() async {
+    if (!canInstall || !await _updater.canInstallPackages()) return false;
+    await downloadAndInstall(requestPermission: false);
+    return true;
+  }
+
+  Future<void> downloadAndInstall({bool requestPermission = true}) async {
     if (_inProgress) return;
     if (!_isAndroid) return;
 
@@ -145,12 +153,12 @@ class UpdateCheckService {
 
       _emit(AppUpdatePhase.installing);
       action = 'install the app update';
-      final started = await _updater.installUpdate(path);
-      if (!started) {
-        _emit(
-          AppUpdatePhase.error,
-          error: 'Installation permission required. Grant it and retry.',
-        );
+      final outcome = await _updater.installUpdate(
+        path,
+        requestPermission: requestPermission,
+      );
+      if (outcome != ApkInstallOutcome.installerLaunched) {
+        _emit(AppUpdatePhase.available);
       }
     } catch (e, st) {
       _log.severe('Update download/install failed', e, st);
