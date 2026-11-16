@@ -7253,7 +7253,8 @@ components:
         machine that advertises the matching capability. Uploading a profile
         that uses one to a machine that does not (a DE1, or firmware without the
         capability) is refused with a `400` before any write; the profile still
-        stores and round-trips unchanged on any machine.
+        stores and round-trips unchanged on any machine. A `lever` step with
+        the `hold` transition is refused the same way on every machine.
       required:
         - name
         - pump

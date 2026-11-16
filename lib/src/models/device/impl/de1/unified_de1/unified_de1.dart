@@ -676,6 +676,18 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
   /// 400 instead of a silent mis-command (watts read as bar, a P0 as constant
   /// pressure), and so `WorkflowDeviceSync` parks instead of retrying forever.
   void _assertProfileModeSupported(Profile profile) {
+    final leverHoldIndex = profile.steps.indexWhere(
+      (s) => s is ProfileStepLever && s.transition == TransitionType.hold,
+    );
+    if (leverHoldIndex >= 0) {
+      final step = profile.steps[leverHoldIndex];
+      throw ProfileModeUnsupportedException(
+        'Step ${leverHoldIndex + 1} ("${step.name}") of profile '
+        '"${profile.title}" is a Lever step with a HOLD transition. A Lever '
+        'step sets its own pressure curve and cannot latch the previous '
+        'step\'s value. Use the smooth or fast transition on a Lever step.',
+      );
+    }
     final hasPower = profile.steps.any((s) => s is ProfileStepPower);
     final hasLever = profile.steps.any((s) => s is ProfileStepLever);
     // A HOLD step is any pressure/flow/power step with `transition:hold`. A

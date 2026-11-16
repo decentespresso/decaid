@@ -316,6 +316,60 @@ void main() {
         throwsA(isA<ProfileModeUnsupportedException>()),
       );
     });
+
+    test('caps 0xF: a lever step with a HOLD transition is refused before '
+        'any write', () async {
+      final transport = FakeBleTransport();
+      final de1 = UnifiedDe1(transport: transport);
+      transport.queueMmrResponseInt(MMRItem.calFlowEst, 100);
+      transport.queueOnConnectResponses(v13Model: 128, profileModeCaps: 0xF);
+      await de1.onConnect();
+      addTearDown(transport.dispose);
+      final writesBefore = transport.writes.length;
+      const leverHold = Profile(
+        version: '2',
+        title: 'lever hold',
+        notes: '',
+        author: 'test',
+        beverageType: BeverageType.espresso,
+        steps: [
+          ProfileStepPressure(
+            name: 'preinfuse',
+            transition: TransitionType.fast,
+            volume: 0,
+            seconds: 5,
+            temperature: 92,
+            sensor: TemperatureSensor.coffee,
+            pressure: 3.0,
+          ),
+          ProfileStepLever(
+            name: 'lever',
+            transition: TransitionType.hold,
+            volume: 0,
+            seconds: 30,
+            temperature: 92,
+            sensor: TemperatureSensor.coffee,
+            pressure: 9.0,
+            leverSpring: 0.9,
+            leverGive: 1.5,
+          ),
+        ],
+        targetVolumeCountStart: 0,
+        tankTemperature: 90,
+      );
+
+      await expectLater(
+        de1.setProfile(leverHold),
+        throwsA(
+          isA<ProfileModeUnsupportedException>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('Lever'), contains('HOLD')),
+          ),
+        ),
+      );
+      expect(transport.writes.length, writesBefore);
+    });
   });
 
   group('power step pressure cap', () {
