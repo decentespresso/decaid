@@ -61,6 +61,7 @@ class LauncherView extends StatelessWidget {
     this.isDegradedAndroid = false,
     this.notificationCenter,
     this.notificationActions,
+    this.supportsWebView,
   });
 
   final De1Controller de1Controller;
@@ -76,12 +77,15 @@ class LauncherView extends StatelessWidget {
   final bool isDegradedAndroid;
   final NotificationCenter? notificationCenter;
   final NotificationActions? notificationActions;
+  @visibleForTesting
+  final bool? supportsWebView;
 
   bool get _supportsWebView =>
-      Platform.isIOS ||
-      Platform.isAndroid ||
-      Platform.isMacOS ||
-      Platform.isWindows;
+      supportsWebView ??
+      (Platform.isIOS ||
+          Platform.isAndroid ||
+          Platform.isMacOS ||
+          Platform.isWindows);
 
   @override
   Widget build(BuildContext context) {
@@ -125,7 +129,11 @@ class LauncherView extends StatelessWidget {
                                   onScan: () => Navigator.of(context)
                                       .pushNamed(LauncherScanPage.routeName),
                                 ),
-                              _buildSkinSlot(context, slot),
+                              _buildSkinSlot(
+                                context,
+                                slot,
+                                hasMachine: hasMachine,
+                              ),
                             ],
                           );
                         },
@@ -143,12 +151,17 @@ class LauncherView extends StatelessWidget {
     );
   }
 
-  Widget _buildSkinSlot(BuildContext context, LauncherSkinSlot slot) {
+  Widget _buildSkinSlot(
+    BuildContext context,
+    LauncherSkinSlot slot, {
+    required bool hasMachine,
+  }) {
     switch (slot) {
       case LauncherSkinSlot.browserHero:
         return BrowserHeroCard(deviceIp: webUIService.deviceIp());
       case LauncherSkinSlot.returnToSkin:
         return _ReturnToSkinButton(
+          hasMachine: hasMachine,
           onTap: () {
             SkinView.open(Navigator.of(context));
           },
@@ -252,24 +265,33 @@ class _Destination {
 }
 
 class _ReturnToSkinButton extends StatelessWidget {
-  const _ReturnToSkinButton({required this.onTap});
+  const _ReturnToSkinButton({required this.hasMachine, required this.onTap});
 
+  final bool hasMachine;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = ShadTheme.of(context);
 
-    return ShadButton(
-      size: ShadButtonSize.lg,
-      leading: const Icon(LucideIcons.arrowLeft, size: 18),
-      onPressed: onTap,
-      child: Text(
-        'Return to Skin',
-        style: theme.textTheme.p.copyWith(
-          color: theme.colorScheme.primaryForeground,
-        ),
-      ),
-    );
+    final button = hasMachine
+        ? ShadButton(
+            size: ShadButtonSize.lg,
+            leading: const Icon(LucideIcons.arrowLeft, size: 18),
+            onPressed: onTap,
+            child: Text(
+              'Return to Skin',
+              style: theme.textTheme.p.copyWith(
+                color: theme.colorScheme.primaryForeground,
+              ),
+            ),
+          )
+        : ShadButton.outline(
+            size: ShadButtonSize.lg,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            onPressed: onTap,
+            child: const Text('Return to Skin'),
+          );
+    return button;
   }
 }
