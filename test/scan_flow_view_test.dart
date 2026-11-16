@@ -17,6 +17,7 @@ import 'helpers/mock_device_scanner.dart';
 import 'helpers/mock_scale_controller.dart';
 import 'helpers/mock_settings_service.dart';
 import 'helpers/test_scale.dart';
+import 'helpers/test_usb_hds.dart';
 
 class _TrackingDeviceController extends DeviceController {
   int stopScanCalls = 0;
@@ -263,6 +264,46 @@ void main() {
         1,
         reason: 'scan count must not increase for a picker selection',
       );
+    });
+
+    testWidgets('USB HDS family ambiguity offers the physical scales', (
+      tester,
+    ) async {
+      await settingsController.setPreferredScaleId('usb-hds:any');
+      final first = TestUsbHds(
+        deviceId: 'usb-1a86-7522-unknown-1004',
+        name: 'USB HDS one',
+      );
+      final second = TestUsbHds(
+        deviceId: 'usb-1a86-7522-unknown-1005',
+        name: 'USB HDS two',
+      );
+      mockCm.emitStatus(
+        ConnectionStatus(
+          phase: ConnectionPhase.idle,
+          pendingAmbiguity: AmbiguityReason.scalePicker,
+          foundScales: [first, second],
+        ),
+      );
+
+      await tester.pumpWidget(buildView());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Scales'), findsOneWidget);
+      expect(
+        find.textContaining("Your preferred scale wasn't found"),
+        findsNothing,
+      );
+      expect(find.text('USB HDS one'), findsOneWidget);
+      expect(find.text('USB HDS two'), findsOneWidget);
+      await tester.tap(find.text('USB HDS two'));
+      await tester.pump();
+      await tester.tap(find.text('Connect'));
+      await tester.pump();
+      expect(mockCm.selectScaleCallCount, 1);
+      await tester.pumpWidget(const SizedBox.shrink());
+      first.dispose();
+      second.dispose();
     });
 
     testWidgets('machine picker transitions to scale picker after selection', (

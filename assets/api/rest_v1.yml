@@ -224,7 +224,9 @@ paths:
             after successful scan teardown, without restarting full discovery.
             Pending machine/selection work, occupied slots, auxiliary claims,
             and sleeping-scale restrictions disable the shortcut. Otherwise the
-            normal full explicit scan applies. Failed or uncertain BLE teardown
+            normal full explicit scan applies. The usb-hds:any family preference
+            always waits for scan completion to detect multiple matching scales.
+            Failed or uncertain BLE teardown
             never starts an early connection. If an early-stop request fails but
             the scan later completes normally with BLE ownership released, normal
             post-scan connection policy applies. Unrelated discovery failures do
@@ -1764,6 +1766,12 @@ paths:
       responses:
         "200":
           description: Decent settings updated successfully
+        "400":
+          description: Invalid setting value, including an unsupported or absent session-only scale ID that cannot be saved as a durable preference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "401":
           description: >-
             When protection is ON, the body changes the served skin, the
@@ -7915,7 +7923,15 @@ components:
           nullable: true
           example: "F4:12:FA:5C:3D:8E"
         preferredScaleId:
-          description: Device ID of the preferred scale for auto-connect on startup. When set, REA will automatically connect to this scale when it's discovered during device scan. Session-only USB scale IDs are not persisted as preferences. Set to null to clear the preference.
+          description: >
+            Preferred scale device ID, or usb-hds:any to prefer a serial-less USB
+            Half Decent Scale. A currently discovered serial-less USB HDS attachment
+            ID is normalized to usb-hds:any. Other session-only scale IDs return 400
+            instead of silently leaving the existing preference unchanged. The family
+            selector can be saved without a live device and connects automatically
+            only when a completed scan finds exactly one matching non-auxiliary
+            scale; multiple matches require explicit selection. Stable USB IDs and
+            other scale IDs keep exact-device semantics. Set null to clear.
           type: string
           nullable: true
           example: "AA:BB:CC:DD:EE:FF"
@@ -8018,7 +8034,16 @@ components:
           nullable: true
           example: "F4:12:FA:5C:3D:8E"
         preferredScaleId:
-          description: Device ID of the preferred scale for auto-connect on startup. Session-only USB scale IDs are not persisted as preferences. Returns null if no preferred device is set.
+          description: >
+            Preferred scale device ID or null when unset. A persisted usb-hds:any
+            family preference is presented as the current attachment ID when
+            exactly one protocol-identified serial-less USB HDS is discovered,
+            for compatibility with clients comparing settings and inventory IDs.
+            If none or multiple match, returns usb-hds:any instead. Storage and
+            backup retain the durable family selector; reading settings never
+            changes it or assigns scale ownership. The selector is not a device
+            ID and must not be used in addressed routes. Automatic connection
+            still requires a unique non-auxiliary match after scan completion.
           type: string
           nullable: true
           example: "AA:BB:CC:DD:EE:FF"
