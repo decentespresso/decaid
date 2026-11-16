@@ -885,6 +885,7 @@ void main(List<String> args) async {
       pluginLoaderService: pluginService,
       connectionManager: connectionManager,
       appLogUploadService: appLogUploadService,
+      settingsController: settingsController,
     ),
   );
 
@@ -934,6 +935,7 @@ class AppLifecycleObserver with WidgetsBindingObserver {
   final PluginLoaderService? pluginLoaderService;
   final ConnectionManager? connectionManager;
   final AppLogUploadService? appLogUploadService;
+  final SettingsController? settingsController;
 
   late Timer _memTimer;
   Future<void>? _detachFuture;
@@ -943,6 +945,7 @@ class AppLifecycleObserver with WidgetsBindingObserver {
     this.pluginLoaderService,
     this.connectionManager,
     this.appLogUploadService,
+    this.settingsController,
   }) {
     _memTimer = Timer.periodic(Duration(minutes: 5), (t) {
       final rss = ProcessInfo.currentRss / (1024 * 1024);
@@ -963,6 +966,10 @@ class AppLifecycleObserver with WidgetsBindingObserver {
       _log.info("state: resumed");
 
       unawaited(displayController?.onAppResumed() ?? Future<void>.value());
+      final settings = settingsController;
+      if (settings != null) {
+        unawaited(settings.currentRequireExtensionManagementAuthorization());
+      }
     }
   }
 

@@ -6,6 +6,20 @@ import 'package:yaml/yaml.dart';
 
 const _schemeName = 'extensionsManage';
 
+const _protectionCondition = 'protection is ON';
+
+const _retiredRequirementClaim =
+    'Requires `Authorization: Bearer <token>` scoped `extensions:manage`';
+
+const _nativeOnlySetting = 'requireExtensionManagementAuthorization';
+
+const _retiredExceptionMarkers = [
+  'tokenless',
+  'loopback',
+  'retry-after',
+  'automatic update checks are enabled in native settings',
+];
+
 const _mutatingMethods = {'post', 'put', 'patch', 'delete'};
 
 const _httpMethods = {
@@ -45,6 +59,27 @@ List<_Operation> _operations(YamlMap spec) {
   }
   return result;
 }
+
+List<String> _descriptions(YamlMap definition) {
+  final texts = <String>[];
+  final description = definition['description'];
+  if (description is String) texts.add(description);
+  final responses = definition['responses'];
+  if (responses is YamlMap) {
+    for (final response in responses.values) {
+      if (response is YamlMap && response['description'] is String) {
+        texts.add(response['description'] as String);
+      }
+    }
+  }
+  return texts;
+}
+
+YamlMap _schema(YamlMap spec, String name) =>
+    ((spec['components'] as YamlMap)['schemas'] as YamlMap)[name] as YamlMap;
+
+YamlMap _schemaProperties(YamlMap spec, String name) =>
+    _schema(spec, name)['properties'] as YamlMap;
 
 bool _declaresExtensionsManage(YamlMap operation) {
   final security = operation['security'];
@@ -88,6 +123,34 @@ void main() {
     expect(declared, protectedRoutes);
   });
 
+  test('every protected operation offers the tokenless alternative', () {
+    for (final operation in declaringOperations) {
+      final label = _key(operation.method, operation.path);
+      final security = operation.definition['security'];
+      expect(security, isA<YamlList>(), reason: '$label must declare security');
+      final requirements = (security as YamlList).whereType<YamlMap>().toList();
+      expect(
+        requirements.where((requirement) => requirement.isEmpty),
+        hasLength(1),
+        reason:
+            '$label must keep the empty security requirement {} so a client '
+            'reads the credential as optional while protection is OFF',
+      );
+      expect(
+        requirements.where(
+          (requirement) => requirement.containsKey(_schemeName),
+        ),
+        hasLength(1),
+        reason: '$label must keep the $_schemeName alternative',
+      );
+      expect(
+        requirements,
+        hasLength(2),
+        reason: '$label must not carry a third security alternative',
+      );
+    }
+  });
+
   test('no global security requirement applies the scheme elsewhere', () {
     expect(spec['security'], isNull);
   });
@@ -110,6 +173,129 @@ void main() {
         reason:
             '${_key(operation.method, operation.path)} must document 401 '
             'and 403',
+      );
+    }
+  });
+
+  test('every protected operation describes its requirement conditionally', () {
+    for (final operation in declaringOperations) {
+      final label = _key(operation.method, operation.path);
+      final description = operation.definition['description'];
+      expect(description, isA<String>(), reason: '$label needs a description');
+      expect(
+        description as String,
+        contains(_protectionCondition),
+        reason:
+            '$label must say its credential is needed only while protection '
+            'is ON, so a generated client does not demand one unconditionally',
+      );
+      expect(
+        description,
+        isNot(contains(_retiredRequirementClaim)),
+        reason: '$label still states the retired unconditional requirement',
+      );
+    }
+  });
+
+  test('every protected refusal is documented as protection-only', () {
+    for (final operation in declaringOperations) {
+      final label = _key(operation.method, operation.path);
+      final responses = operation.definition['responses'] as YamlMap;
+      for (final code in ['401', '403']) {
+        final response = responses[code];
+        expect(response, isA<YamlMap>(), reason: '$label must document $code');
+        final description = (response as YamlMap)['description'];
+        expect(
+          description,
+          isA<String>(),
+          reason: '$label $code needs a description',
+        );
+        expect(
+          description as String,
+          contains(_protectionCondition),
+          reason: '$label $code must not claim the refusal applies when OFF',
+        );
+      }
+    }
+  });
+
+  test('no protected operation documents a retired tokenless exception', () {
+    for (final operation in declaringOperations) {
+      final label = _key(operation.method, operation.path);
+      final text = _descriptions(operation.definition).join('\n').toLowerCase();
+      for (final marker in _retiredExceptionMarkers) {
+        expect(
+          text,
+          isNot(contains(marker)),
+          reason: '$label still mentions "$marker"',
+        );
+      }
+    }
+  });
+
+  test('the spec never describes the retired tokenless update exception', () {
+    final text = File('assets/api/rest_v1.yml')
+        .readAsStringSync()
+        .toLowerCase();
+    expect(text, isNot(contains('tokenless')));
+    expect(text, isNot(contains('native confirmation ships')));
+  });
+
+  test('the security scheme marks the credential as protection-only', () {
+    final schemes =
+        (spec['components'] as YamlMap)['securitySchemes'] as YamlMap;
+    final scheme = schemes[_schemeName] as YamlMap;
+    expect('${scheme['description']}', contains(_protectionCondition));
+  });
+
+  test('the body-dependent settings gate is described conditionally', () {
+    final settings = operations.firstWhere(
+      (operation) =>
+          operation.method == 'POST' && operation.path == '/api/v1/settings',
+    );
+    final responses = settings.definition['responses'] as YamlMap;
+    expect(settings.definition['description'], contains(_protectionCondition));
+    for (final code in ['401', '403']) {
+      final response = responses[code] as YamlMap;
+      expect(
+        response['description'],
+        contains(_protectionCondition),
+        reason: 'POST /api/v1/settings $code must apply only while ON',
+      );
+    }
+    for (final key in ['webUiPath', 'defaultSkinId', 'automaticUpdateCheck']) {
+      final property =
+          _schemaProperties(spec, 'ReaSettingsRequest')[key] as YamlMap;
+      expect(
+        property['description'],
+        contains(_protectionCondition),
+        reason: 'ReaSettingsRequest.$key must describe the ON-only gate',
+      );
+    }
+  });
+
+  test('import and pull-sync gates are described conditionally', () {
+    for (final path in ['/api/v1/data/import', '/api/v1/data/sync']) {
+      final operation = operations.firstWhere(
+        (candidate) => candidate.method == 'POST' && candidate.path == path,
+      );
+      expect(
+        operation.definition['description'],
+        contains(_protectionCondition),
+        reason: 'POST $path must describe the ON-only settings gate',
+      );
+    }
+  });
+
+  test('the native-only policy setting has no REST field', () {
+    final text = File('assets/api/rest_v1.yml').readAsStringSync();
+    expect(text, isNot(contains(_nativeOnlySetting)));
+    for (final schema in ['ReaSettings', 'ReaSettingsRequest']) {
+      expect(
+        _schemaProperties(spec, schema).containsKey(_nativeOnlySetting),
+        isFalse,
+        reason:
+            '$schema must not carry the native Security toggle as a property',
       );
     }
   });

@@ -286,8 +286,7 @@ class ExtensionManagementHarness {
   String get loopback => '127.0.0.1';
 
   static Future<ExtensionManagementHarness> start({
-    bool? automaticUpdates,
-    Set<String>? localOrigins,
+    bool? requireExtensionManagementAuthorization,
   }) async {
     HttpOverrides.global = null;
     SharedPreferences.setMockInitialValues({});
@@ -394,13 +393,13 @@ class ExtensionManagementHarness {
     ).addRoutes(app);
     WebUIHandler(storage: skins, service: skinServer).addRoutes(app);
 
+    final requirement = requireExtensionManagementAuthorization;
     final handler = buildWebServerHandler(
       app.call,
       proxyTokenService: tokens,
-      automaticUpdateCheckEnabled: automaticUpdates == null
+      requireExtensionManagementAuthorization: requirement == null
           ? null
-          : () async => automaticUpdates,
-      localOrigins: localOrigins == null ? null : () => localOrigins,
+          : () async => requirement,
     );
     loader.pluginManager.attachLocalApi((request) {
       bridged.add('${request.method} ${request.requestedUri.path}');
@@ -580,23 +579,35 @@ class ExtensionManagementHarness {
     'globalThis.$as = globalThis.__probes[${jsonEncode(pluginId)}];',
   );
 
-  Future<({int status, String body})> externalRequest(
+  Future<({int status, String body, Map<String, String> headers})>
+  externalRequest(
     String method,
     String path, {
     String? bearer,
     Object? body,
-  }) => externalRequestFrom(loopback, method, path, bearer: bearer, body: body);
+    Map<String, String> headers = const {},
+  }) => externalRequestFrom(
+    loopback,
+    method,
+    path,
+    bearer: bearer,
+    body: body,
+    headers: headers,
+  );
 
-  Future<({int status, String body})> externalRequestFrom(
+  Future<({int status, String body, Map<String, String> headers})>
+  externalRequestFrom(
     String host,
     String method,
     String path, {
     String? bearer,
     Object? body,
+    Map<String, String> headers = const {},
   }) async {
     final client = HttpClient();
     try {
       final request = await client.openUrl(method, Uri.parse(url(host, path)));
+      headers.forEach(request.headers.set);
       if (bearer != null) {
         request.headers.set('authorization', 'Bearer $bearer');
       }
@@ -605,9 +616,14 @@ class ExtensionManagementHarness {
         request.write(jsonEncode(body));
       }
       final response = await request.close();
+      final received = <String, String>{};
+      response.headers.forEach(
+        (name, values) => received[name.toLowerCase()] = values.join(', '),
+      );
       return (
         status: response.statusCode,
         body: await response.transform(utf8.decoder).join(),
+        headers: received,
       );
     } finally {
       client.close(force: true);

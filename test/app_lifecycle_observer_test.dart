@@ -11,7 +11,12 @@ import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/services/account/account_consent_store.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/app_log_upload_service.dart';
+import 'package:reaprime/src/services/webserver/extension_management_auth.dart';
+import 'package:reaprime/src/settings/settings_controller.dart';
+import 'package:shelf/shelf.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'helpers/mock_settings_service.dart';
 
 class _FakePluginLoaderService extends Fake implements PluginLoaderService {
   _FakePluginLoaderService({this.calls});
@@ -155,5 +160,58 @@ void main() {
     await tester.pump();
 
     expect(loader.disposeCalls, 1);
+  });
+
+  testWidgets('resume refreshes the extension management policy', (
+    tester,
+  ) async {
+    final service = MockSettingsService();
+    final controller = SettingsController(service);
+    await controller.loadSettings();
+    expect(controller.requireExtensionManagementAuthorization, isFalse);
+    final observer = app.AppLifecycleObserver(settingsController: controller);
+
+    await service.setRequireExtensionManagementAuthorization(true);
+    expect(controller.requireExtensionManagementAuthorization, isFalse);
+
+    observer.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    await tester.pump();
+    await tester.pump();
+
+    expect(controller.requireExtensionManagementAuthorization, isTrue);
+    observer.dispose();
+  });
+
+  testWidgets('requests after resume use the current persisted policy', (
+    tester,
+  ) async {
+    final service = MockSettingsService();
+    final controller = SettingsController(service);
+    await controller.loadSettings();
+    final observer = app.AppLifecycleObserver(settingsController: controller);
+    final handler = const Pipeline()
+        .addMiddleware(
+          extensionManagementAuthMiddleware(
+            null,
+            requireExtensionManagementAuthorization: () =>
+                controller.currentRequireExtensionManagementAuthorization(),
+          ),
+        )
+        .addHandler((request) => Response.ok('inner'));
+
+    Request install() =>
+        Request('POST', Uri.parse('http://localhost/api/v1/plugins/install'));
+
+    expect((await handler(install())).statusCode, 200);
+
+    await service.setRequireExtensionManagementAuthorization(true);
+    observer.didChangeAppLifecycleState(AppLifecycleState.paused);
+    observer.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    await tester.pump();
+    await tester.pump();
+
+    expect(controller.requireExtensionManagementAuthorization, isTrue);
+    expect((await handler(install())).statusCode, 401);
+    observer.dispose();
   });
 }

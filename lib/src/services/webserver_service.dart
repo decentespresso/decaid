@@ -399,8 +399,7 @@ Future<void> startWebServer(
     derekHandler,
     proxyTokenService,
     () => accountProxyCorsAllowedOrigins(webUIService),
-    () async => settingsController.automaticUpdateCheck,
-    () => loopbackUpdateCheckOrigins(webUIService),
+    () => settingsController.currentRequireExtensionManagementAuthorization(),
     dataExportHandler,
     dataSyncHandler,
     beansHandler,
@@ -443,8 +442,7 @@ Handler _init(
   DerekHandler derekHandler,
   ProxyTokenService? proxyTokenService,
   Set<String> Function() accountProxyAllowedOrigins,
-  Future<bool> Function() automaticUpdateCheckEnabled,
-  Set<String> Function() localOrigins,
+  Future<bool> Function() requireExtensionManagementAuthorization,
   DataExportHandler dataExportHandler,
   DataSyncHandler dataSyncHandler,
   BeansHandler? beansHandler,
@@ -508,27 +506,12 @@ Handler _init(
     app.call,
     proxyTokenService: proxyTokenService,
     accountProxyAllowedOrigins: accountProxyAllowedOrigins,
-    automaticUpdateCheckEnabled: automaticUpdateCheckEnabled,
-    localOrigins: localOrigins,
+    requireExtensionManagementAuthorization:
+        requireExtensionManagementAuthorization,
   );
 }
 
 Set<String> _noAccountProxyOrigins() => const {};
-
-/// Loopback origins of the active skin server and the API server. These are
-/// the only browser origins eligible for the #1163 tokenless update-check
-/// exception; a LAN origin is never listed here, so it can never qualify.
-Set<String> loopbackUpdateCheckOrigins(WebUIService webUIService) {
-  final skinPort = webUIService.port;
-  return {
-    'http://localhost:$skinPort',
-    'http://127.0.0.1:$skinPort',
-    'http://[::1]:$skinPort',
-    'http://localhost:8080',
-    'http://127.0.0.1:8080',
-    'http://[::1]:8080',
-  };
-}
 
 class ApiDocsConfiguration {
   const ApiDocsConfiguration();
@@ -581,8 +564,7 @@ Handler buildWebServerHandler(
   Handler routes, {
   ProxyTokenService? proxyTokenService,
   Set<String> Function() accountProxyAllowedOrigins = _noAccountProxyOrigins,
-  Future<bool> Function()? automaticUpdateCheckEnabled,
-  Set<String> Function()? localOrigins,
+  Future<bool> Function()? requireExtensionManagementAuthorization,
   AdmissionGate? admissionGate,
 }) {
   return const Pipeline()
@@ -606,8 +588,8 @@ Handler buildWebServerHandler(
       .addMiddleware(
         extensionManagementAuthMiddleware(
           proxyTokenService,
-          automaticUpdateCheckEnabled: automaticUpdateCheckEnabled,
-          localOrigins: localOrigins,
+          requireExtensionManagementAuthorization:
+              requireExtensionManagementAuthorization,
         ),
       )
       .addMiddleware(requestBodyReadMiddleware())

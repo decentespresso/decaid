@@ -400,6 +400,245 @@ void main() {
     });
   });
 
+  group('a plugin with api and network permissions in compatibility mode', () {
+    late ExtensionManagementHarness harness;
+    late String client;
+    late String target;
+    late String dormant;
+
+    setUp(() async {
+      harness = await ExtensionManagementHarness.start(
+        requireExtensionManagementAuthorization: false,
+      );
+      client = uniqueId('legacy');
+      target = uniqueId('legacytarget');
+      dormant = uniqueId('legacydormant');
+      await harness.install(client);
+      await harness.install(target);
+      await harness.install(dormant, load: false);
+    });
+
+    tearDown(() async {
+      await harness.dispose();
+    });
+
+    Future<List<String>> nonLoopbackAddresses() async {
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+        includeLoopback: false,
+      );
+      return [
+        for (final interface in interfaces)
+          for (final address in interface.addresses) address.address,
+      ];
+    }
+
+    test('the Streamline workflow through fetch mutates the fixtures without '
+        'a bearer', () async {
+      final enable = await harness.fetch(
+        client,
+        harness.url(harness.loopback, '/api/v1/plugins/$dormant/enable'),
+        method: 'POST',
+      );
+      expect(enable.status, 200, reason: '$enable');
+      expect(harness.loader.isPluginLoaded(dormant), isTrue);
+
+      final settings = await harness.fetch(
+        client,
+        harness.url(harness.loopback, '/api/v1/plugins/$target/settings'),
+        method: 'POST',
+        headers: {'content-type': 'application/json'},
+        body: jsonEncode({'mode': 'streamline'}),
+      );
+      expect(settings.status, 200, reason: '$settings');
+      expect(
+        await harness.loader.pluginSettings(target),
+        containsPair('mode', 'streamline'),
+      );
+
+      final disable = await harness.fetch(
+        client,
+        harness.url(harness.loopback, '/api/v1/plugins/$target/disable'),
+        method: 'POST',
+      );
+      expect(disable.status, 200, reason: '$disable');
+      expect(harness.loader.isPluginLoaded(target), isFalse);
+      expect(await harness.loader.shouldAutoLoad(target), isFalse);
+
+      final sourceWrite = await harness.fetch(
+        client,
+        harness.url(harness.loopback, '/api/v1/plugins/$target/source'),
+        method: 'PUT',
+        headers: {'content-type': 'application/json'},
+        body: jsonEncode({
+          'manifest': pluginManifestJson(target, version: '2.0.0'),
+          'plugin': probePluginJs(target),
+        }),
+      );
+      expect(sourceWrite.status, 200, reason: '$sourceWrite');
+      expect(harness.loader.getPluginManifest(target)?.version, '2.0.0');
+    });
+
+    test(
+      'a tokenless LAN caller reaches the same handlers through fetch',
+      () async {
+        final addresses = await nonLoopbackAddresses();
+        if (addresses.isEmpty) {
+          markTestSkipped(
+            'No non-loopback IPv4 address; the LAN caller case was not '
+            'exercised',
+          );
+          return;
+        }
+        for (final host in [harness.loopback, 'localhost', addresses.first]) {
+          final outcome = await harness.fetch(
+            client,
+            harness.url(host, '/api/v1/plugins/$dormant/enable'),
+            method: 'POST',
+          );
+          expect(outcome.status, 200, reason: '$host: $outcome');
+          expect(harness.loader.isPluginLoaded(dormant), isTrue, reason: host);
+          await harness.loader.disablePlugin(dormant);
+        }
+      },
+    );
+
+    test('raw HTTP over host.transport tcp reaches the handler', () async {
+      final raw = base64Encode(
+        utf8.encode(
+          'POST /api/v1/plugins/$dormant/enable HTTP/1.1\r\n'
+          'Host: localhost\r\nContent-Length: 0\r\n\r\n',
+        ),
+      );
+      final outcome = await harness.probe(client, '''
+        new Promise((resolve, reject) => {
+          host.transport.open({ kind: "tcp", host: "127.0.0.1", port: ${harness.port} }).then((opened) => {
+            const chunks = [];
+            host.transport.onEvent(opened.handle, (event) => {
+              if (event.type === "data") {
+                chunks.push(event.data);
+                resolve(chunks);
+                host.transport.close(opened.handle).catch(() => {});
+              } else if (event.type === "close") {
+                resolve(chunks);
+              } else if (event.type === "error") {
+                reject(new Error(event.message));
+              }
+            });
+            return host.transport.send(opened.handle, { type: "binary", data: ${jsonEncode(raw)} });
+          }).catch(reject);
+        })
+      ''');
+      expect(outcome.resolved, isTrue, reason: '$outcome');
+      final response = utf8.decode([
+        for (final chunk in outcome.value as List) ...base64Decode(chunk),
+      ]);
+      expect(response.split('\r\n').first, 'HTTP/1.1 200 OK', reason: response);
+      expect(harness.loader.isPluginLoaded(dormant), isTrue);
+    });
+
+    test(
+      'a plugin without manage.extensions still cannot use host.localApi',
+      () async {
+        final outcome = await harness.localApi(
+          client,
+          '/api/v1/plugins/$dormant/enable',
+          options: {'method': 'POST'},
+        );
+
+        expect(outcome.errorName, 'PluginPermissionError');
+        expect(outcome.errorMessage, contains('manage.extensions'));
+        expect(harness.bridged, isEmpty);
+        expect(harness.loader.isPluginLoaded(dormant), isFalse);
+      },
+    );
+  });
+
+  group('the manage.extensions grant in both modes', () {
+    for (final required in [true, false]) {
+      group(required ? 'protected mode' : 'compatibility mode', () {
+        late ExtensionManagementHarness harness;
+        late String steward;
+        late String plain;
+        late String target;
+        late String dormant;
+
+        setUp(() async {
+          harness = await ExtensionManagementHarness.start(
+            requireExtensionManagementAuthorization: required,
+          );
+          steward = uniqueId('grantsteward');
+          plain = uniqueId('grantplain');
+          target = uniqueId('granttarget');
+          dormant = uniqueId('grantdormant');
+          await harness.install(steward, permissions: privilegedPermissions);
+          await harness.install(plain);
+          await harness.install(target);
+          await harness.install(dormant, load: false);
+        });
+
+        tearDown(() async {
+          await harness.dispose();
+        });
+
+        test('an approved plugin reaches management handlers through '
+            'host.localApi and a forged generation is still refused', () async {
+          final enabled = await harness.localApi(
+            steward,
+            '/api/v1/plugins/$dormant/enable',
+            options: {'method': 'POST'},
+          );
+          expect(enabled.status, 200, reason: '$enabled');
+          expect(harness.loader.isPluginLoaded(dormant), isTrue);
+
+          final echo = await harness.localApi(steward, fixtureEcho);
+          expect(echo.status, 200, reason: '$echo');
+          expect(echo.jsonBody['hasGrant'], isTrue);
+          expect(echo.jsonBody['mayManage'], isTrue);
+
+          final forged = await harness.probe(
+            steward,
+            'globalThis.__reaprimePluginBridge.localApi(pluginId, pluginGeneration + 1, pluginBridgeToken, "/api/v1/plugins/$dormant/disable", "POST", null, null)',
+          );
+          expect(forged.resolved, isFalse, reason: '$forged');
+          expect(harness.loader.isPluginLoaded(dormant), isTrue);
+        });
+
+        test(
+          'a plugin without manage.extensions is refused before dispatch',
+          () async {
+            final outcome = await harness.localApi(
+              plain,
+              '/api/v1/plugins/$dormant/enable',
+              options: {'method': 'POST'},
+            );
+
+            expect(outcome.errorName, 'PluginPermissionError');
+            expect(outcome.errorMessage, contains('manage.extensions'));
+            expect(harness.bridged, isEmpty);
+            expect(harness.loader.isPluginLoaded(dormant), isFalse);
+          },
+        );
+
+        test('fetch never carries the host grant', () async {
+          final outcome = await harness.fetch(
+            steward,
+            harness.url(harness.loopback, fixtureEcho),
+          );
+          expect(outcome.status, 200, reason: '$outcome');
+          final seen = harness.routed.last;
+          expect(seen.grant, isNull);
+          expect(
+            seen.headers.keys.map((name) => name.toLowerCase()),
+            isNot(contains('authorization')),
+          );
+          expect(seen.mayManage, required ? isFalse : isTrue);
+          expect(harness.bridged, isEmpty);
+        });
+      });
+    }
+  });
+
   group('self-escalation', () {
     late FakeGitHub gitHub;
 
@@ -595,14 +834,17 @@ void main() {
     );
   });
 
-  group('tokenless loopback update exception', () {
-    const loopbackOrigins = {
-      'http://localhost:3000',
-      'http://127.0.0.1:3000',
-      'http://[::1]:3000',
-    };
+  group('manual update checks', () {
     const pluginsUpdate = '/api/v1/plugins/update';
     const skinsUpdate = '/api/v1/webui/skins/update';
+    const forgedLoopbackHeaders = {
+      'origin': 'http://localhost:3000',
+      'referer': 'http://localhost/',
+      'x-forwarded-for': '127.0.0.1',
+      'x-real-ip': '127.0.0.1',
+      'forwarded': 'for=127.0.0.1;host=localhost',
+      'x-forwarded-host': 'localhost',
+    };
 
     late FakeGitHub gitHub;
 
@@ -619,141 +861,132 @@ void main() {
       ];
     }
 
-    test(
-      'a loopback caller runs both update checks when auto updates are on',
-      () => http.runWithClient(() async {
-        final harness = await ExtensionManagementHarness.start(
-          automaticUpdates: true,
-          localOrigins: loopbackOrigins,
-        );
-        // A configured GitHub source makes the plugin update observable: the
-        // call must actually poll it, not merely return 200.
-        final repo = 'acme/loopcheck';
-        final id = uniqueId('loopcheck');
-        gitHub.publish(repo, id, '1.0.0', permissions: unprivilegedPermissions);
-        await harness.sourceService.installFromGitHubRelease(repo);
-        await harness.loader.enablePlugin(id);
-
-        try {
-          final pollsBefore = gitHub.requests.length;
-
-          final skins = await harness.externalRequest('POST', skinsUpdate);
-          expect(skins.status, 200, reason: skins.body);
-          expect(harness.skins.mutations, ['checkForSkinUpdates']);
-
-          final plugins = await harness.externalRequest('POST', pluginsUpdate);
-          expect(plugins.status, 200, reason: plugins.body);
-          expect(
-            gitHub.requests.length,
-            greaterThan(pollsBefore),
-            reason: 'updateAllPlugins must execute, not just return 200',
-          );
-          expect(
-            harness.sourceService.sourceFor(id)?.lastChecked,
-            isNotNull,
-            reason: 'the source must have been checked',
-          );
-        } finally {
-          await harness.dispose();
-        }
-      }, () => gitHub.client),
-    );
-
-    test(
-      'every other protected route stays refused on loopback when on',
-      () async {
-        final harness = await ExtensionManagementHarness.start(
-          automaticUpdates: true,
-          localOrigins: loopbackOrigins,
-        );
-        try {
-          for (final route in extensionManagementRoutes) {
-            if (route.path == pluginsUpdate || route.path == skinsUpdate) {
-              continue;
-            }
-            final path = route.path.replaceAll('<id>', 'nope.reaplugin');
-            final outcome = await harness.externalRequest(route.method, path);
-            expect(outcome.status, 401, reason: '${route.method} $path');
-          }
-        } finally {
-          await harness.dispose();
-        }
-      },
-    );
-
-    test('a LAN peer is refused on both update routes even when on', () async {
-      final addresses = await nonLoopbackAddresses();
-      if (addresses.isEmpty) {
-        markTestSkipped(
-          'No non-loopback IPv4 address; LAN peer case not exercised',
-        );
-        return;
-      }
+    Future<void> withManagement(
+      bool protected,
+      Future<void> Function(ExtensionManagementHarness harness) body,
+    ) => http.runWithClient(() async {
       final harness = await ExtensionManagementHarness.start(
-        automaticUpdates: true,
-        localOrigins: loopbackOrigins,
+        requireExtensionManagementAuthorization: protected,
       );
       try {
-        for (final path in [pluginsUpdate, skinsUpdate]) {
-          final outcome = await harness.externalRequestFrom(
-            addresses.first,
-            'POST',
-            path,
-          );
-          expect(outcome.status, 401, reason: '$path via ${addresses.first}');
-        }
-        expect(harness.skins.mutations, isEmpty);
+        await body(harness);
       } finally {
         await harness.dispose();
       }
-    });
+    }, () => gitHub.client);
 
-    test(
-      'auto updates off keeps loopback denied with no side effect',
-      () async {
-        final harness = await ExtensionManagementHarness.start(
-          automaticUpdates: false,
-          localOrigins: loopbackOrigins,
-        );
-        try {
-          for (final path in [pluginsUpdate, skinsUpdate]) {
-            final outcome = await harness.externalRequest('POST', path);
-            expect(outcome.status, 401, reason: path);
+    Future<String> installGitHubSource(
+      ExtensionManagementHarness harness,
+      String name,
+    ) async {
+      final id = uniqueId(name);
+      gitHub.publish(
+        'acme/$name',
+        id,
+        '1.0.0',
+        permissions: unprivilegedPermissions,
+      );
+      await harness.sourceService.installFromGitHubRelease('acme/$name');
+      await harness.loader.enablePlugin(id);
+      return id;
+    }
+
+    Future<void> expectBothManualChecksRun(
+      ExtensionManagementHarness harness,
+      String host,
+      String pluginId,
+    ) async {
+      final pollsBefore = gitHub.requests.length;
+      final checkedBefore = harness.sourceService
+          .sourceFor(pluginId)
+          ?.lastChecked;
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(
+        gitHub.requests.length,
+        pollsBefore,
+        reason: 'nothing polls GitHub before a manual check',
+      );
+      expect(
+        harness.sourceService.sourceFor(pluginId)?.lastChecked,
+        checkedBefore,
+        reason: 'no background scheduler is wired into the harness',
+      );
+      expect(harness.skins.mutations, isEmpty);
+
+      final skins = await harness.externalRequestFrom(
+        host,
+        'POST',
+        skinsUpdate,
+      );
+      expect(skins.status, 200, reason: skins.body);
+      expect(harness.skins.mutations, ['checkForSkinUpdates']);
+
+      final plugins = await harness.externalRequestFrom(
+        host,
+        'POST',
+        pluginsUpdate,
+      );
+      expect(plugins.status, 200, reason: plugins.body);
+      expect(
+        gitHub.requests.length,
+        greaterThan(pollsBefore),
+        reason: 'the manual check must poll the installed source',
+      );
+      expect(
+        harness.sourceService.sourceFor(pluginId)?.lastChecked,
+        isNot(checkedBefore),
+      );
+    }
+
+    group('compatibility mode', () {
+      test(
+        'a tokenless localhost caller runs both manual checks',
+        () => withManagement(false, (harness) async {
+          final id = await installGitHubSource(harness, 'compatlocal');
+          for (final host in ['127.0.0.1', 'localhost']) {
+            harness.skins.mutations.clear();
+            await expectBothManualChecksRun(harness, host, id);
           }
-          expect(harness.skins.mutations, isEmpty);
-        } finally {
-          await harness.dispose();
-        }
-      },
-    );
+        }),
+      );
 
-    test(
-      'an allowed tokenless check keeps a permission escalation pending',
-      () => http.runWithClient(() async {
-        final harness = await ExtensionManagementHarness.start(
-          automaticUpdates: true,
-          localOrigins: loopbackOrigins,
-        );
-        try {
+      test(
+        'a tokenless LAN caller runs both manual checks',
+        () => withManagement(false, (harness) async {
+          final addresses = await nonLoopbackAddresses();
+          if (addresses.isEmpty) {
+            markTestSkipped(
+              'No non-loopback IPv4 address; LAN peer case not exercised',
+            );
+            return;
+          }
+          final id = await installGitHubSource(harness, 'compatlan');
+          await expectBothManualChecksRun(harness, addresses.first, id);
+        }),
+      );
+
+      test(
+        'a tokenless manual check keeps a permission escalation pending '
+        'until it is approved',
+        () => withManagement(false, (harness) async {
           final climber = uniqueId('climber');
-          final repo = 'acme/${climber.split('.').first}';
           gitHub.publish(
-            repo,
+            'acme/climber',
             climber,
             '1.0.0',
             permissions: unprivilegedPermissions,
           );
-          await harness.sourceService.installFromGitHubRelease(repo);
+          await harness.sourceService.installFromGitHubRelease('acme/climber');
           await harness.loader.enablePlugin(climber);
           gitHub.publish(
-            repo,
+            'acme/climber',
             climber,
             '1.1.0',
             permissions: [...unprivilegedPermissions, 'manage.extensions'],
           );
 
-          final outcome = await harness.externalRequest('POST', pluginsUpdate);
-          expect(outcome.status, 200, reason: outcome.body);
+          final check = await harness.externalRequest('POST', pluginsUpdate);
+          expect(check.status, 200, reason: check.body);
 
           final pending = harness.sourceService
               .sourceFor(climber)
@@ -766,12 +999,341 @@ void main() {
             'POST',
             '/api/v1/plugins/$climber/update/approve',
           );
-          expect(approve.status, 401, reason: approve.body);
-          expect(harness.loader.getPluginManifest(climber)?.version, '1.0.0');
-        } finally {
-          await harness.dispose();
+          expect(approve.status, 200, reason: approve.body);
+          expect(harness.loader.getPluginManifest(climber)?.version, '1.1.0');
+          expect(harness.loader.isPluginLoaded(climber), isTrue);
+        }),
+      );
+    });
+
+    group('protected mode', () {
+      Future<void> withProtected(
+        Future<void> Function(
+          ExtensionManagementHarness harness,
+          String target,
+          String dormant,
+          Map<String, Object?> before,
+        )
+        body,
+      ) => withManagement(true, (harness) async {
+        final target = uniqueId('target');
+        final dormant = uniqueId('dormant');
+        await harness.install(target);
+        await harness.install(dormant, load: false);
+        await body(harness, target, dormant, await harness.extensionState());
+      });
+
+      List<({String method, String path, Object? body})> requests(
+        String target,
+        String dormant,
+      ) => [
+        for (final route in extensionManagementRoutes)
+          concreteManagementRequest(
+            route,
+            targetId: target,
+            dormantId: dormant,
+          ),
+      ];
+
+      Future<void> expectEveryRouteRefused(
+        ExtensionManagementHarness harness,
+        String host,
+        String target,
+        String dormant, {
+        Map<String, String> headers = const {},
+      }) async {
+        for (final request in requests(target, dormant)) {
+          final outcome = await harness.externalRequestFrom(
+            host,
+            request.method,
+            request.path,
+            headers: {
+              ...headers,
+              if (request.body != null) 'content-type': 'application/json',
+            },
+            body: request.body,
+          );
+          expect(
+            outcome.status,
+            401,
+            reason:
+                '${request.method} ${request.path} via $host: '
+                '${outcome.body}',
+          );
+          expect(
+            outcome.headers['www-authenticate'],
+            'Bearer',
+            reason: '${request.method} ${request.path} via $host',
+          );
         }
-      }, () => gitHub.client),
+      }
+
+      test(
+        'a tokenless caller is refused on every management route',
+        () => withProtected((harness, target, dormant, before) async {
+          for (final host in ['127.0.0.1', 'localhost']) {
+            await expectEveryRouteRefused(harness, host, target, dormant);
+            await expectEveryRouteRefused(
+              harness,
+              host,
+              target,
+              dormant,
+              headers: forgedLoopbackHeaders,
+            );
+          }
+          expect(await harness.extensionState(), before);
+        }),
+      );
+
+      test(
+        'a tokenless LAN caller is refused on every route',
+        () => withProtected((harness, target, dormant, before) async {
+          final addresses = await nonLoopbackAddresses();
+          if (addresses.isEmpty) {
+            markTestSkipped(
+              'No non-loopback IPv4 address; LAN peer case not exercised',
+            );
+            return;
+          }
+          await expectEveryRouteRefused(
+            harness,
+            addresses.first,
+            target,
+            dormant,
+          );
+          await expectEveryRouteRefused(
+            harness,
+            addresses.first,
+            target,
+            dormant,
+            headers: forgedLoopbackHeaders,
+          );
+          expect(await harness.extensionState(), before);
+        }),
+      );
+
+      test(
+        'both manual update routes are refused and do no work',
+        () => withProtected((harness, target, dormant, before) async {
+          final id = await installGitHubSource(harness, 'protectedupdate');
+          final withSource = await harness.extensionState();
+          final pollsBefore = gitHub.requests.length;
+
+          for (final path in [pluginsUpdate, skinsUpdate]) {
+            for (final headers in const [
+              <String, String>{},
+              forgedLoopbackHeaders,
+            ]) {
+              final outcome = await harness.externalRequest(
+                'POST',
+                path,
+                headers: headers,
+              );
+              expect(outcome.status, 401, reason: '$path $headers');
+            }
+          }
+
+          expect(harness.skins.mutations, isEmpty);
+          expect(gitHub.requests.length, pollsBefore);
+          expect(harness.sourceService.sourceFor(id)?.pendingUpdate, isNull);
+          expect(await harness.extensionState(), withSource);
+        }),
+      );
+
+      test(
+        'a valid manager token still runs both manual checks',
+        () => withProtected((harness, target, dormant, before) async {
+          final id = await installGitHubSource(harness, 'managedupdate');
+          final pollsBefore = gitHub.requests.length;
+
+          final skins = await harness.externalRequest(
+            'POST',
+            skinsUpdate,
+            bearer: managerToken,
+          );
+          expect(skins.status, 200, reason: skins.body);
+          expect(harness.skins.mutations, ['checkForSkinUpdates']);
+
+          final plugins = await harness.externalRequest(
+            'POST',
+            pluginsUpdate,
+            bearer: managerToken,
+          );
+          expect(plugins.status, 200, reason: plugins.body);
+          expect(
+            gitHub.requests.length,
+            greaterThan(pollsBefore),
+            reason: 'the manual check must poll the installed source',
+          );
+          expect(harness.sourceService.sourceFor(id)?.lastChecked, isNotNull);
+        }),
+      );
+
+      test(
+        'malformed credentials are 401 and wrong-scope credentials are 403',
+        () => withProtected((harness, target, dormant, before) async {
+          for (final request in requests(target, dormant)) {
+            for (final (authorization, status) in [
+              ('Bearer not-a-token', 401),
+              ('Bearer $accountToken', 403),
+            ]) {
+              final outcome = await harness.externalRequestFrom(
+                harness.loopback,
+                request.method,
+                request.path,
+                headers: {'authorization': authorization},
+                body: request.body,
+              );
+              expect(
+                outcome.status,
+                status,
+                reason: '${request.method} ${request.path} $authorization',
+              );
+              if (status == 403) {
+                expect(
+                  (jsonDecode(outcome.body) as Map)['error'],
+                  contains('extensions:manage'),
+                );
+              }
+            }
+          }
+          expect(await harness.extensionState(), before);
+        }),
+      );
+    });
+  });
+
+  group('pre-existing CORS policy', () {
+    const origin = 'http://localhost:3000';
+    const pluginsUpdate = '/api/v1/plugins/update';
+    const corsHeaderNames = [
+      'access-control-allow-origin',
+      'access-control-allow-credentials',
+      'access-control-expose-headers',
+      'access-control-allow-headers',
+      'access-control-allow-methods',
+    ];
+
+    Map<String, String?> corsOf(
+      ({int status, String body, Map<String, String> headers}) outcome,
+    ) => {for (final name in corsHeaderNames) name: outcome.headers[name]};
+
+    Future<void> withMode(
+      bool protected,
+      Future<void> Function(ExtensionManagementHarness harness) body,
+    ) => http.runWithClient(() async {
+      final harness = await ExtensionManagementHarness.start(
+        requireExtensionManagementAuthorization: protected,
+      );
+      try {
+        await body(harness);
+      } finally {
+        await harness.dispose();
+      }
+    }, () => FakeGitHub().client);
+
+    test('a management request keeps the existing CORS headers in both modes '
+        'while authorization differs', () async {
+      final observed = <String, ({int status, Map<String, String?> cors})>{};
+
+      await withMode(false, (harness) async {
+        final outcome = await harness.externalRequest(
+          'POST',
+          pluginsUpdate,
+          headers: const {'origin': origin},
+        );
+        observed['compatibility'] = (
+          status: outcome.status,
+          cors: corsOf(outcome),
+        );
+      });
+
+      await withMode(true, (harness) async {
+        final refused = await harness.externalRequest(
+          'POST',
+          pluginsUpdate,
+          headers: const {'origin': origin},
+        );
+        observed['protected tokenless'] = (
+          status: refused.status,
+          cors: corsOf(refused),
+        );
+
+        final managed = await harness.externalRequest(
+          'POST',
+          pluginsUpdate,
+          bearer: managerToken,
+          headers: const {'origin': origin},
+        );
+        observed['protected manager'] = (
+          status: managed.status,
+          cors: corsOf(managed),
+        );
+      });
+
+      expect(observed['compatibility']!.status, 200);
+      expect(observed['protected tokenless']!.status, 401);
+      expect(observed['protected manager']!.status, 200);
+
+      final openCors = observed['compatibility']!.cors;
+      expect(openCors['access-control-allow-origin'], origin);
+      expect(openCors['access-control-allow-credentials'], 'true');
+      expect(openCors['access-control-expose-headers'], isNotEmpty);
+      expect(openCors['access-control-allow-headers'], isNotEmpty);
+      expect(observed['protected tokenless']!.cors, openCors);
+      expect(observed['protected manager']!.cors, openCors);
+    });
+
+    test(
+      'OPTIONS keeps its pre-existing CORS preflight in both modes',
+      () async {
+        for (final protected in [false, true]) {
+          await withMode(protected, (harness) async {
+            final outcome = await harness.externalRequest(
+              'OPTIONS',
+              pluginsUpdate,
+              headers: const {
+                'origin': origin,
+                'access-control-request-method': 'POST',
+              },
+            );
+            expect(outcome.status, 200, reason: 'protected: $protected');
+            expect(
+              outcome.headers['access-control-allow-origin'],
+              origin,
+              reason: 'protected: $protected',
+            );
+            expect(
+              outcome.headers['access-control-allow-methods'],
+              isNotEmpty,
+              reason: 'protected: $protected',
+            );
+          });
+        }
+      },
     );
+
+    test('the account proxy keeps its restrictive ACAO rule', () async {
+      await withMode(false, (harness) async {
+        final proxied = await harness.externalRequest(
+          'POST',
+          '/api/v1/account/proxy/models',
+          bearer: accountToken,
+          headers: const {'origin': origin},
+          body: const {'ping': 1},
+        );
+        expect(proxied.status, 200, reason: proxied.body);
+        expect(harness.accountProxyHits, hasLength(1));
+        expect(proxied.headers['access-control-allow-origin'], isNull);
+
+        final management = await harness.externalRequest(
+          'POST',
+          pluginsUpdate,
+          headers: const {'origin': origin},
+        );
+        expect(management.status, 200, reason: management.body);
+        expect(management.headers['access-control-allow-origin'], origin);
+      });
+    });
   });
 }
