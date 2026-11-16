@@ -5,7 +5,7 @@
 For #320, both existing local dialog implementations delegate installation to
 AndroidUpdater. Each updater owns an in-memory permission coordinator. An attempt
 checks the downloaded APK before checking permission or opening Android's per-source
-installation settings. Returning from that screen rechecks permission and either
+installation settings. Its native activity result rechecks permission and either
 launches the native installer once or returns a neutral permission-required
 outcome. Both dialogs retain their downloaded path for Retry after denial.
 
@@ -24,11 +24,25 @@ during its download.
 
 ## Lifecycle Boundaries
 
-The coordinator observes lifecycle events only while a permission attempt is
-pending. It requires the app to leave and return, coalesces repeated calls during
-that attempt, and unregisters its observer afterward. Disposal cancels the pending
-attempt; ordinary process startup has no saved attempt to replay. Neither an
-unrelated resume nor a previous launch can automatically open another installer.
+The coordinator waits for the native settings activity result, not inferred
+Flutter paused/resumed events. This also handles translucent settings screens
+whose lifecycle never reaches paused. Repeated calls coalesce while an attempt is
+pending. Disposal immediately cancels the wait, including during initial APK
+validation, and a later native result cannot launch an abandoned installation.
+Activity destruction cancels the native request; ordinary startup has no saved
+attempt to replay. Unrelated resumes never open an installer.
+
+The Settings dialog owns and disposes its updater. Busy dialogs block barrier and
+system-back dismissal; programmatic route removal still disposes the owner and
+cancels the attempt. The cached APK is revalidated after permission returns. Native
+invalid-file failures have a stable type so either local dialog discards the path
+and its next Retry downloads a replacement.
+
+Archive preflight checks package identity and signing information against the
+installed application. Matching signer sets and single-signer forward rotation
+are accepted; unsigned or unrelated signing identities are rejected. Android's
+package installer remains the authority for full signature integrity and update
+policy. No new version-code or reinstall policy is introduced.
 
 Existing notification actions and Settings navigation remain unchanged. No pending
 installation state is persisted, and native installer acceptance/cancellation

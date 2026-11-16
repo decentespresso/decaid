@@ -3,6 +3,7 @@ package net.tadel.reaprime
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Build
@@ -11,6 +12,7 @@ import android.provider.Settings
 import android.util.Log
 import android.webkit.WebView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -21,6 +23,14 @@ class MainActivity: FlutterFragmentActivity() {
     private val CHANNEL = "com.reaprime.updater/apk_installer"
     private val NETWORK_CHANNEL = "com.reaprime/network"
     private val TAG = "MainActivity"
+    private var installPermissionResult: MethodChannel.Result? = null
+    private val installPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        val result = installPermissionResult
+        installPermissionResult = null
+        result?.success(null)
+    }
 
     companion object {
         private const val MULTICAST_LOCK_TAG = "reaprime-multicast"
@@ -66,6 +76,13 @@ class MainActivity: FlutterFragmentActivity() {
         
     }
 
+    override fun onDestroy() {
+        val result = installPermissionResult
+        installPermissionResult = null
+        result?.error("PERMISSION_CANCELLED", "Installation permission request cancelled", null)
+        super.onDestroy()
+    }
+
     /**
      * Detects if app is running in a cloned environment (Parallel Space, Island, etc.)
      * Normal path: /data/user/0/com.example.app/files
@@ -99,6 +116,8 @@ class MainActivity: FlutterFragmentActivity() {
                         try {
                             installApk(apkPath)
                             result.success(true)
+                        } catch (e: InvalidApkException) {
+                            result.error("INVALID_APK", "APK file is invalid", null)
                         } catch (e: Exception) {
                             result.error("INSTALL_FAILED", e.message, null)
                         }
@@ -115,13 +134,7 @@ class MainActivity: FlutterFragmentActivity() {
                     result.success(canInstall)
                 }
                 "requestInstallPermission" -> {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
-                            data = Uri.parse("package:$packageName")
-                        }
-                        startActivity(intent)
-                    }
-                    result.success(true)
+                    requestInstallPermission(result)
                 }
                 else -> {
                     result.notImplemented()
@@ -212,12 +225,8 @@ class MainActivity: FlutterFragmentActivity() {
     private fun installApk(apkPath: String) {
         val apkFile = File(apkPath)
         
-        if (!apkFile.exists()) {
-            throw IllegalArgumentException("APK file does not exist: $apkPath")
-        }
-
         if (!isValidApk(apkPath)) {
-            throw IllegalArgumentException("APK file is invalid")
+            throw InvalidApkException()
         }
 
         val intent = Intent(Intent.ACTION_VIEW).apply {
@@ -239,8 +248,47 @@ class MainActivity: FlutterFragmentActivity() {
     }
 
     private fun isValidApk(path: String): Boolean {
-        val archive = packageManager.getPackageArchiveInfo(path, 0)
-        return archive != null && archive.packageName == packageName
+        return try {
+            val file = File(path)
+            if (!file.isFile || file.length() == 0L) return false
+            val flags = PackageManager.GET_SIGNING_CERTIFICATES
+            val archive = packageManager.getPackageArchiveInfo(path, flags) ?: return false
+            if (archive.packageName != packageName) return false
+            val candidate = archive.signingInfo ?: return false
+            val installed = packageManager.getPackageInfo(packageName, flags).signingInfo ?: return false
+            val candidateSigners = candidate.apkContentsSigners?.toSet().orEmpty()
+            val installedSigners = installed.apkContentsSigners?.toSet().orEmpty()
+            if (candidateSigners.isEmpty() || installedSigners.isEmpty()) return false
+            if (candidateSigners == installedSigners) return true
+            if (candidate.hasMultipleSigners() || installed.hasMultipleSigners()) return false
+            val installedSigner = installedSigners.singleOrNull() ?: return false
+            candidate.signingCertificateHistory?.contains(installedSigner) == true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun requestInstallPermission(result: MethodChannel.Result) {
+        if (installPermissionResult != null) {
+            result.error("PERMISSION_REQUEST_PENDING", "Installation settings are already open", null)
+            return
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || packageManager.canRequestPackageInstalls()) {
+            result.success(null)
+            return
+        }
+        installPermissionResult = result
+        try {
+            val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                data = Uri.parse("package:$packageName")
+            }
+            installPermissionLauncher.launch(intent)
+        } catch (_: Exception) {
+            if (installPermissionResult === result) {
+                installPermissionResult = null
+                result.error("PERMISSION_REQUEST_FAILED", "Could not open installation settings", null)
+            }
+        }
     }
 
     private fun recreateSafely() {
@@ -255,4 +303,6 @@ class MainActivity: FlutterFragmentActivity() {
         }
     }
 }
+
+private class InvalidApkException : Exception("APK file is invalid")
 

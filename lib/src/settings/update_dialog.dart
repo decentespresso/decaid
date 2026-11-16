@@ -33,91 +33,94 @@ class _UpdateDialogState extends State<UpdateDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text('Update Available'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Version ${widget.updateInfo.version}',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            SizedBox(height: 8),
-            Text(
-              'Current version: ${widget.currentVersion}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            if (widget.updateInfo.isPrerelease) ...[
-              SizedBox(height: 8),
-              Chip(
-                label: Text('Pre-release'),
-                backgroundColor: Colors.orange.withValues(alpha: 0.2),
+    return PopScope(
+      canPop: !_isDownloading && !_isInstalling,
+      child: AlertDialog(
+        title: Text('Update Available'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Version ${widget.updateInfo.version}',
+                style: Theme.of(context).textTheme.titleMedium,
               ),
-            ],
-            SizedBox(height: 16),
-            TextButton.icon(
-              onPressed: widget.onViewReleaseNotes,
-              icon: const Icon(Icons.open_in_new),
-              label: const Text("What's new"),
-            ),
-            if (_error != null) ...[
-              SizedBox(height: 16),
-              Container(
-                padding: EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.red.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(_error!, style: TextStyle(color: Colors.red)),
-              ),
-            ],
-            if (_isDownloading) ...[
-              SizedBox(height: 16),
-              LinearProgressIndicator(value: _downloadProgress),
               SizedBox(height: 8),
               Text(
-                _downloadProgress == null
-                    ? 'Downloading update…'
-                    : 'Downloading update… ${(_downloadProgress! * 100).round()}%',
+                'Current version: ${widget.currentVersion}',
+                style: Theme.of(context).textTheme.bodySmall,
               ),
-            ],
-            if (_isInstalling) ...[
+              if (widget.updateInfo.isPrerelease) ...[
+                SizedBox(height: 8),
+                Chip(
+                  label: Text('Pre-release'),
+                  backgroundColor: Colors.orange.withValues(alpha: 0.2),
+                ),
+              ],
               SizedBox(height: 16),
-              LinearProgressIndicator(),
-              SizedBox(height: 8),
-              Text('Installing update...'),
-            ],
-            if (_permissionRequired) ...[
-              const SizedBox(height: 16),
-              const Text(
-                'Installation is not authorized. Allow Decaid to install apps, then retry.',
+              TextButton.icon(
+                onPressed: widget.onViewReleaseNotes,
+                icon: const Icon(Icons.open_in_new),
+                label: const Text("What's new"),
               ),
+              if (_error != null) ...[
+                SizedBox(height: 16),
+                Container(
+                  padding: EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(_error!, style: TextStyle(color: Colors.red)),
+                ),
+              ],
+              if (_isDownloading) ...[
+                SizedBox(height: 16),
+                LinearProgressIndicator(value: _downloadProgress),
+                SizedBox(height: 8),
+                Text(
+                  _downloadProgress == null
+                      ? 'Downloading update…'
+                      : 'Downloading update… ${(_downloadProgress! * 100).round()}%',
+                ),
+              ],
+              if (_isInstalling) ...[
+                SizedBox(height: 16),
+                LinearProgressIndicator(),
+                SizedBox(height: 8),
+                Text('Installing update...'),
+              ],
+              if (_permissionRequired) ...[
+                const SizedBox(height: 16),
+                const Text(
+                  'Installation is not authorized. Allow Decaid to install apps, then retry.',
+                ),
+              ],
             ],
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _isDownloading || _isInstalling
-              ? null
-              : () => Navigator.of(context).pop(),
-          child: Text('Cancel'),
-        ),
-        if (_downloadedPath == null)
-          ElevatedButton(
-            onPressed: _isDownloading ? null : _handleDownload,
-            child: Text(_error == null ? 'Download' : 'Retry'),
-          )
-        else
-          ElevatedButton(
-            onPressed: _isInstalling ? null : _handleInstall,
-            child: Text(
-              _error == null && !_permissionRequired ? 'Install' : 'Retry',
-            ),
           ),
-      ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: _isDownloading || _isInstalling
+                ? null
+                : () => Navigator.of(context).pop(),
+            child: Text('Cancel'),
+          ),
+          if (_downloadedPath == null)
+            ElevatedButton(
+              onPressed: _isDownloading ? null : _handleDownload,
+              child: Text(_error == null ? 'Download' : 'Retry'),
+            )
+          else
+            ElevatedButton(
+              onPressed: _isInstalling ? null : _handleInstall,
+              child: Text(
+                _error == null && !_permissionRequired ? 'Install' : 'Retry',
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -277,63 +280,66 @@ class _AndroidQuickUpdateDialogState extends State<AndroidQuickUpdateDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text('Update ${widget.updateInfo.version}'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (_isDownloading) ...[
-            LinearProgressIndicator(value: _downloadProgress),
-            const SizedBox(height: 12),
-            Text(
-              _downloadProgress == null
-                  ? 'Downloading update…'
-                  : 'Downloading update… ${(_downloadProgress! * 100).round()}%',
-            ),
-          ],
-          if (_isInstalling) ...[
-            const LinearProgressIndicator(),
-            const SizedBox(height: 12),
-            const Text('Installing update…'),
-          ],
-          if (_error != null) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.red.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(4),
+    return PopScope(
+      canPop: !_isDownloading && !_isInstalling,
+      child: AlertDialog(
+        title: Text('Update ${widget.updateInfo.version}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_isDownloading) ...[
+              LinearProgressIndicator(value: _downloadProgress),
+              const SizedBox(height: 12),
+              Text(
+                _downloadProgress == null
+                    ? 'Downloading update…'
+                    : 'Downloading update… ${(_downloadProgress! * 100).round()}%',
               ),
-              child: Text(_error!, style: const TextStyle(color: Colors.red)),
-            ),
+            ],
+            if (_isInstalling) ...[
+              const LinearProgressIndicator(),
+              const SizedBox(height: 12),
+              const Text('Installing update…'),
+            ],
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(_error!, style: const TextStyle(color: Colors.red)),
+              ),
+            ],
+            if (_permissionRequired)
+              const Text(
+                'Installation is not authorized. Allow Decaid to install apps, then retry.',
+              ),
           ],
-          if (_permissionRequired)
-            const Text(
-              'Installation is not authorized. Allow Decaid to install apps, then retry.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: _isDownloading || _isInstalling
+                ? null
+                : () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+          if (_error != null || _permissionRequired)
+            ElevatedButton(
+              onPressed: () {
+                setState(() {
+                  _error = null;
+                  _permissionRequired = false;
+                  _isDownloading = _downloadedPath == null;
+                  _downloadProgress = null;
+                });
+                _startDownload();
+              },
+              child: const Text('Retry'),
             ),
         ],
       ),
-      actions: [
-        TextButton(
-          onPressed: _isDownloading || _isInstalling
-              ? null
-              : () => Navigator.of(context).pop(),
-          child: const Text('Close'),
-        ),
-        if (_error != null || _permissionRequired)
-          ElevatedButton(
-            onPressed: () {
-              setState(() {
-                _error = null;
-                _permissionRequired = false;
-                _isDownloading = _downloadedPath == null;
-                _downloadProgress = null;
-              });
-              _startDownload();
-            },
-            child: const Text('Retry'),
-          ),
-      ],
     );
   }
 }

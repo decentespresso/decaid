@@ -491,18 +491,13 @@ class SettingsView extends StatelessWidget {
             credentials: githubCredentials,
           );
           final releaseUrl = updateCheckService?.getReleaseUrl(updateInfo);
-          await showDialog(
-            context: context,
-            builder: (context) => UpdateDialog(
-              updateInfo: updateInfo,
-              currentVersion: BuildInfo.version,
-              onViewReleaseNotes: () {
-                if (releaseUrl != null) launchUrl(Uri.parse(releaseUrl));
-              },
-              onDownload: (info, onProgress) =>
-                  updater.downloadUpdate(info, onProgress: onProgress),
-              onInstall: (path) => updater.installUpdate(path),
-            ),
+          await showAndroidUpdateDialog(
+            context,
+            updateInfo: updateInfo,
+            updater: updater,
+            onViewReleaseNotes: () {
+              if (releaseUrl != null) launchUrl(Uri.parse(releaseUrl));
+            },
           );
         } else {
           final releaseUrl = updateCheckService?.getReleaseUrl(updateInfo);
@@ -593,5 +588,29 @@ class SettingsView extends StatelessWidget {
         ),
       );
     }
+  }
+}
+
+Future<void> showAndroidUpdateDialog(
+  BuildContext context, {
+  required UpdateInfo updateInfo,
+  required AndroidUpdater updater,
+  required VoidCallback onViewReleaseNotes,
+}) async {
+  try {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => UpdateDialog(
+        updateInfo: updateInfo,
+        currentVersion: BuildInfo.version,
+        onViewReleaseNotes: onViewReleaseNotes,
+        onDownload: (info, onProgress) =>
+            updater.downloadUpdate(info, onProgress: onProgress),
+        onInstall: updater.installUpdate,
+      ),
+    );
+  } finally {
+    updater.dispose();
   }
 }
