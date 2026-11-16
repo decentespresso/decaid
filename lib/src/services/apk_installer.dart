@@ -9,6 +9,14 @@ class ApkInstaller {
   );
   final Logger _log = Logger('ApkInstaller');
 
+  Future<bool> isValidApk(String path) async {
+    final file = File(path);
+    if (!await file.exists() || await file.length() == 0) return false;
+    if (!Platform.isAndroid) return false;
+    return await _channel.invokeMethod<bool>('isValidApk', {'apkPath': path}) ??
+        false;
+  }
+
   Future<bool> installApk(String apkPath) async {
     if (!Platform.isAndroid) {
       throw UnsupportedError('APK installation is only supported on Android');
@@ -51,6 +59,7 @@ class ApkInstaller {
       await _channel.invokeMethod('requestInstallPermission');
     } on PlatformException catch (e) {
       _log.warning('Failed to request install permission: ${e.message}');
+      rethrow;
     }
   }
 }

@@ -947,6 +947,16 @@ connection failures return plain-language guidance. Transport/parser details sta
 in logs. Timeouts and secure-connection failures have distinct messages; connection
 errors never assert Wi-Fi is off. JSON fields and upstream passthrough are unchanged.
 Plugin validation and downgrade failures retain HTTP 400 and 409, respectively.
+
+Native Android updates download before requesting installation authorization.
+If permission is missing, Decaid opens Android's per-source installation settings
+directly and resumes the same in-memory attempt on return. Granting permission
+opens the installer once; denial retains neutral Retry guidance and the cached
+APK. Missing, corrupt or wrong-package APKs are rejected before installer launch;
+Retry downloads again if validation rejects the cached file. Pending installation
+does not survive process restart, and launching Android's installer does not
+mean installation has completed.
+
 Missing or incorrectly typed GitHub release, asset, or commit fields are
 validation failures (HTTP 400), including when the response is valid JSON.
 
@@ -1047,7 +1057,7 @@ All WebSocket endpoints are on port 8080 at `/ws/v1/...`. See [`assets/api/webso
 | `/ws/v1/logs` | App log stream | Timestamped log entries |
 | `/ws/v1/webview/logs` | WebView console log stream | WebView console messages |
 | `/ws/v1/display` | Display state changes | Brightness, wakelock |
-| `/ws/v1/update` | App-update state stream. Also accepts `{"command":"check"}` (refused on macOS and on externally managed App Store/TestFlight builds, where the store owns app updates) and `{"command":"install"}` (Android installs; refused elsewhere). Either refusal replies `{"error","url"}` carrying `releaseUrl` — the release tag when one is known, otherwise the releases page. | `phase`, `progress`, `latestVersion`, `installable` |
+| `/ws/v1/update` | App-update state stream. Also accepts `{"command":"check"}` (refused on macOS and on externally managed App Store/TestFlight builds, where the store owns app updates) and `{"command":"install"}` (Android installs; refused elsewhere). Unsupported-platform/build refusals reply `{"error","url"}` carrying `releaseUrl`. Missing Android installation authorization replies only to the requesting client with `{"error":"Installation requires approval on the Android device","reason":"local_approval_required"}`, before any download or settings navigation, without changing the shared update state. Retry explicitly after granting permission locally. | `phase`, `progress`, `latestVersion`, `installable` |
 
 ### Machine sockets re-bind across a reconnect
 
