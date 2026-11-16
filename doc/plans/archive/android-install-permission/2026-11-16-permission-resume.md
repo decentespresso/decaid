@@ -27,8 +27,9 @@ during its download.
 The coordinator waits for the native settings activity result, not inferred
 Flutter paused/resumed events. This also handles translucent settings screens
 whose lifecycle never reaches paused. Repeated calls coalesce while an attempt is
-pending. Disposal immediately cancels the wait, including during initial APK
-validation, and a later native result cannot launch an abandoned installation.
+pending. Disposal immediately cancels a pending permission wait. Disposal during
+initial APK validation prevents subsequent permission or installer work, and a
+later native result cannot launch an abandoned installation.
 Activity destruction cancels the native request; ordinary startup has no saved
 attempt to replay. Unrelated resumes never open an installer.
 
