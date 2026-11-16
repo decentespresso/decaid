@@ -13,6 +13,15 @@ info:
     Requests under `/api/` are subject to process-local admission limits. A
     per-client limit returns 429 and a global limit returns 503; both include
     `Retry-After: 1`. Saturated requests are rejected rather than queued.
+
+    Plugin and skin management operations are open by default. While the
+    native `Settings > Security` option "Require authorization for extension
+    management" is ON, they require a bearer token scoped
+    `extensions:manage` (or an approved plugin grant in process). Each such
+    operation lists both security alternatives, the empty requirement and the
+    `extensionsManage` scheme, so a client reads the credential as optional.
+    This setting covers extension management only; the rest of the API is
+    unchanged.
 x-admission-control:
   windowSeconds: 1
   globalConcurrent: 128
@@ -1678,14 +1687,21 @@ paths:
     post:
       summary: Update Decent settings
       description: >
-        Applies the keys present in the body. A body that contains
-        `webUiPath`, sets `defaultSkinId` to a skin other than the current
-        default, or sets `automaticUpdateCheck` to true while it is off
-        (automatic checks install plugin and skin updates) requires
-        `Authorization: Bearer <token>` scoped `extensions:manage` (see the
-        extensionsManage security scheme) and is refused with 401 or 403
-        before any key is applied. Values already in effect, turning
-        `automaticUpdateCheck` off, and every other key need no token.
+        Applies the keys present in the body. Changing which skin is served,
+        or letting Decaid install extension updates, is gated only while
+        extension management protection is ON. That is a body containing
+        `webUiPath`, setting `defaultSkinId` to a skin other than the
+        current default, or setting `automaticUpdateCheck` to true while it
+        is off (automatic checks install plugin and skin updates). Such a
+        body then needs `Authorization: Bearer <token>` scoped
+        `extensions:manage` (see the extensionsManage security scheme) and
+        is refused with 401 or 403 before any key is applied. When
+        protection is OFF (the default), no token is needed, and in every
+        mode a body whose values are already in effect, one that turns
+        `automaticUpdateCheck` off, and one that changes only other keys needs
+        none either. The native `Settings > Security`
+        toggle itself is not writable through this route: an unknown key is
+        ignored, and the same is true of an import or a sync.
       tags: [Decent Settings]
       requestBody:
         required: true
@@ -1697,19 +1713,19 @@ paths:
         "200":
           description: Decent settings updated successfully
         "401":
-          description: >
-            The body contains webUiPath, changes defaultSkinId or turns on
-            automaticUpdateCheck, and the bearer token is missing, malformed,
-            unknown or revoked; no key was applied
+          description: >-
+            When protection is ON, the body changes the served skin, the
+            extension update setting or webUiPath, and the bearer token is
+            missing, malformed, unknown or revoked; no key was applied
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: >
-            The body contains webUiPath, changes defaultSkinId or turns on
-            automaticUpdateCheck, and the token is not scoped for
-            extensions:manage; no key was applied
+          description: >-
+            When protection is ON, the body changes the served skin, the
+            extension update setting or webUiPath, and the token is not
+            scoped for extensions:manage; no key was applied
           content:
             application/json:
               schema:
@@ -3349,6 +3365,7 @@ paths:
     post:
       tags: [Plugins]
       security:
+        - {}
         - extensionsManage: []
       summary: Save settings for specific plugin
       description: >
@@ -3358,8 +3375,10 @@ paths:
         is loaded, it is reloaded so the running instance picks up the patch;
         if it is unloaded, the patch is only persisted. The response
         is always redacted and never echoes a submitted credential.
-        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
-        (see the extensionsManage security scheme).
+        When protection is ON, this operation needs `Authorization: Bearer
+        <token>` scoped `extensions:manage` (see the extensionsManage
+        security scheme). When protection is OFF (the default), it needs no
+        credential.
       parameters:
         - name: id
           in: path
@@ -3381,13 +3400,18 @@ paths:
               schema:
                 $ref: '#/components/schemas/PluginSettings'
         "401":
-          description: Missing, malformed, unknown or revoked bearer token
+          description: >-
+            When protection is ON, the bearer token is missing, malformed,
+            unknown or revoked; the request is refused before any change.
+            Also sends `WWW-Authenticate: Bearer`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Token is not scoped for extensions:manage
+          description: >-
+            When protection is ON, the token is not scoped for
+            `extensions:manage`; the request is refused before any change.
           content:
             application/json:
               schema:
@@ -3398,10 +3422,13 @@ paths:
       summary: Enable a plugin
       description: >
         Enables and loads the specified plugin.
-        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
-        (see the extensionsManage security scheme).
+        When protection is ON, this operation needs `Authorization: Bearer
+        <token>` scoped `extensions:manage` (see the extensionsManage
+        security scheme). When protection is OFF (the default), it needs no
+        credential.
       tags: [Plugins]
       security:
+        - {}
         - extensionsManage: []
       parameters:
         - name: id
@@ -3423,13 +3450,18 @@ paths:
                   id:
                     type: string
         "401":
-          description: Missing, malformed, unknown or revoked bearer token
+          description: >-
+            When protection is ON, the bearer token is missing, malformed,
+            unknown or revoked; the request is refused before any change.
+            Also sends `WWW-Authenticate: Bearer`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Token is not scoped for extensions:manage
+          description: >-
+            When protection is ON, the token is not scoped for
+            `extensions:manage`; the request is refused before any change.
           content:
             application/json:
               schema:
@@ -3440,10 +3472,13 @@ paths:
       summary: Disable a plugin
       description: >
         Disables and unloads the specified plugin.
-        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
-        (see the extensionsManage security scheme).
+        When protection is ON, this operation needs `Authorization: Bearer
+        <token>` scoped `extensions:manage` (see the extensionsManage
+        security scheme). When protection is OFF (the default), it needs no
+        credential.
       tags: [Plugins]
       security:
+        - {}
         - extensionsManage: []
       parameters:
         - name: id
@@ -3465,13 +3500,18 @@ paths:
                   id:
                     type: string
         "401":
-          description: Missing, malformed, unknown or revoked bearer token
+          description: >-
+            When protection is ON, the bearer token is missing, malformed,
+            unknown or revoked; the request is refused before any change.
+            Also sends `WWW-Authenticate: Bearer`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Token is not scoped for extensions:manage
+          description: >-
+            When protection is ON, the token is not scoped for
+            `extensions:manage`; the request is refused before any change.
           content:
             application/json:
               schema:
@@ -3494,10 +3534,13 @@ paths:
         bundled plugin is temporary: on the next app start the bundled copy wins
         whenever its version is higher. This path shadows a plugin-declared
         endpoint named "source", the same way /settings does.
-        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
-        (see the extensionsManage security scheme).
+        When protection is ON, this operation needs `Authorization: Bearer
+        <token>` scoped `extensions:manage` (see the extensionsManage
+        security scheme). When protection is OFF (the default), it needs no
+        credential.
       tags: [Plugins]
       security:
+        - {}
         - extensionsManage: []
       parameters:
         - name: id
@@ -3548,13 +3591,18 @@ paths:
                   error:
                     type: string
         "401":
-          description: Missing, malformed, unknown or revoked bearer token
+          description: >-
+            When protection is ON, the bearer token is missing, malformed,
+            unknown or revoked; the request is refused before any change.
+            Also sends `WWW-Authenticate: Bearer`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Token is not scoped for extensions:manage
+          description: >-
+            When protection is ON, the token is not scoped for
+            `extensions:manage`; the request is refused before any change.
           content:
             application/json:
               schema:
@@ -3591,10 +3639,13 @@ paths:
       summary: Delete a plugin
       description: >
         Removes a plugin from the system.
-        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
-        (see the extensionsManage security scheme).
+        When protection is ON, this operation needs `Authorization: Bearer
+        <token>` scoped `extensions:manage` (see the extensionsManage
+        security scheme). When protection is OFF (the default), it needs no
+        credential.
       tags: [Plugins]
       security:
+        - {}
         - extensionsManage: []
       parameters:
         - name: id
@@ -3616,13 +3667,18 @@ paths:
                   id:
                     type: string
         "401":
-          description: Missing, malformed, unknown or revoked bearer token
+          description: >-
+            When protection is ON, the bearer token is missing, malformed,
+            unknown or revoked; the request is refused before any change.
+            Also sends `WWW-Authenticate: Bearer`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Token is not scoped for extensions:manage
+          description: >-
+            When protection is ON, the token is not scoped for
+            `extensions:manage`; the request is refused before any change.
           content:
             application/json:
               schema:
@@ -3677,10 +3733,13 @@ paths:
         Installing from an arbitrary URL is not supported. Use
         /api/v1/plugins/install/github-release or
         /api/v1/plugins/install/github-branch.
-        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
-        (see the extensionsManage security scheme).
+        When protection is ON, this operation needs `Authorization: Bearer
+        <token>` scoped `extensions:manage` (see the extensionsManage
+        security scheme). When protection is OFF (the default), it needs no
+        credential.
       tags: [Plugins]
       security:
+        - {}
         - extensionsManage: []
       requestBody:
         required: false
@@ -3693,13 +3752,18 @@ paths:
                   type: string
       responses:
         "401":
-          description: Missing, malformed, unknown or revoked bearer token
+          description: >-
+            When protection is ON, the bearer token is missing, malformed,
+            unknown or revoked; the request is refused before any change.
+            Also sends `WWW-Authenticate: Bearer`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Token is not scoped for extensions:manage
+          description: >-
+            When protection is ON, the token is not scoped for
+            `extensions:manage`; the request is refused before any change.
           content:
             application/json:
               schema:
@@ -3728,10 +3792,13 @@ paths:
         Malformed downloaded data and package manifests return HTTP 400 with
         plain-language validation errors, without parser diagnostics or source snippets.
         This includes missing or incorrectly typed release fields and asset entries.
-        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
-        (see the extensionsManage security scheme).
+        When protection is ON, this operation needs `Authorization: Bearer
+        <token>` scoped `extensions:manage` (see the extensionsManage
+        security scheme). When protection is OFF (the default), it needs no
+        credential.
       tags: [Plugins]
       security:
+        - {}
         - extensionsManage: []
       requestBody:
         required: true
@@ -3764,13 +3831,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "401":
-          description: Missing, malformed, unknown or revoked bearer token
+          description: >-
+            When protection is ON, the bearer token is missing, malformed,
+            unknown or revoked; the request is refused before any change.
+            Also sends `WWW-Authenticate: Bearer`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Token is not scoped for extensions:manage
+          description: >-
+            When protection is ON, the token is not scoped for
+            `extensions:manage`; the request is refused before any change.
           content:
             application/json:
               schema:
@@ -3800,10 +3872,13 @@ paths:
         transport exceptions.
         Invalid GitHub commit response structures return HTTP 400 with
         plain-language validation guidance and no response-body snippets.
-        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
-        (see the extensionsManage security scheme).
+        When protection is ON, this operation needs `Authorization: Bearer
+        <token>` scoped `extensions:manage` (see the extensionsManage
+        security scheme). When protection is OFF (the default), it needs no
+        credential.
       tags: [Plugins]
       security:
+        - {}
         - extensionsManage: []
       requestBody:
         required: true
@@ -3833,13 +3908,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "401":
-          description: Missing, malformed, unknown or revoked bearer token
+          description: >-
+            When protection is ON, the bearer token is missing, malformed,
+            unknown or revoked; the request is refused before any change.
+            Also sends `WWW-Authenticate: Bearer`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Token is not scoped for extensions:manage
+          description: >-
+            When protection is ON, the token is not scoped for
+            `extensions:manage`; the request is refused before any change.
           content:
             application/json:
               schema:
@@ -3870,25 +3950,15 @@ paths:
         `results` array: `updated`, `alreadyCurrent`, `pendingApproval`, or
         `failed` with a plain-language `error`. Partial failures no longer
         produce a blanket 500; only a failure of the check machinery itself does.
-        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
-        (see the extensionsManage security scheme).
-        When automatic update checks are enabled in native settings, a
-        tokenless request from the same device is also admitted: the actual
-        socket peer must be an IPv4/IPv6 loopback address (IPv4-mapped IPv6
-        included), the Host header must name a loopback host on the API port,
-        and an Origin header, when present, must be a loopback origin of the
-        active skin or API. A LAN or other non-loopback peer, a spoofed Host,
-        Origin, Referer or forwarding header, or a credential that is invalid
-        or missing the scope is never admitted. Tokenless checks are throttled
-        to one per 30 seconds per route (HTTP 429 with Retry-After). When
-        automatic update checks are disabled, tokenless checks are refused and
-        manual checks remain unavailable until native confirmation ships. For an admitted tokenless check, the response carries
-        `Access-Control-Allow-Origin` set to that exact request Origin and
-        `Vary: Origin`, so the embedded skin can read the result; a throttled
-        `429` carries the same headers. No wildcard origin and no
-        `Access-Control-Allow-Credentials` are ever sent.
+        When protection is ON, this operation needs `Authorization: Bearer
+        <token>` scoped `extensions:manage` (see the extensionsManage
+        security scheme). When protection is OFF (the default), it needs no
+        credential.
+        Manual checks answer regardless of the `automaticUpdateCheck`
+        setting, which governs only the app's scheduled checks.
       tags: [Plugins]
       security:
+        - {}
         - extensionsManage: []
       responses:
         "200":
@@ -3915,19 +3985,18 @@ paths:
                           type: string
                       required: [item, status]
         "401":
-          description: Missing, malformed, unknown or revoked bearer token
+          description: >-
+            When protection is ON, the bearer token is missing, malformed,
+            unknown or revoked; the request is refused before any change.
+            Also sends `WWW-Authenticate: Bearer`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Token is not scoped for extensions:manage
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "429":
-          description: A tokenless update check just ran for this route
+          description: >-
+            When protection is ON, the token is not scoped for
+            `extensions:manage`; the request is refused before any change.
           content:
             application/json:
               schema:
@@ -3947,10 +4016,13 @@ paths:
         release tag or commit - accepting its added permissions. If the source
         moved since detection, the fetched candidate is refused, recorded as
         the new pendingUpdate and has to be approved again.
-        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
-        (see the extensionsManage security scheme).
+        When protection is ON, this operation needs `Authorization: Bearer
+        <token>` scoped `extensions:manage` (see the extensionsManage
+        security scheme). When protection is OFF (the default), it needs no
+        credential.
       tags: [Plugins]
       security:
+        - {}
         - extensionsManage: []
       parameters:
         - name: id
@@ -3972,13 +4044,18 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "401":
-          description: Missing, malformed, unknown or revoked bearer token
+          description: >-
+            When protection is ON, the bearer token is missing, malformed,
+            unknown or revoked; the request is refused before any change.
+            Also sends `WWW-Authenticate: Bearer`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Token is not scoped for extensions:manage
+          description: >-
+            When protection is ON, the token is not scoped for
+            `extensions:manage`; the request is refused before any change.
           content:
             application/json:
               schema:
@@ -4463,10 +4540,13 @@ paths:
       summary: Remove/uninstall a WebUI skin
       description: >
         Removes a user-installed WebUI skin (bundled skins cannot be removed).
-        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
-        (see the extensionsManage security scheme).
+        When protection is ON, this operation needs `Authorization: Bearer
+        <token>` scoped `extensions:manage` (see the extensionsManage
+        security scheme). When protection is OFF (the default), it needs no
+        credential.
       tags: [WebUI]
       security:
+        - {}
         - extensionsManage: []
       parameters:
         - name: id
@@ -4490,13 +4570,19 @@ paths:
                   id:
                     type: string
         "401":
-          description: Missing, malformed, unknown or revoked bearer token
+          description: >-
+            When protection is ON, the bearer token is missing, malformed,
+            unknown or revoked; the request is refused before any change.
+            Also sends `WWW-Authenticate: Bearer`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Cannot remove bundled skin, or token is not scoped for extensions:manage
+          description: >-
+            When protection is ON and the token is not scoped for
+            `extensions:manage`, the request is refused; a bundled skin
+            cannot be removed in either mode.
           content:
             application/json:
               schema:
@@ -4526,10 +4612,13 @@ paths:
       summary: Set the default WebUI skin
       description: >
         Sets the user's preferred default skin by ID and persists to preferences.
-        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
-        (see the extensionsManage security scheme).
+        When protection is ON, this operation needs `Authorization: Bearer
+        <token>` scoped `extensions:manage` (see the extensionsManage
+        security scheme). When protection is OFF (the default), it needs no
+        credential.
       tags: [WebUI]
       security:
+        - {}
         - extensionsManage: []
       requestBody:
         required: true
@@ -4561,13 +4650,18 @@ paths:
         "400":
           description: Bad request (missing skinId field)
         "401":
-          description: Missing, malformed, unknown or revoked bearer token
+          description: >-
+            When protection is ON, the bearer token is missing, malformed,
+            unknown or revoked; the request is refused before any change.
+            Also sends `WWW-Authenticate: Bearer`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Token is not scoped for extensions:manage
+          description: >-
+            When protection is ON, the token is not scoped for
+            `extensions:manage`; the request is refused before any change.
           content:
             application/json:
               schema:
@@ -4582,10 +4676,13 @@ paths:
       summary: Install skin from GitHub Release
       description: >
         Downloads and installs a WebUI skin from a GitHub Release using the GitHub API.
-        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
-        (see the extensionsManage security scheme).
+        When protection is ON, this operation needs `Authorization: Bearer
+        <token>` scoped `extensions:manage` (see the extensionsManage
+        security scheme). When protection is OFF (the default), it needs no
+        credential.
       tags: [WebUI]
       security:
+        - {}
         - extensionsManage: []
       requestBody:
         required: true
@@ -4625,13 +4722,18 @@ paths:
         "400":
           description: Bad request (missing repo field)
         "401":
-          description: Missing, malformed, unknown or revoked bearer token
+          description: >-
+            When protection is ON, the bearer token is missing, malformed,
+            unknown or revoked; the request is refused before any change.
+            Also sends `WWW-Authenticate: Bearer`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Token is not scoped for extensions:manage
+          description: >-
+            When protection is ON, the token is not scoped for
+            `extensions:manage`; the request is refused before any change.
           content:
             application/json:
               schema:
@@ -4644,10 +4746,13 @@ paths:
       summary: Install skin from GitHub branch
       description: >
         Downloads and installs a WebUI skin from a GitHub branch archive, persisting the branch source for future update checks.
-        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
-        (see the extensionsManage security scheme).
+        When protection is ON, this operation needs `Authorization: Bearer
+        <token>` scoped `extensions:manage` (see the extensionsManage
+        security scheme). When protection is OFF (the default), it needs no
+        credential.
       tags: [WebUI]
       security:
+        - {}
         - extensionsManage: []
       requestBody:
         required: true
@@ -4686,13 +4791,18 @@ paths:
         "400":
           description: Bad request (missing repo field)
         "401":
-          description: Missing, malformed, unknown or revoked bearer token
+          description: >-
+            When protection is ON, the bearer token is missing, malformed,
+            unknown or revoked; the request is refused before any change.
+            Also sends `WWW-Authenticate: Bearer`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Token is not scoped for extensions:manage
+          description: >-
+            When protection is ON, the token is not scoped for
+            `extensions:manage`; the request is refused before any change.
           content:
             application/json:
               schema:
@@ -4705,10 +4815,13 @@ paths:
       summary: Install skin from URL
       description: >
         Downloads and installs a WebUI skin from a direct ZIP URL.
-        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
-        (see the extensionsManage security scheme).
+        When protection is ON, this operation needs `Authorization: Bearer
+        <token>` scoped `extensions:manage` (see the extensionsManage
+        security scheme). When protection is OFF (the default), it needs no
+        credential.
       tags: [WebUI]
       security:
+        - {}
         - extensionsManage: []
       requestBody:
         required: true
@@ -4741,13 +4854,18 @@ paths:
         "400":
           description: Bad request (missing url field)
         "401":
-          description: Missing, malformed, unknown or revoked bearer token
+          description: >-
+            When protection is ON, the bearer token is missing, malformed,
+            unknown or revoked; the request is refused before any change.
+            Also sends `WWW-Authenticate: Bearer`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Token is not scoped for extensions:manage
+          description: >-
+            When protection is ON, the token is not scoped for
+            `extensions:manage`; the request is refused before any change.
           content:
             application/json:
               schema:
@@ -4765,25 +4883,15 @@ paths:
         are returned in the `results` array: `updated`, `alreadyCurrent`, or
         `failed` with a plain-language `error`. Partial failures no longer
         produce a blanket 500; only a failure of the check machinery itself does.
-        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
-        (see the extensionsManage security scheme).
-        When automatic update checks are enabled in native settings, a
-        tokenless request from the same device is also admitted: the actual
-        socket peer must be an IPv4/IPv6 loopback address (IPv4-mapped IPv6
-        included), the Host header must name a loopback host on the API port,
-        and an Origin header, when present, must be a loopback origin of the
-        active skin or API. A LAN or other non-loopback peer, a spoofed Host,
-        Origin, Referer or forwarding header, or a credential that is invalid
-        or missing the scope is never admitted. Tokenless checks are throttled
-        to one per 30 seconds per route (HTTP 429 with Retry-After). When
-        automatic update checks are disabled, tokenless checks are refused and
-        manual checks remain unavailable until native confirmation ships. For an admitted tokenless check, the response carries
-        `Access-Control-Allow-Origin` set to that exact request Origin and
-        `Vary: Origin`, so the embedded skin can read the result; a throttled
-        `429` carries the same headers. No wildcard origin and no
-        `Access-Control-Allow-Credentials` are ever sent.
+        When protection is ON, this operation needs `Authorization: Bearer
+        <token>` scoped `extensions:manage` (see the extensionsManage
+        security scheme). When protection is OFF (the default), it needs no
+        credential.
+        Manual checks answer regardless of the `automaticUpdateCheck`
+        setting, which governs only the app's scheduled checks.
       tags: [WebUI]
       security:
+        - {}
         - extensionsManage: []
       responses:
         "200":
@@ -4810,19 +4918,18 @@ paths:
                           type: string
                       required: [item, status]
         "401":
-          description: Missing, malformed, unknown or revoked bearer token
+          description: >-
+            When protection is ON, the bearer token is missing, malformed,
+            unknown or revoked; the request is refused before any change.
+            Also sends `WWW-Authenticate: Bearer`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Token is not scoped for extensions:manage
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "429":
-          description: A tokenless update check just ran for this route
+          description: >-
+            When protection is ON, the token is not scoped for
+            `extensions:manage`; the request is refused before any change.
           content:
             application/json:
               schema:
@@ -4861,10 +4968,13 @@ paths:
       summary: Start the WebUI server
       description: >
         Starts serving the default WebUI skin through the stable port 3000 entry point.
-        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
-        (see the extensionsManage security scheme).
+        When protection is ON, this operation needs `Authorization: Bearer
+        <token>` scoped `extensions:manage` (see the extensionsManage
+        security scheme). When protection is OFF (the default), it needs no
+        credential.
       tags: [WebUI]
       security:
+        - {}
         - extensionsManage: []
       responses:
         "200":
@@ -4888,13 +4998,18 @@ paths:
                   error:
                     type: string
         "401":
-          description: Missing, malformed, unknown or revoked bearer token
+          description: >-
+            When protection is ON, the bearer token is missing, malformed,
+            unknown or revoked; the request is refused before any change.
+            Also sends `WWW-Authenticate: Bearer`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Token is not scoped for extensions:manage
+          description: >-
+            When protection is ON, the token is not scoped for
+            `extensions:manage`; the request is refused before any change.
           content:
             application/json:
               schema:
@@ -4905,10 +5020,13 @@ paths:
       summary: Stop the WebUI server
       description: >
         Stops the WebUI skin server.
-        Requires `Authorization: Bearer <token>` scoped `extensions:manage`
-        (see the extensionsManage security scheme).
+        When protection is ON, this operation needs `Authorization: Bearer
+        <token>` scoped `extensions:manage` (see the extensionsManage
+        security scheme). When protection is OFF (the default), it needs no
+        credential.
       tags: [WebUI]
       security:
+        - {}
         - extensionsManage: []
       responses:
         "200":
@@ -4921,13 +5039,18 @@ paths:
                   message:
                     type: string
         "401":
-          description: Missing, malformed, unknown or revoked bearer token
+          description: >-
+            When protection is ON, the bearer token is missing, malformed,
+            unknown or revoked; the request is refused before any change.
+            Also sends `WWW-Authenticate: Bearer`.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "403":
-          description: Token is not scoped for extensions:manage
+          description: >-
+            When protection is ON, the token is not scoped for
+            `extensions:manage`; the request is refused before any change.
           content:
             application/json:
               schema:
@@ -5506,12 +5629,14 @@ paths:
         recognized files, truncated archives, CRC mismatches, and malformed
         JSON all fail safely with 400.
 
-        Changing the default skin or turning on automatic updates requires
-        `Authorization: Bearer <token>` scoped `extensions:manage`. Without
-        it, every other setting is still imported, but a `defaultSkinId` that
-        differs from the current one and an `automaticUpdateCheck: true` while
-        automatic updates are off are each skipped and reported as a warning
-        in the `settings` section result.
+        While extension management protection is ON, changing the default
+        skin or turning on automatic updates requires `Authorization: Bearer
+        <token>` scoped `extensions:manage`. Without it, every other setting
+        is still imported, but a `defaultSkinId` that differs from the
+        current one and an `automaticUpdateCheck: true` while automatic
+        updates are off are each skipped and reported as a warning in the
+        `settings` section result. When protection is OFF (the default), the
+        import applies both without a token.
       tags: [Data Management]
       parameters:
         - in: query
@@ -5622,12 +5747,14 @@ paths:
         are measured in UTF-8 bytes.
 
         A pull (including the pull phase of two_way) imports the target's
-        settings under the same rule as /api/v1/data/import: without a token
-        scoped `extensions:manage` on this request, a `defaultSkinId` that
-        differs from the current one and an `automaticUpdateCheck: true` while
-        automatic updates are off are each skipped and reported as a warning
-        in the `settings` section result. A push sends no token, so the target
-        applies the same rule to the pushed archive.
+        settings under the same rule as /api/v1/data/import. While extension
+        management protection is ON and the request carries no token scoped
+        `extensions:manage`, a `defaultSkinId` that differs from the current
+        one and an `automaticUpdateCheck: true` while automatic updates are
+        off are each skipped and reported as a warning in the `settings`
+        section result; with protection OFF (the default) both apply. A push
+        sends no token, so the target applies its own rule to the pushed
+        archive.
       tags: [Data Management]
       requestBody:
         required: true
@@ -6403,17 +6530,22 @@ components:
       type: http
       scheme: bearer
       description: >
-        A bearer token scoped `extensions:manage`, required by the plugin and
-        skin management operations even though the rest of the API is
-        unauthenticated. Create one in the app (Decent Account > API access
-        tokens > Create, with "Manage plugins and skins" turned on; it is shown
-        once). For development and automation, supply a random one at launch
-        in the `DECAID_EXTENSIONS_TOKEN` environment variable or with
-        `--extensions-token <value>` (at least 32 characters; other local
-        users can read command-line arguments). Send it as
-        `Authorization: Bearer <token>`.
-        Over plain HTTP the token is not confidential on the local network;
-        use a trusted network until the HTTPS listener (#925) exists.
+        A bearer token scoped `extensions:manage`. It is required only while
+        protection is ON, which is the native `Settings > Security` option
+        "Require authorization for extension management". That option is OFF
+        by default for new installations and upgrades, so these operations
+        are open to any client that can reach the API on the device's
+        network (compatibility mode). Create a token in the app (Decent
+        Account > API access tokens > Create, with "Manage plugins and
+        skins" turned on; it is shown once). For development and automation,
+        supply a random one at launch in the `DECAID_EXTENSIONS_TOKEN`
+        environment variable or with `--extensions-token <value>` (at least
+        32 characters; other local users can read command-line arguments).
+        Send it as `Authorization: Bearer <token>`. An approved plugin that
+        holds `manage.extensions` reaches these operations in process with
+        no token. Over plain HTTP the token is not confidential on the local
+        network: HTTPS is proposed in #925 and separate full API
+        authentication in #1135.
   schemas:
     ScaleCommandError:
       type: object
@@ -7604,7 +7736,7 @@ components:
           enum: ["disabled", "full", "tracking"]
           nullable: true
         webUiPath:
-          description: Set a path on local filesystem, from which REA will serve the webUI. Any value requires a bearer token scoped extensions:manage (see POST /api/v1/settings).
+          description: Set a path on local filesystem, from which REA will serve the webUI. Any value is gated only while extension management protection is ON, and then requires a bearer token scoped extensions:manage (see POST /api/v1/settings). When protection is OFF (the default), no token is needed.
           type: string
           nullable: true
         logLevel:
@@ -7661,11 +7793,11 @@ components:
           nullable: true
           example: "plugin:grinder.example:grinder:one"
         defaultSkinId:
-          description: ID of the default WebUI skin to serve. A value other than the current default requires a bearer token scoped extensions:manage (see POST /api/v1/settings).
+          description: 'ID of the default WebUI skin to serve. A value other than the current default is gated only while extension management protection is ON, and then requires a bearer token scoped extensions:manage (see POST /api/v1/settings).'
           type: string
           nullable: true
         automaticUpdateCheck:
-          description: Whether to automatically check for updates. Automatic checks install plugin and skin updates, so setting true while it is off requires a bearer token scoped extensions:manage (see POST /api/v1/settings); turning it off needs none.
+          description: 'Whether to automatically check for updates. Automatic checks install plugin and skin updates, so setting true while it is off is gated only while extension management protection is ON and then requires a bearer token scoped extensions:manage (see POST /api/v1/settings); turning it off needs none.'
           type: boolean
           nullable: true
         chargingMode:

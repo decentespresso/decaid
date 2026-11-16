@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:archive/archive_io.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -21,6 +22,7 @@ import '../helpers/mock_settings_service.dart';
 
 const _currentSkinId = 'streamline.js';
 const _otherSkinId = 'other.skin';
+const _securityKey = 'requireExtensionManagementAuthorization';
 const _skinWarning =
     'defaultSkinId was not imported: changing the default skin requires '
     'extensions:manage authorization.';
@@ -90,6 +92,17 @@ List<int> _settingsArchive(Map<String, dynamic> settings) {
   return ZipEncoder().encode(archive);
 }
 
+Map<String, dynamic> _archiveSettings(List<int> bytes) {
+  final decoded = ZipDecoder().decodeBytes(bytes);
+  final entry = decoded.files.firstWhere(
+    (file) => file.name == 'settings.json',
+  );
+  final data = jsonDecode(
+    utf8.decode(entry.content as List<int>),
+  ) as Map<String, dynamic>;
+  return data['settings'] as Map<String, dynamic>;
+}
+
 void main() {
   late Directory tempDir;
   late _PausableSettingsService settingsService;
@@ -98,11 +111,30 @@ void main() {
   late _RecordingWebUIService webUi;
   late ProxyTokenService tokens;
   late List<int> pullArchive;
+  late List<Uint8List> pushedBodies;
   late HttpServer server;
   late HttpClient client;
 
   late String managerToken;
   late String accountToken;
+
+  Future<bool> storedPolicy() =>
+      settingsService.requireExtensionManagementAuthorization();
+
+  Future<void> usePolicy(bool protect) async {
+    await settingsService.setRequireExtensionManagementAuthorization(protect);
+    expect(
+      await settings.currentRequireExtensionManagementAuthorization(),
+      protect,
+    );
+  }
+
+  String? credentialHeader(String kind) => switch (kind) {
+    'unknown' => 'Bearer ${ProxyTokenService.generateToken()}',
+    'wrong-scope' => 'Bearer $accountToken',
+    'manager' => 'Bearer $managerToken',
+    _ => null,
+  };
 
   Future<_Reply> send(
     String method,
@@ -132,6 +164,19 @@ void main() {
     );
   }
 
+  Future<(int, List<int>)> sendBytes(String method, String path) async {
+    final request = await client.openUrl(
+      method,
+      Uri.parse('http://127.0.0.1:${server.port}$path'),
+    );
+    final response = await request.close();
+    final bytes = <int>[];
+    await for (final chunk in response) {
+      bytes.addAll(chunk);
+    }
+    return (response.statusCode, bytes);
+  }
+
   Map<String, Object?> settingsState() => {
     'gatewayMode': settings.gatewayMode,
     'weightFlowMultiplier': settings.weightFlowMultiplier,
@@ -145,9 +190,11 @@ void main() {
     settingsService = _PausableSettingsService();
     settings = SettingsController(settingsService);
     await settings.loadSettings();
+    await usePolicy(true);
     storage = _RecordingWebUIStorage();
     webUi = _RecordingWebUIService();
     pullArchive = _settingsArchive({});
+    pushedBodies = [];
 
     managerToken = ProxyTokenService.generateToken();
     accountToken = ProxyTokenService.generateToken();
@@ -187,12 +234,18 @@ void main() {
         if (request.method == 'GET') {
           return http.Response.bytes(pullArchive, 200);
         }
+        pushedBodies.add(request.bodyBytes);
         return http.Response('{"settings":{"imported":1,"skipped":0}}', 200);
       }),
     ).addRoutes(app);
 
     server = await shelf_io.serve(
-      buildWebServerHandler(app.call, proxyTokenService: tokens),
+      buildWebServerHandler(
+        app.call,
+        proxyTokenService: tokens,
+        requireExtensionManagementAuthorization: () =>
+            settings.currentRequireExtensionManagementAuthorization(),
+      ),
       InternetAddress.loopbackIPv4,
       0,
     );
@@ -571,5 +624,518 @@ void main() {
       expect(reply.json['pull']['settings'], isNot(contains('warnings')));
       expect(settings.defaultSkinId, _currentSkinId);
     });
+  });
+
+  const credentials = <(String, String)>[
+    ('without a bearer', 'none'),
+    ('with an unknown token', 'unknown'),
+    ('with a wrong-scope token', 'wrong-scope'),
+    ('with an extensions:manage token', 'manager'),
+  ];
+
+  Map<String, Object?> refusalBody(String kind) => switch (kind) {
+    'unknown' => {'error': 'Invalid token'},
+    'wrong-scope' => {'error': 'Token is not scoped for extensions:manage'},
+    _ => {'error': 'Missing or malformed bearer token'},
+  };
+
+  group('POST /api/v1/settings body-dependent keys in both modes', () {
+    for (final protect in [false, true]) {
+      group(protect ? 'protected mode' : 'compatibility mode', () {
+        setUp(() => usePolicy(protect));
+
+        for (final (label, kind) in credentials) {
+          final admitted = !protect || kind == 'manager';
+          final refusal = kind == 'wrong-scope' ? 403 : 401;
+          final outcome = admitted
+              ? 'is applied'
+              : 'is $refusal and applies nothing';
+
+          test('webUiPath $label $outcome', () async {
+            final before = settingsState();
+            final reply = await send(
+              'POST',
+              '/api/v1/settings',
+              authorization: credentialHeader(kind),
+              json: {
+                'gatewayMode': 'full',
+                'weightFlowMultiplier': 2.5,
+                'webUiPath': '/tmp/matrix',
+              },
+            );
+            if (!admitted) {
+              expect(reply.status, refusal, reason: '$reply');
+              expect(reply.json, refusalBody(kind), reason: '$reply');
+              expect(settingsState(), before);
+              return;
+            }
+            expect(reply.status, 200, reason: '$reply');
+            expect(settings.gatewayMode, GatewayMode.full);
+            expect(settings.weightFlowMultiplier, 2.5);
+            expect(webUi.calls, ['serveFolderAtPath /tmp/matrix']);
+          });
+
+          test('a changed defaultSkinId $label $outcome', () async {
+            final before = settingsState();
+            final reply = await send(
+              'POST',
+              '/api/v1/settings',
+              authorization: credentialHeader(kind),
+              json: {'gatewayMode': 'full', 'defaultSkinId': _otherSkinId},
+            );
+            if (!admitted) {
+              expect(reply.status, refusal, reason: '$reply');
+              expect(reply.json, refusalBody(kind), reason: '$reply');
+              expect(settingsState(), before);
+              return;
+            }
+            expect(reply.status, 200, reason: '$reply');
+            expect(settings.gatewayMode, GatewayMode.full);
+            expect(storage.calls, ['setDefaultSkin $_otherSkinId']);
+          });
+
+          test('enabling automaticUpdateCheck $label $outcome', () async {
+            await settings.setAutomaticUpdateCheck(false);
+            final reply = await send(
+              'POST',
+              '/api/v1/settings',
+              authorization: credentialHeader(kind),
+              json: {'gatewayMode': 'full', 'automaticUpdateCheck': true},
+            );
+            if (!admitted) {
+              expect(reply.status, refusal, reason: '$reply');
+              expect(reply.json, refusalBody(kind), reason: '$reply');
+              expect(settings.automaticUpdateCheck, isFalse);
+              expect(settings.gatewayMode, isNot(GatewayMode.full));
+              return;
+            }
+            expect(reply.status, 200, reason: '$reply');
+            expect(settings.automaticUpdateCheck, isTrue);
+            expect(settings.gatewayMode, GatewayMode.full);
+          });
+        }
+
+        test('a default skin already in effect stays legacy', () async {
+          final reply = await send(
+            'POST',
+            '/api/v1/settings',
+            json: {'gatewayMode': 'full', 'defaultSkinId': _currentSkinId},
+          );
+          expect(reply.status, 200, reason: '$reply');
+          expect(settings.gatewayMode, GatewayMode.full);
+          expect(settings.defaultSkinId, _currentSkinId);
+          expect(
+            storage.calls,
+            protect ? isEmpty : ['setDefaultSkin $_currentSkinId'],
+          );
+        });
+
+        test('turning automatic updates off stays legacy', () async {
+          await settings.setAutomaticUpdateCheck(true);
+          final reply = await send(
+            'POST',
+            '/api/v1/settings',
+            json: {'gatewayMode': 'full', 'automaticUpdateCheck': false},
+          );
+          expect(reply.status, 200, reason: '$reply');
+          expect(settings.automaticUpdateCheck, isFalse);
+          expect(settings.gatewayMode, GatewayMode.full);
+        });
+
+        test('automatic updates already on stay legacy', () async {
+          await settings.setAutomaticUpdateCheck(true);
+          final reply = await send(
+            'POST',
+            '/api/v1/settings',
+            json: {'gatewayMode': 'full', 'automaticUpdateCheck': true},
+          );
+          expect(reply.status, 200, reason: '$reply');
+          expect(settings.automaticUpdateCheck, isTrue);
+          expect(settings.gatewayMode, GatewayMode.full);
+        });
+
+        test('ordinary settings need no bearer', () async {
+          final reply = await send(
+            'POST',
+            '/api/v1/settings',
+            json: {
+              'gatewayMode': 'full',
+              'weightFlowMultiplier': 2.5,
+              'nightModeEnabled': true,
+            },
+          );
+          expect(reply.status, 200, reason: '$reply');
+          expect(settings.gatewayMode, GatewayMode.full);
+          expect(settings.weightFlowMultiplier, 2.5);
+          expect(settings.nightModeEnabled, isTrue);
+        });
+
+        test(
+          'a malformed extension key is validated with a manager token',
+          () async {
+            final reply = await send(
+              'POST',
+              '/api/v1/settings',
+              authorization: 'Bearer $managerToken',
+              json: {'defaultSkinId': 42},
+            );
+            expect(reply.status, 400, reason: '$reply');
+            expect(reply.json, {'message': 'defaultSkinId must be a string'});
+            expect(storage.calls, isEmpty);
+          },
+        );
+
+        test('a malformed extension key without a bearer ends at '
+            '${protect ? 401 : 400}', () async {
+          final reply = await send(
+            'POST',
+            '/api/v1/settings',
+            json: {'defaultSkinId': 42},
+          );
+          expect(reply.status, protect ? 401 : 400, reason: '$reply');
+          expect(storage.calls, isEmpty);
+        });
+      });
+    }
+  });
+
+  group('POST /api/v1/data/import body-dependent keys in both modes', () {
+    for (final protect in [false, true]) {
+      group(protect ? 'protected mode' : 'compatibility mode', () {
+        setUp(() => usePolicy(protect));
+        setUp(() => settings.setAutomaticUpdateCheck(false));
+
+        List<int> archive() => _settingsArchive({
+          'gatewayMode': 'full',
+          'weightFlowMultiplier': 2.5,
+          'defaultSkinId': _otherSkinId,
+          'automaticUpdateCheck': true,
+        });
+
+        test('an unauthenticated import applies both keys in compatibility '
+            'mode and skips both in protected mode', () async {
+          final reply = await send(
+            'POST',
+            '/api/v1/data/import',
+            bytes: archive(),
+          );
+          expect(reply.status, 200, reason: '$reply');
+          final section = reply.json['settings'] as Map<String, dynamic>;
+          expect(settings.gatewayMode, GatewayMode.full);
+          expect(settings.weightFlowMultiplier, 2.5);
+          if (protect) {
+            expect(section['imported'], 2);
+            expect(section['skipped'], 2);
+            expect(section['warnings'], [
+              _skinWarning,
+              _automaticUpdateWarning,
+            ]);
+            expect(settings.defaultSkinId, _currentSkinId);
+            expect(settings.automaticUpdateCheck, isFalse);
+          } else {
+            expect(section['imported'], 4);
+            expect(section['skipped'], 0);
+            expect(section, isNot(contains('warnings')));
+            expect(settings.defaultSkinId, _otherSkinId);
+            expect(settings.automaticUpdateCheck, isTrue);
+          }
+        });
+
+        test('an extensions:manage token applies both keys', () async {
+          final reply = await send(
+            'POST',
+            '/api/v1/data/import',
+            authorization: 'Bearer $managerToken',
+            bytes: archive(),
+          );
+          expect(reply.status, 200, reason: '$reply');
+          final section = reply.json['settings'] as Map<String, dynamic>;
+          expect(section['imported'], 4);
+          expect(section, isNot(contains('warnings')));
+          expect(settings.defaultSkinId, _otherSkinId);
+          expect(settings.automaticUpdateCheck, isTrue);
+          expect(settings.gatewayMode, GatewayMode.full);
+          expect(settings.weightFlowMultiplier, 2.5);
+        });
+      });
+    }
+  });
+
+  group('POST /api/v1/data/sync body-dependent keys in both modes', () {
+    for (final protect in [false, true]) {
+      group(protect ? 'protected mode' : 'compatibility mode', () {
+        setUp(() => usePolicy(protect));
+        setUp(() => settings.setAutomaticUpdateCheck(false));
+        setUp(() {
+          pullArchive = _settingsArchive({
+            'gatewayMode': 'full',
+            'weightFlowMultiplier': 2.5,
+            'defaultSkinId': _otherSkinId,
+            'automaticUpdateCheck': true,
+          });
+        });
+
+        for (final mode in ['pull', 'two_way']) {
+          test('$mode applies both keys in compatibility mode and skips both '
+              'in protected mode', () async {
+            final reply = await send(
+              'POST',
+              '/api/v1/data/sync',
+              json: {'target': 'http://192.168.1.50:8080', 'mode': mode},
+            );
+            expect(reply.status, 200, reason: '$reply');
+            final section =
+                reply.json['pull']['settings'] as Map<String, dynamic>;
+            expect(settings.gatewayMode, GatewayMode.full);
+            expect(settings.weightFlowMultiplier, 2.5);
+            if (protect) {
+              expect(section['warnings'], [
+                _skinWarning,
+                _automaticUpdateWarning,
+              ]);
+              expect(settings.defaultSkinId, _currentSkinId);
+              expect(settings.automaticUpdateCheck, isFalse);
+            } else {
+              expect(section, isNot(contains('warnings')));
+              expect(settings.defaultSkinId, _otherSkinId);
+              expect(settings.automaticUpdateCheck, isTrue);
+            }
+          });
+
+          test(
+            '$mode with an extensions:manage token applies both keys',
+            () async {
+              final reply = await send(
+                'POST',
+                '/api/v1/data/sync',
+                authorization: 'Bearer $managerToken',
+                json: {'target': 'http://192.168.1.50:8080', 'mode': mode},
+              );
+              expect(reply.status, 200, reason: '$reply');
+              final section =
+                  reply.json['pull']['settings'] as Map<String, dynamic>;
+              expect(section, isNot(contains('warnings')));
+              expect(settings.defaultSkinId, _otherSkinId);
+              expect(settings.automaticUpdateCheck, isTrue);
+              expect(settings.gatewayMode, GatewayMode.full);
+              expect(settings.weightFlowMultiplier, 2.5);
+            },
+          );
+        }
+      });
+    }
+  });
+
+  group('the security setting is native-only in both modes', () {
+    for (final protect in [false, true]) {
+      group(protect ? 'protected mode' : 'compatibility mode', () {
+        setUp(() => usePolicy(protect));
+
+        int policyWrites() =>
+            settingsService.requireExtensionManagementAuthorizationWrites;
+
+        Future<void> expectPolicyUnchanged(
+          int writesBefore,
+          bool expected,
+        ) async {
+          expect(await storedPolicy(), expected);
+          expect(policyWrites(), writesBefore);
+        }
+
+        for (final attempted in [true, false]) {
+          for (final (label, kind) in [
+            ('without a bearer', 'none'),
+            ('with an extensions:manage token', 'manager'),
+          ]) {
+            test(
+              'POST /api/v1/settings cannot set it to $attempted $label',
+              () async {
+                final writesBefore = policyWrites();
+                final reply = await send(
+                  'POST',
+                  '/api/v1/settings',
+                  authorization: credentialHeader(kind),
+                  json: {
+                    'gatewayMode': 'full',
+                    'weightFlowMultiplier': 2.5,
+                    _securityKey: attempted,
+                  },
+                );
+                expect(reply.status, 200, reason: '$reply');
+                expect(settings.gatewayMode, GatewayMode.full);
+                expect(settings.weightFlowMultiplier, 2.5);
+                await expectPolicyUnchanged(writesBefore, protect);
+              },
+            );
+          }
+
+          for (final (label, kind) in [
+            ('without a bearer', 'none'),
+            ('with an extensions:manage token', 'manager'),
+          ]) {
+            test(
+              'a crafted settings import cannot set it to $attempted $label',
+              () async {
+                final writesBefore = policyWrites();
+                final reply = await send(
+                  'POST',
+                  '/api/v1/data/import',
+                  authorization: credentialHeader(kind),
+                  bytes: _settingsArchive({
+                    'gatewayMode': 'full',
+                    'weightFlowMultiplier': 2.5,
+                    _securityKey: attempted,
+                  }),
+                );
+                expect(reply.status, 200, reason: '$reply');
+                expect(settings.gatewayMode, GatewayMode.full);
+                expect(settings.weightFlowMultiplier, 2.5);
+                await expectPolicyUnchanged(writesBefore, protect);
+              },
+            );
+          }
+
+          for (final mode in ['pull', 'two_way']) {
+            test('$mode sync cannot set it to $attempted', () async {
+              final writesBefore = policyWrites();
+              pullArchive = _settingsArchive({
+                'gatewayMode': 'full',
+                'weightFlowMultiplier': 2.5,
+                _securityKey: attempted,
+              });
+              final reply = await send(
+                'POST',
+                '/api/v1/data/sync',
+                json: {'target': 'http://192.168.1.50:8080', 'mode': mode},
+              );
+              expect(reply.status, 200, reason: '$reply');
+              expect(settings.gatewayMode, GatewayMode.full);
+              expect(settings.weightFlowMultiplier, 2.5);
+              await expectPolicyUnchanged(writesBefore, protect);
+            });
+          }
+        }
+
+        for (final attempted in [true, false]) {
+          test(
+            'pull with an extensions:manage token cannot set it to $attempted',
+            () async {
+              final writesBefore = policyWrites();
+              pullArchive = _settingsArchive({
+                'gatewayMode': 'full',
+                _securityKey: attempted,
+              });
+              final reply = await send(
+                'POST',
+                '/api/v1/data/sync',
+                authorization: 'Bearer $managerToken',
+                json: {'target': 'http://192.168.1.50:8080', 'mode': 'pull'},
+              );
+              expect(reply.status, 200, reason: '$reply');
+              expect(settings.gatewayMode, GatewayMode.full);
+              await expectPolicyUnchanged(writesBefore, protect);
+            },
+          );
+        }
+
+        test('GET /api/v1/settings does not expose it', () async {
+          final reply = await send('GET', '/api/v1/settings');
+          expect(reply.status, 200, reason: '$reply');
+          final body = reply.json as Map<String, dynamic>;
+          expect(body.keys, isNot(contains(_securityKey)));
+          expect(body, contains('defaultSkinId'));
+          expect(body, contains('automaticUpdateCheck'));
+        });
+
+        test('the export archive never contains it', () async {
+          final (status, bytes) = await sendBytes('GET', '/api/v1/data/export');
+          expect(status, 200);
+          final exported = _archiveSettings(bytes);
+          expect(exported.keys, isNot(contains(_securityKey)));
+          expect(jsonEncode(exported), isNot(contains(_securityKey)));
+          expect(exported, contains('defaultSkinId'));
+          expect(exported, contains('automaticUpdateCheck'));
+        });
+
+        test('the push archive never contains it', () async {
+          final reply = await send(
+            'POST',
+            '/api/v1/data/sync',
+            json: {'target': 'http://192.168.1.50:8080', 'mode': 'push'},
+          );
+          expect(reply.status, 200, reason: '$reply');
+          final pushed = _archiveSettings(pushedBodies.single);
+          expect(pushed.keys, isNot(contains(_securityKey)));
+          expect(jsonEncode(pushed), isNot(contains(_securityKey)));
+          expect(pushed, contains('defaultSkinId'));
+        });
+      });
+    }
+  });
+
+  group('the native toggle decides the next request', () {
+    test('flipping it applies immediately without a restart', () async {
+      await usePolicy(false);
+      final open = await send(
+        'POST',
+        '/api/v1/settings',
+        json: {'webUiPath': '/tmp/open'},
+      );
+      expect(open.status, 200, reason: '$open');
+      expect(webUi.calls, ['serveFolderAtPath /tmp/open']);
+
+      await settings.setRequireExtensionManagementAuthorization(true);
+
+      final refused = await send(
+        'POST',
+        '/api/v1/settings',
+        json: {'webUiPath': '/tmp/refused'},
+      );
+      expect(refused.status, 401, reason: '$refused');
+      expect(webUi.calls, ['serveFolderAtPath /tmp/open']);
+
+      await settings.setRequireExtensionManagementAuthorization(false);
+
+      final reopened = await send(
+        'POST',
+        '/api/v1/settings',
+        json: {'webUiPath': '/tmp/reopened'},
+      );
+      expect(reopened.status, 200, reason: '$reopened');
+      expect(webUi.calls, [
+        'serveFolderAtPath /tmp/open',
+        'serveFolderAtPath /tmp/reopened',
+      ]);
+    });
+
+    test(
+      'a request keeps the decision it started with across a flip',
+      () async {
+        await usePolicy(false);
+        final gatewayWriteStarted = settingsService.pauseNextGatewayWrite();
+        final pending = send(
+          'POST',
+          '/api/v1/settings',
+          json: {'gatewayMode': 'full', 'webUiPath': '/tmp/snapshot'},
+        );
+        await gatewayWriteStarted;
+
+        await settings.setRequireExtensionManagementAuthorization(true);
+        expect(await storedPolicy(), isTrue);
+        settingsService.resumeGatewayWrite();
+
+        final admitted = await pending;
+        expect(admitted.status, 200, reason: '$admitted');
+        expect(webUi.calls, ['serveFolderAtPath /tmp/snapshot']);
+
+        final refused = await send(
+          'POST',
+          '/api/v1/settings',
+          json: {'webUiPath': '/tmp/after'},
+        );
+        expect(refused.status, 401, reason: '$refused');
+        expect(webUi.calls, ['serveFolderAtPath /tmp/snapshot']);
+      },
+    );
   });
 }
