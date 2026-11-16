@@ -18,6 +18,7 @@ void main() {
 
   late List<String> files;
   final profiles = <String, Profile>{};
+  final rawByTitle = <String, Map<String, dynamic>>{};
 
   setUpAll(() async {
     final manifest = jsonDecode(
@@ -29,6 +30,7 @@ void main() {
         await rootBundle.loadString('assets/defaultProfiles/$f'),
       ) as Map<String, dynamic>;
       profiles[f] = Profile.fromJson(json);
+      rawByTitle[profiles[f]!.title] = json;
     }
   });
 
@@ -148,10 +150,8 @@ void main() {
   // Ported from decentespresso/de1app, branch stable, revision
   // ea2d30183954551e387841e88e3b254660d5e03a (de1plus/profiles/*.tcl).
   //
-  // Each entry pins the beverage type, the execution hash and the metadata
-  // hash. Together the two hashes cover every field the bundled JSON carries
-  // except visibility, which Decaid deliberately does not take from de1app's
-  // profile_hide flag:
+  // Each entry pins four things: the beverage type, the execution hash, the
+  // metadata hash and the raw JSON "type".
   //
   //   ProfileHash.calculateProfileHash  - version, beverage type, tank
   //     temperature, target weight, target volume, target volume count start
@@ -160,113 +160,144 @@ void main() {
   //     accidental edit to the verbatim de1app notes (double spaces included)
   //     fails instead of silently drifting from the source.
   //
+  // Together the hashes cover every field Profile.fromJson retains. They do
+  // not cover the two top-level JSON keys the model drops:
+  //
+  //   type   - pinned separately below, read off the raw JSON, from the
+  //     source's settings_profile_type (settings_2a pressure, settings_2b
+  //     flow, settings_2c advanced).
+  //   hidden - deliberately unpinned. de1app sets profile_hide 1 on 20 of
+  //     these 21 sources; per maintainer direction Decaid bundles them all
+  //     visible, so this field is an intended difference, not drift.
+  //
   // A failure means a ported profile drifted from its de1app source: re-check
   // against that revision before touching the expected value.
-  const ported = <String, (BeverageType, String, String)>{
+  const ported = <String, (BeverageType, String, String, String)>{
     'Best overall pressure profile': (
       BeverageType.espresso,
       'profile:f1b836e535b0b57f44a2',
       '35282ad36baa117d4a69abc143035bfcf01bb7b2c9ba05ec2d30f7575ee3f5cd',
+      'pressure',
     ),
     'E61 espresso machine': (
       BeverageType.espresso,
       'profile:28d47321846585be3d40',
       '5fcfeb2d71960039d790bb851d7d4344d0bf6c5fc1d3d2b4de634a431a4fdcc4',
+      'pressure',
     ),
     'E61 classic gently up to 10 bar': (
       BeverageType.espresso,
       'profile:9e902a31f13fb8ea2c8e',
       'f14447f40db99741e5e8006bd061de3698c0490df6ae540696b7817338fe1769',
+      'pressure',
     ),
     'E61 rocketing up to 10 bar': (
       BeverageType.espresso,
       'profile:242a62e1111b4a1bc47e',
       'a797bcb318208ddb3f7948d17cfd38ec013208df51501266adcd56681481b83b',
+      'pressure',
     ),
     'E61 with fast preinfusion to 9 bar': (
       BeverageType.espresso,
       'profile:badeb80f41ebf99c93e3',
       '32058a06eacff7bc6d558dff3fd6f96507eef267fd8e9c7ee3367dec17dfcc51',
+      'pressure',
     ),
     'Gentle flat 2.5 ml per second': (
       BeverageType.espresso,
       'profile:0ef8e395628904bd569a',
       'dfb0c4338e6a9f8a29bcedcc4ddc19a2b76be43f9f262ffc4597e58a8e86e74b',
+      'flow',
     ),
     'Gentle preinfusion flow profile': (
       BeverageType.espresso,
       'profile:676679ab3b3a0aff25c6',
       'b8e7762cc5b39a4127fe17ef9da8e69ca52cf76bd36969a5ba30c36f496ed4fe',
+      'flow',
     ),
     'Gentler but still traditional 8.4 bar': (
       BeverageType.espresso,
       'profile:a258c0df3be3b337299f',
       '06cff18f289b192dc7a416304400abe88114db9df0e0c9015f56622f3fee2640',
+      'pressure',
     ),
     'Hybrid pour over espresso': (
       BeverageType.espresso,
       'profile:5dcb9d71df6f51e695b8',
       'cf26b7fba509805d866b180ad3bc993d8ee09103341f6803657e078597595ff9',
+      'flow',
     ),
     'Innovative long preinfusion': (
       BeverageType.espresso,
       'profile:474283e3a1fe28dc288c',
       '1d37dd97bd8e30d05e442f20c9904fd4694ff1401fb46e8da7e1b81661d869dd',
+      'flow',
     ),
     'Italian Australian espresso': (
       BeverageType.espresso,
       'profile:06788710759408842c45',
       'ef7387d03651b210ceb5e9b87a11ca0d128b0cd8b81a86b8b401bf5f6861a2a5',
+      'pressure',
     ),
     'Low pressure lever machine at 6 bar': (
       BeverageType.espresso,
       'profile:d555bef4d3eabbdef1c5',
       '3a460b0b901796be65b4c1006a21b1c6d1ba7aef67fa99a82100991dbc496432',
+      'pressure',
     ),
     'Steam only': (
       BeverageType.espresso,
       'profile:cd62fa222bb9f96ee318',
       '6bc803f0756c748227efd80a21266bb23cc1074d2eadcac449567f3ea5db54e4',
+      'pressure',
     ),
     'Cleaning/Forward flush': (
       BeverageType.cleaning,
       'profile:be84050f7564ed7e7cce',
       'b95798ae80abf1b5c29fe3e3a8950abe359c23fc6fc715192aac1ebfafcfd175',
+      'advanced',
     ),
     'Test/Flow calibration': (
       BeverageType.calibrate,
       'profile:ebbb87f21857d2265eca',
       'f2e446801d41a505cb260b49d215b4fcda7fbb27d0bc4b3cf441d8ea541f9377',
+      'advanced',
     ),
     'Test/for a small leak': (
       BeverageType.calibrate,
       'profile:e25775e340d9105fb043',
       'f5564c057ed6532a80ffd703aa6c1c6f2ad8dbfd2f8bd6ddb0b1e1ad16d73cdb',
+      'advanced',
     ),
     'Test/leakage stress test': (
       BeverageType.calibrate,
       'profile:27405f374ef44c8a96ef',
       '423b98697233e86c7190827a0ef11688e3a84dfda1c98429222090aec5daf92a',
+      'advanced',
     ),
     'Test/low pressure leak': (
       BeverageType.calibrate,
       'profile:df9b460c57d718fe7a26',
       '78d0b37ea3985ab49fef07fd62eae9c618078da25ae0cedf23767ee2bbfcecd9',
+      'advanced',
     ),
     'Test/pressure calibration': (
       BeverageType.calibrate,
       'profile:622c4e81ee33585caced',
       '469ff044d412af4d403bb2dd13996244e590e1d2e0908a7ec08106e31cd29df5',
+      'advanced',
     ),
     'Test/temperature accuracy': (
       BeverageType.calibrate,
       'profile:109e603197b501223f15',
       '2a5e29b1afdca7407044be86ef4f0c7f65f3cf3078dfe991dbf39c3f9edcbeaa',
+      'advanced',
     ),
     'Test/temperature calibration': (
       BeverageType.calibrate,
       'profile:dc4323dd98c57603d583',
       'c2f3a58e3d599df6470d7b3b56784ff980b4d68af80af8481d8a2d84259d6a0d',
+      'flow',
     ),
   };
 
@@ -305,6 +336,19 @@ void main() {
         reason:
             '${entry.key}: title, author or notes drifted from its de1app '
             'source',
+      );
+    }
+  });
+
+  test('profiles ported from de1app keep their source profile type', () {
+    for (final entry in ported.entries) {
+      porting(entry.key);
+      expect(
+        rawByTitle[entry.key]?['type'],
+        entry.value.$4,
+        reason:
+            '${entry.key}: raw JSON "type" drifted from the source\'s '
+            'settings_profile_type',
       );
     }
   });
