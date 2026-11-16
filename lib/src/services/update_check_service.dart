@@ -31,6 +31,7 @@ class UpdateCheckService {
   Future<String>? _download;
   Future<bool>? _installation;
   bool _installationStarted = false;
+  bool _resumedDuringInstallation = false;
   String? _downloadedPath;
   (String, String)? _downloadedRelease;
 
@@ -76,6 +77,18 @@ class UpdateCheckService {
   AppUpdateState get currentState => _state.value;
 
   bool get installationStarted => _installationStarted;
+
+  void onAppResumed() {
+    if (currentState.phase != AppUpdatePhase.installing) return;
+    if (!_installationStarted) {
+      _resumedDuringInstallation = true;
+      return;
+    }
+    _installation = null;
+    _installationStarted = false;
+    _resumedDuringInstallation = false;
+    _emit(hasAvailableUpdate ? AppUpdatePhase.available : AppUpdatePhase.idle);
+  }
 
   String? get downloadedPath =>
       _downloadedRelease ==
@@ -175,13 +188,16 @@ class UpdateCheckService {
     UpdateInfo update,
     void Function(double) onProgress,
   ) async {
-    _emit(AppUpdatePhase.downloading, progress: 0);
+    _emit(AppUpdatePhase.downloading);
     try {
-      var lastEmitted = 0.0;
+      double? lastEmitted;
       final path = await _updater.downloadUpdate(
         update,
         onProgress: (progress) {
-          if (progress - lastEmitted >= 0.01 || progress >= 1) {
+          if (!progress.isFinite || progress < 0 || progress > 1) return;
+          if (lastEmitted == null ||
+              progress - lastEmitted! >= 0.01 ||
+              progress >= 1) {
             lastEmitted = progress;
             _emit(AppUpdatePhase.downloading, progress: progress);
             onProgress(progress);
@@ -216,6 +232,7 @@ class UpdateCheckService {
   }
 
   Future<bool> _installUpdate(String path) async {
+    _resumedDuringInstallation = false;
     _emit(AppUpdatePhase.installing);
     try {
       final started = await _updater.installUpdate(path);
@@ -228,6 +245,7 @@ class UpdateCheckService {
         );
       } else {
         _emit(AppUpdatePhase.installing);
+        if (_resumedDuringInstallation) onAppResumed();
       }
       return started;
     } catch (e, st) {

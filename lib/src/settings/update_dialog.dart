@@ -5,7 +5,7 @@ import 'package:reaprime/src/services/app_update_state.dart';
 import 'package:reaprime/src/services/update_check_service.dart';
 import 'package:reaprime/src/util/remote_error.dart';
 
-class UpdateDialog extends StatelessWidget {
+class UpdateDialog extends StatefulWidget {
   final UpdateInfo updateInfo;
   final String currentVersion;
   final UpdateCheckService service;
@@ -20,20 +20,31 @@ class UpdateDialog extends StatelessWidget {
   });
 
   @override
+  State<UpdateDialog> createState() => _UpdateDialogState();
+}
+
+class _UpdateDialogState extends State<UpdateDialog> {
+  String? _actionError;
+
+  @override
   Widget build(BuildContext context) {
     return StreamBuilder<AppUpdateState>(
-      stream: service.updateState,
-      initialData: service.currentState,
+      stream: widget.service.updateState,
+      initialData: widget.service.currentState,
       builder: (context, snapshot) {
         final state = snapshot.data!;
+        final checking = state.phase == AppUpdatePhase.checking;
         final downloading = state.phase == AppUpdatePhase.downloading;
         final installing =
             state.phase == AppUpdatePhase.installing &&
-            !service.installationStarted;
+            !widget.service.installationStarted;
         final busy = downloading || installing;
+        final error = state.error ?? _actionError;
         final current =
-            service.availableUpdate?.version == updateInfo.version &&
-            service.availableUpdate?.downloadUrl == updateInfo.downloadUrl;
+            widget.service.availableUpdate?.version ==
+                widget.updateInfo.version &&
+            widget.service.availableUpdate?.downloadUrl ==
+                widget.updateInfo.downloadUrl;
         return PopScope(
           canPop: !busy,
           child: AlertDialog(
@@ -44,15 +55,15 @@ class UpdateDialog extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Version ${updateInfo.version}',
+                    'Version ${widget.updateInfo.version}',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   SizedBox(height: 8),
                   Text(
-                    'Current version: $currentVersion',
+                    'Current version: ${widget.currentVersion}',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
-                  if (updateInfo.isPrerelease) ...[
+                  if (widget.updateInfo.isPrerelease) ...[
                     SizedBox(height: 8),
                     Chip(
                       label: Text('Pre-release'),
@@ -61,11 +72,11 @@ class UpdateDialog extends StatelessWidget {
                   ],
                   SizedBox(height: 16),
                   TextButton.icon(
-                    onPressed: onViewReleaseNotes,
+                    onPressed: widget.onViewReleaseNotes,
                     icon: const Icon(Icons.open_in_new),
                     label: const Text("What's new"),
                   ),
-                  if (state.error != null) ...[
+                  if (error != null) ...[
                     SizedBox(height: 16),
                     Container(
                       padding: EdgeInsets.all(8),
@@ -73,10 +84,7 @@ class UpdateDialog extends StatelessWidget {
                         color: Colors.red.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: Text(
-                        state.error!,
-                        style: TextStyle(color: Colors.red),
-                      ),
+                      child: Text(error, style: TextStyle(color: Colors.red)),
                     ),
                   ],
                   if (downloading) ...[
@@ -95,7 +103,7 @@ class UpdateDialog extends StatelessWidget {
                     SizedBox(height: 8),
                     Text('Installing update...'),
                   ],
-                  if (service.installationStarted)
+                  if (widget.service.installationStarted)
                     const Text(
                       'Update installation started. Follow the on-screen prompts.',
                     ),
@@ -107,17 +115,19 @@ class UpdateDialog extends StatelessWidget {
                 onPressed: busy ? null : () => Navigator.of(context).pop(),
                 child: Text('Cancel'),
               ),
-              if (service.downloadedPath == null)
+              if (widget.service.downloadedPath == null)
                 ElevatedButton(
-                  onPressed: busy || !current ? null : _handleDownload,
-                  child: Text(state.error == null ? 'Download' : 'Retry'),
+                  onPressed: busy || checking || !current
+                      ? null
+                      : _handleDownload,
+                  child: Text(error == null ? 'Download' : 'Retry'),
                 )
-              else if (!service.installationStarted)
+              else if (!widget.service.installationStarted)
                 ElevatedButton(
-                  onPressed: busy || !current
+                  onPressed: busy || checking || !current
                       ? null
                       : () => _handleInstall(context),
-                  child: Text(state.error == null ? 'Install' : 'Retry'),
+                  child: Text(error == null ? 'Install' : 'Retry'),
                 ),
             ],
           ),
@@ -127,19 +137,23 @@ class UpdateDialog extends StatelessWidget {
   }
 
   Future<void> _handleDownload() async {
+    setState(() => _actionError = null);
     try {
-      await service.downloadUpdate(updateInfo, (_) {});
-    } catch (_) {
-      return;
+      await widget.service.downloadUpdate(widget.updateInfo, (_) {});
+    } catch (error) {
+      _showActionError(error, action: 'download the app update');
     }
   }
 
   Future<void> _handleInstall(BuildContext context) async {
-    if (service.currentState.phase == AppUpdatePhase.installing) return;
-    final path = service.downloadedPath;
-    if (path == null) return;
+    if (widget.service.currentState.phase == AppUpdatePhase.installing) return;
+    setState(() => _actionError = null);
     try {
-      final success = await service.installUpdate(path);
+      final path = widget.service.downloadedPath;
+      if (path == null) {
+        throw StateError('The downloaded app update is unavailable');
+      }
+      final success = await widget.service.installUpdate(path);
       if (!context.mounted) return;
       if (success) {
         Navigator.of(context).pop();
@@ -151,9 +165,14 @@ class UpdateDialog extends StatelessWidget {
           ),
         );
       }
-    } catch (_) {
-      return;
+    } catch (error) {
+      _showActionError(error, action: 'install the app update');
     }
+  }
+
+  void _showActionError(Object error, {required String action}) {
+    if (!mounted || widget.service.currentState.error != null) return;
+    setState(() => _actionError = remoteErrorMessage(error, action: action));
   }
 }
 

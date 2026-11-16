@@ -272,6 +272,68 @@ void main() {
 
   group('downloadAndInstall', () {
     test(
+      'returning from the installer permits an explicit cached retry',
+      () async {
+        final svc = build();
+        addTearDown(svc.dispose);
+        updater.nextCheck = _update();
+        await svc.downloadAndInstall();
+
+        svc.onAppResumed();
+        svc.onAppResumed();
+
+        expect(svc.installationStarted, isFalse);
+        expect(svc.currentState.phase, AppUpdatePhase.available);
+        expect(svc.downloadedPath, '/tmp/update.apk');
+        expect(updater.installCalls, 1);
+        await svc.checkForUpdate();
+        expect(updater.checkCalls, 2);
+        await svc.installUpdate(svc.downloadedPath!);
+        expect(updater.installCalls, 2);
+        expect(updater.downloadCalls, 1);
+      },
+    );
+
+    test(
+      'resume during a pending installer call cannot duplicate it',
+      () async {
+        final svc = build();
+        addTearDown(svc.dispose);
+        updater.nextCheck = _update();
+        updater.installGate = Completer<void>();
+        await svc.checkForUpdate();
+        final path = await svc.downloadUpdate(svc.availableUpdate!, (_) {});
+        final first = svc.installUpdate(path);
+
+        svc.onAppResumed();
+        final second = svc.installUpdate(path);
+        expect(updater.installCalls, 1);
+        updater.installGate!.complete();
+        expect(await first, isTrue);
+        expect(await second, isTrue);
+        expect(svc.installationStarted, isFalse);
+        expect(svc.currentState.phase, AppUpdatePhase.available);
+        await svc.installUpdate(path);
+        expect(updater.installCalls, 2);
+      },
+    );
+
+    test('a download without measured progress stays indeterminate', () async {
+      final svc = build();
+      addTearDown(svc.dispose);
+      updater.nextCheck = _update();
+      updater.downloadGate = Completer<void>();
+      await svc.checkForUpdate();
+      final download = svc.downloadUpdate(svc.availableUpdate!, (_) {});
+
+      expect(svc.currentState.phase, AppUpdatePhase.downloading);
+      expect(svc.currentState.progress, isNull);
+      updater.downloadGate!.complete();
+      await download;
+      expect(svc.currentState.phase, AppUpdatePhase.available);
+    });
+
+    test(
       'a missing cached APK can be downloaded again after install failure',
       () async {
         final cache = await Directory.systemTemp.createTemp(
@@ -442,7 +504,7 @@ void main() {
       await sub.cancel();
 
       expect(downloadingProgress.length, lessThan(110));
-      expect(downloadingProgress.first, 0.0);
+      expect(downloadingProgress.first, closeTo(0.001, 1e-9));
       expect(downloadingProgress.last, closeTo(1.0, 1e-9));
       svc.dispose();
     });

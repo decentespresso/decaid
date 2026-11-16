@@ -19,18 +19,21 @@ class _Updater extends AndroidUpdater {
   Future<bool> Function(String) install = (_) async => false;
   int downloadCalls = 0;
   int installCalls = 0;
+  Completer<UpdateInfo?>? checkGate;
 
   @override
   Future<UpdateInfo?> checkForUpdate(
     String version, {
     UpdateChannel channel = UpdateChannel.stable,
-  }) async => UpdateInfo(
-    version: '1.2.3',
-    downloadUrl: 'https://example.com/decent.apk',
-    releaseNotes: '## Internal Markdown\n- implementation detail',
-    isPrerelease: false,
-    tagName: 'v1.2.3',
-  );
+  }) async =>
+      checkGate?.future ??
+      UpdateInfo(
+        version: '1.2.3',
+        downloadUrl: 'https://example.com/decent.apk',
+        releaseNotes: '## Internal Markdown\n- implementation detail',
+        isPrerelease: false,
+        tagName: 'v1.2.3',
+      );
 
   @override
   Future<String> downloadUpdate(
@@ -141,6 +144,73 @@ void main() {
     expect(find.textContaining('Check your internet'), findsNothing);
   });
 
+  testWidgets('a pending check disables Download until its result arrives', (
+    tester,
+  ) async {
+    await mount(tester);
+    await tester.tap(find.text('Open update'));
+    await tester.pumpAndSettle();
+    final update = service.availableUpdate!;
+    final checking = Completer<UpdateInfo?>();
+    updater.checkGate = checking;
+    final operation = service.checkForUpdate();
+    await tester.pumpAndSettle();
+    final button = find.widgetWithText(ElevatedButton, 'Download');
+    expect(tester.widget<ElevatedButton>(button).onPressed, isNull);
+    expect(
+      tester
+          .widget<TextButton>(find.widgetWithText(TextButton, 'Cancel'))
+          .onPressed,
+      isNotNull,
+    );
+    await tester.tap(button);
+    expect(updater.downloadCalls, 0);
+    checking.complete(update);
+    await operation;
+    await tester.pumpAndSettle();
+    expect(tester.widget<ElevatedButton>(button).onPressed, isNotNull);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(updater.downloadCalls, 1);
+    expect(find.text('Install'), findsOneWidget);
+  });
+
+  testWidgets('a rejected stale Download shows visible feedback', (
+    tester,
+  ) async {
+    await mount(tester);
+    await tester.tap(find.text('Open update'));
+    await tester.pumpAndSettle();
+    service.clearAvailableUpdate();
+    await tester.tap(find.text('Download'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text("Couldn't download the app update. Try again."),
+      findsOneWidget,
+    );
+    expect(updater.downloadCalls, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('an invalidated cached Install shows visible feedback', (
+    tester,
+  ) async {
+    await mount(tester);
+    await tester.tap(find.text('Open update'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Download'));
+    await tester.pumpAndSettle();
+    service.clearAvailableUpdate();
+    await tester.tap(find.text('Install'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text("Couldn't install the app update. Try again."),
+      findsOneWidget,
+    );
+    expect(updater.installCalls, 0);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('rapid Install taps close only the update dialog', (
     tester,
   ) async {
@@ -158,6 +228,32 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(UpdateDialog), findsNothing);
     expect(find.text('Open update'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('returning from the installer allows a cached explicit retry', (
+    tester,
+  ) async {
+    updater.install = (_) async => true;
+    await mount(tester);
+    await tester.tap(find.text('Open update'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Download'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Install'));
+    await tester.pumpAndSettle();
+    expect(find.byType(UpdateDialog), findsNothing);
+    expect(updater.installCalls, 1);
+    service.onAppResumed();
+    await tester.tap(find.text('Open update'));
+    await tester.pumpAndSettle();
+    expect(find.text('Install'), findsOneWidget);
+    expect(updater.downloadCalls, 1);
+    await tester.tap(find.text('Install'));
+    await tester.pumpAndSettle();
+    expect(updater.installCalls, 2);
+    expect(updater.downloadCalls, 1);
+    expect(find.byType(UpdateDialog), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

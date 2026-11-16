@@ -11,6 +11,7 @@ import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/services/account/account_consent_store.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/app_log_upload_service.dart';
+import 'package:reaprime/src/services/update_check_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _FakePluginLoaderService extends Fake implements PluginLoaderService {
@@ -48,6 +49,15 @@ class _FakeConnectionManager extends Fake implements ConnectionManager {
 
 class _FakeCredentialStore extends Fake implements CredentialStore {}
 
+class _FakeUpdateCheckService extends Fake implements UpdateCheckService {
+  int resumeCalls = 0;
+
+  @override
+  void onAppResumed() {
+    resumeCalls++;
+  }
+}
+
 Future<AppLogUploadService> _createAppLogUploadService() async {
   SharedPreferences.setMockInitialValues({});
   final credentials = _FakeCredentialStore();
@@ -66,6 +76,29 @@ Future<AppLogUploadService> _createAppLogUploadService() async {
 }
 
 void main() {
+  testWidgets('update service receives only resumed lifecycle events', (
+    tester,
+  ) async {
+    final updates = _FakeUpdateCheckService();
+    final observer = app.AppLifecycleObserver(updateCheckService: updates);
+    addTearDown(observer.dispose);
+
+    for (final state in [
+      AppLifecycleState.inactive,
+      AppLifecycleState.hidden,
+      AppLifecycleState.paused,
+    ]) {
+      observer.didChangeAppLifecycleState(state);
+    }
+    expect(updates.resumeCalls, 0);
+
+    observer.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    expect(updates.resumeCalls, 1);
+    observer.didChangeAppLifecycleState(AppLifecycleState.detached);
+    await tester.pump();
+    expect(updates.resumeCalls, 1);
+  });
+
   testWidgets('desktop exit preserves terminal cleanup order', (tester) async {
     final calls = <String>[];
     final connectionsShutdown = Completer<void>();
