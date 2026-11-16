@@ -189,6 +189,12 @@ jobs:
       - name: Check Apple camera privacy declarations
         run: python3 tool/ci/check_apple_camera_privacy_test.py
 
+      - name: Test iOS location privacy declarations
+        run: python3 tool/ci/check_ios_location_privacy_test.py
+
+      - name: Check iOS location privacy declarations
+        run: python3 tool/ci/check_ios_location_privacy.py
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
