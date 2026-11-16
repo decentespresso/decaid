@@ -84,6 +84,15 @@ class UpdateNotifications {
       }
       return;
     }
+    if (center.value.any(
+      (notice) =>
+          notice.namespace == NotificationNamespace.host &&
+          notice.sourceId == sourceId &&
+          notice.id == update.version &&
+          center.isConfirmed(notice),
+    )) {
+      return;
+    }
     final previouslyRead = center.value.any(
       (notice) =>
           notice.namespace == NotificationNamespace.host &&

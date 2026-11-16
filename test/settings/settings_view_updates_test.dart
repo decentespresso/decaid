@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/presence_controller.dart';
@@ -15,8 +16,21 @@ import 'package:reaprime/src/settings/settings_view.dart';
 import 'package:reaprime/src/settings/update_dialog.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
+import 'package:url_launcher_platform_interface/url_launcher_platform_interface.dart';
 
 import '../helpers/mock_settings_service.dart';
+
+class _Launcher extends Fake
+    with MockPlatformInterfaceMixin
+    implements UrlLauncherPlatform {
+  final launches = <String>[];
+
+  @override
+  Future<bool> launchUrl(String url, LaunchOptions options) async {
+    launches.add(url);
+    return true;
+  }
+}
 
 class _RecordingUpdater extends AndroidUpdater {
   _RecordingUpdater() : super(owner: 'tadelv', repo: 'reaprime');
@@ -200,6 +214,41 @@ void main() {
         expect(find.text('Settings'), findsOneWidget);
       },
     );
+
+    testWidgets('open updater release notes follow a newly confirmed release', (
+      tester,
+    ) async {
+      final original = UrlLauncherPlatform.instance;
+      final launcher = _Launcher();
+      UrlLauncherPlatform.instance = launcher;
+      addTearDown(() => UrlLauncherPlatform.instance = original);
+      final initial = _requestedUpdate(version: '98.0.0');
+      final latest = _requestedUpdate();
+      final updater = _RecordingUpdater()..updateInfo = initial;
+      final (service, _) = await _pumpSettingsView(
+        tester,
+        [],
+        macos: false,
+        serviceIsAndroid: true,
+        requestedUpdate: initial,
+        recordingUpdater: updater,
+        prepareService: (service) async {
+          await service.checkForUpdate();
+        },
+      );
+      expect(find.text('Version 98.0.0'), findsOneWidget);
+
+      updater.updateInfo = latest;
+      await tester.runAsync(() => service.checkForUpdate());
+      await tester.pumpAndSettle();
+      expect(find.text('Version 99.0.0'), findsOneWidget);
+      await tester.tap(find.text("What's new"));
+      await tester.pumpAndSettle();
+
+      expect(launcher.launches, [service.getReleaseUrl(latest)]);
+      expect(updater.downloadCalls, 0);
+      expect(updater.installCalls, 0);
+    });
 
     testWidgets(
       'stale requested version revalidates and selects the latest update',

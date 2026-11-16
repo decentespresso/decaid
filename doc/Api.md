@@ -952,6 +952,10 @@ An app-update notification's View action opens launcher Settings and the existin
 update dialog without starting a download. Reopening reveals the shared download
 progress or result rather than creating another downloader. Notification actions
 for plugins and the Android installation-permission behavior remain unchanged.
+An open Android updater follows the current confirmed release, including a
+replacement asset with the same version. Superseded downloads and cached installs
+are rejected without changing the selection. Download progress does not rewrite
+an unchanged update notification.
 
 Missing or incorrectly typed GitHub release, asset, or commit fields are
 validation failures (HTTP 400), including when the response is valid JSON.

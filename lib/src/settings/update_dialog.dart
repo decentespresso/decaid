@@ -30,6 +30,8 @@ class UpdateDialog extends StatefulWidget {
 }
 
 class _UpdateDialogState extends State<UpdateDialog> {
+  late UpdateInfo _updateInfo;
+  bool _updateAvailable = true;
   bool _isDownloading = false;
   bool _isInstalling = false;
   String? _downloadedPath;
@@ -42,8 +44,11 @@ class _UpdateDialogState extends State<UpdateDialog> {
   void initState() {
     super.initState();
     final service = widget.updateService;
+    _updateInfo = service?.availableUpdate ?? widget.updateInfo;
     if (service == null) return;
-    _downloadedPath = service.downloadedPathFor(widget.updateInfo);
+    _updateAvailable =
+        service.availableUpdate != null || !service.hasCompletedCheck;
+    _downloadedPath = service.downloadedPathFor(_updateInfo);
     _isDownloading = service.currentState.phase == AppUpdatePhase.downloading;
     _downloadProgress = service.currentState.progress;
     _error = service.currentState.error;
@@ -52,12 +57,17 @@ class _UpdateDialogState extends State<UpdateDialog> {
         service.currentState.phase == AppUpdatePhase.installing &&
         !_installerLaunched;
     _subscription = service.updateState.listen((state) {
-      if (!mounted || state.latestVersion != widget.updateInfo.version) return;
+      if (!mounted) return;
       setState(() {
+        final update = service.availableUpdate;
+        _updateAvailable = update != null;
+        if (update != null) _updateInfo = update;
         _isDownloading = state.phase == AppUpdatePhase.downloading;
         _downloadProgress = state.progress;
         _error = state.error;
-        _downloadedPath = service.downloadedPathFor(widget.updateInfo);
+        _downloadedPath = update == null
+            ? null
+            : service.downloadedPathFor(update);
         _installerLaunched =
             service.installerLaunched && _downloadedPath != null;
         _isInstalling =
@@ -82,7 +92,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Version ${widget.updateInfo.version}',
+              'Version ${_updateInfo.version}',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             SizedBox(height: 8),
@@ -90,7 +100,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
               'Current version: ${widget.currentVersion}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
-            if (widget.updateInfo.isPrerelease) ...[
+            if (_updateInfo.isPrerelease) ...[
               SizedBox(height: 8),
               Chip(
                 label: Text('Pre-release'),
@@ -98,11 +108,14 @@ class _UpdateDialogState extends State<UpdateDialog> {
               ),
             ],
             SizedBox(height: 16),
-            TextButton.icon(
-              onPressed: widget.onViewReleaseNotes,
-              icon: const Icon(Icons.open_in_new),
-              label: const Text("What's new"),
-            ),
+            if (_updateAvailable)
+              TextButton.icon(
+                onPressed: widget.onViewReleaseNotes,
+                icon: const Icon(Icons.open_in_new),
+                label: const Text("What's new"),
+              ),
+            if (!_updateAvailable)
+              const Text('This update is no longer available.'),
             if (_error != null) ...[
               SizedBox(height: 16),
               Container(
@@ -144,12 +157,12 @@ class _UpdateDialogState extends State<UpdateDialog> {
               : () => Navigator.of(context).pop(),
           child: Text(_installerLaunched ? 'Close' : 'Cancel'),
         ),
-        if (_downloadedPath == null)
+        if (_updateAvailable && _downloadedPath == null)
           ElevatedButton(
             onPressed: _isDownloading ? null : _handleDownload,
             child: Text(_error == null ? 'Download' : 'Retry'),
           )
-        else
+        else if (_updateAvailable)
           ElevatedButton(
             onPressed: _isInstalling ? null : _handleInstall,
             child: Text(
@@ -169,7 +182,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
     });
 
     try {
-      final path = await widget.onDownload(widget.updateInfo, (progress) {
+      final path = await widget.onDownload(_updateInfo, (progress) {
         if (mounted) setState(() => _downloadProgress = progress);
       });
       if (!mounted) return;
@@ -227,7 +240,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
         _error = remoteErrorMessage(e, action: 'install the app update');
         final service = widget.updateService;
         if (service != null) {
-          _downloadedPath = service.downloadedPathFor(widget.updateInfo);
+          _downloadedPath = service.downloadedPathFor(_updateInfo);
         }
         _isInstalling = false;
       });

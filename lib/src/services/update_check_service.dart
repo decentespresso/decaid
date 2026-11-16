@@ -90,10 +90,18 @@ class UpdateCheckService {
       ? _downloadedPath
       : null;
 
+  bool _isSuperseded(UpdateInfo update) =>
+      _hasCompletedCheck &&
+      (availableUpdate?.tagName != update.tagName ||
+          availableUpdate?.downloadUrl != update.downloadUrl);
+
   Future<String> downloadUpdate(
     UpdateInfo update,
     void Function(double) onProgress,
   ) async {
+    if (_isSuperseded(update)) {
+      throw StateError('The available app update has changed');
+    }
     final subscription = updateState.listen((state) {
       if (state.phase == AppUpdatePhase.downloading && state.progress != null) {
         onProgress(state.progress!);
@@ -120,20 +128,21 @@ class UpdateCheckService {
 
   Future<String> _download(UpdateInfo update) async {
     _operationRevision++;
-    final cached = downloadedPathFor(update);
-    if (cached != null) {
-      final file = await File(cached).stat();
-      if (file.type == FileSystemEntityType.file && file.size > 0) {
-        return cached;
-      }
-    }
-    _availableUpdate = update;
-    _downloadedPath = null;
-    _downloadedUpdate = update;
-    _installerLaunched = false;
-    _emit(AppUpdatePhase.downloading, progress: 0);
-    var lastEmitted = 0.0;
     try {
+      final cached = downloadedPathFor(update);
+      if (cached != null) {
+        final file = await File(cached).stat();
+        if (file.type == FileSystemEntityType.file && file.size > 0) {
+          _emit(AppUpdatePhase.available);
+          return cached;
+        }
+      }
+      _availableUpdate = update;
+      _downloadedPath = null;
+      _downloadedUpdate = update;
+      _installerLaunched = false;
+      _emit(AppUpdatePhase.downloading, progress: 0);
+      var lastEmitted = 0.0;
       final path = await _updater.downloadUpdate(
         update,
         onProgress: (progress) {
@@ -147,6 +156,7 @@ class UpdateCheckService {
       _emit(AppUpdatePhase.available);
       return path;
     } catch (error) {
+      _downloadedPath = null;
       _emit(
         AppUpdatePhase.error,
         error: remoteErrorMessage(error, action: 'download the app update'),
@@ -159,7 +169,9 @@ class UpdateCheckService {
     if (_downloadOperation != null) {
       return Future.error(StateError('An app update is still downloading'));
     }
-    if (path != _downloadedPath ||
+    if (_downloadedUpdate == null ||
+        _isSuperseded(_downloadedUpdate!) ||
+        path != _downloadedPath ||
         (_installOperation != null && _installingPath != path)) {
       return Future.error(StateError('The downloaded app update has changed'));
     }

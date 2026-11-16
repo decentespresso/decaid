@@ -585,7 +585,10 @@ class _SettingsViewState extends State<SettingsView> {
                 onDownload: service.downloadUpdate,
                 onInstall: service.installDownloadedUpdate,
                 onViewReleaseNotes: () {
-                  if (releaseUrl != null) launchUrl(Uri.parse(releaseUrl));
+                  final currentReleaseUrl = service.getReleaseUrl();
+                  if (currentReleaseUrl != null) {
+                    launchUrl(Uri.parse(currentReleaseUrl));
+                  }
                 },
               )
             : AlertDialog(

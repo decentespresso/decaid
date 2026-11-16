@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/notifications/notification_center.dart';
@@ -25,6 +27,18 @@ class _Updater extends AndroidUpdater {
     if (fail) throw StateError('Offline');
     return next;
   }
+
+  @override
+  Future<String> downloadUpdate(
+    UpdateInfo update, {
+    Function(double)? onProgress,
+    Directory? cacheDir,
+  }) async {
+    for (final progress in List.generate(100, (index) => (index + 1) / 100)) {
+      onProgress?.call(progress);
+    }
+    return '/tmp/update.apk';
+  }
 }
 
 void main() {
@@ -34,6 +48,7 @@ void main() {
   late UpdateNotifications updates;
   late MockSettingsService settings;
   late _Updater updater;
+  var saves = 0;
   final downloads = <String>[];
 
   UpdateInfo update(String version) => UpdateInfo(
@@ -72,7 +87,14 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     preferences = await SharedPreferences.getInstance();
-    center = NotificationCenter(preferences: preferences);
+    saves = 0;
+    center = NotificationCenter(
+      preferences: preferences,
+      save: (snapshot) async {
+        saves++;
+        return preferences.setString(NotificationCenter.storageKey, snapshot);
+      },
+    );
     settings = MockSettingsService();
     updater = _Updater();
     service = UpdateCheckService(
@@ -97,6 +119,45 @@ void main() {
     service.dispose();
     center.dispose();
   });
+
+  test(
+    'progress and repeated checks do not republish an unchanged notice',
+    () async {
+      updater.next = update('99.0.0');
+      await service.checkForUpdate();
+      await updates.settled;
+      await center.markRead(center.value);
+      final notice = center.value.single;
+      final activation = center.activation(notice);
+      final saved = saves;
+      var changes = 0;
+      center.addListener(() => changes++);
+
+      await service.downloadUpdate(updater.next!, (_) {});
+      await updates.settled;
+      await service.checkForUpdate();
+      await updates.settled;
+
+      expect(saves, saved);
+      expect(changes, 0);
+      expect(center.value.single, same(notice));
+      expect(center.unreadCount, 0);
+      expect(center.isCurrent(activation), isTrue);
+      await activation.binding!.onActivate!(notice.actions.single);
+      expect(downloads, ['99.0.0']);
+
+      await center.removeSource(
+        NotificationNamespace.host,
+        UpdateNotifications.sourceId,
+      );
+      await service.checkForUpdate();
+      await updates.settled;
+
+      expect(center.value.single.id, '99.0.0');
+      expect(center.isConfirmed(center.value.single), isTrue);
+      expect(center.isCurrent(activation), isFalse);
+    },
+  );
 
   test(
     'repeated checks retain read state and bind trusted actions to the version',

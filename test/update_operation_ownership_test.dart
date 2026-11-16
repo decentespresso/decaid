@@ -26,6 +26,8 @@ class _Updater extends AndroidUpdater {
   int downloads = 0;
   int installations = 0;
   int checks = 0;
+  String? downloadPath;
+  UpdateInfo? lastDownload;
 
   @override
   Future<UpdateInfo?> checkForUpdate(
@@ -45,10 +47,11 @@ class _Updater extends AndroidUpdater {
     Directory? cacheDir,
   }) async {
     downloads++;
+    lastDownload = info;
     onProgress?.call(0.42);
     if (downloadGate != null) await downloadGate!.future;
     if (failDownload) throw StateError('private failure detail');
-    return '/tmp/${info.tagName}.apk';
+    return downloadPath ?? '/tmp/${info.tagName}.apk';
   }
 
   @override
@@ -120,6 +123,188 @@ Widget _dialog(UpdateCheckService service, UpdateInfo update) => MaterialApp(
 );
 
 void main() {
+  for (final replacement in ['new version', 'replaced asset', 'removed']) {
+    test(
+      'a confirmed $replacement rejects stale download and install',
+      () async {
+        final updater = _Updater();
+        final service = _service(updater);
+        addTearDown(service.dispose);
+        final first = _update();
+        updater.nextCheck = first;
+        await service.checkForUpdate();
+        final path = await service.downloadUpdate(first, (_) {});
+        final next = switch (replacement) {
+          'new version' => _update(version: '2.0.0'),
+          'replaced asset' => _update(url: 'https://example.com/replaced.apk'),
+          _ => null,
+        };
+        updater.nextCheck = next;
+        await service.checkForUpdate();
+        final before = service.currentState;
+
+        await expectLater(
+          service.downloadUpdate(first, (_) {}),
+          throwsStateError,
+        );
+        await expectLater(
+          service.installDownloadedUpdate(path),
+          throwsStateError,
+        );
+
+        expect(service.currentState, same(before));
+        expect(service.availableUpdate, same(next));
+        expect(updater.downloads, 1);
+        expect(updater.installations, 0);
+      },
+    );
+  }
+
+  test(
+    'cached reuse finishes checking and permits another explicit check',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'pending-update-cache-',
+      );
+      addTearDown(() => directory.delete(recursive: true));
+      final file = File('${directory.path}/update.apk');
+      await file.writeAsBytes([1, 2, 3]);
+      final updater = _Updater()..downloadPath = file.path;
+      final service = _service(updater);
+      addTearDown(service.dispose);
+      final update = _update();
+      updater.nextCheck = update;
+      await service.checkForUpdate();
+      await service.downloadUpdate(update, (_) {});
+      updater.checkGate = Completer<void>();
+      final checking = service.checkForUpdate();
+      await Future<void>.delayed(Duration.zero);
+      expect(service.currentState.phase, AppUpdatePhase.checking);
+
+      expect(await service.downloadUpdate(update, (_) {}), file.path);
+      expect(service.currentState.phase, AppUpdatePhase.available);
+      updater.checkGate!.complete();
+      await checking;
+      updater.checkGate = null;
+      await service.requestCheck();
+
+      expect(service.currentState.phase, AppUpdatePhase.available);
+      expect(updater.checks, 3);
+      expect(updater.downloads, 1);
+    },
+  );
+
+  for (final replacement in ['new version', 'replaced asset']) {
+    testWidgets('an open dialog follows a confirmed $replacement', (
+      tester,
+    ) async {
+      final updater = _Updater();
+      final service = _service(updater);
+      addTearDown(service.dispose);
+      final first = _update();
+      updater.nextCheck = first;
+      await tester.runAsync(() => service.checkForUpdate());
+      await tester.pumpWidget(_dialog(service, first));
+      await tester.pumpAndSettle();
+      final next = replacement == 'new version'
+          ? _update(version: '2.0.0')
+          : _update(url: 'https://example.com/replaced.apk');
+      updater.nextCheck = next;
+      await tester.runAsync(() => service.checkForUpdate());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Version ${next.version}'), findsOneWidget);
+      expect(updater.downloads, 0);
+      await tester.tap(find.text('Download'));
+      await tester.pumpAndSettle();
+
+      expect(updater.lastDownload, same(next));
+      expect(updater.downloads, 1);
+      expect(service.availableUpdate, same(next));
+      await tester.pumpWidget(const SizedBox());
+    });
+  }
+
+  testWidgets('an open dialog cannot download a removed update', (
+    tester,
+  ) async {
+    final updater = _Updater();
+    final service = _service(updater);
+    addTearDown(service.dispose);
+    final update = _update();
+    updater.nextCheck = update;
+    await tester.runAsync(() => service.checkForUpdate());
+    await tester.pumpWidget(_dialog(service, update));
+    await tester.pumpAndSettle();
+    updater.nextCheck = null;
+    await tester.runAsync(() => service.checkForUpdate());
+    await tester.pumpAndSettle();
+
+    expect(find.text('This update is no longer available.'), findsOneWidget);
+    expect(find.text('Download'), findsNothing);
+    expect(find.text('Install'), findsNothing);
+    expect(updater.downloads, 0);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  test(
+    'rejecting a stale download does not discard a pending current check',
+    () async {
+      final updater = _Updater();
+      final service = _service(updater);
+      addTearDown(service.dispose);
+      final first = _update();
+      updater.nextCheck = first;
+      await service.checkForUpdate();
+      updater.nextCheck = _update(version: '2.0.0');
+      await service.checkForUpdate();
+      final next = _update(version: '3.0.0');
+      updater.nextCheck = next;
+      updater.checkGate = Completer<void>();
+      final checking = service.checkForUpdate();
+      await Future<void>.delayed(Duration.zero);
+
+      await expectLater(
+        service.downloadUpdate(first, (_) {}),
+        throwsStateError,
+      );
+      updater.checkGate!.complete();
+      await checking;
+
+      expect(service.availableUpdate, same(next));
+      expect(service.currentState.phase, AppUpdatePhase.available);
+      expect(updater.downloads, 0);
+    },
+  );
+
+  testWidgets('a replacement clears the open dialog cached Install action', (
+    tester,
+  ) async {
+    final updater = _Updater();
+    final service = _service(updater);
+    addTearDown(service.dispose);
+    final first = _update();
+    updater.nextCheck = first;
+    await tester.runAsync(() async {
+      await service.checkForUpdate();
+      await service.downloadUpdate(first, (_) {});
+    });
+    await tester.pumpWidget(_dialog(service, first));
+    await tester.pumpAndSettle();
+    expect(find.text('Install'), findsOneWidget);
+    updater.nextCheck = _update(version: '2.0.0');
+
+    await tester.runAsync(() => service.checkForUpdate());
+    await tester.pumpAndSettle();
+
+    expect(find.text('Version 2.0.0'), findsOneWidget);
+    expect(find.text('Download'), findsOneWidget);
+    expect(find.text('Install'), findsNothing);
+    expect(updater.downloads, 1);
+    expect(updater.installations, 0);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   test(
     'an explicit check can select another release after installer cancellation',
     () async {

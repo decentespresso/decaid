@@ -20,9 +20,22 @@ an installer exception discards the cached path so download can be retried.
 Metadata checks can finish after a user starts a transfer or installation. A
 revision counter fences results after each asynchronous settings/network boundary,
 including error paths, so a stale check cannot overwrite that newer operation.
+Reusing a valid cached file also restores the available phase, so invalidating a
+pending metadata result cannot strand the service in checking. Cache inspection
+failures discard the path and publish a recoverable error.
+
+Once a metadata check confirms a release or its absence, downloads and cached
+installations must match the current tag and asset URL before changing operation
+ownership. An open Android dialog follows that confirmed selection, clears stale
+cached controls and resolves release notes from the current release. Removing the
+selected release retires its download and install controls.
+
+Update notices contain availability and a live View action, not download progress.
+An already-confirmed notice for the same version is retained without another
+persistence write or listener update. Restored notices still require confirmation,
+and removal permits a fresh notice for the same version to be published.
 
 Desktop release-note behavior and plugin-provided notification actions remain
 unchanged. No alternate notification-local downloader or progress state machine
 is introduced. Widget tests cover launcher and skin routing, progress, stale
-notices, repeated actions and re-entry; independent physical verification of the
-final extracted branch remains separate from earlier tablet evidence.
+notices, repeated actions, selection changes and re-entry.
