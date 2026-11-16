@@ -285,8 +285,8 @@ void main() {
           message: 'Update available: 99.0.0',
           actions: const [
             NotificationAction(
-              id: 'download',
-              label: 'Download',
+              id: 'view',
+              label: 'View',
               type: NotificationActionType.downloadUpdate,
             ),
           ],
@@ -322,7 +322,7 @@ void main() {
     );
     await mount(tester);
     await open(tester);
-    await tester.tap(find.text('Download'));
+    await tester.tap(find.text('View'));
     await tester.pumpAndSettle();
     await tester.runAsync(() => Future<void>.delayed(Duration.zero));
     await tester.pumpAndSettle();
@@ -359,17 +359,11 @@ void main() {
       });
       final navigator = GlobalKey<NavigatorState>();
       final webKey = GlobalKey();
-      final releaseUrl = Uri.parse('https://example.com/releases/v99.0.0');
-      Uri? openedUrl;
       actions.dispose();
       actions = NotificationActions(
         center: center,
         onOpenAccount: () {},
-        launch: (url) async {
-          expect(webKey.currentState, isNull);
-          openedUrl = url;
-          return true;
-        },
+        launch: (_) async => throw StateError('Update View stays native'),
       );
       await tester.runAsync(
         () => center.publish(
@@ -379,16 +373,10 @@ void main() {
             sourceName: 'Decaid',
             id: '99.0.0',
             message: 'Update available: 99.0.0',
-            actions: [
+            actions: const [
               NotificationAction(
                 id: 'view',
                 label: 'View',
-                type: NotificationActionType.openExternalUrl,
-                url: releaseUrl,
-              ),
-              const NotificationAction(
-                id: 'download',
-                label: 'Download',
                 type: NotificationActionType.downloadUpdate,
               ),
             ],
@@ -481,15 +469,6 @@ void main() {
         isNull,
       );
       await tester.tap(find.text('View'));
-      await tester.pumpAndSettle();
-      expect(openedUrl, releaseUrl);
-      await tester.tap(find.byTooltip('Close'));
-      await tester.pumpAndSettle();
-      expect(find.text('Dashboard'), findsOneWidget);
-      expect(find.byType(SkinView, skipOffstage: false), findsNothing);
-      await tester.tap(find.text('Notifications'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Download'));
       await tester.pumpAndSettle();
       await tester.runAsync(() => Future<void>.delayed(Duration.zero));
       await tester.pumpAndSettle();

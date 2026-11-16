@@ -21,7 +21,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'settings_controller.dart';
 
-class SettingsView extends StatelessWidget {
+class SettingsView extends StatefulWidget {
   const SettingsView({
     super.key,
     required this.controller,
@@ -30,6 +30,7 @@ class SettingsView extends StatelessWidget {
     required this.presenceController,
     this.webUIStorage,
     this.githubCredentials,
+    this.requestedUpdate,
   });
 
   static const routeName = '/settings';
@@ -40,6 +41,48 @@ class SettingsView extends StatelessWidget {
   final MacOSUpdater? macosUpdater;
   final WebUIStorage? webUIStorage;
   final GithubCredentialProvider? githubCredentials;
+  final UpdateInfo? requestedUpdate;
+
+  @override
+  State<SettingsView> createState() => _SettingsViewState();
+}
+
+class _SettingsViewState extends State<SettingsView> {
+  SettingsController get controller => widget.controller;
+  PresenceController get presenceController => widget.presenceController;
+  UpdateCheckService? get updateCheckService => widget.updateCheckService;
+  MacOSUpdater? get macosUpdater => widget.macosUpdater;
+  WebUIStorage? get webUIStorage => widget.webUIStorage;
+  GithubCredentialProvider? get githubCredentials => widget.githubCredentials;
+  bool _updateDialogOpen = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.requestedUpdate != null) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _openRequestedUpdate(),
+      );
+    }
+  }
+
+  Future<void> _openRequestedUpdate() async {
+    final service = updateCheckService;
+    if (!mounted || service == null || !service.canCheck) return;
+    if (service.availableUpdate == null ||
+        service.availableUpdate?.version != widget.requestedUpdate?.version) {
+      await service.requestCheck();
+    }
+    if (!mounted) return;
+    final update = service.availableUpdate;
+    if (update == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No app update is currently available')),
+      );
+      return;
+    }
+    await _showAppUpdate(context, update);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -484,59 +527,7 @@ class SettingsView extends StatelessWidget {
       if (!context.mounted) return;
 
       if (updateInfo != null) {
-        if (Platform.isAndroid) {
-          final updater = AndroidUpdater(
-            owner: 'tadelv',
-            repo: 'reaprime',
-            credentials: githubCredentials,
-          );
-          final releaseUrl = updateCheckService?.getReleaseUrl(updateInfo);
-          await showDialog(
-            context: context,
-            builder: (context) => UpdateDialog(
-              updateInfo: updateInfo,
-              currentVersion: BuildInfo.version,
-              onViewReleaseNotes: () {
-                if (releaseUrl != null) launchUrl(Uri.parse(releaseUrl));
-              },
-              onDownload: (info, onProgress) =>
-                  updater.downloadUpdate(info, onProgress: onProgress),
-              onInstall: (path) => updater.installUpdate(path),
-            ),
-          );
-        } else {
-          final releaseUrl = updateCheckService?.getReleaseUrl(updateInfo);
-          await showDialog(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: const Text('Update Available'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Version ${updateInfo.version} is available'),
-                  const SizedBox(height: 8),
-                  Text('Current version: ${BuildInfo.version}'),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Later'),
-                ),
-                ElevatedButton(
-                  onPressed: () async {
-                    Navigator.of(context).pop();
-                    if (releaseUrl != null) {
-                      await launchUrl(Uri.parse(releaseUrl));
-                    }
-                  },
-                  child: const Text("What's new"),
-                ),
-              ],
-            ),
-          );
-        }
+        await _showAppUpdate(context, updateInfo);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('You are on the latest version')),
@@ -574,6 +565,53 @@ class SettingsView extends StatelessWidget {
                 onRetry: () => _checkForUpdates(context),
               ),
       );
+    }
+  }
+
+  Future<void> _showAppUpdate(BuildContext context, UpdateInfo update) async {
+    final service = updateCheckService;
+    if (_updateDialogOpen || service == null) return;
+    _updateDialogOpen = true;
+    final releaseUrl = service.getReleaseUrl(update);
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => service.canInstall
+            ? UpdateDialog(
+                updateInfo: update,
+                currentVersion: BuildInfo.version,
+                updateService: service,
+                onDownload: service.downloadUpdate,
+                onInstall: service.installDownloadedUpdate,
+                onViewReleaseNotes: () {
+                  if (releaseUrl != null) launchUrl(Uri.parse(releaseUrl));
+                },
+              )
+            : AlertDialog(
+                title: const Text('Update Available'),
+                content: Text(
+                  'Version ${update.version} is available\nCurrent version: ${BuildInfo.version}',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Later'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () async {
+                      Navigator.of(context).pop();
+                      if (releaseUrl != null) {
+                        await launchUrl(Uri.parse(releaseUrl));
+                      }
+                    },
+                    child: const Text("What's new"),
+                  ),
+                ],
+              ),
+      );
+    } finally {
+      _updateDialogOpen = false;
     }
   }
 

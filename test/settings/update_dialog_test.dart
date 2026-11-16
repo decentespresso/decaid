@@ -4,7 +4,33 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/services/android_updater.dart';
+import 'package:reaprime/src/services/update_check_service.dart';
 import 'package:reaprime/src/settings/update_dialog.dart';
+import 'package:reaprime/src/settings/settings_controller.dart';
+import 'package:reaprime/src/webui_support/webui_storage.dart';
+
+import '../helpers/mock_settings_service.dart';
+
+class _DialogUpdater extends AndroidUpdater {
+  _DialogUpdater() : super(owner: 'test', repo: 'test');
+
+  final download = Completer<String>();
+  int downloadCalls = 0;
+
+  @override
+  Future<String> downloadUpdate(
+    UpdateInfo info, {
+    Function(double)? onProgress,
+    Directory? cacheDir,
+  }) {
+    downloadCalls++;
+    onProgress?.call(0.42);
+    return download.future;
+  }
+
+  @override
+  void dispose() {}
+}
 
 void main() {
   final updateInfo = UpdateInfo(
@@ -167,4 +193,59 @@ void main() {
 
     expect(viewReleaseNotesCalls, 1);
   });
+
+  testWidgets(
+    'reopening reveals the shared download and cached install action',
+    (tester) async {
+      final updater = _DialogUpdater();
+      final settings = MockSettingsService();
+      final service = UpdateCheckService(
+        settingsService: settings,
+        webUIStorage: WebUIStorage(SettingsController(settings)),
+        updater: updater,
+        platformIsAndroid: true,
+        platformIsMacOS: false,
+      );
+      addTearDown(service.dispose);
+      late Future<String> operation;
+      await tester.runAsync(() async {
+        operation = service.downloadUpdate(updateInfo, (_) {});
+      });
+      Widget page() => MaterialApp(
+        home: Scaffold(
+          body: UpdateDialog(
+            updateInfo: updateInfo,
+            currentVersion: '1.2.2',
+            updateService: service,
+            onViewReleaseNotes: () {},
+            onDownload: service.downloadUpdate,
+            onInstall: service.installDownloadedUpdate,
+          ),
+        ),
+      );
+      await tester.pumpWidget(page());
+      await tester.pump();
+      expect(find.text('Downloading update… 42%'), findsOneWidget);
+      expect(
+        tester.widget<ElevatedButton>(find.byType(ElevatedButton)).onPressed,
+        isNull,
+      );
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(page());
+      await tester.pump();
+      expect(find.text('Downloading update… 42%'), findsOneWidget);
+      expect(updater.downloadCalls, 1);
+      await tester.runAsync(() async {
+        updater.download.complete('/tmp/shared.apk');
+        await operation;
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('Install'), findsOneWidget);
+      expect(updater.downloadCalls, 1);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(page());
+      await tester.pumpAndSettle();
+      expect(find.text('Install'), findsOneWidget);
+    },
+  );
 }

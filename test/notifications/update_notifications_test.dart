@@ -64,7 +64,7 @@ void main() {
     updates = UpdateNotifications(
       center: center,
       service: service,
-      onDownload: (info) async => downloads.add(info.version),
+      onView: (info) async => downloads.add(info.version),
     );
     await updates.settled;
   }
@@ -87,7 +87,7 @@ void main() {
     updates = UpdateNotifications(
       center: center,
       service: service,
-      onDownload: (info) async => downloads.add(info.version),
+      onView: (info) async => downloads.add(info.version),
     );
     await updates.settled;
   });
@@ -107,16 +107,19 @@ void main() {
       expect(center.value.single.id, '99.0.0');
       expect(center.value.single.actions.map((action) => action.label), [
         'View',
-        'Download',
-        'Skip this version',
       ]);
+      expect(
+        center.value.single.actions.single.type,
+        NotificationActionType.downloadUpdate,
+      );
+      expect(center.value.single.actions.single.url, isNull);
       await center.markRead(center.value);
       final previous = center.activation(center.value.single);
       await service.checkForUpdate();
       await updates.settled;
       expect(center.unreadCount, 0);
       expect(center.isCurrent(previous), isTrue);
-      await previous.binding!.onActivate!(previous.notice.actions[1]);
+      await previous.binding!.onActivate!(previous.notice.actions.single);
       expect(downloads, ['99.0.0']);
     },
   );
@@ -141,7 +144,7 @@ void main() {
     updates = UpdateNotifications(
       center: center,
       service: service,
-      onDownload: (_) async {},
+      onView: (_) async {},
     );
     await updates.settled;
     expect(center.value.single.id, '99.0.0');
@@ -169,35 +172,34 @@ void main() {
     },
   );
 
-  test(
-    'restored update cannot be skipped before source revalidation',
-    () async {
-      updater.next = update('99.0.0');
-      await service.checkForUpdate();
-      await updates.settled;
-      await restart();
-      final notice = center.value.single;
-      expect(service.hasCompletedCheck, isFalse);
-      expect(center.isConfirmed(notice), isFalse);
-      expect(center.isCurrent(center.activation(notice)), isFalse);
-      expect(center.activation(notice).binding?.onActivate, isNull);
-      expect(await settings.skippedVersion(), isNull);
-      expect(center.value, hasLength(1));
-      expect(downloads, isEmpty);
-      updater.next = update('99.0.0');
-      await service.checkForUpdate();
-      await updates.settled;
-      final current = center.activation(center.value.single);
-      await current.binding!.onActivate!(current.notice.actions.last);
-      await updates.settled;
-      expect(await settings.skippedVersion(), '99.0.0');
-      expect(center.value, isEmpty);
-      updater.next = update('100.0.0');
-      await service.checkForUpdate();
-      await updates.settled;
-      expect(center.value.single.id, '100.0.0');
-    },
-  );
+  test('restored update cannot open before source revalidation', () async {
+    updater.next = update('99.0.0');
+    await service.checkForUpdate();
+    await updates.settled;
+    await restart();
+    final notice = center.value.single;
+    expect(service.hasCompletedCheck, isFalse);
+    expect(center.isConfirmed(notice), isFalse);
+    expect(center.isCurrent(center.activation(notice)), isFalse);
+    expect(center.activation(notice).binding?.onActivate, isNull);
+    expect(await settings.skippedVersion(), isNull);
+    expect(center.value, hasLength(1));
+    expect(downloads, isEmpty);
+    updater.next = update('99.0.0');
+    await service.checkForUpdate();
+    await updates.settled;
+    final current = center.activation(center.value.single);
+    await current.binding!.onActivate!(current.notice.actions.single);
+    expect(downloads, ['99.0.0']);
+    await service.skipVersion('99.0.0');
+    await updates.settled;
+    expect(await settings.skippedVersion(), '99.0.0');
+    expect(center.value, isEmpty);
+    updater.next = update('100.0.0');
+    await service.checkForUpdate();
+    await updates.settled;
+    expect(center.value.single.id, '100.0.0');
+  });
 
   test(
     'revalidation enables restored actions without resetting read state',
@@ -216,7 +218,7 @@ void main() {
       expect(center.unreadCount, 0);
       expect(center.isCurrent(unconfirmed), isFalse);
       final confirmed = center.activation(center.value.single);
-      await confirmed.binding!.onActivate!(confirmed.notice.actions[1]);
+      await confirmed.binding!.onActivate!(confirmed.notice.actions.single);
       expect(downloads, ['99.0.0']);
       await service.checkForUpdate();
       await updates.settled;
@@ -246,18 +248,46 @@ void main() {
     },
   );
 
+  test('a retired version cannot open after a newer result arrives', () async {
+    service.debugForceUpdate(version: '99.0.0');
+    await updates.settled;
+    final old = center.activation(center.value.single);
+    service.debugForceUpdate(version: '100.0.0');
+    await old.binding!.onActivate!(old.notice.actions.first);
+    await updates.settled;
+    expect(downloads, isEmpty);
+    expect(await settings.skippedVersion(), isNull);
+    expect(service.availableUpdate!.version, '100.0.0');
+    expect(center.value.single.id, '100.0.0');
+  });
+
   test(
-    'explicit skip targets its displayed version rather than a newer result',
+    'platforms without native installation still open the native updater',
     () async {
+      await updates.dispose();
+      service.dispose();
+      service = UpdateCheckService(
+        settingsService: settings,
+        webUIStorage: WebUIStorage(SettingsController(settings)),
+        updater: updater,
+        platformIsAndroid: false,
+        platformIsMacOS: false,
+        externallyManaged: false,
+      );
+      updates = UpdateNotifications(
+        center: center,
+        service: service,
+        onView: (info) async => downloads.add(info.version),
+      );
       service.debugForceUpdate(version: '99.0.0');
       await updates.settled;
-      final old = center.activation(center.value.single);
-      service.debugForceUpdate(version: '100.0.0');
-      await old.binding!.onActivate!(old.notice.actions.last);
-      await updates.settled;
-      expect(await settings.skippedVersion(), '99.0.0');
-      expect(service.availableUpdate!.version, '100.0.0');
-      expect(center.value.single.id, '100.0.0');
+      final action = center.value.single.actions.single;
+      expect(action.label, 'View');
+      expect(action.type, NotificationActionType.downloadUpdate);
+      expect(action.url, isNull);
+      final activation = center.activation(center.value.single);
+      await activation.binding!.onActivate!(action);
+      expect(downloads, ['99.0.0']);
     },
   );
 
@@ -266,9 +296,12 @@ void main() {
     () async {
       service.debugForceUpdate(version: '99.0.0');
       await updates.settled;
+      final old = center.activation(center.value.single);
       await service.checkForUpdate();
       await updates.settled;
+      await old.binding!.onActivate!(old.notice.actions.single);
       expect(center.value, isEmpty);
+      expect(downloads, isEmpty);
       expect(await settings.skippedVersion(), isNull);
     },
   );
@@ -294,7 +327,7 @@ void main() {
         updates = UpdateNotifications(
           center: center,
           service: service,
-          onDownload: (_) async {},
+          onView: (_) async {},
         );
         await updates.settled;
         expect(center.value, isEmpty);

@@ -947,6 +947,12 @@ connection failures return plain-language guidance. Transport/parser details sta
 in logs. Timeouts and secure-connection failures have distinct messages; connection
 errors never assert Wi-Fi is off. JSON fields and upstream passthrough are unchanged.
 Plugin validation and downgrade failures retain HTTP 400 and 409, respectively.
+
+An app-update notification's View action opens launcher Settings and the existing
+update dialog without starting a download. Reopening reveals the shared download
+progress or result rather than creating another downloader. Notification actions
+for plugins and the Android installation-permission behavior remain unchanged.
+
 Missing or incorrectly typed GitHub release, asset, or commit fields are
 validation failures (HTTP 400), including when the response is valid JSON.
 

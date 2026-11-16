@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
-import 'package:reaprime/build_info.dart';
 import 'package:reaprime/main.dart';
 import 'package:reaprime/src/controllers/account_tokens_controller.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
@@ -40,7 +39,6 @@ import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:reaprime/src/services/installed_components.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 import 'package:shadcn_ui/shadcn_ui.dart' hide Scale;
-import 'package:url_launcher/url_launcher.dart';
 import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/controllers/scale_controller.dart';
@@ -55,7 +53,6 @@ import 'package:reaprime/src/notifications/notification_actions.dart';
 import 'package:reaprime/src/notifications/update_notifications.dart';
 import 'package:reaprime/src/services/android_updater.dart';
 import 'package:reaprime/src/services/github_credentials.dart';
-import 'package:reaprime/src/settings/update_dialog.dart';
 import 'package:reaprime/src/debug_feature/scale_debug_view.dart';
 import 'package:reaprime/src/services/storage/bean_storage_service.dart';
 import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
@@ -87,6 +84,23 @@ class NavigationService {
 
   static BuildContext? get context => navigatorKey.currentContext;
   static String? get currentRoute => ModalRoute.of(context!)?.settings.name;
+}
+
+Future<void> openAppUpdateSettings(
+  NavigatorState navigator,
+  UpdateInfo update,
+) async {
+  if (!navigator.mounted) return;
+  unawaited(
+    navigator.pushNamedAndRemoveUntil<void>(
+      LauncherView.routeName,
+      (_) => false,
+    ),
+  );
+  unawaited(
+    navigator.pushNamed<void>(SettingsView.routeName, arguments: update),
+  );
+  await WidgetsBinding.instance.endOfFrame;
 }
 
 class MyApp extends StatefulWidget {
@@ -160,6 +174,7 @@ class _MyAppState extends State<MyApp> {
   late final OnboardingController _onboardingController;
   late final NotificationActions _notificationActions;
   UpdateNotifications? _updateNotifications;
+  bool _viewingUpdate = false;
 
   bool _degradedAndroid = false;
 
@@ -182,7 +197,7 @@ class _MyAppState extends State<MyApp> {
       _updateNotifications = UpdateNotifications(
         center: widget.pluginLoaderService.pluginManager.notifications,
         service: service,
-        onDownload: _confirmUpdateDownload,
+        onView: _viewUpdate,
       );
     }
     _initializeDe1StateManager();
@@ -259,32 +274,14 @@ class _MyAppState extends State<MyApp> {
     }
   }
 
-  Future<void> _confirmUpdateDownload(UpdateInfo update) async {
-    final context = NavigationService.context;
-    if (context == null || !context.mounted) return;
-    final updater = AndroidUpdater(
-      owner: 'tadelv',
-      repo: 'reaprime',
-      credentials: widget.credentials,
-    );
+  Future<void> _viewUpdate(UpdateInfo update) async {
+    final navigator = NavigationService.navigatorKey.currentState;
+    if (_viewingUpdate || navigator == null || !navigator.mounted) return;
+    _viewingUpdate = true;
     try {
-      await showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => UpdateDialog(
-          updateInfo: update,
-          currentVersion: BuildInfo.version,
-          onViewReleaseNotes: () {
-            final url = widget.updateCheckService?.getReleaseUrl(update);
-            if (url != null) launchUrl(Uri.parse(url));
-          },
-          onDownload: (info, onProgress) =>
-              updater.downloadUpdate(info, onProgress: onProgress),
-          onInstall: updater.installUpdate,
-        ),
-      );
+      await openAppUpdateSettings(navigator, update);
     } finally {
-      updater.dispose();
+      _viewingUpdate = false;
     }
   }
 
@@ -416,6 +413,9 @@ class _MyAppState extends State<MyApp> {
                       return SettingsView(
                         controller: widget.settingsController,
                         updateCheckService: widget.updateCheckService,
+                        requestedUpdate: routeSettings.arguments is UpdateInfo
+                            ? routeSettings.arguments as UpdateInfo
+                            : null,
                         macosUpdater: widget.macosUpdater,
                         presenceController: widget.presenceController,
                         webUIStorage: widget.webUIStorage,

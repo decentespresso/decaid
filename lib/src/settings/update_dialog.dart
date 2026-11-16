@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/services/android_updater.dart';
+import 'package:reaprime/src/services/app_update_state.dart';
+import 'package:reaprime/src/services/update_check_service.dart';
 import 'package:reaprime/src/util/remote_error.dart';
 
 class UpdateDialog extends StatefulWidget {
@@ -9,6 +13,7 @@ class UpdateDialog extends StatefulWidget {
   final Future<String> Function(UpdateInfo, void Function(double)) onDownload;
   final Future<bool> Function(String) onInstall;
   final VoidCallback onViewReleaseNotes;
+  final UpdateCheckService? updateService;
 
   const UpdateDialog({
     super.key,
@@ -17,6 +22,7 @@ class UpdateDialog extends StatefulWidget {
     required this.onDownload,
     required this.onInstall,
     required this.onViewReleaseNotes,
+    this.updateService,
   });
 
   @override
@@ -29,6 +35,42 @@ class _UpdateDialogState extends State<UpdateDialog> {
   String? _downloadedPath;
   String? _error;
   double? _downloadProgress;
+  bool _installerLaunched = false;
+  StreamSubscription<AppUpdateState>? _subscription;
+
+  @override
+  void initState() {
+    super.initState();
+    final service = widget.updateService;
+    if (service == null) return;
+    _downloadedPath = service.downloadedPathFor(widget.updateInfo);
+    _isDownloading = service.currentState.phase == AppUpdatePhase.downloading;
+    _downloadProgress = service.currentState.progress;
+    _error = service.currentState.error;
+    _installerLaunched = service.installerLaunched && _downloadedPath != null;
+    _isInstalling =
+        service.currentState.phase == AppUpdatePhase.installing &&
+        !_installerLaunched;
+    _subscription = service.updateState.listen((state) {
+      if (!mounted || state.latestVersion != widget.updateInfo.version) return;
+      setState(() {
+        _isDownloading = state.phase == AppUpdatePhase.downloading;
+        _downloadProgress = state.progress;
+        _error = state.error;
+        _downloadedPath = service.downloadedPathFor(widget.updateInfo);
+        _installerLaunched =
+            service.installerLaunched && _downloadedPath != null;
+        _isInstalling =
+            state.phase == AppUpdatePhase.installing && !_installerLaunched;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -88,6 +130,10 @@ class _UpdateDialogState extends State<UpdateDialog> {
               SizedBox(height: 8),
               Text('Installing update...'),
             ],
+            if (_installerLaunched)
+              const Text(
+                'Android installer opened. Follow the on-screen prompts.',
+              ),
           ],
         ),
       ),
@@ -96,7 +142,7 @@ class _UpdateDialogState extends State<UpdateDialog> {
           onPressed: _isDownloading || _isInstalling
               ? null
               : () => Navigator.of(context).pop(),
-          child: Text('Cancel'),
+          child: Text(_installerLaunched ? 'Close' : 'Cancel'),
         ),
         if (_downloadedPath == null)
           ElevatedButton(
@@ -106,7 +152,9 @@ class _UpdateDialogState extends State<UpdateDialog> {
         else
           ElevatedButton(
             onPressed: _isInstalling ? null : _handleInstall,
-            child: Text(_error == null ? 'Install' : 'Retry'),
+            child: Text(
+              _error == null && !_installerLaunched ? 'Install' : 'Retry',
+            ),
           ),
       ],
     );
@@ -177,6 +225,10 @@ class _UpdateDialogState extends State<UpdateDialog> {
       if (!mounted) return;
       setState(() {
         _error = remoteErrorMessage(e, action: 'install the app update');
+        final service = widget.updateService;
+        if (service != null) {
+          _downloadedPath = service.downloadedPathFor(widget.updateInfo);
+        }
         _isInstalling = false;
       });
     }

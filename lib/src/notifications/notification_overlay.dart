@@ -241,7 +241,9 @@ class _NotificationRow extends StatelessWidget {
                               NotificationActionType.openExternalUrl =>
                                 LucideIcons.externalLink,
                               NotificationActionType.downloadUpdate =>
-                                LucideIcons.download,
+                                _isAppUpdate
+                                    ? LucideIcons.eye
+                                    : LucideIcons.download,
                               NotificationActionType.skipUpdate =>
                                 LucideIcons.skipForward,
                             }, size: 16),

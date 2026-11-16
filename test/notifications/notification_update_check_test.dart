@@ -124,7 +124,7 @@ void main() {
       updates = UpdateNotifications(
         center: center,
         service: service,
-        onDownload: (_) async => downloads++,
+        onView: (_) async => downloads++,
       );
       await updates!.settled;
     });
@@ -165,6 +165,8 @@ void main() {
       await updates!.settled;
       await center.settled;
     });
+    await tester.pumpAndSettle();
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
     await tester.pumpAndSettle();
   }
 
@@ -211,7 +213,7 @@ void main() {
         await settle(tester);
         expect(find.text('Check for updates'), findsNothing);
         expect(find.text('View'), findsOneWidget);
-        expect(find.text('Download'), findsOneWidget);
+        expect(find.text('Download'), findsNothing);
         expect(center.isConfirmed(center.value.single), isTrue);
         expect(center.unreadCount, 0);
         expect(downloads, 0);
@@ -250,25 +252,24 @@ void main() {
   });
 
   testWidgets(
-    'explicit update skip is separate from reading and launches nothing',
+    'confirmed View opens natively without skipping or starting a download',
     (tester) async {
       await mount(tester);
       expect(await settings.skippedVersion(), isNull);
       expect(find.text('Skip this version'), findsNothing);
       await clickCheck(tester);
       await settle(tester);
-      expect(find.text('Skip this version'), findsOneWidget);
+      expect(find.text('Skip this version'), findsNothing);
       expect(await settings.skippedVersion(), isNull);
       await tester.runAsync(() async {
-        await tester.tap(find.text('Skip this version'));
+        await tester.tap(find.text('View'));
         await Future<void>.delayed(Duration.zero);
       });
       await settle(tester);
-      expect(await settings.skippedVersion(), '99.0.0');
-      expect(center.value, isEmpty);
-      expect(downloads, 0);
-      expect(find.byType(NotificationOverlay), findsOneWidget);
-      expect(find.text('No notifications'), findsOneWidget);
+      expect(await settings.skippedVersion(), isNull);
+      expect(center.value, hasLength(1));
+      expect(downloads, 1);
+      expect(find.byType(NotificationOverlay), findsNothing);
       await tester.pumpWidget(const SizedBox());
     },
   );

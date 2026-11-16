@@ -45,14 +45,19 @@ class _FakeUpdater extends AndroidUpdater {
   bool throwOnCheck = false;
   bool throwOnDownload = false;
   bool installResult = true;
+  Object? installFailure;
+  String? downloadPath;
   List<double> progressToEmit = const [];
 
   int checkCalls = 0;
   UpdateChannel? lastChannel;
   int downloadCalls = 0;
   int installCalls = 0;
+  final installedPaths = <String>[];
+  void Function(double)? reportProgress;
 
   Completer<void>? downloadGate;
+  Completer<void>? installGate;
 
   @override
   Future<UpdateInfo?> checkForUpdate(
@@ -72,10 +77,15 @@ class _FakeUpdater extends AndroidUpdater {
     Directory? cacheDir,
   }) async {
     downloadCalls++;
+    reportProgress = onProgress;
     if (downloadGate != null) await downloadGate!.future;
     if (throwOnDownload) throw Exception('download boom');
     for (final p in progressToEmit) {
       onProgress?.call(p);
+    }
+    if (downloadPath case final path?) {
+      await File(path).writeAsBytes([1]);
+      return path;
     }
     return '/tmp/update.apk';
   }
@@ -83,6 +93,9 @@ class _FakeUpdater extends AndroidUpdater {
   @override
   Future<bool> installUpdate(String apkPath) async {
     installCalls++;
+    installedPaths.add(apkPath);
+    if (installGate != null) await installGate!.future;
+    if (installFailure != null) throw installFailure!;
     return installResult;
   }
 
@@ -317,6 +330,7 @@ void main() {
 
       expect(svc.currentState.phase, AppUpdatePhase.error);
       expect(svc.currentState.error, contains('permission'));
+      expect(svc.downloadedPathFor(updater.nextCheck!), '/tmp/update.apk');
       svc.dispose();
     });
 
@@ -357,6 +371,96 @@ void main() {
       expect(updater.checkCalls, 0);
       svc.dispose();
     });
+  });
+
+  group('shared update operations', () {
+    test('re-entry joins one download and sees current progress', () async {
+      final svc = build();
+      final update = _update();
+      updater.downloadGate = Completer<void>();
+      final firstProgress = <double>[];
+      final secondProgress = <double>[];
+      final first = svc.downloadUpdate(update, firstProgress.add);
+      await Future<void>.delayed(Duration.zero);
+      updater.reportProgress!(0.42);
+      await Future<void>.delayed(Duration.zero);
+      final second = svc.downloadUpdate(update, secondProgress.add);
+      await Future<void>.delayed(Duration.zero);
+      expect(svc.currentState.progress, 0.42);
+      expect(await svc.checkForUpdate(), same(update));
+      expect(updater.checkCalls, 0);
+      updater.downloadGate!.complete();
+
+      expect(await first, '/tmp/update.apk');
+      expect(await second, '/tmp/update.apk');
+      expect(updater.downloadCalls, 1);
+      expect(firstProgress, contains(0.42));
+      expect(secondProgress, contains(0.42));
+      svc.dispose();
+    });
+
+    test('cache reuse requires a nonempty file and the same release', () async {
+      final svc = build();
+      addTearDown(svc.dispose);
+      final directory = await Directory.systemTemp.createTemp('update-cache-');
+      addTearDown(() => directory.delete(recursive: true));
+      final cache = File('${directory.path}/update.apk');
+      updater.downloadPath = cache.path;
+      final update = _update();
+      await svc.downloadUpdate(update, (_) {});
+      await svc.downloadUpdate(update, (_) {});
+      expect(updater.downloadCalls, 1);
+      await cache.writeAsBytes([]);
+      await svc.downloadUpdate(update, (_) {});
+      expect(updater.downloadCalls, 2);
+      await cache.delete();
+      await svc.downloadUpdate(update, (_) {});
+      expect(updater.downloadCalls, 3);
+      await svc.downloadUpdate(_update(version: '10.0.0'), (_) {});
+      expect(updater.downloadCalls, 4);
+      expect(svc.downloadedPathFor(update), isNull);
+    });
+
+    test(
+      'concurrent installation coalesces and a later explicit request retries',
+      () async {
+        final svc = build();
+        await svc.downloadUpdate(_update(), (_) {});
+        updater.installGate = Completer<void>();
+        final first = svc.installDownloadedUpdate('/tmp/update.apk');
+        final second = svc.installDownloadedUpdate('/tmp/update.apk');
+        expect(updater.installCalls, 1);
+        updater.installGate!.complete();
+
+        expect(await first, isTrue);
+        expect(await second, isTrue);
+        expect(updater.installCalls, 1);
+        expect(await svc.installDownloadedUpdate('/tmp/update.apk'), isTrue);
+        expect(updater.installCalls, 2);
+        svc.dispose();
+      },
+    );
+
+    test(
+      'failed installation discards the cache and permits another download',
+      () async {
+        final svc = build();
+        final update = _update();
+        await svc.downloadUpdate(update, (_) {});
+        updater.installFailure = StateError('installer failed');
+        await expectLater(
+          svc.installDownloadedUpdate('/tmp/update.apk'),
+          throwsStateError,
+        );
+        expect(svc.downloadedPathFor(update), isNull);
+        expect(svc.currentState.phase, AppUpdatePhase.error);
+        expect(svc.currentState.error, isNotNull);
+        updater.installFailure = null;
+        await svc.downloadUpdate(update, (_) {});
+        expect(updater.downloadCalls, 2);
+        svc.dispose();
+      },
+    );
   });
 
   group('externally managed builds', () {

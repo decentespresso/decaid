@@ -28,6 +28,14 @@ class UpdateCheckService {
   Timer? _periodicTimer;
   UpdateInfo? _availableUpdate;
   bool _hasCompletedCheck = false;
+  Future<String>? _downloadOperation;
+  UpdateInfo? _downloadingUpdate;
+  Future<bool>? _installOperation;
+  String? _installingPath;
+  UpdateInfo? _downloadedUpdate;
+  String? _downloadedPath;
+  bool _installerLaunched = false;
+  int _operationRevision = 0;
 
   late final BehaviorSubject<AppUpdateState> _state;
 
@@ -74,6 +82,119 @@ class UpdateCheckService {
 
   bool get canCheck => !_isMacOS && !externallyManaged;
 
+  bool get installerLaunched => _installerLaunched;
+
+  String? downloadedPathFor(UpdateInfo update) =>
+      _downloadedUpdate?.downloadUrl == update.downloadUrl &&
+          _downloadedUpdate?.tagName == update.tagName
+      ? _downloadedPath
+      : null;
+
+  Future<String> downloadUpdate(
+    UpdateInfo update,
+    void Function(double) onProgress,
+  ) async {
+    final subscription = updateState.listen((state) {
+      if (state.phase == AppUpdatePhase.downloading && state.progress != null) {
+        onProgress(state.progress!);
+      }
+    });
+    try {
+      if (_installOperation != null) {
+        throw StateError('An installation is already in progress');
+      }
+      if (_downloadOperation != null &&
+          (_downloadingUpdate?.tagName != update.tagName ||
+              _downloadingUpdate?.downloadUrl != update.downloadUrl)) {
+        throw StateError('Another app update is already downloading');
+      }
+      _downloadingUpdate = update;
+      return await (_downloadOperation ??= _download(update).whenComplete(() {
+        _downloadOperation = null;
+        _downloadingUpdate = null;
+      }));
+    } finally {
+      await subscription.cancel();
+    }
+  }
+
+  Future<String> _download(UpdateInfo update) async {
+    _operationRevision++;
+    final cached = downloadedPathFor(update);
+    if (cached != null) {
+      final file = await File(cached).stat();
+      if (file.type == FileSystemEntityType.file && file.size > 0) {
+        return cached;
+      }
+    }
+    _availableUpdate = update;
+    _downloadedPath = null;
+    _downloadedUpdate = update;
+    _installerLaunched = false;
+    _emit(AppUpdatePhase.downloading, progress: 0);
+    var lastEmitted = 0.0;
+    try {
+      final path = await _updater.downloadUpdate(
+        update,
+        onProgress: (progress) {
+          if (progress - lastEmitted >= 0.01 || progress >= 1) {
+            lastEmitted = progress;
+            _emit(AppUpdatePhase.downloading, progress: progress);
+          }
+        },
+      );
+      _downloadedPath = path;
+      _emit(AppUpdatePhase.available);
+      return path;
+    } catch (error) {
+      _emit(
+        AppUpdatePhase.error,
+        error: remoteErrorMessage(error, action: 'download the app update'),
+      );
+      rethrow;
+    }
+  }
+
+  Future<bool> installDownloadedUpdate(String path) {
+    if (_downloadOperation != null) {
+      return Future.error(StateError('An app update is still downloading'));
+    }
+    if (path != _downloadedPath ||
+        (_installOperation != null && _installingPath != path)) {
+      return Future.error(StateError('The downloaded app update has changed'));
+    }
+    _installingPath = path;
+    return _installOperation ??= _install(path).whenComplete(() {
+      _installOperation = null;
+      _installingPath = null;
+    });
+  }
+
+  Future<bool> _install(String path) async {
+    _operationRevision++;
+    _installerLaunched = false;
+    _availableUpdate = _downloadedUpdate;
+    _emit(AppUpdatePhase.installing);
+    try {
+      final started = await _updater.installUpdate(path);
+      _installerLaunched = started;
+      _emit(
+        started ? AppUpdatePhase.installing : AppUpdatePhase.error,
+        error: started
+            ? null
+            : 'Installation permission required. Grant it and retry.',
+      );
+      return started;
+    } catch (error) {
+      _downloadedPath = null;
+      _emit(
+        AppUpdatePhase.error,
+        error: remoteErrorMessage(error, action: 'install the app update'),
+      );
+      rethrow;
+    }
+  }
+
   AppUpdateState _snapshot(
     AppUpdatePhase phase, {
     double? progress,
@@ -94,14 +215,15 @@ class UpdateCheckService {
   }
 
   void _emit(AppUpdatePhase phase, {double? progress, String? error}) {
-    _state.add(_snapshot(phase, progress: progress, error: error));
+    if (!_state.isClosed) {
+      _state.add(_snapshot(phase, progress: progress, error: error));
+    }
   }
 
-  bool get _inProgress => const {
-    AppUpdatePhase.checking,
-    AppUpdatePhase.downloading,
-    AppUpdatePhase.installing,
-  }.contains(_state.value.phase);
+  bool get _inProgress =>
+      _state.value.phase == AppUpdatePhase.checking ||
+      _downloadOperation != null ||
+      _installOperation != null;
 
   Future<void> requestCheck() async {
     if (_inProgress) return;
@@ -129,32 +251,11 @@ class UpdateCheckService {
     }
 
     final update = _availableUpdate!;
-    var action = 'download the app update';
     try {
-      _emit(AppUpdatePhase.downloading, progress: 0);
-      var lastEmitted = 0.0;
-      final path = await _updater.downloadUpdate(
-        update,
-        onProgress: (p) {
-          if (p - lastEmitted >= 0.01 || p >= 1.0) {
-            lastEmitted = p;
-            _emit(AppUpdatePhase.downloading, progress: p);
-          }
-        },
-      );
-
-      _emit(AppUpdatePhase.installing);
-      action = 'install the app update';
-      final started = await _updater.installUpdate(path);
-      if (!started) {
-        _emit(
-          AppUpdatePhase.error,
-          error: 'Installation permission required. Grant it and retry.',
-        );
-      }
+      final path = await downloadUpdate(update, (_) {});
+      await installDownloadedUpdate(path);
     } catch (e, st) {
       _log.severe('Update download/install failed', e, st);
-      _emit(AppUpdatePhase.error, error: remoteErrorMessage(e, action: action));
     }
   }
 
@@ -218,6 +319,9 @@ class UpdateCheckService {
   }
 
   Future<UpdateInfo?> checkForUpdate({bool quiet = false}) async {
+    if (_downloadOperation != null || _installOperation != null) {
+      return availableUpdate;
+    }
     if (externallyManaged) {
       _availableUpdate = null;
       _emit(AppUpdatePhase.idle);
@@ -227,20 +331,28 @@ class UpdateCheckService {
       _log.info('macOS app updates are owned by Sparkle; skipping APK check');
       return null;
     }
+    final revision = _operationRevision;
     try {
       _emit(AppUpdatePhase.checking);
       _log.info('Checking for updates (current: ${BuildInfo.version})');
 
+      final channel = await _settingsService.updateChannel();
+      if (revision != _operationRevision) return availableUpdate;
       final updateInfo = await _updater.checkForUpdate(
         BuildInfo.version,
-        channel: await _settingsService.updateChannel(),
+        channel: channel,
       );
+      if (revision != _operationRevision) return availableUpdate;
 
       await _settingsService.setLastUpdateCheckTime(DateTime.now());
+      if (revision != _operationRevision) return availableUpdate;
+      final skipped = updateInfo == null
+          ? null
+          : await _settingsService.skippedVersion();
+      if (revision != _operationRevision) return availableUpdate;
       _hasCompletedCheck = true;
 
       if (updateInfo != null) {
-        final skipped = await _settingsService.skippedVersion();
         if (skipped != null && skipped == updateInfo.version) {
           _log.info('Update ${updateInfo.version} skipped by user');
           _availableUpdate = null;
@@ -260,6 +372,7 @@ class UpdateCheckService {
       );
       return updateInfo;
     } catch (e, stackTrace) {
+      if (revision != _operationRevision) return availableUpdate;
       _log.warning('Error checking for updates', e, stackTrace);
       if (quiet) {
         _emit(

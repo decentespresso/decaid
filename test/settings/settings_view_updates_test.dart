@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -11,6 +12,7 @@ import 'package:reaprime/src/services/macos_updater.dart';
 import 'package:reaprime/src/services/update_check_service.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/settings/settings_view.dart';
+import 'package:reaprime/src/settings/update_dialog.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
@@ -21,6 +23,9 @@ class _RecordingUpdater extends AndroidUpdater {
   int checkCalls = 0;
   Object? checkError;
   UpdateInfo? updateInfo;
+  Completer<String>? downloadGate;
+  int downloadCalls = 0;
+  int installCalls = 0;
 
   @override
   Future<UpdateInfo?> checkForUpdate(
@@ -30,6 +35,23 @@ class _RecordingUpdater extends AndroidUpdater {
     checkCalls++;
     if (checkError != null) throw checkError!;
     return updateInfo;
+  }
+
+  @override
+  Future<String> downloadUpdate(
+    UpdateInfo info, {
+    Function(double)? onProgress,
+    Directory? cacheDir,
+  }) {
+    downloadCalls++;
+    onProgress?.call(0.42);
+    return downloadGate?.future ?? Future.value('/tmp/update.apk');
+  }
+
+  @override
+  Future<bool> installUpdate(String path) async {
+    installCalls++;
+    return false;
   }
 
   @override
@@ -60,6 +82,10 @@ Future<(UpdateCheckService, _RecordingUpdater)> _pumpSettingsView(
   bool sparkleCheckThrows = false,
   bool serviceIsMacOS = false,
   bool externallyManaged = false,
+  bool serviceIsAndroid = false,
+  UpdateInfo? requestedUpdate,
+  _RecordingUpdater? recordingUpdater,
+  Future<void> Function(UpdateCheckService)? prepareService,
 }) async {
   TestWidgetsFlutterBinding.ensureInitialized();
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -82,17 +108,20 @@ Future<(UpdateCheckService, _RecordingUpdater)> _pumpSettingsView(
     settingsController: settingsController,
   );
   final webUIStorage = _OfflineContentStorage(settingsController);
-  final updater = _RecordingUpdater();
+  final updater = recordingUpdater ?? _RecordingUpdater();
   final updateCheckService = UpdateCheckService(
     settingsService: MockSettingsService(),
     webUIStorage: webUIStorage,
     updater: updater,
-    platformIsAndroid: false,
+    platformIsAndroid: serviceIsAndroid,
     platformIsMacOS: serviceIsMacOS,
     externallyManaged: externallyManaged,
   );
   if (initializeService) {
     await updateCheckService.initialize();
+  }
+  if (prepareService != null) {
+    await tester.runAsync(() => prepareService(updateCheckService));
   }
 
   final macosUpdater = MacOSUpdater(supported: macos);
@@ -112,6 +141,7 @@ Future<(UpdateCheckService, _RecordingUpdater)> _pumpSettingsView(
           macosUpdater: macosUpdater,
           presenceController: presenceController,
           webUIStorage: webUIStorage,
+          requestedUpdate: requestedUpdate,
         ),
       ),
     ),
@@ -127,8 +157,193 @@ Future<(UpdateCheckService, _RecordingUpdater)> _pumpSettingsView(
   return (updateCheckService, updater);
 }
 
+UpdateInfo _requestedUpdate({String version = '99.0.0', String? url}) =>
+    UpdateInfo(
+      version: version,
+      downloadUrl: url ?? 'https://example.test/$version.apk',
+      releaseNotes: '',
+      isPrerelease: false,
+      tagName: 'v$version',
+    );
+
 void main() {
   group('SettingsView updates', () {
+    testWidgets(
+      'requested update opens the canonical dialog without downloading',
+      (tester) async {
+        final requested = _requestedUpdate(
+          url: 'https://example.test/old-link.apk',
+        );
+        final available = _requestedUpdate();
+        final updater = _RecordingUpdater()..updateInfo = available;
+        final (service, _) = await _pumpSettingsView(
+          tester,
+          [],
+          macos: false,
+          serviceIsAndroid: true,
+          requestedUpdate: requested,
+          recordingUpdater: updater,
+          prepareService: (service) async {
+            await service.checkForUpdate();
+          },
+        );
+
+        final dialog = tester.widget<UpdateDialog>(find.byType(UpdateDialog));
+        expect(dialog.updateInfo, same(available));
+        expect(dialog.updateService, same(service));
+        expect(updater.checkCalls, 1);
+        expect(updater.downloadCalls, 0);
+        expect(updater.installCalls, 0);
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle();
+        expect(find.byType(SettingsView), findsOneWidget);
+        expect(find.text('Settings'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'stale requested version revalidates and selects the latest update',
+      (tester) async {
+        final requested = _requestedUpdate(version: '97.0.0');
+        final known = _requestedUpdate(version: '98.0.0');
+        final current = _requestedUpdate();
+        final updater = _RecordingUpdater()..updateInfo = known;
+        await _pumpSettingsView(
+          tester,
+          [],
+          macos: false,
+          serviceIsAndroid: true,
+          requestedUpdate: requested,
+          recordingUpdater: updater,
+          prepareService: (service) async {
+            await service.checkForUpdate();
+            updater.updateInfo = current;
+          },
+        );
+
+        expect(
+          tester.widget<UpdateDialog>(find.byType(UpdateDialog)).updateInfo,
+          same(current),
+        );
+        expect(updater.checkCalls, 2);
+        expect(updater.downloadCalls, 0);
+        expect(updater.installCalls, 0);
+      },
+    );
+
+    for (final hadKnownUpdate in [false, true]) {
+      testWidgets(
+        'requested update with known=$hadKnownUpdate cannot open an obsolete dialog',
+        (tester) async {
+          final updater = _RecordingUpdater();
+          await _pumpSettingsView(
+            tester,
+            [],
+            macos: false,
+            serviceIsAndroid: true,
+            requestedUpdate: _requestedUpdate(),
+            recordingUpdater: updater,
+            prepareService: (service) async {
+              if (hadKnownUpdate) {
+                updater.updateInfo = _requestedUpdate(version: '98.0.0');
+                await service.checkForUpdate();
+                updater.updateInfo = null;
+              }
+            },
+          );
+
+          expect(find.byType(UpdateDialog), findsNothing);
+          expect(find.text('Update Available'), findsNothing);
+          expect(
+            find.text('No app update is currently available'),
+            findsOneWidget,
+          );
+          expect(updater.checkCalls, hadKnownUpdate ? 2 : 1);
+          expect(updater.downloadCalls, 0);
+          expect(updater.installCalls, 0);
+        },
+      );
+    }
+
+    testWidgets(
+      'requested desktop update shows release details but no install controls',
+      (tester) async {
+        final update = _requestedUpdate();
+        final updater = _RecordingUpdater()..updateInfo = update;
+        await _pumpSettingsView(
+          tester,
+          [],
+          macos: false,
+          requestedUpdate: update,
+          recordingUpdater: updater,
+          prepareService: (service) async {
+            await service.checkForUpdate();
+          },
+        );
+
+        expect(find.byType(UpdateDialog), findsNothing);
+        expect(find.text('Update Available'), findsOneWidget);
+        expect(
+          find.textContaining('Version 99.0.0 is available'),
+          findsOneWidget,
+        );
+        expect(find.text('Later'), findsOneWidget);
+        expect(find.text("What's new"), findsOneWidget);
+        expect(find.text('Download'), findsNothing);
+        expect(find.text('Install'), findsNothing);
+        expect(updater.downloadCalls, 0);
+        expect(updater.installCalls, 0);
+      },
+    );
+
+    testWidgets(
+      'requested Settings re-entry reveals shared progress and cached APK',
+      (tester) async {
+        final update = _requestedUpdate();
+        final updater = _RecordingUpdater()..downloadGate = Completer<String>();
+        late Future<String> operation;
+        final (service, _) = await _pumpSettingsView(
+          tester,
+          [],
+          macos: false,
+          serviceIsAndroid: true,
+          requestedUpdate: update,
+          recordingUpdater: updater,
+          prepareService: (service) async {
+            operation = service.downloadUpdate(update, (_) {});
+          },
+        );
+        final settings = tester.widget<SettingsView>(find.byType(SettingsView));
+        Widget page() => ShadApp(home: ScaffoldMessenger(child: settings));
+        expect(find.text('Downloading update… 42%'), findsOneWidget);
+        expect(updater.downloadCalls, 1);
+        expect(updater.checkCalls, 0);
+        expect(updater.installCalls, 0);
+        await tester.pumpWidget(const SizedBox());
+        await tester.pumpWidget(page());
+        await tester.pumpAndSettle();
+        expect(find.text('Downloading update… 42%'), findsOneWidget);
+        expect(
+          tester.widget<UpdateDialog>(find.byType(UpdateDialog)).updateService,
+          same(service),
+        );
+        expect(updater.downloadCalls, 1);
+
+        await tester.runAsync(() async {
+          updater.downloadGate!.complete('/tmp/shared.apk');
+          await operation;
+        });
+        await tester.pumpAndSettle();
+        expect(find.text('Install'), findsOneWidget);
+        await tester.pumpWidget(const SizedBox());
+        await tester.pumpWidget(page());
+        await tester.pumpAndSettle();
+        expect(find.text('Install'), findsOneWidget);
+        expect(updater.downloadCalls, 1);
+        expect(updater.installCalls, 0);
+      },
+    );
+
     testWidgets('skin Retry remains accessible after the app-update dialog', (
       tester,
     ) async {
