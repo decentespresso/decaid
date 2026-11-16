@@ -146,6 +146,7 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
         firmwareToMap: 1,
         error: Uint8List.fromList([0xff, 0xff, 0xff]),
       ).asData().buffer.asUint8List(),
+      retryOnTimeout: false,
       beforeDispatch: () {
         _throwIfFirmwareCancelled(cancelToken);
         onResponseArmed(
@@ -274,7 +275,11 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
       data[3] = address[2];
       data.setRange(4, 4 + chunkLength, list, offset);
 
-      await _transport.writeWithResponse(Endpoint.writeToMMR, data);
+      await _transport.writeWithResponse(
+        Endpoint.writeToMMR,
+        data,
+        retryOnTimeout: false,
+      );
       _throwIfFirmwareCancelled(cancelToken);
       chunkNum++;
       if (batchPause > Duration.zero && chunkNum % batchSize == 0) {
