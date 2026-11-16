@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/models/device/device.dart';
+import 'package:reaprime/src/models/device/scale_preference.dart';
 import 'package:reaprime/src/plugins/plugin_device_contract.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
@@ -116,7 +117,16 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
                     emptyLabel: 'scales',
                     onSelected: (id) async {
                       await widget.settingsController.setPreferredScaleId(id);
-                      if (mounted) _showSavedSnackbar();
+                      if (!context.mounted) return;
+                      if (widget.settingsController.preferredScaleId == id) {
+                        _showSavedSnackbar();
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Unable to save scale preference.'),
+                          ),
+                        );
+                      }
                     },
                   ),
                   _buildSection(
@@ -186,6 +196,16 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
               isSelected: selectedId == null,
               onTap: () => onSelected(null),
             ),
+          if (selectedId == usbHdsScalePreference ||
+              devices.any(
+                (device) => scalePreferenceId(device) == usbHdsScalePreference,
+              ))
+            _buildDeviceRadio(
+              name: 'Half Decent Scale (USB)',
+              subtitle: 'No USB serial number',
+              isSelected: selectedId == usbHdsScalePreference,
+              onTap: () => onSelected(usbHdsScalePreference),
+            ),
           if (devices.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
@@ -196,16 +216,23 @@ class _DeviceManagementPageState extends State<DeviceManagementPage> {
               ),
             )
           else
-            ...devices.map(
-              (device) => _buildDeviceRadio(
-                name: device.name,
-                subtitle: _deviceSubtitle(device),
-                isSelected: selectable && selectedId == device.deviceId,
-                onTap: selectable ? () => onSelected(device.deviceId) : null,
-                showSelection: selectable,
-                trailing: _settingsButton(device),
-              ),
-            ),
+            ...devices
+                .where(
+                  (device) =>
+                      scalePreferenceId(device) != usbHdsScalePreference,
+                )
+                .map(
+                  (device) => _buildDeviceRadio(
+                    name: device.name,
+                    subtitle: _deviceSubtitle(device),
+                    isSelected: selectable && selectedId == device.deviceId,
+                    onTap: selectable
+                        ? () => onSelected(device.deviceId)
+                        : null,
+                    showSelection: selectable,
+                    trailing: _settingsButton(device),
+                  ),
+                ),
         ],
       ),
     );

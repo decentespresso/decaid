@@ -726,9 +726,23 @@ This is the safety net. Device implementations should ALSO catch
 
 Device preferences are stored via `SettingsController`:
 - `preferredMachineId` — auto-set on successful machine connection
-- `preferredScaleId` — auto-set on successful scale connection; session-only USB IDs are not persisted
+- `preferredScaleId` — auto-set on successful scale connection; serial-less USB HDS uses the durable `usb-hds:any` family selector rather than an attachment ID
 - `preferredGrinderDeviceId` — auto-set on successful runtime grinder connection
 - Configurable in Settings → Device Management
+
+Serial-less USB Half Decent Scales keep their attachment-scoped runtime IDs for
+inventory, commands and role ownership. Their auto-connect preference is the
+family selector `usb-hds:any`, not a claim to identify the same physical scale
+across reattachment. Only a completed scan with exactly one matching,
+protocol-identified USB HDS not reserved as auxiliary may connect automatically.
+Multiple eligible matches enter the normal scale picker. Family selection waits
+for scan completion rather than connecting the first sighting, and uses the
+existing scale-only scan recovery and bounded retries rather than BLE watching.
+Stable serial-numbered USB scales and other transports keep exact preferences.
+The native device-management page shows one serial-less USB HDS preference;
+explicit connection pickers still list the individual physical attachments.
+Settings API readback presents a unique matching attachment ID for existing
+clients; durable settings and backups always retain the family selector.
 
 Identity remains per transport. BLE and USB IDs for the same physical machine
 are not aliased. If the BLE ID is preferred while Bluetooth is unavailable, a

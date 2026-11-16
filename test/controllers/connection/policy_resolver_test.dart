@@ -6,6 +6,8 @@ import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 
+import '../../helpers/test_usb_hds.dart';
+
 class _FakeDe1 implements De1Interface {
   @override
   final String deviceId;
@@ -103,6 +105,43 @@ void main() {
   });
 
   group('resolveScalePolicy', () {
+    test('USB HDS family selects its only match among other scales', () {
+      final hds = TestUsbHds();
+      addTearDown(hds.dispose);
+      final result = resolveScalePolicy(
+        scales: [_FakeScale('other'), hds],
+        preferredScaleId: 'usb-hds:any',
+      );
+      expect(result, isA<ConnectScaleAction>());
+      expect((result as ConnectScaleAction).scale, same(hds));
+    });
+
+    test('USB HDS family requires selection for multiple matching scales', () {
+      final first = TestUsbHds();
+      final second = TestUsbHds(deviceId: 'usb-1a86-7522-unknown-1005');
+      addTearDown(first.dispose);
+      addTearDown(second.dispose);
+      expect(
+        resolveScalePolicy(
+          scales: [first, second],
+          preferredScaleId: 'usb-hds:any',
+        ),
+        isA<ScalePickerAction>(),
+      );
+    });
+
+    test('USB HDS family does not substitute an unrelated or uniquely identified scale', () {
+      final identified = TestUsbHds(deviceId: 'usb-1a86-7522-KNOWN');
+      addTearDown(identified.dispose);
+      expect(
+        resolveScalePolicy(
+          scales: [identified, _FakeScale('usb-1a86-7522-unknown-1004')],
+          preferredScaleId: 'usb-hds:any',
+        ),
+        isA<ScalePickerAction>(),
+      );
+    });
+
     test('no preferred + zero scales → no action', () {
       final result = resolveScalePolicy(
         scales: const [],

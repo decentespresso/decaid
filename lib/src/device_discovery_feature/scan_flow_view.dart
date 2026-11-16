@@ -14,6 +14,7 @@ import 'package:reaprime/src/home_feature/widgets/device_selection_widget.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart' as dev;
 import 'package:reaprime/src/models/device/scale.dart' as device_scale;
+import 'package:reaprime/src/models/device/scale_preference.dart';
 import 'package:reaprime/src/services/telemetry/boot_timing.dart';
 import 'package:reaprime/src/services/storage/app_directories.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
@@ -499,7 +500,9 @@ class ScanFlowViewState extends State<ScanFlowView> {
       final preferredScaleNotFound =
           preferredScaleId != null &&
           _status.foundScales.isNotEmpty &&
-          !_status.foundScales.any((s) => s.deviceId == preferredScaleId);
+          !_status.foundScales.any(
+            (s) => matchesScalePreference(s, preferredScaleId),
+          );
       return _singlePickerView(
         context: context,
         label: preferredScaleNotFound
@@ -530,7 +533,9 @@ class ScanFlowViewState extends State<ScanFlowView> {
     final preferredScaleNotFound =
         preferredScaleId != null &&
         _status.foundScales.isNotEmpty &&
-        !_status.foundScales.any((s) => s.deviceId == preferredScaleId);
+        !_status.foundScales.any(
+          (s) => matchesScalePreference(s, preferredScaleId),
+        );
 
     De1Interface? connectTarget;
     if (_status.foundMachines.length == 1) {
@@ -601,12 +606,18 @@ class ScanFlowViewState extends State<ScanFlowView> {
                       selectedDeviceId: null,
                       preferredDeviceId:
                           widget.settingsController.preferredScaleId,
-                      onPreferredChanged: (id) =>
-                          widget.settingsController.setPreferredScaleId(id),
+                      onPreferredChanged: (id) {
+                        final scale = _status.foundScales
+                            .where((scale) => scale.deviceId == id)
+                            .firstOrNull;
+                        widget.settingsController.setPreferredScaleId(
+                          scale == null ? id : scalePreferenceId(scale),
+                        );
+                      },
                       onDeviceTapped: (device) {
                         setState(() {});
                         widget.settingsController.setPreferredScaleId(
-                          device.deviceId,
+                          scalePreferenceId(device),
                         );
                       },
                     ),

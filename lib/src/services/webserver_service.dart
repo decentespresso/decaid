@@ -21,9 +21,11 @@ import 'package:reaprime/src/models/data/shot_state_event.dart';
 import 'package:reaprime/src/models/data/utils.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/device_identity.dart';
+import 'package:reaprime/src/models/device/device_scanner.dart';
 import 'package:reaprime/src/models/device/grinder_device.dart';
 import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/scale_calibration.dart';
+import 'package:reaprime/src/models/device/scale_preference.dart';
 import 'package:reaprime/src/models/errors.dart';
 import 'package:reaprime/src/models/device/sensor.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
@@ -210,6 +212,7 @@ Future<void> startWebServer(
     service: webUIService,
     webUIStorage: webUIStorage,
     batteryController: batteryController,
+    deviceScanner: deviceController,
   );
   final sensorsHandler = SensorsHandler(controller: sensorController);
   final workflowHandler = WorkflowHandler(

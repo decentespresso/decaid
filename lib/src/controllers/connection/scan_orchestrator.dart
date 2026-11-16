@@ -25,6 +25,7 @@ class ScanRunResult {
 
   final ScanReportBuilder reportBuilder;
   final bool preferredScaleStopRequested;
+  final bool serialDiscoveryComplete;
 
   const ScanRunResult({
     required this.machines,
@@ -32,6 +33,7 @@ class ScanRunResult {
     required this.grinders,
     required this.reportBuilder,
     this.preferredScaleStopRequested = false,
+    required this.serialDiscoveryComplete,
   });
 }
 
@@ -176,6 +178,13 @@ class ScanOrchestrator {
       grinders: grinders,
       reportBuilder: reportBuilder,
       preferredScaleStopRequested: preferredScaleStopRequested,
+      serialDiscoveryComplete:
+          scanResult.terminationReason == ScanTerminationReason.completed &&
+          !scanResult.failedServices.any(
+            (failure) =>
+                failure.transportType == TransportType.serial ||
+                failure.transportType == TransportType.unknown,
+          ),
     );
   }
 

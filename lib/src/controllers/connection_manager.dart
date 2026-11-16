@@ -33,6 +33,7 @@ import 'package:reaprime/src/models/device/device_scanner.dart';
 import 'package:reaprime/src/models/device/grinder_device.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/models/device/scale.dart';
+import 'package:reaprime/src/models/device/scale_preference.dart';
 import 'package:reaprime/src/models/device/scan_filter.dart';
 import 'package:reaprime/src/models/device/simulated_device.dart';
 import 'package:reaprime/src/models/device/usb_attach_probe.dart';
@@ -553,6 +554,7 @@ class ConnectionManager {
   bool get supportsBackgroundScaleWatch {
     if (!deviceScanner.supportsBackgroundWatch) return false;
     final preferredScaleId = settingsController.preferredScaleId;
+    if (preferredScaleId == usbHdsScalePreference) return false;
     if (preferredScaleId == null) return true;
     final discoveredScale = deviceScanner.devices
         .whereType<Scale>()
@@ -1569,6 +1571,7 @@ class ConnectionManager {
       !_scaleReconnectBlockedByPowerMode &&
       preferredScaleId != null &&
       preferredScaleId.isNotEmpty &&
+      preferredScaleId != usbHdsScalePreference &&
       settingsController.preferredScaleId == preferredScaleId &&
       !auxiliaryScaleRegistry.isReserved(preferredScaleId);
 
@@ -1650,7 +1653,9 @@ class ConnectionManager {
 
     final scaleFilter = scaleOnly && Platform.isAndroid
         ? ScanFilter(
-            preferredDeviceId: preferredScaleId,
+            preferredDeviceId: preferredScaleId == usbHdsScalePreference
+                ? null
+                : preferredScaleId,
             deviceTypes: {DeviceType.scale},
           )
         : null;
@@ -1662,7 +1667,9 @@ class ConnectionManager {
           ? preferredMachineId
           : null,
       preferredScaleId:
-          policy.connectPreferredDuringScan && !_scaleScanTeardownUnconfirmed
+          policy.connectPreferredDuringScan &&
+              !_scaleScanTeardownUnconfirmed &&
+              preferredScaleId != usbHdsScalePreference
           ? preferredScaleId
           : null,
       earlyStopEnabled: earlyStopEnabled,
@@ -1719,6 +1726,7 @@ class ConnectionManager {
       preferredMachineId: preferredMachineId,
       preferredScaleId: preferredScaleId,
       scanReport: scanReport,
+      serialDiscoveryComplete: scanRun.serialDiscoveryComplete,
     );
     _selectionSession = selectionSession;
     _pendingPreferredGrinders = scaleOnly
@@ -1727,14 +1735,16 @@ class ConnectionManager {
 
     if (scaleOnly) {
       _publishStatus(currentStatus.copyWith(foundScales: scales));
+      final preferredScales = scales.where(
+        (scale) => matchesScalePreference(scale, preferredScaleId),
+      );
       await _runScalePhase(
         _disconnectSupervisor.latestMachine,
         preferredScaleId == null
             ? scales
-            : scales
-                  .where((scale) => scale.deviceId == preferredScaleId)
-                  .take(1)
-                  .toList(),
+            : preferredScaleId == usbHdsScalePreference
+            ? preferredScales.toList()
+            : preferredScales.take(1).toList(),
         preferredScaleId,
         scanReport,
       );
@@ -2231,6 +2241,11 @@ class ConnectionManager {
       _log.fine('Scale already connected, skipping scale phase');
       return;
     }
+    if (preferredScaleId == usbHdsScalePreference &&
+        _selectionSession?.serialDiscoveryComplete == false) {
+      _log.fine('USB HDS family selection awaits complete serial discovery');
+      return;
+    }
     scales = scales
         .where((scale) => !auxiliaryScaleRegistry.isReserved(scale.deviceId))
         .toList();
@@ -2612,7 +2627,7 @@ class ConnectionManager {
         await scale.disconnect();
         return const ConnectionResult.conflict();
       }
-      await settingsController.setPreferredScaleId(scale.deviceId);
+      await settingsController.setPreferredScaleId(scalePreferenceId(scale));
       if (!identical(_scaleAttempt, attempt)) {
         return const ConnectionResult.conflict();
       }
