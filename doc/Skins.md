@@ -3753,6 +3753,13 @@ rows and are limited to 85% of available height. Opening or closing the compact
 list does not resize, remount or navigate the WebView. Back, Escape, outside
 taps and X close only the notification view.
 There are no generic trash, dismissal or Dismiss all controls.
+Confirmed Decaid app updates offer one View action. It closes the center and
+opens Settings' existing update dialog on the launcher, outside the skin.
+Viewing does not start a download. Android downloads show shared updater
+progress and require the dialog's Download and Install confirmations; reopening
+reveals an existing operation rather than starting another. Other platforms
+retain their supported release-viewing behavior. Restored notices require an
+update check before their actions become available.
 The heading's close tooltip uses Flutter's localized label; the native app
 currently enables English only, independently of each skin's language support.
 The originating service or plugin withdraws resolved conditions; no history is

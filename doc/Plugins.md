@@ -297,8 +297,10 @@ There is no generic user dismissal, trash control, Dismiss all, or user-dismissa
 event. `host.dismissNotification(id?)` remains the originating plugin's operation
 for withdrawing resolved conditions, isolated to that plugin. Reading retains
 the condition and never runs an action. Only explicit domain actions may change
-application state; the trusted app update has a separate Skip this version
-action. Resolved conditions are removed without a history entry.
+application state. The trusted app-update notice has a single View action that
+opens the existing Settings updater; it does not download in Notification
+Center. This host-only action does not change plugin action routing. Resolved
+conditions are removed without a history entry.
 
 Hosts that reject unknown manifest permissions cannot load a plugin declaring
 `notifications` until they support this contract. No new REST or WebSocket route

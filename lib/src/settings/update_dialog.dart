@@ -1,184 +1,158 @@
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/services/android_updater.dart';
+import 'package:reaprime/src/services/app_update_state.dart';
+import 'package:reaprime/src/services/update_check_service.dart';
 import 'package:reaprime/src/util/remote_error.dart';
 
-class UpdateDialog extends StatefulWidget {
+class UpdateDialog extends StatelessWidget {
   final UpdateInfo updateInfo;
   final String currentVersion;
-  final Future<String> Function(UpdateInfo, void Function(double)) onDownload;
-  final Future<bool> Function(String) onInstall;
+  final UpdateCheckService service;
   final VoidCallback onViewReleaseNotes;
 
   const UpdateDialog({
     super.key,
     required this.updateInfo,
     required this.currentVersion,
-    required this.onDownload,
-    required this.onInstall,
+    required this.service,
     required this.onViewReleaseNotes,
   });
 
   @override
-  State<UpdateDialog> createState() => _UpdateDialogState();
-}
-
-class _UpdateDialogState extends State<UpdateDialog> {
-  bool _isDownloading = false;
-  bool _isInstalling = false;
-  String? _downloadedPath;
-  String? _error;
-  double? _downloadProgress;
-
-  @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text('Update Available'),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Version ${widget.updateInfo.version}',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            SizedBox(height: 8),
-            Text(
-              'Current version: ${widget.currentVersion}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            if (widget.updateInfo.isPrerelease) ...[
-              SizedBox(height: 8),
-              Chip(
-                label: Text('Pre-release'),
-                backgroundColor: Colors.orange.withValues(alpha: 0.2),
+    return StreamBuilder<AppUpdateState>(
+      stream: service.updateState,
+      initialData: service.currentState,
+      builder: (context, snapshot) {
+        final state = snapshot.data!;
+        final downloading = state.phase == AppUpdatePhase.downloading;
+        final installing =
+            state.phase == AppUpdatePhase.installing &&
+            !service.installationStarted;
+        final busy = downloading || installing;
+        final current =
+            service.availableUpdate?.version == updateInfo.version &&
+            service.availableUpdate?.downloadUrl == updateInfo.downloadUrl;
+        return PopScope(
+          canPop: !busy,
+          child: AlertDialog(
+            title: Text('Update Available'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Version ${updateInfo.version}',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    'Current version: $currentVersion',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  if (updateInfo.isPrerelease) ...[
+                    SizedBox(height: 8),
+                    Chip(
+                      label: Text('Pre-release'),
+                      backgroundColor: Colors.orange.withValues(alpha: 0.2),
+                    ),
+                  ],
+                  SizedBox(height: 16),
+                  TextButton.icon(
+                    onPressed: onViewReleaseNotes,
+                    icon: const Icon(Icons.open_in_new),
+                    label: const Text("What's new"),
+                  ),
+                  if (state.error != null) ...[
+                    SizedBox(height: 16),
+                    Container(
+                      padding: EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.red.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        state.error!,
+                        style: TextStyle(color: Colors.red),
+                      ),
+                    ),
+                  ],
+                  if (downloading) ...[
+                    SizedBox(height: 16),
+                    LinearProgressIndicator(value: state.progress),
+                    SizedBox(height: 8),
+                    Text(
+                      state.progress == null
+                          ? 'Downloading update…'
+                          : 'Downloading update… ${(state.progress! * 100).round()}%',
+                    ),
+                  ],
+                  if (installing) ...[
+                    SizedBox(height: 16),
+                    LinearProgressIndicator(),
+                    SizedBox(height: 8),
+                    Text('Installing update...'),
+                  ],
+                  if (service.installationStarted)
+                    const Text(
+                      'Update installation started. Follow the on-screen prompts.',
+                    ),
+                ],
               ),
-            ],
-            SizedBox(height: 16),
-            TextButton.icon(
-              onPressed: widget.onViewReleaseNotes,
-              icon: const Icon(Icons.open_in_new),
-              label: const Text("What's new"),
             ),
-            if (_error != null) ...[
-              SizedBox(height: 16),
-              Container(
-                padding: EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.red.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(4),
+            actions: [
+              TextButton(
+                onPressed: busy ? null : () => Navigator.of(context).pop(),
+                child: Text('Cancel'),
+              ),
+              if (service.downloadedPath == null)
+                ElevatedButton(
+                  onPressed: busy || !current ? null : _handleDownload,
+                  child: Text(state.error == null ? 'Download' : 'Retry'),
+                )
+              else if (!service.installationStarted)
+                ElevatedButton(
+                  onPressed: busy || !current
+                      ? null
+                      : () => _handleInstall(context),
+                  child: Text(state.error == null ? 'Install' : 'Retry'),
                 ),
-                child: Text(_error!, style: TextStyle(color: Colors.red)),
-              ),
             ],
-            if (_isDownloading) ...[
-              SizedBox(height: 16),
-              LinearProgressIndicator(value: _downloadProgress),
-              SizedBox(height: 8),
-              Text(
-                _downloadProgress == null
-                    ? 'Downloading update…'
-                    : 'Downloading update… ${(_downloadProgress! * 100).round()}%',
-              ),
-            ],
-            if (_isInstalling) ...[
-              SizedBox(height: 16),
-              LinearProgressIndicator(),
-              SizedBox(height: 8),
-              Text('Installing update...'),
-            ],
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _isDownloading || _isInstalling
-              ? null
-              : () => Navigator.of(context).pop(),
-          child: Text('Cancel'),
-        ),
-        if (_downloadedPath == null)
-          ElevatedButton(
-            onPressed: _isDownloading ? null : _handleDownload,
-            child: Text(_error == null ? 'Download' : 'Retry'),
-          )
-        else
-          ElevatedButton(
-            onPressed: _isInstalling ? null : _handleInstall,
-            child: Text(_error == null ? 'Install' : 'Retry'),
           ),
-      ],
+        );
+      },
     );
   }
 
   Future<void> _handleDownload() async {
-    if (!mounted || _isDownloading || _isInstalling) return;
-    setState(() {
-      _isDownloading = true;
-      _error = null;
-      _downloadProgress = null;
-    });
-
     try {
-      final path = await widget.onDownload(widget.updateInfo, (progress) {
-        if (mounted) setState(() => _downloadProgress = progress);
-      });
-      if (!mounted) return;
-      setState(() {
-        _downloadedPath = path;
-        _isDownloading = false;
-      });
-    } catch (e, st) {
-      Logger('UpdateDialog').warning('App update download failed', e, st);
-      if (!mounted) return;
-      setState(() {
-        _error = remoteErrorMessage(e, action: 'download the app update');
-        _isDownloading = false;
-      });
+      await service.downloadUpdate(updateInfo, (_) {});
+    } catch (_) {
+      return;
     }
   }
 
-  Future<void> _handleInstall() async {
-    if (!mounted ||
-        _downloadedPath == null ||
-        _isDownloading ||
-        _isInstalling) {
-      return;
-    }
-
-    setState(() {
-      _isInstalling = true;
-      _error = null;
-    });
-
+  Future<void> _handleInstall(BuildContext context) async {
+    if (service.currentState.phase == AppUpdatePhase.installing) return;
+    final path = service.downloadedPath;
+    if (path == null) return;
     try {
-      final success = await widget.onInstall(_downloadedPath!);
-      if (!mounted) return;
+      final success = await service.installUpdate(path);
+      if (!context.mounted) return;
       if (success) {
-        if (mounted) {
-          Navigator.of(context).pop();
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Update installation started. Please follow the on-screen prompts.',
-              ),
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Update installation started. Please follow the on-screen prompts.',
             ),
-          );
-        }
-      } else {
-        setState(() {
-          _error = 'Installation permission required. Please grant permission and try again.';
-          _isInstalling = false;
-        });
+          ),
+        );
       }
-    } catch (e, st) {
-      Logger('UpdateDialog').warning('App update installation failed', e, st);
-      if (!mounted) return;
-      setState(() {
-        _error = remoteErrorMessage(e, action: 'install the app update');
-        _isInstalling = false;
-      });
+    } catch (_) {
+      return;
     }
   }
 }

@@ -42,8 +42,11 @@ class _FakeUpdater extends AndroidUpdater {
   _FakeUpdater() : super(owner: 'tadelv', repo: 'reaprime');
 
   UpdateInfo? nextCheck;
+  Completer<UpdateInfo?>? checkGate;
   bool throwOnCheck = false;
   bool throwOnDownload = false;
+  bool throwOnInstall = false;
+  String downloadPath = '/tmp/update.apk';
   bool installResult = true;
   List<double> progressToEmit = const [];
 
@@ -53,6 +56,7 @@ class _FakeUpdater extends AndroidUpdater {
   int installCalls = 0;
 
   Completer<void>? downloadGate;
+  Completer<void>? installGate;
 
   @override
   Future<UpdateInfo?> checkForUpdate(
@@ -62,6 +66,7 @@ class _FakeUpdater extends AndroidUpdater {
     checkCalls++;
     lastChannel = channel;
     if (throwOnCheck) throw Exception('check boom');
+    if (checkGate case final gate?) return gate.future;
     return nextCheck;
   }
 
@@ -77,12 +82,14 @@ class _FakeUpdater extends AndroidUpdater {
     for (final p in progressToEmit) {
       onProgress?.call(p);
     }
-    return '/tmp/update.apk';
+    return downloadPath;
   }
 
   @override
   Future<bool> installUpdate(String apkPath) async {
     installCalls++;
+    if (installGate != null) await installGate!.future;
+    if (throwOnInstall) throw FileSystemException('APK unavailable', apkPath);
     return installResult;
   }
 
@@ -126,6 +133,24 @@ void main() {
   }
 
   group('checkForUpdate', () {
+    test('a manual check waits for its result during another check', () async {
+      final svc = build();
+      addTearDown(svc.dispose);
+      final gate = Completer<UpdateInfo?>();
+      updater.checkGate = gate;
+      final background = svc.checkForUpdate(quiet: true);
+      var manualCompleted = false;
+      final manual = svc.checkForUpdate().then((result) {
+        manualCompleted = true;
+        return result;
+      });
+      await Future<void>.delayed(Duration.zero);
+      expect(manualCompleted, isFalse);
+      gate.complete(_update());
+      await background;
+      expect((await manual)?.version, '9.9.9');
+    });
+
     test('uses the selected update channel', () async {
       final svc = build();
       await settingsService.setUpdateChannel(UpdateChannel.beta);
@@ -246,6 +271,120 @@ void main() {
   });
 
   group('downloadAndInstall', () {
+    test(
+      'a missing cached APK can be downloaded again after install failure',
+      () async {
+        final cache = await Directory.systemTemp.createTemp(
+          'decaid-update-test-',
+        );
+        addTearDown(() => cache.delete(recursive: true));
+        final svc = build();
+        addTearDown(svc.dispose);
+        updater.nextCheck = _update();
+        updater.downloadPath = '${cache.path}/removed.apk';
+        await svc.checkForUpdate();
+        final path = await svc.downloadUpdate(svc.availableUpdate!, (_) {});
+        updater.throwOnInstall = true;
+
+        await expectLater(
+          svc.installUpdate(path),
+          throwsA(isA<FileSystemException>()),
+        );
+        expect(svc.downloadedPath, isNull);
+        updater.throwOnInstall = false;
+        await svc.downloadUpdate(svc.availableUpdate!, (_) {});
+        expect(updater.downloadCalls, 2);
+      },
+    );
+
+    test('local repeated install requests launch the installer once', () async {
+      final svc = build();
+      updater.nextCheck = _update();
+      updater.installGate = Completer<void>();
+      await svc.checkForUpdate();
+      final path = await svc.downloadUpdate(svc.availableUpdate!, (_) {});
+
+      final first = svc.installUpdate(path);
+      final second = svc.installUpdate(path);
+      expect(updater.installCalls, 1);
+      updater.installGate!.complete();
+      expect(await first, isTrue);
+      expect(await second, isTrue);
+      expect(await svc.installUpdate(path), isTrue);
+      expect(updater.installCalls, 1);
+      expect(svc.installationStarted, isTrue);
+      svc.dispose();
+    });
+
+    test(
+      'local download shares progress and waits for install confirmation',
+      () async {
+        final svc = build();
+        updater.nextCheck = _update();
+        updater.downloadGate = Completer<void>();
+        await svc.checkForUpdate();
+
+        final first = svc.downloadUpdate(svc.availableUpdate!, (_) {});
+        final second = svc.downloadUpdate(svc.availableUpdate!, (_) {});
+        await svc.checkForUpdate();
+
+        expect(updater.checkCalls, 1);
+        expect(updater.downloadCalls, 1);
+        expect(svc.currentState.phase, AppUpdatePhase.downloading);
+        updater.downloadGate!.complete();
+        expect(await first, await second);
+        expect(svc.downloadedPath, '/tmp/update.apk');
+        expect(updater.installCalls, 0);
+        expect(svc.currentState.phase, AppUpdatePhase.available);
+
+        await svc.downloadAndInstall();
+        expect(updater.downloadCalls, 1);
+        expect(updater.installCalls, 1);
+        svc.dispose();
+      },
+    );
+
+    test(
+      'permission retry keeps the downloaded APK without duplicate installs',
+      () async {
+        final svc = build();
+        updater.nextCheck = _update();
+        updater.installResult = false;
+        await svc.downloadAndInstall();
+        expect(svc.downloadedPath, '/tmp/update.apk');
+        updater.installResult = true;
+
+        await svc.downloadAndInstall();
+        await svc.downloadAndInstall();
+
+        expect(updater.downloadCalls, 1);
+        expect(updater.installCalls, 2);
+        svc.dispose();
+      },
+    );
+
+    test('stale or unsupported local updates cannot download', () async {
+      final svc = build();
+      updater.nextCheck = _update(version: '10.0.0');
+      await svc.checkForUpdate();
+      await expectLater(
+        svc.downloadUpdate(_update(), (_) {}),
+        throwsStateError,
+      );
+      expect(updater.downloadCalls, 0);
+      svc.dispose();
+
+      final desktop = build(isAndroid: false);
+      updater.nextCheck = _update();
+      await desktop.checkForUpdate();
+      await expectLater(
+        desktop.downloadUpdate(desktop.availableUpdate!, (_) {}),
+        throwsStateError,
+      );
+      expect(updater.downloadCalls, 0);
+      desktop.dispose();
+    });
+
     test('auto-checks, downloads, then installs', () async {
       final svc = build();
       updater.nextCheck = _update();

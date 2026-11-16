@@ -28,6 +28,11 @@ class UpdateCheckService {
   Timer? _periodicTimer;
   UpdateInfo? _availableUpdate;
   bool _hasCompletedCheck = false;
+  Future<String>? _download;
+  Future<bool>? _installation;
+  bool _installationStarted = false;
+  String? _downloadedPath;
+  (String, String)? _downloadedRelease;
 
   late final BehaviorSubject<AppUpdateState> _state;
 
@@ -69,6 +74,14 @@ class UpdateCheckService {
   Stream<AppUpdateState> get updateState => _state.stream;
 
   AppUpdateState get currentState => _state.value;
+
+  bool get installationStarted => _installationStarted;
+
+  String? get downloadedPath =>
+      _downloadedRelease ==
+          (_availableUpdate?.version, _availableUpdate?.downloadUrl)
+      ? _downloadedPath
+      : null;
 
   bool get canInstall => _isAndroid;
 
@@ -128,33 +141,107 @@ class UpdateCheckService {
       }
     }
 
-    final update = _availableUpdate!;
-    var action = 'download the app update';
     try {
-      _emit(AppUpdatePhase.downloading, progress: 0);
+      final path = await downloadUpdate(_availableUpdate!, (_) {});
+      await installUpdate(path);
+    } catch (e) {
+      _log.fine('Update failed; error state already emitted: $e');
+    }
+  }
+
+  Future<String> downloadUpdate(
+    UpdateInfo update,
+    void Function(double) onProgress,
+  ) {
+    if (!_isAndroid ||
+        externallyManaged ||
+        update.version != availableUpdate?.version ||
+        update.downloadUrl != availableUpdate?.downloadUrl) {
+      return Future.error(StateError('The app update is no longer available'));
+    }
+    if (_download case final pending?) return pending;
+    if (downloadedPath case final path?) return Future.value(path);
+    if (_inProgress) {
+      return Future.error(StateError('An app update operation is in progress'));
+    }
+    _installation = null;
+    _installationStarted = false;
+    return _download = _downloadUpdate(update, onProgress).whenComplete(() {
+      _download = null;
+    });
+  }
+
+  Future<String> _downloadUpdate(
+    UpdateInfo update,
+    void Function(double) onProgress,
+  ) async {
+    _emit(AppUpdatePhase.downloading, progress: 0);
+    try {
       var lastEmitted = 0.0;
       final path = await _updater.downloadUpdate(
         update,
-        onProgress: (p) {
-          if (p - lastEmitted >= 0.01 || p >= 1.0) {
-            lastEmitted = p;
-            _emit(AppUpdatePhase.downloading, progress: p);
+        onProgress: (progress) {
+          if (progress - lastEmitted >= 0.01 || progress >= 1) {
+            lastEmitted = progress;
+            _emit(AppUpdatePhase.downloading, progress: progress);
+            onProgress(progress);
           }
         },
       );
+      _downloadedPath = path;
+      _downloadedRelease = (update.version, update.downloadUrl);
+      _emit(AppUpdatePhase.available);
+      return path;
+    } catch (e, st) {
+      _log.warning('App update download failed', e, st);
+      _emit(
+        AppUpdatePhase.error,
+        error: remoteErrorMessage(e, action: 'download the app update'),
+      );
+      rethrow;
+    }
+  }
 
-      _emit(AppUpdatePhase.installing);
-      action = 'install the app update';
+  Future<bool> installUpdate(String path) {
+    if (!_isAndroid || externallyManaged || path != downloadedPath) {
+      return Future.error(
+        StateError('The downloaded app update is unavailable'),
+      );
+    }
+    if (_installation case final pending?) return pending;
+    if (_inProgress) {
+      return Future.error(StateError('An app update operation is in progress'));
+    }
+    return _installation = _installUpdate(path);
+  }
+
+  Future<bool> _installUpdate(String path) async {
+    _emit(AppUpdatePhase.installing);
+    try {
       final started = await _updater.installUpdate(path);
+      _installationStarted = started;
       if (!started) {
+        _installation = null;
         _emit(
           AppUpdatePhase.error,
           error: 'Installation permission required. Grant it and retry.',
         );
+      } else {
+        _emit(AppUpdatePhase.installing);
       }
+      return started;
     } catch (e, st) {
-      _log.severe('Update download/install failed', e, st);
-      _emit(AppUpdatePhase.error, error: remoteErrorMessage(e, action: action));
+      if (!await File(path).exists()) {
+        _downloadedPath = null;
+        _downloadedRelease = null;
+      }
+      _installation = null;
+      _log.warning('App update installation failed', e, st);
+      _emit(
+        AppUpdatePhase.error,
+        error: remoteErrorMessage(e, action: 'install the app update'),
+      );
+      rethrow;
     }
   }
 
@@ -218,6 +305,10 @@ class UpdateCheckService {
   }
 
   Future<UpdateInfo?> checkForUpdate({bool quiet = false}) async {
+    if (currentState.phase == AppUpdatePhase.downloading ||
+        currentState.phase == AppUpdatePhase.installing) {
+      return availableUpdate;
+    }
     if (externallyManaged) {
       _availableUpdate = null;
       _emit(AppUpdatePhase.idle);

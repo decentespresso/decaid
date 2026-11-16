@@ -167,7 +167,7 @@ class _NotificationRow extends StatelessWidget {
   final NotificationActions actions;
   final bool compact;
 
-  Future<void> _closeForDownload(BuildContext context) async {
+  Future<void> _closeForUpdate(BuildContext context) async {
     final route = ModalRoute.of(context);
     Navigator.of(context).pop();
     await route?.completed;
@@ -233,13 +233,15 @@ class _NotificationRow extends StatelessWidget {
                             onPressed: () => actions.activate(
                               notice,
                               action,
-                              beforeDownload: () => _closeForDownload(context),
+                              beforeOpenUpdate: () => _closeForUpdate(context),
                             ),
                             leading: Icon(switch (action.type) {
                               NotificationActionType.openDecentAccount =>
                                 LucideIcons.user,
                               NotificationActionType.openExternalUrl =>
                                 LucideIcons.externalLink,
+                              NotificationActionType.viewUpdate =>
+                                LucideIcons.eye,
                               NotificationActionType.downloadUpdate =>
                                 LucideIcons.download,
                               NotificationActionType.skipUpdate =>
