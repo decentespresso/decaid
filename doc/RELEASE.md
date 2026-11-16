@@ -265,6 +265,17 @@ Tagged release artifacts use the same `decaid-<platform>` prefix without `-devel
 # Open Settings and verify version number
 ```
 
+### DE1 firmware validation scope (#1103)
+
+Release validation notes must distinguish the managed firmware no-replay policy
+from raw firmware writes, which may still reconnect and replay once after a BLE
+timeout. The #1103 Android BLE/ESP32 emulator checks used synthetic faults after
+successful real writes; physical DE1 firmware flashing and naturally lost
+acknowledgements remain unverified. Do not describe emulator results as proof of
+production bootloader safety. Physical DE1 checks require separate operator
+authorisation. See the [policy rationale, proposed raw-write follow-up and
+validation limits](plans/archive/1103-firmware-write-replay/README.md).
+
 ## Troubleshooting
 
 ### Release Failed to Build
