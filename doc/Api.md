@@ -1350,6 +1350,16 @@ Machine sockets opened before the first machine connection behave like any later
 the socket stays open and remains silent until a machine attaches. No error or status frame is emitted
 on the typed telemetry sockets.
 
+### Raw notification semantics
+
+For UnifiedDe1 transports, `/ws/v1/machine/raw` mirrors incoming state info,
+DE1/Bengle shot samples, shot settings, water levels and MMR notifications once
+at BLE/serial ingress, independently of typed subscribers. Replaying a typed
+value, reading an initial characteristic, seeding serial settings or writing
+local settings does not synthesize a `notify` frame. Firmware-map and calibration
+notifications retain typed-only delivery. Raw command read/write receipts keep
+their existing operation types and payload shape.
+
 ### Sensor sockets follow replacement
 
 An open `/ws/v1/sensors/:id/snapshot` socket follows the current sensor instance for its ID. When that

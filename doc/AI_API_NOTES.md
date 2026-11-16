@@ -174,10 +174,16 @@ never reports would hang the request. The timeout sits on the stream, before
 `asBroadcastStream()`. Each `asBroadcastStream()` call builds a wrapper that keeps
 its source subscription after its last listener cancels, so every `.first` read
 left a listener on the subject until disconnect, and a polled GET grew that set
-without bound. The remaining getters, except `bengleShotSample`, still use
-`asBroadcastStream()`. `shotSettings` (`De1Controller._readShotSettings`) and
-`calibration` (the calibration GET) also have per-request `.first` readers and
-leak the same way; they are left for a follow-up.
+without bound. State, shot samples, shot settings, MMR and calibration now also
+expose their subjects directly. Calibration response waits own and cancel their
+subscription on completion, timeout, failed dispatch and disconnect.
+
+Raw notification mirroring happens once at BLE/serial ingress, independently of
+typed consumers and replay. It covers state info, DE1/Bengle shot samples, shot
+settings, water levels and MMR responses. Initial characteristic reads, serial
+settings seeds and local settings writes are not notifications. Firmware-map and
+calibration notifications retain their existing typed-only delivery. Raw command
+read/write receipts keep their existing operation types and payload shape.
 
 ## WebSocket Conventions
 
