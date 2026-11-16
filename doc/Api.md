@@ -980,6 +980,20 @@ current token immediately, while release archives, ZIPs, and CDN downloads
 remain unauthenticated. The token owner is the GitHub identity shown on native
 feedback issues and attachment gists. Secure-storage read failures are surfaced
 in native settings and do not block app startup; requests retry loading later.
+
+For feedback from outside the Decaid organization, use a personal access token
+(classic) with `public_repo`, plus `gist` only for logs/screenshots. The broader
+`repo` scope includes public-repository access but also grants private-repository
+access and is unnecessary for Decaid. Fine-grained tokens may authenticate and
+read metadata, but GitHub restricts their public-organization issue writes for
+non-members. Use an expiry and keep tokens private.
+
+Native **Test token** checks an unsaved draft first, otherwise the saved user
+PAT, using read-only `GET https://api.github.com/user`. Success verifies
+authentication and identity only, not permission to create issues or Gists.
+Testing never saves a draft or changes active credentials. No token is required
+for public update metadata, and no PAT-testing API is exposed to skins/plugins.
+
 Account failures take precedence over missing GitHub configuration: `503` only
 applies after successful account verification. Other submission failures remain
 `500`. Trusted-LAN callers use the host's account without separate caller
