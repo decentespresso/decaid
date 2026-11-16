@@ -1138,12 +1138,15 @@ Plugin validation and downgrade failures retain HTTP 400 and 409, respectively.
 
 Native Android updates download before requesting installation authorization.
 If permission is missing, Decaid opens Android's per-source installation settings
-directly and resumes the same in-memory attempt on return. Granting permission
-opens the installer once; denial retains neutral Retry guidance and the cached
-APK. Missing, corrupt or wrong-package APKs are rejected before installer launch;
-Retry downloads again if validation rejects the cached file. Pending installation
-does not survive process restart, and launching Android's installer does not
-mean installation has completed.
+directly and resumes the same in-memory attempt when that native activity returns.
+Granting permission opens the installer once; denial retains neutral Retry guidance
+and the cached APK. Archive preflight checks package and compatible signing identity,
+including single-signer forward rotation. Missing or unusable cached files are
+rechecked after permission returns; the next Retry downloads a replacement when
+validation fails. Android's package installer remains the authority for full APK
+integrity and update policy. Pending installation does not survive process restart,
+closing its owner cancels the attempt, and launching the installer does not mean
+installation has completed.
 
 Missing or incorrectly typed GitHub release, asset, or commit fields are
 validation failures (HTTP 400), including when the response is valid JSON.

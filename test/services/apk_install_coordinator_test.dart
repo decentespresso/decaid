@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/services/apk_install_coordinator.dart';
 import 'package:reaprime/src/services/apk_installer.dart';
@@ -8,7 +11,12 @@ class _Installer extends ApkInstaller {
   int requests = 0;
   int installs = 0;
   bool launchResult = true;
+  bool valid = true;
   Object? requestError;
+  final permissionReturn = Completer<void>();
+
+  @override
+  Future<bool> isValidApk(String path) async => valid;
 
   @override
   Future<bool> canInstallPackages() async => allowed;
@@ -17,6 +25,7 @@ class _Installer extends ApkInstaller {
   Future<void> requestInstallPermission() async {
     requests++;
     if (requestError case final error?) throw error;
+    await permissionReturn.future;
   }
 
   @override
@@ -41,9 +50,9 @@ void main() {
   Future<void> flush() => Future<void>.delayed(Duration.zero);
 
   void leaveAndReturn() {
-    coordinator.didChangeAppLifecycleState(AppLifecycleState.inactive);
-    coordinator.didChangeAppLifecycleState(AppLifecycleState.paused);
-    coordinator.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    if (!installer.permissionReturn.isCompleted) {
+      installer.permissionReturn.complete();
+    }
   }
 
   test('authorized installation launches immediately', () async {
@@ -104,7 +113,9 @@ void main() {
       return value;
     });
     await flush();
-    coordinator.didChangeAppLifecycleState(AppLifecycleState.resumed);
+    WidgetsBinding.instance.handleAppLifecycleStateChanged(
+      AppLifecycleState.resumed,
+    );
     await flush();
     expect(completed, isFalse);
     expect(installer.installs, 0);
@@ -123,10 +134,74 @@ void main() {
       expect(await pending, ApkInstallOutcome.cancelled);
       expect(installer.installs, 0);
       final replacement = ApkInstallCoordinator(installer);
-      replacement.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      WidgetsBinding.instance.handleAppLifecycleStateChanged(
+        AppLifecycleState.resumed,
+      );
       await flush();
       expect(installer.installs, 0);
       replacement.dispose();
+    },
+  );
+
+  test('native return completes without a paused lifecycle event', () async {
+    final pending = coordinator.install('/update.apk');
+    await flush();
+    WidgetsBinding.instance.handleAppLifecycleStateChanged(
+      AppLifecycleState.inactive,
+    );
+    WidgetsBinding.instance.handleAppLifecycleStateChanged(
+      AppLifecycleState.resumed,
+    );
+    installer.allowed = true;
+    leaveAndReturn();
+
+    expect(
+      await pending.timeout(const Duration(seconds: 1)),
+      ApkInstallOutcome.installerLaunched,
+    );
+    expect(installer.installs, 1);
+  });
+
+  test(
+    'invalidated APK on permission return never reaches installer',
+    () async {
+      final pending = coordinator.install('/update.apk');
+      await flush();
+      installer.allowed = true;
+      installer.valid = false;
+      final failure = expectLater(pending, throwsA(isA<InvalidApkException>()));
+      leaveAndReturn();
+
+      await failure;
+      expect(installer.installs, 0);
+    },
+  );
+
+  test(
+    'native activity destruction cancels without an installer launch',
+    () async {
+      installer.requestError = PlatformException(code: 'PERMISSION_CANCELLED');
+      expect(
+        await coordinator.install('/update.apk'),
+        ApkInstallOutcome.cancelled,
+      );
+      expect(installer.installs, 0);
+    },
+  );
+
+  test(
+    'dispose finishes before a late native result and ignores its error',
+    () async {
+      final pending = coordinator.install('/update.apk');
+      await flush();
+      coordinator.dispose();
+      expect(await pending, ApkInstallOutcome.cancelled);
+
+      installer.permissionReturn.completeError(
+        StateError('activity destroyed'),
+      );
+      await flush();
+      expect(installer.installs, 0);
     },
   );
 

@@ -1,14 +1,20 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/services/android_updater.dart';
 import 'package:reaprime/src/services/apk_installer.dart';
 
 class _Installer extends ApkInstaller {
   bool valid = false;
+  Completer<bool>? validation;
   List<String> calls = const [];
 
   @override
   Future<bool> isValidApk(String path) async {
     calls = [...calls, 'validate:$path'];
+    if (validation case final pending?) return pending.future;
     return valid;
   }
 
@@ -75,4 +81,72 @@ void main() {
       'install:/update.apk',
     ]);
   });
+
+  test(
+    'disposal during validation prevents later permission or install work',
+    () async {
+      installer.validation = Completer<bool>();
+      final pending = updater.installUpdate('/update.apk');
+      await Future<void>.delayed(Duration.zero);
+      updater.dispose();
+      installer.validation!.complete(true);
+
+      expect(await pending, ApkInstallOutcome.cancelled);
+      expect(installer.calls, ['validate:/update.apk']);
+    },
+  );
+
+  for (final invalidation in ['removed', 'empty']) {
+    test('APK $invalidation during permission settings is discarded', () async {
+      const channel = MethodChannel('com.reaprime.updater/apk_installer');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final directory = await Directory.systemTemp.createTemp('update-return-');
+      addTearDown(() => directory.delete(recursive: true));
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      final file = File('${directory.path}/update.apk');
+      await file.writeAsBytes([1, 2, 3]);
+      final requested = Completer<void>();
+      final returned = Completer<void>();
+      var allowed = false;
+      var installs = 0;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        switch (call.method) {
+          case 'isValidApk':
+            return true;
+          case 'canInstallPackages':
+            return allowed;
+          case 'requestInstallPermission':
+            requested.complete();
+            await returned.future;
+            return null;
+          case 'installApk':
+            installs++;
+            return true;
+          default:
+            throw StateError('Unexpected method: ${call.method}');
+        }
+      });
+      final candidate = AndroidUpdater(
+        owner: 'test',
+        repo: 'test',
+        apkInstaller: ApkInstaller(platformIsAndroid: true),
+        platformIsAndroid: true,
+      );
+      addTearDown(candidate.dispose);
+      final pending = candidate.installUpdate(file.path);
+      await requested.future;
+
+      if (invalidation == 'removed') {
+        await file.delete();
+      } else {
+        await file.writeAsBytes([]);
+      }
+      allowed = true;
+      returned.complete();
+
+      await expectLater(pending, throwsA(isA<InvalidApkException>()));
+      expect(installs, 0);
+    });
+  }
 }
