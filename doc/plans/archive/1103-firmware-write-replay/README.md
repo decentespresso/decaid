@@ -10,7 +10,7 @@ assume, even when reconnect succeeds.
 
 ## Decision
 
-Firmware map commands (erase and verification) and image chunks opt out of
+Managed firmware map commands (erase and verification) and image chunks opt out of
 transparent timeout recovery at their dispatch sites. They surface the original
 failure without reconnecting or replaying. The existing firmware operation owns
 failure classification and cleanup.
@@ -23,6 +23,24 @@ Serial framing and dispatch remain unchanged.
 Firmware chunks and ordinary settings share writeToMMR. The caller must declare
 no-replay intent; excluding the endpoint globally would break settings recovery.
 No timeout values or read-recovery policy change.
+
+## Scope and proposed follow-up
+
+The managed firmware update path is covered. The raw-write handler in
+`lib/src/models/device/impl/de1/unified_de1/unified_de1.raw.dart` calls
+`writeWithResponse(endpoint, payload)` with the default retry policy. Raw
+firmware-map requests and raw image writes may therefore reconnect and replay
+once after a BLE timeout; they do not inherit the managed no-replay policy.
+
+Proposed separate issue: raw firmware dispatch safety. Define explicit no-replay
+intent for raw firmware traffic and add dispatched-timeout regressions without
+globally disabling recovery for `writeToMMR`, which ordinary settings also use.
+This policy decision is outside #1103's managed firmware fix.
+
+A dedicated dispatched-timeout regression for the verification request remains
+optional follow-up coverage. Verification already uses the same no-replay
+`_writeFirmwareMap()` helper as erase; the current regressions inject faults at
+erase and image dispatch, not verification dispatch.
 
 ## Validation and limits
 
