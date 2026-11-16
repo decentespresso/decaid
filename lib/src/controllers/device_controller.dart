@@ -111,29 +111,48 @@ class DeviceController
 
   bool _initialized = false;
   bool _disposed = false;
+  Future<void>? _initializationFuture;
+  final Set<DeviceDiscoveryService> _initializedServices = {};
+  final List<Object> _initializationFailures = [];
 
-  Future<void> initialize() async {
-    if (_disposed) return;
+  List<Object> get initializationFailures =>
+      List.unmodifiable(_initializationFailures);
+
+  Future<void> initialize() {
+    if (_disposed) return Future<void>.value();
+    final inFlight = _initializationFuture;
+    if (inFlight != null) return inFlight;
     if (_initialized) {
       _log.fine("Already initialized, skipping");
-      return;
+      return Future<void>.value();
     }
-    _initialized = true;
+    _initializationFuture = _initializeServices();
+    return _initializationFuture!;
+  }
 
+  Future<void> _initializeServices() async {
+    _initializationFailures.clear();
     for (var service in _services) {
+      if (_initializedServices.contains(service)) continue;
+      StreamSubscription? attachSubscription;
       try {
         if (service case final DeviceAttachNotifier notifier) {
-          final attachSub = notifier.deviceAttached.listen((event) {
+          attachSubscription = notifier.deviceAttached.listen((event) {
             _attachOrigins[event] = service;
             _log.info("device attached on $service: $event");
             if (!_deviceAttachedStream.isClosed) {
               _deviceAttachedStream.add(event);
             }
           });
-          _serviceSubscriptions.add(attachSub);
         }
         await service.initialize();
-        if (_disposed) return;
+        if (_disposed) {
+          await attachSubscription?.cancel();
+          break;
+        }
+        if (attachSubscription != null) {
+          _serviceSubscriptions.add(attachSubscription);
+        }
         if (service case final DeviceWatchCapable watch) {
           _serviceSubscriptions.add(
             watch.deviceWatchState.listen(_scaleWatchState.add),
@@ -151,10 +170,15 @@ class DeviceController
           });
           _serviceSubscriptions.add(adapterSub);
         }
-      } catch (e) {
-        _log.warning("Service $service failed to init:", e);
+        _initializedServices.add(service);
+      } catch (e, st) {
+        await attachSubscription?.cancel();
+        _initializationFailures.add(e);
+        _log.warning("Service $service failed to init:", e, st);
       }
     }
+    _initialized = _initializedServices.length == _services.length;
+    _initializationFuture = null;
   }
 
   Future<ScanResult>? _inFlightScan;

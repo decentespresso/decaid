@@ -35,6 +35,15 @@ Open the management page from Settings > Devices or from the dashboard.
 
 Decaid uses a layered architecture for device management:
 
+`AppStartupCoordinator` owns app-lifetime core readiness before scanning. The onboarding controller invokes its permission-safe boundary when the resolved setup stages enter the initialization stage (or directly before a flow with no initialization stage); the loading widget only observes that shared future. The coordinator initializes the device controller and local WebUI, starts the Android foreground watcher once, and exposes degraded or failed reasons without owning scans. Plugin initialization and remote skin refresh are optional background tasks and do not gate discovery. The coordinator is retained by `AppRoot` while its keyed `MyApp` subtree is recreated.
+
+Startup sequence and recovery limits:
+
+1. OS permission UI resolves before the boundary can start the device controller. Omitted welcome, account, consent, or initialization stages do not move this boundary into `shouldShow` evaluation.
+2. Core device/WebUI work completes before the scan step is allowed to proceed. A missing or unreadable configured skin can fall back to the default skin; core failures remain observable and the initialization view offers explicit retry.
+3. Android foreground start/watch belongs only to the coordinator. Desktop has no foreground-task branch. Optional plugin and remote-skin work starts after core readiness and may remain pending or fail without delaying scans.
+4. `AppRoot` owns the coordinator across keyed `MyApp` recreation. Disposal fences new side effects and removes only that coordinator's foreground watcher; native operations already dispatched cannot be cancelled. Retry re-attempts only failed core subsystems, not successful storage initialization or skin serving. Successful fallback remains degraded with its diagnostic reason, but is not replayed. Optional failures cannot mask a failed core or disable explicit recovery. Post-onboarding navigation also rechecks its owner and navigator after asynchronous serving.
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    Application Layer                     │
@@ -218,10 +227,11 @@ Detach and unknown USB actions do not emit attach hints.
 `DeviceController` aggregates notifier streams without adding attach events to
 the required `DeviceScanner` interface. A scanner exposes attach hints only when
 it also implements `DeviceAttachNotifier`, so BLE, Wi-Fi, and simulated scanners
-remain unchanged. It subscribes to each service's attach stream before awaiting
-that service's `initialize()`, so an attach hint emitted from inside
-initialization (such as the serial service's startup enumeration hint) is not
-lost.
+remain unchanged. It subscribes to each service's attach stream for the
+initialization attempt so startup attach hints are not lost, but removes that
+attempt-owned subscription when initialization fails. A retry therefore does not
+accumulate duplicate listeners, while successful initialization keeps attach
+recovery active.
 
 `AttachReconnectCoordinator` owns the attach subscription, configurable 500 ms
 settle timer, burst coalescing, in-flight guard, and disposal. Disposal waits
@@ -1012,15 +1022,20 @@ never retain the disconnected instance beside its connected replacement.
 5. Create ConnectionManager(deviceController, de1Controller, scaleController,
    grinderController, auxiliaryScaleRegistry, settingsController, rememberedDevices)
    ↓
-6. runApp(MyApp(...))
+6. runApp(AppRoot(...)); AppRoot creates an inert AppStartupCoordinator
+   retained across keyed MyApp recreation
    ↓
-7. OnboardingView displayed (steps: android-warning → welcome → login →
-   permissions → initialization → scan)
+7. OnboardingView displayed (conditional steps: android-warning → welcome →
+   login → shot-upload → permissions → initialization → import → scan)
    ↓
-8. Permissions step grants permissions; initialization step runs
-   deviceController.initialize()
+8. After prior setup/permission stages resolve, the onboarding entry hook
+   starts the coordinator independently of the initialization widget.
+   DeviceController and local WebUI initialize concurrently; Android foreground
+   ownership follows core setup. Plugins and remote skins run in the background.
    ↓
-9. Scan step calls connectionManager.connect()
+9. Initialization observes the shared Future; import/scan retain a readiness
+   guard if the initialization stage is omitted. Core failure offers explicit
+   retry without mounting the scan. ScanFlowView calls connectionManager.connect()
    ↓
 10. ConnectionManager: machine-only quick-connect (preferred machine)
      -> publish connectingMachine -> BLE/serial tryQuickConnect ->

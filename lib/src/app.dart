@@ -80,6 +80,37 @@ import 'settings/settings_view.dart';
 
 import 'package:reaprime/src/services/account/decent_account_service.dart';
 import 'package:reaprime/src/services/app_log_upload_service.dart';
+import 'package:reaprime/src/services/app_startup_coordinator.dart';
+
+Future<void> openStartupSkin({
+  required WebUIService service,
+  required WebUIStorage storage,
+  required bool Function() isCurrent,
+  required VoidCallback openSkin,
+}) async {
+  final log = Logger('MyApp');
+  if (!isCurrent()) return;
+  if (!service.isServing) {
+    log.info('WebUI not serving, attempting to start...');
+    final defaultSkin = storage.defaultSkin;
+    if (defaultSkin == null) {
+      log.warning('No default skin available — staying on launcher.');
+      return;
+    }
+    try {
+      await service.serveFolderAtPath(defaultSkin.path);
+      log.info('WebUI service started successfully');
+    } catch (error) {
+      log.severe(
+        'Failed to start WebUI service: $error — staying on launcher.',
+      );
+      return;
+    }
+  }
+  if (!isCurrent()) return;
+  log.info('Navigating to SkinView');
+  openSkin();
+}
 
 class NavigationService {
   static final GlobalKey<NavigatorState> navigatorKey =
@@ -119,6 +150,7 @@ class MyApp extends StatefulWidget {
     this.batteryController,
     this.accountConsentStore,
     required this.credentials,
+    required this.startupCoordinator,
   });
 
   final bool directConnect;
@@ -148,6 +180,7 @@ class MyApp extends StatefulWidget {
   final BatteryController? batteryController;
   final AccountConsentStore? accountConsentStore;
   final GithubCredentialProvider credentials;
+  final AppStartupCoordinator startupCoordinator;
 
   @override
   State<MyApp> createState() => _MyAppState();
@@ -186,7 +219,8 @@ class _MyAppState extends State<MyApp> {
       );
     }
     _initializeDe1StateManager();
-    _onboardingController = OnboardingController(
+    _onboardingController = createStartupOnboardingController(
+      startupCoordinator: widget.startupCoordinator,
       steps: [
         createAndroidWarningStep(settingsController: widget.settingsController),
         OnboardingStep(
@@ -206,14 +240,8 @@ class _MyAppState extends State<MyApp> {
             accountService: widget.decentAccountService!,
             settingsController: widget.settingsController,
           ),
-        createPermissionsStep(de1Controller: widget.de1Controller),
-        createInitializationStep(
-          deviceController: widget.deviceController,
-          de1Controller: widget.de1Controller,
-          pluginLoaderService: widget.pluginLoaderService,
-          webUIStorage: widget.webUIStorage,
-          webUIService: widget.webUIService,
-        ),
+        createPermissionsStep(),
+        createInitializationStep(startupCoordinator: widget.startupCoordinator),
         if (widget.profileStorageService != null &&
             widget.beanStorage != null &&
             widget.grinderStorage != null)
@@ -341,24 +369,15 @@ class _MyAppState extends State<MyApp> {
       return;
     }
 
-    if (!widget.webUIService.isServing) {
-      _log.info('WebUI not serving, attempting to start...');
-      final defaultSkin = widget.webUIStorage.defaultSkin;
-      if (defaultSkin == null) {
-        _log.warning('No default skin available — staying on launcher.');
-        return;
-      }
-      try {
-        await widget.webUIService.serveFolderAtPath(defaultSkin.path);
-        _log.info('WebUI service started successfully');
-      } catch (e) {
-        _log.severe('Failed to start WebUI service: $e — staying on launcher.');
-        return;
-      }
-    }
-
-    _log.info('Navigating to SkinView');
-    SkinView.open(navigator);
+    await openStartupSkin(
+      service: widget.webUIService,
+      storage: widget.webUIStorage,
+      isCurrent: () =>
+          mounted &&
+          navigator.mounted &&
+          identical(navigator, NavigationService.navigatorKey.currentState),
+      openSkin: () => SkinView.open(navigator),
+    );
   }
 
   @override

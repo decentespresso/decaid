@@ -8,6 +8,8 @@ class ForegroundTaskService {
 
   static ForegroundServiceGraceTimer? _graceTimer;
   static StreamSubscription? _machineSubscription;
+  static Object? _machineWatchToken;
+  static Future<bool>? _startFuture;
 
   static void init() {
     FlutterForegroundTask.init(
@@ -33,12 +35,16 @@ class ForegroundTaskService {
     );
   }
 
-  static Future<void> start() async {
+  static Future<bool> start() {
+    return _startFuture ??= _start().whenComplete(() => _startFuture = null);
+  }
+
+  static Future<bool> _start() async {
     try {
       final isRunning = await FlutterForegroundTask.isRunningService;
       if (isRunning) {
         _log.info("Foreground service already running");
-        return;
+        return true;
       }
 
       final started = await FlutterForegroundTask.startService(
@@ -50,11 +56,14 @@ class ForegroundTaskService {
       switch (started) {
         case ServiceRequestSuccess():
           _log.info("Foreground service started successfully");
+          return true;
         case ServiceRequestFailure(:final error):
           _log.warning("Failed to start foreground service: $error");
+          return false;
       }
     } catch (e, st) {
       _log.severe("Error starting foreground service", e, st);
+      return false;
     }
   }
 
@@ -79,6 +88,7 @@ class ForegroundTaskService {
   }
 
   static Future<void> stop() async {
+    _machineWatchToken = null;
     _machineSubscription?.cancel();
     _machineSubscription = null;
     _graceTimer?.dispose();
@@ -86,7 +96,9 @@ class ForegroundTaskService {
     await _stopServiceOnly();
   }
 
-  static void watchMachineConnection(Stream<dynamic> machineStream) {
+  static Object watchMachineConnection(Stream<dynamic> machineStream) {
+    final token = Object();
+    _machineWatchToken = token;
     _machineSubscription?.cancel();
     _graceTimer?.dispose();
     _graceTimer = ForegroundServiceGraceTimer(
@@ -107,6 +119,16 @@ class ForegroundTaskService {
         _graceTimer?.onMachineDisconnected();
       }
     });
+    return token;
+  }
+
+  static void unwatchMachineConnection(Object token) {
+    if (!identical(_machineWatchToken, token)) return;
+    _machineWatchToken = null;
+    _machineSubscription?.cancel();
+    _machineSubscription = null;
+    _graceTimer?.dispose();
+    _graceTimer = null;
   }
 }
 

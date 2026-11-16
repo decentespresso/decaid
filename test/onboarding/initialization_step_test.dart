@@ -2,47 +2,28 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:reaprime/src/controllers/device_controller.dart';
 import 'package:reaprime/src/onboarding_feature/onboarding_controller.dart';
 import 'package:reaprime/src/onboarding_feature/steps/initialization_step.dart';
-import 'package:reaprime/src/plugins/plugin_loader_service.dart';
-import 'package:reaprime/src/services/storage/hive_store_service.dart';
-import 'package:reaprime/src/settings/settings_controller.dart';
-import 'package:reaprime/src/webui_support/webui_service.dart';
-import 'package:reaprime/src/webui_support/webui_storage.dart';
+import 'package:reaprime/src/services/app_startup_coordinator.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 
-import '../helpers/mock_de1_controller.dart';
-import '../helpers/mock_settings_service.dart';
-
-class _FakeWebUIStorage extends WebUIStorage {
+class _FakeWebUIStorage {
   bool? initDownloadRemote;
   bool downloadRescanCalled = false;
 
-  _FakeWebUIStorage(super.settings);
-
-  @override
   Future<void> initialize({bool downloadRemote = true}) async {
     initDownloadRemote = downloadRemote;
   }
 
-  @override
-  WebUISkin? get defaultSkin => null;
-
-  @override
   Future<void> downloadRemoteSkinsAndRescan() {
     downloadRescanCalled = true;
     return Completer<void>().future;
   }
 }
 
-class _FakePluginLoaderService extends PluginLoaderService {
+class _FakePluginLoaderService {
   bool initCalled = false;
 
-  _FakePluginLoaderService()
-    : super(kvStore: HiveStoreService(defaultNamespace: 'test-plugins'));
-
-  @override
   Future<void> initialize() {
     initCalled = true;
     return Completer<void>().future;
@@ -79,21 +60,19 @@ void main() {
   testWidgets('advances without awaiting plugin init or remote skin download', (
     tester,
   ) async {
-    final settings = SettingsController(MockSettingsService());
-    await settings.loadSettings();
-
-    final storage = _FakeWebUIStorage(settings);
+    final storage = _FakeWebUIStorage();
     final plugins = _FakePluginLoaderService();
     final onboarding = _TrackingOnboardingController();
     await onboarding.initialize();
 
-    final step = createInitializationStep(
-      deviceController: DeviceController([]),
-      de1Controller: MockDe1Controller(controller: DeviceController([])),
-      pluginLoaderService: plugins,
-      webUIStorage: storage,
-      webUIService: WebUIService(),
+    final coordinator = AppStartupCoordinator(
+      initializeDevices: () async {},
+      initializeWebUI: () => storage.initialize(downloadRemote: false),
+      initializePlugins: plugins.initialize,
+      refreshRemoteSkins: storage.downloadRemoteSkinsAndRescan,
+      isAndroid: false,
     );
+    final step = createInitializationStep(startupCoordinator: coordinator);
 
     await tester.pumpWidget(
       ShadApp(home: Scaffold(body: step.builder(onboarding))),
@@ -105,5 +84,94 @@ void main() {
     expect(storage.initDownloadRemote, isFalse);
     expect(storage.downloadRescanCalled, isTrue);
     expect(plugins.initCalled, isTrue);
+    await tester.pumpWidget(const SizedBox());
+    onboarding.dispose();
+    coordinator.dispose();
   });
+
+  testWidgets('remount reuses startup and cannot advance the next step twice', (
+    tester,
+  ) async {
+    final ready = Completer<void>();
+    var calls = 0;
+    final coordinator = AppStartupCoordinator(
+      initializeDevices: () {
+        calls++;
+        return ready.future;
+      },
+      initializeWebUI: () async {},
+      isAndroid: false,
+    );
+    final onboarding = _TrackingOnboardingController();
+    await onboarding.initialize();
+    final step = createInitializationStep(startupCoordinator: coordinator);
+    Widget view() => ShadApp(home: Scaffold(body: step.builder(onboarding)));
+    await tester.pumpWidget(view());
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(view());
+    ready.complete();
+    await tester.pump();
+    expect(calls, 1);
+    expect(onboarding.advanceCallCount, 1);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(view());
+    await tester.pump();
+    expect(onboarding.advanceCallCount, 1);
+    await tester.pumpWidget(const SizedBox());
+    onboarding.dispose();
+    coordinator.dispose();
+  });
+
+  testWidgets('disposed loading UI cannot advance on late completion', (
+    tester,
+  ) async {
+    final ready = Completer<void>();
+    final coordinator = AppStartupCoordinator(
+      initializeDevices: () => ready.future,
+      initializeWebUI: () async {},
+      isAndroid: false,
+    );
+    final onboarding = _TrackingOnboardingController();
+    await onboarding.initialize();
+    final step = createInitializationStep(startupCoordinator: coordinator);
+    await tester.pumpWidget(
+      ShadApp(home: Scaffold(body: step.builder(onboarding))),
+    );
+    await tester.pumpWidget(const SizedBox());
+    ready.complete();
+    await tester.pump();
+    expect(onboarding.advanceCallCount, 0);
+    onboarding.dispose();
+    coordinator.dispose();
+  });
+
+  testWidgets(
+    'failed core shows explicit retry and advances once after recovery',
+    (tester) async {
+      var calls = 0;
+      final coordinator = AppStartupCoordinator(
+        initializeDevices: () async {
+          if (++calls == 1) throw StateError('adapter failed');
+        },
+        initializeWebUI: () async {},
+        isAndroid: false,
+      );
+      final onboarding = _TrackingOnboardingController();
+      await onboarding.initialize();
+      final step = createInitializationStep(startupCoordinator: coordinator);
+      await tester.pumpWidget(
+        ShadApp(home: Scaffold(body: step.builder(onboarding))),
+      );
+      await tester.pump();
+      expect(find.textContaining('adapter failed'), findsOneWidget);
+      expect(onboarding.advanceCallCount, 0);
+      await tester.tap(find.text('Retry'));
+      await tester.pump();
+      expect(onboarding.advanceCallCount, 1);
+      expect(calls, 2);
+      await tester.pumpWidget(const SizedBox());
+      onboarding.dispose();
+      coordinator.dispose();
+    },
+  );
 }

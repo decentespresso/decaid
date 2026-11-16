@@ -25,6 +25,7 @@ Use this for unfamiliar or multi-subsystem tasks. For known files or exact symbo
 | Build, platform, CLI flags | `doc/AI_BUILD_NOTES.md` | `Makefile`, `pubspec.yaml` |
 | Crashes, error tracing | `doc/AI_DEBUG_NOTES.md` | `lib/src/services/crashlytics_error_filter.dart` |
 | Onboarding or settings UI | — | `lib/src/onboarding_feature/`, `lib/src/settings/`, `lib/src/launcher/` |
+| App startup readiness | `doc/DeviceManagement.md` | `lib/src/services/app_startup_coordinator.dart`, `lib/src/app.dart`, `lib/main.dart` |
 | Release process | `doc/RELEASE.md` | `.github/workflows/release.yml` |
 | Historical design rationale | — | `doc/plans/archive/` — search for the feature name |
 
