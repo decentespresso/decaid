@@ -219,9 +219,9 @@ class UnifiedDe1Transport {
 
     // Normalise BOTH sides: this is a safety gate, so it must not depend on a
     // transport honouring a casing convention.
-    final present = (await t.discoverCharacteristics(
-      de1ServiceUUID,
-    )).map((c) => c.toLowerCase()).toSet();
+    final present = (await t.discoverCharacteristics(de1ServiceUUID))
+        .map((c) => c.toLowerCase())
+        .toSet();
     final wanted = Endpoint.estimator.uuid.toLowerCase();
     if (!present.contains(wanted)) {
       _log.info(
