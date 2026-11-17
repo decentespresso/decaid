@@ -13,6 +13,15 @@ void main() {
     );
 
     expect(find.text('Connect your machine'), findsOneWidget);
+    final scanButton = tester.widget<ShadButton>(
+      find.ancestor(
+        of: find.text('Scan for devices'),
+        matching: find.byType(ShadButton),
+      ),
+    );
+    expect(scanButton.size, ShadButtonSize.lg);
+    expect(find.byIcon(LucideIcons.radar), findsOneWidget);
+    expect(find.byType(FittedBox), findsNothing);
 
     await tester.tap(find.text('Scan for devices'));
     await tester.pump();

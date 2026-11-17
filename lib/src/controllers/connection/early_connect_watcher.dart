@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:logging/logging.dart';
+import 'package:reaprime/src/models/device/device_identity.dart';
 import 'package:reaprime/src/controllers/connection/scan_report_builder.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
 import 'package:reaprime/src/models/device/device.dart';
@@ -27,26 +28,16 @@ class EarlyConnectWatcher {
   StreamSubscription<List<Device>>? _sub;
 
   EarlyConnectWatcher({
-    required Stream<List<Device>> deviceStream,
-    required String? preferredMachineId,
-    required String? preferredScaleId,
-    required ScanReportBuilder scanReport,
-    required bool Function() isMachineConnected,
-    required bool Function() isScaleConnected,
-    required Future<void> Function(De1Interface, ScanReportBuilder)
-    connectMachineTracked,
-    required Future<void> Function(Scale, ScanReportBuilder)
-    connectScaleTracked,
-    required void Function() onEarlyAttemptComplete,
-  }) : _deviceStream = deviceStream,
-       _preferredMachineId = preferredMachineId,
-       _preferredScaleId = preferredScaleId,
-       _scanReport = scanReport,
-       _isMachineConnected = isMachineConnected,
-       _isScaleConnected = isScaleConnected,
-       _connectMachineTracked = connectMachineTracked,
-       _connectScaleTracked = connectScaleTracked,
-       _onEarlyAttemptComplete = onEarlyAttemptComplete;
+    required this._deviceStream,
+    required this._preferredMachineId,
+    required this._preferredScaleId,
+    required this._scanReport,
+    required this._isMachineConnected,
+    required this._isScaleConnected,
+    required this._connectMachineTracked,
+    required this._connectScaleTracked,
+    required this._onEarlyAttemptComplete,
+  });
 
   void start() {
     _sub = _deviceStream.skip(1).listen(_onDevicesUpdate);
@@ -58,7 +49,7 @@ class EarlyConnectWatcher {
         !_machineStarted) {
       final match = devices
           .whereType<De1Interface>()
-          .where((m) => m.deviceId == _preferredMachineId)
+          .where((m) => matchesDeviceIdentity(m, _preferredMachineId))
           .firstOrNull;
       if (match != null) {
         _log.fine('Preferred machine found during scan, connecting early');

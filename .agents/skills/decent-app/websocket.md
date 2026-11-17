@@ -1,6 +1,6 @@
 # WebSocket recipes
 
-Subscribing to Decent's live channels from a shell with `websocat`. The **authoritative** channel reference is `assets/api/websocket_v1.yml` (AsyncAPI 3.0) — every channel address, message shape, and bidi command lives there. Read the spec first; don't guess channel paths or payloads.
+Subscribing to Decent's live channels from a shell with `websocat`. The **authoritative** channel reference is `assets/api/websocket_v1.yml` (AsyncAPI 3.1.0) — every channel address, message shape, and bidi command lives there. Read the spec first; don't guess channel paths or payloads.
 
 ## Install
 

@@ -24,7 +24,7 @@ Middleware proxyAuthMiddleware(
         return inner(request);
       }
 
-      final token = _bearerToken(request.headers['authorization']);
+      final token = bearerTokenOf(request);
       if (token == null) {
         return _json(401, 'Missing or malformed bearer token');
       }
@@ -52,7 +52,8 @@ String _requiredScopeForMethod(String method) {
   }
 }
 
-String? _bearerToken(String? authorization) {
+String? bearerTokenOf(Request request) {
+  final authorization = request.headers['authorization'];
   if (authorization == null) return null;
   const prefix = 'Bearer ';
   if (!authorization.startsWith(prefix)) return null;

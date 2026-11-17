@@ -2,10 +2,12 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:reaprime/src/import/import_result.dart';
 import 'package:reaprime/src/services/storage/app_directories.dart';
 import 'package:reaprime/src/widgets/accessible_button.dart';
+import 'package:reaprime/src/ui/share_origin.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -190,18 +192,22 @@ class _ImportResultViewState extends State<ImportResultView> {
                           ),
                         ),
                         const SizedBox(height: 4),
-                        AccessibleButton(
-                          label: 'Share Report',
-                          onTap: _shareReport,
-                          child: ShadButton.outline(
-                            onPressed: _shareReport,
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              spacing: 6,
-                              children: const [
-                                Icon(LucideIcons.share2, size: 14),
-                                Text('Share Report'),
-                              ],
+                        Builder(
+                          builder: (context) => AccessibleButton(
+                            label: 'Share Report',
+                            onTap: () =>
+                                _shareReport(() => shareOriginFor(context)),
+                            child: ShadButton.outline(
+                              onPressed: () =>
+                                  _shareReport(() => shareOriginFor(context)),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                spacing: 6,
+                                children: const [
+                                  Icon(LucideIcons.share2, size: 14),
+                                  Text('Share Report'),
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -225,7 +231,7 @@ class _ImportResultViewState extends State<ImportResultView> {
     );
   }
 
-  Future<void> _shareReport() async {
+  Future<void> _shareReport(Rect Function() sharePositionOrigin) async {
     try {
       final report = _buildReportText();
       final tempDir = await getTemporaryDirectory();
@@ -243,9 +249,13 @@ class _ImportResultViewState extends State<ImportResultView> {
         }
       } catch (_) {}
 
-      if (Platform.isAndroid || Platform.isIOS) {
+      if (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS) {
         await SharePlus.instance.share(
-          ShareParams(files: [XFile(reportFile.path)]),
+          ShareParams(
+            files: [XFile(reportFile.path)],
+            sharePositionOrigin: sharePositionOrigin(),
+          ),
         );
       } else {
         final bytes = await reportFile.readAsBytes();

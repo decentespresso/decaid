@@ -450,31 +450,28 @@ void main() {
       });
     });
 
-    test(
-      'releaseWakeLock clears override and disables wake-lock when disconnected',
-      () {
-        fakeAsync((async) {
-          final controller = _createController(
-            de1Controller,
-            settingsController: settingsCtrl,
-          );
-          controller.initialize();
-          async.flushMicrotasks();
+    test('releaseWakeLock clears override and disables wake-lock when disconnected', () {
+      fakeAsync((async) {
+        final controller = _createController(
+          de1Controller,
+          settingsController: settingsCtrl,
+        );
+        controller.initialize();
+        async.flushMicrotasks();
 
-          controller.requestWakeLock();
-          async.flushMicrotasks();
-          expect(controller.currentState.wakeLockOverride, isTrue);
-          expect(controller.currentState.wakeLockEnabled, isTrue);
+        controller.requestWakeLock();
+        async.flushMicrotasks();
+        expect(controller.currentState.wakeLockOverride, isTrue);
+        expect(controller.currentState.wakeLockEnabled, isTrue);
 
-          controller.releaseWakeLock();
-          async.flushMicrotasks();
-          expect(controller.currentState.wakeLockOverride, isFalse);
-          expect(controller.currentState.wakeLockEnabled, isFalse);
+        controller.releaseWakeLock();
+        async.flushMicrotasks();
+        expect(controller.currentState.wakeLockOverride, isFalse);
+        expect(controller.currentState.wakeLockEnabled, isFalse);
 
-          controller.dispose();
-        });
-      },
-    );
+        controller.dispose();
+      });
+    });
 
     test('override keeps wake-lock enabled even when machine sleeps', () {
       fakeAsync((async) {
@@ -577,26 +574,23 @@ void main() {
       });
     });
 
-    test(
-      'initializing while disconnected with keepAwake already set keeps wake-lock on',
-      () {
-        fakeAsync((async) {
-          settingsCtrl.setKeepAwake(true);
-          async.flushMicrotasks();
+    test('initializing while disconnected with keepAwake already set keeps wake-lock on', () {
+      fakeAsync((async) {
+        settingsCtrl.setKeepAwake(true);
+        async.flushMicrotasks();
 
-          final controller = _createController(
-            de1Controller,
-            settingsController: settingsCtrl,
-          );
-          controller.initialize();
-          async.flushMicrotasks();
+        final controller = _createController(
+          de1Controller,
+          settingsController: settingsCtrl,
+        );
+        controller.initialize();
+        async.flushMicrotasks();
 
-          expect(controller.currentState.wakeLockEnabled, isTrue);
+        expect(controller.currentState.wakeLockEnabled, isTrue);
 
-          controller.dispose();
-        });
-      },
-    );
+        controller.dispose();
+      });
+    });
 
     test('disabling keepAwake while sleeping releases wake-lock', () {
       fakeAsync((async) {
@@ -795,41 +789,38 @@ void main() {
       },
     );
 
-    test(
-      'restores brightness when a dim-0 lands after the machine is already awake',
-      () {
-        fakeAsync((async) {
-          final controller = _createController(
-            de1Controller,
-            settingsController: settingsCtrl,
-          );
-          controller.initialize();
-          async.flushMicrotasks();
+    test('restores brightness when a dim-0 lands after the machine is already awake', () {
+      fakeAsync((async) {
+        final controller = _createController(
+          de1Controller,
+          settingsController: settingsCtrl,
+        );
+        controller.initialize();
+        async.flushMicrotasks();
 
-          de1Controller.setDe1(testDe1);
-          async.flushMicrotasks();
+        de1Controller.setDe1(testDe1);
+        async.flushMicrotasks();
 
-          controller.setBrightness(100);
-          async.flushMicrotasks();
+        controller.setBrightness(100);
+        async.flushMicrotasks();
 
-          testDe1.emitState(MachineState.sleeping);
-          async.flushMicrotasks();
-          testDe1.emitState(MachineState.idle);
-          async.flushMicrotasks();
-          expect(controller.currentState.brightness, 100);
+        testDe1.emitState(MachineState.sleeping);
+        async.flushMicrotasks();
+        testDe1.emitState(MachineState.idle);
+        async.flushMicrotasks();
+        expect(controller.currentState.brightness, 100);
 
-          controller.setBrightness(0);
-          async.flushMicrotasks();
-          expect(controller.currentState.brightness, 0);
+        controller.setBrightness(0);
+        async.flushMicrotasks();
+        expect(controller.currentState.brightness, 0);
 
-          testDe1.emitState(MachineState.idle);
-          async.flushMicrotasks();
-          expect(controller.currentState.brightness, 100);
+        testDe1.emitState(MachineState.idle);
+        async.flushMicrotasks();
+        expect(controller.currentState.brightness, 100);
 
-          controller.dispose();
-        });
-      },
-    );
+        controller.dispose();
+      });
+    });
 
     test('onAppResumed restores brightness when awake and still dimmed', () {
       fakeAsync((async) {
@@ -856,44 +847,41 @@ void main() {
       });
     });
 
-    test(
-      'onAppResumed re-applies brightness so an OS write that did not stick recovers',
-      () {
-        fakeAsync((async) {
-          var resetCount = 0;
-          final controller = DisplayController(
-            de1Controller: de1Controller,
-            settingsController: settingsCtrl,
-            setBrightness: (_) async {},
-            resetBrightness: () async {
-              resetCount++;
-            },
-            enableWakeLock: () async {},
-            disableWakeLock: () async {},
-            platformSupport: const DisplayPlatformSupport(
-              brightness: true,
-              wakeLock: true,
-            ),
-          );
-          controller.initialize();
-          async.flushMicrotasks();
+    test('onAppResumed re-applies brightness so an OS write that did not stick recovers', () {
+      fakeAsync((async) {
+        var resetCount = 0;
+        final controller = DisplayController(
+          de1Controller: de1Controller,
+          settingsController: settingsCtrl,
+          setBrightness: (_) async {},
+          resetBrightness: () async {
+            resetCount++;
+          },
+          enableWakeLock: () async {},
+          disableWakeLock: () async {},
+          platformSupport: const DisplayPlatformSupport(
+            brightness: true,
+            wakeLock: true,
+          ),
+        );
+        controller.initialize();
+        async.flushMicrotasks();
 
-          de1Controller.setDe1(testDe1);
-          async.flushMicrotasks();
+        de1Controller.setDe1(testDe1);
+        async.flushMicrotasks();
 
-          controller.setBrightness(100);
-          async.flushMicrotasks();
-          final before = resetCount;
+        controller.setBrightness(100);
+        async.flushMicrotasks();
+        final before = resetCount;
 
-          controller.onAppResumed();
-          async.flushMicrotasks();
+        controller.onAppResumed();
+        async.flushMicrotasks();
 
-          expect(resetCount, greaterThan(before));
+        expect(resetCount, greaterThan(before));
 
-          controller.dispose();
-        });
-      },
-    );
+        controller.dispose();
+      });
+    });
   });
 
   group('battery brightness cap', () {

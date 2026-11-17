@@ -1,46 +1,120 @@
 import 'dart:io';
 
-import 'package:collection/collection.dart';
+import 'package:flutter/foundation.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/data/bean.dart';
-import 'package:reaprime/src/import/entity_extractor.dart';
+import 'package:reaprime/src/models/data/grinder.dart';
 import 'package:reaprime/src/import/import_result.dart';
 import 'package:reaprime/src/import/parsers/grinder_tdb_parser.dart';
 import 'package:reaprime/src/import/parsers/profile_v2_parser.dart';
 import 'package:reaprime/src/import/parsers/shot_v2_json_parser.dart';
+import 'package:reaprime/src/import/parsers/tcl_profile_parser.dart';
 import 'package:reaprime/src/import/parsers/tcl_shot_parser.dart';
 import 'package:reaprime/src/services/storage/bean_storage_service.dart';
 import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
 import 'package:reaprime/src/services/storage/profile_storage_service.dart';
-import 'package:reaprime/src/services/storage/storage_service.dart';
 import 'package:reaprime/src/models/data/shot_record.dart';
 import 'package:reaprime/src/import/parsers/settings_tdb_parser.dart';
 import 'package:reaprime/src/models/wake_schedule.dart';
 import 'package:reaprime/src/models/data/workflow.dart';
 import 'package:reaprime/src/models/data/workflow_context.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
+import 'package:reaprime/src/controllers/persistence_controller.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/settings/scale_power_mode.dart';
+
 import 'dart:convert';
+
+part 'entity_extractor.dart';
 
 final _log = Logger('De1appImporter');
 
 class De1appImporter {
-  final StorageService storageService;
+  final PersistenceController controller;
   final ProfileStorageService profileStorageService;
   final BeanStorageService beanStorageService;
   final GrinderStorageService grinderStorageService;
   final SettingsController? settingsController;
   final WorkflowController? workflowController;
+  final ParsedShot Function(Map<String, dynamic>) _parseV2Shot;
 
   De1appImporter({
-    required this.storageService,
+    required this.controller,
     required this.profileStorageService,
     required this.beanStorageService,
     required this.grinderStorageService,
     this.settingsController,
     this.workflowController,
+    @visibleForTesting this._parseV2Shot = ShotV2JsonParser.parse,
   });
+
+  Future<List<_ParsedCandidate>> _parseShotSource(
+    _ShotSource source,
+    List<ImportError> errors,
+  ) async {
+    final v2File = source.v2;
+    final legacyFile = source.legacy;
+
+    ParsedShot? v2Shot;
+    if (v2File != null) {
+      try {
+        final json =
+            jsonDecode(await v2File.readAsString()) as Map<String, dynamic>;
+        v2Shot = _parseV2Shot(json);
+      } catch (e, st) {
+        final filename = v2File.uri.pathSegments.last;
+        _log.warning('Failed to parse shot file $filename', e, st);
+        if (legacyFile == null) {
+          errors.add(
+            ImportError(
+              filename: filename,
+              reason: 'Parse error',
+              details: e.toString(),
+            ),
+          );
+          return const [];
+        }
+      }
+    }
+
+    ParsedShot? legacyShot;
+    if (legacyFile != null) {
+      try {
+        final content = await legacyFile.readAsString();
+        legacyShot = TclShotParser.parse(content, metadataOnly: v2Shot != null);
+        if (v2Shot != null && legacyShot.shot.id != v2Shot.shot.id) {
+          legacyShot = TclShotParser.parse(content);
+        }
+      } catch (e, st) {
+        final filename = legacyFile.uri.pathSegments.last;
+        _log.warning('Failed to parse shot file $filename', e, st);
+        if (v2Shot == null) {
+          errors.add(
+            ImportError(
+              filename: filename,
+              reason: 'Parse error',
+              details: e.toString(),
+            ),
+          );
+          return const [];
+        }
+      }
+    }
+
+    if (v2Shot == null) {
+      return legacyShot == null
+          ? const []
+          : [_ParsedCandidate(legacyShot, fromV2: false)];
+    }
+    if (legacyShot == null) return [_ParsedCandidate(v2Shot, fromV2: true)];
+    if (legacyShot.shot.id != v2Shot.shot.id) {
+      return [
+        _ParsedCandidate(v2Shot, fromV2: true),
+        _ParsedCandidate(legacyShot, fromV2: false),
+      ];
+    }
+    return [_ParsedCandidate(v2Shot.fillGapsFrom(legacyShot), fromV2: true)];
+  }
 
   Future<ImportResult> import(
     ScanResult scanResult, {
@@ -51,192 +125,60 @@ class De1appImporter {
     var shotsSkipped = 0;
     var profilesImported = 0;
     var profilesSkipped = 0;
-    var beansCreated = 0;
-    var beansSkipped = 0;
-    var grindersCreated = 0;
-    var grindersSkipped = 0;
+    final entities = _ImportedShotEntities(
+      beanStorageService,
+      grinderStorageService,
+    );
     var settingsApplied = false;
 
-    final parsedShots = <ParsedShot>[];
-    if (scanResult.shotSource != null) {
-      final shotDir = Directory(
-        '${scanResult.sourcePath}/${scanResult.shotSource}',
-      );
+    final candidates = <String, _ParsedCandidate>{};
+    final shotSources = await _shotSources(
+      v2: Directory('${scanResult.sourcePath}/history_v2'),
+      legacy: Directory('${scanResult.sourcePath}/history'),
+    );
 
-      final isV2 = scanResult.shotSource == 'history_v2';
-      final extension = isV2 ? '.json' : '.shot';
-      final files = <File>[];
-
-      await for (final entity in shotDir.list()) {
-        if (entity is File && entity.path.endsWith(extension)) {
-          files.add(entity);
-        }
+    for (var i = 0; i < shotSources.length; i++) {
+      for (final candidate in await _parseShotSource(shotSources[i], errors)) {
+        final id = candidate.parsed.shot.id;
+        final existing = candidates[id];
+        candidates[id] = existing == null
+            ? candidate
+            : _mergeCandidates(existing, candidate);
       }
 
-      for (var i = 0; i < files.length; i++) {
-        final file = files[i];
-        final filename = file.uri.pathSegments.last;
-        try {
-          final content = await file.readAsString();
-          ParsedShot parsed;
-          if (isV2) {
-            final json = jsonDecode(content) as Map<String, dynamic>;
-            parsed = ShotV2JsonParser.parse(json);
-          } else {
-            parsed = TclShotParser.parse(content);
-          }
-          parsedShots.add(parsed);
-        } catch (e, st) {
-          _log.warning('Failed to parse shot file $filename', e, st);
-          errors.add(
-            ImportError(
-              filename: filename,
-              reason: 'Parse error',
-              details: e.toString(),
-            ),
-          );
-        }
-
-        onProgress?.call(
-          ImportProgress(
-            current: i + 1,
-            total: scanResult.shotCount,
-            phase: 'shots',
-          ),
-        );
-      }
-    }
-
-    final extractor = EntityExtractor();
-    final extraction = extractor.extract(parsedShots);
-
-    final entityTotal = extraction.beans.length + extraction.grinders.length;
-    var entityIndex = 0;
-
-    final existingBeans = await beanStorageService.getAllBeans();
-    final existingBeanMap = <String, String>{};
-    for (final bean in existingBeans) {
-      final key = '${bean.roaster.toLowerCase()}\x00${bean.name.toLowerCase()}';
-      existingBeanMap[key] = bean.id;
-    }
-
-    final existingBatches = <String, List<BeanBatch>>{};
-    for (final bean in existingBeans) {
-      final batches = await beanStorageService.getBatchesForBean(bean.id);
-      existingBatches[bean.id] = batches;
-    }
-
-    final existingGrinders = await grinderStorageService.getAllGrinders();
-    final existingGrinderMap = <String, String>{};
-    for (final grinder in existingGrinders) {
-      existingGrinderMap[grinder.model.toLowerCase()] = grinder.id;
-    }
-
-    final beanIdRemap = <String, String>{};
-    final batchIdRemap = <String, String>{};
-    final grinderIdRemap = <String, String>{};
-
-    for (final bean in extraction.beans) {
-      final key = '${bean.roaster.toLowerCase()}\x00${bean.name.toLowerCase()}';
-      final existingId = existingBeanMap[key];
-      if (existingId != null) {
-        beanIdRemap[bean.id] = existingId;
-        beansSkipped++;
-      } else {
-        try {
-          await beanStorageService.insertBean(bean);
-          beansCreated++;
-        } catch (e, st) {
-          _log.warning('Failed to store bean ${bean.name}', e, st);
-        }
-      }
-      entityIndex++;
       onProgress?.call(
         ImportProgress(
-          current: entityIndex,
-          total: entityTotal,
-          phase: 'entities',
-          beansCreated: beansCreated,
-          grindersCreated: grindersCreated,
+          current: i + 1,
+          total: shotSources.length,
+          phase: 'shots',
         ),
       );
     }
 
-    for (final batch in extraction.batches) {
-      final actualBeanId = beanIdRemap[batch.beanId] ?? batch.beanId;
-      final existingBeanBatches = existingBatches[actualBeanId] ?? [];
+    final parsedShots = candidates.values
+        .map((candidate) => candidate.parsed)
+        .toList();
 
-      final existingBatch = existingBeanBatches.firstWhereOrNull(
-        (b) =>
-            b.roastDate == batch.roastDate ||
-            (b.roastDate != null &&
-                batch.roastDate != null &&
-                b.roastDate!.isAtSameMomentAs(batch.roastDate!)),
-      );
-
-      if (existingBatch != null) {
-        batchIdRemap[batch.id] = existingBatch.id;
-      } else {
-        final actualBatch = actualBeanId != batch.beanId
-            ? BeanBatch(
-                id: batch.id,
-                beanId: actualBeanId,
-                roastDate: batch.roastDate,
-                roastLevel: batch.roastLevel,
-                createdAt: batch.createdAt,
-                updatedAt: batch.updatedAt,
-              )
-            : batch;
-        try {
-          await beanStorageService.insertBatch(actualBatch);
-        } catch (e, st) {
-          _log.warning('Failed to store bean batch ${batch.id}', e, st);
-        }
-      }
-    }
-
-    var grinders = extraction.grinders;
+    var dyeGrinders = <Grinder>[];
     if (scanResult.hasDyeGrinders) {
       final tdbFile = File('${scanResult.sourcePath}/plugins/DYE/grinders.tdb');
       try {
-        final content = await tdbFile.readAsString();
-        final dyeGrinders = GrinderTdbParser.parse(content);
-        grinders = extractor.mergeGrinderSpecs(grinders, dyeGrinders);
+        dyeGrinders = GrinderTdbParser.parse(await tdbFile.readAsString());
       } catch (e, st) {
         _log.warning('Failed to parse DYE grinders.tdb', e, st);
       }
     }
+    final linkedShots = await entities.reconcile(
+      parsedShots,
+      dyeGrinders,
+      errors: errors,
+      onProgress: onProgress,
+    );
 
-    for (final grinder in grinders) {
-      final existingId = existingGrinderMap[grinder.model.toLowerCase()];
-      if (existingId != null) {
-        grinderIdRemap[grinder.id] = existingId;
-        grindersSkipped++;
-      } else {
-        try {
-          await grinderStorageService.insertGrinder(grinder);
-          grindersCreated++;
-        } catch (e, st) {
-          _log.warning('Failed to store grinder ${grinder.model}', e, st);
-        }
-      }
-      entityIndex++;
-      onProgress?.call(
-        ImportProgress(
-          current: entityIndex,
-          total: entityTotal,
-          phase: 'entities',
-          beansCreated: beansCreated,
-          grindersCreated: grindersCreated,
-        ),
-      );
-    }
-
-    final existingIds = (await storageService.getShotIds()).toSet();
+    final existingIds = (await controller.storageService.getShotIds()).toSet();
 
     for (var i = 0; i < parsedShots.length; i++) {
-      final parsed = parsedShots[i];
-      final shot = parsed.shot;
+      final shot = linkedShots[i];
 
       if (existingIds.contains(shot.id)) {
         shotsSkipped++;
@@ -245,28 +187,15 @@ class De1appImporter {
             current: i + 1,
             total: parsedShots.length,
             phase: 'storing shots',
-            beansCreated: beansCreated,
-            grindersCreated: grindersCreated,
+            beansCreated: entities.beansCreated,
+            grindersCreated: entities.grindersCreated,
           ),
         );
         continue;
       }
 
-      final rawBatchId = extraction.shotBeanBatchIds[i];
-      final rawGrinderId = extraction.shotGrinderIds[i];
-      final batchId = rawBatchId != null
-          ? (batchIdRemap[rawBatchId] ?? rawBatchId)
-          : null;
-      final grinderId = rawGrinderId != null
-          ? (grinderIdRemap[rawGrinderId] ?? rawGrinderId)
-          : null;
-
-      final updatedShot = (batchId != null || grinderId != null)
-          ? _linkShotToEntities(shot, batchId: batchId, grinderId: grinderId)
-          : shot;
-
       try {
-        await storageService.storeShot(updatedShot);
+        await controller.storeShot(shot, notifyApplication: false);
         shotsImported++;
       } catch (e, st) {
         _log.warning('Failed to store shot ${shot.id}', e, st);
@@ -284,55 +213,55 @@ class De1appImporter {
           current: i + 1,
           total: parsedShots.length,
           phase: 'storing shots',
-          beansCreated: beansCreated,
-          grindersCreated: grindersCreated,
+          beansCreated: entities.beansCreated,
+          grindersCreated: entities.grindersCreated,
         ),
       );
     }
 
-    final profilesDir = Directory('${scanResult.sourcePath}/profiles_v2');
-    if (await profilesDir.exists()) {
-      final profileFiles = <File>[];
-      await for (final entity in profilesDir.list()) {
-        if (entity is File && entity.path.endsWith('.json')) {
-          profileFiles.add(entity);
+    if (shotsImported > 0) controller.notifyShotsChanged();
+
+    final profileFiles = (await _mergedFiles(
+      preferred: Directory('${scanResult.sourcePath}/profiles_v2'),
+      preferredExtension: '.json',
+      fallback: Directory('${scanResult.sourcePath}/profiles'),
+      fallbackExtension: '.tcl',
+    )).values.toList();
+
+    for (var i = 0; i < profileFiles.length; i++) {
+      final entry = profileFiles[i];
+      final filename = entry.file.uri.pathSegments.last;
+      try {
+        final content = await entry.file.readAsString();
+        final record = entry.isPreferred
+            ? ProfileV2Parser.parse(jsonDecode(content) as Map<String, dynamic>)
+            : TclProfileParser.parse(content);
+
+        final existing = await profileStorageService.get(record.id);
+        if (existing != null) {
+          profilesSkipped++;
+        } else {
+          await profileStorageService.store(record);
+          profilesImported++;
         }
-      }
-
-      for (var i = 0; i < profileFiles.length; i++) {
-        final file = profileFiles[i];
-        final filename = file.uri.pathSegments.last;
-        try {
-          final content = await file.readAsString();
-          final json = jsonDecode(content) as Map<String, dynamic>;
-          final record = ProfileV2Parser.parse(json);
-
-          final existing = await profileStorageService.get(record.id);
-          if (existing != null) {
-            profilesSkipped++;
-          } else {
-            await profileStorageService.store(record);
-            profilesImported++;
-          }
-        } catch (e, st) {
-          _log.warning('Failed to import profile $filename', e, st);
-          errors.add(
-            ImportError(
-              filename: filename,
-              reason: 'Profile import error',
-              details: e.toString(),
-            ),
-          );
-        }
-
-        onProgress?.call(
-          ImportProgress(
-            current: i + 1,
-            total: scanResult.profileCount,
-            phase: 'profiles',
+      } catch (e, st) {
+        _log.warning('Failed to import profile $filename', e, st);
+        errors.add(
+          ImportError(
+            filename: filename,
+            reason: 'Profile import error',
+            details: e.toString(),
           ),
         );
       }
+
+      onProgress?.call(
+        ImportProgress(
+          current: i + 1,
+          total: profileFiles.length,
+          phase: 'profiles',
+        ),
+      );
     }
 
     if (scanResult.hasSettings && settingsController != null) {
@@ -386,7 +315,7 @@ class De1appImporter {
           }
 
           final baseWorkflow =
-              await storageService.loadCurrentWorkflow() ??
+              await controller.storageService.loadCurrentWorkflow() ??
               WorkflowController().newWorkflow();
           final updatedContext =
               (baseWorkflow.context ?? const WorkflowContext()).copyWith(
@@ -414,7 +343,7 @@ class De1appImporter {
             hotWaterData: updatedWater,
             rinseData: updatedRinse,
           );
-          await storageService.storeCurrentWorkflow(updatedWorkflow);
+          await controller.storageService.storeCurrentWorkflow(updatedWorkflow);
           workflowController?.setWorkflow(updatedWorkflow);
 
           settingsApplied = true;
@@ -436,29 +365,111 @@ class De1appImporter {
       shotsSkipped: shotsSkipped,
       profilesImported: profilesImported,
       profilesSkipped: profilesSkipped,
-      beansCreated: beansCreated,
-      beansSkipped: beansSkipped,
-      grindersCreated: grindersCreated,
-      grindersSkipped: grindersSkipped,
+      beansCreated: entities.beansCreated,
+      beansSkipped: entities.beansSkipped,
+      grindersCreated: entities.grindersCreated,
+      grindersSkipped: entities.grindersSkipped,
       settingsApplied: settingsApplied,
       errors: errors,
     );
   }
+}
 
-  static ShotRecord _linkShotToEntities(
-    ShotRecord shot, {
-    String? batchId,
-    String? grinderId,
-  }) {
-    final existingContext = shot.workflow.context;
-    final updatedContext = existingContext?.copyWith(
-      beanBatchId: batchId,
-      grinderId: grinderId,
-    );
+class _MergedFile {
+  final File file;
+  final bool isPreferred;
+  const _MergedFile(this.file, {required this.isPreferred});
+}
 
-    if (updatedContext == null) return shot;
+class _ParsedCandidate {
+  final ParsedShot parsed;
+  final bool fromV2;
+  const _ParsedCandidate(this.parsed, {required this.fromV2});
+}
 
-    final updatedWorkflow = shot.workflow.copyWith(context: updatedContext);
-    return shot.copyWith(workflow: updatedWorkflow);
+class _ShotSource {
+  final File? v2;
+  final File? legacy;
+  const _ShotSource({this.v2, this.legacy});
+}
+
+_ParsedCandidate _mergeCandidates(_ParsedCandidate a, _ParsedCandidate b) {
+  final primary = b.fromV2 && !a.fromV2 ? b : a;
+  final secondary = primary == a ? b : a;
+  return _ParsedCandidate(
+    primary.parsed.fillGapsFrom(secondary.parsed),
+    fromV2: primary.fromV2,
+  );
+}
+
+Future<List<_ShotSource>> _shotSources({
+  required Directory v2,
+  required Directory legacy,
+}) async {
+  final result = <String, _ShotSource>{};
+
+  if (await legacy.exists()) {
+    await for (final entity in legacy.list()) {
+      if (entity is File && entity.path.endsWith('.shot')) {
+        final basename = _basename(entity, '.shot');
+        result[basename] = _ShotSource(
+          v2: result[basename]?.v2,
+          legacy: entity,
+        );
+      }
+    }
   }
+
+  if (await v2.exists()) {
+    await for (final entity in v2.list()) {
+      if (entity is File && entity.path.endsWith('.json')) {
+        final basename = _basename(entity, '.json');
+        result[basename] = _ShotSource(
+          v2: entity,
+          legacy: result[basename]?.legacy,
+        );
+      }
+    }
+  }
+
+  final basenames = result.keys.toList()..sort();
+  return [for (final basename in basenames) result[basename]!];
+}
+
+Future<Map<String, _MergedFile>> _mergedFiles({
+  required Directory preferred,
+  required String preferredExtension,
+  required Directory fallback,
+  required String fallbackExtension,
+}) async {
+  final result = <String, _MergedFile>{};
+
+  if (await fallback.exists()) {
+    await for (final entity in fallback.list()) {
+      if (entity is File && entity.path.endsWith(fallbackExtension)) {
+        result[_basename(entity, fallbackExtension)] = _MergedFile(
+          entity,
+          isPreferred: false,
+        );
+      }
+    }
+  }
+
+  if (await preferred.exists()) {
+    await for (final entity in preferred.list()) {
+      if (entity is File && entity.path.endsWith(preferredExtension)) {
+        result[_basename(entity, preferredExtension)] = _MergedFile(
+          entity,
+          isPreferred: true,
+        );
+      }
+    }
+  }
+
+  return result;
+}
+
+String _basename(File file, String extension) {
+  final name = file.uri.pathSegments.last;
+  return name.substring(0, name.length - extension.length);
 }

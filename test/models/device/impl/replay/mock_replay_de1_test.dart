@@ -4,6 +4,7 @@ import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/data/profile.dart';
 import 'package:reaprime/src/models/device/impl/replay/mock_replay_de1.dart';
+import 'package:reaprime/src/models/device/led_strip.dart';
 import 'package:reaprime/src/models/device/machine.dart';
 import 'package:reaprime/src/services/simulated_shot_library.dart';
 
@@ -319,6 +320,73 @@ void main() {
         machine.disconnect();
         async.flushMicrotasks();
       });
+    });
+
+    test('seeds a palette the machine could hold', () async {
+      final machine = MockReplayDe1(library: library);
+
+      final state = await machine.getLedStripState();
+      expect(state.frontStrip.awake, Color16.off);
+      expect(state.frontStrip.sleeping, Color16.off);
+      expect(state.frontSwitch.awake.toJson(), 'FF00F000C800');
+      expect(state.frontSwitch.sleeping.toJson(), '550050004300');
+    });
+
+    test('setLedStrip quantizes to the firmware spelling', () async {
+      final machine = MockReplayDe1(library: library);
+
+      await machine.setLedStrip(
+        const LedStripState(
+          frontStrip: ZoneLedState(
+            sleeping: Color16(0xFFFF, 0x2222, 0x0000),
+            awake: Color16(0xFF00, 0xF000, 0x8000),
+          ),
+          backStrip: ZoneLedState(
+            sleeping: Color16(0x3030, 0x2020, 0x1010),
+            awake: Color16(0xFFFF, 0xFFFF, 0xFFFF),
+          ),
+          frontSwitch: ZoneLedState(
+            sleeping: Color16(0xFFFF, 0x0000, 0x0000),
+            awake: Color16(0x0000, 0xFFFF, 0x0000),
+          ),
+        ),
+      );
+
+      final state = await machine.getLedStripState();
+      expect(state.frontStrip.sleeping.toJson(), 'FF0022000000');
+      expect(state.frontStrip.awake.toJson(), 'FF00F0008000');
+      expect(state.backStrip.sleeping.toJson(), '300020001000');
+      expect(state.backStrip.awake.toJson(), 'FF00FF00FF00');
+      expect(
+        state.frontSwitch,
+        state.frontStrip,
+        reason:
+            'frontSwitch is derived from the front strip, never stored '
+            'as sent',
+      );
+    });
+
+    test('setLedStrip derives the default switch palette from a black '
+        'front strip', () async {
+      final machine = MockReplayDe1(library: library);
+
+      await machine.setLedStrip(
+        const LedStripState(
+          frontStrip: ZoneLedState(
+            sleeping: Color16(0x0080, 0x0000, 0x0000),
+            awake: Color16.off,
+          ),
+          frontSwitch: ZoneLedState(
+            sleeping: Color16(0xFFFF, 0x0000, 0x0000),
+            awake: Color16(0x0000, 0xFFFF, 0x0000),
+          ),
+        ),
+      );
+
+      final state = await machine.getLedStripState();
+      expect(state.frontStrip.sleeping, Color16.off);
+      expect(state.frontSwitch.awake.toJson(), 'FF00F000C800');
+      expect(state.frontSwitch.sleeping.toJson(), '550050004300');
     });
 
     test('steam falls back to synthetic device telemetry', () async {

@@ -1,0 +1,56 @@
+{
+  "version": "2",
+  "title": "E61 espresso machine",
+  "author": "Decent",
+  "notes": "The E61 machine was invented by Faema in 1961 and is still the most classic and most copied espresso machine design.  It is likely what most people mean when they say Professional Italian Espresso Machine",
+  "beverage_type": "espresso",
+  "steps": [
+    {
+      "name": "preinfusion temp boost",
+      "pump": "flow",
+      "transition": "fast",
+      "temperature": "92.0",
+      "sensor": "coffee",
+      "seconds": "2.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "4.0",
+      "pressure": "1.0",
+      "exit": {
+        "type": "pressure",
+        "condition": "over",
+        "value": "4.0"
+      }
+    },
+    {
+      "name": "forced rise without limit",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "92.0",
+      "sensor": "coffee",
+      "seconds": "3.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "0.0",
+      "pressure": "9.0"
+    },
+    {
+      "name": "rise and hold",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "92.0",
+      "sensor": "coffee",
+      "seconds": "32.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "0.0",
+      "pressure": "9.0"
+    }
+  ],
+  "tank_temperature": "0.0",
+  "target_weight": "36.0",
+  "target_volume": "0.0",
+  "target_volume_count_start": "1",
+  "type": "pressure",
+  "hidden": "0"
+}

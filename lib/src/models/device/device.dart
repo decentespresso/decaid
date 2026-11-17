@@ -3,7 +3,7 @@ import 'package:reaprime/src/models/device/remembered_device.dart';
 import 'package:reaprime/src/models/device/scan_filter.dart';
 import 'package:reaprime/src/models/device/transport/data_transport.dart';
 
-enum DeviceType { machine, scale, sensor }
+enum DeviceType { machine, scale, sensor, grinder }
 
 abstract class Device {
   String get deviceId;
@@ -19,6 +19,25 @@ abstract class Device {
   Future<void> disconnect();
 
   Stream<ConnectionState> get connectionState;
+}
+
+class DeviceInformation {
+  final String? firmwareVersion;
+  final int? batteryLevel;
+
+  const DeviceInformation({this.firmwareVersion, this.batteryLevel});
+
+  bool get isEmpty => firmwareVersion == null && batteryLevel == null;
+
+  Map<String, dynamic> toJson() => {
+    if (firmwareVersion != null) 'firmwareVersion': firmwareVersion,
+    if (batteryLevel != null) 'batteryLevel': batteryLevel,
+  };
+}
+
+abstract interface class DeviceInformationCapable {
+  DeviceInformation? get currentDeviceInformation;
+  Stream<DeviceInformation?> get deviceInformation;
 }
 
 enum ConnectionState {

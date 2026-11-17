@@ -104,18 +104,15 @@ class DisplayController {
   int? _lastBatteryPercent;
 
   DisplayController({
-    required De1Controller de1Controller,
-    required SettingsController settingsController,
-    Stream<ChargingState>? batteryStateStream,
+    required this._de1Controller,
+    required this._settingsController,
+    this._batteryStateStream,
     Future<void> Function(double)? setBrightness,
     Future<void> Function()? resetBrightness,
     Future<void> Function()? enableWakeLock,
     Future<void> Function()? disableWakeLock,
     DisplayPlatformSupport? platformSupport,
-  }) : _de1Controller = de1Controller,
-       _settingsController = settingsController,
-       _batteryStateStream = batteryStateStream,
-       _setBrightness =
+  }) : _setBrightness =
            setBrightness ??
            _defaultScreenBrightness.setApplicationScreenBrightness,
        _resetBrightness =

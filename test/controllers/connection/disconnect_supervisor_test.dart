@@ -5,6 +5,7 @@ import 'package:reaprime/src/controllers/connection/disconnect_expectations.dart
 import 'package:reaprime/src/controllers/connection/disconnect_supervisor.dart';
 import 'package:reaprime/src/controllers/connection/status_publisher.dart';
 import 'package:reaprime/src/models/device/de1_interface.dart';
+import 'package:reaprime/src/models/device/device.dart';
 
 class _FakeDe1 implements De1Interface {
   @override
@@ -32,6 +33,41 @@ DisconnectSupervisor _buildSupervisor(
 }
 
 void main() {
+  for (final expected in [false, true]) {
+    test(
+      'Scale cleanup retains disconnect classification expected=$expected',
+      () async {
+        final states = StreamController<ConnectionState>();
+        final expectations = DisconnectExpectations();
+        final publisher = StatusPublisher();
+        var recoveries = 0;
+        final supervisor = DisconnectSupervisor(
+          machineStream: const Stream.empty(),
+          scaleStream: states.stream,
+          statusPublisher: publisher,
+          expectations: expectations,
+          isConnectingMachine: () => false,
+          isConnectingScale: () => false,
+          scaleLastConnectedId: () => 'scale',
+          preferredScaleId: () => 'scale',
+          onScaleDisconnected: () => recoveries++,
+        );
+        states.add(ConnectionState.connected);
+        await Future<void>.delayed(Duration.zero);
+        if (expected) expectations.mark('scale');
+        states.add(ConnectionState.disconnecting);
+        states.add(ConnectionState.disconnected);
+        states.add(ConnectionState.disconnected);
+        await Future<void>.delayed(Duration.zero);
+        expect(recoveries, expected ? 0 : 1);
+        expect(expectations.consume('scale'), isFalse);
+        supervisor.dispose();
+        expectations.dispose();
+        publisher.dispose();
+        await states.close();
+      },
+    );
+  }
   group('DisconnectSupervisor.waitForMachine', () {
     late StreamController<De1Interface?> machineController;
     late DisconnectSupervisor supervisor;

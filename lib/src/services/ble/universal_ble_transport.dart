@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 import 'dart:typed_data';
+
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/device/device.dart' as device;
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
@@ -42,27 +43,18 @@ class UniversalBleTransport extends BLETransport {
 
   UniversalBleTransport({
     required BleDevice device,
-    Future<void> Function()? stopScan,
-    bool requestLargeMtuNonAndroid = false,
-    bool? isAndroidOverride,
-    bool? isLinuxOverride,
-    Duration faultRecoveryGrace = const Duration(seconds: 2),
-    Duration faultRecoveryDisconnectTimeout = const Duration(seconds: 5),
+    this._stopScan,
+    this._requestLargeMtuNonAndroid = false,
+    this._isAndroidOverride,
+    this._isLinuxOverride,
+    this._faultRecoveryGrace = const Duration(seconds: 2),
+    this._faultRecoveryDisconnectTimeout = const Duration(seconds: 5),
     BleLifecycleGate? lifecycleGate,
-    Duration bluezPostConnectDelay = const Duration(milliseconds: 500),
-    Duration bluezScanSettleDelay = const Duration(seconds: 2),
-    Duration bluezCacheRefreshScan = const Duration(seconds: 4),
+    this._bluezPostConnectDelay = const Duration(milliseconds: 500),
+    this._bluezScanSettleDelay = const Duration(seconds: 2),
+    this._bluezCacheRefreshScan = const Duration(seconds: 4),
   }) : _device = device,
-       _stopScan = stopScan,
-       _requestLargeMtuNonAndroid = requestLargeMtuNonAndroid,
-       _isAndroidOverride = isAndroidOverride,
-       _isLinuxOverride = isLinuxOverride,
-       _faultRecoveryGrace = faultRecoveryGrace,
-       _faultRecoveryDisconnectTimeout = faultRecoveryDisconnectTimeout,
-       _lifecycleGate = lifecycleGate ?? BleLifecycleGate(),
-       _bluezPostConnectDelay = bluezPostConnectDelay,
-       _bluezScanSettleDelay = bluezScanSettleDelay,
-       _bluezCacheRefreshScan = bluezCacheRefreshScan {
+       _lifecycleGate = lifecycleGate ?? BleLifecycleGate() {
     _log = Logger("BLETransport-${device.deviceId}");
   }
 
@@ -169,13 +161,32 @@ class UniversalBleTransport extends BLETransport {
           if (update.isConnected) {
             _connectionStateSubject.add(device.ConnectionState.connected);
           } else {
-            if (_maintenanceGeneration == generation) return;
-            _recoveringQueueGeneration = null;
-            final reason = update.error ?? 'unknown';
-            _log.warning('Transport disconnected: $reason');
-            _publishDisconnected();
+            final maintenance = _maintenanceGeneration == generation;
+            if (maintenance) return;
+            unawaited(_confirmDisconnect(generation, update.error));
           }
         });
+  }
+
+  Future<void> _confirmDisconnect(int generation, String? error) async {
+    BleConnectionState state;
+    try {
+      state = await UniversalBle.getConnectionState(
+        _device.deviceId,
+        timeout: _linkProbeTimeout,
+      );
+    } catch (_) {
+      state = BleConnectionState.disconnected;
+    }
+    if (_connectionGeneration != generation || _disposed) return;
+    if (state == BleConnectionState.connected ||
+        state == BleConnectionState.connecting) {
+      return;
+    }
+    if (_maintenanceGeneration == generation) return;
+    _recoveringQueueGeneration = null;
+    _log.warning('Transport disconnected: ${error ?? 'unknown'}');
+    _publishDisconnected();
   }
 
   Future<void> _doConnectBlueZ([int? maintenanceGeneration]) async {

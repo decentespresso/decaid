@@ -1,5 +1,7 @@
 part of 'unified_de1.dart';
 
+const _firmwareMapPollInterval = Duration(milliseconds: 250);
+
 extension UnifiedDe1Firmware on UnifiedDe1 {
   Future<void> _updateFirmware(
     Uint8List fwImage,
@@ -7,15 +9,54 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
     _FirmwareCancellationToken cancelToken,
   ) async {
     _throwIfFirmwareCancelled(cancelToken);
-    await requestState(MachineState.sleeping);
+    await _runFirmwareStage('sleep', () => requestState(MachineState.sleeping));
     _throwIfFirmwareCancelled(cancelToken);
-    await beforeFirmwareUpload();
+    await _runFirmwareStage('preflight', beforeFirmwareUpload);
     _throwIfFirmwareCancelled(cancelToken);
 
+    final gateStopwatch = Stopwatch()..start();
+    _log.fine('firmware stage=firmware-gate waiting elapsed=0ms');
     await _firmwareMmrGate.runFirmwareExclusive(() async {
+      _log.fine(
+        'firmware stage=firmware-gate acquired '
+        'elapsed=${gateStopwatch.elapsedMilliseconds}ms',
+      );
       _throwIfFirmwareCancelled(cancelToken);
       await _updateFirmwareExclusive(fwImage, onProgress, cancelToken);
     });
+  }
+
+  Future<void> _runFirmwareStage(
+    String stage,
+    Future<void> Function() operation,
+  ) async {
+    final stopwatch = Stopwatch()..start();
+    _log.fine('firmware stage=$stage start elapsed=0ms');
+    try {
+      final result = await operation();
+      _log.fine(
+        'firmware stage=$stage complete '
+        'elapsed=${stopwatch.elapsedMilliseconds}ms',
+      );
+      return result;
+    } catch (error, stackTrace) {
+      if (error is FirmwareUpdateCancelledException) rethrow;
+      _log.warning(
+        'firmware stage=$stage failed '
+        'elapsed=${stopwatch.elapsedMilliseconds}ms cause=$error',
+        error,
+        stackTrace,
+      );
+      if (error is FirmwareUpdateStageException) rethrow;
+      Error.throwWithStackTrace(
+        FirmwareUpdateStageException(
+          stage: stage,
+          cause: error,
+          stackTrace: stackTrace,
+        ),
+        stackTrace,
+      );
+    }
   }
 
   Future<void> _updateFirmwareExclusive(
@@ -53,6 +94,7 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
         cancelToken,
         firmwareEraseTimeout,
         'Timed out waiting for firmware erase',
+        _isEraseComplete,
       );
 
       _throwIfFirmwareCancelled(cancelToken);
@@ -75,6 +117,7 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
         cancelToken,
         firmwareVerificationTimeout,
         'Timed out waiting for firmware verification',
+        _isTerminalVerificationResponse,
       );
       if (!_isSuccessfulFirmwareVerification(verification)) {
         throw StateError(
@@ -103,6 +146,7 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
         firmwareToMap: 1,
         error: Uint8List.fromList([0xff, 0xff, 0xff]),
       ).asData().buffer.asUint8List(),
+      retryOnTimeout: false,
       beforeDispatch: () {
         _throwIfFirmwareCancelled(cancelToken);
         onResponseArmed(
@@ -120,16 +164,52 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
     _FirmwareCancellationToken cancelToken,
     Duration timeout,
     String timeoutMessage,
-  ) {
-    return Future.any([
-      response.timeout(
+    bool Function(FWMapRequestData response) predicate,
+  ) async {
+    final stop = Completer<void>();
+    try {
+      // Future.any marks every branch handled, so a losing branch that errors
+      // raises no unhandled async error.
+      return await Future.any([
+        response,
+        cancelToken.cancelled.then<FWMapRequestData>(
+          (_) => throw const FirmwareUpdateCancelledException(),
+        ),
+        _pollFirmwareResponse(predicate, cancelToken, stop.future),
+      ]).timeout(
         timeout,
         onTimeout: () => throw TimeoutException(timeoutMessage),
-      ),
-      cancelToken.cancelled.then<FWMapRequestData>(
-        (_) => throw const FirmwareUpdateCancelledException(),
-      ),
-    ]);
+      );
+    } finally {
+      if (!stop.isCompleted) stop.complete();
+    }
+  }
+
+  Future<FWMapRequestData> _pollFirmwareResponse(
+    bool Function(FWMapRequestData response) predicate,
+    _FirmwareCancellationToken cancelToken,
+    Future<void> stop,
+  ) async {
+    var stopped = false;
+    unawaited(stop.then((_) => stopped = true));
+    while (!stopped && !cancelToken.isCancelled) {
+      try {
+        final data = await _transport.readFwMapRequestFresh();
+        if (stopped || cancelToken.isCancelled) break;
+        final response = FWMapRequestData.from(data);
+        if (predicate(response)) return response;
+      } catch (e) {
+        _log.fine('firmware map poll read failed: $e');
+      }
+      await Future.any<void>([
+        Future<void>.delayed(_firmwareMapPollInterval),
+        stop,
+        cancelToken.cancelled,
+      ]);
+    }
+    // A never-completing future: as a losing Future.any branch it must
+    // produce no late result once another branch has won.
+    return Completer<FWMapRequestData>().future;
   }
 
   bool _isEraseComplete(FWMapRequestData response) {
@@ -152,9 +232,8 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
 
   bool _hasFirmwareError(FWMapRequestData response, List<int> expected) {
     return response.error.length == expected.length &&
-        Iterable<int>.generate(
-          expected.length,
-        ).every((index) => response.error[index] == expected[index]);
+        Iterable<int>.generate(expected.length)
+            .every((index) => response.error[index] == expected[index]);
   }
 
   void _throwIfFirmwareCancelled(_FirmwareCancellationToken token) {
@@ -196,7 +275,11 @@ extension UnifiedDe1Firmware on UnifiedDe1 {
       data[3] = address[2];
       data.setRange(4, 4 + chunkLength, list, offset);
 
-      await _transport.writeWithResponse(Endpoint.writeToMMR, data);
+      await _transport.writeWithResponse(
+        Endpoint.writeToMMR,
+        data,
+        retryOnTimeout: false,
+      );
       _throwIfFirmwareCancelled(cancelToken);
       chunkNum++;
       if (batchPause > Duration.zero && chunkNum % batchSize == 0) {

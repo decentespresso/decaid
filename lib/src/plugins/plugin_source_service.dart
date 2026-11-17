@@ -2,13 +2,20 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive_io.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_manifest.dart';
 import 'package:reaprime/src/plugins/plugin_package.dart';
 import 'package:reaprime/src/plugins/plugin_source.dart';
 import 'package:reaprime/src/plugins/plugin_version.dart';
+import 'package:reaprime/src/services/github_credentials.dart';
+import 'package:reaprime/src/services/github_rate_limit.dart';
 import 'package:reaprime/src/util/github_archive.dart';
+import 'package:reaprime/src/util/remote_error.dart';
+import 'package:reaprime/src/util/remote_update_exception.dart';
+import 'package:reaprime/src/util/remote_update_report.dart';
 import 'package:reaprime/src/webui_support/webui_zip_support.dart';
 
 class PluginApprovalRequiredException implements Exception {
@@ -18,6 +25,18 @@ class PluginApprovalRequiredException implements Exception {
   @override
   String toString() => message;
 }
+
+class PluginInstallDeclinedException implements Exception {
+  final String pluginId;
+  PluginInstallDeclinedException(this.pluginId);
+
+  @override
+  String toString() => 'Installation of $pluginId was declined';
+}
+
+typedef ExtensionManagementApproval = Future<bool> Function(
+  PluginManifest candidate,
+);
 
 final _releaseTagPattern = RegExp(r'^v?\d+\.\d+\.\d+$');
 
@@ -34,9 +53,26 @@ class PluginSourceService {
   static const metadataFileName = '.rea_source.json';
 
   final PluginLoaderService _loader;
-  final _log = Logger('PluginSourceService');
+  final Map<String, String> _canonicalBundledRepos;
 
-  PluginSourceService(this._loader);
+  final GithubRateLimit _rateLimit;
+  final GithubCredentialProvider? credentials;
+  final GitHubReleaseCache _releaseCache;
+  final _log = Logger('PluginSourceService');
+  final ValueNotifier<Future<void>?> _updateCheck = ValueNotifier(null);
+  Future<RemoteUpdateReport>? _updateCheckReport;
+
+  PluginSourceService(
+    this._loader, {
+    GithubRateLimit? rateLimit,
+    GitHubReleaseCache? releaseCache,
+    Map<String, String>? canonicalBundledRepos,
+    this.credentials,
+  }) : _rateLimit = rateLimit ?? GithubRateLimit(),
+       _releaseCache = releaseCache ?? GitHubReleaseCache(),
+       _canonicalBundledRepos = canonicalBundledRepos ?? bundledPluginRepos;
+
+  ValueListenable<Future<void>?> get updateCheck => _updateCheck;
 
   PluginSource? sourceFor(String pluginId) {
     try {
@@ -54,19 +90,22 @@ class PluginSourceService {
   }
 
   void _writeSource(String pluginId, PluginSource source) {
-    File(
-      '${_loader.getPluginDirectory(pluginId)}/$metadataFileName',
-    ).writeAsStringSync(jsonEncode(source.toJson()));
+    File('${_loader.getPluginDirectory(pluginId)}/$metadataFileName')
+        .writeAsStringSync(jsonEncode(source.toJson()));
   }
 
   Future<PluginManifest> installFromGitHubRelease(
     String repo, {
     String? assetName,
     bool includePrerelease = false,
+    ExtensionManagementApproval? approveExtensionManagement,
   }) async {
     final release = await fetchLatestGitHubRelease(
       repo,
       includePrerelease: includePrerelease,
+      rateLimit: _rateLimit,
+      cache: _releaseCache,
+      credentials: credentials,
     );
     final asset = _selectReleaseAsset(release, assetName);
     final bytes = await downloadGitHubArchive(asset.downloadUrl);
@@ -88,6 +127,7 @@ class PluginSourceService {
           installedAt: now,
           lastChecked: now,
         ),
+        approveExtensionManagement: approveExtensionManagement,
       );
     });
   }
@@ -95,8 +135,14 @@ class PluginSourceService {
   Future<PluginManifest> installFromGitHubBranch(
     String repo, {
     String branch = 'main',
+    ExtensionManagementApproval? approveExtensionManagement,
   }) async {
-    final commit = await fetchGitHubBranchCommit(repo, branch);
+    final commit = await fetchGitHubBranchCommit(
+      repo,
+      branch,
+      rateLimit: _rateLimit,
+      credentials: credentials,
+    );
     final bytes = await downloadGitHubArchive(
       gitHubCommitArchiveUrl(repo, commit),
     );
@@ -116,11 +162,15 @@ class PluginSourceService {
           installedAt: now,
           lastChecked: now,
         ),
+        approveExtensionManagement: approveExtensionManagement,
       );
     });
   }
 
-  Future<PluginManifest> installFromZip(String zipPath) async {
+  Future<PluginManifest> installFromZip(
+    String zipPath, {
+    ExtensionManagementApproval? approveExtensionManagement,
+  }) async {
     final bytes = await File(zipPath).readAsBytes();
     return _withStaging((staging) async {
       _extractArchive(bytes, staging);
@@ -131,11 +181,15 @@ class PluginSourceService {
           kind: PluginSourceKind.localZip,
           installedAt: DateTime.now(),
         ),
+        approveExtensionManagement: approveExtensionManagement,
       );
     });
   }
 
-  Future<PluginManifest> installFromFolder(String folderPath) async {
+  Future<PluginManifest> installFromFolder(
+    String folderPath, {
+    ExtensionManagementApproval? approveExtensionManagement,
+  }) async {
     final package = resolvePluginPackage(Directory(folderPath));
     return _install(
       package,
@@ -143,13 +197,26 @@ class PluginSourceService {
         kind: PluginSourceKind.localFolder,
         installedAt: DateTime.now(),
       ),
+      approveExtensionManagement: approveExtensionManagement,
     );
   }
 
   Future<PluginManifest> _install(
     PluginPackage package,
-    PluginSource source,
-  ) async {
+    PluginSource source, {
+    ExtensionManagementApproval? approveExtensionManagement,
+  }) async {
+    final candidate = package.manifest;
+    final installed = _loader.getPluginManifest(candidate.id);
+    final addsExtensionManagement =
+        candidate.permissions.contains(PluginPermissions.manageExtensions) &&
+        installed?.permissions.contains(PluginPermissions.manageExtensions) !=
+            true;
+    if (addsExtensionManagement &&
+        approveExtensionManagement != null &&
+        !await approveExtensionManagement(candidate)) {
+      throw PluginInstallDeclinedException(candidate.id);
+    }
     final manifest = await _loader.installPluginPackage(package.root);
     _writeSource(manifest.id, source);
     return manifest;
@@ -209,28 +276,75 @@ class PluginSourceService {
   }
 
   Future<void> updateAllPlugins() async {
+    final report = await checkForPluginUpdates();
+    if (report.hasFailures) {
+      throw RemoteUpdateException(
+        attemptedCount: report.results.length,
+        failures: report.failures,
+      );
+    }
+  }
+
+  Future<RemoteUpdateReport> checkForPluginUpdates() {
+    final existing = _updateCheckReport;
+    if (existing != null) return existing;
+    final report = _runPluginUpdates().whenComplete(() {
+      _updateCheckReport = null;
+      _updateCheck.value = null;
+    });
+    _updateCheckReport = report;
+    _updateCheck.value = report.then<void>((_) {}).catchError((Object _) {});
+    return report;
+  }
+
+  Future<RemoteUpdateReport> _runPluginUpdates() async {
     _log.info('Starting update check for managed plugins');
     seedBundledSources();
+    final results = <RemoteUpdateItemResult>[];
 
     for (final manifest in _loader.availablePlugins) {
       final source = sourceFor(manifest.id);
       if (source == null || !source.kind.isManaged) continue;
 
       try {
-        await _updatePlugin(manifest, source);
+        results.add(
+          RemoteUpdateItemResult(
+            item: manifest.id,
+            status: await _updatePlugin(manifest, source),
+          ),
+        );
       } catch (e, st) {
         _log.warning('Failed to update plugin "${manifest.id}"', e, st);
-        _writeSource(
-          manifest.id,
-          source.copyWith(lastChecked: DateTime.now(), lastError: '$e'),
+        results.add(
+          RemoteUpdateItemResult(
+            item: manifest.id,
+            status: RemoteUpdateStatus.failed,
+            error: e,
+          ),
         );
+        try {
+          _writeSource(
+            manifest.id,
+            source.copyWith(
+              lastChecked: DateTime.now(),
+              lastError: remoteErrorMessage(e, action: 'update the plugin'),
+            ),
+          );
+        } catch (metadataError, metadataStackTrace) {
+          _log.warning(
+            'Failed to record update error for plugin "${manifest.id}"',
+            metadataError,
+            metadataStackTrace,
+          );
+        }
       }
     }
 
     _log.info('Finished update check for managed plugins');
+    return RemoteUpdateReport(results);
   }
 
-  Future<void> _updatePlugin(
+  Future<RemoteUpdateStatus> _updatePlugin(
     PluginManifest installed,
     PluginSource source,
   ) async {
@@ -240,25 +354,32 @@ class PluginSourceService {
       final release = await fetchLatestGitHubRelease(
         source.repo!,
         includePrerelease: source.includePrerelease,
+        rateLimit: _rateLimit,
+        cache: _releaseCache,
+        credentials: credentials,
       );
       if (release.tag == source.releaseTag) {
         _writeSource(
           installed.id,
           source.copyWith(lastChecked: now, clearLastError: true),
         );
-        return;
+        return RemoteUpdateStatus.alreadyCurrent;
       }
 
       final asset = _selectReleaseAsset(release, source.assetName);
       final bytes = await downloadGitHubArchive(asset.downloadUrl);
-      await _withStaging((staging) async {
+      return _withStaging((staging) async {
         _extractArchive(bytes, staging);
         final package = resolvePluginPackage(staging);
         _requireSamePlugin(installed, package);
         _requireTagMatchesManifest(release.tag, package.manifest.version);
 
         final added = _addedPermissions(installed, package.manifest);
-        if (added.isNotEmpty) {
+        if (!await _mayAutoApproveAddedPermissions(
+          installed.id,
+          source,
+          added,
+        )) {
           _log.info(
             'Update of ${installed.id} to ${release.tag} needs approval for: '
             '${added.join(', ')}',
@@ -276,7 +397,7 @@ class PluginSourceService {
               ),
             ),
           );
-          return;
+          return RemoteUpdateStatus.pendingApproval;
         }
 
         await _install(
@@ -291,30 +412,35 @@ class PluginSourceService {
             lastChecked: now,
           ),
         );
+        return RemoteUpdateStatus.updated;
       });
-      return;
     }
 
     final branch = source.branch ?? 'main';
-    final commit = await fetchGitHubBranchCommit(source.repo!, branch);
+    final commit = await fetchGitHubBranchCommit(
+      source.repo!,
+      branch,
+      rateLimit: _rateLimit,
+      credentials: credentials,
+    );
     if (commit == source.commit) {
       _writeSource(
         installed.id,
         source.copyWith(lastChecked: now, clearLastError: true),
       );
-      return;
+      return RemoteUpdateStatus.alreadyCurrent;
     }
 
     final bytes = await downloadGitHubArchive(
       gitHubCommitArchiveUrl(source.repo!, commit),
     );
-    await _withStaging((staging) async {
+    return _withStaging((staging) async {
       _extractArchive(bytes, staging);
       final package = resolvePluginPackage(staging);
       _requireSamePlugin(installed, package);
 
       final added = _addedPermissions(installed, package.manifest);
-      if (added.isNotEmpty) {
+      if (!await _mayAutoApproveAddedPermissions(installed.id, source, added)) {
         _log.info(
           'Update of ${installed.id} to $commit needs approval for: '
           '${added.join(', ')}',
@@ -332,7 +458,7 @@ class PluginSourceService {
             ),
           ),
         );
-        return;
+        return RemoteUpdateStatus.pendingApproval;
       }
 
       await _install(
@@ -346,6 +472,7 @@ class PluginSourceService {
           lastChecked: now,
         ),
       );
+      return RemoteUpdateStatus.updated;
     });
   }
 
@@ -367,7 +494,13 @@ class PluginSourceService {
         );
       }
 
-      final release = await fetchGitHubReleaseByTag(source.repo!, tag);
+      final release = await fetchGitHubReleaseByTag(
+        source.repo!,
+        tag,
+        rateLimit: _rateLimit,
+        cache: _releaseCache,
+        credentials: credentials,
+      );
       final asset = _selectReleaseAsset(release, source.assetName);
       final bytes = await downloadGitHubArchive(asset.downloadUrl);
 
@@ -488,6 +621,57 @@ class PluginSourceService {
   ) {
     final added = candidate.permissions.difference(installed.permissions);
     return added.map((p) => p.wireName).toList()..sort();
+  }
+
+  Future<bool> _mayAutoApproveAddedPermissions(
+    String pluginId,
+    PluginSource source,
+    List<String> added,
+  ) async {
+    if (added.isEmpty) return true;
+    if (!_comesFromCanonicalBundledRepository(pluginId, source)) return false;
+    final bundledPermissions = await _bundledPermissions(pluginId);
+    if (bundledPermissions == null) return false;
+    return added.every(bundledPermissions.contains);
+  }
+
+  bool _comesFromCanonicalBundledRepository(
+    String pluginId,
+    PluginSource source,
+  ) {
+    if (source.kind != PluginSourceKind.githubRelease) return false;
+    final canonical = _canonicalBundledRepos[pluginId];
+    if (canonical == null) return false;
+    final repo = source.repo?.toLowerCase();
+    if (repo == null) return false;
+    return repo == canonical.toLowerCase();
+  }
+
+  Future<Set<String>?> _bundledPermissions(String pluginId) async {
+    final AssetManifest assetManifest;
+    try {
+      assetManifest = await AssetManifest.loadFromAssetBundle(rootBundle);
+    } catch (e) {
+      _log.fine('Unable to read bundled plugin asset manifest: $e');
+      return null;
+    }
+
+    for (final asset in assetManifest.listAssets()) {
+      if (!asset.startsWith('assets/plugins/') ||
+          !asset.endsWith('/manifest.json')) {
+        continue;
+      }
+      try {
+        final decoded = jsonDecode(await rootBundle.loadString(asset));
+        if (decoded is! Map<String, dynamic>) continue;
+        if (decoded['id'] != pluginId) continue;
+        final manifest = PluginManifest.fromJson(decoded);
+        return manifest.permissions.map((p) => p.wireName).toSet();
+      } catch (e) {
+        _log.fine('Unable to read bundled plugin manifest $asset: $e');
+      }
+    }
+    return null;
   }
 
   GitHubAsset _selectReleaseAsset(GitHubRelease release, String? assetName) {

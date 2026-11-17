@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show gzip;
 
 import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
@@ -54,6 +55,7 @@ class DecentProxyService {
   final String baseUrl;
   final void Function()? onAuthFailure;
   final Future<bool> Function()? isAuthKnownInvalid;
+  final int Function()? authenticationGeneration;
 
   final Set<String> allowedPrefixes;
 
@@ -72,16 +74,15 @@ class DecentProxyService {
   };
 
   DecentProxyService({
-    required http.Client httpClient,
+    required this._httpClient,
     required CredentialStore credentialStore,
-    required RequireAccountConsent requireConsent,
+    required this._requireConsent,
     this.baseUrl = 'https://decentespresso.com',
     this.allowedPrefixes = const {'support/api/'},
     this.onAuthFailure,
     this.isAuthKnownInvalid,
-  }) : _httpClient = httpClient,
-       _store = credentialStore,
-       _requireConsent = requireConsent;
+    this.authenticationGeneration,
+  }) : _store = credentialStore;
 
   Future<DecentProxyResponse> proxy({
     required String callerId,
@@ -92,6 +93,7 @@ class DecentProxyService {
     List<int>? bodyBytes,
     String? body,
     String? contentType,
+    bool gzipBody = false,
   }) async {
     final normalizedMethod = method.toUpperCase();
     if (normalizedMethod != 'GET' &&
@@ -124,8 +126,18 @@ class DecentProxyService {
       throw DecentProxyConsentDeniedException();
     }
 
+    final generation = authenticationGeneration?.call();
     final credentials = await _credentials();
+    if (generation != authenticationGeneration?.call()) {
+      throw StateError('Decent account changed while reading credentials');
+    }
     if (credentials == null) throw DecentAccountNotLinkedException();
+    if (await isAuthKnownInvalid?.call() ?? false) {
+      throw DecentAccountAuthInvalidException();
+    }
+    if (generation != authenticationGeneration?.call()) {
+      throw StateError('Decent account changed while checking authentication');
+    }
 
     final uri = _buildUri(
       normalizedPath,
@@ -153,11 +165,33 @@ class DecentProxyService {
       outbound.bodyBytes = utf8.encode(body);
     }
 
+    if (gzipBody && outbound.bodyBytes.length >= 1024) {
+      final compressed = gzip.encode(outbound.bodyBytes);
+      if (compressed.length < outbound.bodyBytes.length) {
+        outbound.bodyBytes = compressed;
+        outbound.headers['content-encoding'] = 'gzip';
+      }
+    }
+
     final response = await _httpClient.send(outbound);
     final responseBody = await response.stream.toBytes();
 
-    if (response.statusCode == 401) {
-      onAuthFailure?.call();
+    if (response.statusCode == 401 &&
+        onAuthFailure != null &&
+        generation == authenticationGeneration?.call()) {
+      try {
+        final currentCredentials = await _credentials();
+        if (currentCredentials == credentials &&
+            generation == authenticationGeneration?.call()) {
+          onAuthFailure?.call();
+        }
+      } catch (error, stackTrace) {
+        _log.warning(
+          'Could not revalidate account after proxy HTTP 401',
+          error,
+          stackTrace,
+        );
+      }
     }
 
     _log.info(
@@ -201,6 +235,7 @@ class DecentProxyService {
     List<int>? bodyBytes,
     String? body,
     String? contentType,
+    bool gzipBody = false,
   }) {
     return proxy(
       callerId: callerId,
@@ -211,6 +246,7 @@ class DecentProxyService {
       bodyBytes: bodyBytes,
       body: body,
       contentType: contentType,
+      gzipBody: gzipBody,
     );
   }
 
@@ -222,6 +258,7 @@ class DecentProxyService {
     List<int>? bodyBytes,
     String? body,
     String? contentType,
+    bool gzipBody = false,
   }) {
     return proxy(
       callerId: callerId,
@@ -232,6 +269,7 @@ class DecentProxyService {
       bodyBytes: bodyBytes,
       body: body,
       contentType: contentType,
+      gzipBody: gzipBody,
     );
   }
 

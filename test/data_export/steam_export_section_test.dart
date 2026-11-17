@@ -79,6 +79,7 @@ class _RecordingSteamStorage implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
     bool ascending = false,
   }) async => [];
   @override
@@ -91,6 +92,7 @@ class _RecordingSteamStorage implements StorageService {
     String? coffeeRoaster,
     String? profileTitle,
     String? search,
+    double? minEnjoyment,
   }) async => 0;
   @override
   Future<ShotRecord?> getLatestShot() async => null;
@@ -196,8 +198,12 @@ void main() {
         final storage = _RecordingSteamStorage();
         final section = SteamExportSection(
           controller: PersistenceController(storageService: storage),
-          pageSteams:
-              (limit, {afterTimestamp, afterCreatedAt, afterId}) async => [],
+          pageSteams: (
+            limit, {
+            afterTimestamp,
+            afterCreatedAt,
+            afterId,
+          }) async => [],
         );
         await expectLater(
           importSectionJson(

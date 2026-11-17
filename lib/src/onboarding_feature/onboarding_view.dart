@@ -1,5 +1,7 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
+
 import 'onboarding_controller.dart';
 
 class OnboardingView extends StatefulWidget {

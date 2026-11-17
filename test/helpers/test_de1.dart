@@ -16,11 +16,10 @@ class TestDe1 implements De1Interface {
   final String serialNumber;
 
   TestDe1({
-    String deviceId = 'test-de1',
-    String name = 'TestDe1',
+    this._deviceId = 'test-de1',
+    this._name = 'TestDe1',
     this.serialNumber = '1',
-  }) : _deviceId = deviceId,
-       _name = name;
+  });
   final BehaviorSubject<MachineSnapshot> snapshotSubject =
       BehaviorSubject.seeded(
         MachineSnapshot(

@@ -24,6 +24,12 @@ class MockDe1Controller extends De1Controller {
   Stream<De1Interface?> get de1 => de1Subject.stream;
 
   @override
+  void retireConnectedDevice(De1Interface device) {
+    super.retireConnectedDevice(device);
+    if (identical(de1Subject.value, device)) de1Subject.add(null);
+  }
+
+  @override
   Future<void> connectToDe1(De1Interface de1Interface) async {
     connectCalls.add(de1Interface);
     if (failNextConnectWith != null) {

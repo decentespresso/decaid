@@ -11,11 +11,10 @@ class GrinderExportSection implements DataExportSection {
   final int pageSize;
 
   GrinderExportSection({
-    required GrinderStorageService storage,
-    required PageCursor<Grinder> pageGrinders,
+    required this._storage,
+    required this._pageGrinders,
     this.pageSize = DataTransferLimits.defaultExportPageSize,
-  }) : _storage = storage,
-       _pageGrinders = pageGrinders;
+  });
 
   @override
   String get filename => 'grinders.json';

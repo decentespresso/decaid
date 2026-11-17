@@ -65,21 +65,12 @@ class IncrementalJsonParser {
   final List<JsonValueEvent> _pendingEvents = [];
 
   IncrementalJsonParser({
-    required int eventDepth,
-    int maxValueBytes = 64 * 1024 * 1024,
-    int maxKeyBytes = 64 * 1024,
-    int maxNestingDepth = 256,
-    void Function(
-      int depth,
-      List<String> keys,
-      JsonContainerKind? containerKind,
-    )?
-    onValueStart,
-  }) : _eventDepth = eventDepth,
-       _maxValueBytes = maxValueBytes,
-       _maxKeyBytes = maxKeyBytes,
-       _maxNestingDepth = maxNestingDepth,
-       _onValueStart = onValueStart;
+    required this._eventDepth,
+    this._maxValueBytes = 64 * 1024 * 1024,
+    this._maxKeyBytes = 64 * 1024,
+    this._maxNestingDepth = 256,
+    this._onValueStart,
+  });
 
   static const _ws = {0x20, 0x09, 0x0A, 0x0D};
   static const _scalarChars = {

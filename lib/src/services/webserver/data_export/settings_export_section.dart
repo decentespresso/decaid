@@ -9,8 +9,7 @@ import 'package:reaprime/src/services/webserver/data_export/data_export_section.
 class SettingsExportSection implements DataExportSection {
   final SettingsController _controller;
 
-  SettingsExportSection({required SettingsController controller})
-    : _controller = controller;
+  SettingsExportSection({required this._controller});
 
   @override
   String get filename => 'settings.json';
@@ -45,6 +44,7 @@ class SettingsExportSection implements DataExportSection {
         'devicePreferences': {
           'preferredMachineId': _controller.preferredMachineId,
           'preferredScaleId': _controller.preferredScaleId,
+          'preferredGrinderDeviceId': _controller.preferredGrinderDeviceId,
         },
       }),
     );
@@ -53,10 +53,13 @@ class SettingsExportSection implements DataExportSection {
   @override
   Future<SectionImportResult> importJson(
     SectionJsonInput input,
-    ConflictStrategy strategy,
-  ) async {
+    ConflictStrategy strategy, {
+    bool extensionsAuthorized = false,
+  }) async {
     final errors = <String>[];
+    final warnings = <String>[];
     var imported = 0;
+    var skipped = 0;
 
     try {
       final data = await input.readWhole();
@@ -144,17 +147,33 @@ class SettingsExportSection implements DataExportSection {
         }
 
         if (settings.containsKey('defaultSkinId')) {
-          await _controller.setDefaultSkinId(
-            settings['defaultSkinId'] as String,
-          );
-          imported++;
+          final defaultSkinId = settings['defaultSkinId'] as String;
+          if (extensionsAuthorized) {
+            await _controller.setDefaultSkinId(defaultSkinId);
+            imported++;
+          } else if (defaultSkinId != _controller.defaultSkinId) {
+            skipped++;
+            warnings.add(
+              'defaultSkinId was not imported: changing the default skin '
+              'requires extensions:manage authorization.',
+            );
+          }
         }
 
         if (settings.containsKey('automaticUpdateCheck')) {
-          await _controller.setAutomaticUpdateCheck(
-            settings['automaticUpdateCheck'] as bool,
-          );
-          imported++;
+          final automaticUpdateCheck = settings['automaticUpdateCheck'] as bool;
+          if (extensionsAuthorized ||
+              !automaticUpdateCheck ||
+              _controller.automaticUpdateCheck) {
+            await _controller.setAutomaticUpdateCheck(automaticUpdateCheck);
+            imported++;
+          } else {
+            skipped++;
+            warnings.add(
+              'automaticUpdateCheck was not turned on: automatic plugin and '
+              'skin updates require extensions:manage authorization.',
+            );
+          }
         }
 
         if (settings.containsKey('chargingMode')) {
@@ -241,11 +260,22 @@ class SettingsExportSection implements DataExportSection {
           );
           imported++;
         }
+        if (devicePrefs.containsKey('preferredGrinderDeviceId')) {
+          await _controller.setPreferredGrinderDeviceId(
+            devicePrefs['preferredGrinderDeviceId'] as String?,
+          );
+          imported++;
+        }
       }
     } catch (e) {
       errors.add('Failed to import settings: $e');
     }
 
-    return SectionImportResult(imported: imported, errors: errors);
+    return SectionImportResult(
+      imported: imported,
+      skipped: skipped,
+      errors: errors,
+      warnings: warnings,
+    );
   }
 }

@@ -159,9 +159,8 @@ class _ShotChartState extends State<ShotChart> {
               meta: meta,
               child: Text(
                 '$tempValue°',
-                style: Theme.of(
-                  context,
-                ).textTheme.labelSmall?.copyWith(color: Colors.red.shade300),
+                style: Theme.of(context).textTheme.labelSmall
+                    ?.copyWith(color: Colors.red.shade300),
               ),
             );
           },

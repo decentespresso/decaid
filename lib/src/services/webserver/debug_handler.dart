@@ -18,12 +18,10 @@ class DebugHandler {
   final Logger _log = Logger('DebugHandler');
 
   DebugHandler({
-    required ScaleController scaleController,
-    required De1Controller de1Controller,
-    UpdateCheckService? updateCheckService,
-  }) : _scaleController = scaleController,
-       _de1Controller = de1Controller,
-       _updateCheckService = updateCheckService;
+    required this._scaleController,
+    required this._de1Controller,
+    this._updateCheckService,
+  });
 
   Map<String, int> get _flowSmoothing => {
     'windowMs': _scaleController.flowSmoothingWindowMs,

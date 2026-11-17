@@ -8,8 +8,12 @@ import 'package:reaprime/src/settings/settings_controller.dart';
 import 'package:reaprime/src/skin_feature/skin_view.dart';
 import 'package:reaprime/src/webui_support/webui_service.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
+import 'package:reaprime/src/widgets/page_action_menu.dart';
+import 'package:reaprime/src/widgets/remote_error_snack_bar.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
+import 'package:reaprime/src/skin_feature/skin_camera_controls.dart';
+import 'package:reaprime/src/skin_feature/skin_camera_platform.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class SkinSelectorPage extends StatefulWidget {
@@ -38,6 +42,8 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
   final TextEditingController _detailController = TextEditingController();
   final Logger _log = Logger('SkinSelector');
   bool _storagePermissionGranted = false;
+  bool _isInstalling = false;
+  bool _isCheckingUpdates = false;
 
   @override
   void initState() {
@@ -78,21 +84,15 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
       appBar: AppBar(
         title: const Text('Web Interface'),
         actions: [
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.add),
-            tooltip: 'Install skin',
-            onSelected: (value) => _handleInstallAction(context, value),
-            itemBuilder: (context) => const [
-              PopupMenuItem<String>(
-                value: 'github-release',
-                child: Text('GitHub Release'),
-              ),
-              PopupMenuItem<String>(
-                value: 'github-branch',
-                child: Text('GitHub Branch'),
-              ),
-              PopupMenuItem<String>(value: 'zip', child: Text('ZIP file')),
-            ],
+          PageActionMenu(
+            enabled: !_isInstalling,
+            tooltip: 'Skin actions',
+            checkingLabel: 'Checking for skin updates',
+            onCheckForUpdates: () => _checkForSkinUpdates(context),
+            updateCheck: widget.webUIStorage.updateCheck,
+            onUpdatesChecked: () => setState(() {}),
+            installLabel: 'Install skin',
+            onInstall: (action) => _handleInstallAction(context, action),
           ),
         ],
       ),
@@ -108,6 +108,12 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
                 _buildHeader(),
                 const SizedBox(height: 16),
                 _buildSkinSelector(),
+                if (supportsSkinCamera &&
+                    _selectedSkinId != null &&
+                    widget.webUIStorage.getSkin(_selectedSkinId!) != null) ...[
+                  const SizedBox(height: 12),
+                  SkinCameraConsentSetting(skinId: _selectedSkinId!),
+                ],
                 const SizedBox(height: 12),
                 Align(
                   alignment: Alignment.centerLeft,
@@ -145,28 +151,19 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
             children: [
               Text(
                 'Active Skin',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(context).textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 4),
               Text(
                 'Choose and manage your skins',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.onSurface.withValues(alpha: 0.7),
+                  color: Theme.of(context).colorScheme.onSurface
+                      .withValues(alpha: 0.7),
                 ),
               ),
             ],
           ),
-        ),
-        const SizedBox(width: 8),
-        _ActionButton.outline(
-          label: 'Check for updates',
-          icon: Icons.refresh,
-          size: ShadButtonSize.sm,
-          onPressed: () => _checkForSkinUpdates(context),
         ),
       ],
     );
@@ -174,9 +171,8 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
 
   Widget _buildServerFooter() {
     final serving = widget.webUIService.isServing;
-    final muted = Theme.of(
-      context,
-    ).colorScheme.onSurface.withValues(alpha: 0.7);
+    final muted = Theme.of(context).colorScheme.onSurface
+        .withValues(alpha: 0.7);
 
     final status = Row(
       mainAxisSize: MainAxisSize.min,
@@ -194,9 +190,8 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
           child: Text(
             serving ? 'Skin server running' : 'Skin server stopped',
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: muted),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: muted),
           ),
         ),
       ],
@@ -241,12 +236,24 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
       );
     }
 
-    return Row(
-      children: [
-        Expanded(child: status),
-        const SizedBox(width: 12),
-        Wrap(spacing: 8, runSpacing: 8, children: actions),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final controls = Wrap(spacing: 8, runSpacing: 8, children: actions);
+        if (constraints.maxWidth < 600) {
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [status, const SizedBox(height: 8), controls],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: status),
+            const SizedBox(width: 12),
+            controls,
+          ],
+        );
+      },
     );
   }
 
@@ -264,6 +271,7 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
         child: DropdownButtonHideUnderline(
           child: DropdownButton<String>(
             borderRadius: BorderRadius.circular(8),
+            isExpanded: true,
             value: _selectedSkinId,
             onChanged: (value) async {
               if (value == null) return;
@@ -288,7 +296,9 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
                         size: 16,
                       ),
                       const SizedBox(width: 8),
-                      Text(skin.name),
+                      Flexible(
+                        child: Text(skin.name, overflow: TextOverflow.ellipsis),
+                      ),
                       if (skin.version != null) ...[
                         const SizedBox(width: 6),
                         Padding(
@@ -321,9 +331,9 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
                                   ),
                                   actions: [
                                     TextButton(
-                                      onPressed: () => Navigator.of(
-                                        dialogContext,
-                                      ).pop(false),
+                                      onPressed: () =>
+                                          Navigator.of(dialogContext)
+                                              .pop(false),
                                       child: const Text('Cancel'),
                                     ),
                                     TextButton(
@@ -379,7 +389,12 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
                     children: [
                       Icon(Icons.folder_open, size: 16),
                       SizedBox(width: 8),
-                      Text('Live-edit from folder...'),
+                      Flexible(
+                        child: Text(
+                          'Live-edit from folder...',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -552,11 +567,11 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
           ),
         );
       }
-    } catch (e) {
+    } catch (e, st) {
+      _log.warning('Failed to install skin', e, st);
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to install skin: $e')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(remoteErrorSnackBar(e, action: 'install the skin'));
       }
     }
   }
@@ -620,25 +635,33 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
       ),
     );
 
+    if (!mounted || !context.mounted) return;
     final repo = _repoController.text.trim();
     final detail = _detailController.text.trim();
     if (confirmed != true || repo.isEmpty) return;
     if (!context.mounted) return;
 
-    try {
-      if (release) {
-        await widget.webUIStorage.installFromGitHubRelease(
-          repo,
-          assetName: detail.isEmpty ? null : detail,
-        );
-      } else {
-        await widget.webUIStorage.installFromGitHub(
-          repo,
-          branch: detail.isEmpty ? 'main' : detail,
-        );
-      }
+    await _installSkin(
+      () => release
+          ? widget.webUIStorage.installFromGitHubRelease(
+              repo,
+              assetName: detail.isEmpty ? null : detail,
+            )
+          : widget.webUIStorage.installFromGitHub(
+              repo,
+              branch: detail.isEmpty ? 'main' : detail,
+            ),
+    );
+  }
 
-      if (context.mounted) {
+  Future<void> _installSkin(Future<void> Function() install) async {
+    if (!mounted || _isInstalling) return;
+    setState(() => _isInstalling = true);
+    ScaffoldMessenger.of(context).clearSnackBars();
+    try {
+      await install();
+
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Skin installed from GitHub'),
@@ -646,14 +669,19 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
           ),
         );
       }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to install skin: $e')));
+    } catch (e, st) {
+      _log.warning('Skin installation failed', e, st);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          remoteErrorSnackBar(
+            e,
+            action: 'install the skin',
+            onRetry: () => _installSkin(install),
+          ),
+        );
       }
     } finally {
-      if (mounted) setState(() {});
+      if (mounted) setState(() => _isInstalling = false);
     }
   }
 
@@ -726,15 +754,12 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
   }
 
   Future<void> _checkForSkinUpdates(BuildContext context) async {
+    if (!mounted || !context.mounted || _isCheckingUpdates) return;
+    _isCheckingUpdates = true;
+    ScaffoldMessenger.of(context).clearSnackBars();
     try {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Checking for skin updates...')),
-      );
-
       await widget.webUIStorage.updateAllSkins();
-
-      if (mounted) setState(() {});
 
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -747,8 +772,14 @@ class _SkinSelectorPageState extends State<SkinSelectorPage>
       _log.severe('Error checking for skin updates', e, stackTrace);
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to check for skin updates: $e')),
+        remoteErrorSnackBar(
+          e,
+          action: 'check for skin updates',
+          onRetry: () => _checkForSkinUpdates(context),
+        ),
       );
+    } finally {
+      _isCheckingUpdates = false;
     }
   }
 }
@@ -808,9 +839,13 @@ class _ActionButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final leading = Icon(icon, size: 16, color: foregroundColor);
-    final child = Text(
-      label,
-      style: foregroundColor != null ? TextStyle(color: foregroundColor) : null,
+    final child = Flexible(
+      child: Text(
+        label,
+        style: foregroundColor != null
+            ? TextStyle(color: foregroundColor)
+            : null,
+      ),
     );
 
     final ShadButton button = switch (variant) {

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/impl/de1/de1.models.dart';
 import 'package:reaprime/src/models/device/impl/de1/mmr_address.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/unified_de1.dart';
@@ -44,34 +45,120 @@ void main() {
     await updateFailure;
   });
 
-  test('waiting firmware takes priority over later MMR operations', () async {
-    final activeMmrBarrier = Completer<void>();
-    transport.pauseNextWrite(Endpoint.writeToMMR.uuid, activeMmrBarrier);
-    final activeMmrRequest = transport.nextWrite(Endpoint.writeToMMR.uuid);
-    final activeMmr = de1.setSteamFlow(1.0);
+  test(
+    'waiting firmware takes priority over already queued MMR operations',
+    () async {
+      final activeMmrBarrier = Completer<void>();
+      transport.pauseNextWrite(Endpoint.writeToMMR.uuid, activeMmrBarrier);
+      final activeMmrRequest = transport.nextWrite(Endpoint.writeToMMR.uuid);
+      final activeMmr = de1.setSteamFlow(1.0);
+      await activeMmrRequest;
+
+      transport.queueMmrResponseInt(MMRItem.targetSteamFlow, 100);
+      final queuedRead = de1.getSteamFlow();
+      await _flushEventQueue();
+      expect(transport.writeCount(Endpoint.readFromMMR.uuid), 0);
+
+      final eraseBarrier = Completer<void>();
+      transport.pauseNextWrite(Endpoint.fwMapRequest.uuid, eraseBarrier);
+      final eraseRequest = transport.nextWrite(Endpoint.fwMapRequest.uuid);
+      final update = de1.updateFirmware(Uint8List(0), onProgress: (_) {});
+      final updateFailure = expectLater(update, throwsA(isA<StateError>()));
+      await _flushEventQueue();
+
+      activeMmrBarrier.complete();
+      await activeMmr;
+      await eraseRequest;
+      expect(transport.writeCount(Endpoint.readFromMMR.uuid), 0);
+
+      eraseBarrier.completeError(StateError('erase failed'));
+      await updateFailure;
+      await queuedRead;
+      expect(transport.writeCount(Endpoint.readFromMMR.uuid), 1);
+    },
+  );
+
+  test(
+    'firmware releases queued MMR reads one at a time in FIFO order',
+    () async {
+      final eraseBarrier = Completer<void>();
+      transport.pauseNextWrite(Endpoint.fwMapRequest.uuid, eraseBarrier);
+      final eraseRequest = transport.nextWrite(Endpoint.fwMapRequest.uuid);
+      final update = de1.updateFirmware(Uint8List(0), onProgress: (_) {});
+      final updateFailure = expectLater(update, throwsA(isA<StateError>()));
+      await eraseRequest;
+
+      final steam = de1.getSteamFlow();
+      final fan = de1.getFanThreshhold();
+      await _flushEventQueue();
+      expect(transport.writeCount(Endpoint.readFromMMR.uuid), 0);
+
+      eraseBarrier.completeError(StateError('erase failed'));
+      await updateFailure;
+      await _flushEventQueue();
+      expect(transport.writeCount(Endpoint.readFromMMR.uuid), 1);
+      expect(transport.writes.last.data.sublist(1, 4), [0x80, 0x38, 0x28]);
+      transport.emitMmrResponseInt(MMRItem.targetSteamFlow, 150);
+      expect(await steam, 1.5);
+
+      await _flushEventQueue();
+      expect(transport.writeCount(Endpoint.readFromMMR.uuid), 2);
+      expect(transport.writes.last.data.sublist(1, 4), [0x80, 0x38, 0x08]);
+      transport.emitMmrResponseInt(MMRItem.fanThreshold, 42);
+      expect(await fan, 42);
+    },
+  );
+
+  test(
+    'cancellation while waiting for firmware ownership skips erase',
+    () async {
+      final activeMmrRequest = transport.nextWrite(Endpoint.readFromMMR.uuid);
+      final activeMmr = de1.getSteamFlow();
+      await activeMmrRequest;
+
+      final eraseBarrier = Completer<void>();
+      transport.pauseNextWrite(Endpoint.fwMapRequest.uuid, eraseBarrier);
+      final eraseRequest = transport.nextWrite(Endpoint.fwMapRequest.uuid);
+      final update = de1.updateFirmware(Uint8List(0), onProgress: (_) {});
+      await _flushEventQueue();
+
+      await de1.cancelFirmwareUpload();
+      transport.emitMmrResponseInt(MMRItem.targetSteamFlow, 100);
+      await activeMmr;
+
+      final cancellation = expectLater(
+        update,
+        throwsA(isA<FirmwareUpdateCancelledException>()),
+      );
+      final outcome = await Future.any([
+        cancellation.then((_) => 'cancelled'),
+        eraseRequest.then((_) => 'erase'),
+      ]);
+      if (outcome == 'erase') {
+        eraseBarrier.completeError(StateError('unexpected erase'));
+        await cancellation;
+      }
+
+      expect(outcome, 'cancelled');
+      expect(transport.writeCount(Endpoint.fwMapRequest.uuid), 0);
+    },
+  );
+
+  test('transport disconnect while waiting for firmware ownership fails without erase', () async {
+    final activeMmrRequest = transport.nextWrite(Endpoint.readFromMMR.uuid);
+    final activeMmr = de1.getSteamFlow();
     await activeMmrRequest;
 
-    final eraseBarrier = Completer<void>();
-    transport.pauseNextWrite(Endpoint.fwMapRequest.uuid, eraseBarrier);
-    final eraseRequest = transport.nextWrite(Endpoint.fwMapRequest.uuid);
     final update = de1.updateFirmware(Uint8List(0), onProgress: (_) {});
-    final updateFailure = expectLater(update, throwsA(isA<StateError>()));
     await _flushEventQueue();
 
-    transport.queueMmrResponseInt(MMRItem.targetSteamFlow, 100);
-    final queuedRead = de1.getSteamFlow();
-    await _flushEventQueue();
-    expect(transport.writeCount(Endpoint.readFromMMR.uuid), 0);
-
-    activeMmrBarrier.complete();
+    transport.emitConnectionState(ConnectionState.disconnected);
+    transport.emitMmrResponseInt(MMRItem.targetSteamFlow, 100);
     await activeMmr;
-    await eraseRequest;
-    expect(transport.writeCount(Endpoint.readFromMMR.uuid), 0);
 
-    eraseBarrier.completeError(StateError('erase failed'));
-    await updateFailure;
-    await queuedRead;
-    expect(transport.writeCount(Endpoint.readFromMMR.uuid), 1);
+    await expectLater(update, throwsA(isA<DeviceNotConnectedException>()));
+    expect(transport.writeCount(Endpoint.fwMapRequest.uuid), 0);
+    expect(transport.writeCount(Endpoint.writeToMMR.uuid), 0);
   });
 
   test('disconnect while waiting for firmware ownership skips erase', () async {

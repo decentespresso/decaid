@@ -14,10 +14,15 @@ class _RecordingTransport extends BLETransport {
     ConnectionState.discovered,
   );
   final Completer<void> firstSubscription = Completer<void>();
+  final StreamController<void> _subscriptionChanges =
+      StreamController<void>.broadcast();
   final List<
     ({String service, String characteristic, List<int> data, bool withResponse})
   >
   writes = [];
+  final List<({String service, String characteristic})> subscriptions = [];
+  final Map<String, void Function(Uint8List)> notificationCallbacks = {};
+  final Map<String, Object> subscriptionErrors = {};
 
   List<String> services = [AtomheartScale.serviceIdentifier.long];
   Object? connectError;
@@ -28,7 +33,6 @@ class _RecordingTransport extends BLETransport {
   int disconnectCalls = 0;
   String? subscribedService;
   String? subscribedCharacteristic;
-  void Function(Uint8List)? notificationCallback;
 
   @override
   String get id => 'eclair-test';
@@ -87,12 +91,40 @@ class _RecordingTransport extends BLETransport {
   ) {
     if (!firstSubscription.isCompleted) firstSubscription.complete();
     if (subscriptionError case final error?) throw error;
+    if (subscriptionErrors[characteristicUUID] case final error?) throw error;
     subscribedService = serviceUUID;
     subscribedCharacteristic = characteristicUUID;
-    notificationCallback = callback;
+    subscriptions.add((
+      service: serviceUUID,
+      characteristic: characteristicUUID,
+    ));
+    notificationCallbacks[characteristicUUID] = callback;
+    _subscriptionChanges.add(null);
   }
 
-  void emit(List<int> data) => notificationCallback!(Uint8List.fromList(data));
+  Future<void> waitForSubscriptionCount(
+    String characteristic,
+    int count,
+  ) async {
+    while (subscriptions
+            .where(
+              (subscription) => subscription.characteristic == characteristic,
+            )
+            .length <
+        count) {
+      await _subscriptionChanges.stream.first;
+    }
+  }
+
+  void emit(List<int> data) =>
+      notificationCallbacks[AtomheartScale.dataCharacteristic.long]!(
+        Uint8List.fromList(data),
+      );
+
+  void emitConfig(List<int> data) =>
+      notificationCallbacks[AtomheartScale.commandCharacteristic.long]!(
+        Uint8List.fromList(data),
+      );
 
   @override
   Future<Uint8List> read(
@@ -122,6 +154,7 @@ class _RecordingTransport extends BLETransport {
 
   @override
   Future<void> dispose() async {
+    await _subscriptionChanges.close();
     await states.close();
   }
 }
@@ -173,6 +206,24 @@ void main() {
 
     transport.emit(_weightFrame(weightMg: 1500, timerMs: 5000));
     await connection;
+    expect(
+      transport.subscriptions.map(
+        (subscription) => subscription.characteristic,
+      ),
+      [
+        AtomheartScale.dataCharacteristic.long,
+        AtomheartScale.commandCharacteristic.long,
+      ],
+    );
+    await transport.dispose();
+  });
+
+  test('uses the ATOM HEART Eclair product name', () async {
+    final transport = _RecordingTransport();
+    final scale = AtomheartScale(transport: transport);
+
+    expect(scale.name, 'ATOM HEART Eclair');
+
     await transport.dispose();
   });
 
@@ -326,6 +377,121 @@ void main() {
       expect(transport.writes.map((write) => write.withResponse).toSet(), {
         true,
       });
+      await transport.dispose();
+    },
+  );
+
+  test(
+    'publishes canonical battery notifications with later weights',
+    () async {
+      final transport = _RecordingTransport();
+      final scale = AtomheartScale(
+        transport: transport,
+        notificationTimeout: const Duration(seconds: 1),
+      );
+      final snapshots = <ScaleSnapshot>[];
+      final snapshotSub = scale.currentSnapshot.listen(snapshots.add);
+      final connection = scale.onConnect();
+
+      await transport.firstSubscription.future;
+      transport.emit(_weightFrame(weightMg: 1000, timerMs: 0));
+      await connection;
+      transport.emitConfig([0x42, 75, 75]);
+      transport.emit(_weightFrame(weightMg: 1500, timerMs: 1000));
+      await pumpEventQueue();
+
+      expect(snapshots.first.batteryLevel, isNull);
+      expect(snapshots.last.batteryLevel, 75);
+
+      transport.emitConfig([0x42, 60, 0]);
+      transport.emit(_weightFrame(weightMg: 2000, timerMs: 2000));
+      await pumpEventQueue();
+      expect(snapshots.last.batteryLevel, 75);
+
+      await snapshotSub.cancel();
+      await transport.dispose();
+    },
+  );
+
+  test(
+    'clears cached battery across reconnects on the same scale instance',
+    () async {
+      final transport = _RecordingTransport();
+      final scale = AtomheartScale(
+        transport: transport,
+        notificationTimeout: const Duration(seconds: 1),
+      );
+      final snapshots = <ScaleSnapshot>[];
+      final snapshotSub = scale.currentSnapshot.listen(snapshots.add);
+
+      final firstConnection = scale.onConnect();
+      await transport.waitForSubscriptionCount(
+        AtomheartScale.dataCharacteristic.long,
+        1,
+      );
+      transport.emit(_weightFrame(weightMg: 1000, timerMs: 0));
+      await firstConnection;
+      transport.emitConfig([0x42, 75, 75]);
+      transport.emit(_weightFrame(weightMg: 1500, timerMs: 1000));
+      await pumpEventQueue();
+      expect(snapshots.last.batteryLevel, 75);
+
+      await scale.disconnect();
+      final reconnect = scale.onConnect();
+      await transport.waitForSubscriptionCount(
+        AtomheartScale.dataCharacteristic.long,
+        2,
+      );
+      transport.emit(_weightFrame(weightMg: 2000, timerMs: 2000));
+      await reconnect;
+      await pumpEventQueue();
+      expect(snapshots.last.batteryLevel, isNull);
+
+      transport.emitConfig([0x42, 64, 64]);
+      transport.emit(_weightFrame(weightMg: 2500, timerMs: 3000));
+      await pumpEventQueue();
+      expect(snapshots.last.batteryLevel, 64);
+
+      await snapshotSub.cancel();
+      await transport.dispose();
+    },
+  );
+
+  test('accepts the legacy five-byte battery frame', () {
+    const payload = [63, 0xA5, 0x5A];
+    final checksum = payload.fold(0, (value, byte) => value ^ byte);
+
+    expect(AtomheartScale.parseBatteryFrame([0x42, ...payload, checksum]), 63);
+  });
+
+  test('rejects malformed and out-of-range battery frames', () {
+    expect(AtomheartScale.parseBatteryFrame([0x42, 0, 0]), 0);
+    expect(AtomheartScale.parseBatteryFrame([0x42, 75, 0]), isNull);
+    expect(AtomheartScale.parseBatteryFrame([0x42, 101, 101]), isNull);
+    expect(AtomheartScale.parseBatteryFrame([0x42, -1, 0xFF]), isNull);
+    expect(AtomheartScale.parseBatteryFrame([0x42, 75]), isNull);
+    expect(AtomheartScale.parseBatteryFrame([0x43, 75, 75]), isNull);
+  });
+
+  test(
+    'config notification failure does not block weight connection',
+    () async {
+      final transport = _RecordingTransport();
+      transport.subscriptionErrors[AtomheartScale.commandCharacteristic.long] =
+          StateError('config notifications unavailable');
+      final scale = AtomheartScale(
+        transport: transport,
+        notificationTimeout: const Duration(seconds: 1),
+      );
+      final connection = scale.onConnect();
+
+      await transport.firstSubscription.future;
+      transport.emit(_weightFrame(weightMg: 1000, timerMs: 0));
+      await connection;
+
+      expect(await scale.connectionState.first, ConnectionState.connected);
+      expect(transport.disconnectCalls, 0);
+
       await transport.dispose();
     },
   );

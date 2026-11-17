@@ -418,7 +418,13 @@ void main() {
       expect((await tareSample).weight, 0);
       await expectLater(
         scale.startTimer(),
-        throwsA(isA<PluginDeviceException>()),
+        throwsA(
+          isA<ScaleOperationException>().having(
+            (e) => e.code,
+            'code',
+            'unsupported_operation',
+          ),
+        ),
       );
       await scale.disconnect();
       await controller.connectToScale(scale);

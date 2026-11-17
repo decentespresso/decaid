@@ -11,8 +11,7 @@ class SteamsHandler {
   final PersistenceController _controller;
   final Logger _log = Logger('SteamsHandler');
 
-  SteamsHandler({required PersistenceController controller})
-    : _controller = controller;
+  SteamsHandler({required this._controller});
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/steams', _getSteams);

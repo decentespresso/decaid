@@ -6,6 +6,10 @@ import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/scale_calibration.dart';
 import 'package:reaprime/src/models/device/impl/de1/unified_de1/bengle_est_sample.dart';
 
+class LedStripStateUnavailableException extends StateError {
+  LedStripStateUnavailableException(super.message);
+}
+
 abstract class BengleInterface extends De1Interface {
   Future<ScaleCalibrationState> getScaleCalibrationState();
 
@@ -53,6 +57,14 @@ abstract class BengleInterface extends De1Interface {
   Future<LedStripState?> getLedStripState();
 
   Future<void> setLedStrip(LedStripState state);
+
+  /// Show colours on the strips without storing them. The firmware keeps the live
+  /// colour apart from the stored palette and recomputes it at the next sleep or
+  /// wake transition, so nothing here decides what a state looks like.
+  Future<void> previewLedStrip({Color16? front, Color16? back});
+
+  /// End a preview: put the strips back to the stored palette for the current state.
+  Future<void> clearLedStripPreview();
 
   Future<void> commitLedStrip();
 

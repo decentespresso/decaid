@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
+
 import 'package:logging/logging.dart';
 import 'package:reaprime/src/models/device/ble_service_identifier.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
@@ -10,6 +11,7 @@ import 'package:rxdart/subjects.dart';
 import 'package:reaprime/src/models/device/device.dart';
 
 import 'package:reaprime/src/models/errors.dart';
+
 import '../../scale.dart';
 
 class AtomheartScale implements Scale {
@@ -35,12 +37,12 @@ class AtomheartScale implements Scale {
   Completer<void>? _firstValidFrame;
   int _notificationsSeen = 0;
   List<int>? _lastRejectedFrame;
+  int? _batteryLevel;
 
   AtomheartScale({
     required BLETransport transport,
-    Duration notificationTimeout = const Duration(milliseconds: 800),
+    this._notificationTimeout = const Duration(milliseconds: 800),
   }) : _transport = transport,
-       _notificationTimeout = notificationTimeout,
        _deviceId = transport.id;
 
   @override
@@ -57,7 +59,7 @@ class AtomheartScale implements Scale {
   TransportType get transportType => _transport.transportType;
 
   @override
-  String get name => "Atomheart Eclair";
+  String get name => "ATOM HEART Eclair";
 
   final BehaviorSubject<ConnectionState> _connectionStateController =
       BehaviorSubject.seeded(ConnectionState.discovered);
@@ -72,6 +74,7 @@ class AtomheartScale implements Scale {
         await _transport.connectionState.first == ConnectionState.connected) {
       return;
     }
+    _batteryLevel = null;
     _connectionStateController.add(ConnectionState.connecting);
 
     StreamSubscription<ConnectionState>? disconnectSub;
@@ -94,6 +97,7 @@ class AtomheartScale implements Scale {
         );
       }
       await _confirmNotifications();
+      await _registerConfigNotifications();
       if (_connectionStateController.value != ConnectionState.connecting) {
         throw const DeviceNotConnectedException.scale();
       }
@@ -164,6 +168,25 @@ class AtomheartScale implements Scale {
     );
   }
 
+  Future<void> _registerConfigNotifications() async {
+    try {
+      await _transport.subscribe(
+        serviceIdentifier.long,
+        commandCharacteristic.long,
+        _parseConfigNotification,
+      );
+    } catch (error, stackTrace) {
+      if (await _transport.getConnectionState() != ConnectionState.connected) {
+        Error.throwWithStackTrace(error, stackTrace);
+      }
+      _log.warning(
+        'Eclair config notifications unavailable; battery updates disabled',
+        error,
+        stackTrace,
+      );
+    }
+  }
+
   Future<void> _confirmNotifications() async {
     final firstValidFrame = Completer<void>();
     _firstValidFrame = firstValidFrame;
@@ -207,7 +230,7 @@ class AtomheartScale implements Scale {
         'subscriptions, $_notificationsSeen notifications received$detail';
   }
 
-  static ScaleSnapshot? parseFrame(List<int> data) {
+  static ScaleSnapshot? parseFrame(List<int> data, {int? batteryLevel}) {
     if (data.length != _frameLength) return null;
     if (data[0] != 0x57) return null;
 
@@ -234,14 +257,28 @@ class AtomheartScale implements Scale {
     return ScaleSnapshot(
       timestamp: DateTime.now(),
       weight: weightMg / 1000.0,
-      batteryLevel: 0,
+      batteryLevel: batteryLevel,
       timerValue: timerMs > 0 ? Duration(milliseconds: timerMs) : null,
     );
   }
 
+  static int? parseBatteryFrame(List<int> data) {
+    if (data.length != 3 && data.length != 5) return null;
+    if (data[0] != 0x42) return null;
+
+    var xorResult = 0;
+    for (var i = 1; i < data.length - 1; i++) {
+      xorResult ^= data[i];
+    }
+    if ((xorResult & 0xFF) != (data.last & 0xFF)) return null;
+
+    final batteryLevel = data[1];
+    return batteryLevel >= 0 && batteryLevel <= 100 ? batteryLevel : null;
+  }
+
   void _parseNotification(List<int> data) {
     _notificationsSeen++;
-    final snapshot = parseFrame(data);
+    final snapshot = parseFrame(data, batteryLevel: _batteryLevel);
     if (snapshot == null) {
       _lastRejectedFrame = data;
       return;
@@ -251,5 +288,10 @@ class AtomheartScale implements Scale {
     if (firstValidFrame != null && !firstValidFrame.isCompleted) {
       firstValidFrame.complete();
     }
+  }
+
+  void _parseConfigNotification(List<int> data) {
+    final batteryLevel = parseBatteryFrame(data);
+    if (batteryLevel != null) _batteryLevel = batteryLevel;
   }
 }

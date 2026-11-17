@@ -1,3 +1,6 @@
+const int kSwitchDefaultAwakeRgb = 0xFFF0C8;
+const int kSwitchDefaultAsleepRgb = 0x555043;
+
 class Color16 {
   final int red;
   final int green;
@@ -20,6 +23,14 @@ class Color16 {
     if (r == null || g == null || b == null) return off;
     return Color16(r.clamp(0, 65535), g.clamp(0, 65535), b.clamp(0, 65535));
   }
+
+  static Color16 fromFirmwareRgb(int rgb) => Color16(
+    ((rgb >> 16) & 0xFF) << 8,
+    ((rgb >> 8) & 0xFF) << 8,
+    (rgb & 0xFF) << 8,
+  );
+
+  Color16 quantized() => Color16(red & 0xFF00, green & 0xFF00, blue & 0xFF00);
 
   static String _hex4(int v) =>
       v.toRadixString(16).padLeft(4, '0').toUpperCase();
@@ -57,6 +68,9 @@ class ZoneLedState {
     awake: Color16.fromJson(json['awake']),
   );
 
+  ZoneLedState quantized() =>
+      ZoneLedState(sleeping: sleeping.quantized(), awake: awake.quantized());
+
   @override
   bool operator ==(Object other) =>
       other is ZoneLedState &&
@@ -86,6 +100,22 @@ class LedStripState {
     'backStrip': backStrip.toJson(),
     'frontSwitch': frontSwitch.toJson(),
   };
+
+  LedStripState canonical() {
+    final front = frontStrip.quantized();
+    return LedStripState(
+      frontStrip: front,
+      backStrip: backStrip.quantized(),
+      frontSwitch: ZoneLedState(
+        sleeping: front.sleeping == Color16.off
+            ? Color16.fromFirmwareRgb(kSwitchDefaultAsleepRgb)
+            : front.sleeping,
+        awake: front.awake == Color16.off
+            ? Color16.fromFirmwareRgb(kSwitchDefaultAwakeRgb)
+            : front.awake,
+      ),
+    );
+  }
 
   factory LedStripState.fromJson(Map<String, dynamic> json) => LedStripState(
     frontStrip: ZoneLedState.fromJson(

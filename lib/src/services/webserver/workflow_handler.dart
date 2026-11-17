@@ -32,14 +32,13 @@ class WorkflowHandler {
   int _pendingRequests = 0;
 
   WorkflowHandler({
-    required WorkflowController controller,
-    required De1Controller de1controller,
+    required this._controller,
+    required this._de1controller,
     this.bodyReadTimeout = _workflowBodyReadTimeout,
     this.queueWaitTimeout = _workflowQueueWaitTimeout,
     this.maxBodyBytes = _workflowMaxBodyBytes,
     this.maxPendingRequests = _workflowMaxPendingRequests,
-  }) : _controller = controller,
-       _de1controller = de1controller;
+  });
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/workflow', _getWorkflow);
@@ -157,7 +156,7 @@ class WorkflowHandler {
 
   Future<Response> _applyUpdate(Map<String, dynamic> merge) async {
     try {
-      rejectExplicitNulls(merge, const ['steamSettings']);
+      rejectExplicitNulls(merge, const ['steamSettings', 'context']);
       if (merge['steamSettings'] case final Map<String, dynamic> settings) {
         rejectExplicitNulls(settings, const [
           'targetTemperature',
@@ -167,6 +166,12 @@ class WorkflowHandler {
         ]);
       } else if (merge.containsKey('steamSettings')) {
         throw const FormatException('Field "steamSettings" must be an object');
+      }
+      if (merge['context'] case final Map<String, dynamic> context) {
+        rejectExplicitNulls(context, const ['targetYield']);
+        validatePatchFieldTypes(context, numberFields: const ['targetYield']);
+      } else if (merge.containsKey('context')) {
+        throw const FormatException('Field "context" must be an object');
       }
 
       while (true) {

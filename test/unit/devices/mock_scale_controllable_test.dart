@@ -12,6 +12,10 @@ void main() {
     scale = MockScale();
   });
 
+  tearDown(() async {
+    await scale.disconnect();
+  });
+
   group('MockScale controllable behavior', () {
     test('emits weight snapshots by default', () async {
       final snapshot = await scale.currentSnapshot.first.timeout(
@@ -74,6 +78,40 @@ void main() {
       final stalled = await completer.future;
       await sub.cancel();
       expect(stalled, isTrue, reason: 'Expected no snapshots after disconnect');
+    });
+
+    test('repeated disconnect and reconnect resumes snapshots', () async {
+      await scale.onConnect();
+      await scale.currentSnapshot.first.timeout(Duration(seconds: 2));
+
+      for (var attempt = 0; attempt < 2; attempt++) {
+        await scale.disconnect();
+        expect(await scale.connectionState.first, ConnectionState.disconnected);
+
+        await scale.onConnect();
+        expect(await scale.connectionState.first, ConnectionState.connected);
+        final snapshot = await scale.currentSnapshot.first.timeout(
+          Duration(seconds: 2),
+        );
+        expect(snapshot, isA<ScaleSnapshot>());
+      }
+    });
+
+    test('redundant connect preserves an intentional data stall', () async {
+      await scale.onConnect();
+      scale.simulateDataStall();
+      await scale.onConnect();
+
+      await expectLater(
+        scale.currentSnapshot.first.timeout(Duration(milliseconds: 600)),
+        throwsA(isA<TimeoutException>()),
+      );
+
+      scale.simulateResume();
+      expect(
+        await scale.currentSnapshot.first.timeout(Duration(seconds: 2)),
+        isA<ScaleSnapshot>(),
+      );
     });
 
     test(

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io' show Platform;
+
 import 'package:reaprime/src/models/adapter_state.dart';
 import 'package:reaprime/src/models/device/device_implementation.dart';
 import 'package:reaprime/src/models/device/remembered_device.dart';
@@ -8,6 +9,9 @@ import 'package:reaprime/src/models/device/transport/data_transport.dart';
 import 'package:reaprime/src/models/device/scan_filter.dart' as domain;
 import 'package:reaprime/src/services/ble/ble_discovery_service.dart';
 import 'package:reaprime/src/services/ble/ble_lifecycle_gate.dart';
+import 'package:reaprime/src/services/ble/ble_admission_transport.dart';
+import 'package:reaprime/src/plugins/plugin_ble_registry.dart';
+import 'package:reaprime/src/plugins/plugin_ble_service.dart';
 import 'package:reaprime/src/services/ble/universal_ble_transport.dart';
 import 'package:reaprime/src/services/device_factory.dart';
 import 'package:reaprime/src/services/device_matcher.dart';
@@ -18,18 +22,19 @@ import 'package:reaprime/src/models/device/ble_scan_state.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:universal_ble/universal_ble.dart';
+
 import '../models/device/device.dart';
 import '../models/device/machine.dart';
 import '../models/device/impl/de1/de1.models.dart';
+
 import 'package:logging/logging.dart' as logging;
 
-typedef BleTransportFactory =
-    BLETransport Function({
-      required BleDevice device,
-      required Future<void> Function() stopScan,
-      required bool requestLargeMtuNonAndroid,
-      required BleLifecycleGate lifecycleGate,
-    });
+typedef BleTransportFactory = BLETransport Function({
+  required BleDevice device,
+  required Future<void> Function() stopScan,
+  required bool requestLargeMtuNonAndroid,
+  required BleLifecycleGate lifecycleGate,
+});
 
 class _AdvertisementStats {
   int count = 0;
@@ -41,9 +46,14 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     implements DeviceWatchCapable {
   UniversalBleDiscoveryService({
     bool Function()? watchSupportGate,
+    bool Function()? requiresSystemDevice,
     bool Function()? requestLargeMtuNonAndroid,
     BleTransportFactory? transportFactory,
+    this._pluginBleService,
+    this.scanDuration = const Duration(seconds: 15),
   }) : _watchSupportGate = watchSupportGate ?? (() => Platform.isAndroid),
+       _requiresSystemDevice =
+           requiresSystemDevice ?? (() => Platform.isIOS || Platform.isMacOS),
        requestLargeMtuNonAndroid = requestLargeMtuNonAndroid ?? (() => false),
        _transportFactory = transportFactory ?? _defaultTransportFactory;
 
@@ -62,8 +72,107 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
   }
 
   final bool Function() _watchSupportGate;
+  final bool Function() _requiresSystemDevice;
   final BleTransportFactory _transportFactory;
+  final Duration scanDuration;
   final BleLifecycleGate _lifecycleGate = BleLifecycleGate();
+  final PluginBleService Function()? _pluginBleService;
+  PluginBleService? get _plugins => _pluginBleService?.call();
+  final BleAdvertisementCache _bleEvidence = BleAdvertisementCache();
+  final Map<String, BleDevice> _bleObservations = {};
+  final Map<String, PluginBleDecision> _pluginOwnership = {};
+  final Set<String> _dirtyObservations = {};
+  StreamSubscription<int>? _registrySubscription;
+  Future<void> _registryReconciliation = Future.value();
+  bool _watchIncludesPluginDrivers = false;
+
+  void _advanceScanGeneration() {
+    _scanGeneration++;
+    _bleEvidence.beginGeneration(_scanGeneration);
+    _bleObservations.clear();
+    _pluginOwnership.clear();
+    _dirtyObservations.clear();
+  }
+
+  bool _nativeEligible(String id) {
+    final plugins = _plugins;
+    if (_adapterStateSubject.value != AdapterState.poweredOn) return false;
+    if (_disposed || plugins?.registry.acceptingConnections == false) {
+      return false;
+    }
+    if (plugins == null) return true;
+    final evidence =
+        _bleEvidence.get(id) ??
+        BleAdvertisementEvidence(source: BleEvidenceSource.system);
+    return plugins.registry.decide(evidence).kind == PluginBleOwnership.native;
+  }
+
+  bool _decisionIsCurrent(
+    String id,
+    PluginBleDecision? decision,
+    int generation,
+  ) {
+    if (_disposed || generation != _scanGeneration) return false;
+    final plugins = _plugins;
+    if (plugins == null) return true;
+    final evidence = _bleEvidence.get(id);
+    if (evidence == null ||
+        decision?.registryRevision != plugins.registry.revision) {
+      return false;
+    }
+    final current = plugins.registry.decide(evidence);
+    return current.kind == decision!.kind &&
+        (current.kind != PluginBleOwnership.plugin ||
+            identical(current.drivers.single, decision.drivers.single));
+  }
+
+  BLETransport _nativeTransport(BleDevice device) {
+    final transport = _createTransport(device);
+    final plugins = _plugins;
+    if (plugins == null) return transport;
+    final revision = plugins.registry.revision;
+    return BleAdmissionTransport(
+      transport: transport,
+      reserve: () {
+        if (revision != plugins.registry.revision ||
+            !_nativeEligible(device.deviceId)) {
+          throw StateError('Native BLE candidate ownership changed');
+        }
+        return plugins.registry.reserveNative(device.deviceId);
+      },
+      release: (claim) =>
+          plugins.registry.releaseNative(device.deviceId, claim),
+    );
+  }
+
+  Future<void> _reconcilePluginCandidates() async {
+    if (_disposed) return;
+    final includePlugins = _plugins?.registry.hasDrivers == true;
+    if (_watchScanActive &&
+        _watchRequested?.namePrefix != null &&
+        _watchIncludesPluginDrivers != includePlugins) {
+      await _deactivateWatchScan(
+        stopOsScan: true,
+        context: 'plugin registry change',
+      );
+      if (_disposed) return;
+      await _restartWatchOrReportFailure('plugin registry change');
+    }
+    for (final entry in _devices.entries.toList()) {
+      if (_bleObservations.containsKey(entry.key)) continue;
+      final state = await _cachedConnectionState(entry.value);
+      if (state == ConnectionState.discovered ||
+          state == ConnectionState.disconnected) {
+        if (_plugins?.registry.isClaimed(entry.key) == true) continue;
+        if (await _evictCachedDevice(entry.key, entry.value)) {
+          await _plugins?.discardInactive(entry.value);
+        }
+      }
+    }
+    for (final entry in _bleObservations.entries.toList()) {
+      await _deviceScanned(entry.value, recordEvidence: false);
+    }
+  }
 
   bool Function() requestLargeMtuNonAndroid;
 
@@ -149,7 +258,10 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     final requestGeneration = ++_watchRequestGeneration;
     if (_isScanning) {
       _setWatchState(DeviceWatchState.queued);
-      log.fine('Burst scan in flight; watch starts when it completes');
+      log.info(
+        'Watch resume queued: owner=${_scanOwner.name} '
+        'phase=${_scanPhase.name}',
+      );
       return DeviceWatchStartResult.queuedBehindBurst;
     }
     try {
@@ -162,8 +274,16 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
         _scanPhase = BleScanPhase.faulted;
         _setWatchState(DeviceWatchState.faulted);
       }
+      log.info(
+        'Watch resume failed: owner=${_scanOwner.name} '
+        'phase=${_scanPhase.name}',
+      );
       return DeviceWatchStartResult.failed;
     }
+    log.info(
+      'Watch resume ${_watchScanActive ? "ok" : "queued"}: '
+      'owner=${_scanOwner.name} phase=${_scanPhase.name}',
+    );
     return _watchScanActive
         ? DeviceWatchStartResult.active
         : DeviceWatchStartResult.queuedBehindBurst;
@@ -205,7 +325,7 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     _cancelWatchScanSub();
     if (_scanOwner == BleScanOwner.watch) {
       _scanPhase = stopOsScan ? BleScanPhase.stopping : BleScanPhase.idle;
-      _scanGeneration++;
+      _advanceScanGeneration();
     }
     if (stopOsScan) {
       try {
@@ -258,6 +378,8 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
   }
 
   Future<void> _runWatchScanStart() async {
+    await _plugins?.registry.ready;
+    if (_disposed || _plugins?.registry.acceptingConnections == false) return;
     final filter = _watchRequested;
     if (filter == null || _watchScanActive) return;
     if (_scanPhase == BleScanPhase.faulted) {
@@ -275,20 +397,21 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     final adapterGen = _watchAdapterGeneration;
     _scanOwner = BleScanOwner.watch;
     _scanPhase = BleScanPhase.starting;
-    _scanGeneration++;
+    _advanceScanGeneration();
+    final generation = _scanGeneration;
 
     _watchScanSub = UniversalBle.scanStream.listen((result) async {
-      if (_currentlyScanning.contains(normalizeBleDeviceId(result.deviceId))) {
-        return;
-      }
-      await _deviceScanned(result);
+      await _deviceScanned(result, generation: generation);
     });
 
     final namePrefix = filter.namePrefix;
+    _watchIncludesPluginDrivers = _plugins?.registry.hasDrivers == true;
     try {
       await UniversalBle.startScan(
         scanFilter: ScanFilter(
-          withNamePrefix: namePrefix != null ? [namePrefix] : [],
+          withNamePrefix: namePrefix != null && !_watchIncludesPluginDrivers
+              ? [namePrefix]
+              : [],
           withServices: [],
         ),
         platformConfig: PlatformConfig(
@@ -376,13 +499,32 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
             _scanPhase != BleScanPhase.stopping)) {
       return;
     }
-    log.fine('Pausing background watch for burst scan');
+    log.info(
+      'Watch pause requested for burst: owner=${_scanOwner.name} '
+      'phase=${_scanPhase.name}',
+    );
     await _deactivateWatchScan(stopOsScan: true, context: 'watch-pause');
+    log.info(
+      'Watch paused for burst: owner=${_scanOwner.name} '
+      'phase=${_scanPhase.name}',
+    );
   }
 
   Future<void> _resumeWatchAfterBurst() async {
     if (_watchRequested == null) return;
+    log.info(
+      'Watch resume requested: owner=${_scanOwner.name} '
+      'phase=${_scanPhase.name}',
+    );
     await _restartWatchOrReportFailure('post-burst resume');
+    log.info(
+      'Watch resume ${_watchScanActive
+          ? "ok"
+          : _watchRequested == null
+          ? "failed"
+          : "queued"}: '
+      'owner=${_scanOwner.name} phase=${_scanPhase.name}',
+    );
   }
 
   void _onAdapterStateForWatch(AdapterState state) {
@@ -406,7 +548,7 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
       _scanOwner = BleScanOwner.none;
       _scanPhase = BleScanPhase.idle;
       _scanStopError = null;
-      _scanGeneration++;
+      _advanceScanGeneration();
       _setWatchState(
         _watchRequested == null
             ? DeviceWatchState.inactive
@@ -511,6 +653,16 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
             'name': entry.value.name,
           },
       },
+      'pluginOwnership': {
+        for (final entry in _pluginOwnership.entries)
+          entry.key: {
+            'decision': entry.value.kind.name,
+            'registryRevision': entry.value.registryRevision,
+            'drivers': entry.value.drivers
+                .map((driver) => '${driver.pluginId}:${driver.declaration.id}')
+                .toList(),
+          },
+      },
       'scanFailures': {
         'count': _scanFailureCount,
         'latest': _latestScanFailure,
@@ -523,6 +675,14 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
   Future<void> initialize() async {
     if (_availabilitySubscription != null) return;
     _disposed = false;
+    _registrySubscription ??= _plugins?.registry.changes.listen((_) {
+      if (_disposed) return;
+      _registryReconciliation = _registryReconciliation
+          .then((_) => _reconcilePluginCandidates())
+          .catchError((Object error, StackTrace stack) {
+            log.warning('BLE candidate reconciliation failed', error, stack);
+          });
+    });
     UniversalBle.queueType = QueueType.perDevice;
 
     var initialState = await UniversalBle.getBluetoothAvailabilityState();
@@ -542,6 +702,9 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
       log.info("BLE Adapter state: ${state.name}");
       final mapped = _mapAvailabilityState(state);
       _adapterStateSubject.add(mapped);
+      if (mapped != AdapterState.poweredOn && mapped != AdapterState.unknown) {
+        _plugins?.revokeSessions();
+      }
       _onAdapterStateForWatch(mapped);
     });
 
@@ -645,6 +808,8 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
 
   @override
   Future<void> scanForDevices({domain.ScanFilter? filter}) async {
+    await _plugins?.registry.ready;
+    if (_disposed || _plugins?.registry.acceptingConnections == false) return;
     final state = _adapterStateSubject.value;
     if (state != AdapterState.poweredOn) {
       log.warning("Cannot scan, adapter state is $state");
@@ -669,7 +834,12 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
 
     _scanOwner = BleScanOwner.burst;
     _scanPhase = BleScanPhase.starting;
-    _scanGeneration++;
+    log.info(
+      'Burst acquisition: owner=${_scanOwner.name} '
+      'phase=${_scanPhase.name}',
+    );
+    _advanceScanGeneration();
+    final generation = _scanGeneration;
     _scanStopError = null;
     StreamSubscription<BleDevice>? sub;
 
@@ -681,12 +851,7 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
         log.finest(
           "Found: ${result.deviceId}: ${result.name}, adv: ${result.services}",
         );
-        if (_currentlyScanning.contains(
-          normalizeBleDeviceId(result.deviceId),
-        )) {
-          return;
-        }
-        await _deviceScanned(result);
+        await _deviceScanned(result, generation: generation);
       });
 
       final scanFilter = ScanFilter(withServices: []);
@@ -720,28 +885,48 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
         throw StateError('BLE scan ownership is faulted');
       }
       _scanPhase = BleScanPhase.active;
+      log.info(
+        'Burst started: owner=${_scanOwner.name} '
+        'phase=${_scanPhase.name}',
+      );
 
       try {
         final systemDevices = await UniversalBle.getSystemDevices(
           withServices: [],
         );
         for (var d in systemDevices) {
-          await _deviceScanned(d);
+          await _deviceScanned(
+            d,
+            source: BleEvidenceSource.system,
+            generation: generation,
+          );
         }
       } catch (e, st) {
         log.fine('System device check failed', e, st);
       }
 
-      await _waitForScanDuration(const Duration(seconds: 15));
+      await _waitForScanDuration(scanDuration);
     } finally {
       await sub?.cancel();
       _cancelScanDurationWait();
+      for (final entry in _pluginOwnership.entries) {
+        if (entry.value.kind == PluginBleOwnership.pending ||
+            entry.value.kind == PluginBleOwnership.conflict) {
+          log.warning(
+            'BLE ownership ${entry.value.kind.name} at scan deadline: ${entry.key}',
+          );
+        }
+      }
       _deviceStreamController.add(_devices.values.toList());
       final faulted = _scanPhase == BleScanPhase.faulted;
       if (_scanOwner == BleScanOwner.burst) {
         _scanOwner = BleScanOwner.none;
         _scanPhase = faulted ? BleScanPhase.faulted : BleScanPhase.idle;
       }
+      log.info(
+        'Burst ended: owner=${_scanOwner.name} '
+        'phase=${_scanPhase.name}',
+      );
       if (!faulted) await _resumeWatchAfterBurst();
     }
   }
@@ -807,25 +992,78 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     });
   }
 
-  Future<void> _deviceScanned(BleDevice device) async {
+  Future<void> _deviceScanned(
+    BleDevice device, {
+    BleEvidenceSource source = BleEvidenceSource.advertisement,
+    int? generation,
+    bool recordEvidence = true,
+  }) async {
+    final observedGeneration = generation ?? _scanGeneration;
+    if (_disposed || observedGeneration != _scanGeneration) return;
     final deviceId = normalizeBleDeviceId(device.deviceId);
-    if (_currentlyScanning.contains(deviceId)) return;
+    _bleObservations[deviceId] = device;
+    if (recordEvidence) {
+      _bleEvidence.record(
+        deviceId,
+        observedGeneration,
+        BleAdvertisementEvidence(
+          name: device.name,
+          serviceUuids: device.services,
+          source: source,
+          servicesComplete: source == BleEvidenceSource.advertisement,
+        ),
+      );
+      _recordAdvertisement(deviceId, device.name);
+    }
+    if (_currentlyScanning.contains(deviceId)) {
+      if (_plugins != null) _dirtyObservations.add(deviceId);
+      return;
+    }
     _currentlyScanning.add(deviceId);
-    _recordAdvertisement(deviceId, device.name);
 
     try {
-      final name = device.name ?? '';
-      if (name.isEmpty) return;
+      do {
+        _dirtyObservations.remove(deviceId);
+        await _processBleObservation(deviceId, observedGeneration);
+      } while (observedGeneration == _scanGeneration &&
+          _dirtyObservations.remove(deviceId));
+    } catch (error, stack) {
+      log.warning('BLE candidate failed for $deviceId', error, stack);
+    } finally {
+      _currentlyScanning.remove(deviceId);
+      if (observedGeneration != _scanGeneration &&
+          _dirtyObservations.remove(deviceId)) {
+        final current = _bleObservations[deviceId];
+        if (current != null) {
+          await _deviceScanned(current, recordEvidence: false);
+        }
+      }
+    }
+  }
+
+  Future<void> _processBleObservation(String deviceId, int generation) async {
+    final device = _bleObservations[deviceId];
+    if (device == null || generation != _scanGeneration || _disposed) return;
+    final evidence = _bleEvidence.get(deviceId)!;
+    final plugins = _plugins;
+    final previousDecision = _pluginOwnership[deviceId];
+    final decision = plugins?.registry.decide(evidence);
+    if (decision != null) _pluginOwnership[deviceId] = decision;
+
+    try {
+      final name = evidence.name ?? '';
 
       final existing = _devices[deviceId];
       if (existing != null) {
         final state = await _cachedConnectionState(existing);
+        if (!identical(_devices[deviceId], existing)) return;
+        if (plugins?.registry.isClaimed(deviceId) == true) return;
         if (state == null ||
             state == ConnectionState.connecting ||
             state == ConnectionState.disconnecting) {
           return;
         }
-        if (state == ConnectionState.discovered) return;
+        if (state == ConnectionState.discovered && plugins == null) return;
         if (state == ConnectionState.connected) {
           var nativeLink = await _nativeLinkState(existing.deviceId);
           if (nativeLink == null ||
@@ -861,23 +1099,73 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
             'native link is ${nativeLink.name}',
           );
         }
+        if (state == ConnectionState.discovered &&
+            decision?.kind == PluginBleOwnership.plugin &&
+            plugins!.matchesCandidate(existing, decision!.drivers.single)) {
+          return;
+        }
+        if (state == ConnectionState.discovered &&
+            decision?.kind == PluginBleOwnership.native &&
+            previousDecision?.registryRevision == decision!.registryRevision &&
+            existing.implementation ==
+                DeviceMatcher.implementationForName(name)) {
+          return;
+        }
+        if (plugins?.registry.isClaimed(deviceId) == true) return;
         if (!await _evictCachedDevice(deviceId, existing)) return;
+        await plugins?.discardInactive(existing);
       }
 
+      if (decision?.kind == PluginBleOwnership.pending ||
+          decision?.kind == PluginBleOwnership.conflict) {
+        return;
+      }
+      if (decision?.kind != PluginBleOwnership.plugin && name.isEmpty) return;
+      if (!_decisionIsCurrent(deviceId, decision, generation)) {
+        _dirtyObservations.add(deviceId);
+        return;
+      }
       final matchedDevice = await _candidate(
         deviceId,
-        () => DeviceMatcher.match(
-          transport: _createTransport(device),
-          advertisedName: name,
-        ),
+        () => decision?.kind == PluginBleOwnership.plugin
+            ? plugins!.createCandidate(
+                driver: decision!.drivers.single,
+                physicalId: deviceId,
+                evidence: evidence,
+                createTransport: () => _createTransport(device),
+                admit: () {
+                  if (_disposed ||
+                      _adapterStateSubject.value != AdapterState.poweredOn) {
+                    return false;
+                  }
+                  final current = _bleEvidence.get(deviceId);
+                  if (current == null) return false;
+                  final owner = plugins.registry.decide(current);
+                  return owner.kind == PluginBleOwnership.plugin &&
+                      identical(owner.drivers.single, decision.drivers.single);
+                },
+              )
+            : DeviceMatcher.match(
+                transport: _nativeTransport(device),
+                advertisedName: name,
+              ),
       );
 
       if (matchedDevice != null && !_devices.containsKey(deviceId)) {
+        if (!_decisionIsCurrent(deviceId, decision, generation)) {
+          _dirtyObservations.add(deviceId);
+          await plugins?.discardInactive(matchedDevice);
+          return;
+        }
         await _adoptCachedDevice(deviceId, matchedDevice);
         log.fine("found new device: ${device.name}");
       }
-    } finally {
-      _currentlyScanning.remove(deviceId);
+    } catch (error, stack) {
+      log.warning(
+        'BLE observation processing failed for $deviceId',
+        error,
+        stack,
+      );
     }
   }
 
@@ -900,6 +1188,10 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
 
   @override
   Future<Device?> tryQuickConnect(RememberedDevice remembered) async {
+    await _plugins?.registry.ready;
+    if (_disposed || remembered.implementation == DeviceImplementation.plugin) {
+      return null;
+    }
     final impl = remembered.implementation;
     final tt = remembered.transportType;
     if (impl == null || tt == null || tt != TransportType.ble) {
@@ -920,17 +1212,31 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
     final key = normalizeBleDeviceId(deviceId);
 
     BleDevice? bleDevice;
-    if (Platform.isIOS || Platform.isMacOS) {
+    if (_requiresSystemDevice()) {
       bleDevice = await _findSystemDevice(deviceId);
       if (bleDevice == null) {
         log.info('Quick-connect: device $deviceId not in system cache');
         return null;
       }
+      _bleEvidence.record(
+        deviceId,
+        _scanGeneration,
+        BleAdvertisementEvidence(
+          name: bleDevice.name,
+          serviceUuids: bleDevice.services,
+          source: BleEvidenceSource.system,
+          servicesComplete: false,
+        ),
+      );
     } else {
       bleDevice = BleDevice(deviceId: deviceId, name: remembered.name);
     }
 
-    final transport = _createTransport(bleDevice);
+    if (!_nativeEligible(deviceId) ||
+        _plugins?.registry.isClaimed(deviceId) == true) {
+      return null;
+    }
+    final transport = _nativeTransport(bleDevice);
     final device = DeviceFactory.createBle(impl, transport);
     if (device == null) {
       log.warning('Quick-connect: DeviceFactory returned null for $impl');
@@ -1010,6 +1316,9 @@ class UniversalBleDiscoveryService extends BleDiscoveryService
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
+    await _registrySubscription?.cancel();
+    _registrySubscription = null;
+    await _registryReconciliation;
     await _availabilitySubscription?.cancel();
     _availabilitySubscription = null;
     _cancelScanDurationWait();

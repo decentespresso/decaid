@@ -30,17 +30,15 @@ class FirmwareHandler {
   final Duration managedBodyReadTimeout;
 
   FirmwareHandler({
-    required De1Controller controller,
-    required BundledFirmwareCatalog catalog,
+    required this._controller,
+    required this._catalog,
     FirmwareValidator? validator,
     Logger? logger,
     this.maxRawBodyBytes = _maxRawFirmwareBodyBytes,
     this.rawBodyReadTimeout = _rawFirmwareBodyReadTimeout,
     this.maxManagedBodyBytes = _maxManagedFirmwareBodyBytes,
     this.managedBodyReadTimeout = _managedFirmwareBodyReadTimeout,
-  }) : _controller = controller,
-       _catalog = catalog,
-       _validator = validator ?? const FirmwareValidator(),
+  }) : _validator = validator ?? const FirmwareValidator(),
        _log = logger ?? Logger('FirmwareHandler');
 
   void addRoutes(RouterPlus app) {
@@ -320,7 +318,13 @@ class FirmwareHandler {
 
     progressController.onCancel = () async {
       _log.warning('firmware upload: client disconnected, cancelling');
-      await _controller.cancelFirmwareUpload();
+      try {
+        await _controller.cancelFirmwareUpload();
+      } on DeviceNotConnectedException {
+        _log.fine(
+          'firmware upload: machine already disconnected during cancellation',
+        );
+      }
     };
 
     var lastProgress = -1.0;
@@ -337,14 +341,49 @@ class FirmwareHandler {
               }
             },
           )
-          .then((_) {
-            emit({'status': 'done', 'progress': 1.0});
-            progressController.close();
-          })
-          .catchError((Object e) {
-            emit({'status': 'error', 'progress': -1.0, 'error': e.toString()});
-            progressController.close();
-          });
+          .then(
+            (_) {
+              emit({'status': 'done', 'progress': 1.0});
+              progressController.close();
+            },
+            onError: (Object error, StackTrace stackTrace) {
+              if (error is FirmwareUpdateCancelledException) {
+                emit({
+                  'status': 'error',
+                  'progress': -1.0,
+                  'error': error.toString(),
+                });
+                progressController.close();
+                return;
+              }
+              final stage = error is FirmwareUpdateStageException
+                  ? error.stage
+                  : 'firmware-upload';
+              final cause = error is FirmwareUpdateStageException
+                  ? error.cause.toString()
+                  : error.toString();
+              final logError = error is FirmwareUpdateStageException
+                  ? error.cause
+                  : error;
+              final logStackTrace = error is FirmwareUpdateStageException
+                  ? error.stackTrace
+                  : stackTrace;
+              _log.warning(
+                'firmware upload failed stage=$stage cause=$cause',
+                logError,
+                logStackTrace,
+              );
+              final event = <String, dynamic>{
+                'status': 'error',
+                'progress': -1.0,
+                'error': error.toString(),
+                'cause': cause,
+                'stage': stage,
+              };
+              emit(event);
+              progressController.close();
+            },
+          );
     } on FirmwareUpdateInProgressException {
       unawaited(progressController.close());
       return Response(

@@ -11,7 +11,9 @@ void main() {
         targetWaterVolume: 55.0,
         grinderId: 'grinder-123',
         grinderModel: 'Niche Zero',
+        grinderBurrs: 'SSP HU',
         grinderSetting: '15',
+        grinderRpm: 1200,
         beanBatchId: 'batch-456',
         coffeeName: 'Gesha Village',
         coffeeRoaster: 'Sey',
@@ -31,7 +33,9 @@ void main() {
       expect(restored.targetWaterVolume, 55.0);
       expect(restored.grinderId, 'grinder-123');
       expect(restored.grinderModel, 'Niche Zero');
+      expect(restored.grinderBurrs, 'SSP HU');
       expect(restored.grinderSetting, '15');
+      expect(restored.grinderRpm, 1200);
       expect(restored.beanBatchId, 'batch-456');
       expect(restored.coffeeName, 'Gesha Village');
       expect(restored.coffeeRoaster, 'Sey');
@@ -48,6 +52,7 @@ void main() {
 
       final json = ctx.toJson();
       expect(json.containsKey('grinderId'), false);
+      expect(json.containsKey('grinderRpm'), false);
       expect(json.containsKey('extras'), false);
       expect(json.containsKey('targetWaterVolume'), false);
 
@@ -56,6 +61,26 @@ void main() {
       expect(restored.targetYield, 36.0);
       expect(restored.grinderId, isNull);
       expect(restored.coffeeName, isNull);
+    });
+
+    test('preserves zero and absent grinder RPM without defaults', () {
+      final zero = WorkflowContext.fromJson({'grinderRpm': 0});
+      final absent = WorkflowContext.fromJson({});
+
+      expect(zero.grinderRpm, 0);
+      expect(zero.toJson()['grinderRpm'], 0);
+      expect(absent.grinderRpm, isNull);
+      expect(absent.toJson().containsKey('grinderRpm'), isFalse);
+    });
+
+    test('rejects malformed grinder RPM instead of truncating it', () {
+      for (final value in [1200.5, -1, '1200', true]) {
+        expect(
+          () => WorkflowContext.fromJson({'grinderRpm': value}),
+          throwsFormatException,
+          reason: '$value must not become an RPM',
+        );
+      }
     });
 
     test('ratio computed correctly', () {
@@ -76,6 +101,7 @@ void main() {
         targetDoseWeight: 18.0,
         targetYield: 36.0,
         targetWaterVolume: 55.0,
+        grinderRpm: 1200,
         coffeeName: 'Ethiopian',
       );
 
@@ -84,7 +110,21 @@ void main() {
       expect(updated.targetDoseWeight, 18.0);
       expect(updated.targetYield, 40.0);
       expect(updated.targetWaterVolume, 55.0);
+      expect(updated.grinderRpm, 1200);
       expect(updated.coffeeName, 'Ethiopian');
+    });
+
+    test('copyWith can clear the grinder RPM', () {
+      final ctx = WorkflowContext(grinderRpm: 1200);
+
+      final changed = ctx.copyWith(grinderRpm: 1400);
+      final preserved = changed.copyWith(grinderSetting: '14');
+      final cleared = preserved.copyWith(clearGrinderRpm: true);
+
+      expect(changed.grinderRpm, 1400);
+      expect(preserved.grinderRpm, 1400);
+      expect(cleared.grinderRpm, isNull);
+      expect(cleared.toJson().containsKey('grinderRpm'), isFalse);
     });
 
     test('copyWith changes and clears the water-volume override', () {
@@ -141,17 +181,14 @@ void main() {
         expect(restored.coffeeName, isNull);
       });
 
-      test(
-        'Map / List values are refused (null-coerced), not silently stringified',
-        () {
-          final restored = WorkflowContext.fromJson({
-            'coffeeName': {'nested': 'map'},
-            'baristaName': [1, 2, 3],
-          });
-          expect(restored.coffeeName, isNull);
-          expect(restored.baristaName, isNull);
-        },
-      );
+      test('Map / List values are refused (null-coerced), not silently stringified', () {
+        final restored = WorkflowContext.fromJson({
+          'coffeeName': {'nested': 'map'},
+          'baristaName': [1, 2, 3],
+        });
+        expect(restored.coffeeName, isNull);
+        expect(restored.baristaName, isNull);
+      });
 
       test('toJson → merge-with-int → fromJson roundtrip does not crash '
           '(regression for workflow_handler deepMerge path)', () {
@@ -212,6 +249,7 @@ void main() {
           'setting': '15',
           'manufacturer': 'Niche',
           'model': 'Zero',
+          'burrs': 'Stock',
         },
         'coffeeData': {'name': 'Gesha Village', 'roaster': 'Sey'},
         'steamSettings': {
@@ -235,6 +273,7 @@ void main() {
       expect(workflow.context!.targetYield, 36.0);
       expect(workflow.context!.grinderSetting, '15');
       expect(workflow.context!.grinderModel, 'Zero');
+      expect(workflow.context!.grinderBurrs, 'Stock');
       expect(workflow.context!.coffeeName, 'Gesha Village');
       expect(workflow.context!.coffeeRoaster, 'Sey');
     });
@@ -298,65 +337,62 @@ void main() {
       },
     );
 
-    test(
-      'legacy doseData-only JSON (no grinder/coffee) synthesizes partial context',
-      () {
-        final json = {
-          'id': 'wf-2',
-          'name': 'Dose Only',
-          'description': '',
-          'profile': {
-            'title': 'Test',
-            'author': 'Test',
-            'notes': '',
-            'beverage_type': 'espresso',
-            'steps': [
-              {
-                'name': 'pour',
-                'pump': 'pressure',
-                'transition': 'fast',
-                'volume': 100,
-                'seconds': 30,
-                'temperature': 93,
-                'sensor': 'coffee',
-                'pressure': 9,
-              },
-            ],
-            'tank_temperature': 0.0,
-            'target_volume': 0,
-            'target_volume_count_start': 0,
-            'legacy_profile_type': '',
-            'type': 'advanced',
-            'lang': 'en',
-            'hidden': false,
-            'reference_file': '',
-            'changes_since_last_espresso': '',
-            'version': '2',
-          },
-          'doseData': {'doseIn': 16, 'doseOut': 32},
-          'steamSettings': {
-            'targetTemperature': 150,
-            'duration': 50,
-            'flow': 0.8,
-          },
-          'hotWaterData': {
-            'targetTemperature': 75,
-            'duration': 30,
-            'volume': 50,
-            'flow': 10.0,
-          },
-          'rinseData': {'targetTemperature': 90, 'duration': 10, 'flow': 6.0},
-        };
+    test('legacy doseData-only JSON (no grinder/coffee) synthesizes partial context', () {
+      final json = {
+        'id': 'wf-2',
+        'name': 'Dose Only',
+        'description': '',
+        'profile': {
+          'title': 'Test',
+          'author': 'Test',
+          'notes': '',
+          'beverage_type': 'espresso',
+          'steps': [
+            {
+              'name': 'pour',
+              'pump': 'pressure',
+              'transition': 'fast',
+              'volume': 100,
+              'seconds': 30,
+              'temperature': 93,
+              'sensor': 'coffee',
+              'pressure': 9,
+            },
+          ],
+          'tank_temperature': 0.0,
+          'target_volume': 0,
+          'target_volume_count_start': 0,
+          'legacy_profile_type': '',
+          'type': 'advanced',
+          'lang': 'en',
+          'hidden': false,
+          'reference_file': '',
+          'changes_since_last_espresso': '',
+          'version': '2',
+        },
+        'doseData': {'doseIn': 16, 'doseOut': 32},
+        'steamSettings': {
+          'targetTemperature': 150,
+          'duration': 50,
+          'flow': 0.8,
+        },
+        'hotWaterData': {
+          'targetTemperature': 75,
+          'duration': 30,
+          'volume': 50,
+          'flow': 10.0,
+        },
+        'rinseData': {'targetTemperature': 90, 'duration': 10, 'flow': 6.0},
+      };
 
-        final workflow = Workflow.fromJson(json);
+      final workflow = Workflow.fromJson(json);
 
-        expect(workflow.context, isNotNull);
-        expect(workflow.context!.targetDoseWeight, 16.0);
-        expect(workflow.context!.targetYield, 32.0);
-        expect(workflow.context!.grinderSetting, isNull);
-        expect(workflow.context!.coffeeName, isNull);
-      },
-    );
+      expect(workflow.context, isNotNull);
+      expect(workflow.context!.targetDoseWeight, 16.0);
+      expect(workflow.context!.targetYield, 32.0);
+      expect(workflow.context!.grinderSetting, isNull);
+      expect(workflow.context!.coffeeName, isNull);
+    });
   });
 
   group('Workflow.machine snapshot', () {
@@ -377,15 +413,13 @@ void main() {
       });
       expect(WorkflowMachine.fromJson(m.toJson()), m);
       expect(
-        WorkflowMachine.fromJson(const {
-          'provenanceStatus': 'unavailable',
-        }).provenanceStatus,
+        WorkflowMachine.fromJson(const {'provenanceStatus': 'unavailable'})
+            .provenanceStatus,
         WorkflowMachineProvenanceStatus.unavailable,
       );
       expect(
-        WorkflowMachine.fromJson(const {
-          'provenanceStatus': 'future-status',
-        }).provenanceStatus,
+        WorkflowMachine.fromJson(const {'provenanceStatus': 'future-status'})
+            .provenanceStatus,
         WorkflowMachineProvenanceStatus.unknown,
       );
       expect(

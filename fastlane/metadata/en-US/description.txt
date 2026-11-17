@@ -1,0 +1,34 @@
+We build the machines. This runs them.
+
+Decaid is the official app from Decent Espresso for the DE1 family and Bengle. Same company, same obsession with the shot, now on iPhone and iPad.
+
+Connect over Bluetooth or USB and Decaid takes care of the rest: it finds your machine and scale, reconnects when you come back, and puts the controls where you expect them.
+
+KNOW YOUR SHOT
+Pressure, flow, weight, group and mix temperature, shot timer, water level - live, while you brew. Start and stop shots, steam, flush or dispense hot water, and set brew and steam targets without leaving the screen.
+
+DIAL IN YOUR COFFEE
+Import and manage DE1 v2 profiles, keep duplicates out of your list, and make per-shot overrides when the coffee asks for it. Save the beans and grinders behind your best shots, with favourites one tap away.
+
+BREW BY WEIGHT
+Decent Scale, Half Decent Scale, or a supported Bluetooth scale from Acaia, Bookoo or Difluid. Run primary and auxiliary scales, auto-tare, and stop the shot at your target weight.
+
+HISTORY YOU OWN
+Every shot, with charts and per-shot detail. Export and restore your history, or bring it over from the previous Decent app so your archive stays in one place.
+
+YOUR INTERFACE, YOUR CALL
+The interface is community-built and yours to choose. Browse skins in-app, set your default, and keep them updated - Streamline.js is a good place to start. Skins are served locally by Decaid, so your workflow stays on your network.
+
+ADD WHAT YOU NEED
+Install community plugins for shot uploads, visualisation, readiness timers and profile tools. Every install asks for permission before it touches anything.
+
+ONE DISPLAY OR TWO
+Use an iPhone or iPad as the display. Connect from other devices too.
+
+TUNE THE DETAILS
+Presence-based auto-sleep, display brightness, keep-awake behaviour, light and dark themes. Set the machine up to match the way your counter actually works.
+
+OPEN BY DESIGN
+A local-first REST API, WebSocket streams, built-in API documentation and gateway modes for delegating control. Build your own interface, script your routine, or hand control to another tool.
+
+Free, open source under GPLv3, and made by Decent Espresso LLC for Decent Espresso machines.

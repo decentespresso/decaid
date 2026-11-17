@@ -400,6 +400,9 @@ void main() {
     );
   }
 
+  Future<Map<String, dynamic>> decode(Response response) async =>
+      jsonDecode(await response.readAsString()) as Map<String, dynamic>;
+
   group('PUT /api/v1/workflow — DE1 governor errors', () {
     test('returns 503 when the DE1 write queue is full', () async {
       await _settleHandler(spy);
@@ -775,6 +778,245 @@ void main() {
     );
   });
 
+  group('PUT /api/v1/workflow — context nullability', () {
+    test('an explicit targetYield of 0 lands in the document as 0', () async {
+      await _settleHandler(spy);
+
+      final future = put({
+        'context': {'targetYield': 0},
+      });
+      await _settleHandler(spy);
+      final response = await future;
+
+      expect(response.statusCode, equals(200));
+      final body = jsonDecode(await response.readAsString());
+      expect(body['context']['targetYield'], equals(0));
+      expect(
+        workflowController.currentWorkflow.context?.targetYield,
+        equals(0.0),
+        reason:
+            'an explicit 0 is the deliberate stop-at-weight disable and '
+            'must survive the merge as a value, not be dropped as absent',
+      );
+    });
+
+    test('preserves RPM and nested grinder preparation parameters', () async {
+      await _settleHandler(spy);
+
+      final response = await put({
+        'context': {
+          'grinderId': 'grinder-1',
+          'grinderModel': 'EG1',
+          'grinderSetting': '12.5',
+          'grinderRpm': 1200,
+          'extras': {
+            'plugin.grinder': {
+              'feedingRate': 4.5,
+              'rpmProfile': [900, 1200],
+            },
+          },
+        },
+      });
+
+      expect(response.statusCode, 200);
+      final body = await decode(response);
+      expect(body['context']['grinderId'], 'grinder-1');
+      expect(body['context']['grinderModel'], 'EG1');
+      expect(body['context']['grinderSetting'], '12.5');
+      expect(body['context']['grinderRpm'], 1200);
+      expect(body['context']['extras'], {
+        'plugin.grinder': {
+          'feedingRate': 4.5,
+          'rpmProfile': [900, 1200],
+        },
+      });
+      expect(workflowController.currentWorkflow.context?.grinderRpm, 1200);
+    });
+
+    test(
+      'rejects invalid grinder RPM values without changing the document',
+      () async {
+        await _settleHandler(spy);
+        final seeded = await put({
+          'context': {'grinderSetting': '12.5', 'grinderRpm': 1200},
+        });
+        expect(seeded.statusCode, 200);
+
+        for (final invalid in <Object>[-1, 12.5, 'fast', true]) {
+          final future = put({
+            'context': {'grinderRpm': invalid},
+          });
+          await _settleHandler(spy);
+          final response = await future;
+
+          expect(response.statusCode, 400, reason: 'grinderRpm=$invalid');
+          expect(
+            workflowController.currentWorkflow.context?.grinderRpm,
+            1200,
+            reason: 'a refused update must not change the document',
+          );
+        }
+      },
+    );
+
+    test('an explicit null clears grinder RPM only', () async {
+      await _settleHandler(spy);
+      final seeded = await put({
+        'context': {
+          'grinderId': 'grinder-1',
+          'grinderSetting': '12.5',
+          'grinderRpm': 1200,
+          'extras': {
+            'plugin.grinder': {'feedingRate': 4.5},
+          },
+        },
+      });
+      expect(seeded.statusCode, 200);
+
+      final future = put({
+        'context': {'grinderRpm': null},
+      });
+      await _settleHandler(spy);
+      final response = await future;
+
+      expect(response.statusCode, 200);
+      final body = await decode(response);
+      expect(body['context'].containsKey('grinderRpm'), isFalse);
+      expect(body['context']['grinderId'], 'grinder-1');
+      expect(body['context']['grinderSetting'], '12.5');
+      expect(body['context']['extras'], {
+        'plugin.grinder': {'feedingRate': 4.5},
+      });
+      expect(workflowController.currentWorkflow.context?.grinderRpm, isNull);
+    });
+
+    test('an explicit null is refused with 400', () async {
+      await _settleHandler(spy);
+      final before = workflowController.currentWorkflow.context?.targetYield;
+
+      final future = put({
+        'context': {'targetYield': null},
+      });
+      await _settleHandler(spy);
+      final response = await future;
+
+      expect(response.statusCode, equals(400));
+      final body = jsonDecode(await response.readAsString());
+      expect(body['message'], contains('targetYield'));
+      expect(
+        workflowController.currentWorkflow.context?.targetYield,
+        equals(before),
+        reason: 'a refused update must not change the document',
+      );
+    });
+
+    test('a PUT that omits targetYield keeps the current value', () async {
+      await _settleHandler(spy);
+      final before = workflowController.currentWorkflow.context?.targetYield;
+      expect(before, isNotNull);
+
+      final future = put({
+        'context': {'targetDoseWeight': 19.0},
+      });
+      await _settleHandler(spy);
+      final response = await future;
+
+      expect(response.statusCode, equals(200));
+      expect(
+        workflowController.currentWorkflow.context?.targetYield,
+        equals(before),
+      );
+    });
+
+    test('an explicit null context is refused with 400', () async {
+      await _settleHandler(spy);
+      final before = workflowController.currentWorkflow.context?.targetYield;
+      expect(before, isNotNull);
+
+      final future = put({'context': null});
+      await _settleHandler(spy);
+      final response = await future;
+
+      expect(response.statusCode, equals(400));
+      final body = jsonDecode(await response.readAsString());
+      expect(body['message'], contains('context'));
+      expect(
+        workflowController.currentWorkflow.context?.targetYield,
+        equals(before),
+        reason:
+            'clearing the whole context would drop targetYield and turn '
+            'stop-at-weight off, which is the ambiguity this endpoint refuses',
+      );
+    });
+
+    test('a non-object context is refused with 400', () async {
+      await _settleHandler(spy);
+      final before = workflowController.currentWorkflow.context?.targetYield;
+
+      final future = put({'context': 5});
+      await _settleHandler(spy);
+      final response = await future;
+
+      expect(response.statusCode, equals(400));
+      expect(
+        workflowController.currentWorkflow.context?.targetYield,
+        equals(before),
+      );
+    });
+
+    test('a non-numeric targetYield is refused with 400', () async {
+      await _settleHandler(spy);
+      final before = workflowController.currentWorkflow.context?.targetYield;
+      expect(before, isNotNull);
+
+      final future = put({
+        'context': {'targetYield': 'abc'},
+      });
+      await _settleHandler(spy);
+      final response = await future;
+
+      expect(response.statusCode, equals(400));
+      final body = jsonDecode(await response.readAsString());
+      expect(body['message'], contains('targetYield'));
+      expect(
+        workflowController.currentWorkflow.context?.targetYield,
+        equals(before),
+        reason:
+            'an unparseable target must not silently become null, which '
+            'reads as stop-at-weight off',
+      );
+    });
+
+    test('an explicit null still clears another context field', () async {
+      await _settleHandler(spy);
+
+      final setFuture = put({
+        'context': {'grinderModel': 'Niche Zero'},
+      });
+      await _settleHandler(spy);
+      expect((await setFuture).statusCode, equals(200));
+      expect(
+        workflowController.currentWorkflow.context?.grinderModel,
+        equals('Niche Zero'),
+      );
+
+      final clearFuture = put({
+        'context': {'grinderModel': null},
+      });
+      await _settleHandler(spy);
+      final response = await clearFuture;
+
+      expect(response.statusCode, equals(200));
+      expect(
+        workflowController.currentWorkflow.context?.grinderModel,
+        isNull,
+        reason:
+            'only targetYield is non-nullable on a PUT; every other context '
+            'field is cleared by an explicit null',
+      );
+    });
+  });
+
   group('PUT /api/v1/workflow — read-modify-write race', () {
     test(
       'multi-field PUT: final shot-settings write reflects BOTH changes',
@@ -959,50 +1201,47 @@ void main() {
       },
     );
 
-    test(
-      'a workflow PUT retries on a replacement attached after a disconnected gap',
-      () async {
-        await _settleHandler(spy);
-        final initial = workflowController.currentWorkflow;
-        final defaultFlow = initial.steamSettings.flow;
-        final nextFlow = defaultFlow + 1;
-        de1Controller.defaultWorkflow = initial;
-        final entered = Completer<void>();
-        final release = Completer<void>();
-        spy.blockedSteamFlow = nextFlow;
-        spy.steamFlowEntered = entered;
-        spy.steamFlowRelease = release;
+    test('a workflow PUT retries on a replacement attached after a disconnected gap', () async {
+      await _settleHandler(spy);
+      final initial = workflowController.currentWorkflow;
+      final defaultFlow = initial.steamSettings.flow;
+      final nextFlow = defaultFlow + 1;
+      de1Controller.defaultWorkflow = initial;
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      spy.blockedSteamFlow = nextFlow;
+      spy.steamFlowEntered = entered;
+      spy.steamFlowRelease = release;
 
-        final future = put({
-          'steamSettings': {'flow': nextFlow},
-        });
-        await entered.future.timeout(const Duration(seconds: 2));
+      final future = put({
+        'steamSettings': {'flow': nextFlow},
+      });
+      await entered.future.timeout(const Duration(seconds: 2));
 
-        spy.setConnectionState(ConnectionState.disconnected);
-        await Future<void>.delayed(Duration.zero);
-        expect(de1Controller.connectedDe1OrNull, isNull);
+      spy.setConnectionState(ConnectionState.disconnected);
+      await Future<void>.delayed(Duration.zero);
+      expect(de1Controller.connectedDe1OrNull, isNull);
 
-        release.complete();
-        await Future<void>.delayed(const Duration(milliseconds: 50));
-        var completed = false;
-        unawaited(future.then((_) => completed = true));
-        expect(completed, isFalse);
+      release.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      var completed = false;
+      unawaited(future.then((_) => completed = true));
+      expect(completed, isFalse);
 
-        final replacement = SpyDe1(readyState: false);
-        await de1Controller.connectToDe1(replacement);
-        expect(completed, isFalse);
-        expect(replacement.setSteamFlowCalls, isEmpty);
+      final replacement = SpyDe1(readyState: false);
+      await de1Controller.connectToDe1(replacement);
+      expect(completed, isFalse);
+      expect(replacement.setSteamFlowCalls, isEmpty);
 
-        replacement.setReady(true);
+      replacement.setReady(true);
 
-        final response = await future.timeout(const Duration(seconds: 2));
-        expect(response.statusCode, 200);
-        expect(replacement.setSteamFlowCalls, [defaultFlow, nextFlow]);
-        expect(replacement.steamFlowCompletionOrder, [defaultFlow, nextFlow]);
-        expect(workflowController.currentWorkflow.steamSettings.flow, nextFlow);
-        await replacement.dispose();
-      },
-    );
+      final response = await future.timeout(const Duration(seconds: 2));
+      expect(response.statusCode, 200);
+      expect(replacement.setSteamFlowCalls, [defaultFlow, nextFlow]);
+      expect(replacement.steamFlowCompletionOrder, [defaultFlow, nextFlow]);
+      expect(workflowController.currentWorkflow.steamSettings.flow, nextFlow);
+      await replacement.dispose();
+    });
 
     test('profile sync waits behind a workflow device write', () async {
       await _settleHandler(spy);
@@ -1362,144 +1601,135 @@ void main() {
       },
     );
 
-    test(
-      'an expired 503 request releases admission capacity while an earlier write remains blocked',
-      () async {
-        await _settleHandler(spy);
-        final initial = workflowController.currentWorkflow;
-        final blockedFlow = initial.steamSettings.flow + 1;
-        final entered = Completer<void>();
-        final release = Completer<void>();
-        spy.blockedSteamFlow = blockedFlow;
-        spy.steamFlowEntered = entered;
-        spy.steamFlowRelease = release;
+    test('an expired 503 request releases admission capacity while an earlier write remains blocked', () async {
+      await _settleHandler(spy);
+      final initial = workflowController.currentWorkflow;
+      final blockedFlow = initial.steamSettings.flow + 1;
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      spy.blockedSteamFlow = blockedFlow;
+      spy.steamFlowEntered = entered;
+      spy.steamFlowRelease = release;
 
-        final expiringHandler = WorkflowHandler(
-          controller: workflowController,
-          de1controller: de1Controller,
-          queueWaitTimeout: const Duration(milliseconds: 100),
+      final expiringHandler = WorkflowHandler(
+        controller: workflowController,
+        de1controller: de1Controller,
+        queueWaitTimeout: const Duration(milliseconds: 100),
+      );
+      final expiringApp = Router().plus;
+      expiringHandler.addRoutes(expiringApp);
+      final expiringCall = expiringApp.call;
+      Future<Response> expPut(Map<String, dynamic> body) async {
+        return await expiringCall(
+          Request(
+            'PUT',
+            Uri.parse('http://localhost/api/v1/workflow'),
+            body: jsonEncode(body),
+            headers: {'content-type': 'application/json'},
+          ),
         );
-        final expiringApp = Router().plus;
-        expiringHandler.addRoutes(expiringApp);
-        final expiringCall = expiringApp.call;
-        Future<Response> expPut(Map<String, dynamic> body) async {
-          return await expiringCall(
-            Request(
-              'PUT',
-              Uri.parse('http://localhost/api/v1/workflow'),
-              body: jsonEncode(body),
-              headers: {'content-type': 'application/json'},
-            ),
-          );
-        }
+      }
 
-        final firstFuture = expPut({
-          'steamSettings': {'flow': blockedFlow},
+      final firstFuture = expPut({
+        'steamSettings': {'flow': blockedFlow},
+      });
+      await entered.future.timeout(const Duration(seconds: 2));
+
+      final expiredResponse = await expPut({
+        'steamSettings': {'flow': blockedFlow + 1},
+      });
+      expect(expiredResponse.statusCode, 503);
+
+      for (var i = 0; i < 7; i++) {
+        final response = await expPut({
+          'steamSettings': {'flow': blockedFlow + 2 + i},
         });
-        await entered.future.timeout(const Duration(seconds: 2));
+        expect(response.statusCode, 503, reason: 'request $i must not 429');
+      }
 
-        final expiredResponse = await expPut({
-          'steamSettings': {'flow': blockedFlow + 1},
-        });
-        expect(expiredResponse.statusCode, 503);
+      release.complete();
+      expect((await firstFuture).statusCode, 200);
+    });
 
-        for (var i = 0; i < 7; i++) {
-          final response = await expPut({
-            'steamSettings': {'flow': blockedFlow + 2 + i},
-          });
-          expect(response.statusCode, 503, reason: 'request $i must not 429');
-        }
+    test('a workflow PUT returns 503 when no replacement appears within the bounded wait', () async {
+      final shortSpy = SpyDe1();
+      final shortWaitController = De1Controller(
+        controller: deviceController,
+        machineReplacementTimeout: const Duration(milliseconds: 100),
+      );
+      await shortWaitController.connectToDe1(shortSpy);
+      final shortWorkflowController = WorkflowController();
+      final shortHandler = WorkflowHandler(
+        controller: shortWorkflowController,
+        de1controller: shortWaitController,
+      );
+      final shortApp = Router().plus;
+      shortHandler.addRoutes(shortApp);
+      final shortCall = shortApp.call;
 
-        release.complete();
-        expect((await firstFuture).statusCode, 200);
-      },
-    );
+      final initial = shortWorkflowController.currentWorkflow;
+      final nextFlow = initial.steamSettings.flow + 1;
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      shortSpy.blockedSteamFlow = nextFlow;
+      shortSpy.steamFlowEntered = entered;
+      shortSpy.steamFlowRelease = release;
 
-    test(
-      'a workflow PUT returns 503 when no replacement appears within the bounded wait',
-      () async {
-        final shortSpy = SpyDe1();
-        final shortWaitController = De1Controller(
-          controller: deviceController,
-          machineReplacementTimeout: const Duration(milliseconds: 100),
+      final future = () async {
+        return await shortCall(
+          Request(
+            'PUT',
+            Uri.parse('http://localhost/api/v1/workflow'),
+            body: jsonEncode({
+              'steamSettings': {'flow': nextFlow},
+            }),
+            headers: {'content-type': 'application/json'},
+          ),
         );
-        await shortWaitController.connectToDe1(shortSpy);
-        final shortWorkflowController = WorkflowController();
-        final shortHandler = WorkflowHandler(
-          controller: shortWorkflowController,
-          de1controller: shortWaitController,
-        );
-        final shortApp = Router().plus;
-        shortHandler.addRoutes(shortApp);
-        final shortCall = shortApp.call;
+      }();
+      await entered.future.timeout(const Duration(seconds: 2));
 
-        final initial = shortWorkflowController.currentWorkflow;
-        final nextFlow = initial.steamSettings.flow + 1;
-        final entered = Completer<void>();
-        final release = Completer<void>();
-        shortSpy.blockedSteamFlow = nextFlow;
-        shortSpy.steamFlowEntered = entered;
-        shortSpy.steamFlowRelease = release;
+      shortSpy.setConnectionState(ConnectionState.disconnected);
+      release.complete();
 
-        final future = () async {
-          return await shortCall(
-            Request(
-              'PUT',
-              Uri.parse('http://localhost/api/v1/workflow'),
-              body: jsonEncode({
-                'steamSettings': {'flow': nextFlow},
-              }),
-              headers: {'content-type': 'application/json'},
-            ),
-          );
-        }();
-        await entered.future.timeout(const Duration(seconds: 2));
-
-        shortSpy.setConnectionState(ConnectionState.disconnected);
-        release.complete();
-
-        final response = await future.timeout(const Duration(seconds: 5));
-        expect(response.statusCode, 503);
-        expect(
-          shortWorkflowController.currentWorkflow.steamSettings.flow,
-          initial.steamSettings.flow,
-          reason: 'workflow must not be committed without a machine',
-        );
-        await shortWaitController.dispose();
-        await shortSpy.dispose();
-      },
-    );
+      final response = await future.timeout(const Duration(seconds: 5));
+      expect(response.statusCode, 503);
+      expect(
+        shortWorkflowController.currentWorkflow.steamSettings.flow,
+        initial.steamSettings.flow,
+        reason: 'workflow must not be committed without a machine',
+      );
+      await shortWaitController.dispose();
+      await shortSpy.dispose();
+    });
   });
 
   group('PUT /api/v1/workflow — stop-at-temperature guarantee', () {
-    test(
-      'a stopAtTemperature-only PUT causes no DE1 steam-setting write while preserving the workflow value',
-      () async {
-        await _settleHandler(spy);
-        spy.updateShotSettingsCalls.clear();
-        spy.setSteamFlowCalls.clear();
-        spy.setHotWaterFlowCalls.clear();
-        spy.setFlushFlowCalls.clear();
-        spy.setFlushTimeoutCalls.clear();
-        spy.setFlushTemperatureCalls.clear();
+    test('a stopAtTemperature-only PUT causes no DE1 steam-setting write while preserving the workflow value', () async {
+      await _settleHandler(spy);
+      spy.updateShotSettingsCalls.clear();
+      spy.setSteamFlowCalls.clear();
+      spy.setHotWaterFlowCalls.clear();
+      spy.setFlushFlowCalls.clear();
+      spy.setFlushTimeoutCalls.clear();
+      spy.setFlushTemperatureCalls.clear();
 
-        final response = await put({
-          'steamSettings': {'stopAtTemperature': 60},
-        });
+      final response = await put({
+        'steamSettings': {'stopAtTemperature': 60},
+      });
 
-        expect(response.statusCode, 200);
-        expect(
-          workflowController.currentWorkflow.steamSettings.stopAtTemperature,
-          60,
-        );
-        expect(spy.updateShotSettingsCalls, isEmpty);
-        expect(spy.setSteamFlowCalls, isEmpty);
-        expect(spy.setHotWaterFlowCalls, isEmpty);
-        expect(spy.setFlushFlowCalls, isEmpty);
-        expect(spy.setFlushTimeoutCalls, isEmpty);
-        expect(spy.setFlushTemperatureCalls, isEmpty);
-      },
-    );
+      expect(response.statusCode, 200);
+      expect(
+        workflowController.currentWorkflow.steamSettings.stopAtTemperature,
+        60,
+      );
+      expect(spy.updateShotSettingsCalls, isEmpty);
+      expect(spy.setSteamFlowCalls, isEmpty);
+      expect(spy.setHotWaterFlowCalls, isEmpty);
+      expect(spy.setFlushFlowCalls, isEmpty);
+      expect(spy.setFlushTimeoutCalls, isEmpty);
+      expect(spy.setFlushTemperatureCalls, isEmpty);
+    });
 
     test(
       'a stopAtTemperature-only PUT commits while no machine is connected',
@@ -1570,53 +1800,50 @@ void main() {
       );
     }
 
-    test(
-      'fields from one settings request cannot be interleaved with another device write',
-      () async {
-        await _settleHandler(spy);
-        final initial = workflowController.currentWorkflow;
-        final blockedFlow = initial.steamSettings.flow + 1;
-        final settingsSteamFlow = initial.steamSettings.flow + 2;
-        final settingsHotWaterFlow = initial.hotWaterData.flow + 1;
-        final laterSteamFlow = initial.steamSettings.flow + 3;
-        final entered = Completer<void>();
-        final release = Completer<void>();
-        spy.blockedSteamFlow = blockedFlow;
-        spy.steamFlowEntered = entered;
-        spy.steamFlowRelease = release;
-        spy.writeOrder.clear();
+    test('fields from one settings request cannot be interleaved with another device write', () async {
+      await _settleHandler(spy);
+      final initial = workflowController.currentWorkflow;
+      final blockedFlow = initial.steamSettings.flow + 1;
+      final settingsSteamFlow = initial.steamSettings.flow + 2;
+      final settingsHotWaterFlow = initial.hotWaterData.flow + 1;
+      final laterSteamFlow = initial.steamSettings.flow + 3;
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      spy.blockedSteamFlow = blockedFlow;
+      spy.steamFlowEntered = entered;
+      spy.steamFlowRelease = release;
+      spy.writeOrder.clear();
 
-        final firstFuture = put({
-          'steamSettings': {'flow': blockedFlow},
-        });
-        await entered.future.timeout(const Duration(seconds: 2));
+      final firstFuture = put({
+        'steamSettings': {'flow': blockedFlow},
+      });
+      await entered.future.timeout(const Duration(seconds: 2));
 
-        final settingsFuture = postSettings({
-          'steamFlow': settingsSteamFlow,
-          'hotWaterFlow': settingsHotWaterFlow,
-        });
-        final laterFuture = put({
-          'steamSettings': {'flow': laterSteamFlow},
-        });
+      final settingsFuture = postSettings({
+        'steamFlow': settingsSteamFlow,
+        'hotWaterFlow': settingsHotWaterFlow,
+      });
+      final laterFuture = put({
+        'steamSettings': {'flow': laterSteamFlow},
+      });
 
-        release.complete();
-        final responses = await Future.wait([
-          firstFuture,
-          settingsFuture,
-          laterFuture,
-        ]).timeout(const Duration(seconds: 3));
+      release.complete();
+      final responses = await Future.wait([
+        firstFuture,
+        settingsFuture,
+        laterFuture,
+      ]).timeout(const Duration(seconds: 3));
 
-        expect(responses[0].statusCode, 200);
-        expect(responses[1].statusCode, 202);
-        expect(responses[2].statusCode, 200);
-        expect(spy.writeOrder, [
-          'steam:$blockedFlow',
-          'hotWater:$settingsHotWaterFlow',
-          'steam:$settingsSteamFlow',
-          'steam:$laterSteamFlow',
-        ]);
-      },
-    );
+      expect(responses[0].statusCode, 200);
+      expect(responses[1].statusCode, 202);
+      expect(responses[2].statusCode, 200);
+      expect(spy.writeOrder, [
+        'steam:$blockedFlow',
+        'hotWater:$settingsHotWaterFlow',
+        'steam:$settingsSteamFlow',
+        'steam:$laterSteamFlow',
+      ]);
+    });
 
     test('machine replacement does not replay a settings request', () async {
       await _settleHandler(spy);
@@ -1835,7 +2062,6 @@ void main() {
           'heaterPh2:4.0',
           'heaterPh2Timeout:4.0',
           'refillKit:De1RefillKitSettings.auto',
-          'flowEstimation:1.0',
           'steamPurgeMode:0',
           'steam:$laterSteamFlow',
         ]);

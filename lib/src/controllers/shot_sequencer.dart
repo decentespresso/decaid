@@ -11,6 +11,7 @@ import 'package:reaprime/src/models/data/shot_snapshot.dart';
 import 'package:reaprime/src/models/data/shot_state_event.dart';
 import 'package:reaprime/src/models/device/bengle_interface.dart';
 import 'package:reaprime/src/models/device/machine.dart';
+import 'package:reaprime/src/models/device/scale.dart';
 import 'package:reaprime/src/models/device/device.dart' as device;
 import 'package:rxdart/rxdart.dart';
 
@@ -75,17 +76,12 @@ class ShotSequencer {
     this.sensorController,
     required this.targetYield,
     double? targetWaterVolume,
-    required bool bypassSAW,
-    required bool blockOnNoScale,
-    required double weightFlowMultiplier,
-    required double volumeFlowMultiplier,
-    required bool stepExitArbiterEnabled,
+    required this._bypassSAW,
+    required this._blockOnNoScale,
+    required this._weightFlowMultiplier,
+    required this._volumeFlowMultiplier,
+    required this._stepExitArbiterEnabled,
   }) : targetWaterVolume = targetWaterVolume ?? targetProfile.targetVolume,
-       _bypassSAW = bypassSAW,
-       _blockOnNoScale = blockOnNoScale,
-       _weightFlowMultiplier = weightFlowMultiplier,
-       _volumeFlowMultiplier = volumeFlowMultiplier,
-       _stepExitArbiterEnabled = stepExitArbiterEnabled,
        _machineHasAutonomousSAW =
            de1controller.connectedDe1() is BengleInterface {
     _log.info(
@@ -256,6 +252,8 @@ class ShotSequencer {
   final double? targetWaterVolume;
   ShotState _state = ShotState.idle;
   bool _scaleLost = false;
+  bool _scaleTimerStopped = false;
+  Scale? _scaleTimerScale;
   bool _scaleConnected = false;
   bool _continueScaleless = false;
   int _scaleConnectionGeneration = 0;
@@ -404,6 +402,7 @@ class ShotSequencer {
       );
       _volumeCountingActive = false;
       dataCollectionEnabled = false;
+      _stopScaleTimer();
       _state = ShotState.finished;
       _stateStream.add(_state);
       return;
@@ -413,6 +412,8 @@ class ShotSequencer {
       case ShotState.idle:
         if (machine.state.state == MachineState.espresso &&
             machine.state.substate == MachineSubstate.preparingForShot) {
+          _scaleTimerStopped = false;
+          _scaleTimerScale = null;
           _resetCommand.add(true);
           _shotStartTime = DateTime.now();
 
@@ -444,7 +445,9 @@ class ShotSequencer {
             scaleController.tare().catchError(
               (e) => _log.warning("Failed to tare scale at shot start", e),
             );
-            scaleController.connectedScale().resetTimer();
+            scaleController.connectedScale().resetTimer().catchError(
+              (e) => _log.warning('Failed to reset scale timer', e),
+            );
           }
           _state = ShotState.preheating;
           _stateStream.add(_state);
@@ -472,7 +475,10 @@ class ShotSequencer {
             scaleController.tare().catchError(
               (e) => _log.warning("Failed to tare scale for pour", e),
             );
-            scaleController.connectedScale().startTimer();
+            _scaleTimerScale = scaleController.connectedScale();
+            _scaleTimerScale!.startTimer().catchError(
+              (e) => _log.warning('Failed to start scale timer', e),
+            );
             _scaleTared = true;
           }
 
@@ -561,9 +567,7 @@ class ShotSequencer {
 
       case ShotState.stopping:
         _volumeCountingActive = false;
-        if (_bypassSAW == false && scale != null && !_scaleLost) {
-          scaleController.connectedScale().stopTimer();
-        }
+        _stopScaleTimer();
 
         _refineStoppingYield(scale);
         if (_stoppingYieldLocked) {
@@ -697,9 +701,26 @@ class ShotSequencer {
         );
   }
 
+  void _stopScaleTimer() {
+    if (_scaleTimerStopped || _bypassSAW) return;
+    _scaleTimerStopped = true;
+
+    final scale = _scaleTimerScale;
+    if (scale == null) return;
+
+    try {
+      scale.stopTimer().catchError(
+        (e) => _log.warning('Failed to stop scale timer', e),
+      );
+    } catch (e) {
+      _log.warning('Failed to stop scale timer', e);
+    }
+  }
+
   void _enterStopping(WeightSnapshot? scale) {
     _latchTrustedFinalYield(scale);
     dataCollectionEnabled = false;
+    _stopScaleTimer();
     _state = _trustedFinalYield != null
         ? ShotState.stopping
         : ShotState.finished;

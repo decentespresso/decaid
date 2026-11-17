@@ -61,7 +61,7 @@ void main() {
 
   group('POST /api/v1/feedback', () {
     test('returns 201 with issue URL and number on success', () async {
-      await wireWith();
+      await wireWith(isConfigured: false);
       final res = await post('/api/v1/feedback', {
         'description': 'Test bug report',
         'type': 'bug',
@@ -75,6 +75,29 @@ void main() {
         'https://github.com/decentespresso/decaid/issues/999',
       );
       expect(body['issueNumber'], 999);
+    });
+
+    test('returns 200 with a warning when support linking fails', () async {
+      await wireWith(
+        isConfigured: false,
+        onSubmitted: (_) => const FeedbackSubmissionResult(
+          success: true,
+          issueUrl: 'https://github.com/decentespresso/decaid/issues/999',
+          issueNumber: 999,
+          supportLink: 'failed',
+          warning: 'Feedback was created, but Support linking failed.',
+        ),
+      );
+      final res = await post('/api/v1/feedback', {
+        'description': 'Test bug report',
+        'type': 'bug',
+      });
+
+      expect(res.statusCode, 200);
+      final body = jsonDecode(await res.readAsString()) as Map<String, dynamic>;
+      expect(body['success'], true);
+      expect(body['supportLink'], 'failed');
+      expect(body['warning'], contains('Support'));
     });
 
     test('returns 400 when description is missing', () async {
@@ -99,7 +122,12 @@ void main() {
     });
 
     test('returns 503 when service is not configured', () async {
-      await wireWith(isConfigured: false);
+      await wireWith(
+        isConfigured: false,
+        onSubmitted: (_) => FeedbackSubmissionResult.failed(
+          'Feedback service is not configured.',
+        ),
+      );
       final res = await post('/api/v1/feedback', {
         'description': 'Test bug report',
         'type': 'bug',

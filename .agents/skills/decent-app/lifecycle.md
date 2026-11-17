@@ -24,6 +24,7 @@ Run commands from the repository root as `scripts/sb-dev.sh <command>`.
 | `--real` | Do not inject `--dart-define=simulate=1`; persisted simulated-device settings still apply. |
 | `--adb-forward` | Forward the REST port to an Android device until `stop`. |
 | `--dart-define <key=value>` | Pass an additional Dart define; repeat as needed. |
+| `--app-arg <value>` | Pass an argument to the app's `main()`; repeat as needed. |
 
 ```bash
 scripts/sb-dev.sh start \
@@ -31,15 +32,27 @@ scripts/sb-dev.sh start \
   --connect-scale MockScale
 ```
 
+The routes that install, replace, configure, enable, disable or remove plugins and skins, change the default skin, or start and stop the skin server need `Authorization: Bearer <token>` with the `extensions:manage` scope. For a scenario that calls them, start with a process-lifetime token (at least 32 characters, not persisted; `restart` reuses it) and send it on those calls:
+
+```bash
+TOKEN="$(openssl rand -hex 32)"
+scripts/sb-dev.sh start --connect-machine MockDe1 \
+  --app-arg "--extensions-token=$TOKEN"
+curl -sf -X POST http://localhost:8080/api/v1/plugins/<id>/enable \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+`scenarios/extension-management-auth.md` verifies the gate itself.
+
 For real hardware, `--connect-machine DE1` can match the advertised name during scanning but does not set a saved preference. Supply the actual BLE device ID separately when needed:
 
 ```bash
 scripts/sb-dev.sh start \
-  --platform 8734SCCFAC00000747 \
+  --platform <adb-serial> \
   --real \
   --adb-forward \
   --connect-machine DE1 \
-  --preferred-machine-id D9:11:0B:E6:9F:86
+  --preferred-machine-id <machine-id>
 ```
 
 `--real` does not clear simulations enabled in Settings. After settings load, the app combines dart-define devices with the persisted `simulatedDevices` selection. Before a hardware smoke test, verify that the persisted selection is empty:

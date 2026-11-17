@@ -81,7 +81,8 @@ void main() {
       await Future<void>.delayed(Duration.zero);
 
       expect(events, hasLength(3));
-      expect(events[1].deviceId, isNull);
+      expect(events[1].deviceId, 'usb-session-1002');
+      expect(events[1].physicalDeviceId, 1002);
       expect(events[2].deviceId, isNull);
       await subscription.cancel();
     },

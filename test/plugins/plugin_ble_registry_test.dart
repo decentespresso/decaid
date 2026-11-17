@@ -10,6 +10,65 @@ PluginDriverDeclaration driver(String id, Map<String, dynamic> match) =>
     });
 
 void main() {
+  test('active binding capacity is bounded by the plugin device quota', () {
+    expect(
+      PluginBleRegistry().activeBindingLimit,
+      PluginBleRegistry.maxActiveBindingLimit,
+    );
+    expect(() => PluginBleRegistry(activeBindingLimit: 0), throwsArgumentError);
+    expect(
+      () => PluginBleRegistry(
+        activeBindingLimit: PluginBleRegistry.maxActiveBindingLimit + 1,
+      ),
+      throwsArgumentError,
+    );
+  });
+
+  test(
+    'the active binding quota admits four live bindings and rejects a fifth',
+    () {
+      final registry = PluginBleRegistry();
+      addTearDown(registry.dispose);
+      final entry = registry.register(
+        pluginId: 'a',
+        generation: 1,
+        declaration: driver('one', {
+          'name': {'exact': 'bookoo'},
+        }),
+        permissions: {PluginPermissions.transportBle},
+        factoryHandle: 'a',
+      );
+      final claims = [
+        for (
+          var index = 0;
+          index < PluginBleRegistry.maxActiveBindingLimit;
+          index++
+        )
+          registry.reserve(entry, 'binding-$index'),
+      ];
+      expect(registry.activeBindingCount, 4);
+      expect(
+        () => registry.reserve(entry, 'binding-4'),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            'Active BLE binding limit reached',
+          ),
+        ),
+      );
+      expect(registry.activeBindingCount, 4);
+      for (final claim in claims) {
+        expect(registry.isClaimed(claim.physicalId), isTrue);
+      }
+      for (final claim in claims) {
+        registry.release(claim);
+      }
+      expect(registry.activeBindingCount, 0);
+      expect(registry.reserve(entry, 'binding-4').physicalId, 'binding-4');
+    },
+  );
+
   test('name completeness reaches ownership decisions', () {
     final registry = PluginBleRegistry();
     addTearDown(registry.dispose);
@@ -235,37 +294,34 @@ void main() {
     );
   });
 
-  test(
-    'complete advertisement supersedes incomplete system metadata in either order',
-    () {
-      final advertisement = BleAdvertisementEvidence(
-        name: 'bookoo',
-        serviceUuids: ['0ffe'],
-        observedAt: DateTime.utc(2026, 9, 7),
-      );
-      final system = BleAdvertisementEvidence(
-        name: 'bookoo',
-        source: BleEvidenceSource.system,
-        observedAt: DateTime.utc(2026, 9, 7, 0, 0, 1),
-      );
-      for (final observations in [
-        [system, advertisement],
-        [advertisement, system],
-      ]) {
-        final cache = BleAdvertisementCache();
-        cache.beginGeneration(1);
-        for (final observation in observations) {
-          cache.record('AB:CD', 1, observation);
-        }
-        expect(cache.get('ab:cd')!.serviceUuids, ['0ffe']);
-        expect(cache.get('ab:cd')!.source, BleEvidenceSource.advertisement);
-        cache.beginGeneration(2);
-        expect(cache.get('ab:cd'), isNull);
-        cache.record('AB:CD', 1, advertisement);
-        expect(cache.get('ab:cd'), isNull);
+  test('complete advertisement supersedes incomplete system metadata in either order', () {
+    final advertisement = BleAdvertisementEvidence(
+      name: 'bookoo',
+      serviceUuids: ['0ffe'],
+      observedAt: DateTime.utc(2026, 9, 7),
+    );
+    final system = BleAdvertisementEvidence(
+      name: 'bookoo',
+      source: BleEvidenceSource.system,
+      observedAt: DateTime.utc(2026, 9, 7, 0, 0, 1),
+    );
+    for (final observations in [
+      [system, advertisement],
+      [advertisement, system],
+    ]) {
+      final cache = BleAdvertisementCache();
+      cache.beginGeneration(1);
+      for (final observation in observations) {
+        cache.record('AB:CD', 1, observation);
       }
-    },
-  );
+      expect(cache.get('ab:cd')!.serviceUuids, ['0ffe']);
+      expect(cache.get('ab:cd')!.source, BleEvidenceSource.advertisement);
+      cache.beginGeneration(2);
+      expect(cache.get('ab:cd'), isNull);
+      cache.record('AB:CD', 1, advertisement);
+      expect(cache.get('ab:cd'), isNull);
+    }
+  });
 
   test('observations are not combined into a fabricated match', () {
     final cache = BleAdvertisementCache()..beginGeneration(1);

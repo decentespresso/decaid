@@ -148,6 +148,15 @@ void main() {
     expect(controller.pendingDeviceWriteCount, 0);
   });
 
+  test('ordinary writes preserve native TimeoutException errors', () async {
+    final timeout = TimeoutException('ordinary write timeout');
+    final operation = controller.runDeviceWrite((_) async {
+      throw timeout;
+    });
+
+    await expectLater(operation, throwsA(same(timeout)));
+  });
+
   test('failed active write does not stall the next write', () async {
     final release = Completer<void>();
     final started = Completer<void>();

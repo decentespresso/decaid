@@ -4,12 +4,14 @@ Pick the scenario that matches the task and run it before calling related work d
 
 | Scenario | File |
 |---|---|
+| Backup import entry-count limit | `scenarios/backup-import-entry-limit.md` |
 | Account proxy native consent gate | `scenarios/account-proxy-consent.md` |
 | Account proxy CORS pinned to skin origin | `scenarios/account-proxy-cors.md` |
 | Account proxy write forwarding and scope gate | `scenarios/account-proxy-write.md` |
 | API pressure hardening | `scenarios/api-pressure-hardening.md` |
 | Bengle cup warmer, preheat, and capability discovery | `scenarios/bengle-cup-warmer.md` |
 | Bengle integrated scale | `scenarios/bengle-integrated-scale.md` |
+| Bengle primary with an auxiliary scale | `scenarios/auxiliary-scale-connections.md` |
 | Bengle LED strip v2 | `scenarios/bengle-led-strip.md` |
 | Bengle scale calibration | `scenarios/bengle-scale-calibration.md` |
 | Bengle firmware wake-schedule sync | `scenarios/bengle-wake-schedule.md` |
@@ -19,10 +21,16 @@ Pick the scenario that matches the task and run it before calling related work d
 | Device scan and connection policy | `scenarios/device-scan-connection-policy.md` |
 | Display brightness and low-battery toggle | `scenarios/display-brightness.md` |
 | ETag conditional GETs | `scenarios/etag-conditional-gets.md` |
+| Embedded skin switching (`decentApp.switchSkin`) | `scenarios/skin-switch-embedded.md` |
+| Read-only Grinder observations | `scenarios/grinder-observations.md` |
 | Firmware endpoints | `scenarios/firmware.md` |
 | Hot-water stop at weight | `scenarios/hot-water-stop-at-weight.md` |
+| Machine water levels read | `scenarios/machine-water-levels.md` |
+| MockDe1 raw machine channel | `scenarios/mock-de1-raw.md` |
 | Onboarding connection phases | `scenarios/onboarding-connection-phases.md` |
 | Preferred-device fast path | `scenarios/onboarding-preferred-device.md` |
+| Plugin and skin management authorization (`extensions:manage`) | `scenarios/extension-management-auth.md` |
 | Plugin Decent account proxy bridge | `scenarios/plugin-decent-proxy.md` |
 | Discover and restore default profiles | `scenarios/profiles-defaults.md` |
 | Shot-state WebSocket and persisted stop reason | `scenarios/shot-state-ws.md` |
+| Update-check capability refusals | `scenarios/update-check-capability.md` |

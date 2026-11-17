@@ -41,6 +41,30 @@ void main() {
       expect(event.measuring, isFalse);
     });
 
+    test('parses the published negative-average response packet', () {
+      final packet = Uint8List.fromList([
+        0xDF,
+        0xDF,
+        0x03,
+        0x01,
+        0x07,
+        0x02,
+        0xFF,
+        0xF9,
+        0x00,
+        0x02,
+        0x08,
+        0xA6,
+        0x73,
+      ]);
+
+      final event = DifluidR2Protocol.parse(packet);
+
+      expect(event.kind, DifluidR2EventKind.reading);
+      expect(event.tds, closeTo(-0.07, 0.001));
+      expect(event.refractiveIndex, closeTo(1.33286, 0.00001));
+    });
+
     test('rejects packets with an invalid checksum', () {
       final packet = Uint8List.fromList([
         0xDF,

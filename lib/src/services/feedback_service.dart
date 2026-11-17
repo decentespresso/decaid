@@ -11,39 +11,97 @@ import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/models/feedback/feedback_request.dart';
 import 'package:reaprime/src/models/feedback/feedback_result.dart';
 import 'package:reaprime/src/services/account/decent_account_service.dart';
+import 'package:reaprime/src/services/github_credentials.dart';
+import 'package:reaprime/src/services/github_request.dart';
 import 'package:reaprime/src/services/storage/app_directories.dart';
 import 'package:reaprime/src/services/telemetry/anonymization.dart';
+import 'package:reaprime/src/util/remote_error.dart';
+import 'package:reaprime/src/util/user_facing_exception.dart';
+
+class FeedbackAttachmentException implements UserFacingException {
+  @override
+  final String message;
+
+  const FeedbackAttachmentException(this.message);
+
+  @override
+  String toString() => message;
+}
+
+class _SupportReferenceException implements Exception {
+  final String message;
+
+  const _SupportReferenceException(this.message);
+
+  @override
+  String toString() => message;
+}
 
 class FeedbackService {
   final String _githubToken;
   final String _repo;
   final List<String> Function() _currentSerialNumbers;
+  final List<String> Function() _installedComponents;
   final DecentAccountService? _accountService;
   final Duration _supportLinkTimeout;
+  final GithubCredentialProvider? _credentials;
+  final http.Client? _httpClient;
   final Logger _log = Logger('FeedbackService');
 
   static const String _githubApiBase = 'https://api.github.com';
 
   FeedbackService({
-    required String githubToken,
-    String repo = 'decentespresso/decaid',
-    required List<String> Function() currentSerialNumbers,
-    DecentAccountService? accountService,
-    Duration supportLinkTimeout = const Duration(seconds: 30),
-  }) : _githubToken = githubToken,
-       _repo = repo,
-       _currentSerialNumbers = currentSerialNumbers,
-       _accountService = accountService,
-       _supportLinkTimeout = supportLinkTimeout;
+    required this._githubToken,
+    this._repo = 'decentespresso/decaid',
+    required this._currentSerialNumbers,
+    List<String> Function()? installedComponents,
+    this._accountService,
+    this._supportLinkTimeout = const Duration(seconds: 30),
+    this._credentials,
+    this._httpClient,
+  }) : _installedComponents = installedComponents ?? _noComponents;
 
-  bool get isConfigured => _githubToken.isNotEmpty;
+  bool get isConfigured =>
+      _githubToken.isNotEmpty ||
+      _credentials?.current.isUser == true ||
+      _credentials?.hasStorageFailure == true;
 
   Future<FeedbackSubmissionResult> submitFeedback(
     FeedbackRequest request,
   ) async {
-    if (!isConfigured) {
+    final GithubCredentialSnapshot authorization;
+    try {
+      authorization = await _feedbackSnapshot();
+    } catch (_) {
       return FeedbackSubmissionResult.failed(
-        'Feedback service is not configured. No GitHub token provided at build time.',
+        'Could not read the GitHub credential. Open Advanced Settings to replace or remove it.',
+      );
+    }
+
+    final DecentAccountStatus accountStatus;
+    try {
+      accountStatus =
+          await _accountService?.verifyStoredCredentialsStatus() ??
+          DecentAccountStatus.unauthenticated;
+    } catch (_) {
+      _log.warning('Could not verify Decent account for feedback');
+      return FeedbackSubmissionResult.failed(
+        'Could not verify your Decent account. Check your connection and try again.',
+        reason: FeedbackFailureReason.accountRequired,
+      );
+    }
+    if (accountStatus != DecentAccountStatus.authenticated) {
+      return FeedbackSubmissionResult.failed(
+        accountStatus == DecentAccountStatus.indeterminate
+            ? 'Could not verify your Decent account. Check your connection and try again.'
+            : 'You must be logged in to your Decent account to submit feedback.',
+        reason: FeedbackFailureReason.accountRequired,
+      );
+    }
+
+    if (authorization.isAnonymous) {
+      return FeedbackSubmissionResult.failed(
+        'Feedback service is not configured. Open Advanced Settings to add a GitHub token or build with a feedback token.',
       );
     }
 
@@ -60,6 +118,7 @@ class FeedbackService {
         gistUrl = await _uploadGist(
           includeLogs: request.includeLogs,
           screenshots: request.screenshots,
+          authorization: authorization,
         );
       }
 
@@ -67,12 +126,14 @@ class FeedbackService {
         request: request,
         systemInfo: systemInfo,
         gistUrl: gistUrl,
+        authorization: authorization,
       );
 
       final issueResult = await _createGitHubIssue(
-        title: _buildIssueTitle(request),
+        title: _buildIssueTitle(request, authorization: authorization),
         body: body,
         labels: _buildLabels(request),
+        authorization: authorization,
       );
 
       if (issueResult == null) {
@@ -80,34 +141,105 @@ class FeedbackService {
       }
 
       final issueNumber = issueResult['number'] as int;
-      final issueUrl = issueResult['html_url'] as String;
+      final issueUrl = _safeIssueUrl(issueResult['html_url'], issueNumber);
 
       final supportLinkAbort = Completer<void>();
+      var supportLinked = false;
+      String? supportWarning;
       try {
-        await _linkFeedbackToSupport(
-          issueNumber: issueNumber,
-          issueUrl: issueUrl,
-          abort: supportLinkAbort,
-        ).timeout(
-          _supportLinkTimeout,
-          onTimeout: () {
-            supportLinkAbort.complete();
-            throw TimeoutException('Decent Support linking timed out');
-          },
-        );
-      } catch (e, st) {
-        _log.warning('Could not link feedback to Decent support', e, st);
+        supportLinked =
+            await _linkFeedbackToSupport(
+              issueNumber: issueNumber,
+              issueUrl: issueUrl,
+              authorization: authorization,
+              abort: supportLinkAbort,
+            ).timeout(
+              _supportLinkTimeout,
+              onTimeout: () {
+                if (!supportLinkAbort.isCompleted) supportLinkAbort.complete();
+                throw TimeoutException('Decent Support linking timed out');
+              },
+            );
+      } catch (e) {
+        _log.warning('Could not link feedback to Decent support');
+        supportWarning = e is _SupportReferenceException ? e.message : 'Feedback was created, but Decent Support linking did not finish. Check your connection; the issue is available on GitHub.';
       }
 
       _log.info('Feedback submitted successfully as issue #$issueNumber');
       return FeedbackSubmissionResult.succeeded(
         issueUrl: issueUrl,
         issueNumber: issueNumber,
+        supportLink: supportWarning != null
+            ? 'failed'
+            : supportLinked
+            ? 'linked'
+            : null,
+        warning: supportWarning,
       );
-    } catch (e, st) {
-      _log.severe('Failed to submit feedback', e, st);
-      return FeedbackSubmissionResult.failed('Failed to submit feedback: $e');
+    } catch (e) {
+      _log.severe('Failed to submit feedback');
+      return FeedbackSubmissionResult.failed(_safeFeedbackError(e));
     }
+  }
+
+  Future<GithubCredentialSnapshot> _feedbackSnapshot() async {
+    if (_credentials != null) {
+      return _credentials.feedbackSnapshot(bundledToken: _githubToken);
+    }
+    final token = _githubToken.trim();
+    return token.isEmpty
+        ? const GithubCredentialSnapshot.anonymous()
+        : GithubCredentialSnapshot.bundled(token);
+  }
+
+  String _safeFeedbackError(Object error) {
+    if (error is GithubRequestException) return error.userMessage;
+    if (error is FeedbackAttachmentException) return error.message;
+    return remoteErrorMessage(error, action: 'send feedback');
+  }
+
+  String _safeIssueUrl(Object? value, int issueNumber) {
+    final parsed = value is String ? Uri.tryParse(value) : null;
+    if (parsed != null &&
+        parsed.scheme == 'https' &&
+        parsed.host == 'github.com' &&
+        parsed.userInfo.isEmpty &&
+        parsed.query.isEmpty &&
+        parsed.fragment.isEmpty &&
+        parsed.path == '/$_repo/issues/$issueNumber') {
+      return parsed.toString();
+    }
+    return 'https://github.com/$_repo/issues/$issueNumber';
+  }
+
+  Map<String, String> _githubHeaders(
+    Uri uri,
+    GithubCredentialSnapshot authorization, {
+    bool json = false,
+  }) {
+    return githubRequestHeaders(
+      uri,
+      authorization: authorization,
+      headers: {if (json) 'Content-Type': 'application/json'},
+    );
+  }
+
+  Future<http.StreamedResponse> _send(http.BaseRequest request) {
+    final client = _httpClient;
+    return client == null ? request.send() : client.send(request);
+  }
+
+  Future<http.Response> _sendJson({
+    required String method,
+    required Uri uri,
+    required Object body,
+    required GithubCredentialSnapshot authorization,
+  }) async {
+    final request = http.Request(method, uri)
+      ..headers.addAll(_githubHeaders(uri, authorization, json: true))
+      ..followRedirects = false
+      ..body = jsonEncode(body);
+    return http.Response.fromStream(await _send(request));
   }
 
   String _collectSystemInfo() {
@@ -121,18 +253,31 @@ class FeedbackService {
     info.writeln('- Platform: ${Platform.operatingSystem}');
     info.writeln('- OS Version: ${Platform.operatingSystemVersion}');
     info.writeln('- Dart Version: ${Platform.version}');
+    for (final component in _readInstalledComponents()) {
+      info.writeln('- $component');
+    }
     return info.toString();
+  }
+
+  List<String> _readInstalledComponents() {
+    try {
+      return _installedComponents();
+    } catch (e, st) {
+      _log.warning('Could not read installed component versions', e, st);
+      return const [];
+    }
   }
 
   Future<String?> _uploadGist({
     required bool includeLogs,
     required List<Uint8List> screenshots,
+    required GithubCredentialSnapshot authorization,
   }) async {
     try {
       final Map<String, Map<String, String>> gistFiles = {};
 
       if (includeLogs) {
-        String? logContent = await _readLogFile();
+        String? logContent = await _readLogFile(authorization: authorization);
         if (logContent != null && logContent.isNotEmpty) {
           const maxLogSize = 500000;
           if (logContent.length > maxLogSize) {
@@ -142,7 +287,9 @@ class FeedbackService {
           gistFiles['decent_logs.txt'] = {'content': logContent};
         }
 
-        String? webViewLogContent = await _readWebViewLogFile();
+        String? webViewLogContent = await _readWebViewLogFile(
+          authorization: authorization,
+        );
         if (webViewLogContent != null && webViewLogContent.isNotEmpty) {
           const maxWebViewLogSize = 500000;
           if (webViewLogContent.length > maxWebViewLogSize) {
@@ -163,39 +310,72 @@ class FeedbackService {
         return null;
       }
 
-      final response = await http.post(
-        Uri.parse('$_githubApiBase/gists'),
-        headers: _authHeaders,
-        body: jsonEncode({
+      final response = await _sendJson(
+        method: 'POST',
+        uri: Uri.parse('$_githubApiBase/gists'),
+        authorization: authorization,
+        body: {
           'description':
               'Decent feedback - ${DateTime.now().toIso8601String()}',
           'public': false,
           'files': gistFiles,
-        }),
+        },
       );
 
       if (response.statusCode == 201) {
         final gistData = jsonDecode(response.body) as Map<String, dynamic>;
         final gistUrl = gistData['html_url'] as String;
-        _log.info('Gist uploaded: $gistUrl');
-        return gistUrl;
-      } else {
-        _log.warning(
-          'Failed to create Gist: ${response.statusCode} - ${response.body}',
-        );
-        return null;
+        final parsed = Uri.tryParse(gistUrl);
+        final segments = parsed?.pathSegments ?? const <String>[];
+        final validGistPath =
+            segments.length == 2 &&
+            RegExp(r'^[A-Za-z0-9-]+$').hasMatch(segments[0]) &&
+            RegExp(r'^[0-9a-fA-F]{8,}$').hasMatch(segments[1]);
+        if (parsed == null ||
+            parsed.scheme != 'https' ||
+            parsed.host != 'gist.github.com' ||
+            parsed.userInfo.isNotEmpty ||
+            parsed.query.isNotEmpty ||
+            parsed.fragment.isNotEmpty ||
+            !validGistPath ||
+            _scrubSensitive(parsed.toString(), authorization: authorization) !=
+                parsed.toString()) {
+          throw const FeedbackAttachmentException(
+            'GitHub returned an invalid attachment URL. Retry or uncheck logs/remove screenshots.',
+          );
+        }
+        _log.info('Gist uploaded');
+        return parsed.toString();
       }
+      throw _attachmentException(authorization);
     } catch (e) {
-      _log.warning('Failed to upload Gist', e);
-      return null;
+      if (e is FeedbackAttachmentException) rethrow;
+      _log.warning('Failed to upload Gist');
+      throw _attachmentException(authorization);
     }
   }
 
-  Future<String?> _readLogFile() async {
+  FeedbackAttachmentException _attachmentException(
+    GithubCredentialSnapshot authorization,
+  ) {
+    final credentialAdvice = authorization.isUser
+        ? ' If this is your PAT, open Advanced Settings to replace or remove it.'
+        : '';
+    return FeedbackAttachmentException(
+      'Could not upload attachments. Check Gists write permission, then retry or uncheck logs/remove screenshots.$credentialAdvice',
+    );
+  }
+
+  Future<String?> _readLogFile({
+    GithubCredentialSnapshot? authorization,
+  }) async {
     try {
       final logFile = File('${await AppDirectories.logs}/log.txt');
       if (await logFile.exists()) {
-        return _scrubSensitive(await logFile.readAsString());
+        return _scrubSensitive(
+          await logFile.readAsString(),
+          authorization: authorization,
+        );
       }
       _log.info('No log file found');
       return null;
@@ -205,11 +385,16 @@ class FeedbackService {
     }
   }
 
-  Future<String?> _readWebViewLogFile() async {
+  Future<String?> _readWebViewLogFile({
+    GithubCredentialSnapshot? authorization,
+  }) async {
     try {
       final logFile = File('${await AppDirectories.logs}/webview_console.log');
       if (await logFile.exists()) {
-        return _scrubSensitive(await logFile.readAsString());
+        return _scrubSensitive(
+          await logFile.readAsString(),
+          authorization: authorization,
+        );
       }
       _log.info('No webview log file found');
       return null;
@@ -219,11 +404,21 @@ class FeedbackService {
     }
   }
 
-  String _scrubSensitive(String content) {
-    return Anonymization.scrubString(
-      content,
-      sensitiveStrings: _currentSerialNumbers(),
-    );
+  String _scrubSensitive(
+    String content, {
+    GithubCredentialSnapshot? authorization,
+  }) {
+    final sensitive = <String>[
+      ..._currentSerialNumbers(),
+      _githubToken,
+      if (authorization?.authorizationHeader case final header?
+          when header.startsWith('Bearer '))
+        header.substring('Bearer '.length),
+      if (_credentials?.current.authorizationHeader case final header?
+          when header.startsWith('Bearer '))
+        header.substring('Bearer '.length),
+    ]..removeWhere((value) => value.isEmpty);
+    return Anonymization.scrubString(content, sensitiveStrings: sensitive);
   }
 
   Future<Uint8List> _scaleImageToMaxSize(
@@ -275,9 +470,15 @@ class FeedbackService {
     return imageBytes;
   }
 
-  String _buildIssueTitle(FeedbackRequest request) {
+  String _buildIssueTitle(
+    FeedbackRequest request, {
+    required GithubCredentialSnapshot authorization,
+  }) {
     final prefix = '[${request.type.displayName}]';
-    final firstLine = request.description.split('\n').first;
+    final firstLine = _scrubSensitive(
+      request.description,
+      authorization: authorization,
+    ).split('\n').first;
     final title = firstLine.length > 80
         ? '${firstLine.substring(0, 77)}...'
         : firstLine;
@@ -288,16 +489,19 @@ class FeedbackService {
     required FeedbackRequest request,
     required String systemInfo,
     String? gistUrl,
+    required GithubCredentialSnapshot authorization,
   }) {
     final body = StringBuffer();
 
     body.writeln('## Description');
-    body.writeln(request.description);
+    body.writeln(
+      _scrubSensitive(request.description, authorization: authorization),
+    );
     body.writeln();
 
     if (systemInfo.isNotEmpty) {
       body.writeln('## System Info');
-      body.writeln(systemInfo);
+      body.writeln(_scrubSensitive(systemInfo, authorization: authorization));
       body.writeln();
     }
 
@@ -323,72 +527,90 @@ class FeedbackService {
     required String title,
     required String body,
     required List<String> labels,
+    required GithubCredentialSnapshot authorization,
   }) async {
     try {
-      final response = await http.post(
-        Uri.parse('$_githubApiBase/repos/$_repo/issues'),
-        headers: _authHeaders,
-        body: jsonEncode({'title': title, 'body': body, 'labels': labels}),
+      final response = await _sendJson(
+        method: 'POST',
+        uri: Uri.parse('$_githubApiBase/repos/$_repo/issues'),
+        authorization: authorization,
+        body: {'title': title, 'body': body, 'labels': labels},
       );
 
       if (response.statusCode == 201) {
         return jsonDecode(response.body) as Map<String, dynamic>;
       } else {
-        _log.severe(
-          'Failed to create issue: ${response.statusCode} - ${response.body}',
-        );
-        return null;
+        if (authorization.isUser &&
+            const [401, 403, 404].contains(response.statusCode)) {
+          throw GithubRequestException(
+            'GitHub rejected the configured credential. Open Advanced Settings to replace or remove it.',
+            statusCode: response.statusCode,
+            credentialRejected: true,
+          );
+        }
+        throw remoteHttpError(response.statusCode);
       }
-    } catch (e) {
-      _log.severe('Failed to create GitHub issue', e);
-      return null;
+    } catch (_) {
+      _log.severe('Failed to create GitHub issue');
+      rethrow;
     }
   }
 
-  Future<void> _linkFeedbackToSupport({
+  Future<bool> _linkFeedbackToSupport({
     required int issueNumber,
     required String issueUrl,
+    required GithubCredentialSnapshot authorization,
     required Completer<void> abort,
   }) async {
     final accountService = _accountService;
-    if (accountService == null || abort.isCompleted) return;
+    if (accountService == null || abort.isCompleted) return false;
     if (!await accountService.hasLinkedAccount() || abort.isCompleted) {
-      return;
+      return false;
     }
-    final contactId = await accountService.sendSupportMessage(
+    final receipt = await accountService.sendSupportMessage(
       subject: 'Decaid feedback #$issueNumber',
-      body: issueUrl,
+      body:
+          'Hi,\n\n'
+          'I recently submitted feedback from Decaid: $issueUrl\n\n'
+          'This message was sent automatically by Decaid for reference and '
+          'to keep the feedback linked to my support history.',
       abortTrigger: abort.future,
     );
-    if (abort.isCompleted) return;
-    await _updateGitHubIssueBody(issueNumber, contactId, abort);
+    final messageId = receipt.messageId;
+    if (abort.isCompleted || messageId == null) return false;
+    await _appendSupportMessageId(issueNumber, messageId, authorization, abort);
+    return !abort.isCompleted;
   }
 
-  Future<void> _updateGitHubIssueBody(
+  Future<void> _appendSupportMessageId(
     int issueNumber,
-    String contactId,
+    String messageId,
+    GithubCredentialSnapshot authorization,
     Completer<void> abort,
   ) async {
     final uri = Uri.parse('$_githubApiBase/repos/$_repo/issues/$issueNumber');
-    final currentRequest = http.AbortableRequest(
-      'GET',
-      uri,
-      abortTrigger: abort.future,
-    )..headers.addAll(_authHeaders);
+    final currentRequest =
+        http.AbortableRequest('GET', uri, abortTrigger: abort.future)
+          ..headers.addAll(_githubHeaders(uri, authorization))
+          ..followRedirects = false;
     final currentResponse = await http.Response.fromStream(
-      await currentRequest.send(),
+      await _send(currentRequest),
     );
     if (currentResponse.statusCode != 200) {
-      throw Exception(
-        'Failed to read GitHub issue #$issueNumber '
-        '(${currentResponse.statusCode})',
+      throw _SupportReferenceException(
+        authorization.isUser &&
+                const [401, 403, 404].contains(currentResponse.statusCode)
+            ? 'Feedback was created, but GitHub rejected the configured credential. Open Advanced Settings to replace or remove it.'
+            : 'Feedback was created, but Decent Support linking could not read the issue. Check GitHub Issues permission; the issue is available on GitHub.',
       );
     }
     if (abort.isCompleted) return;
-    final currentBody =
-        (jsonDecode(currentResponse.body) as Map<String, dynamic>)['body']
-            as String? ??
-        '';
+    final currentBody = _scrubSensitive(
+      (jsonDecode(currentResponse.body) as Map<String, dynamic>)['body']
+              as String? ??
+          '',
+      authorization: authorization,
+    );
     final separator = currentBody.isEmpty
         ? ''
         : currentBody.endsWith('\n')
@@ -396,27 +618,39 @@ class FeedbackService {
         : '\n\n';
     final request =
         http.AbortableRequest('PATCH', uri, abortTrigger: abort.future)
-          ..headers.addAll(_authHeaders)
+          ..headers.addAll(_githubHeaders(uri, authorization, json: true))
+          ..followRedirects = false
           ..body = jsonEncode({
-            'body': '$currentBody$separator---\n**Contact:** `$contactId`\n',
+            'body':
+                '$currentBody$separator---\n**Support message:** `$messageId`\n',
           });
-    final response = await http.Response.fromStream(await request.send());
+    final response = await http.Response.fromStream(await _send(request));
     if (response.statusCode != 200) {
-      throw Exception(
-        'Failed to update GitHub issue #$issueNumber (${response.statusCode})',
+      throw _SupportReferenceException(
+        authorization.isUser &&
+                const [401, 403, 404].contains(response.statusCode)
+            ? 'Feedback was created, but GitHub rejected the configured credential. Open Advanced Settings to replace or remove it.'
+            : 'Feedback was created, but Decent Support linking could not update the issue. Check GitHub Issues permission; the issue is available on GitHub.',
       );
     }
   }
 
   Future<String> generateHtmlReport(FeedbackRequest request) async {
+    final authorization = await _feedbackSnapshot();
     final systemInfo = request.includeSystemInfo ? _collectSystemInfo() : '';
     String? logContent;
     String? webViewLogContent;
     if (request.includeLogs) {
-      logContent = await _readLogFile();
-      webViewLogContent = await _readWebViewLogFile();
+      logContent = await _readLogFile(authorization: authorization);
+      webViewLogContent = await _readWebViewLogFile(
+        authorization: authorization,
+      );
     }
 
+    final scrubbedSystemInfo = _scrubSensitive(
+      systemInfo,
+      authorization: authorization,
+    );
     final html = StringBuffer();
     html.writeln('<!DOCTYPE html>');
     html.writeln('<html><head>');
@@ -451,12 +685,12 @@ class FeedbackService {
 
     html.writeln('<h2>Description</h2>');
     html.writeln(
-      '<p>${_escapeHtml(request.description).replaceAll('\n', '<br>')}</p>',
+      '<p>${_escapeHtml(_scrubSensitive(request.description, authorization: authorization)).replaceAll('\n', '<br>')}</p>',
     );
 
-    if (systemInfo.isNotEmpty) {
+    if (scrubbedSystemInfo.isNotEmpty) {
       html.writeln('<h2>System Information</h2><ul>');
-      for (final line in systemInfo.split('\n')) {
+      for (final line in scrubbedSystemInfo.split('\n')) {
         final trimmed = line.trim();
         if (trimmed.startsWith('- ')) {
           html.writeln('<li>${_escapeHtml(trimmed.substring(2))}</li>');
@@ -514,10 +748,6 @@ class FeedbackService {
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;');
   }
-
-  Map<String, String> get _authHeaders => {
-    'Authorization': 'token $_githubToken',
-    'Accept': 'application/vnd.github.v3+json',
-    'Content-Type': 'application/json',
-  };
 }
+
+List<String> _noComponents() => const [];

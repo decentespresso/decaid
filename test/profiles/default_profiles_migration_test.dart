@@ -83,32 +83,25 @@ void main() {
     },
   );
 
-  test(
-    'M2: a stale prior version of a changed default is hidden, current stays visible',
-    () async {
-      final storage = InMemoryProfileStorage();
-      final json = await _bundledJson(_milkyFile);
-      (json['steps'] as List).first['seconds'] = '999';
-      final stale = ProfileRecord.create(
-        profile: Profile.fromJson(json),
-        isDefault: true,
-        metadata: {'source': 'bundled', 'filename': _milkyFile},
-      );
-      await storage.store(stale);
+  test('M2: a stale prior version of a changed default is hidden, current stays visible', () async {
+    final storage = InMemoryProfileStorage();
+    final json = await _bundledJson(_milkyFile);
+    (json['steps'] as List).first['seconds'] = '999';
+    final stale = ProfileRecord.create(
+      profile: Profile.fromJson(json),
+      isDefault: true,
+      metadata: {'source': 'bundled', 'filename': _milkyFile},
+    );
+    await storage.store(stale);
 
-      await ProfileController(storage: storage).initialize();
+    await ProfileController(storage: storage).initialize();
 
-      final current = Profile.fromJson(await _bundledJson(_milkyFile));
-      final currentId = ProfileRecord.create(profile: current).id;
-      expect(
-        stale.id == currentId,
-        isFalse,
-        reason: 'precondition: ids differ',
-      );
-      expect(storage.records[currentId]?.visibility, Visibility.visible);
-      expect(storage.records[stale.id]!.visibility, Visibility.hidden);
-    },
-  );
+    final current = Profile.fromJson(await _bundledJson(_milkyFile));
+    final currentId = ProfileRecord.create(profile: current).id;
+    expect(stale.id == currentId, isFalse, reason: 'precondition: ids differ');
+    expect(storage.records[currentId]?.visibility, Visibility.visible);
+    expect(storage.records[stale.id]!.visibility, Visibility.hidden);
+  });
 
   test(
     'M1: an existing default with stale metadata gets its title refreshed',
@@ -167,34 +160,31 @@ void main() {
     expect(storage.records[hidden.id]!.isDefault, isTrue);
   });
 
-  test(
-    'M3: a hidden default still gets curated metadata refreshed but stays hidden',
-    () async {
-      final storage = InMemoryProfileStorage();
-      final json = await _bundledJson(_milkyFile);
-      json['title'] = 'OLD STALE TITLE';
-      final hiddenStale = ProfileRecord.create(
-        profile: Profile.fromJson(json),
-        isDefault: true,
-        metadata: {'source': 'bundled', 'filename': _milkyFile},
-      ).copyWith(visibility: Visibility.hidden);
-      await storage.store(hiddenStale);
+  test('M3: a hidden default still gets curated metadata refreshed but stays hidden', () async {
+    final storage = InMemoryProfileStorage();
+    final json = await _bundledJson(_milkyFile);
+    json['title'] = 'OLD STALE TITLE';
+    final hiddenStale = ProfileRecord.create(
+      profile: Profile.fromJson(json),
+      isDefault: true,
+      metadata: {'source': 'bundled', 'filename': _milkyFile},
+    ).copyWith(visibility: Visibility.hidden);
+    await storage.store(hiddenStale);
 
-      await ProfileController(storage: storage).initialize();
+    await ProfileController(storage: storage).initialize();
 
-      final refreshed = storage.records[hiddenStale.id]!;
-      expect(
-        refreshed.profile.title,
-        'Flow profile for milky drinks',
-        reason: 'curation metadata refresh still applies to hidden defaults',
-      );
-      expect(
-        refreshed.visibility,
-        Visibility.hidden,
-        reason: 'refreshing metadata must not un-hide the profile',
-      );
-    },
-  );
+    final refreshed = storage.records[hiddenStale.id]!;
+    expect(
+      refreshed.profile.title,
+      'Flow profile for milky drinks',
+      reason: 'curation metadata refresh still applies to hidden defaults',
+    );
+    expect(
+      refreshed.visibility,
+      Visibility.hidden,
+      reason: 'refreshing metadata must not un-hide the profile',
+    );
+  });
 
   test(
     'P1: a bundled profile with a parent_id gets its parentId linked',

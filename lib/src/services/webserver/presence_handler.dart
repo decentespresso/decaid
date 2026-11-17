@@ -6,10 +6,9 @@ class PresenceHandler {
   final log = Logger('PresenceHandler');
 
   PresenceHandler({
-    required PresenceController presenceController,
-    required SettingsController settingsController,
-  }) : _presenceController = presenceController,
-       _settingsController = settingsController;
+    required this._presenceController,
+    required this._settingsController,
+  });
 
   void addRoutes(RouterPlus app) {
     app.post('/api/v1/machine/heartbeat', _heartbeatHandler);
@@ -36,9 +35,9 @@ class PresenceHandler {
       final schedulesJson = _settingsController.wakeSchedules;
       List<Map<String, dynamic>> schedules = [];
       if (schedulesJson.isNotEmpty && schedulesJson != '[]') {
-        schedules = WakeSchedule.deserializeList(
-          schedulesJson,
-        ).map((s) => s.toJson()).toList();
+        schedules = WakeSchedule.deserializeList(schedulesJson)
+            .map((s) => s.toJson())
+            .toList();
       }
 
       return jsonOk({

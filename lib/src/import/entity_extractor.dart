@@ -1,44 +1,32 @@
-import 'package:reaprime/src/import/parsers/shot_v2_json_parser.dart';
-import 'package:reaprime/src/models/data/bean.dart';
-import 'package:reaprime/src/models/data/grinder.dart';
+part of 'de1app_importer.dart';
 
-class ExtractionResult {
-  final List<Bean> beans;
-  final List<BeanBatch> batches;
-  final List<Grinder> grinders;
+typedef _BeanIdentity = (String, String);
+typedef _BatchIdentity = (_BeanIdentity, DateTime?);
 
-  final Map<int, String?> shotBeanBatchIds;
+class _ImportedShotEntities {
+  final BeanStorageService beanStorage;
+  final GrinderStorageService grinderStorage;
+  var beansCreated = 0;
+  var beansSkipped = 0;
+  var grindersCreated = 0;
+  var grindersSkipped = 0;
 
-  final Map<int, String?> shotGrinderIds;
+  _ImportedShotEntities(this.beanStorage, this.grinderStorage);
 
-  const ExtractionResult({
-    required this.beans,
-    required this.batches,
-    required this.grinders,
-    required this.shotBeanBatchIds,
-    required this.shotGrinderIds,
-  });
-}
+  Future<List<ShotRecord>> reconcile(
+    List<ParsedShot> shots,
+    List<Grinder> dyeGrinders, {
+    required List<ImportError> errors,
+    void Function(ImportProgress)? onProgress,
+  }) async {
+    final beans = <_BeanIdentity, Bean>{};
+    final batches = <_BatchIdentity, ParsedShot>{};
+    final grinders = <String, Grinder>{};
 
-class EntityExtractor {
-  ExtractionResult extract(List<ParsedShot> shots) {
-    final beansByKey = <String, Bean>{};
-    final batchesByKey = <String, BeanBatch>{};
-    final grindersByModel = <String, Grinder>{};
-
-    final shotBeanBatchIds = <int, String?>{};
-    final shotGrinderIds = <int, String?>{};
-
-    for (var i = 0; i < shots.length; i++) {
-      final parsed = shots[i];
-
-      final brand = _normalize(parsed.beanBrand);
-      final type = _normalize(parsed.beanType);
-
-      if (brand != null && type != null) {
-        final beanKey = '$brand\x00$type';
-
-        final bean = beansByKey.putIfAbsent(
+    for (final parsed in shots) {
+      final beanKey = _beanIdentity(parsed.beanBrand, parsed.beanType);
+      if (beanKey != null) {
+        beans.putIfAbsent(
           beanKey,
           () => Bean.create(
             roaster: parsed.beanBrand!,
@@ -46,80 +34,196 @@ class EntityExtractor {
             notes: parsed.beanNotes,
           ),
         );
-
-        final roastDate = _normalize(parsed.roastDate) ?? '';
-        final batchKey = '$beanKey\x00$roastDate';
-
-        final batch = batchesByKey.putIfAbsent(
-          batchKey,
-          () => BeanBatch.create(
-            beanId: bean.id,
-            roastDate: _parseDate(parsed.roastDate),
-            roastLevel: parsed.roastLevel,
-          ),
+        batches.putIfAbsent(
+          _batchIdentity(beanKey, _parseRoastDate(parsed.roastDate)),
+          () => parsed,
         );
-
-        shotBeanBatchIds[i] = batch.id;
-      } else {
-        shotBeanBatchIds[i] = null;
       }
-
       final model = _normalize(parsed.grinderModel);
-
       if (model != null) {
-        final grinder = grindersByModel.putIfAbsent(
+        grinders.putIfAbsent(
           model,
           () => Grinder.create(model: parsed.grinderModel!),
         );
-        shotGrinderIds[i] = grinder.id;
-      } else {
-        shotGrinderIds[i] = null;
       }
     }
 
-    return ExtractionResult(
-      beans: beansByKey.values.toList(),
-      batches: batchesByKey.values.toList(),
-      grinders: grindersByModel.values.toList(),
-      shotBeanBatchIds: shotBeanBatchIds,
-      shotGrinderIds: shotGrinderIds,
-    );
-  }
+    for (final dye in dyeGrinders) {
+      final key = _normalize(dye.model);
+      if (key == null) continue;
+      final fromShot = grinders[key];
+      grinders[key] = fromShot == null
+          ? dye
+          : fromShot.copyWith(
+              burrs: dye.burrs,
+              settingType: dye.settingType,
+              settingValues: dye.settingValues,
+              settingSmallStep: dye.settingSmallStep,
+              settingBigStep: dye.settingBigStep,
+            );
+    }
 
-  List<Grinder> mergeGrinderSpecs(
-    List<Grinder> fromShots,
-    List<Grinder> fromDye,
-  ) {
-    final byModel = <String, Grinder>{
-      for (final g in fromShots) g.model.toLowerCase(): g,
-    };
+    final storedBeans = <_BeanIdentity, String>{};
+    final storedBatches = <_BatchIdentity, String>{};
+    for (final bean in await beanStorage.getAllBeans()) {
+      final key = _beanIdentity(bean.roaster, bean.name);
+      if (key == null) continue;
+      storedBeans[key] = bean.id;
+      for (final batch in await beanStorage.getBatchesForBean(bean.id)) {
+        storedBatches[_batchIdentity(key, batch.roastDate)] = batch.id;
+      }
+    }
+    final storedGrinders = <String, String>{};
+    for (final grinder in await grinderStorage.getAllGrinders()) {
+      final key = _normalize(grinder.model);
+      if (key != null) storedGrinders[key] = grinder.id;
+    }
 
-    for (final dye in fromDye) {
-      final key = dye.model.toLowerCase();
+    final entityTotal = beans.length + grinders.length;
+    var entityIndex = 0;
+    void reportProgress() {
+      entityIndex++;
+      onProgress?.call(
+        ImportProgress(
+          current: entityIndex,
+          total: entityTotal,
+          phase: 'entities',
+          beansCreated: beansCreated,
+          grindersCreated: grindersCreated,
+        ),
+      );
+    }
 
-      if (byModel.containsKey(key)) {
-        byModel[key] = byModel[key]!.copyWith(
-          burrs: dye.burrs,
-          settingType: dye.settingType,
-          settingSmallStep: dye.settingSmallStep,
-          settingBigStep: dye.settingBigStep,
+    for (final entry in beans.entries) {
+      final bean = entry.value;
+      if (storedBeans.containsKey(entry.key)) {
+        beansSkipped++;
+      } else {
+        try {
+          await beanStorage.insertBean(bean);
+          storedBeans[entry.key] = bean.id;
+          beansCreated++;
+        } catch (e, st) {
+          _recordFailure(
+            errors,
+            'Bean',
+            '${bean.roaster} / ${bean.name}',
+            e,
+            st,
+          );
+        }
+      }
+      reportProgress();
+    }
+
+    for (final entry in batches.entries) {
+      if (storedBatches.containsKey(entry.key)) continue;
+      final beanId = storedBeans[entry.key.$1];
+      if (beanId == null) continue;
+      final parsed = entry.value;
+      final batch = BeanBatch.create(
+        beanId: beanId,
+        roastDate: _parseRoastDate(parsed.roastDate),
+        roastLevel: parsed.roastLevel,
+      );
+      try {
+        await beanStorage.insertBatch(batch);
+        storedBatches[entry.key] = batch.id;
+      } catch (e, st) {
+        _recordFailure(
+          errors,
+          'BeanBatch',
+          '${parsed.beanBrand} / ${parsed.beanType} / ${parsed.roastDate ?? "unknown roast date"}',
+          e,
+          st,
         );
-      } else {
-        byModel[key] = dye;
       }
     }
 
-    return byModel.values.toList();
+    for (final entry in grinders.entries) {
+      final grinder = entry.value;
+      if (storedGrinders.containsKey(entry.key)) {
+        grindersSkipped++;
+      } else {
+        try {
+          await grinderStorage.insertGrinder(grinder);
+          storedGrinders[entry.key] = grinder.id;
+          grindersCreated++;
+        } catch (e, st) {
+          _recordFailure(errors, 'Grinder', grinder.model, e, st);
+        }
+      }
+      reportProgress();
+    }
+
+    return [
+      for (final parsed in shots)
+        _linkShot(
+          parsed.shot,
+          storedBatches[_batchKeyForShot(parsed)],
+          storedGrinders[_normalize(parsed.grinderModel)],
+        ),
+    ];
   }
 
-  String? _normalize(String? value) {
-    if (value == null) return null;
-    final s = value.trim();
-    return s.isEmpty ? null : s.toLowerCase();
+  static String? _normalize(String? value) {
+    final normalized = value?.trim().toLowerCase();
+    return normalized == null || normalized.isEmpty ? null : normalized;
   }
 
-  DateTime? _parseDate(String? value) {
-    if (value == null || value.trim().isEmpty) return null;
-    return DateTime.tryParse(value.trim());
+  static _BeanIdentity? _beanIdentity(String? brand, String? type) {
+    final normalizedBrand = _normalize(brand);
+    final normalizedType = _normalize(type);
+    return normalizedBrand == null || normalizedType == null
+        ? null
+        : (normalizedBrand, normalizedType);
+  }
+
+  static DateTime? _parseRoastDate(String? value) =>
+      DateTime.tryParse(value?.trim() ?? '');
+
+  static _BatchIdentity _batchIdentity(
+    _BeanIdentity bean,
+    DateTime? roastDate,
+  ) => (bean, roastDate?.toUtc());
+
+  static _BatchIdentity? _batchKeyForShot(ParsedShot parsed) {
+    final bean = _beanIdentity(parsed.beanBrand, parsed.beanType);
+    return bean == null
+        ? null
+        : _batchIdentity(bean, _parseRoastDate(parsed.roastDate));
+  }
+
+  static ShotRecord _linkShot(
+    ShotRecord shot,
+    String? batchId,
+    String? grinderId,
+  ) {
+    final context = shot.workflow.context;
+    if (context == null) return shot;
+    final linked = context.copyWith(
+      beanBatchId: batchId,
+      clearBeanBatchId: batchId == null,
+      grinderId: grinderId,
+      clearGrinderId: grinderId == null,
+    );
+    return shot.copyWith(workflow: shot.workflow.copyWith(context: linked));
+  }
+
+  static void _recordFailure(
+    List<ImportError> errors,
+    String entity,
+    String identity,
+    Object error,
+    StackTrace stackTrace,
+  ) {
+    _log.warning('Failed to store $entity $identity', error, stackTrace);
+    errors.add(
+      ImportError(
+        filename: identity,
+        reason: '$entity storage error',
+        details: error.toString(),
+      ),
+    );
   }
 }

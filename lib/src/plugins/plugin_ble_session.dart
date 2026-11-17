@@ -9,6 +9,7 @@ import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:uuid/uuid.dart';
 
 import 'plugin_ble_matcher.dart';
+import 'plugin_sample_provenance.dart';
 
 enum PluginBleSessionState {
   connecting,
@@ -31,9 +32,10 @@ class _BleSubscription {
   final String id = const Uuid().v4();
   final String service;
   final String characteristic;
+  final String? listener;
   final Completer<void> settled = Completer<void>();
   Future<void>? removing;
-  _BleSubscription(this.service, this.characteristic);
+  _BleSubscription(this.service, this.characteristic, this.listener);
 }
 
 class PluginBleSession {
@@ -52,6 +54,9 @@ class PluginBleSession {
   final Map<(String, String), _BleSubscription> _subscriptions = {};
   final Set<Completer<Object?>> _pending = {};
   final Queue<(Map<String, dynamic>, int)> _notifications = Queue();
+  late final PluginSampleProvenance _samples = PluginSampleProvenance(
+    onClockRollback: revoke,
+  );
   final Completer<void> _closed = Completer<void>();
   final Completer<void> _cleanupInterrupted = Completer<void>();
   StreamSubscription<ConnectionState>? _connectionSubscription;
@@ -80,6 +85,13 @@ class PluginBleSession {
   int get subscriptionCount => _subscriptions.length;
   int get pendingOperationCount => _pending.length;
   int get queuedEventCount => _notifications.length;
+  DateTime consumeSample(String token) {
+    if (!acceptsPublications) {
+      throw const PluginBleException('stale_session', 'BLE session retired');
+    }
+    return _samples.consume(token);
+  }
+
   bool get acceptsPublications =>
       authorized() &&
       runtimeAlive() &&
@@ -274,7 +286,19 @@ class PluginBleSession {
             'Subscription limit reached',
           );
         }
-        final subscription = _BleSubscription(service, characteristic);
+        final listener = args['listener'];
+        if (listener != null &&
+            (listener is! String || listener.length > 128)) {
+          throw const PluginBleException(
+            'invalid_argument',
+            'Invalid BLE listener',
+          );
+        }
+        final subscription = _BleSubscription(
+          service,
+          characteristic,
+          listener as String?,
+        );
         _subscriptions[key] = subscription;
         try {
           if (previous != null) {
@@ -298,9 +322,14 @@ class PluginBleSession {
                 !acceptsPublications) {
               return;
             }
-            _enqueue(current.id, bytes);
+            _enqueue(current, bytes);
           });
-          return subscription.id;
+          return listener == null
+              ? subscription.id
+              : {
+                  'subscription': subscription.id,
+                  'replacedListener': previous?.listener,
+                };
         } catch (_) {
           if (identical(_subscriptions[key], subscription)) {
             _subscriptions.remove(key);
@@ -331,7 +360,12 @@ class PluginBleSession {
     }
   }
 
-  void _enqueue(String subscription, Uint8List bytes) {
+  void _enqueue(_BleSubscription subscription, Uint8List bytes) {
+    final sample = _samples.capture();
+    if (!acceptsPublications) {
+      _samples.clear();
+      return;
+    }
     if (_notifications.length >= maxQueuedEvents ||
         _queuedBytes + bytes.length > maxQueuedBytes) {
       _log.warning(
@@ -344,8 +378,10 @@ class PluginBleSession {
       {
         'type': 'notification',
         'session': id,
-        'subscription': subscription,
+        'subscription': subscription.id,
+        if (subscription.listener != null) 'listener': subscription.listener,
         'data': base64Encode(bytes),
+        'sample': sample,
       },
       bytes.length,
     ));
@@ -387,13 +423,13 @@ class PluginBleSession {
         _state == PluginBleSessionState.initializing ||
         _state == PluginBleSessionState.ready;
     _state = PluginBleSessionState.retiring;
+    _samples.clear();
     _notifications.clear();
     _queuedBytes = 0;
     _rejectPending();
     unawaited(
-      _retire(
-        initialized ? cleanup : null,
-      ).then(retirement.complete, onError: retirement.completeError),
+      _retire(initialized ? cleanup : null)
+          .then(retirement.complete, onError: retirement.completeError),
     );
     return retirement.future;
   }

@@ -4,6 +4,10 @@ class TclParser {
     final _Parser parser = _Parser(lines);
     return parser.parseBlock(endMarker: null);
   }
+
+  static List<String> splitList(String input) {
+    return _Parser(const [])._tokenise(input).map((t) => t.value).toList();
+  }
 }
 
 class _Parser {
@@ -36,17 +40,59 @@ class _Parser {
       final rest = trimmed.substring(keyEnd + 1).trim();
 
       if (rest == '{') {
-        final nested = parseBlock(endMarker: '}');
-        result[key] = nested;
-      } else if (rest.startsWith('{') && rest.endsWith('}')) {
-        final inner = rest.substring(1, rest.length - 1);
-        result[key] = _parseBracedValue(inner);
+        result[key] = _Parser(_consumeBlockBody()).parseBlock(endMarker: null);
+      } else if (rest.startsWith('{')) {
+        final value = _completeBracedValue(rest);
+        result[key] = value.endsWith('}')
+            ? _parseBracedValue(value.substring(1, value.length - 1))
+            : value;
       } else {
         result[key] = rest;
       }
     }
 
     return result;
+  }
+
+  List<String> _consumeBlockBody() {
+    final body = <String>[];
+    var depth = 1;
+    while (_pos < _lines.length) {
+      final line = _lines[_pos];
+      _pos++;
+      depth += _braceDepth(line);
+      if (depth <= 0) break;
+      body.add(line);
+    }
+    return body;
+  }
+
+  String _completeBracedValue(String first) {
+    var depth = _braceDepth(first);
+    if (depth <= 0) return first;
+
+    final buf = StringBuffer(first);
+    while (depth > 0 && _pos < _lines.length) {
+      final line = _lines[_pos];
+      _pos++;
+      buf.write('\n');
+      buf.write(line);
+      depth += _braceDepth(line);
+    }
+    return buf.toString().trimRight();
+  }
+
+  int _braceDepth(String s) {
+    var depth = 0;
+    for (int i = 0; i < s.length; i++) {
+      if (s[i] == r'\') {
+        i++;
+        continue;
+      }
+      if (s[i] == '{') depth++;
+      if (s[i] == '}') depth--;
+    }
+    return depth;
   }
 
   int _findKeyEnd(String s) {
@@ -158,6 +204,10 @@ class _Parser {
   int _findClosingBrace(String s, int openIdx) {
     int depth = 0;
     for (int i = openIdx; i < s.length; i++) {
+      if (s[i] == r'\') {
+        i++;
+        continue;
+      }
       if (s[i] == '{') depth++;
       if (s[i] == '}') {
         depth--;

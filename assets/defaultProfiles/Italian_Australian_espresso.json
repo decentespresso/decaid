@@ -1,0 +1,73 @@
+{
+  "version": "2",
+  "title": "Italian Australian espresso",
+  "author": "Decent",
+  "notes": "Italians in Australia have a style all their own. They still use dark roasted coffee beans and extract at 9 bar, but they lower the brew temperature so as to not overextract the coffee.  Aim for a brew ratio of 2.5x, which is to say an in-cup weight that is 2.5x the weight of the coffee ground dose.",
+  "beverage_type": "espresso",
+  "steps": [
+    {
+      "name": "preinfusion temp boost",
+      "pump": "flow",
+      "transition": "fast",
+      "temperature": "88.0",
+      "sensor": "coffee",
+      "seconds": "2.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "4.5",
+      "pressure": "1.0",
+      "exit": {
+        "type": "pressure",
+        "condition": "over",
+        "value": "4.0"
+      }
+    },
+    {
+      "name": "preinfusion",
+      "pump": "flow",
+      "transition": "fast",
+      "temperature": "88.0",
+      "sensor": "coffee",
+      "seconds": "6.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "4.5",
+      "pressure": "1.0",
+      "exit": {
+        "type": "pressure",
+        "condition": "over",
+        "value": "4.0"
+      }
+    },
+    {
+      "name": "forced rise without limit",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "88.0",
+      "sensor": "coffee",
+      "seconds": "3.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "0.0",
+      "pressure": "8.7"
+    },
+    {
+      "name": "rise and hold",
+      "pump": "pressure",
+      "transition": "fast",
+      "temperature": "88.0",
+      "sensor": "coffee",
+      "seconds": "32.0",
+      "volume": "0.0",
+      "weight": "0.0",
+      "flow": "0.0",
+      "pressure": "8.7"
+    }
+  ],
+  "tank_temperature": "0.0",
+  "target_weight": "36.0",
+  "target_volume": "36.0",
+  "target_volume_count_start": "2",
+  "type": "pressure",
+  "hidden": "0"
+}

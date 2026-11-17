@@ -1,0 +1,6 @@
+{
+  "id": "switch-test-b",
+  "name": "Switch test B",
+  "version": "1.0.0",
+  "description": "Manual fixture for the embedded decentApp.switchSkin hook."
+}

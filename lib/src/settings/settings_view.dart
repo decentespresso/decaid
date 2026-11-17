@@ -5,14 +5,17 @@ import 'package:logging/logging.dart';
 import 'package:reaprime/build_info.dart';
 import 'package:reaprime/src/controllers/presence_controller.dart';
 import 'package:reaprime/src/services/android_updater.dart';
+import 'package:reaprime/src/services/github_credentials.dart';
 import 'package:reaprime/src/services/macos_updater.dart';
 import 'package:reaprime/src/services/update_check_service.dart';
 import 'package:reaprime/src/settings/battery_charging_settings_page.dart';
 import 'package:reaprime/src/settings/common.dart';
+import 'package:reaprime/src/settings/device_management_page.dart';
 import 'package:reaprime/src/settings/presence_settings_page.dart';
 import 'package:reaprime/src/settings/charging_mode.dart';
 import 'package:reaprime/src/settings/update_dialog.dart';
 import 'package:reaprime/src/webui_support/webui_storage.dart';
+import 'package:reaprime/src/widgets/remote_error_snack_bar.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -26,6 +29,7 @@ class SettingsView extends StatelessWidget {
     this.macosUpdater,
     required this.presenceController,
     this.webUIStorage,
+    this.githubCredentials,
   });
 
   static const routeName = '/settings';
@@ -35,6 +39,7 @@ class SettingsView extends StatelessWidget {
   final UpdateCheckService? updateCheckService;
   final MacOSUpdater? macosUpdater;
   final WebUIStorage? webUIStorage;
+  final GithubCredentialProvider? githubCredentials;
 
   @override
   Widget build(BuildContext context) {
@@ -49,6 +54,15 @@ class SettingsView extends StatelessWidget {
           return ListView(
             children: [
               const SettingsSectionHeader('General'),
+              SettingsTile(
+                icon: Icons.devices_outlined,
+                label: 'Devices',
+                trailing: const Icon(Icons.chevron_right, size: 20),
+                onTap: () =>
+                    Navigator.of(context)
+                        .pushNamed(DeviceManagementPage.routeName),
+              ),
+              const SettingsDivider(),
               SettingsTile(
                 icon: Icons.palette_outlined,
                 label: 'Appearance',
@@ -133,9 +147,9 @@ class SettingsView extends StatelessWidget {
                             updateCheckService?.availableUpdate?.version ?? '',
                             style: const TextStyle(fontSize: 12),
                           ),
-                          backgroundColor: Theme.of(
-                            context,
-                          ).colorScheme.primary,
+                          backgroundColor: Theme.of(context)
+                              .colorScheme
+                              .primary,
                         )
                       : null,
                   onTap: () => _checkForUpdates(context),
@@ -378,9 +392,8 @@ class SettingsView extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 'License',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                style: Theme.of(context).textTheme.titleSmall
+                    ?.copyWith(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 4),
               Text(
@@ -409,6 +422,8 @@ class SettingsView extends StatelessWidget {
   }
 
   Future<void> _checkForUpdates(BuildContext context) async {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
     final updater = macosUpdater;
     if (updater != null && updater.isSupported) {
       if (updater.isAvailable) {
@@ -417,9 +432,13 @@ class SettingsView extends StatelessWidget {
         } catch (e, st) {
           Logger('Settings View').warning('Sparkle manual check failed', e, st);
           if (!context.mounted) return;
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('Update check failed: $e')));
+          ScaffoldMessenger.of(context).showSnackBar(
+            remoteErrorSnackBar(
+              e,
+              action: 'check for app updates',
+              onRetry: () => _checkForUpdates(context),
+            ),
+          );
         }
         return;
       }
@@ -466,9 +485,13 @@ class SettingsView extends StatelessWidget {
 
       if (updateInfo != null) {
         if (Platform.isAndroid) {
-          final updater = AndroidUpdater(owner: 'tadelv', repo: 'reaprime');
+          final updater = AndroidUpdater(
+            owner: 'tadelv',
+            repo: 'reaprime',
+            credentials: githubCredentials,
+          );
           final releaseUrl = updateCheckService?.getReleaseUrl(updateInfo);
-          showDialog(
+          await showDialog(
             context: context,
             builder: (context) => UpdateDialog(
               updateInfo: updateInfo,
@@ -483,7 +506,7 @@ class SettingsView extends StatelessWidget {
           );
         } else {
           final releaseUrl = updateCheckService?.getReleaseUrl(updateInfo);
-          showDialog(
+          await showDialog(
             context: context,
             builder: (context) => AlertDialog(
               title: const Text('Update Available'),
@@ -520,12 +543,54 @@ class SettingsView extends StatelessWidget {
         );
       }
 
-      await webUIStorage?.downloadRemoteSkins();
+      if (!context.mounted) return;
+      await _downloadRemoteSkins(context);
     } catch (e, stackTrace) {
       log.severe('Error checking for updates', e, stackTrace);
       if (!context.mounted) return;
+      final rateLimited = e is UpdateCheckException && e.rateLimited;
+      final resetAt = e is UpdateCheckException ? e.resetAt?.toLocal() : null;
+      final resumeNote = resetAt == null
+          ? 'Try again later'
+          : 'Update checks resume at ${TimeOfDay.fromDateTime(resetAt).format(context)}';
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to check for updates: $e')),
+        rateLimited
+            ? SnackBar(
+                content: Text(
+                  'GitHub rate limit reached. $resumeNote, or download the update from the releases page.',
+                ),
+                duration: const Duration(seconds: 10),
+                action: SnackBarAction(
+                  label: 'Open releases',
+                  onPressed: () => launchUrl(
+                    Uri.parse(updateCheckService!.getReleasesUrl()),
+                    mode: LaunchMode.externalApplication,
+                  ),
+                ),
+              )
+            : remoteErrorSnackBar(
+                e,
+                action: 'check for app updates',
+                onRetry: () => _checkForUpdates(context),
+              ),
+      );
+    }
+  }
+
+  Future<void> _downloadRemoteSkins(BuildContext context) async {
+    if (!context.mounted) return;
+    try {
+      await webUIStorage?.downloadRemoteSkins();
+    } catch (e, st) {
+      Logger('Settings View').warning('Remote skin download failed', e, st);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        remoteErrorSnackBar(
+          e,
+          action: 'download the skins',
+          onRetry: () => _downloadRemoteSkins(context),
+        ),
       );
     }
   }

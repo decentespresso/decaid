@@ -1,5 +1,9 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
+import 'package:logging/logging.dart';
+import 'package:reaprime/src/import/parsers/enjoyment_scale.dart';
 import 'package:reaprime/src/services/database/converters/json_converters.dart';
 import 'package:reaprime/src/services/database/daos/bean_dao.dart';
 import 'package:reaprime/src/services/database/daos/grinder_dao.dart';
@@ -30,6 +34,8 @@ part 'database.g.dart';
   daos: [BeanDao, GrinderDao, ShotDao, SteamDao, WorkflowDao, ProfileDao],
 )
 class AppDatabase extends _$AppDatabase {
+  static final Logger _log = Logger('AppDatabase');
+
   AppDatabase(super.e);
 
   factory AppDatabase.defaults() {
@@ -43,8 +49,35 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  Future<void> initialize() async {
+    await customSelect('PRAGMA user_version').get();
+  }
+
+  Future<Object?> openForStartup(Logger log) async {
+    try {
+      await initialize();
+      return null;
+    } catch (error, stackTrace) {
+      log.severe(
+        'Local database could not be safely opened or updated',
+        error,
+        stackTrace,
+      );
+      try {
+        await close();
+      } catch (closeError, closeStackTrace) {
+        log.warning(
+          'Failed to close database after startup failure',
+          closeError,
+          closeStackTrace,
+        );
+      }
+      return error;
+    }
+  }
+
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration {
@@ -55,29 +88,147 @@ class AppDatabase extends _$AppDatabase {
         await _createIndices();
       },
       onUpgrade: (Migrator m, int from, int to) async {
-        if (from < 2) {
-          await _createIndices();
-        }
-        if (from < 3) {
-          await m.createTable(steamRecords);
-          await _createSteamIndices();
-        }
-        if (from < 4) {
-          await m.addColumn(shotRecords, shotRecords.stopReason);
-        }
-        if (from < 5) {
-          await m.addColumn(shotRecords, shotRecords.createdAt);
-          await m.addColumn(shotRecords, shotRecords.updatedAt);
-          await customStatement(
-            'UPDATE shot_records SET created_at = timestamp, '
-            'updated_at = timestamp',
-          );
-        }
+        _log.info(
+          'db migration $from -> $to starting; '
+          'user_version=${await _userVersion()}',
+        );
+        await transaction(() async {
+          if (from < 2) {
+            await _createIndices();
+          }
+          if (from < 3) {
+            await m.createTable(steamRecords);
+            await _createSteamIndices();
+          }
+          if (from < 4) {
+            await m.addColumn(shotRecords, shotRecords.stopReason);
+          }
+          if (from < 5) {
+            await _upgradeToSchema5(m);
+          }
+          if (from < 6) {
+            await _upgradeToSchema6();
+          }
+        });
+        _log.info('db migration $from -> $to completed');
       },
       beforeOpen: (details) async {
         await customStatement('PRAGMA foreign_keys = ON');
       },
     );
+  }
+
+  Future<int> _userVersion() async {
+    final result = await customSelect('PRAGMA user_version').getSingle();
+    return result.data['user_version'] as int;
+  }
+
+  Future<void> _upgradeToSchema5(Migrator m) async {
+    final columns = await _shotRecordColumnInfo();
+    _log.info(
+      'db migration to 5; shot_records columns: ${columns.keys.join(', ')}; '
+      'created_at=${_columnSummary(columns['created_at'])}, '
+      'updated_at=${_columnSummary(columns['updated_at'])}',
+    );
+    for (final column in <String>['created_at', 'updated_at']) {
+      if (columns.containsKey(column)) {
+        _validateExistingV5Column(column, columns[column]!);
+      }
+    }
+    if (!columns.containsKey('created_at')) {
+      await m.addColumn(shotRecords, shotRecords.createdAt);
+    }
+    if (!columns.containsKey('updated_at')) {
+      await m.addColumn(shotRecords, shotRecords.updatedAt);
+    }
+    await customStatement(
+      'UPDATE shot_records '
+      'SET created_at = COALESCE(created_at, timestamp), '
+      'updated_at = COALESCE(updated_at, timestamp) '
+      'WHERE created_at IS NULL OR updated_at IS NULL',
+    );
+  }
+
+  Future<void> _upgradeToSchema6() async {
+    final rows = await customSelect(
+      'SELECT id, enjoyment, annotations_json FROM shot_records '
+      'WHERE enjoyment IS NOT NULL AND ('
+      '  enjoyment > $legacyEnjoymentThreshold'
+      "  OR (id LIKE 'de1app-%' "
+      '    AND created_at IS NOT NULL AND updated_at IS NOT NULL '
+      '    AND created_at != timestamp AND updated_at <= created_at)'
+      ')',
+    ).get();
+
+    for (final row in rows) {
+      final id = row.data['id'] as String;
+      final legacy = (row.data['enjoyment'] as num).toDouble();
+      final canonical = rescaleDe1appEnjoyment(legacy)!;
+      await customUpdate(
+        'UPDATE shot_records SET enjoyment = ?, annotations_json = ? '
+        'WHERE id = ?',
+        variables: [
+          Variable<double>(canonical),
+          Variable<String>(
+            _withEnjoyment(row.data['annotations_json'] as String?, canonical),
+          ),
+          Variable<String>(id),
+        ],
+      );
+    }
+
+    _log.info(
+      'db migration to 6; rescaled ${rows.length} legacy enjoyment '
+      'rating(s) from 0-100 to 0-10',
+    );
+  }
+
+  static String? _withEnjoyment(String? annotationsJson, double enjoyment) {
+    if (annotationsJson == null || annotationsJson.isEmpty) {
+      return annotationsJson;
+    }
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(annotationsJson);
+    } on FormatException {
+      return annotationsJson;
+    }
+    if (decoded is! Map<String, dynamic>) return annotationsJson;
+    return jsonEncode({...decoded, 'enjoyment': enjoyment});
+  }
+
+  static void _validateExistingV5Column(
+    String name,
+    Map<String, Object?> column,
+  ) {
+    final type = column['type'] as String?;
+    final defaultValue = column['dflt_value'];
+    final nullLiteral =
+        defaultValue == null ||
+        (defaultValue is String && defaultValue.trim().toUpperCase() == 'NULL');
+    final reusable =
+        type?.toUpperCase() == 'TEXT' &&
+        column['notnull'] == 0 &&
+        column['pk'] == 0 &&
+        nullLiteral;
+    if (!reusable) {
+      throw StateError(
+        'shot_records.$name already exists with an incompatible definition '
+        '(${_columnSummary(column)}); refusing to reshape it. '
+        'Preserve the database for assisted recovery.',
+      );
+    }
+  }
+
+  static String _columnSummary(Map<String, Object?>? column) {
+    if (column == null) return 'absent';
+    return 'type=${column['type']}, notNull=${column['notnull']}, '
+        'dflt=${column['dflt_value']}, pk=${column['pk']}';
+  }
+
+  Future<Map<String, Map<String, Object?>>> _shotRecordColumnInfo() async {
+    final rows = await customSelect('PRAGMA table_info(shot_records)').get();
+    return {for (final row in rows) row.data['name'] as String: row.data};
   }
 
   Future<void> _createIndices() async {

@@ -8,6 +8,8 @@ import 'package:rxdart/rxdart.dart';
 import 'package:uuid/uuid.dart';
 
 import 'plugin_device_contract.dart';
+import 'plugin_device_surface_authority.dart';
+import 'plugin_manifest.dart';
 
 abstract class PluginProtocolDevice extends PluginDeviceAdapter {
   @override
@@ -16,7 +18,10 @@ abstract class PluginProtocolDevice extends PluginDeviceAdapter {
   final String name;
   @override
   final TransportType transportType;
+  @override
+  final PluginDeviceSurfaceAuthority? surfaceAuthority;
   final PluginDeviceInvoker invoke;
+  final Future<void> Function(String session)? prepareConnection;
   final void Function()? onReady;
   final Duration invocationTimeout;
   final BehaviorSubject<ConnectionState> _state = BehaviorSubject.seeded(
@@ -33,10 +38,28 @@ abstract class PluginProtocolDevice extends PluginDeviceAdapter {
     required this.deviceId,
     required this.name,
     required this.invoke,
+    String? pluginId,
+    List<PluginDeviceSurface> surfaces = const [],
     this.transportType = TransportType.unknown,
+    this.prepareConnection,
     this.onReady,
     this.invocationTimeout = const Duration(seconds: 5),
-  });
+  }) : assert(pluginId != null || surfaces.isEmpty),
+       surfaceAuthority = pluginId == null
+           ? null
+           : PluginDeviceSurfaceAuthority(
+               pluginId: pluginId,
+               surfaces: surfaces,
+             );
+
+  @override
+  void publishInfo(Map<String, dynamic> info, {String? session}) {
+    checkSession(session);
+    throw const PluginDeviceException(
+      'Runtime info is unsupported',
+      code: 'unsupported_operation',
+    );
+  }
 
   @override
   DeviceImplementation get implementation => DeviceImplementation.plugin;
@@ -87,15 +110,28 @@ abstract class PluginProtocolDevice extends PluginDeviceAdapter {
     beginSamples();
     final readiness = waitForReadiness();
     _state.add(ConnectionState.connecting);
+    var prepared = false;
     try {
+      final prepare = prepareConnection;
+      if (prepare != null) {
+        await prepare(session);
+        prepared = true;
+        checkSession(session);
+      }
       final initialization = () async {
         await invoke(PluginDeviceOperation.connect, {'session': session});
         await readiness;
       }();
-      await Future.any([
-        initialization,
-        cancelled.future,
+      final cancelledDuringStartup = await Future.any<bool>([
+        initialization.then((_) => false),
+        cancelled.future.then((_) => true),
       ]).timeout(invocationTimeout);
+      if (cancelledDuringStartup) {
+        throw const PluginDeviceException(
+          'Plugin device connect cancelled',
+          code: 'stale_session',
+        );
+      }
       checkSession(session);
       onReady?.call();
       _state.add(ConnectionState.connected);
@@ -103,6 +139,10 @@ abstract class PluginProtocolDevice extends PluginDeviceAdapter {
       if (_session == session) {
         try {
           await disconnect();
+        } catch (_) {}
+      } else if (prepared) {
+        try {
+          await invoke(PluginDeviceOperation.disconnect, {'session': session});
         } catch (_) {}
       }
       Error.throwWithStackTrace(error, stackTrace);
@@ -129,13 +169,19 @@ abstract class PluginProtocolDevice extends PluginDeviceAdapter {
     }();
   }
 
-  Future<void> command(PluginDeviceOperation operation) async {
+  Future<void> command(
+    PluginDeviceOperation operation, [
+    Map<String, dynamic> payload = const {},
+  ]) async {
     final session = _session;
     checkSession(session);
     if (_state.value != ConnectionState.connected) {
       throw const PluginDeviceException('Plugin device is not ready');
     }
-    await invoke(operation, {'session': session}).timeout(invocationTimeout);
+    await invoke(operation, {
+      ...payload,
+      'session': session,
+    }).timeout(invocationTimeout);
     checkSession(session);
   }
 

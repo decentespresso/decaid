@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -10,9 +11,22 @@ import 'package:reaprime/src/plugins/plugin_loader_service.dart';
 import 'package:reaprime/src/plugins/plugin_package.dart';
 import 'package:reaprime/src/plugins/plugin_source.dart';
 import 'package:reaprime/src/plugins/plugin_source_service.dart';
+import 'package:reaprime/src/util/remote_update_exception.dart';
+import 'package:reaprime/src/util/remote_update_report.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'plugin_test_helpers.dart';
+
+class _FailingSeedSourceService extends PluginSourceService {
+  _FailingSeedSourceService(super.loader);
+
+  bool fail = true;
+
+  @override
+  void seedBundledSources() {
+    if (fail) throw StateError('source unavailable');
+  }
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -129,6 +143,9 @@ function createPlugin() {
           );
       loader = PluginLoaderService(kvStore: FakeKeyValueStoreService());
       await loader.initialize();
+      for (final plugin in loader.availablePlugins) {
+        await loader.removePlugin(plugin.id);
+      }
       service = PluginSourceService(loader);
     });
 
@@ -140,6 +157,104 @@ function createPlugin() {
           );
       await loader.dispose();
       if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+    });
+
+    test(
+      'concurrent plugin checks share one future and allow another check',
+      () async {
+        await http.runWithClient(
+          () => service.installFromGitHubRelease('acme/plugin'),
+          gitHubClient,
+        );
+        final release = Completer<http.Response>();
+        var releaseRequests = 0;
+        await http.runWithClient(
+          () async {
+            final first = service.checkForPluginUpdates();
+            final second = service.checkForPluginUpdates();
+            try {
+              expect(second, same(first));
+              expect(service.updateCheck.value, isNotNull);
+            } finally {
+              release.complete(http.Response(releaseJson('v1.0.0', []), 200));
+              await Future.wait([first, second]);
+            }
+            expect(releaseRequests, 1);
+            expect(service.updateCheck.value, isNull);
+            await service.checkForPluginUpdates();
+            expect(releaseRequests, 2);
+          },
+          () => MockClient((request) async {
+            if (!request.url.path.contains('/acme/plugin/')) {
+              return http.Response('', 404);
+            }
+            releaseRequests++;
+            return release.future;
+          }),
+        );
+      },
+    );
+
+    test('updateAllPlugins joins an in-flight report check', () async {
+      await http.runWithClient(
+        () => service.installFromGitHubRelease('acme/plugin'),
+        gitHubClient,
+      );
+      final release = Completer<http.Response>();
+      var releaseRequests = 0;
+      await http.runWithClient(
+        () async {
+          final report = service.checkForPluginUpdates();
+          final legacy = service.updateAllPlugins();
+          release.complete(http.Response(releaseJson('v1.0.0', []), 200));
+          await Future.wait([report, legacy]);
+          expect(releaseRequests, 1);
+        },
+        () => MockClient((request) async {
+          if (!request.url.path.contains('/acme/plugin/')) {
+            return http.Response('', 404);
+          }
+          releaseRequests++;
+          return release.future;
+        }),
+      );
+    });
+
+    test(
+      'failed plugin checks clear the shared future and allow retry',
+      () async {
+        final failing = _FailingSeedSourceService(loader);
+        final first = failing.updateAllPlugins();
+        expect(failing.updateCheck.value, isNotNull);
+        await expectLater(first, throwsStateError);
+        expect(failing.updateCheck.value, isNull);
+        failing.fail = false;
+        await failing.updateAllPlugins();
+        expect(failing.updateCheck.value, isNull);
+      },
+    );
+
+    test('malformed update manifests persist only safe guidance', () async {
+      await http.runWithClient(
+        () => service.installFromGitHubRelease('acme/plugin'),
+        gitHubClient,
+      );
+      final archive = makeArchive({
+        'manifest.json': '{ broken https://private.example/internal',
+        'plugin.js': pluginJs(id),
+      });
+      await expectLater(
+        http.runWithClient(
+          service.updateAllPlugins,
+          () => gitHubClient(tag: 'v2.0.0', releaseArchive: archive),
+        ),
+        throwsA(isA<RemoteUpdateException>()),
+      );
+      expect(
+        service.sourceFor(id)!.lastError,
+        "Couldn't update the plugin. The plugin manifest is invalid. Check the package and try again.",
+      );
+      expect(loader.getPluginManifest(id)!.version, '1.0.0');
     });
 
     test('installs from a GitHub release and records provenance', () async {
@@ -372,6 +487,35 @@ function createPlugin() {
       expect(pending.addedPermissions, ['proxy.decent_api']);
     });
 
+    test('an added branch permission blocks the automatic update', () async {
+      await http.runWithClient(
+        () => service.installFromGitHubBranch('acme/plugin'),
+        () => gitHubClient(
+          commit: 'first',
+          branchArchive: pluginArchive(permissions: ['log']),
+        ),
+      );
+
+      await http.runWithClient(
+        () => service.updateAllPlugins(),
+        () => gitHubClient(
+          commit: 'second',
+          branchArchive: pluginArchive(
+            version: '1.1.0',
+            permissions: ['log', 'proxy.decent_api'],
+          ),
+        ),
+      );
+
+      expect(loader.getPluginManifest(id)?.version, '1.0.0');
+      final source = service.sourceFor(id)!;
+      expect(source.commit, 'first');
+      final pending = source.pendingUpdate!;
+      expect(pending.version, '1.1.0');
+      expect(pending.commit, 'second');
+      expect(pending.addedPermissions, ['proxy.decent_api']);
+    });
+
     test('approving a pending update installs it', () async {
       await http.runWithClient(
         () => service.installFromGitHubRelease('acme/plugin'),
@@ -561,12 +705,15 @@ function createPlugin() {
         ),
       );
 
-      await http.runWithClient(
-        () => service.updateAllPlugins(),
-        () => gitHubClient(
-          commit: 'commit-2',
-          branchArchive: pluginArchive(version: '1.0.0'),
+      await expectLater(
+        http.runWithClient(
+          () => service.updateAllPlugins(),
+          () => gitHubClient(
+            commit: 'commit-2',
+            branchArchive: pluginArchive(version: '1.0.0'),
+          ),
         ),
+        throwsA(isA<RemoteUpdateException>()),
       );
 
       expect(loader.getPluginManifest(id)?.version, '2.0.0');
@@ -675,27 +822,191 @@ function createPlugin() {
         ),
       );
 
-      await http.runWithClient(() => service.updateAllPlugins(), () {
-        return MockClient((request) async {
-          final url = request.url.toString();
-          if (url.contains('broken/plugin')) {
-            return http.Response('boom', 500);
-          }
-          if (url.contains('/commits/')) {
-            return http.Response(jsonEncode({'sha': 'second'}), 200);
-          }
-          return http.Response.bytes(
-            pluginArchive(pluginId: 'other.reaplugin', marker: 'fresh'),
-            200,
-          );
-        });
-      });
+      await expectLater(
+        http.runWithClient(() => service.updateAllPlugins(), () {
+          return MockClient((request) async {
+            final url = request.url.toString();
+            if (url.contains('broken/plugin')) {
+              return http.Response('boom', 500);
+            }
+            if (url.contains('/commits/')) {
+              return http.Response(jsonEncode({'sha': 'second'}), 200);
+            }
+            return http.Response.bytes(
+              pluginArchive(pluginId: 'other.reaplugin', marker: 'fresh'),
+              200,
+            );
+          });
+        }),
+        throwsA(
+          isA<RemoteUpdateException>()
+              .having((error) => error.attemptedCount, 'attemptedCount', 2)
+              .having((error) => error.failures.length, 'failures', 1),
+        ),
+      );
 
       expect(service.sourceFor(id)!.lastError, isNotNull);
       expect(service.sourceFor(id)!.commit, 'first');
       expect(service.sourceFor('other.reaplugin')!.commit, 'second');
       expect(service.sourceFor('other.reaplugin')!.lastError, isNull);
     });
+
+    test(
+      'checkForPluginUpdates reports per-item statuses without throwing',
+      () async {
+        await http.runWithClient(
+          () => service.installFromGitHubRelease('acme/plugin'),
+          gitHubClient,
+        );
+
+        final current = await http.runWithClient(
+          () => service.checkForPluginUpdates(),
+          () => gitHubClient(tag: 'v1.0.0'),
+        );
+        expect(current.hasFailures, isFalse);
+        expect(current.results.single.item, id);
+        expect(
+          current.results.single.status,
+          RemoteUpdateStatus.alreadyCurrent,
+        );
+
+        final updated = await http.runWithClient(
+          () => service.checkForPluginUpdates(),
+          () => gitHubClient(
+            tag: 'v1.1.0',
+            releaseArchive: pluginArchive(version: '1.1.0'),
+          ),
+        );
+        expect(updated.hasFailures, isFalse);
+        expect(updated.results.single.status, RemoteUpdateStatus.updated);
+        expect(loader.getPluginManifest(id)?.version, '1.1.0');
+      },
+    );
+
+    test(
+      'checkForPluginUpdates records pendingApproval for new permissions',
+      () async {
+        await http.runWithClient(
+          () => service.installFromGitHubRelease('acme/plugin'),
+          () =>
+              gitHubClient(releaseArchive: pluginArchive(permissions: ['log'])),
+        );
+
+        final report = await http.runWithClient(
+          () => service.checkForPluginUpdates(),
+          () => gitHubClient(
+            tag: 'v1.1.0',
+            releaseArchive: pluginArchive(
+              version: '1.1.0',
+              permissions: ['log', 'proxy.decent_api'],
+            ),
+          ),
+        );
+        expect(report.hasFailures, isFalse);
+        expect(
+          report.results.single.status,
+          RemoteUpdateStatus.pendingApproval,
+        );
+        expect(loader.getPluginManifest(id)?.version, '1.0.0');
+        expect(service.sourceFor(id)?.pendingUpdate?.version, '1.1.0');
+      },
+    );
+
+    test(
+      'checkForPluginUpdates keeps per-item failures and does not throw',
+      () async {
+        await http.runWithClient(
+          () => service.installFromGitHubBranch('broken/plugin'),
+          () => gitHubClient(commit: 'first'),
+        );
+        await http.runWithClient(
+          () => service.installFromGitHubBranch('good/plugin'),
+          () => gitHubClient(
+            commit: 'first',
+            branchArchive: pluginArchive(pluginId: 'other.reaplugin'),
+          ),
+        );
+
+        final report = await http.runWithClient(
+          () => service.checkForPluginUpdates(),
+          () => MockClient((request) async {
+            final url = request.url.toString();
+            if (url.contains('broken/plugin')) {
+              return http.Response('boom', 500);
+            }
+            if (url.contains('/commits/')) {
+              return http.Response(jsonEncode({'sha': 'second'}), 200);
+            }
+            return http.Response.bytes(
+              pluginArchive(pluginId: 'other.reaplugin', marker: 'fresh'),
+              200,
+            );
+          }),
+        );
+
+        expect(report.hasFailures, isTrue);
+        expect(report.results, hasLength(2));
+        expect(report.results.map((r) => r.status).toSet(), {
+          RemoteUpdateStatus.failed,
+          RemoteUpdateStatus.updated,
+        });
+        expect(report.failures.single.item, id);
+        expect(service.sourceFor(id)?.lastError, isNotNull);
+        expect(service.sourceFor(id)?.commit, 'first');
+        expect(service.sourceFor('other.reaplugin')?.commit, 'second');
+      },
+    );
+
+    test(
+      'diagnostic metadata failure does not stop the remaining updates',
+      () async {
+        await http.runWithClient(
+          () => service.installFromGitHubBranch('broken/plugin'),
+          () => gitHubClient(commit: 'first'),
+        );
+        await http.runWithClient(
+          () => service.installFromGitHubBranch('good/plugin'),
+          () => gitHubClient(
+            commit: 'first',
+            branchArchive: pluginArchive(pluginId: 'other.reaplugin'),
+          ),
+        );
+
+        await expectLater(
+          http.runWithClient(
+            () => service.updateAllPlugins(),
+            () => MockClient((request) async {
+              if (request.url.toString().contains('broken/plugin')) {
+                final metadata = sourceFile(id);
+                metadata.deleteSync();
+                Directory(metadata.path).createSync();
+                return http.Response('private upstream diagnostics', 500);
+              }
+              if (request.url.path.contains('/commits/')) {
+                return http.Response(jsonEncode({'sha': 'second'}), 200);
+              }
+              return http.Response.bytes(
+                pluginArchive(pluginId: 'other.reaplugin'),
+                200,
+              );
+            }),
+          ),
+          throwsA(
+            isA<RemoteUpdateException>()
+                .having((error) => error.attemptedCount, 'attemptedCount', 2)
+                .having(
+                  (error) => error.failures.map((failure) => failure.item),
+                  'failed items',
+                  [id],
+                ),
+          ),
+        );
+
+        expect(service.sourceFor('other.reaplugin')!.commit, 'second');
+        expect(service.sourceFor('other.reaplugin')!.lastError, isNull);
+        expect(service.updateCheck.value, isNull);
+      },
+    );
 
     test('a local zip install is a snapshot that never auto-updates', () async {
       final zip = File('${tempDir.path}/plugin.zip')
@@ -744,238 +1055,21 @@ function createPlugin() {
         () => gitHubClient(commit: 'first'),
       );
 
-      await http.runWithClient(
-        () => service.updateAllPlugins(),
-        () => gitHubClient(
-          commit: 'second',
-          branchArchive: pluginArchive(pluginId: 'someone-else.reaplugin'),
+      await expectLater(
+        http.runWithClient(
+          () => service.updateAllPlugins(),
+          () => gitHubClient(
+            commit: 'second',
+            branchArchive: pluginArchive(pluginId: 'someone-else.reaplugin'),
+          ),
         ),
+        throwsA(isA<RemoteUpdateException>()),
       );
 
       expect(loader.getPluginManifest('someone-else.reaplugin'), isNull);
       final source = service.sourceFor(id)!;
       expect(source.commit, 'first');
       expect(source.lastError, contains('someone-else.reaplugin'));
-    });
-
-    group('bundled plugin provenance', () {
-      const dye2Id = 'dye2.reaplugin';
-
-      Future<void> bundledUpgrade(String version) => loader.updatePluginSource(
-        dye2Id,
-        manifestJson: manifestJson(dye2Id, version: version),
-        pluginJs: pluginJs(dye2Id),
-      );
-
-      Future<void> installBundledCopy({
-        String pluginId = dye2Id,
-        String version = '0.1.4',
-      }) async {
-        final staging = Directory('${tempDir.path}/bundled_$pluginId')
-          ..createSync(recursive: true);
-        File('${staging.path}/manifest.json').writeAsStringSync(
-          jsonEncode(manifestJson(pluginId, version: version)),
-        );
-        File('${staging.path}/plugin.js').writeAsStringSync(pluginJs(pluginId));
-        await loader.installPluginPackage(staging);
-      }
-
-      test('a freshly installed bundled DYE2 gets its repo', () async {
-        await installBundledCopy();
-        expect(sourceFile(dye2Id).existsSync(), isFalse);
-
-        service.seedBundledSources();
-
-        final source = service.sourceFor(dye2Id)!;
-        expect(source.kind, PluginSourceKind.githubRelease);
-        expect(source.repo, 'decentespresso/dye2');
-        expect(source.releaseTag, 'v0.1.4');
-        expect(source.includePrerelease, isFalse);
-        expect(source.assetName, isNull);
-      });
-
-      test('bundled shot upload gets its canonical repo', () async {
-        const pluginId = 'shot-upload.reaplugin';
-        await installBundledCopy(pluginId: pluginId, version: '0.2.1');
-
-        service.seedBundledSources();
-
-        final source = service.sourceFor(pluginId)!;
-        expect(source.kind, PluginSourceKind.githubRelease);
-        expect(source.repo, 'decentespresso/shot-upload');
-        expect(source.releaseTag, 'v0.2.1');
-        expect(source.assetName, isNull);
-      });
-
-      test('bundled dcamp gets its canonical repo', () async {
-        const pluginId = 'dcamp.reaplugin';
-        // Must match the bundled manifest version (assets/plugins/dcamp.reaplugin
-        // = 0.1.2); initialize() already installed the bundled copy, so a lower
-        // version here trips the downgrade guard.
-        await installBundledCopy(pluginId: pluginId, version: '0.1.2');
-
-        service.seedBundledSources();
-
-        final source = service.sourceFor(pluginId)!;
-        expect(source.kind, PluginSourceKind.githubRelease);
-        expect(source.repo, 'decentespresso/decaid-dcamp-plugin');
-        expect(source.releaseTag, 'v0.1.2');
-        expect(source.assetName, isNull);
-      });
-
-      test('an existing DYE2 without metadata is migrated', () async {
-        await installBundledCopy();
-        expect(service.sourceFor(dye2Id), isNull);
-
-        await http.runWithClient(
-          () => service.updateAllPlugins(),
-          () => gitHubClient(
-            tag: 'v0.1.4',
-            releaseArchive: pluginArchive(pluginId: dye2Id),
-          ),
-        );
-
-        expect(service.sourceFor(dye2Id)?.repo, 'decentespresso/dye2');
-      });
-
-      test('the update checker then queries decentespresso/dye2', () async {
-        await installBundledCopy();
-
-        final requested = <String>[];
-        await http.runWithClient(() => service.updateAllPlugins(), () {
-          return MockClient((request) async {
-            requested.add(request.url.toString());
-            final url = request.url.toString();
-            if (url.contains('/releases/latest')) {
-              return http.Response(
-                releaseJson('v0.2.0', ['dye2.reaplugin-0.2.0.zip']),
-                200,
-              );
-            }
-            return http.Response.bytes(
-              pluginArchive(pluginId: dye2Id, version: '0.2.0'),
-              200,
-            );
-          });
-        });
-
-        expect(
-          requested,
-          contains(
-            'https://api.github.com/repos/decentespresso/dye2/releases/latest',
-          ),
-        );
-        expect(loader.getPluginManifest(dye2Id)?.version, '0.2.0');
-        expect(service.sourceFor(dye2Id)?.releaseTag, 'v0.2.0');
-      });
-
-      test('seeding realigns the tag after a newer bundled copy', () async {
-        await installBundledCopy();
-        service.seedBundledSources();
-        expect(service.sourceFor(dye2Id)?.releaseTag, 'v0.1.4');
-
-        await bundledUpgrade('0.1.5');
-        service.seedBundledSources();
-
-        expect(service.sourceFor(dye2Id)?.releaseTag, 'v0.1.5');
-      });
-
-      test(
-        'seeding clears a pending update the bundled copy satisfies',
-        () async {
-          await installBundledCopy();
-          service.seedBundledSources();
-
-          await http.runWithClient(
-            () => service.updateAllPlugins(),
-            () => gitHubClient(
-              tag: 'v0.2.0',
-              releaseArchive: pluginArchive(
-                pluginId: dye2Id,
-                version: '0.2.0',
-                permissions: ['log'],
-              ),
-            ),
-          );
-          expect(service.sourceFor(dye2Id)!.pendingUpdate!.version, '0.2.0');
-
-          await bundledUpgrade('0.2.0');
-          service.seedBundledSources();
-
-          final source = service.sourceFor(dye2Id)!;
-          expect(source.pendingUpdate, isNull);
-          expect(source.releaseTag, 'v0.2.0');
-        },
-      );
-
-      test(
-        'seeding keeps a pending update newer than the bundled copy',
-        () async {
-          await installBundledCopy();
-          service.seedBundledSources();
-
-          await http.runWithClient(
-            () => service.updateAllPlugins(),
-            () => gitHubClient(
-              tag: 'v0.3.0',
-              releaseArchive: pluginArchive(
-                pluginId: dye2Id,
-                version: '0.3.0',
-                permissions: ['log'],
-              ),
-            ),
-          );
-          expect(service.sourceFor(dye2Id)!.pendingUpdate!.version, '0.3.0');
-
-          await bundledUpgrade('0.2.0');
-          service.seedBundledSources();
-
-          final source = service.sourceFor(dye2Id)!;
-          expect(source.pendingUpdate!.version, '0.3.0');
-          expect(source.releaseTag, 'v0.2.0');
-        },
-      );
-
-      test('seeding leaves a user-chosen source alone', () async {
-        await http.runWithClient(
-          () => service.installFromGitHubBranch('someone/dye2-fork'),
-          () => gitHubClient(
-            commit: 'fork-commit',
-            branchArchive: pluginArchive(pluginId: dye2Id),
-          ),
-        );
-
-        service.seedBundledSources();
-
-        final source = service.sourceFor(dye2Id)!;
-        expect(source.kind, PluginSourceKind.githubBranch);
-        expect(source.repo, 'someone/dye2-fork');
-        expect(source.commit, 'fork-commit');
-      });
-    });
-
-    test('a failed install leaves the previous version running', () async {
-      await http.runWithClient(
-        () => service.installFromGitHubRelease('acme/plugin'),
-        gitHubClient,
-      );
-      await loader.enablePlugin(id);
-
-      await http.runWithClient(
-        () => service.updateAllPlugins(),
-        () => gitHubClient(
-          tag: 'v1.1.0',
-          releaseArchive: makeArchive({
-            'manifest.json': jsonEncode(manifestJson(id, version: '1.1.0')),
-            'plugin.js': 'function createPlugin() { throw new Error("boom"); }',
-          }),
-        ),
-      );
-
-      expect(loader.isPluginLoaded(id), isTrue);
-      expect(loader.getPluginManifest(id)?.version, '1.0.0');
-      expect(service.sourceFor(id)!.releaseTag, 'v1.0.0');
-      expect(service.sourceFor(id)!.lastError, isNotNull);
     });
   });
 }

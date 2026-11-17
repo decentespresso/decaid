@@ -5,17 +5,26 @@ class De1Handler {
   final De1Controller _controller;
   final ScaleController _scaleController;
   final WorkflowController _workflowController;
+  final Set<String> _bengleSettingsGroups;
   final log = Logger("De1WebHandler");
 
   De1Handler({
-    required De1Controller controller,
-    required SettingsController settingsController,
-    required ScaleController scaleController,
-    required WorkflowController workflowController,
-  }) : _controller = controller,
-       _settingsController = settingsController,
-       _scaleController = scaleController,
-       _workflowController = workflowController;
+    required this._controller,
+    required this._settingsController,
+    required this._scaleController,
+    required this._workflowController,
+    String bengleCoalescedSettings = const String.fromEnvironment(
+      'bengleCoalescedSettings',
+      defaultValue: 'fanTank,flush,heater',
+    ),
+  }) : _bengleSettingsGroups = Set.unmodifiable(
+         bengleCoalescedSettings
+             .split(',')
+             .map((group) => group.trim())
+             .where(
+               (group) => const {'fanTank', 'flush', 'heater'}.contains(group),
+             ),
+       );
 
   void addRoutes(RouterPlus app) {
     app.get('/api/v1/machine/info', _infoHandler);
@@ -244,7 +253,73 @@ class De1Handler {
         final gate = _bengleFirmwareGate(de1, 'ledStrip');
         if (gate != null) return gate;
         await (de1 as BengleInterface).setLedStrip(state);
-        return jsonOk({'status': 'accepted'});
+        final stored = await de1.getLedStripState();
+        return jsonOk(stored?.toJson() ?? {'status': 'accepted'});
+      });
+    });
+
+    app.post('/api/v1/machine/ledStrip/preview', (Request r) async {
+      final dynamic json;
+      try {
+        json = jsonDecode(
+          await readBoundedRequestBodyString(
+            r,
+            maxBytes: smallRequestBodyBytes,
+            timeout: smallRequestBodyTimeout,
+          ),
+        );
+      } on RequestBodyReadException {
+        rethrow;
+      } catch (e) {
+        return jsonBadRequest({'error': 'Invalid JSON body'});
+      }
+      if (json is! Map) {
+        return jsonBadRequest({'error': 'invalid JSON body'});
+      }
+      final map = json as Map<String, dynamic>;
+      if (!map.containsKey('frontStrip') && !map.containsKey('backStrip')) {
+        return jsonBadRequest({
+          'error': 'name at least one of frontStrip or backStrip',
+        });
+      }
+      for (final field in ['frontStrip', 'backStrip']) {
+        if (!map.containsKey(field)) continue;
+        final value = map[field];
+        if (value is! String ||
+            value.length != 12 ||
+            !RegExp(r'^[0-9a-fA-F]{12}$').hasMatch(value)) {
+          return jsonBadRequest({
+            'error': '$field must be exactly 12 hexadecimal characters',
+          });
+        }
+      }
+      final front = map.containsKey('frontStrip')
+          ? Color16.fromJson(map['frontStrip'])
+          : null;
+      final back = map.containsKey('backStrip')
+          ? Color16.fromJson(map['backStrip'])
+          : null;
+      return withQueuedDe1((de1) async {
+        final gate = _bengleFirmwareGate(de1, 'ledStrip');
+        if (gate != null) return gate;
+        await (de1 as BengleInterface).previewLedStrip(
+          front: front,
+          back: back,
+        );
+        return jsonAccepted();
+      });
+    });
+
+    app.post('/api/v1/machine/ledStrip/preview/clear', (Request _) async {
+      return withQueuedDe1((de1) async {
+        final gate = _bengleFirmwareGate(de1, 'ledStrip');
+        if (gate != null) return gate;
+        try {
+          await (de1 as BengleInterface).clearLedStripPreview();
+        } on LedStripStateUnavailableException catch (e) {
+          return jsonServiceUnavailable({'error': e.message});
+        }
+        return jsonAccepted();
       });
     });
 
@@ -344,6 +419,13 @@ class De1Handler {
       });
     });
 
+    app.get('/api/v1/machine/waterLevels', (Request _) async {
+      return withDe1((de1) async {
+        final levels = await _latestWaterLevels(de1);
+        return jsonOk(levels.toJson());
+      });
+    });
+
     app.post('/api/v1/machine/waterLevels', (Request r) async {
       final dynamic json;
       try {
@@ -365,10 +447,8 @@ class De1Handler {
       final refillLevel = json['refillLevel'] == null
           ? null
           : (json['refillLevel'] as num).toInt();
-      return withQueuedDe1((de1) async {
-        if (refillLevel != null) {
-          await de1.setRefillLevel(refillLevel);
-        }
+      return _mapDe1WriteErrors(() async {
+        await _controller.updateRefillLevel(refillLevel);
         return jsonAccepted();
       });
     });
@@ -434,16 +514,17 @@ class De1Handler {
 
     app.get('/api/v1/machine/settings', () async {
       return withDe1((de1) async {
+        final settings = await _machineSettingsSnapshot(de1);
         var json = <String, dynamic>{};
-        json['fan'] = await de1.getFanThreshhold();
-        json['usb'] = await de1.getUsbChargerMode();
-        json['flushTemp'] = await de1.getFlushTemperature();
-        json['flushTimeout'] = await de1.getFlushTimeout();
-        json['flushFlow'] = await de1.getFlushFlow();
-        json['hotWaterFlow'] = await de1.getHotWaterFlow();
-        json['steamFlow'] = await de1.getSteamFlow();
-        json['tankTemp'] = await de1.getTankTempThreshold();
-        json['steamPurgeMode'] = await de1.getSteamPurgeMode();
+        json['fan'] = settings.fanThreshold;
+        json['usb'] = settings.usbChargerMode;
+        json['flushTemp'] = settings.flushTemperature;
+        json['flushTimeout'] = settings.flushTimeout;
+        json['flushFlow'] = settings.flushFlow;
+        json['hotWaterFlow'] = settings.hotWaterFlow;
+        json['steamFlow'] = settings.steamFlow;
+        json['tankTemp'] = settings.tankTempThreshold;
+        json['steamPurgeMode'] = settings.steamPurgeMode;
         return jsonOk(json);
       });
     });
@@ -496,36 +577,27 @@ class De1Handler {
           ? null
           : De1RefillKitSettings.fromInt(refillKitRaw);
 
-      return withQueuedDe1((de1) async {
-        if (heaterPh1Flow != null) {
-          await de1.setHeaterPhase1Flow(heaterPh1Flow);
-        }
-        if (heaterPh2Flow != null) {
-          await de1.setHeaterPhase2Flow(heaterPh2Flow);
-        }
-        if (heaterIdleTemp != null) {
-          await de1.setHeaterIdleTemp(heaterIdleTemp);
-        }
-        if (heaterPh2Timeout != null) {
-          await de1.setHeaterPhase2Timeout(heaterPh2Timeout);
-        }
-        if (heaterVoltage != null) {
-          await de1.setHeaterVoltage(heaterVoltage);
-        }
-        if (refillKitSetting != null) {
-          await de1.setRefillKitSettings(refillKitSetting);
-        }
+      return _mapDe1WriteErrors(() async {
+        await _controller.updateAdvancedMachineSettings(
+          heaterPh1Flow: heaterPh1Flow,
+          heaterPh2Flow: heaterPh2Flow,
+          heaterIdleTemp: heaterIdleTemp,
+          heaterPh2Timeout: heaterPh2Timeout,
+          heaterVoltage: heaterVoltage,
+          refillKitSetting: refillKitSetting,
+        );
         return jsonAccepted();
       });
     });
 
     app.get('/api/v1/machine/settings/advanced', () async {
       return withDe1((de1) async {
+        final settings = await _advancedMachineSettingsSnapshot(de1);
         var json = <String, dynamic>{};
-        json['heaterPh1Flow'] = await de1.getHeaterPhase1Flow();
-        json['heaterPh2Flow'] = await de1.getHeaterPhase2Flow();
-        json['heaterIdleTemp'] = await de1.getHeaterIdleTemp();
-        json['heaterPh2Timeout'] = await de1.getHeaterPhase2Timeout();
+        json['heaterPh1Flow'] = settings.heaterPhase1Flow;
+        json['heaterPh2Flow'] = settings.heaterPhase2Flow;
+        json['heaterIdleTemp'] = settings.heaterIdleTemp;
+        json['heaterPh2Timeout'] = settings.heaterPhase2Timeout;
         json['heaterVoltage'] = (await de1.getHeaterVoltage()).voltage;
         json['refillKitSetting'] = (await de1.getRefillKitSettings()).hex;
         return jsonOk(json);
@@ -561,10 +633,8 @@ class De1Handler {
       final flowMultiplier = json['flowMultiplier'] == null
           ? null
           : parseDouble(json['flowMultiplier']);
-      return withQueuedDe1((de1) async {
-        if (flowMultiplier != null) {
-          await de1.setFlowEstimation(flowMultiplier);
-        }
+      return _mapDe1WriteErrors(() async {
+        await _controller.updateMachineCalibration(flowMultiplier);
         return jsonAccepted();
       });
     });
@@ -713,6 +783,54 @@ class De1Handler {
       return jsonError({'error': e.toString()});
     } catch (e, st) {
       return jsonError({'error': e.toString(), 'st': st.toString()});
+    }
+  }
+
+  Future<De1MachineSettings> _machineSettingsSnapshot(De1Interface de1) {
+    if (de1 is UnifiedDe1) {
+      if (de1 is! BengleInterface) {
+        return de1.getCoalescedMachineSettings();
+      }
+      final fanTank = _bengleSettingsGroups.contains('fanTank');
+      final flush = _bengleSettingsGroups.contains('flush');
+      if (fanTank || flush) {
+        return de1.getCoalescedMachineSettings(fanTank: fanTank, flush: flush);
+      }
+    }
+    return de1.getMachineSettingsSnapshot();
+  }
+
+  Future<De1AdvancedMachineSettings> _advancedMachineSettingsSnapshot(
+    De1Interface de1,
+  ) {
+    if (de1 is UnifiedDe1) {
+      if (de1 is! BengleInterface) {
+        return de1.getCoalescedAdvancedMachineSettings();
+      }
+      if (_bengleSettingsGroups.contains('heater')) {
+        return de1.getCoalescedAdvancedMachineSettings(heater: true);
+      }
+    }
+    return de1.getAdvancedMachineSettingsSnapshot();
+  }
+
+  static const _waterLevelsTimeout = Duration(seconds: 4);
+
+  Future<De1WaterLevels> _latestWaterLevels(De1Interface de1) async {
+    try {
+      return await de1.waterLevels
+          .timeout(
+            _waterLevelsTimeout,
+            onTimeout: (sink) => sink.addError(
+              const EndpointUnavailableException(
+                'waterLevels',
+                _waterLevelsTimeout,
+              ),
+            ),
+          )
+          .first;
+    } on StateError {
+      throw const DeviceNotConnectedException.machine();
     }
   }
 

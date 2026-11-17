@@ -1,0 +1,6 @@
+{
+  "id": "camera-audit-test",
+  "name": "Camera Audit Test",
+  "version": "1.0.0",
+  "description": "Manual test skin for per-skin live camera consent and file-input capture."
+}

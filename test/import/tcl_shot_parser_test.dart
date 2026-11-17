@@ -133,8 +133,8 @@ void main() {
         expect(result.shot.annotations?.drinkEy, closeTo(21.0, 0.001));
       });
 
-      test('extracts enjoyment', () {
-        expect(result.shot.annotations?.enjoyment, closeTo(80.0, 0.001));
+      test('rescales enjoyment from the de1app 0-100 range to 0-10', () {
+        expect(result.shot.annotations?.enjoyment, closeTo(8.0, 0.001));
       });
 
       test('extracts espresso notes', () {
@@ -181,13 +181,32 @@ void main() {
         expect(() => TclShotParser.parse(truncated), returnsNormally);
       });
 
-      test('truncates snapshots to the shortest array length', () {
+      test('keeps every machine sample when the weight array is shorter', () {
         final truncated = fixtureContent.replaceFirst(
           'espresso_weight {0.0 0.1 0.3 0.9 1.8 3.2 4.8 6.6 8.5}',
           'espresso_weight {0.0 0.1 0.3 0.9 1.8}',
         );
         final parsed = TclShotParser.parse(truncated);
-        expect(parsed.shot.measurements.length, equals(5));
+
+        expect(parsed.shot.measurements.length, equals(9));
+        expect(parsed.shot.measurements.last.machine.pressure, equals(8.5));
+        expect(
+          parsed.shot.measurements.take(5).every((m) => m.scale != null),
+          isTrue,
+        );
+        expect(
+          parsed.shot.measurements.skip(5).every((m) => m.scale == null),
+          isTrue,
+        );
+      });
+
+      test('truncates snapshots to the shortest machine array', () {
+        final truncated = fixtureContent.replaceFirst(
+          'espresso_pressure {0.0 1.1 3.2 5.8 8.5 9.0 9.0 8.8 8.5}',
+          'espresso_pressure {0.0 1.1 3.2}',
+        );
+        final parsed = TclShotParser.parse(truncated);
+        expect(parsed.shot.measurements.length, equals(3));
       });
 
       test('does not throw when pressure array is shorter than elapsed', () {
@@ -205,6 +224,218 @@ void main() {
           expect(snap.machine.profileFrame, equals(0));
         }
       });
+    });
+  });
+
+  group('TclShotParser with an embedded profile block', () {
+    late ParsedShot result;
+
+    setUpAll(() {
+      final file = File('test/fixtures/de1app/legacy_with_profile.shot');
+      result = TclShotParser.parse(file.readAsStringSync());
+    });
+
+    test('recovers the profile title from the embedded JSON', () {
+      expect(result.shot.workflow.profile.title, equals('Rao Allong\u00e9'));
+    });
+
+    test('recovers the profile steps from the embedded JSON', () {
+      expect(result.shot.workflow.profile.steps.length, equals(2));
+    });
+
+    test('recovers the step names from the embedded JSON', () {
+      expect(
+        result.shot.workflow.profile.steps.map((s) => s.name),
+        equals(['hold at 4.5 ml/s', 'extract']),
+      );
+    });
+
+    test('recovers the profile target weight from the embedded JSON', () {
+      expect(result.shot.workflow.profile.targetWeight, equals(61.0));
+    });
+
+    test('names the workflow after the recovered profile', () {
+      expect(result.shot.workflow.name, equals('Rao Allong\u00e9'));
+    });
+
+    test('still reads metadata following a multi-line settings value', () {
+      expect(result.grinderModel, equals('test02'));
+      expect(result.shot.workflow.context?.grinderSetting, equals('21.0'));
+      expect(result.shot.annotations?.actualYield, equals(61.6));
+      expect(result.shot.annotations?.enjoyment, equals(8.0));
+    });
+
+    test('keeps settings behind a profile note with an unmatched brace', () {
+      final content = File('test/fixtures/de1app/legacy_with_profile.shot')
+          .readAsStringSync()
+          .replaceFirst(
+            '"notes": "An amazing long espresso for light roasts.",',
+            '"notes": "Try a {shorter preinfusion",',
+          );
+      final parsed = TclShotParser.parse(content);
+
+      expect(parsed.shot.workflow.profile.steps.length, equals(2));
+      expect(parsed.shot.workflow.profile.title, equals('Rao Allong\u00e9'));
+      expect(parsed.grinderModel, equals('test02'));
+      expect(parsed.beanBrand, equals('mark'));
+      expect(parsed.shot.annotations?.actualYield, equals(61.6));
+
+      final metadata = TclShotParser.parse(content, metadataOnly: true);
+      expect(metadata.grinderModel, equals('test02'));
+      expect(metadata.shot.annotations?.actualYield, equals(61.6));
+    });
+
+    test('assigns profile frames from the recovered step boundaries', () {
+      expect(
+        result.shot.measurements.map((m) => m.machine.profileFrame).toSet(),
+        equals({0}),
+      );
+    });
+  });
+
+  group('TclShotParser on a canonical de1app record', () {
+    late String fixtureContent;
+    late ParsedShot result;
+
+    setUpAll(() {
+      final file = File('test/fixtures/de1app/canonical_simulated.shot');
+      fixtureContent = file.readAsStringSync();
+      result = TclShotParser.parse(fixtureContent);
+    });
+
+    test('parses the clock of a record whose profile block comes last', () {
+      expect(result.shot.id, equals('de1app-1650551914'));
+    });
+
+    test('reads settings that precede the profile block', () {
+      expect(result.shot.annotations?.actualYield, equals(35.7));
+      expect(result.shot.workflow.profile.title, equals('Londonium'));
+    });
+
+    test('recovers every embedded profile step', () {
+      expect(result.shot.workflow.profile.steps.length, equals(6));
+      expect(result.shot.workflow.profile.steps.first.name, equals('Fill'));
+    });
+
+    test('produces one snapshot per recorded sample', () {
+      expect(result.shot.measurements.length, equals(30));
+    });
+
+    test('follows the machine-reported frame change, not step duration', () {
+      final frames = result.shot.measurements
+          .map((m) => m.machine.profileFrame)
+          .toList();
+      expect(frames[16], equals(0));
+      expect(frames[17], equals(1));
+      expect(frames.last, equals(1));
+    });
+
+    test('keeps machine samples when the scale arrays are absent', () {
+      final withoutScale = fixtureContent
+          .split('\n')
+          .where(
+            (line) =>
+                !line.startsWith('espresso_weight ') &&
+                !line.startsWith('espresso_flow_weight '),
+          )
+          .join('\n');
+      final parsed = TclShotParser.parse(withoutScale);
+
+      expect(parsed.shot.measurements.length, equals(30));
+      expect(parsed.shot.measurements.first.machine.pressure, equals(0.0));
+      expect(parsed.shot.measurements[5].machine.flow, equals(6.46));
+      expect(parsed.shot.measurements.every((m) => m.scale == null), isTrue);
+    });
+
+    test('recovers a profile whose strings contain unbalanced braces', () {
+      final braced = fixtureContent.replaceFirst(
+        '"author": "Decent",',
+        '"author": "De{cent",',
+      );
+      final parsed = TclShotParser.parse(braced);
+
+      expect(parsed.shot.workflow.profile.steps.length, equals(6));
+      expect(parsed.shot.workflow.profile.title, equals('Londonium'));
+    });
+
+    test('keeps every machine sample when the scale arrays are shorter', () {
+      final shortened = fixtureContent.replaceFirst(
+        RegExp(r'^espresso_weight \{[^}]*\}', multiLine: true),
+        'espresso_weight {0.0 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9}',
+      );
+      final parsed = TclShotParser.parse(shortened);
+
+      expect(parsed.shot.measurements.length, equals(30));
+      expect(parsed.shot.measurements[29].machine.flow, equals(6.05));
+      expect(parsed.shot.measurements[9].scale?.weight, equals(0.9));
+      expect(parsed.shot.measurements[10].scale, isNull);
+    });
+
+    test('falls back to step durations for a truncated frame series', () {
+      final series = RegExp(
+        r'^espresso_state_change \{([^}]*)\}',
+        multiLine: true,
+      ).firstMatch(fixtureContent)!;
+      final truncated = fixtureContent.replaceRange(
+        series.start,
+        series.end,
+        'espresso_state_change '
+        '{${series.group(1)!.split(' ').take(20).join(' ')}}',
+      );
+      final frames = TclShotParser.parse(truncated).shot.measurements
+          .map((m) => m.machine.profileFrame)
+          .toList();
+
+      expect(frames.length, equals(30));
+      expect(frames.toSet(), equals({0}));
+      for (var i = 1; i < frames.length; i++) {
+        expect(frames[i], greaterThanOrEqualTo(frames[i - 1]));
+      }
+    });
+
+    test('recovers a profile whose strings contain escaped quotes', () {
+      final escaped = fixtureContent.replaceFirst(
+        '"title": "Londonium",',
+        r'"title": "Lon\"doni\\um",',
+      );
+      final parsed = TclShotParser.parse(escaped);
+
+      expect(parsed.shot.workflow.profile.steps.length, equals(6));
+      expect(parsed.shot.workflow.profile.title, equals(r'Lon"doni\um'));
+    });
+  });
+
+  group('TclShotParser metadata-only parsing', () {
+    late String fixtureContent;
+    late ParsedShot result;
+
+    setUpAll(() {
+      final file = File('test/fixtures/de1app/canonical_simulated.shot');
+      fixtureContent = file.readAsStringSync();
+      result = TclShotParser.parse(fixtureContent, metadataOnly: true);
+    });
+
+    test('keeps the shot id', () {
+      expect(result.shot.id, equals('de1app-1650551914'));
+    });
+
+    test('keeps the settings metadata', () {
+      expect(result.shot.annotations?.actualYield, equals(35.7));
+    });
+
+    test('skips measurements and the embedded profile', () {
+      expect(result.shot.measurements, isEmpty);
+      expect(result.shot.workflow.profile.steps, isEmpty);
+    });
+
+    test('still reads metadata when a sample line is absent', () {
+      final trimmed = fixtureContent
+          .split('\n')
+          .where((line) => !line.startsWith('espresso_weight '))
+          .join('\n');
+      final parsed = TclShotParser.parse(trimmed, metadataOnly: true);
+      expect(parsed.shot.id, equals('de1app-1650551914'));
+      expect(parsed.shot.annotations?.actualYield, equals(35.7));
     });
   });
 }

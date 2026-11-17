@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reaprime/src/models/device/device.dart';
 import 'package:reaprime/src/models/device/transport/ble_transport.dart';
 import 'package:reaprime/src/plugins/plugin_ble_session.dart';
+
 import '../helpers/completing_cancel_stream.dart';
 
 class SessionTransport extends BLETransport {
@@ -79,78 +80,72 @@ class SessionTransport extends BLETransport {
 const gattArgs = {'service': '0ffe', 'characteristic': 'ff11', 'data': 'AQ=='};
 
 void main() {
-  test(
-    'normalizes UUIDs, preserves acknowledgement, and rejects foreign authority',
-    () async {
-      final transport = SessionTransport();
-      final session = PluginBleSession(
-        transport: transport,
-        authorized: () => true,
-        runtimeAlive: () => true,
-      );
-      await session.connect();
-      await expectLater(
-        session.call('foreign', 'write', gattArgs),
-        throwsA(isA<PluginBleException>()),
-      );
-      expect(transport.writes, isEmpty);
-      await session.call(session.id, 'write', {
-        ...gattArgs,
-        'withResponse': true,
-      });
-      expect(transport.writes.single, (
-        '00000ffe-0000-1000-8000-00805f9b34fb',
-        '0000ff11-0000-1000-8000-00805f9b34fb',
-        true,
-      ));
-      expect(await session.call(session.id, 'read', gattArgs), 'AQ==');
-      expect(await session.call(session.id, 'discoverServices', {}), [
-        '00000ffe-0000-1000-8000-00805f9b34fb',
-      ]);
-      await session.retire();
-      await session.closed;
-    },
-  );
+  test('normalizes UUIDs, preserves acknowledgement, and rejects foreign authority', () async {
+    final transport = SessionTransport();
+    final session = PluginBleSession(
+      transport: transport,
+      authorized: () => true,
+      runtimeAlive: () => true,
+    );
+    await session.connect();
+    await expectLater(
+      session.call('foreign', 'write', gattArgs),
+      throwsA(isA<PluginBleException>()),
+    );
+    expect(transport.writes, isEmpty);
+    await session.call(session.id, 'write', {
+      ...gattArgs,
+      'withResponse': true,
+    });
+    expect(transport.writes.single, (
+      '00000ffe-0000-1000-8000-00805f9b34fb',
+      '0000ff11-0000-1000-8000-00805f9b34fb',
+      true,
+    ));
+    expect(await session.call(session.id, 'read', gattArgs), 'AQ==');
+    expect(await session.call(session.id, 'discoverServices', {}), [
+      '00000ffe-0000-1000-8000-00805f9b34fb',
+    ]);
+    await session.retire();
+    await session.closed;
+  });
 
-  test(
-    'retirement gives only its invocation cleanup authority and retains native ownership',
-    () async {
-      final transport = SessionTransport()..nativeTeardown = Completer<void>();
-      final session = PluginBleSession(
-        transport: transport,
-        authorized: () => true,
-        runtimeAlive: () => true,
-      );
-      await session.connect();
-      session.markReady();
-      String? cleanupAuthority;
-      await session.retire(
-        cleanup: (authority) async {
-          cleanupAuthority = authority;
-          expect(session.state, PluginBleSessionState.retiring);
-          await expectLater(
-            session.call(session.id, 'write', gattArgs),
-            throwsA(isA<PluginBleException>()),
-          );
-          await expectLater(
-            session.call(authority, 'subscribe', gattArgs),
-            throwsA(isA<PluginBleException>()),
-          );
-          await session.call(authority, 'write', gattArgs);
-        },
-      );
-      expect(session.state, PluginBleSessionState.revoked);
-      await expectLater(
-        session.call(cleanupAuthority!, 'write', gattArgs),
-        throwsA(isA<PluginBleException>()),
-      );
-      expect(transport.disposed, isFalse);
-      transport.nativeTeardown!.complete();
-      await session.closed;
-      expect(transport.disposed, isTrue);
-      expect(session.state, PluginBleSessionState.closed);
-    },
-  );
+  test('retirement gives only its invocation cleanup authority and retains native ownership', () async {
+    final transport = SessionTransport()..nativeTeardown = Completer<void>();
+    final session = PluginBleSession(
+      transport: transport,
+      authorized: () => true,
+      runtimeAlive: () => true,
+    );
+    await session.connect();
+    session.markReady();
+    String? cleanupAuthority;
+    await session.retire(
+      cleanup: (authority) async {
+        cleanupAuthority = authority;
+        expect(session.state, PluginBleSessionState.retiring);
+        await expectLater(
+          session.call(session.id, 'write', gattArgs),
+          throwsA(isA<PluginBleException>()),
+        );
+        await expectLater(
+          session.call(authority, 'subscribe', gattArgs),
+          throwsA(isA<PluginBleException>()),
+        );
+        await session.call(authority, 'write', gattArgs);
+      },
+    );
+    expect(session.state, PluginBleSessionState.revoked);
+    await expectLater(
+      session.call(cleanupAuthority!, 'write', gattArgs),
+      throwsA(isA<PluginBleException>()),
+    );
+    expect(transport.disposed, isFalse);
+    transport.nativeTeardown!.complete();
+    await session.closed;
+    expect(transport.disposed, isTrue);
+    expect(session.state, PluginBleSessionState.closed);
+  });
 
   test('hanging cleanup is bounded without plugin cooperation', () {
     fakeAsync((async) {
@@ -171,33 +166,30 @@ void main() {
     });
   });
 
-  test(
-    'throwing cleanup, repeated disconnect and revoked runtime still clean native resources',
-    () async {
-      final transport = SessionTransport();
-      var cleanupCalls = 0;
-      final session = PluginBleSession(
-        transport: transport,
-        authorized: () => true,
-        runtimeAlive: () => true,
-      );
-      await session.connect();
-      await session.retire(
-        cleanup: (_) async {
-          cleanupCalls++;
-          throw StateError('cleanup');
-        },
-      );
-      await session.retire(
-        cleanup: (_) async {
-          cleanupCalls++;
-        },
-      );
-      await session.closed;
-      expect(cleanupCalls, 1);
-      expect(transport.disposed, isTrue);
-    },
-  );
+  test('throwing cleanup, repeated disconnect and revoked runtime still clean native resources', () async {
+    final transport = SessionTransport();
+    var cleanupCalls = 0;
+    final session = PluginBleSession(
+      transport: transport,
+      authorized: () => true,
+      runtimeAlive: () => true,
+    );
+    await session.connect();
+    await session.retire(
+      cleanup: (_) async {
+        cleanupCalls++;
+        throw StateError('cleanup');
+      },
+    );
+    await session.retire(
+      cleanup: (_) async {
+        cleanupCalls++;
+      },
+    );
+    await session.closed;
+    expect(cleanupCalls, 1);
+    expect(transport.disposed, isTrue);
+  });
 
   test(
     'permission loss causes no native operation and interrupts cleanup',
@@ -221,32 +213,29 @@ void main() {
     },
   );
 
-  test(
-    'setup notifications are retained and old unsubscribe cannot remove replacement',
-    () async {
-      final events = <Map<String, dynamic>>[];
-      final session = PluginBleSession(
-        transport: SessionTransport(),
-        authorized: () => true,
-        runtimeAlive: () => true,
-        eventSink: (event) async {
-          events.add(event);
-        },
-      );
-      await session.connect();
-      final first = await session.call(session.id, 'subscribe', gattArgs);
-      final second = await session.call(session.id, 'subscribe', gattArgs);
-      await session.call(session.id, 'unsubscribe', {'subscription': first});
-      expect(session.subscriptionCount, 1);
-      expect(first, isNot(second));
-      expect(
-        events.where((event) => event['type'] == 'notification'),
-        isNotEmpty,
-      );
-      await session.retire();
-      await session.closed;
-    },
-  );
+  test('setup notifications are retained and old unsubscribe cannot remove replacement', () async {
+    final events = <Map<String, dynamic>>[];
+    final session = PluginBleSession(
+      transport: SessionTransport(),
+      authorized: () => true,
+      runtimeAlive: () => true,
+      eventSink: (event) async {
+        events.add(event);
+      },
+    );
+    await session.connect();
+    final first = await session.call(session.id, 'subscribe', gattArgs);
+    final second = await session.call(session.id, 'subscribe', gattArgs);
+    await session.call(session.id, 'unsubscribe', {'subscription': first});
+    expect(session.subscriptionCount, 1);
+    expect(first, isNot(second));
+    expect(
+      events.where((event) => event['type'] == 'notification'),
+      isNotEmpty,
+    );
+    await session.retire();
+    await session.closed;
+  });
 
   test(
     'retirement settles pending callers once and fences late native completion',

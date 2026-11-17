@@ -48,6 +48,10 @@ Boot the app with a mock machine connected, confirm REST is reachable and a DE1 
 
 Shortest loop: reload, re-hit the endpoint, diff the response against the spec. If the shape changed, update `assets/api/rest_v1.yml` or `assets/api/websocket_v1.yml` in the same commit, and update `doc/Api.md` / `doc/Plugins.md` if user-facing.
 
+## Physical Android device
+
+See the `decent-dev` skill for the tablet loop (stay-awake, `--dart-define` argument form, tap-target discovery, screenshots) and the onboarding flags. This file covers the app's runtime surface, not the development loop.
+
 ## Completion requirements
 
 Follow the root `AGENTS.md` for formatting, tests, plan archival or deletion, documentation, and PR requirements. In addition, runtime-facing changes need the relevant `sb-dev` smoke or regression scenario.

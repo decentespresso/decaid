@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -32,6 +33,19 @@ void main() {
   }
 
   setUp(() => upstream = null);
+
+  test('connection failure returns a friendly server error', () async {
+    final handler = buildHandler(
+      (_) async => throw const SocketException('private host lookup'),
+    );
+    final response = await post(handler, '{"query":"hello"}');
+    expect(response.statusCode, 500);
+    final body = jsonDecode(await response.readAsString());
+    expect(
+      body['error'],
+      "Couldn't reach Derek. Check your internet connection and try again.",
+    );
+  });
 
   test('forwards the POST body to Derek verbatim', () async {
     final handler = buildHandler(

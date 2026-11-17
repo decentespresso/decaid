@@ -22,7 +22,7 @@ class HDSSerial implements Scale, TransportHandoffScale {
   static const _warningTicks = 3;
   static const _disconnectTicks = 6;
 
-  HDSSerial({required SerialTransport transport}) : _transport = transport {
+  HDSSerial({required this._transport}) {
     _log = Logger("Serial HDS#${_transport.name}");
   }
 

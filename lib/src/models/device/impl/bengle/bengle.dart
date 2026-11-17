@@ -116,9 +116,8 @@ class Bengle extends UnifiedDe1
     // serial it is already subscribed at connect. A false here is normal, not
     // an error -- the puck-estimator sensor simply never registers.
     await enableEstimator();
-    _probeSub = notificationsFor(
-      Endpoint.bengleShotSample,
-    ).listen(_handleProbeSample);
+    _probeSub = notificationsFor(Endpoint.bengleShotSample)
+        .listen(_handleProbeSample);
     await initIntegratedScale();
     await initLedStrip();
   }

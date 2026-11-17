@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
+import 'package:reaprime/src/models/device/device_identity.dart';
 import 'package:reaprime/src/controllers/connection_error.dart';
 import 'package:reaprime/src/controllers/connection_manager.dart';
 import 'package:reaprime/src/controllers/device_controller.dart';
@@ -61,7 +62,18 @@ class ScanFlowView extends StatefulWidget {
 }
 
 class ScanFlowViewState extends State<ScanFlowView> {
-  void _skipToDashboard() => widget.onExit();
+  void _cancelScan() {
+    _hasNavigated = true;
+    _cancelTooLongTimer();
+    widget.connectionManager.cancelActiveScan();
+    widget.deviceController.stopScan();
+  }
+
+  void _skipToDashboard() {
+    if (!mounted || _hasNavigated) return;
+    _cancelScan();
+    widget.onExit();
+  }
 
   void _retry() => widget.connectionManager.scanAndConnect();
 
@@ -105,7 +117,7 @@ class ScanFlowViewState extends State<ScanFlowView> {
     super.initState();
 
     _statusSubscription = widget.connectionManager.status.listen((status) {
-      if (!mounted) return;
+      if (!mounted || _hasNavigated) return;
 
       if (status.phase != _status.phase) {
         BootTiming.mark('connect_${status.phase.name}');
@@ -169,7 +181,11 @@ class ScanFlowViewState extends State<ScanFlowView> {
     _deviceSubscription = widget.deviceController.deviceStream.listen((
       devices,
     ) {
-      if (!mounted || _status.phase != ConnectionPhase.scanning) return;
+      if (!mounted ||
+          _hasNavigated ||
+          _status.phase != ConnectionPhase.scanning) {
+        return;
+      }
       setState(() {
         _discoveredMachines = devices.whereType<De1Interface>().toList();
         _discoveredScales = devices.whereType<device_scale.Scale>().toList();
@@ -193,7 +209,9 @@ class ScanFlowViewState extends State<ScanFlowView> {
     _cancelTooLongTimer();
     _showTakingTooLong = false;
     _tooLongTimer = Timer(ScanFlowView.scanTooLongThreshold, () {
-      if (mounted && _status.phase == ConnectionPhase.scanning) {
+      if (mounted &&
+          !_hasNavigated &&
+          _status.phase == ConnectionPhase.scanning) {
         setState(() {
           _showTakingTooLong = true;
         });
@@ -210,7 +228,7 @@ class ScanFlowViewState extends State<ScanFlowView> {
   }
 
   void _onGuardianEvent(ScanStateEvent event) {
-    if (!mounted) return;
+    if (!mounted || _hasNavigated) return;
     if (event == ScanStateEvent.scanStateStale &&
         _status.phase == ConnectionPhase.scanning) {
       _log.info('Stale scan detected, restarting');
@@ -220,6 +238,7 @@ class ScanFlowViewState extends State<ScanFlowView> {
 
   @override
   void dispose() {
+    if (!_hasNavigated) _cancelScan();
     _cancelTooLongTimer();
     _statusSubscription.cancel();
     _guardianSubscription.cancel();
@@ -265,7 +284,13 @@ class ScanFlowViewState extends State<ScanFlowView> {
     if (blockingCondition == null && noticeCondition != null) {
       content = _withTransportNotice(content);
     }
-    return Scaffold(body: content);
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) _skipToDashboard();
+      },
+      child: Scaffold(body: content),
+    );
   }
 
   TransportCondition? _conditionWithDisposition(
@@ -294,7 +319,9 @@ class ScanFlowViewState extends State<ScanFlowView> {
     if (_discoveredMachines.isEmpty && _discoveredScales.isEmpty) return false;
     final preferredMachineId = widget.settingsController.preferredMachineId;
     if (preferredMachineId == null) return false;
-    return !_discoveredMachines.any((m) => m.deviceId == preferredMachineId);
+    return !_discoveredMachines.any(
+      (m) => matchesDeviceIdentity(m, preferredMachineId),
+    );
   }
 
   int get _totalDiscovered =>
@@ -358,6 +385,10 @@ class ScanFlowViewState extends State<ScanFlowView> {
             ),
           ),
         ),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: _exitButton(),
+        ),
         ExcludeSemantics(
           excluding: !_showTakingTooLong,
           child: AnimatedOpacity(
@@ -390,6 +421,20 @@ class ScanFlowViewState extends State<ScanFlowView> {
     );
   }
 
+  Widget _exitButton() {
+    final label = widget.exitLabel == 'Dashboard'
+        ? 'Continue to Dashboard'
+        : widget.exitLabel;
+    return AccessibleButton(
+      label: label,
+      onTap: _skipToDashboard,
+      child: ShadButton.secondary(
+        onPressed: _skipToDashboard,
+        child: Text(label),
+      ),
+    );
+  }
+
   Widget _connectingView(BuildContext context) {
     final label = _status.phase == ConnectionPhase.connectingMachine
         ? 'Connecting to your machine...'
@@ -407,6 +452,7 @@ class ScanFlowViewState extends State<ScanFlowView> {
             liveRegion: true,
             child: Text(label, style: Theme.of(context).textTheme.titleMedium),
           ),
+          _exitButton(),
         ],
       ),
     );
@@ -424,7 +470,9 @@ class ScanFlowViewState extends State<ScanFlowView> {
       final preferredMachineNotFound =
           preferredMachineId != null &&
           _status.foundMachines.isNotEmpty &&
-          !_status.foundMachines.any((m) => m.deviceId == preferredMachineId);
+          !_status.foundMachines.any(
+            (m) => matchesDeviceIdentity(m, preferredMachineId),
+          );
       return _singlePickerView(
         context: context,
         label: preferredMachineNotFound
@@ -475,7 +523,9 @@ class ScanFlowViewState extends State<ScanFlowView> {
     final preferredMachineNotFound =
         preferredMachineId != null &&
         _status.foundMachines.isNotEmpty &&
-        !_status.foundMachines.any((m) => m.deviceId == preferredMachineId);
+        !_status.foundMachines.any(
+          (m) => matchesDeviceIdentity(m, preferredMachineId),
+        );
 
     final preferredScaleNotFound =
         preferredScaleId != null &&
@@ -485,9 +535,12 @@ class ScanFlowViewState extends State<ScanFlowView> {
     De1Interface? connectTarget;
     if (_status.foundMachines.length == 1) {
       connectTarget = _status.foundMachines.first;
-    } else if (preferredMachineId != null) {
+    } else if (_selectedMachineId != null || preferredMachineId != null) {
       for (final machine in _status.foundMachines) {
-        if (machine.deviceId == preferredMachineId) {
+        if (matchesDeviceIdentity(
+          machine,
+          _selectedMachineId ?? preferredMachineId,
+        )) {
           connectTarget = machine;
           break;
         }
@@ -525,13 +578,13 @@ class ScanFlowViewState extends State<ScanFlowView> {
                                 : null)
                           : null,
                       errorMessage: _operationErrorMessage,
-                      selectedDeviceId: null,
+                      selectedDeviceId: _selectedMachineId,
                       preferredDeviceId:
                           widget.settingsController.preferredMachineId,
                       onPreferredChanged: (id) =>
                           widget.settingsController.setPreferredMachineId(id),
                       onDeviceTapped: (device) {
-                        setState(() {});
+                        setState(() => _selectedMachineId = device.deviceId);
                         widget.settingsController.setPreferredMachineId(
                           device.deviceId,
                         );
@@ -795,7 +848,7 @@ class ScanFlowViewState extends State<ScanFlowView> {
                   child: const Text('View found devices'),
                 ),
               ShadButton.secondary(
-                onPressed: widget.onExit,
+                onPressed: _skipToDashboard,
                 child: Text(widget.exitLabel),
               ),
             ],

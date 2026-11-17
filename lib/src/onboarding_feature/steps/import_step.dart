@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -16,57 +15,58 @@ import 'package:reaprime/src/services/storage/bean_storage_service.dart';
 import 'package:reaprime/src/services/storage/grinder_storage_service.dart';
 import 'package:reaprime/src/services/storage/profile_storage_service.dart';
 import 'package:reaprime/src/controllers/persistence_controller.dart';
-import 'package:reaprime/src/services/storage/storage_service.dart';
 import 'package:reaprime/src/settings/backup_import_response.dart';
+import 'package:reaprime/src/settings/backup_import_presentation.dart';
 import 'package:reaprime/src/settings/settings_controller.dart';
+import 'package:reaprime/src/services/webserver/data_export/backup_transfer_service.dart';
 import 'package:reaprime/src/controllers/workflow_controller.dart';
 
 enum _ImportPhase { pickSource, copying, scanning, summary, importing, result }
 
 OnboardingStep createImportStep({
-  required StorageService storageService,
   required ProfileStorageService profileStorageService,
   required BeanStorageService beanStorageService,
   required GrinderStorageService grinderStorageService,
   required SettingsController settingsController,
   required PersistenceController persistenceController,
   WorkflowController? workflowController,
+  Future<BackupImportResponse> Function(String filePath)? importBackup,
 }) {
   return OnboardingStep(
     id: 'import',
     shouldShow: () async => true,
     builder: (controller) => _ImportStepView(
       controller: controller,
-      storageService: storageService,
       profileStorageService: profileStorageService,
       beanStorageService: beanStorageService,
       grinderStorageService: grinderStorageService,
       settingsController: settingsController,
       persistenceController: persistenceController,
       workflowController: workflowController,
+      importBackup: importBackup,
     ),
   );
 }
 
 class _ImportStepView extends StatefulWidget {
   final OnboardingController controller;
-  final StorageService storageService;
   final ProfileStorageService profileStorageService;
   final BeanStorageService beanStorageService;
   final GrinderStorageService grinderStorageService;
   final SettingsController settingsController;
   final PersistenceController persistenceController;
   final WorkflowController? workflowController;
+  final Future<BackupImportResponse> Function(String filePath)? importBackup;
 
   const _ImportStepView({
     required this.controller,
-    required this.storageService,
     required this.profileStorageService,
     required this.beanStorageService,
     required this.grinderStorageService,
     required this.settingsController,
     required this.persistenceController,
     this.workflowController,
+    this.importBackup,
   });
 
   @override
@@ -133,9 +133,9 @@ class _ImportStepViewState extends State<_ImportStepView> {
       if (localPath == null) {
         if (mounted) {
           setState(() => _phase = _ImportPhase.pickSource);
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No Decent app data found')),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('No De1App data found')));
         }
         return;
       }
@@ -155,9 +155,8 @@ class _ImportStepViewState extends State<_ImportStepView> {
       setState(() {
         _phase = _ImportPhase.pickSource;
       });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('No Decent app data found')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('No De1App data found')));
       return;
     }
 
@@ -174,51 +173,54 @@ class _ImportStepViewState extends State<_ImportStepView> {
     });
 
     try {
-      final bytes = await File(filePath).readAsBytes();
+      final importResponse =
+          await (widget.importBackup?.call(filePath) ?? _uploadZip(filePath));
+      final result = importResponse.toImportResult();
 
-      final client = HttpClient();
-      try {
-        final request = await client.postUrl(
-          Uri.parse('http://localhost:8080/api/v1/data/import?onConflict=skip'),
-        );
-        request.headers.contentType = ContentType('application', 'zip');
-        request.add(bytes);
-        final response = await request.close();
-        final responseBody = await response.transform(utf8.decoder).join();
-
-        final importResponse = BackupImportResponse.fromHttp(
-          response.statusCode,
-          responseBody,
-        );
-        final result = importResponse.toImportResult();
-
-        widget.persistenceController.notifyShotsChanged();
-
-        if (mounted) {
-          setState(() {
-            _importResult = result;
-            _phase = _ImportPhase.result;
-          });
-        }
-      } finally {
-        client.close();
+      if (mounted) {
+        setState(() {
+          _importResult = result;
+          _phase = _ImportPhase.result;
+        });
       }
     } catch (e) {
       _log.warning('Failed to import ZIP backup', e);
       if (mounted) {
+        final guidance =
+            e is BackupImportException && e.reason == 'too_many_entries'
+            ? e.userMessage
+            : null;
         setState(() {
           _importResult = ImportResult(
             errors: [
               ImportError(
                 filename: filePath.split('/').last,
-                reason: 'ZIP import failed',
-                details: e.toString(),
+                reason: guidance ?? 'ZIP import failed',
+                details: guidance == null ? e.toString() : null,
               ),
             ],
           );
           _phase = _ImportPhase.result;
         });
+        if (guidance != null) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(backupImportErrorSnackBar(e as BackupImportException));
+        }
       }
+    }
+  }
+
+  Future<BackupImportResponse> _uploadZip(String filePath) async {
+    final transfer = BackupTransferService();
+    try {
+      return await transfer.uploadZip(
+        'http://localhost:8080/api/v1/data/import',
+        'skip',
+        filePath: filePath,
+      );
+    } finally {
+      transfer.close();
     }
   }
 
@@ -236,7 +238,7 @@ class _ImportStepViewState extends State<_ImportStepView> {
     });
 
     final importer = De1appImporter(
-      storageService: widget.storageService,
+      controller: widget.persistenceController,
       profileStorageService: widget.profileStorageService,
       beanStorageService: widget.beanStorageService,
       grinderStorageService: widget.grinderStorageService,
