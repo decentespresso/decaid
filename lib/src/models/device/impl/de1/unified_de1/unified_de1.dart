@@ -748,6 +748,7 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
       );
     }
     _assertPowerStepCapsEncodable(profile);
+    _assertPowerExitsInRange(profile);
     final caps = (machineInfo.extra['profileModeCaps'] as int?) ?? 0;
     final missingModes = <String>[];
     if (hasPower && (caps & 0x1) == 0) missingModes.add('Power');
@@ -774,6 +775,22 @@ class UnifiedDe1 implements De1Interface, CanonicalDeviceIdentity {
           'The pressure cap of power step ${i + 1} "${step.name}" in profile '
           '"${profile.title}" is $cap bar. It must be a finite number of at '
           'least 0.05 bar, or the machine gets a pressure cap of 0.',
+        );
+      }
+    }
+  }
+
+  void _assertPowerExitsInRange(Profile profile) {
+    const maxPowerExitWatts = 25.5;
+    for (var i = 0; i < profile.steps.length; i++) {
+      final exit = profile.steps[i].exit;
+      if (exit == null || exit.type != ExitType.power) continue;
+      final watts = exit.value;
+      if (!(watts >= 0 && watts <= maxPowerExitWatts)) {
+        throw ProfileModeUnsupportedException(
+          'The power exit value of step ${i + 1} '
+          '"${profile.steps[i].name}" in profile "${profile.title}" is '
+          '$watts W. It must be in the range 0 to $maxPowerExitWatts W.',
         );
       }
     }

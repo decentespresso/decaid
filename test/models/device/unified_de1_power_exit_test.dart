@@ -492,6 +492,69 @@ void main() {
     });
   });
 
+  group('power exit range (U8D1 byte, 0 to 25.5 W)', () {
+    Profile powerExitAt(double watts) => Profile(
+      version: '2',
+      title: 'power exit range',
+      notes: '',
+      author: 'test',
+      beverageType: BeverageType.espresso,
+      steps: [
+        ProfileStepPressure(
+          name: 'to power',
+          transition: TransitionType.fast,
+          volume: 0,
+          seconds: 20,
+          temperature: 92,
+          sensor: TemperatureSensor.coffee,
+          pressure: 9.0,
+          exit: StepExitCondition(
+            type: ExitType.power,
+            condition: ExitCondition.over,
+            value: watts,
+          ),
+        ),
+      ],
+      targetVolumeCountStart: 0,
+      tankTemperature: 90,
+    );
+
+    Future<(UnifiedDe1, FakeBleTransport)> connectBengle() async {
+      final transport = FakeBleTransport();
+      final de1 = UnifiedDe1(transport: transport);
+      transport.queueMmrResponseInt(MMRItem.calFlowEst, 100);
+      transport.queueOnConnectResponses(v13Model: 128, profileModeCaps: 0xF);
+      await de1.onConnect();
+      addTearDown(transport.dispose);
+      transport.writes.clear();
+      return (de1, transport);
+    }
+
+    for (final watts in <double>[25.6, 30, -1, double.infinity]) {
+      test('$watts W is refused and nothing is written', () async {
+        final (de1, transport) = await connectBengle();
+        await expectLater(
+          de1.setProfile(powerExitAt(watts)),
+          throwsA(
+            isA<ProfileModeUnsupportedException>().having(
+              (e) => e.message,
+              'message',
+              allOf(contains('step 1'), contains('0 to 25.5 W')),
+            ),
+          ),
+        );
+        expect(transport.writes, isEmpty);
+      });
+    }
+
+    for (final (watts, byte) in <(double, int)>[(25.5, 255), (0, 0)]) {
+      test('$watts W encodes TriggerVal byte $byte', () async {
+        final frames = await uploadFrames(powerExitAt(watts), 0xF);
+        expect(frames.firstWhere((w) => w.data[0] == 0).data[5], byte);
+      });
+    }
+  });
+
   group('caps mask widening to 0xF', () {
     Future<UnifiedDe1> connectCaps(int caps) async {
       final transport = FakeBleTransport();

@@ -7351,7 +7351,13 @@ components:
         value:
           type: number
           format: double
-          description: Threshold value for the exit condition
+          description: >-
+            Threshold value for the exit condition. For a `power` exit the
+            value is in watts and the machine holds it in one byte of 0.1 W,
+            so the range is 0 to 25.5 W; a profile upload with a power exit
+            value that is not finite, below 0 or above 25.5 is refused with a
+            400 that names the power exit value, before anything is written to
+            the machine.
 
     StepLimiter:
       type: object
