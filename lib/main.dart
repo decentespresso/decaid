@@ -97,6 +97,7 @@ import 'package:reaprime/src/controllers/scan_state_guardian.dart';
 
 import 'src/app.dart';
 import 'src/launcher/launcher_view.dart';
+import 'src/services/app_startup_coordinator.dart';
 import 'src/services/foreground_service.dart';
 import 'src/services/network/multicast_lock_service.dart';
 import 'src/settings/machine_settings_store.dart';
@@ -162,6 +163,15 @@ Set<SimulatedDevicesTypes> _parseSimulateFlag(String value) {
       .map((e) => SimulatedDevicesTypesFromString.fromString(e))
       .whereType<SimulatedDevicesTypes>()
       .toSet();
+}
+
+bool isStartupRelevantDiscoveryService(DeviceDiscoveryService service) {
+  if (service is NoOpSerialService) return false;
+  if (service is SimulatedDeviceService) {
+    return service.enabledDevices.isNotEmpty;
+  }
+  if (service is PluginDeviceService) return service.hasRegistrations;
+  return true;
 }
 
 Future<List<domain.ShotRecord>> pageShotsForExport(
@@ -454,7 +464,10 @@ void main(List<String> args) async {
   final profileController = ProfileController(storage: profileStorage);
   await profileController.initialize();
 
-  final deviceController = DeviceController(services);
+  final deviceController = DeviceController(
+    services,
+    startupRelevance: isStartupRelevantDiscoveryService,
+  );
   deviceController.telemetryService = telemetryService;
   final machineSettings = SharedPreferencesMachineSettingsStore();
   final de1Controller = De1Controller(
@@ -1101,12 +1114,20 @@ class AppRoot extends StatefulWidget {
 class _AppRootState extends State<AppRoot> {
   final Logger _log = Logger("AppRoot");
   Key _key = UniqueKey();
+  late final AppStartupCoordinator _startupCoordinator;
 
   static const _windowChannel = MethodChannel('net.tadel.reaprime/window');
 
   @override
   void initState() {
     super.initState();
+    _startupCoordinator = AppStartupCoordinator(
+      deviceController: widget.deviceController,
+      de1Controller: widget.de1Controller,
+      pluginLoaderService: widget.pluginLoaderService,
+      webUIStorage: widget.webUIStorage,
+      webUIService: widget.webUIService,
+    );
     if (Platform.isWindows) {
       _windowChannel.setMethodCallHandler(_handleWindowMethod);
     }
@@ -1117,6 +1138,7 @@ class _AppRootState extends State<AppRoot> {
     if (Platform.isWindows) {
       _windowChannel.setMethodCallHandler(null);
     }
+    _startupCoordinator.dispose();
     super.dispose();
   }
 
@@ -1182,6 +1204,7 @@ class _AppRootState extends State<AppRoot> {
         displayController: widget.displayController,
         accountConsentStore: widget.accountConsentStore,
         credentials: widget.credentials,
+        startupCoordinator: _startupCoordinator,
       ),
     );
 

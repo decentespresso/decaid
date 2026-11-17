@@ -5,9 +5,7 @@ import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:logging/logging.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:reaprime/src/controllers/de1_controller.dart';
 import 'package:reaprime/src/onboarding_feature/widgets/onboarding_scaffold.dart';
-import 'package:reaprime/src/services/foreground_service.dart';
 import 'package:shadcn_ui/shadcn_ui.dart';
 import 'package:universal_ble/universal_ble.dart';
 
@@ -15,14 +13,12 @@ import '../onboarding_controller.dart';
 
 final _log = Logger('PermissionsStep');
 
-OnboardingStep createPermissionsStep({required De1Controller de1Controller}) {
+OnboardingStep createPermissionsStep() {
   return OnboardingStep(
     id: 'permissions',
     shouldShow: () => _checkPermissionsNeeded(),
-    builder: (controller) => _PermissionsStepView(
-      onboardingController: controller,
-      de1Controller: de1Controller,
-    ),
+    builder: (controller) =>
+        _PermissionsStepView(onboardingController: controller),
   );
 }
 
@@ -47,12 +43,7 @@ Future<bool> _checkPermissionsNeeded() async {
 
 class _PermissionsStepView extends StatefulWidget {
   final OnboardingController onboardingController;
-  final De1Controller de1Controller;
-
-  const _PermissionsStepView({
-    required this.onboardingController,
-    required this.de1Controller,
-  });
+  const _PermissionsStepView({required this.onboardingController});
 
   @override
   State<_PermissionsStepView> createState() => _PermissionsStepViewState();
@@ -79,9 +70,6 @@ class _PermissionsStepViewState extends State<_PermissionsStepView> {
       }
 
       await Permission.notification.request();
-      await ForegroundTaskService.start();
-
-      ForegroundTaskService.watchMachineConnection(widget.de1Controller.de1);
 
       final batteryOptStatus =
           await Permission.ignoreBatteryOptimizations.status;
@@ -102,6 +90,7 @@ class _PermissionsStepViewState extends State<_PermissionsStepView> {
       }
     }
 
+    if (!mounted) return;
     widget.onboardingController.advance();
   }
 

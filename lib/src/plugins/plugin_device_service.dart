@@ -51,6 +51,8 @@ class PluginDeviceService implements DeviceDiscoveryService {
   @override
   Stream<List<Device>> get devices => _devices.stream;
 
+  bool get hasRegistrations => _registrations.isNotEmpty;
+
   @override
   Future<void> initialize() async {}
 
