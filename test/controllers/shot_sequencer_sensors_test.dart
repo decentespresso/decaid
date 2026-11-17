@@ -67,6 +67,17 @@ class _StreamSensor extends TestSensor {
   }
 }
 
+class _LinkSensor extends _StreamSensor {
+  final BehaviorSubject<ConnectionState> link;
+
+  _LinkSensor({ConnectionState initial = ConnectionState.connected})
+    : link = BehaviorSubject.seeded(initial),
+      super(closeOnDisconnect: false);
+
+  @override
+  Stream<ConnectionState> get connectionState => link.stream;
+}
+
 class _SubjectSensor extends TestSensor {
   BehaviorSubject<Map<String, dynamic>> subject;
 
@@ -344,6 +355,8 @@ void main() {
         final sensor = _SubjectSensor({'r1': 4.5});
         await sensorController.register(sensor);
         await takeSample();
+        sensor.subject.add({'r1': 4.5});
+        await pumpEventQueue();
         expect((await takeSample()).sensors![_sensorId]!['r1'], 4.5);
 
         await sensor.subject.close();
@@ -387,6 +400,8 @@ void main() {
 
         sensor.subject = BehaviorSubject.seeded({'r1': 7.0});
         await takeSample();
+        sensor.subject.add({'r1': 7.0});
+        await pumpEventQueue();
 
         expect((await takeSample()).sensors![_sensorId]!['r1'], 7.0);
       },
@@ -406,6 +421,147 @@ void main() {
         await emit(sensor, {'r1': 6.0});
 
         expect((await takeSample()).sensors![_sensorId]!['r1'], 6.0);
+      },
+    );
+  });
+
+  group('disconnected sensor', () {
+    Future<_LinkSensor> recordedLinkSensor() async {
+      final sensor = _LinkSensor();
+      await sensorController.register(sensor);
+      await takeSample();
+      await emit(sensor, {'r1': 4.5});
+      expect((await takeSample()).sensors![_sensorId]!['r1'], 4.5);
+      return sensor;
+    }
+
+    Future<void> setLink(_LinkSensor sensor, ConnectionState state) async {
+      sensor.link.add(state);
+      await pumpEventQueue();
+    }
+
+    test(
+      'a sensor that goes disconnected stops appearing in samples',
+      () async {
+        final sensor = await recordedLinkSensor();
+
+        await setLink(sensor, ConnectionState.disconnected);
+        final after = await takeSamplesWithoutDrain(3);
+
+        for (final sample in after) {
+          expect(sample.sensors?[_sensorId], isNull);
+        }
+        expect(sensorController.sensors[_sensorId], same(sensor));
+      },
+    );
+
+    for (final state in [
+      ConnectionState.discovered,
+      ConnectionState.connecting,
+    ]) {
+      test('a sensor that stays ${state.name} is still recorded', () async {
+        final sensor = _LinkSensor(initial: state);
+        await sensorController.register(sensor);
+        await takeSample();
+
+        await emit(sensor, {'temperature': 92.5});
+
+        expect((await takeSample()).sensors![_sensorId]!['temperature'], 92.5);
+      });
+    }
+
+    test('a sensor that is disconnecting stops appearing in samples', () async {
+      final sensor = await recordedLinkSensor();
+
+      await setLink(sensor, ConnectionState.disconnecting);
+
+      expect((await takeSample()).sensors?[_sensorId], isNull);
+    });
+
+    test('a frame sent while disconnected is not recorded', () async {
+      final sensor = await recordedLinkSensor();
+      await setLink(sensor, ConnectionState.disconnected);
+
+      await emit(sensor, {'r1': 9.0});
+
+      expect((await takeSample()).sensors?[_sensorId], isNull);
+    });
+
+    test(
+      'a reconnected sensor appears again only after a fresh frame',
+      () async {
+        final sensor = await recordedLinkSensor();
+        await setLink(sensor, ConnectionState.disconnected);
+        await takeSample();
+
+        await setLink(sensor, ConnectionState.connected);
+        final beforeFrame = await takeSample();
+        await emit(sensor, {'r1': 5.0});
+
+        expect(beforeFrame.sensors?[_sensorId], isNull);
+        expect((await takeSample()).sensors![_sensorId]!['r1'], 5.0);
+      },
+    );
+  });
+
+  group('frame from before the bind', () {
+    test(
+      'a frame emitted before the bind is not in the first samples',
+      () async {
+        final sensor = _SubjectSensor({'r1': 4.5});
+        await sensorController.register(sensor);
+
+        final first = await takeSample();
+        final second = await takeSample();
+
+        expect(first.sensors?[_sensorId], isNull);
+        expect(second.sensors?[_sensorId], isNull);
+      },
+    );
+
+    test('a frame emitted after the bind is recorded', () async {
+      final sensor = _SubjectSensor({'r1': 4.5});
+      await sensorController.register(sensor);
+      await takeSample();
+
+      sensor.subject.add({'r1': 6.0});
+      await pumpEventQueue();
+
+      expect((await takeSample()).sensors![_sensorId]!['r1'], 6.0);
+    });
+
+    test(
+      'a sequencer started after a frame does not record that frame',
+      () async {
+        final sensor = _SubjectSensor({'r1': 4.5});
+        await sensorController.register(sensor);
+        await takeSample();
+        sensor.subject.add({'r1': 4.6});
+        await pumpEventQueue();
+        expect((await takeSample()).sensors![_sensorId]!['r1'], 4.6);
+        sequencer.dispose();
+
+        sequencer = ShotSequencer(
+          scaleController: scaleController,
+          de1controller: _TestDe1Controller(testDe1, devices),
+          persistenceController: persistenceController,
+          targetProfile: _profile(),
+          sensorController: sensorController,
+          targetYield: 36,
+          bypassSAW: true,
+          blockOnNoScale: false,
+          weightFlowMultiplier: 0,
+          volumeFlowMultiplier: 0,
+          stepExitArbiterEnabled: false,
+        );
+        samples = [];
+        sequencer.rawData.listen(samples.add);
+
+        final first = await takeSample();
+        final second = await takeSample();
+
+        expect(first.sensors?[_sensorId], isNull);
+        expect(second.sensors?[_sensorId], isNull);
       },
     );
   });

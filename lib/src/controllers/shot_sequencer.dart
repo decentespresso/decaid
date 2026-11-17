@@ -34,10 +34,15 @@ class ShotSequencer {
   final Map<String, Map<String, dynamic>> _latestSensorFrames = {};
   final Map<
     String,
-    ({Sensor sensor, StreamSubscription<Map<String, dynamic>> subscription})
+    ({
+      Sensor sensor,
+      StreamSubscription<Map<String, dynamic>> subscription,
+      StreamSubscription<device.ConnectionState> link,
+    })
   >
   _sensorBindings = {};
   final Map<String, Stream<Map<String, dynamic>>> _endedSensorStreams = {};
+  final Set<String> _disconnectedSensors = {};
 
   final Logger _log = Logger("ShotSequencer");
 
@@ -170,9 +175,16 @@ class ShotSequencer {
     Stream<Map<String, dynamic>> stream,
   ) {
     _endedSensorStreams.remove(id);
+    Map<String, dynamic>? frameBeforeBind = _currentValue(stream);
     final subscription = stream.listen(
-      (frame) => _latestSensorFrames[id] = _finiteChannels(frame),
+      (frame) {
+        final replayed = identical(frame, frameBeforeBind);
+        frameBeforeBind = null;
+        if (replayed || _disconnectedSensors.contains(id)) return;
+        _latestSensorFrames[id] = _finiteChannels(frame);
+      },
       onError: (Object e) {
+        frameBeforeBind = null;
         _log.warning('sensor $id data error, clearing its last frame: $e');
         _latestSensorFrames.remove(id);
       },
@@ -181,11 +193,39 @@ class ShotSequencer {
         _endedSensorStreams[id] = stream;
       },
     );
-    _sensorBindings[id] = (sensor: sensor, subscription: subscription);
+    final link = sensor.connectionState.listen(
+      (state) => _onSensorConnection(id, state),
+      onError: (Object e) =>
+          _log.warning('sensor $id connection state error: $e'),
+    );
+    _sensorBindings[id] = (
+      sensor: sensor,
+      subscription: subscription,
+      link: link,
+    );
+  }
+
+  static Map<String, dynamic>? _currentValue(
+    Stream<Map<String, dynamic>> stream,
+  ) => stream is ValueStream<Map<String, dynamic>> ? stream.valueOrNull : null;
+
+  void _onSensorConnection(String id, device.ConnectionState state) {
+    if (state != device.ConnectionState.disconnected &&
+        state != device.ConnectionState.disconnecting) {
+      _disconnectedSensors.remove(id);
+      return;
+    }
+    if (_disconnectedSensors.add(id)) {
+      _log.info('sensor $id is $state, clearing its last frame');
+    }
+    _latestSensorFrames.remove(id);
   }
 
   void _unbindSensor(String id) {
-    _sensorBindings.remove(id)?.subscription.cancel();
+    final binding = _sensorBindings.remove(id);
+    binding?.subscription.cancel();
+    binding?.link.cancel();
+    _disconnectedSensors.remove(id);
     _latestSensorFrames.remove(id);
   }
 
@@ -214,8 +254,10 @@ class ShotSequencer {
     _log.fine("dispose");
     for (final binding in _sensorBindings.values) {
       binding.subscription.cancel();
+      binding.link.cancel();
     }
     _sensorBindings.clear();
+    _disconnectedSensors.clear();
     _endedSensorStreams.clear();
     _snapshotSubscription?.cancel();
     _scaleConnectionSubscription?.cancel();
